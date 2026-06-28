@@ -1,0 +1,43 @@
+{
+  "name": "snl-doc-extension",
+  "displayName": "SNL Doc",
+  "description": "VS Code extension for SNL documentation with an Infoview webview panel.",
+  "publisher": "sjtu-ai4math",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "snlDoc.openInfoview",
+        "title": "SNL: Open Infoview"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build:webview": "vite build --config webview/vite.config.ts",
+    "dev:webview": "vite --config webview/vite.config.ts",
+    "vscode:prepublish": "npm run compile && npm run build:webview"
+  },
+  "dependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/vscode": "^1.90.0",
+    "@vitejs/plugin-react": "^5",
+    "typescript": "~5.9.3",
+    "vite": "^8"
+  }
+}

@@ -17,13 +17,19 @@
       {
         "command": "snlDoc.openInfoview",
         "title": "SNL: Open Infoview"
+      },
+      {
+        "command": "snlDoc.init",
+        "title": "SNL: Init"
       }
     ]
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "vite build --config webview/vite.config.ts",
+    "build:webview": "npm run build:webview:main && npm run build:webview:init",
+    "build:webview:main": "SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
+    "build:webview:init": "SNL_WEBVIEW_ENTRY=init vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "vscode:prepublish": "npm run compile && npm run build:webview"
   },

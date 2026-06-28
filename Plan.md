@@ -194,6 +194,11 @@ SNL_Script/
 
 ## Extension 部分工程计划
 
+### 已实现功能
+
+* 命令 `snlDoc.openInfoview`（标题 `SNL: Open Infoview`）：打开 Infoview webview 占位页（单例 Panel，Beside 列，CSP + nonce 加固，加载 Vite 构建的 `main.js`）。
+* 命令 `snlDoc.init`（标题 `SNL: Init`）：弹出引导 Panel（独立 webview，加载 `init.js`）让用户输入首个 library 标题并点“创建”，随后在当前工作区根目录创建 `.SNL_Doc/` 结构——`config.json` + `term_macros/` + `libraries/<slug>/{entries.json, relationships.json, documents/{Typst,LaTeX,Markdown}}`。标题经 slug 化生成目录名（纯函数 `src/slug.ts`，中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`），`config.json` 保留原始标题。文件操作走 `vscode.workspace.fs` 以兼容远程/虚拟文件系统；未打开工作区时报错返回不崩；`.SNL_Doc/` 已存在则不覆盖并提示已存在。webview 改为多 entry（`main` + `init`，各自独立自包含构建为 `main.js` / `init.js`，供经典 `<script>` 加载），双向 `postMessage` 通信回执创建结果。
+
 ### 实装项目时的文件结构
 
 ```

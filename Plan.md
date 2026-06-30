@@ -60,8 +60,9 @@
 > ------
 > 一个【库】包含以下信息：
 > 术语宏集
-> 条目集
 > 关系集，且其中包含至少一个 Hamilton 路径。
+> 
+> 一个【库】所引用的条目子集 = 关系集中出现的全部条目 UUID。条目本体存放在全局共享的条目池（`entries.json`，位于 `.SNL_Doc/` 顶层），多个库可重复引用同一份条目；库不直接拥有条目，只通过关系集隐式选定子图。
 
 ---
 
@@ -197,20 +198,20 @@ SNL_Script/
 ### 已实现功能
 
 * 命令 `snlDoc.openInfoview`（标题 `SNL: Open Infoview`）：打开 Infoview webview 占位页（单例 Panel，Beside 列，CSP + nonce 加固，加载 Vite 构建的 `main.js`）。
-* 命令 `snlDoc.init`（标题 `SNL: Init`）：弹出引导 Panel（独立 webview，加载 `init.js`）让用户输入首个 library 标题并点“创建”，随后在当前工作区根目录创建 `.SNL_Doc/` 结构——`config.json` + `term_macros/` + `libraries/<slug>/{entries.json, relationships.json, documents/{Typst,LaTeX,Markdown}}`。标题经 slug 化生成目录名（纯函数 `src/slug.ts`，中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`），`config.json` 保留原始标题。文件操作走 `vscode.workspace.fs` 以兼容远程/虚拟文件系统；未打开工作区时报错返回不崩；`.SNL_Doc/` 已存在则不覆盖并提示已存在。webview 改为多 entry（`main` + `init`，各自独立自包含构建为 `main.js` / `init.js`，供经典 `<script>` 加载），双向 `postMessage` 通信回执创建结果。
+* 命令 `snlDoc.init`（标题 `SNL: Init`）：弹出引导 Panel（独立 webview，加载 `init.js`）让用户输入首个 library 标题并点“创建”，随后在当前工作区根目录创建 `.SNL_Doc/` 结构——`config.json` + `entries.json`（顶层共享条目池，与 `libraries/` 平级）+ `term_macros/` + `libraries/<slug>/{relationships.json, documents/{Typst,LaTeX,Markdown}}`。每个库不直接持有条目，只通过自身 `relationships.json` 中出现的 UUID 隐式选定全局条目池的一个子集（多个库可复用同一份条目）。标题经 slug 化生成目录名（纯函数 `src/slug.ts`，中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`），`config.json` 保留原始标题。文件操作走 `vscode.workspace.fs` 以兼容远程/虚拟文件系统；未打开工作区时报错返回不崩；`.SNL_Doc/` 已存在则不覆盖并提示已存在。webview 改为多 entry（`main` + `init`，各自独立自包含构建为 `main.js` / `init.js`，供经典 `<script>` 加载），双向 `postMessage` 通信回执创建结果。
 
 ### 实装项目时的文件结构
 
 ```
 .SNL_Doc/
 ├── config.json
+├── entries.json            # 全局共享条目池（所有 library 共用）
 ├── term_macros/
 |   ├── mathlib_basic.json
 |   └── custom1.json
 └── libraries/
     ├── library_1/
-    |   ├── entries.json
-    |   ├── relationships.json
+    |   ├── relationships.json   # 隐式选出该库引用的 entries 子集
     |   └── documents/
     |       ├── Typst/
     |       |   ├── Fulcrum-Template-Typst/

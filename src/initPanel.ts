@@ -44,6 +44,11 @@ export async function initSnlDoc(
   const slug = slugify(title);
 
   // Directory tree.
+  // Note: entries.json lives at the .SNL_Doc/ top level (sibling of libraries/),
+  // not inside each library. A library only carries its relationship graph;
+  // the subset of entries it consumes is determined implicitly by the UUIDs
+  // referenced from that graph. Rationale: many libraries reuse the same
+  // entries pool, and forcing each to duplicate the entry list creates drift.
   const termMacrosDir = vscode.Uri.joinPath(snlRoot, 'term_macros');
   const libraryDir = vscode.Uri.joinPath(snlRoot, 'libraries', slug);
   const documentsDir = vscode.Uri.joinPath(libraryDir, 'documents');
@@ -69,11 +74,13 @@ export async function initSnlDoc(
     jsonBytes(config)
   );
 
-  // Library data files.
+  // Top-level shared entries pool — sibling of libraries/.
   await fsApi.writeFile(
-    vscode.Uri.joinPath(libraryDir, 'entries.json'),
+    vscode.Uri.joinPath(snlRoot, 'entries.json'),
     jsonBytes([])
   );
+
+  // Per-library relationship graph (the only library-local data file).
   await fsApi.writeFile(
     vscode.Uri.joinPath(libraryDir, 'relationships.json'),
     jsonBytes({ nodes: [], edges: [] })

@@ -1,14 +1,17 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
+import { buildPanelHtml } from './panelUtil';
 
 // TODO: import SNL_render from snl-script lib
 
 /**
  * Singleton manager for the SNL Infoview webview panel.
  *
- * Creates (or reveals an existing) webview panel in the Beside column,
- * loads the Vite-built React bundle from media/webview/, and hardens the
- * embedded HTML with a strict CSP + per-load nonce.
+ * The Infoview is the READING surface (renders SNL documents). Compare with
+ * {@link DashboardPanel}, which is the *management* surface.
+ *
+ * Creates (or reveals an existing) webview panel in the Beside column and
+ * loads the Vite-built `main.js` bundle. HTML boilerplate (CSP / nonce /
+ * optional CSS link) is shared via {@link buildPanelHtml}.
  */
 export class InfoviewPanel {
   public static currentPanel: InfoviewPanel | undefined;
@@ -22,7 +25,6 @@ export class InfoviewPanel {
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Beside;
 
-    // Reuse an existing panel if we already have one.
     if (InfoviewPanel.currentPanel) {
       InfoviewPanel.currentPanel.panel.reveal(column);
       return;
@@ -46,53 +48,14 @@ export class InfoviewPanel {
     this.panel = panel;
     this.extensionUri = extensionUri;
 
-    this.panel.webview.html = this.getHtml(this.panel.webview);
+    this.panel.webview.html = buildPanelHtml(
+      this.extensionUri,
+      this.panel.webview,
+      'main',
+      'SNL Infoview'
+    );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-  }
-
-  private getHtml(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'webview', 'main.js')
-    );
-
-    // Vite only emits main.css when the webview ships real stylesheets.
-    // Link it only when present so we never trigger a dangling 404 / CSP noise.
-    const cssPath = vscode.Uri.joinPath(
-      this.extensionUri,
-      'media',
-      'webview',
-      'main.css'
-    );
-    const styleUri = webview.asWebviewUri(cssPath);
-    const hasCss = fs.existsSync(cssPath.fsPath);
-    const styleTag = hasCss
-      ? `<link href="${styleUri}" rel="stylesheet" />`
-      : '';
-
-    const nonce = getNonce();
-    const csp = [
-      `default-src 'none'`,
-      `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `img-src ${webview.cspSource} data:`,
-      `font-src ${webview.cspSource}`
-    ].join('; ');
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="${csp}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  ${styleTag}
-  <title>SNL Infoview</title>
-</head>
-<body>
-  <div id="root"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
   }
 
   public dispose(): void {
@@ -107,14 +70,4 @@ export class InfoviewPanel {
       }
     }
   }
-}
-
-function getNonce(): string {
-  let text = '';
-  const possible =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
 }

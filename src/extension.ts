@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { InitPanel } from './initPanel';
+import { CreateLibraryPanel } from './createLibraryPanel';
+import { DashboardPanel } from './dashboardPanel';
 
 // TODO: import SNL_render from snl-script lib
 
@@ -16,7 +18,26 @@ export function activate(context: vscode.ExtensionContext): void {
     InitPanel.createOrShow(context.extensionUri);
   });
 
-  context.subscriptions.push(openInfoview, init);
+  const createLibrary = vscode.commands.registerCommand(
+    'snlDoc.createLibrary',
+    () => {
+      CreateLibraryPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const openDashboard = vscode.commands.registerCommand(
+    'snlDoc.openDashboard',
+    () => {
+      DashboardPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  context.subscriptions.push(
+    openInfoview,
+    init,
+    createLibrary,
+    openDashboard
+  );
 }
 
 export function deactivate(): void {

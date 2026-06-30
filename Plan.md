@@ -197,8 +197,11 @@ SNL_Script/
 
 ### 已实现功能
 
-* 命令 `snlDoc.openInfoview`（标题 `SNL: Open Infoview`）：打开 Infoview webview 占位页（单例 Panel，Beside 列，CSP + nonce 加固，加载 Vite 构建的 `main.js`）。
-* 命令 `snlDoc.init`（标题 `SNL: Init`）：弹出引导 Panel（独立 webview，加载 `init.js`）让用户输入首个 library 标题并点“创建”，随后在当前工作区根目录创建 `.SNL_Doc/` 结构——`config.json` + `entries.json`（顶层共享条目池，与 `libraries/` 平级）+ `term_macros/` + `libraries/<slug>/{relationships.json, documents/{Typst,LaTeX,Markdown}}`。每个库不直接持有条目，只通过自身 `relationships.json` 中出现的 UUID 隐式选定全局条目池的一个子集（多个库可复用同一份条目）。标题经 slug 化生成目录名（纯函数 `src/slug.ts`，中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`），`config.json` 保留原始标题。文件操作走 `vscode.workspace.fs` 以兼容远程/虚拟文件系统；未打开工作区时报错返回不崩；`.SNL_Doc/` 已存在则不覆盖并提示已存在。webview 改为多 entry（`main` + `init`，各自独立自包含构建为 `main.js` / `init.js`，供经典 `<script>` 加载），双向 `postMessage` 通信回执创建结果。
+* 命令 `snlDoc.openInfoview`（标题 `SNL: Open Infoview`）：打开 Infoview webview 占位页（单例 Panel，Beside 列，CSP + nonce 加固，加载 Vite 构建的 `main.js`）。**Infoview = 阅读 SNL 文档的面**。
+* 命令 `snlDoc.openDashboard`（标题 `SNL: Open Dashboard`）：打开 Dashboard webview（单例 Panel，Active 列，CSP + nonce 加固，加载 `dashboard.js`）。**Dashboard = 管理 SNL Doc 的面**（与 Infoview 的"读"职能正交）。初始页：若 `.SNL_Doc/` 不存在，渲染"未初始化"提示 + `Run SNL: Init` 按钮；存在时显示 Entry 概览（默认折叠，仅显示全局共享条目池 `entries.json` 总条目数；展开后预留位置，等 Entry 接口定稿）+ Library 表（标题 / slug / 条目数 / 关系数）+ `Create Library` 按钮。Library 的条目数 = 该库 `relationships.json` 中出现的 distinct 节点 UUID 数（即库通过关系集隐式选定的全局条目子集大小）；关系数 = 边数。Dashboard 注册 `FileSystemWatcher`，监听 `.SNL_Doc/(config|entries).json`、`.SNL_Doc/libraries/*/relationships.json` 与 `.SNL_Doc` 目录本身的 create/change/delete，事件触发自动重读 `readOverview` 并 push 给 webview。
+* 命令 `snlDoc.init`（标题 `SNL: Init`）：**只**创建 `.SNL_Doc/` 空骨架（`config.json`（`libraries:[]`）+ 顶层共享条目池 `entries.json`（空 array）+ `term_macros/` + 空 `libraries/`），不创建任何 library。`.SNL_Doc/` 已存在则报错（命令本身的语义"只在没有 `.SNL_Doc/` 时工作"）；未打开工作区则报错。webview = 单按钮表单（`init.js`）。
+* 命令 `snlDoc.createLibrary`（标题 `SNL: Create Library`）：向**已存在**的 `.SNL_Doc/` 添加一个 library，创建 `libraries/<slug>/{relationships.json, documents/{Typst,LaTeX,Markdown}}` 并把 `{slug,title}` append 到 `config.json#libraries`。`.SNL_Doc/` 不存在则报错（与 Init 互斥，只在已初始化后工作）；slug 冲突则报错（slug 由 `src/slug.ts` 纯函数从标题派生：中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`）；config.json 损坏会 throw 错误。webview = 标题输入表单（`createLibrary.js`），Enter 触发提交。Dashboard 的 `Create Library` 按钮通过 `vscode.commands.executeCommand('snlDoc.createLibrary')` 触发此命令，复用同一面板。
+* 文件系统操作集中在 `src/snlDoc.ts`（`initSnlDoc` / `createLibrary` / `readOverview`），全部走 `vscode.workspace.fs`，远程/虚拟 FS 兼容；panel 复用 `src/panelUtil.ts`（`buildPanelHtml` 共享 CSP + nonce + 可选 `<entry>.css` link）。webview 多 entry 构建：`main` / `init` / `createLibrary` / `dashboard` 各自独立自包含 bundle（无 shared/vendor chunk），供经典 `<script>` 加载；只有 `main` pass 清空 outDir，后续 append。**所有 UI 字串使用英文**（本土化留待后续）。
 
 ### 实装项目时的文件结构
 
@@ -211,7 +214,7 @@ SNL_Script/
 |   └── custom1.json
 └── libraries/
     ├── library_1/
-    |   ├── relationships.json   # 隐式选出该库引用的 entries 子集
+    |   ├── relationships.json   # 隐式选出该库引用的 entries 子集（节点 UUID 即引用）
     |   └── documents/
     |       ├── Typst/
     |       |   ├── Fulcrum-Template-Typst/
@@ -226,6 +229,8 @@ SNL_Script/
     └── library_2/
         ...
 ```
+
+注：`SNL: Init` 只创建到 `entries.json` + `term_macros/` + 空 `libraries/` 这一层骨架，不创建任何 `library_*`；具体 library 由 `SNL: Create Library` 命令逐个追加。
 
 ### 功能块
 

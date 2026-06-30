@@ -35,9 +35,8 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "npm run build:webview:main && npm run build:webview:init && npm run build:webview:createLibrary && npm run build:webview:dashboard",
+    "build:webview": "npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
-    "build:webview:init": "cross-env SNL_WEBVIEW_ENTRY=init vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
     "build:webview:dashboard": "cross-env SNL_WEBVIEW_ENTRY=dashboard vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",

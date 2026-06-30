@@ -98,6 +98,8 @@ export class DashboardPanel {
         root,
         '.SNL_Doc/libraries/*/relationships.json'
       ),
+      // Macro packages: watch the whole term_macros tree (one file per pkg).
+      new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
       // Catch `.SNL_Doc/` itself appearing/disappearing.
       new vscode.RelativePattern(root, '.SNL_Doc')
     ];

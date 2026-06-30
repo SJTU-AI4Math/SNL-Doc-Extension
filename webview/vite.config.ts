@@ -10,17 +10,15 @@ import { resolve } from 'node:path';
 // build one entry per invocation (selected by SNL_WEBVIEW_ENTRY) and append
 // to the same outDir:
 //   - main.js          -> Infoview         (src/main.tsx)
-//   - init.js          -> Init guide       (src/init.tsx)
 //   - createLibrary.js -> Create Library   (src/createLibrary.tsx)
 //   - dashboard.js     -> Dashboard        (src/dashboard.tsx)
 //
 // `npm run build:webview` runs all passes in sequence (see package.json).
 // Only the first pass (main) clears the output directory.
-type Entry = 'main' | 'init' | 'createLibrary' | 'dashboard';
+type Entry = 'main' | 'createLibrary' | 'dashboard';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
-  init: 'src/init.tsx',
   createLibrary: 'src/createLibrary.tsx',
   dashboard: 'src/dashboard.tsx'
 };

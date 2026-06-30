@@ -21,16 +21,32 @@ interface LibrarySummary {
   relationshipCount: number | null;
 }
 
+interface MacroPackageSummary {
+  file: string;
+  macroCount: number | null;
+}
+
+interface EntryKind {
+  id: string;
+  name: string;
+  color: string;
+  numbering: { pattern: string; start?: number };
+}
+
 interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
   libraries: LibrarySummary[];
+  macroPackages: MacroPackageSummary[];
+  entryKinds: EntryKind[];
 }
 
 const EMPTY: SnlOverview = {
   hasSnlDoc: false,
   totalEntryCount: null,
-  libraries: []
+  libraries: [],
+  macroPackages: [],
+  entryKinds: []
 };
 
 export function DashboardApp(): React.ReactElement {
@@ -112,7 +128,7 @@ function Initialized({
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '52rem' }}>
+    <main style={{ ...PANEL_STYLE, maxWidth: '54rem' }}>
       <h1 style={{ margin: '0 0 1rem', fontSize: '1.4rem' }}>
         SNL Dashboard
       </h1>
@@ -126,21 +142,33 @@ function Initialized({
           onToggle={() => setEntriesOpen((v) => !v)}
         />
         {entriesOpen ? (
-          <div
-            style={{
-              marginTop: '0.5rem',
-              padding: '0.75rem 1rem',
-              border:
-                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-              borderRadius: '3px',
-              opacity: 0.75,
-              fontStyle: 'italic'
-            }}
-          >
-            Entry table not implemented yet — the Entry data interface is
-            still in design. This section is reserved.
-          </div>
+          <Placeholder text="Entry table not implemented yet — the Entry data interface is still in design. This section is reserved." />
         ) : null}
+      </section>
+
+      {/* === Entry Kinds catalog ========================================== */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>
+          Entry Kinds ({overview.entryKinds.length})
+        </h2>
+        {overview.entryKinds.length === 0 ? (
+          <Placeholder text="No entry kinds defined yet. Edit .SNL_Doc/config.json#entry_kinds — a dedicated editor will land later." />
+        ) : (
+          <EntryKindsTable kinds={overview.entryKinds} />
+        )}
+      </section>
+
+      {/* === SNL Macros ==================================================== */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>
+          SNL Macros ({overview.macroPackages.length} package
+          {overview.macroPackages.length === 1 ? '' : 's'})
+        </h2>
+        {overview.macroPackages.length === 0 ? (
+          <Placeholder text="No macro packages yet. Drop *.json files under .SNL_Doc/term_macros/ — schema is not finalized; the count is best-effort." />
+        ) : (
+          <MacroPackagesTable packages={overview.macroPackages} />
+        )}
       </section>
 
       {/* === Libraries table ============================================== */}
@@ -220,23 +248,41 @@ function SectionHeader({
   );
 }
 
+function Placeholder({ text }: { text: string }): React.ReactElement {
+  return (
+    <div
+      style={{
+        marginTop: '0.5rem',
+        padding: '0.75rem 1rem',
+        border:
+          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        borderRadius: '3px',
+        opacity: 0.75,
+        fontStyle: 'italic'
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+const CELL: React.CSSProperties = {
+  padding: '0.45rem 0.6rem',
+  borderBottom:
+    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+  textAlign: 'left'
+};
+const HEAD: React.CSSProperties = { ...CELL, fontWeight: 600, opacity: 0.85 };
+const MONO: React.CSSProperties = {
+  fontFamily: 'var(--vscode-editor-font-family, monospace)',
+  opacity: 0.75
+};
+
 function LibrariesTable({
   libraries
 }: {
   libraries: LibrarySummary[];
 }): React.ReactElement {
-  const cellStyle: React.CSSProperties = {
-    padding: '0.45rem 0.6rem',
-    borderBottom:
-      '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-    textAlign: 'left'
-  };
-  const headStyle: React.CSSProperties = {
-    ...cellStyle,
-    fontWeight: 600,
-    opacity: 0.85
-  };
-
   return (
     <table
       style={{
@@ -248,23 +294,21 @@ function LibrariesTable({
     >
       <thead>
         <tr>
-          <th style={headStyle}>Title</th>
-          <th style={headStyle}>Slug</th>
-          <th style={{ ...headStyle, textAlign: 'right' }}>Entries</th>
-          <th style={{ ...headStyle, textAlign: 'right' }}>Relationships</th>
+          <th style={HEAD}>Title</th>
+          <th style={HEAD}>Slug</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>Entries</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>Relationships</th>
         </tr>
       </thead>
       <tbody>
         {libraries.map((lib) => (
           <tr key={lib.slug}>
-            <td style={cellStyle}>{lib.title}</td>
-            <td style={{ ...cellStyle, opacity: 0.75, fontFamily: 'var(--vscode-editor-font-family, monospace)' }}>
-              {lib.slug}
-            </td>
-            <td style={{ ...cellStyle, textAlign: 'right' }}>
+            <td style={CELL}>{lib.title}</td>
+            <td style={{ ...CELL, ...MONO }}>{lib.slug}</td>
+            <td style={{ ...CELL, textAlign: 'right' }}>
               {lib.entryCount === null ? '—' : lib.entryCount}
             </td>
-            <td style={{ ...cellStyle, textAlign: 'right' }}>
+            <td style={{ ...CELL, textAlign: 'right' }}>
               {lib.relationshipCount === null ? '—' : lib.relationshipCount}
             </td>
           </tr>
@@ -272,4 +316,110 @@ function LibrariesTable({
       </tbody>
     </table>
   );
+}
+
+function MacroPackagesTable({
+  packages
+}: {
+  packages: MacroPackageSummary[];
+}): React.ReactElement {
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={HEAD}>File</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>Macros</th>
+        </tr>
+      </thead>
+      <tbody>
+        {packages.map((pkg) => (
+          <tr key={pkg.file}>
+            <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
+            <td style={{ ...CELL, textAlign: 'right' }}>
+              {pkg.macroCount === null ? '—' : pkg.macroCount}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function EntryKindsTable({
+  kinds
+}: {
+  kinds: EntryKind[];
+}): React.ReactElement {
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={{ ...HEAD, width: '2rem' }}></th>
+          <th style={HEAD}>Name</th>
+          <th style={HEAD}>ID</th>
+          <th style={HEAD}>Numbering</th>
+        </tr>
+      </thead>
+      <tbody>
+        {kinds.map((kind) => (
+          <tr key={kind.id}>
+            <td style={CELL}>
+              <ColorSwatch color={kind.color} />
+            </td>
+            <td style={CELL}>{kind.name}</td>
+            <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
+            <td style={{ ...CELL, ...MONO }}>
+              {formatNumbering(kind.numbering)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ColorSwatch({ color }: { color: string }): React.ReactElement {
+  // Keep visual feedback even for malformed colors — browser falls back to
+  // the inherited color when the value is invalid, which is fine here.
+  return (
+    <span
+      title={color}
+      style={{
+        display: 'inline-block',
+        width: '1rem',
+        height: '1rem',
+        borderRadius: '3px',
+        background: color,
+        border:
+          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        verticalAlign: 'middle'
+      }}
+    />
+  );
+}
+
+function formatNumbering(
+  numbering: { pattern: string; start?: number } | undefined
+): string {
+  if (!numbering || typeof numbering.pattern !== 'string') {
+    return '—';
+  }
+  if (typeof numbering.start === 'number') {
+    return `${numbering.pattern} (start: ${numbering.start})`;
+  }
+  return numbering.pattern;
 }

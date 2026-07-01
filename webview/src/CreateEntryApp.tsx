@@ -76,7 +76,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
   const [title, setTitle] = useState('');
-  const [id, setId] = useState<string>(() => newUuid());
+  const [id, setId] = useState<string>('');
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
@@ -191,7 +191,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   function handleCancel(): void {
     setTitle('');
-    setId(newUuid());
+    setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
     setActiveFormat('snl');
     setSnlMode('text');
@@ -253,19 +253,24 @@ export function CreateEntryApp(): React.ReactElement {
             />
           </div>
           <div style={{ flex: '3 1 20rem' }}>
-            <Label htmlFor="snl-entry-id">ID (UUID v4)</Label>
+            <Label htmlFor="snl-entry-id">ID</Label>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input
                 id="snl-entry-id"
                 type="text"
                 value={id}
+                placeholder="e.g. pythagorean-theorem"
                 onChange={(e) => setId(e.target.value)}
                 style={{ ...inputStyle, ...monoStyle, marginBottom: 0 }}
               />
               <button
                 type="button"
                 onClick={() => setId(newUuid())}
-                title="Regenerate a fresh UUID v4"
+                title={
+                  trimmedId
+                    ? 'Overwrite the ID with a fresh UUID v4'
+                    : 'Fill the ID with a fresh UUID v4'
+                }
                 style={{
                   ...primaryButton(true),
                   padding: '0.35rem 0.7rem',
@@ -274,9 +279,21 @@ export function CreateEntryApp(): React.ReactElement {
                     'var(--vscode-button-secondaryBackground, #444)'
                 }}
               >
-                Regenerate
+                {trimmedId ? 'Regenerate UUID' : 'Generate UUID'}
               </button>
             </div>
+            <p
+              style={{
+                margin: '0.35rem 0 0',
+                fontSize: '0.8rem',
+                opacity: 0.75,
+                lineHeight: 1.4
+              }}
+            >
+              Manually enter a semantic id, or click Generate UUID. IDs must be
+              unique in the shared entries pool and stable once created (they're
+              used by future relationship links).
+            </p>
           </div>
         </div>
 

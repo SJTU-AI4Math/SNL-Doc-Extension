@@ -16,6 +16,13 @@
 // macros first, then browse entries, finally manage libraries that use
 // them. Entries lives just above Libraries so scrolling from top gives you
 // the metadata before the actual pool of content.
+//
+// Create/Initialize actions are not header buttons. Each section instead
+// ends with a full-width dashed "+" bar (see `AddBar`) placed AFTER its
+// list; when a list is empty the section shows only that bar as its
+// call-to-action. SNL Macros has no create action (owner spec) and keeps a
+// Placeholder when empty. The Entries bar lives inside the collapsible body
+// so it only appears when the section is expanded.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -165,36 +172,22 @@ function Initialized({
 
       {/* === 1. Entry Kinds catalog ======================================== */}
       <section style={{ marginBottom: '1.5rem' }}>
-        <SectionRow
-          title={`Entry Kinds (${overview.entryKinds.length})`}
-          rightSlot={
-            hasKinds ? (
-              <button
-                type="button"
-                onClick={() =>
-                  api?.postMessage({ type: 'createEntryKind' })
-                }
-                style={primaryButton(true)}
-              >
-                Create Entry Kind
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() =>
-                  api?.postMessage({ type: 'initEntryKinds' })
-                }
-                style={primaryButton(true)}
-              >
-                Initialize Entry Kinds
-              </button>
-            )
-          }
-        />
+        <SectionRow title={`Entry Kinds (${overview.entryKinds.length})`} />
         {hasKinds ? (
-          <EntryKindsTable kinds={overview.entryKinds} />
+          <>
+            <EntryKindsTable kinds={overview.entryKinds} />
+            <AddBar
+              label="Create Entry Kind"
+              onActivate={() =>
+                api?.postMessage({ type: 'createEntryKind' })
+              }
+            />
+          </>
         ) : (
-          <Placeholder text="No entry kinds defined yet. Use Initialize Entry Kinds to seed from a preset, or edit .SNL_Doc/config.json#entry_kinds by hand." />
+          <AddBar
+            label="Initialize Entry Kinds"
+            onActivate={() => api?.postMessage({ type: 'initEntryKinds' })}
+          />
         )}
       </section>
 
@@ -214,78 +207,102 @@ function Initialized({
 
       {/* === 3. Entries overview =========================================== */}
       <section style={{ marginBottom: '1.5rem' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '0.75rem'
-          }}
-        >
-          <div style={{ flex: '1 1 auto' }}>
-            <CollapsibleHeader
-              title="Entries"
-              subtitle={`${total} entries in shared pool`}
-              expanded={entriesOpen}
-              onToggle={() => setEntriesOpen((v) => !v)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => api?.postMessage({ type: 'createEntry' })}
-            style={primaryButton(true)}
-          >
-            Create Entry
-          </button>
-        </div>
+        <CollapsibleHeader
+          title="Entries"
+          subtitle={`${total} entries in shared pool`}
+          expanded={entriesOpen}
+          onToggle={() => setEntriesOpen((v) => !v)}
+        />
         {entriesOpen ? (
-          overview.entries.length > 0 ? (
-            <EntriesTable
-              entries={overview.entries}
-              kinds={overview.entryKinds}
+          <>
+            {overview.entries.length > 0 ? (
+              <EntriesTable
+                entries={overview.entries}
+                kinds={overview.entryKinds}
+              />
+            ) : null}
+            <AddBar
+              label="Create Entry"
+              onActivate={() => api?.postMessage({ type: 'createEntry' })}
             />
-          ) : (
-            <Placeholder text="No entries in the shared pool yet. Use Create Entry to add one." />
-          )
+          </>
         ) : null}
       </section>
 
       {/* === 4. Libraries ================================================== */}
       <section>
-        <SectionRow
-          title={`Libraries (${overview.libraries.length})`}
-          rightSlot={
-            <button
-              type="button"
-              onClick={() => api?.postMessage({ type: 'createLibrary' })}
-              style={primaryButton(true)}
-            >
-              Create Library
-            </button>
-          }
-        />
-
-        {overview.libraries.length === 0 ? (
-          <p style={{ opacity: 0.75, margin: '0.5rem 0 0' }}>
-            No libraries yet. Click <strong>Create Library</strong> to add
-            one.
-          </p>
-        ) : (
+        <SectionRow title={`Libraries (${overview.libraries.length})`} />
+        {overview.libraries.length > 0 ? (
           <LibrariesTable libraries={overview.libraries} />
-        )}
+        ) : null}
+        <AddBar
+          label="Create Library"
+          onActivate={() => api?.postMessage({ type: 'createLibrary' })}
+        />
       </section>
     </main>
   );
 }
 
-/** Static section header with optional right-hand button slot. */
-function SectionRow({
-  title,
-  rightSlot
+/**
+ * Full-width dashed "+" bar rendered at the END of a section's list. Clicking
+ * (or Enter/Space) dispatches the section's create/init message. When a list
+ * is empty the section shows only this bar as its call-to-action.
+ */
+function AddBar({
+  label,
+  onActivate
 }: {
-  title: string;
-  rightSlot?: React.ReactNode;
+  label: string;
+  onActivate: () => void;
 }): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.4rem',
+        width: '100%',
+        boxSizing: 'border-box',
+        height: '3rem',
+        marginTop: '0.5rem',
+        borderRadius: '6px',
+        border: hover
+          ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
+          : '2px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        background: hover
+          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+          : 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        fontWeight: 600,
+        userSelect: 'none'
+      }}
+    >
+      <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/** Static section header showing just the section title. */
+function SectionRow({ title }: { title: string }): React.ReactElement {
   return (
     <div
       style={{
@@ -296,7 +313,6 @@ function SectionRow({
       }}
     >
       <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{title}</h2>
-      {rightSlot ? <div>{rightSlot}</div> : null}
     </div>
   );
 }

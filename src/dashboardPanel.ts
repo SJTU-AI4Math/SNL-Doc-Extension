@@ -25,6 +25,7 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  *        | `{ type: 'createLibrary' }` (button click)
  *        | `{ type: 'initEntryKinds' }` (empty-catalog seed button)
  *        | `{ type: 'createEntryKind' }` (add-one button)
+ *        | `{ type: 'createEntry' }` (Entries → Create Entry)
  *        | `{ type: 'init' }` (placeholder → init command)
  *  - out : `{ type: 'overview', overview: SnlOverview }`
  */
@@ -153,6 +154,9 @@ export class DashboardPanel {
         return;
       case 'createEntryKind':
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
+        return;
+      case 'createEntry':
+        await vscode.commands.executeCommand('snlDoc.createEntry');
         return;
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');

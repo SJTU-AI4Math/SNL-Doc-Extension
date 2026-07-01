@@ -197,12 +197,30 @@ function Initialized({
 
       {/* === 3. Entries overview =========================================== */}
       <section style={{ marginBottom: '1.5rem' }}>
-        <CollapsibleHeader
-          title="Entries"
-          subtitle={`${total} entries in shared pool`}
-          expanded={entriesOpen}
-          onToggle={() => setEntriesOpen((v) => !v)}
-        />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem'
+          }}
+        >
+          <div style={{ flex: '1 1 auto' }}>
+            <CollapsibleHeader
+              title="Entries"
+              subtitle={`${total} entries in shared pool`}
+              expanded={entriesOpen}
+              onToggle={() => setEntriesOpen((v) => !v)}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => api?.postMessage({ type: 'createEntry' })}
+            style={primaryButton(true)}
+          >
+            Create Entry
+          </button>
+        </div>
         {entriesOpen ? (
           <Placeholder text="Entry table not implemented yet — the Entry data interface is still in design. This section is reserved." />
         ) : null}

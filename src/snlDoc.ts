@@ -81,18 +81,29 @@ export function relationshipsUri(
 
 /**
  * Entry-kind metadata. One element per *category* of Entry the user defines
- * (e.g. "Definition", "Theorem", "Example"). The current `name` / `color` /
- * `numbering` fields are the minimum the Dashboard needs to render the
- * Kinds table; the type is intentionally open ({ [k]: unknown } not enforced
- * but tolerated) so future fields (icon, prefix, parent kind, scope) can be
- * added without breaking older configs. Unknown fields are preserved
- * verbatim by `JSON.stringify` round-trips and ignored by the current UI.
+ * (e.g. "Definition", "Theorem", "Example"). Schema (v0.0.3):
+ *
+ *  - `id`: stable identifier used in cross-references.
+ *  - `name`: display name (any language).
+ *  - `coloring.stroke` / `coloring.background`: any CSS colour value; the
+ *    Dashboard uses these to render both the swatch and the frame preview.
+ *  - `numbering`: a small Typst-inspired DSL string. Dots in the pattern
+ *    denote hierarchical levels (e.g. `"1.1"` = two-level counter starting
+ *    at 1.1). The Dashboard currently just displays the pattern verbatim;
+ *    the actual counter engine will land with the Entry editor.
+ *  - `style`: free-form tag (e.g. `"remark"`, `"proof"`, `"problem"`) the
+ *    renderer maps to a visual variant. Empty string = default box.
+ *
+ * The interface is intentionally open — extra fields on disk survive
+ * round-trips via `JSON.stringify`. See `normalizeEntryKind` for the
+ * forward-compat path from the v0.0.2 `color` + object-`numbering` shape.
  */
 export interface EntryKind {
   id: string;
   name: string;
-  color: string;
-  numbering: { pattern: string; start?: number };
+  coloring: { stroke: string; background: string };
+  numbering: string;
+  style: string;
 }
 
 /** Persisted shapes. Kept minimal and forward-compatible. */
@@ -120,14 +131,78 @@ export type CreateLibraryResult =
 /**
  * Forward-compat helper: read a config and fill in any missing fields with
  * sensible defaults. Older `.SNL_Doc/` directories created before
- * `entry_kinds` existed should still load cleanly.
+ * `entry_kinds` existed should still load cleanly. Any `entry_kinds`
+ * entries in the pre-v0.0.3 shape (flat `color` + `numbering.pattern`) are
+ * migrated in-memory via {@link normalizeEntryKind} so the Dashboard sees
+ * the current schema regardless of what's on disk.
  */
 function normalizeConfig(raw: unknown): SnlConfig {
-  const cfg = (raw ?? {}) as Partial<SnlConfig>;
+  const cfg = (raw ?? {}) as Partial<SnlConfig> & {
+    entry_kinds?: unknown;
+  };
+  const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   return {
     version: typeof cfg.version === 'string' ? cfg.version : '0.0.1',
     libraries: Array.isArray(cfg.libraries) ? cfg.libraries : [],
-    entry_kinds: Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : []
+    entry_kinds: rawKinds.map(normalizeEntryKind)
+  };
+}
+
+/**
+ * Coerce a persisted entry-kind record (possibly from an older schema) into
+ * the current {@link EntryKind} shape. Never throws — bad fields fall back
+ * to safe defaults so the Dashboard always renders something.
+ *
+ * Migrations handled:
+ *  - v0.0.2 `color: string` → `coloring.stroke = color`, background
+ *    defaults to the same value at 20% alpha via a light overlay heuristic;
+ *    we intentionally reuse `stroke` for background too when we can't
+ *    guess, keeping the migration lossless-ish and visible.
+ *  - v0.0.2 `numbering: { pattern, start? }` → `numbering: pattern`
+ *    (start is dropped; the Typst-DSL pattern already carries the initial
+ *    counter value).
+ *  - Missing `style` → `""` (default box).
+ */
+function normalizeEntryKind(raw: unknown): EntryKind {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+
+  const id = typeof obj.id === 'string' ? obj.id : '';
+  const name = typeof obj.name === 'string' ? obj.name : id;
+
+  // coloring: prefer the new `{stroke, background}` shape, fall back to the
+  // v0.0.2 flat `color` field.
+  let stroke = '#888888';
+  let background = '#eeeeee';
+  const coloringRaw = obj.coloring;
+  if (coloringRaw && typeof coloringRaw === 'object') {
+    const c = coloringRaw as Record<string, unknown>;
+    if (typeof c.stroke === 'string') stroke = c.stroke;
+    if (typeof c.background === 'string') background = c.background;
+  } else if (typeof obj.color === 'string') {
+    // Legacy: single colour → use it for both, user can split later.
+    stroke = obj.color;
+    background = obj.color;
+  }
+
+  // numbering: prefer the new plain-string DSL, fall back to the v0.0.2
+  // `{ pattern, start? }` object (drop `start`, it's now encoded in the
+  // DSL itself).
+  let numbering = '';
+  if (typeof obj.numbering === 'string') {
+    numbering = obj.numbering;
+  } else if (obj.numbering && typeof obj.numbering === 'object') {
+    const n = obj.numbering as Record<string, unknown>;
+    if (typeof n.pattern === 'string') numbering = n.pattern;
+  }
+
+  const style = typeof obj.style === 'string' ? obj.style : '';
+
+  return {
+    id,
+    name,
+    coloring: { stroke, background },
+    numbering,
+    style
   };
 }
 
@@ -156,7 +231,7 @@ export async function initSnlDoc(
   await fsApi.createDirectory(librariesDir);
 
   const config: SnlConfig = {
-    version: '0.0.2',
+    version: '0.0.3',
     libraries: [],
     entry_kinds: []
   };
@@ -442,3 +517,290 @@ export async function readOverview(
     entryKinds
   };
 }
+
+// ---------------------------------------------------------------------------
+// Entry Kinds write ops
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the current entry_kinds catalog from disk (normalized). Returns `[]`
+ * when the config or `.SNL_Doc/` doesn't exist yet.
+ */
+export async function readEntryKinds(
+  workspaceRoot: vscode.Uri
+): Promise<EntryKind[]> {
+  try {
+    const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
+    return cfg.entry_kinds ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist a full entry_kinds catalog to `config.json`. Preserves every
+ * unrelated field (libraries, version, unknown keys) by round-tripping the
+ * raw JSON and only rewriting `entry_kinds`.
+ *
+ * Throws when `.SNL_Doc/config.json` is missing or unreadable — callers
+ * should surface the error to the user rather than silently create it.
+ */
+async function writeEntryKinds(
+  workspaceRoot: vscode.Uri,
+  kinds: EntryKind[]
+): Promise<void> {
+  const fsApi = vscode.workspace.fs;
+  const uri = configUri(workspaceRoot);
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await readJson<Record<string, unknown>>(uri)) ?? {};
+  } catch (err) {
+    throw new Error(
+      `Failed to read .SNL_Doc/config.json: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  raw.entry_kinds = kinds;
+  await fsApi.writeFile(uri, jsonBytes(raw));
+}
+
+export type ApplyPresetResult =
+  | { status: 'applied'; count: number }
+  | { status: 'noSnlDoc' }
+  | { status: 'nonEmpty'; existing: number }
+  | { status: 'unknownPreset'; presetId: string };
+
+/**
+ * Initialize `entry_kinds` from a named preset. Refuses to run when the
+ * catalog already has entries (a "clobber existing kinds" flow would need
+ * explicit user confirmation and diff UI, which we don't have yet).
+ *
+ * `.SNL_Doc/` must exist. Presets live in {@link ENTRY_KIND_PRESETS} so the
+ * webview can enumerate them without touching the extension host.
+ */
+export async function applyEntryKindsPreset(
+  workspaceRoot: vscode.Uri,
+  presetId: string
+): Promise<ApplyPresetResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const preset = ENTRY_KIND_PRESETS.find((p) => p.id === presetId);
+  if (!preset) {
+    return { status: 'unknownPreset', presetId };
+  }
+  const existing = await readEntryKinds(workspaceRoot);
+  if (existing.length > 0) {
+    return { status: 'nonEmpty', existing: existing.length };
+  }
+  // Clone the preset kinds so callers can't accidentally mutate the source
+  // table by editing the returned config later.
+  const kinds = preset.kinds.map((k) => ({
+    id: k.id,
+    name: k.name,
+    coloring: { stroke: k.coloring.stroke, background: k.coloring.background },
+    numbering: k.numbering,
+    style: k.style
+  }));
+  await writeEntryKinds(workspaceRoot, kinds);
+  return { status: 'applied', count: kinds.length };
+}
+
+export type CreateEntryKindResult =
+  | { status: 'created'; kind: EntryKind }
+  | { status: 'noSnlDoc' }
+  | { status: 'duplicate'; id: string }
+  | { status: 'invalid'; message: string };
+
+/**
+ * Append a single new entry kind. Rejects duplicates by id and empty ids.
+ * All other fields (colours, numbering DSL, style) are stored verbatim —
+ * validation of the numbering DSL will land with the Entry editor.
+ */
+export async function createEntryKind(
+  workspaceRoot: vscode.Uri,
+  input: {
+    id: string;
+    name: string;
+    stroke: string;
+    background: string;
+    numbering: string;
+    style: string;
+  }
+): Promise<CreateEntryKindResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const id = (input.id ?? '').trim();
+  const name = (input.name ?? '').trim();
+  if (!id) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  if (!name) {
+    return { status: 'invalid', message: 'name is required' };
+  }
+  const existing = await readEntryKinds(workspaceRoot);
+  if (existing.some((k) => k.id === id)) {
+    return { status: 'duplicate', id };
+  }
+  const kind: EntryKind = {
+    id,
+    name,
+    coloring: {
+      stroke: (input.stroke ?? '').trim() || '#888888',
+      background: (input.background ?? '').trim() || '#eeeeee'
+    },
+    numbering: (input.numbering ?? '').trim(),
+    style: (input.style ?? '').trim()
+  };
+  await writeEntryKinds(workspaceRoot, [...existing, kind]);
+  return { status: 'created', kind };
+}
+
+// ---------------------------------------------------------------------------
+// Entry Kind Presets
+// ---------------------------------------------------------------------------
+
+export interface EntryKindPreset {
+  id: string;
+  label: string;
+  description: string;
+  kinds: EntryKind[];
+}
+
+/**
+ * Built-in preset catalog. `Fulcrum's Math Notes` is transcribed from the
+ * 12 `#let *条目 = entry(...)` declarations in
+ * `Fulcrum-Notes-Typst/Fulcrum-Template-Typst/FulcrumCN.typ` (colours,
+ * counter role, and box style preserved). The other three presets are
+ * placeholders — their concrete kind lists will be filled in as each
+ * ecosystem's writing conventions get formalized.
+ *
+ * Numbering DSL — Typst-inspired, dot-separated hierarchy:
+ *  - `"1"`       → single flat counter starting at 1.
+ *  - `"1.1"`     → two-level counter (parent.local), each part starts at 1.
+ *  - `"1.1.1"`   → three-level counter.
+ *  - `""` (empty)→ unnumbered entry.
+ *
+ * The FulcrumCN mapping used here:
+ *  - `main` counter (定义/引理/定理/例/反例) → `"1.1.1"` (章.节.K)
+ *  - `sub`  counter (推论/性质)             → `"1.1.1.1"` (章.节.K.j)
+ *  - `single` counter (公理/题目)           → `"1"` (flat)
+ *  - `none` (注/构造/证明)                  → `""`
+ */
+export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
+  {
+    id: 'fulcrum-math-notes',
+    label: "Fulcrum's Math Notes",
+    description:
+      'The 12 entry kinds used by Fulcrum-Notes-Typst (定义/公理/引理/定理/推论/性质/注/例/反例/构造/证明/题目).',
+    kinds: [
+      {
+        id: 'definition',
+        name: '定义',
+        coloring: { stroke: '#009C27', background: '#D6FEE0' },
+        numbering: '1.1.1',
+        style: ''
+      },
+      {
+        id: 'axiom',
+        name: '公理',
+        coloring: { stroke: '#C1C103', background: '#FFFFAC' },
+        numbering: '1',
+        style: ''
+      },
+      {
+        id: 'lemma',
+        name: '引理',
+        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
+        numbering: '1.1.1',
+        style: ''
+      },
+      {
+        id: 'theorem',
+        name: '定理',
+        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
+        numbering: '1.1.1',
+        style: ''
+      },
+      {
+        id: 'corollary',
+        name: '推论',
+        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
+        numbering: '1.1.1.1',
+        style: ''
+      },
+      {
+        id: 'property',
+        name: '性质',
+        coloring: { stroke: '#AC00AF', background: '#FFEDFF' },
+        numbering: '1.1.1.1',
+        style: ''
+      },
+      {
+        id: 'remark',
+        name: '注',
+        coloring: { stroke: '#E07B00', background: '#FFEBD2' },
+        numbering: '',
+        style: 'remark'
+      },
+      {
+        id: 'example',
+        name: '例',
+        coloring: { stroke: '#7700E4', background: '#EFDFFF' },
+        numbering: '1.1.1',
+        style: ''
+      },
+      {
+        id: 'counterexample',
+        name: '反例',
+        coloring: { stroke: '#D20022', background: '#FFD6DC' },
+        numbering: '1.1.1',
+        style: ''
+      },
+      {
+        id: 'construction',
+        name: '构造',
+        coloring: { stroke: '#787878', background: '#F0F0F0' },
+        numbering: '',
+        style: 'proof'
+      },
+      {
+        id: 'proof',
+        name: '证明',
+        coloring: { stroke: '#787878', background: '#F0F0F0' },
+        numbering: '',
+        style: 'proof'
+      },
+      {
+        id: 'problem',
+        name: '题目',
+        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
+        numbering: '1',
+        style: 'problem'
+      }
+    ]
+  },
+  {
+    id: 'lean4-document',
+    label: 'Lean 4 Document',
+    description:
+      'Entry kinds for a Lean 4 code-mirrored document (placeholder — to be filled in with the Lean side of the mirror).',
+    kinds: []
+  },
+  {
+    id: 'typescript-document',
+    label: 'TypeScript Document',
+    description:
+      'Entry kinds for a TypeScript code-mirrored document (placeholder).',
+    kinds: []
+  },
+  {
+    id: 'python-document',
+    label: 'Python Document',
+    description:
+      'Entry kinds for a Python code-mirrored document (placeholder).',
+    kinds: []
+  }
+];

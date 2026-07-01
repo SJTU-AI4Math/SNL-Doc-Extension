@@ -5,6 +5,17 @@
 // mount it asks the host for an overview; the host re-pushes whenever
 // `.SNL_Doc/(config|entries).json` or any `libraries/*/relationships.json`
 // changes (via FileSystemWatcher).
+//
+// Section order (top → bottom):
+//   1. Entry Kinds  — catalogue of entry categories
+//   2. SNL Macros   — term-macro package files
+//   3. Entries      — shared entry pool (collapsed by default)
+//   4. Libraries    — per-library management
+//
+// This matches the intended data-flow reading order: define your kinds and
+// macros first, then browse entries, finally manage libraries that use
+// them. Entries lives just above Libraries so scrolling from top gives you
+// the metadata before the actual pool of content.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -29,8 +40,9 @@ interface MacroPackageSummary {
 interface EntryKind {
   id: string;
   name: string;
-  color: string;
-  numbering: { pattern: string; start?: number };
+  coloring: { stroke: string; background: string };
+  numbering: string;
+  style: string;
 }
 
 interface SnlOverview {
@@ -126,16 +138,66 @@ function Initialized({
   const [entriesOpen, setEntriesOpen] = useState(false);
   const total =
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
+  const hasKinds = overview.entryKinds.length > 0;
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '54rem' }}>
+    <main style={{ ...PANEL_STYLE, maxWidth: '62rem' }}>
       <h1 style={{ margin: '0 0 1rem', fontSize: '1.4rem' }}>
         SNL Dashboard
       </h1>
 
-      {/* === Entries overview ============================================== */}
+      {/* === 1. Entry Kinds catalog ======================================== */}
       <section style={{ marginBottom: '1.5rem' }}>
-        <SectionHeader
+        <SectionRow
+          title={`Entry Kinds (${overview.entryKinds.length})`}
+          rightSlot={
+            hasKinds ? (
+              <button
+                type="button"
+                onClick={() =>
+                  api?.postMessage({ type: 'createEntryKind' })
+                }
+                style={primaryButton(true)}
+              >
+                Create Entry Kind
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  api?.postMessage({ type: 'initEntryKinds' })
+                }
+                style={primaryButton(true)}
+              >
+                Initialize Entry Kinds
+              </button>
+            )
+          }
+        />
+        {hasKinds ? (
+          <EntryKindsTable kinds={overview.entryKinds} />
+        ) : (
+          <Placeholder text="No entry kinds defined yet. Use Initialize Entry Kinds to seed from a preset, or edit .SNL_Doc/config.json#entry_kinds by hand." />
+        )}
+      </section>
+
+      {/* === 2. SNL Macros ================================================= */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <SectionRow
+          title={`SNL Macros (${overview.macroPackages.length} package${
+            overview.macroPackages.length === 1 ? '' : 's'
+          })`}
+        />
+        {overview.macroPackages.length === 0 ? (
+          <Placeholder text="No macro packages yet. Drop *.json files under .SNL_Doc/term_macros/ — schema is not finalized; the count is best-effort." />
+        ) : (
+          <MacroPackagesTable packages={overview.macroPackages} />
+        )}
+      </section>
+
+      {/* === 3. Entries overview =========================================== */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <CollapsibleHeader
           title="Entries"
           subtitle={`${total} entries in shared pool`}
           expanded={entriesOpen}
@@ -146,52 +208,20 @@ function Initialized({
         ) : null}
       </section>
 
-      {/* === Entry Kinds catalog ========================================== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>
-          Entry Kinds ({overview.entryKinds.length})
-        </h2>
-        {overview.entryKinds.length === 0 ? (
-          <Placeholder text="No entry kinds defined yet. Edit .SNL_Doc/config.json#entry_kinds — a dedicated editor will land later." />
-        ) : (
-          <EntryKindsTable kinds={overview.entryKinds} />
-        )}
-      </section>
-
-      {/* === SNL Macros ==================================================== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>
-          SNL Macros ({overview.macroPackages.length} package
-          {overview.macroPackages.length === 1 ? '' : 's'})
-        </h2>
-        {overview.macroPackages.length === 0 ? (
-          <Placeholder text="No macro packages yet. Drop *.json files under .SNL_Doc/term_macros/ — schema is not finalized; the count is best-effort." />
-        ) : (
-          <MacroPackagesTable packages={overview.macroPackages} />
-        )}
-      </section>
-
-      {/* === Libraries table ============================================== */}
+      {/* === 4. Libraries ================================================== */}
       <section>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '0.5rem'
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: '1.05rem' }}>
-            Libraries ({overview.libraries.length})
-          </h2>
-          <button
-            type="button"
-            onClick={() => api?.postMessage({ type: 'createLibrary' })}
-            style={primaryButton(true)}
-          >
-            Create Library
-          </button>
-        </div>
+        <SectionRow
+          title={`Libraries (${overview.libraries.length})`}
+          rightSlot={
+            <button
+              type="button"
+              onClick={() => api?.postMessage({ type: 'createLibrary' })}
+              style={primaryButton(true)}
+            >
+              Create Library
+            </button>
+          }
+        />
 
         {overview.libraries.length === 0 ? (
           <p style={{ opacity: 0.75, margin: '0.5rem 0 0' }}>
@@ -206,7 +236,31 @@ function Initialized({
   );
 }
 
-function SectionHeader({
+/** Static section header with optional right-hand button slot. */
+function SectionRow({
+  title,
+  rightSlot
+}: {
+  title: string;
+  rightSlot?: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '0.5rem'
+      }}
+    >
+      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{title}</h2>
+      {rightSlot ? <div>{rightSlot}</div> : null}
+    </div>
+  );
+}
+
+/** Toggleable header used by the Entries section. */
+function CollapsibleHeader({
   title,
   subtitle,
   expanded,
@@ -270,7 +324,8 @@ const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',
   borderBottom:
     '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-  textAlign: 'left'
+  textAlign: 'left',
+  verticalAlign: 'middle'
 };
 const HEAD: React.CSSProperties = { ...CELL, fontWeight: 600, opacity: 0.85 };
 const MONO: React.CSSProperties = {
@@ -368,22 +423,29 @@ function EntryKindsTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '2rem' }}></th>
+          <th style={{ ...HEAD, width: '5.5rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Numbering</th>
+          <th style={HEAD}>Style</th>
         </tr>
       </thead>
       <tbody>
         {kinds.map((kind) => (
           <tr key={kind.id}>
             <td style={CELL}>
-              <ColorSwatch color={kind.color} />
+              <KindPreview
+                stroke={kind.coloring.stroke}
+                background={kind.coloring.background}
+              />
             </td>
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
             <td style={{ ...CELL, ...MONO }}>
-              {formatNumbering(kind.numbering)}
+              {kind.numbering ? kind.numbering : '—'}
+            </td>
+            <td style={{ ...CELL, ...MONO }}>
+              {kind.style ? kind.style : '—'}
             </td>
           </tr>
         ))}
@@ -392,34 +454,26 @@ function EntryKindsTable({
   );
 }
 
-function ColorSwatch({ color }: { color: string }): React.ReactElement {
-  // Keep visual feedback even for malformed colors — browser falls back to
-  // the inherited color when the value is invalid, which is fine here.
+/** Compact box preview showing stroke + background together. */
+function KindPreview({
+  stroke,
+  background
+}: {
+  stroke: string;
+  background: string;
+}): React.ReactElement {
   return (
     <span
-      title={color}
+      title={`stroke ${stroke} / background ${background}`}
       style={{
         display: 'inline-block',
-        width: '1rem',
-        height: '1rem',
+        width: '3.5rem',
+        height: '1.25rem',
         borderRadius: '3px',
-        background: color,
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        background,
+        border: `2px solid ${stroke}`,
         verticalAlign: 'middle'
       }}
     />
   );
-}
-
-function formatNumbering(
-  numbering: { pattern: string; start?: number } | undefined
-): string {
-  if (!numbering || typeof numbering.pattern !== 'string') {
-    return '—';
-  }
-  if (typeof numbering.start === 'number') {
-    return `${numbering.pattern} (start: ${numbering.start})`;
-  }
-  return numbering.pattern;
 }

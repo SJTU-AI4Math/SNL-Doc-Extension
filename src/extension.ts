@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
+import { InitEntryKindsPanel } from './initEntryKindsPanel';
+import { CreateEntryKindPanel } from './createEntryKindPanel';
 import { initSnlDoc } from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 
@@ -69,11 +71,27 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const initEntryKinds = vscode.commands.registerCommand(
+    'snlDoc.initEntryKinds',
+    () => {
+      InitEntryKindsPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const createEntryKind = vscode.commands.registerCommand(
+    'snlDoc.createEntryKind',
+    () => {
+      CreateEntryKindPanel.createOrShow(context.extensionUri);
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     init,
     createLibrary,
-    openDashboard
+    openDashboard,
+    initEntryKinds,
+    createEntryKind
   );
 }
 

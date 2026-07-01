@@ -9,18 +9,27 @@ import { resolve } from 'node:path';
 // bundle with no top-level `import` (no shared/vendor chunk). We therefore
 // build one entry per invocation (selected by SNL_WEBVIEW_ENTRY) and append
 // to the same outDir:
-//   - main.js          -> Infoview         (src/main.tsx)
-//   - createLibrary.js -> Create Library   (src/createLibrary.tsx)
-//   - dashboard.js     -> Dashboard        (src/dashboard.tsx)
+//   - main.js            -> Infoview                (src/main.tsx)
+//   - createLibrary.js   -> Create Library          (src/createLibrary.tsx)
+//   - dashboard.js       -> Dashboard               (src/dashboard.tsx)
+//   - initEntryKinds.js  -> Initialize Entry Kinds  (src/initEntryKinds.tsx)
+//   - createEntryKind.js -> Create Entry Kind       (src/createEntryKind.tsx)
 //
 // `npm run build:webview` runs all passes in sequence (see package.json).
 // Only the first pass (main) clears the output directory.
-type Entry = 'main' | 'createLibrary' | 'dashboard';
+type Entry =
+  | 'main'
+  | 'createLibrary'
+  | 'dashboard'
+  | 'initEntryKinds'
+  | 'createEntryKind';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
   createLibrary: 'src/createLibrary.tsx',
-  dashboard: 'src/dashboard.tsx'
+  dashboard: 'src/dashboard.tsx',
+  initEntryKinds: 'src/initEntryKinds.tsx',
+  createEntryKind: 'src/createEntryKind.tsx'
 };
 
 const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';

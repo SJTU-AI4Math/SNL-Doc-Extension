@@ -29,16 +29,26 @@
       {
         "command": "snlDoc.createLibrary",
         "title": "SNL: Create Library"
+      },
+      {
+        "command": "snlDoc.initEntryKinds",
+        "title": "SNL: Initialize Entry Kinds"
+      },
+      {
+        "command": "snlDoc.createEntryKind",
+        "title": "SNL: Create Entry Kind"
       }
     ]
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard",
+    "build:webview": "npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
     "build:webview:dashboard": "cross-env SNL_WEBVIEW_ENTRY=dashboard vite build --config webview/vite.config.ts",
+    "build:webview:initEntryKinds": "cross-env SNL_WEBVIEW_ENTRY=initEntryKinds vite build --config webview/vite.config.ts",
+    "build:webview:createEntryKind": "cross-env SNL_WEBVIEW_ENTRY=createEntryKind vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "vscode:prepublish": "npm run compile && npm run build:webview"
   },

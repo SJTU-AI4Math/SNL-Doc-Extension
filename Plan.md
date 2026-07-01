@@ -198,38 +198,66 @@ SNL_Script/
 ### 已实现功能
 
 * 命令 `snlDoc.openInfoview`（标题 `SNL: Open Infoview`）：打开 Infoview webview 占位页（单例 Panel，Beside 列，CSP + nonce 加固，加载 Vite 构建的 `main.js`）。**Infoview = 阅读 SNL 文档的面**。
-* 命令 `snlDoc.openDashboard`（标题 `SNL: Open Dashboard`）：打开 Dashboard webview（单例 Panel，Active 列，CSP + nonce 加固，加载 `dashboard.js`）。**Dashboard = 管理 SNL Doc 的面**（与 Infoview 的"读"职能正交）。初始页：若 `.SNL_Doc/` 不存在，渲染"未初始化"提示 + `Run SNL: Init` 按钮；存在时显示四块：
-  * **Entries**：默认折叠，仅显示全局共享条目池 `entries.json` 总条目数；展开后预留位置（等 Entry 接口定稿）。
-  * **Entry Kinds**：表格列出 `config.json#entry_kinds` 的每一项（颜色色块 / Name / ID / Numbering pattern + start）。空时给提示。专用编辑器后续做。
-  * **SNL Macros**：表格列出 `.SNL_Doc/term_macros/*.json` 的每个 package（文件名 + 内含 macro 数）。macro 数走 best-effort 推断（裸 array / `{macros:[…]}` / 顶层 keyed object 去掉 `version|name|description`），schema 未识别时显示 "—"。
-  * **Libraries**：表格（Title / Slug / Entries / Relationships）+ `Create Library` 按钮（dispatch `snlDoc.createLibrary`）。Entries 列 = 该库 `relationships.json` 中出现的 distinct 节点 UUID 数；Relationships = 边数。
+* 命令 `snlDoc.openDashboard`（标题 `SNL: Open Dashboard`）：打开 Dashboard webview（单例 Panel，Active 列，CSP + nonce 加固，加载 `dashboard.js`）。**Dashboard = 管理 SNL Doc 的面**（与 Infoview 的"读"职能正交）。初始页：若 `.SNL_Doc/` 不存在，渲染"未初始化"提示 + `Run SNL: Init` 按钮；存在时按以下**顺序**显示四块（自上而下：先元数据 → 后内容）：
+  * **Entry Kinds**（第 1 块）：表格列出 `config.json#entry_kinds` 的每一项（Preview 色块显示 stroke+background 的完整 frame 预览 / Name / ID / Numbering DSL / Style）。
+    * **空**时：section header 右侧按钮变为 `Initialize Entry Kinds`，点击 dispatch `snlDoc.initEntryKinds`（弹 Panel 选 Preset）。
+    * **非空**时：section header 右侧按钮变为 `Create Entry Kind`，点击 dispatch `snlDoc.createEntryKind`（弹 Panel 填单条）。
+  * **SNL Macros**（第 2 块）：表格列出 `.SNL_Doc/term_macros/*.json` 的每个 package（文件名 + 内含 macro 数）。macro 数走 best-effort 推断（裸 array / `{macros:[…]}` / 顶层 keyed object 去掉 `version|name|description`），schema 未识别时显示 "—"。
+  * **Entries**（第 3 块）：默认折叠，仅显示全局共享条目池 `entries.json` 总条目数；展开后预留位置（等 Entry 接口定稿）。
+  * **Libraries**（第 4 块）：表格（Title / Slug / Entries / Relationships）+ `Create Library` 按钮（dispatch `snlDoc.createLibrary`）。Entries 列 = 该库 `relationships.json` 中出现的 distinct 节点 UUID 数；Relationships = 边数。
   Dashboard 注册 `FileSystemWatcher`，监听 `.SNL_Doc/(config|entries).json`、`.SNL_Doc/libraries/*/relationships.json`、`.SNL_Doc/term_macros/*.json` 与 `.SNL_Doc` 目录本身的 create/change/delete，事件触发自动重读 `readOverview` 并 push 给 webview。
-* 命令 `snlDoc.init`（标题 `SNL: Init`）：**无 panel**，直接调用 `initSnlDoc` 在当前工作区创建 `.SNL_Doc/` 空骨架（`config.json` 含 `version:'0.0.2'` + `libraries:[]` + `entry_kinds:[]`、顶层共享条目池 `entries.json` 空 array、`term_macros/`、空 `libraries/`），用 toast 反馈结果。`.SNL_Doc/` 已存在则警告并指向 `SNL: Create Library`；未打开工作区则报错。Dashboard 的 `Run SNL: Init` 按钮通过 `vscode.commands.executeCommand('snlDoc.init')` 触发。
+* 命令 `snlDoc.init`（标题 `SNL: Init`）：**无 panel**，直接调用 `initSnlDoc` 在当前工作区创建 `.SNL_Doc/` 空骨架（`config.json` 含 `version:'0.0.3'` + `libraries:[]` + `entry_kinds:[]`、顶层共享条目池 `entries.json` 空 array、`term_macros/`、空 `libraries/`），用 toast 反馈结果。`.SNL_Doc/` 已存在则警告并指向 `SNL: Create Library`；未打开工作区则报错。Dashboard 的 `Run SNL: Init` 按钮通过 `vscode.commands.executeCommand('snlDoc.init')` 触发。
 * 命令 `snlDoc.createLibrary`（标题 `SNL: Create Library`）：向**已存在**的 `.SNL_Doc/` 添加一个 library，创建 `libraries/<slug>/{relationships.json, documents/{Typst,LaTeX,Markdown}}` 并把 `{slug,title}` append 到 `config.json#libraries`（`entry_kinds` / 其他字段经 `normalizeConfig` 保留 round-trip）。`.SNL_Doc/` 不存在则报错（与 Init 互斥，只在已初始化后工作）；slug 冲突则报错（slug 由 `src/slug.ts` 纯函数从标题派生：中文保留、空白转 `_`、非法字符删除、空串回退 `library_1`）；config.json 损坏会 throw 错误。webview = 标题输入表单（`createLibrary.js`），Enter 触发提交。Dashboard 的 `Create Library` 按钮通过 `vscode.commands.executeCommand('snlDoc.createLibrary')` 触发此命令，复用同一面板。
-* 文件系统操作集中在 `src/snlDoc.ts`（`initSnlDoc` / `createLibrary` / `readOverview` / `readMacroPackages` / `normalizeConfig`），全部走 `vscode.workspace.fs`，远程/虚拟 FS 兼容；panel 复用 `src/panelUtil.ts`（`buildPanelHtml` 共享 CSP + nonce + 可选 `<entry>.css` link）。webview 多 entry 构建：`main` / `createLibrary` / `dashboard` 各自独立自包含 bundle（无 shared/vendor chunk），供经典 `<script>` 加载；只有 `main` pass 清空 outDir，后续 append。**所有 UI 字串使用英文**（本土化留待后续）。
+* 命令 `snlDoc.initEntryKinds`（标题 `SNL: Initialize Entry Kinds`）：向**已存在且 `entry_kinds` 为空**的 `.SNL_Doc/` 从 Preset 一次性写入一组 entry kind。webview = Preset 下拉选择（`initEntryKinds.js`），当前支持 4 个：
+  * `Fulcrum's Math Notes`：12 项，从 `Fulcrum-Notes-Typst/.../FulcrumCN.typ` 的 `#let *条目 = entry(...)` 定义提炼（定义/公理/引理/定理/推论/性质/注/例/反例/构造/证明/题目，颜色/编号/style 全套）。
+  * `Lean 4 Document` / `TypeScript Document` / `Python Document`：占位（`kinds: []`），后续填充。
+  Presets 存于 `src/snlDoc.ts` 的 `ENTRY_KIND_PRESETS`；`applyEntryKindsPreset` 拒绝在 `entry_kinds` 非空时执行（避免误覆盖），拒绝时 webview 给出 warning 提示。
+* 命令 `snlDoc.createEntryKind`（标题 `SNL: Create Entry Kind`）：向**已存在**的 `.SNL_Doc/` 追加单条 entry kind。webview = 表单（`createEntryKind.js`）：id（唯一必填）/ name（必填）/ stroke color / background color（两个 color picker + 文本框互通）/ 实时 Preview 框 / numbering DSL 输入 / style tag。`createEntryKind` 拒绝空 id/name 与重复 id，成功后 toast + webview 状态更新。
+* 文件系统操作集中在 `src/snlDoc.ts`（`initSnlDoc` / `createLibrary` / `readOverview` / `readMacroPackages` / `normalizeConfig` / `normalizeEntryKind` / `readEntryKinds` / `applyEntryKindsPreset` / `createEntryKind`，加 `ENTRY_KIND_PRESETS` 常量），全部走 `vscode.workspace.fs`，远程/虚拟 FS 兼容；panel 复用 `src/panelUtil.ts`（`buildPanelHtml` 共享 CSP + nonce + 可选 `<entry>.css` link）。webview 多 entry 构建：`main` / `createLibrary` / `dashboard` / `initEntryKinds` / `createEntryKind` 各自独立自包含 bundle（无 shared/vendor chunk），供经典 `<script>` 加载；只有 `main` pass 清空 outDir，后续 append。**所有 UI 字串使用英文**（本土化留待后续）。
 
-### config.json schema (v0.0.2)
+### config.json schema (v0.0.3)
 
 ```jsonc
 {
-  "version": "0.0.2",
+  "version": "0.0.3",
   "libraries": [
     { "slug": "<slug>", "title": "<original title>" }
   ],
   "entry_kinds": [
     {
-      "id": "<stable id, e.g. 'def'>",
-      "name": "<display name>",
-      "color": "<any CSS color, e.g. '#4FC3F7'>",
-      "numbering": { "pattern": "<e.g. 'D.{n}'>", "start": 1 }
+      "id": "<stable id, e.g. 'definition'>",
+      "name": "<display name, e.g. '定义' / 'Definition'>",
+      "coloring": {
+        "stroke": "<any CSS color, e.g. '#009C27'>",
+        "background": "<any CSS color, e.g. '#D6FEE0'>"
+      },
+      "numbering": "<Typst-like DSL, e.g. '1.1.1' | '1' | ''>",
+      "style": "<free-form tag, e.g. 'remark' | 'proof' | 'problem' | ''>"
       // additional fields tolerated and preserved across round-trips
     }
   ]
 }
 ```
 
-- `version`: 写入版本号；`readOverview` / `createLibrary` 走 `normalizeConfig` 容忍缺字段（兼容 0.0.1 旧 config）。
-- `entry_kinds`: Entry 类别目录，单元素描述一种 Entry（颜色、显示名、编号规则等）。Schema 故意宽松，未来添字段（icon / prefix / parent kind / scope）无需 break 旧文件。Dashboard 渲染 Entry Kinds 表，编辑暂时手改 JSON。
+- `version`: 写入版本号；`readOverview` / `createLibrary` 走 `normalizeConfig` 容忍缺字段（兼容 0.0.1 / 0.0.2 旧 config）。
+- `entry_kinds`: Entry 类别目录，单元素描述一种 Entry。Schema 故意宽松，未来添字段（icon / prefix / parent kind / scope）无需 break 旧文件。Dashboard 渲染 Entry Kinds 表 + Initialize/Create 按钮，专业编辑器后续做。
+- **v0.0.2 → v0.0.3 迁移**（在 `normalizeEntryKind` 中就地完成，不改写磁盘）：
+  * `color: string` → `coloring: { stroke: color, background: color }`（旧单色被同时填给 stroke/background，用户后续可分开）；
+  * `numbering: { pattern, start? }` → `numbering: pattern`（`start` 丢弃，改由 DSL 本身承载初值）；
+  * 缺 `style` → `style: ""`（默认无 style 变体）。
+  磁盘层保持不动，读时统一 shape；用户下次通过任何 write op 时才被落盘转换。
+
+#### Numbering DSL（Typst-like）
+
+点号分隔的层级计数器：
+
+- `"1"`       → 单层平坦计数（首值 1）
+- `"1.1"`     → 二级 parent.local
+- `"1.1.1"`   → 三级 章.节.K
+- `"1.1.1.1"` → 四级 章.节.K.j（sub 层级）
+- `""`（空） → 不编号
+
+目前 Dashboard 只做展示，实际 counter 引擎会随 Entry 编辑器落地。
 
 ### 实装项目时的文件结构
 

@@ -23,6 +23,8 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  * Message protocol with the webview (`dashboard.js`):
  *  - in  : `{ type: 'ready' }` (initial pull)
  *        | `{ type: 'createLibrary' }` (button click)
+ *        | `{ type: 'initEntryKinds' }` (empty-catalog seed button)
+ *        | `{ type: 'createEntryKind' }` (add-one button)
  *        | `{ type: 'init' }` (placeholder → init command)
  *  - out : `{ type: 'overview', overview: SnlOverview }`
  */
@@ -145,6 +147,12 @@ export class DashboardPanel {
         return;
       case 'createLibrary':
         await vscode.commands.executeCommand('snlDoc.createLibrary');
+        return;
+      case 'initEntryKinds':
+        await vscode.commands.executeCommand('snlDoc.initEntryKinds');
+        return;
+      case 'createEntryKind':
+        await vscode.commands.executeCommand('snlDoc.createEntryKind');
         return;
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');

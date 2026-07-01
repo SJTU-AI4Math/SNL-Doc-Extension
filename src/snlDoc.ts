@@ -658,6 +658,152 @@ export async function createEntryKind(
   return { status: 'created', kind };
 }
 
+/**
+ * Thin alias over {@link readEntryKinds} for the Entry editor webview, which
+ * only needs the kind catalog to populate its "Kind" dropdown. Kept as a
+ * separate named export so the intent is explicit at the call site.
+ */
+export async function listEntryKinds(
+  workspaceRoot: vscode.Uri
+): Promise<EntryKind[]> {
+  return readEntryKinds(workspaceRoot);
+}
+
+// ---------------------------------------------------------------------------
+// Entries write ops
+// ---------------------------------------------------------------------------
+
+/**
+ * A single Entry in the shared `.SNL_Doc/entries.json` pool.
+ *
+ * Schema (see Plan.md §"Entry schema"):
+ *  - `id`: UUID v4, unique across the pool.
+ *  - `kind`: MUST reference an existing `entry_kinds[].id`.
+ *  - `title`: display title (English for now; i18n later).
+ *  - `content`: at most one non-empty format in practice, but all optional —
+ *    the editor lets the author fill any subset.
+ *  - `contribution_info` / `pointer`: schemas deferred; stored verbatim.
+ */
+export interface EntryData {
+  id: string;
+  kind: string;
+  title: string;
+  content: {
+    snl?: string;
+    typst?: string;
+    latex?: string;
+    markdown?: string;
+    text?: string;
+  };
+  contribution_info: unknown;
+  pointer: unknown;
+}
+
+export type AddEntryResult =
+  | { status: 'ok'; id: string }
+  | { status: 'duplicate'; id: string }
+  | { status: 'unknownKind'; kind: string }
+  | { status: 'invalid'; reason: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'error'; message: string };
+
+/**
+ * Append a single {@link EntryData} to `.SNL_Doc/entries.json`, deduping by
+ * id. Validates that the id is non-empty + unique, the `kind` references an
+ * existing entry kind, the title is non-empty, and `content` is an object.
+ *
+ * The entries pool is a bare JSON array; a missing/corrupt file is treated as
+ * empty so the first entry still lands cleanly.
+ */
+export async function addEntry(
+  workspaceRoot: vscode.Uri,
+  entry: EntryData
+): Promise<AddEntryResult> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+
+  const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+  const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
+  const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
+
+  if (!id) {
+    return { status: 'invalid', reason: 'id is required' };
+  }
+  if (!title) {
+    return { status: 'invalid', reason: 'title is required' };
+  }
+  if (!kind) {
+    return { status: 'invalid', reason: 'kind is required' };
+  }
+  if (entry.content === null || typeof entry.content !== 'object') {
+    return { status: 'invalid', reason: 'content must be an object' };
+  }
+
+  // kind must reference an existing entry kind.
+  const kinds = await readEntryKinds(workspaceRoot);
+  if (!kinds.some((k) => k.id === kind)) {
+    return { status: 'unknownKind', kind };
+  }
+
+  // Read the existing pool (tolerate missing/corrupt → empty).
+  let pool: EntryData[] = [];
+  try {
+    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+    if (Array.isArray(raw)) {
+      pool = raw as EntryData[];
+    }
+  } catch {
+    pool = [];
+  }
+
+  if (pool.some((e) => e && typeof e === 'object' && e.id === id)) {
+    return { status: 'duplicate', id };
+  }
+
+  const record: EntryData = {
+    id,
+    kind,
+    title,
+    content: {
+      snl: strOrUndef(entry.content.snl),
+      typst: strOrUndef(entry.content.typst),
+      latex: strOrUndef(entry.content.latex),
+      markdown: strOrUndef(entry.content.markdown),
+      text: strOrUndef(entry.content.text)
+    },
+    contribution_info: entry.contribution_info ?? null,
+    pointer: entry.pointer ?? null
+  };
+  // Drop undefined content fields so entries.json stays tidy.
+  for (const key of Object.keys(record.content) as Array<
+    keyof EntryData['content']
+  >) {
+    if (record.content[key] === undefined) {
+      delete record.content[key];
+    }
+  }
+
+  try {
+    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes([...pool, record]));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id };
+}
+
+/** Coerce a value to a trimmed non-empty string, or `undefined`. */
+function strOrUndef(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  return value.length > 0 ? value : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Entry Kind Presets
 // ---------------------------------------------------------------------------

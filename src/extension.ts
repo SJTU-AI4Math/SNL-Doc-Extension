@@ -4,6 +4,7 @@ import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
+import { CreateEntryPanel } from './createEntryPanel';
 import { initSnlDoc } from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 
@@ -85,13 +86,21 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const createEntry = vscode.commands.registerCommand(
+    'snlDoc.createEntry',
+    () => {
+      CreateEntryPanel.createOrShow(context.extensionUri);
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     init,
     createLibrary,
     openDashboard,
     initEntryKinds,
-    createEntryKind
+    createEntryKind,
+    createEntry
   );
 }
 

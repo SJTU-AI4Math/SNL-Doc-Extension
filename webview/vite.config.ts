@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 //   - dashboard.js       -> Dashboard               (src/dashboard.tsx)
 //   - initEntryKinds.js  -> Initialize Entry Kinds  (src/initEntryKinds.tsx)
 //   - createEntryKind.js -> Create Entry Kind       (src/createEntryKind.tsx)
+//   - createEntry.js     -> Create Entry            (src/createEntry.tsx)
 //
 // `npm run build:webview` runs all passes in sequence (see package.json).
 // Only the first pass (main) clears the output directory.
@@ -22,14 +23,16 @@ type Entry =
   | 'createLibrary'
   | 'dashboard'
   | 'initEntryKinds'
-  | 'createEntryKind';
+  | 'createEntryKind'
+  | 'createEntry';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
   createLibrary: 'src/createLibrary.tsx',
   dashboard: 'src/dashboard.tsx',
   initEntryKinds: 'src/initEntryKinds.tsx',
-  createEntryKind: 'src/createEntryKind.tsx'
+  createEntryKind: 'src/createEntryKind.tsx',
+  createEntry: 'src/createEntry.tsx'
 };
 
 const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';

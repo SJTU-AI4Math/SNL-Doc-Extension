@@ -14,12 +14,43 @@
 // pipeline yet (that hooks into SNL_Basics later). See Plan.md.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import 'katex/dist/katex.min.css';
+import '@snl-basics/react/style.css';
+import {
+  tryParseSnlSyntaxTree,
+  createMacroTemplateQueryFromDb,
+  defaultRenderHooks,
+  SnlSyntaxTreeView,
+  type SnlMacroDb,
+  type SnlMacroTemplateQuery,
+  type SnlRenderHooks
+} from '@snl-basics/react';
+import macroDbJson from '@snl-basics/react/snl-macro-db.json';
 import {
   getVsCodeApi,
   PANEL_STYLE,
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+
+// Static, network-free macro DB bundled from @snl-basics/react. The JSON
+// import is typed `any`, so we assert the published shape once here.
+const MACRO_DB = macroDbJson as unknown as SnlMacroDb;
+const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
+
+// Preview render hooks: demonstrate consumer-side source resolution. The
+// CreateEntry panel has no Entry pool loaded, so we surface the raw first
+// entry id referenced by a macro's `source` (if any) as an entry ref.
+const PREVIEW_HOOKS: SnlRenderHooks = {
+  ...defaultRenderHooks,
+  resolveSource: (source) => {
+    if (source.entries.length === 0) {
+      return null;
+    }
+    const first = source.entries[0];
+    return { kind: 'entry', ref: first, displayName: `Entry: ${first}` };
+  }
+};
 
 interface EntryKind {
   id: string;
@@ -336,6 +367,7 @@ export function CreateEntryApp(): React.ReactElement {
           <LivePreview
             kind={kind}
             title={trimmedTitle}
+            format={activeFormat}
             body={content[activeFormat]}
           />
         </div>
@@ -471,16 +503,20 @@ export function CreateEntryApp(): React.ReactElement {
 function LivePreview({
   kind,
   title,
+  format,
   body
 }: {
   kind: EntryKind | undefined;
   title: string;
+  format: ContentFormat;
   body: string;
 }): React.ReactElement {
   const stroke = kind?.coloring.stroke ?? '#888888';
   const background = kind?.coloring.background ?? '#eeeeee';
   const number = kind ? mockNumber(kind.numbering) : '';
   const headerLabel = kind ? kind.name : 'Entry';
+
+  const isSnl = format === 'snl' && body.trim().length > 0;
 
   return (
     <div
@@ -503,20 +539,138 @@ function LivePreview({
         {number ? ` ${number}` : ''}
         {title ? ` — ${title}` : ''}
       </div>
-      <pre
-        style={{
-          margin: 0,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          fontSize: '0.85rem',
-          color: '#222'
-        }}
-      >
-        {body ? body : '(no content)'}
-      </pre>
+      {isSnl ? (
+        <SnlPreview snl={body} />
+      ) : (
+        <pre
+          style={{
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.85rem',
+            color: '#222'
+          }}
+        >
+          {body ? body : '(no content)'}
+        </pre>
+      )}
     </div>
   );
+}
+
+/**
+ * Live SNL render for the Entry editor preview. Parses the SNL source and
+ * hands the tree to `<SnlSyntaxTreeView>` from @snl-basics/react. Parse
+ * failures degrade to a subtle banner + raw-text fallback; render-time throws
+ * are caught by {@link SnlRenderErrorBoundary}.
+ */
+function SnlPreview({ snl }: { snl: string }): React.ReactElement {
+  const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
+
+  if (!parsed.ok) {
+    return (
+      <div>
+        <ErrorBanner
+          text={`SNL parse error: ${parsed.error}${
+            parsed.position !== undefined ? ` (at ${parsed.position})` : ''
+          }`}
+        />
+        <pre
+          style={{
+            margin: 0,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.85rem',
+            color: '#222'
+          }}
+        >
+          {snl}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <SnlRenderErrorBoundary snl={snl}>
+      <div style={{ color: '#111', fontSize: '1rem' }}>
+        <SnlSyntaxTreeView
+          tree={parsed.tree}
+          templateDb={MACRO_DB}
+          query={MACRO_QUERY}
+          hooks={PREVIEW_HOOKS}
+        />
+      </div>
+    </SnlRenderErrorBoundary>
+  );
+}
+
+function ErrorBanner({ text }: { text: string }): React.ReactElement {
+  return (
+    <div
+      style={{
+        margin: '0 0 0.5rem',
+        padding: '0.4rem 0.6rem',
+        borderRadius: '3px',
+        background: '#fdecea',
+        border: '1px solid #f5c2c0',
+        color: '#8a1f11',
+        fontSize: '0.8rem',
+        fontFamily: 'var(--vscode-editor-font-family, monospace)'
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/**
+ * Catches render-time throws from `<SnlSyntaxTreeView>` (e.g. a KaTeX failure
+ * or an unexpected tree shape) and shows a red banner + raw-text fallback
+ * instead of blanking the whole webview.
+ */
+class SnlRenderErrorBoundary extends React.Component<
+  { snl: string; children: React.ReactNode },
+  { message: string | null }
+> {
+  constructor(props: { snl: string; children: React.ReactNode }) {
+    super(props);
+    this.state = { message: null };
+  }
+
+  static getDerivedStateFromError(error: unknown): { message: string } {
+    return { message: error instanceof Error ? error.message : String(error) };
+  }
+
+  override componentDidUpdate(prev: { snl: string }): void {
+    if (prev.snl !== this.props.snl && this.state.message !== null) {
+      this.setState({ message: null });
+    }
+  }
+
+  override render(): React.ReactNode {
+    if (this.state.message !== null) {
+      return (
+        <div>
+          <ErrorBanner text={`SNL render error: ${this.state.message}`} />
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              fontFamily: 'var(--vscode-editor-font-family, monospace)',
+              fontSize: '0.85rem',
+              color: '#222'
+            }}
+          >
+            {this.props.snl}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function Label({

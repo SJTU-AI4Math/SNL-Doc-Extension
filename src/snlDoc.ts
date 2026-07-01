@@ -421,6 +421,8 @@ export interface LibrarySummary {
 export interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null; // size of the shared entries.json pool
+  /** The shared entry pool from `entries.json` (empty when missing/corrupt). */
+  entries: EntryData[];
   libraries: LibrarySummary[];
   /** Term macro packages enumerated under `term_macros/`. */
   macroPackages: MacroPackageSummary[];
@@ -451,19 +453,15 @@ export async function readOverview(
     return {
       hasSnlDoc: false,
       totalEntryCount: null,
+      entries: [],
       libraries: [],
       macroPackages: [],
       entryKinds: []
     };
   }
 
-  let totalEntryCount: number | null = null;
-  try {
-    const entries = await readJson<unknown[]>(entriesUri(workspaceRoot));
-    totalEntryCount = Array.isArray(entries) ? entries.length : null;
-  } catch {
-    totalEntryCount = null;
-  }
+  const entries = await readEntries(workspaceRoot);
+  const totalEntryCount: number | null = entries.length;
 
   let config: SnlConfig | null = null;
   try {
@@ -512,6 +510,7 @@ export async function readOverview(
   return {
     hasSnlDoc: true,
     totalEntryCount,
+    entries,
     libraries,
     macroPackages,
     entryKinds
@@ -802,6 +801,29 @@ function strOrUndef(value: unknown): string | undefined {
     return undefined;
   }
   return value.length > 0 ? value : undefined;
+}
+
+/**
+ * Read the shared entry pool from `.SNL_Doc/entries.json`.
+ *
+ * Returns the parsed array of {@link EntryData}. On a missing or corrupt file
+ * (or a non-array top level) returns `[]`. Non-object items are filtered out
+ * defensively so a partially hand-edited pool can't crash the dashboard.
+ */
+export async function readEntries(
+  workspaceRoot: vscode.Uri
+): Promise<EntryData[]> {
+  try {
+    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw.filter(
+      (e): e is EntryData => e !== null && typeof e === 'object'
+    );
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------

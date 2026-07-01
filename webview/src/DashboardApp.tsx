@@ -45,9 +45,25 @@ interface EntryKind {
   style: string;
 }
 
+interface EntryData {
+  id: string;
+  kind: string;
+  title: string;
+  content: {
+    snl?: string;
+    typst?: string;
+    latex?: string;
+    markdown?: string;
+    text?: string;
+  };
+  contribution_info?: unknown;
+  pointer?: unknown;
+}
+
 interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
+  entries: EntryData[];
   libraries: LibrarySummary[];
   macroPackages: MacroPackageSummary[];
   entryKinds: EntryKind[];
@@ -56,6 +72,7 @@ interface SnlOverview {
 const EMPTY: SnlOverview = {
   hasSnlDoc: false,
   totalEntryCount: null,
+  entries: [],
   libraries: [],
   macroPackages: [],
   entryKinds: []
@@ -222,7 +239,14 @@ function Initialized({
           </button>
         </div>
         {entriesOpen ? (
-          <Placeholder text="Entry table not implemented yet — the Entry data interface is still in design. This section is reserved." />
+          overview.entries.length > 0 ? (
+            <EntriesTable
+              entries={overview.entries}
+              kinds={overview.entryKinds}
+            />
+          ) : (
+            <Placeholder text="No entries in the shared pool yet. Use Create Entry to add one." />
+          )
         ) : null}
       </section>
 
@@ -475,17 +499,19 @@ function EntryKindsTable({
 /** Compact box preview showing stroke + background together. */
 function KindPreview({
   stroke,
-  background
+  background,
+  width = '3.5rem'
 }: {
   stroke: string;
   background: string;
+  width?: string;
 }): React.ReactElement {
   return (
     <span
       title={`stroke ${stroke} / background ${background}`}
       style={{
         display: 'inline-block',
-        width: '3.5rem',
+        width,
         height: '1.25rem',
         borderRadius: '3px',
         background,
@@ -493,5 +519,89 @@ function KindPreview({
         verticalAlign: 'middle'
       }}
     />
+  );
+}
+
+/** List of populated content formats for an entry, e.g. "snl, typst". */
+function populatedFormats(entry: EntryData): string {
+  const order: Array<keyof EntryData['content']> = [
+    'snl',
+    'typst',
+    'latex',
+    'markdown',
+    'text'
+  ];
+  const present = order.filter((k) => {
+    const v = entry.content?.[k];
+    return typeof v === 'string' && v.trim().length > 0;
+  });
+  return present.length > 0 ? present.join(', ') : '—';
+}
+
+function EntriesTable({
+  entries,
+  kinds
+}: {
+  entries: EntryData[];
+  kinds: EntryKind[];
+}): React.ReactElement {
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={{ ...HEAD, width: '3.5rem' }}>Preview</th>
+          <th style={HEAD}>Title</th>
+          <th style={HEAD}>ID</th>
+          <th style={HEAD}>Kind</th>
+          <th style={HEAD}>Formats</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map((entry) => {
+          const kind = kinds.find((k) => k.id === entry.kind);
+          return (
+            <tr key={entry.id}>
+              <td style={CELL}>
+                <KindPreview
+                  stroke={kind ? kind.coloring.stroke : '#888888'}
+                  background={kind ? kind.coloring.background : '#f0f0f0'}
+                  width="2rem"
+                />
+              </td>
+              <td style={CELL}>{entry.title}</td>
+              <td style={{ ...CELL, ...MONO }}>{entry.id}</td>
+              <td style={CELL}>
+                {kind ? (
+                  kind.name
+                ) : (
+                  <span
+                    title={`Unknown kind "${entry.kind}" — no matching entry kind in config.json`}
+                    style={{
+                      display: 'inline-block',
+                      padding: '0.05rem 0.4rem',
+                      borderRadius: '3px',
+                      fontSize: '0.85rem',
+                      color: 'var(--vscode-errorForeground, #f14c4c)',
+                      border:
+                        '1px solid var(--vscode-errorForeground, #f14c4c)'
+                    }}
+                  >
+                    ⚠ unknown
+                  </span>
+                )}
+              </td>
+              <td style={{ ...CELL, ...MONO }}>{populatedFormats(entry)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

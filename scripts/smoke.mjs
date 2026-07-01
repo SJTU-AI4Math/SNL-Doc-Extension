@@ -115,8 +115,14 @@ async function main() {
   ).href;
   const snlDoc = await import(outUrl);
 
-  const { initSnlDoc, applyEntryKindsPreset, createEntryKind, addEntry } =
-    snlDoc;
+  const {
+    initSnlDoc,
+    applyEntryKindsPreset,
+    createEntryKind,
+    addEntry,
+    readEntries: readEntriesApi,
+    readOverview
+  } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
   const root = Uri.file(tmpRoot);
@@ -220,6 +226,26 @@ async function main() {
     pointer: null
   });
   assert(noTitle.status === 'invalid', 'addEntry no title -> invalid');
+
+  console.log('\n[10] readEntries + readOverview.entries');
+  const readBack = await readEntriesApi(root);
+  assert(
+    Array.isArray(readBack) && readBack.length === 1,
+    `readEntries returns 1-element array (got ${readBack?.length})`
+  );
+  assert(
+    readBack[0].id === entry.id &&
+      readBack[0].kind === entry.kind &&
+      readBack[0].title === entry.title,
+    'readEntries record matches what was written'
+  );
+  const overview = await readOverview(root);
+  assert(
+    Array.isArray(overview.entries) &&
+      overview.entries.length === 1 &&
+      overview.entries[0].id === entry.id,
+    'readOverview.entries is a 1-element array with the same id'
+  );
 
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });

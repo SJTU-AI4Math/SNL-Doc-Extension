@@ -21,11 +21,10 @@ import {
   createMacroTemplateQueryFromDb,
   defaultRenderHooks,
   SnlSyntaxTreeView,
-  type SnlMacroDb,
+  bundledMacroDb,
   type SnlMacroTemplateQuery,
   type SnlRenderHooks
 } from '@snl-basics/react';
-import macroDbJson from '@snl-basics/react/snl-macro-db.json';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -33,15 +32,10 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
-// Static, network-free macro DB bundled from @snl-basics/react. The JSON
-// import is typed `any`, so we assert the published shape once here.
-const MACRO_DB = macroDbJson as unknown as SnlMacroDb;
+// Static, network-free macro DB bundled from @snl-basics/react — typed accessor,
+// no cast needed.
+const MACRO_DB = bundledMacroDb;
 const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
-
-// KaTeX must run with the HTML extension enabled (trust) and non-strict so the
-// `\htmlData{...}` attributes SNL-Basics emits survive into the DOM — these
-// back the hover / source-resolution features. Without this, hover is inert.
-const KATEX_OPTIONS = { trust: true, strict: false as const };
 
 // Preview render hooks: demonstrate consumer-side source resolution. The
 // CreateEntry panel has no Entry pool loaded, so we surface the raw first
@@ -602,10 +596,9 @@ function SnlPreview({ snl }: { snl: string }): React.ReactElement {
       <div style={{ color: '#111', fontSize: '1rem' }}>
         <SnlSyntaxTreeView
           tree={parsed.tree}
-          templateDb={MACRO_DB}
+          macroDb={MACRO_DB}
           query={MACRO_QUERY}
           hooks={PREVIEW_HOOKS}
-          katexOptions={KATEX_OPTIONS}
         />
       </div>
     </SnlRenderErrorBoundary>

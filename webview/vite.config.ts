@@ -41,13 +41,6 @@ const inputFile = ENTRY_TO_INPUT[entry] ?? ENTRY_TO_INPUT.main;
 export default defineConfig({
   plugins: [react()],
   base: './',
-  // @snl-basics/react is a `file:` dep that carries its OWN copy of react in
-  // node_modules (it lists react in dependencies, not just peerDependencies).
-  // Without deduping, Vite bundles two React instances → "Invalid hook call"
-  // at runtime in the webview. Force a single copy from this package.
-  resolve: {
-    dedupe: ['react', 'react-dom', 'react/jsx-runtime']
-  },
   build: {
     outDir: resolve(__dirname, '../media/webview'),
     // Only the first pass clears the dir; subsequent passes append.

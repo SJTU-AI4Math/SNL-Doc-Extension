@@ -840,88 +840,88 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
     id: 'fulcrum-math-notes',
     label: "Fulcrum's Math Notes",
     description:
-      'The 12 entry kinds used by Fulcrum-Notes-Typst (定义/公理/引理/定理/推论/性质/注/例/反例/构造/证明/题目).',
+      'The 12 entry kinds used by Fulcrum-Notes-Typst (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem).',
     kinds: [
       {
         id: 'definition',
-        name: '定义',
+        name: 'Definition',
         coloring: { stroke: '#009C27', background: '#D6FEE0' },
         numbering: '1.1.1',
         style: ''
       },
       {
         id: 'axiom',
-        name: '公理',
+        name: 'Axiom',
         coloring: { stroke: '#C1C103', background: '#FFFFAC' },
         numbering: '1',
         style: ''
       },
       {
         id: 'lemma',
-        name: '引理',
+        name: 'Lemma',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
         numbering: '1.1.1',
         style: ''
       },
       {
         id: 'theorem',
-        name: '定理',
+        name: 'Theorem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
         numbering: '1.1.1',
         style: ''
       },
       {
         id: 'corollary',
-        name: '推论',
+        name: 'Corollary',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
         numbering: '1.1.1.1',
         style: ''
       },
       {
         id: 'property',
-        name: '性质',
+        name: 'Property',
         coloring: { stroke: '#AC00AF', background: '#FFEDFF' },
         numbering: '1.1.1.1',
         style: ''
       },
       {
         id: 'remark',
-        name: '注',
+        name: 'Remark',
         coloring: { stroke: '#E07B00', background: '#FFEBD2' },
         numbering: '',
         style: 'remark'
       },
       {
         id: 'example',
-        name: '例',
+        name: 'Example',
         coloring: { stroke: '#7700E4', background: '#EFDFFF' },
         numbering: '1.1.1',
         style: ''
       },
       {
         id: 'counterexample',
-        name: '反例',
+        name: 'Counterexample',
         coloring: { stroke: '#D20022', background: '#FFD6DC' },
         numbering: '1.1.1',
         style: ''
       },
       {
         id: 'construction',
-        name: '构造',
+        name: 'Construction',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
         numbering: '',
         style: 'proof'
       },
       {
         id: 'proof',
-        name: '证明',
+        name: 'Proof',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
         numbering: '',
         style: 'proof'
       },
       {
         id: 'problem',
-        name: '题目',
+        name: 'Problem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
         numbering: '1',
         style: 'problem'

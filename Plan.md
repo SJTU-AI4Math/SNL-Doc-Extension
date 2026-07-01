@@ -360,8 +360,8 @@ MVP 备注：
 > **未**在新 `EntryKind` schema 里表达——当前 `numbering` DSL 只描述层级形状，还不能表达
 > 跨 kind 的 counter 绑定。等 numbering DSL 长出这套能力后再回填。
 >
-> **name 语言说明。** 本仓库当前 preset 落盘用 **中文** display name（与 FulcrumCN 源保持一致、
-> 便于 Fulcrum 直接识别）；上表额外列出对应英文名，供 i18n 落地时参考。
+> **name 语言说明。** 本仓库当前 preset 落盘用 **英文** display `name`（i18n 尚未落地，
+> 先统一用英文）；上表 `name (CN)` 列保留，供 i18n 落地时做中英映射参考。
 
 ### 功能块
 

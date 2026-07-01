@@ -38,6 +38,11 @@ import {
 const MACRO_DB = macroDbJson as unknown as SnlMacroDb;
 const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
 
+// KaTeX must run with the HTML extension enabled (trust) and non-strict so the
+// `\htmlData{...}` attributes SNL-Basics emits survive into the DOM — these
+// back the hover / source-resolution features. Without this, hover is inert.
+const KATEX_OPTIONS = { trust: true, strict: false as const };
+
 // Preview render hooks: demonstrate consumer-side source resolution. The
 // CreateEntry panel has no Entry pool loaded, so we surface the raw first
 // entry id referenced by a macro's `source` (if any) as an entry ref.
@@ -600,6 +605,7 @@ function SnlPreview({ snl }: { snl: string }): React.ReactElement {
           templateDb={MACRO_DB}
           query={MACRO_QUERY}
           hooks={PREVIEW_HOOKS}
+          katexOptions={KATEX_OPTIONS}
         />
       </div>
     </SnlRenderErrorBoundary>

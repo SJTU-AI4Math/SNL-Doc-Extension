@@ -23,6 +23,11 @@ import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 const MACRO_DB = macroDbJson as unknown as SnlMacroDb;
 const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
 
+// KaTeX must run with the HTML extension enabled (trust) and non-strict so the
+// `\htmlData{...}` attributes SNL-Basics emits survive into the DOM — these
+// back the hover / source-resolution features. Without this, hover is inert.
+const KATEX_OPTIONS = { trust: true, strict: false as const };
+
 // ---------------------------------------------------------------------------
 // Host <-> webview shapes (mirrors src/snlDoc.ts, kept local so the webview
 // doesn't pull in the `vscode`-dependent extension module).
@@ -294,6 +299,7 @@ function EntryRender({
             templateDb={MACRO_DB}
             query={MACRO_QUERY}
             hooks={hooks}
+            katexOptions={KATEX_OPTIONS}
           />
         ) : (
           <div>

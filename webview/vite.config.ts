@@ -54,7 +54,20 @@ export default defineConfig({
       output: {
         entryFileNames: `${entry}.js`,
         chunkFileNames: `${entry}.js`,
-        assetFileNames: `${entry}.[ext]`
+        // CSS must be a predictable sibling (`<entry>.css`) so buildPanelHtml
+        // can <link> it. Every other asset (KaTeX web-fonts pulled in via the
+        // `katex.min.css` import) keeps a hashed name so the many font files
+        // don't collide under the single `${entry}.[ext]` pattern. Fonts are
+        // referenced by the rewritten CSS url() and served from `media/` (same
+        // webview source), so no CSP/font-src change is needed.
+        assetFileNames: (asset): string => {
+          const info = asset as { name?: string; names?: string[] };
+          const name = info.names?.[0] ?? info.name ?? '';
+          if (name.endsWith('.css')) {
+            return `${entry}.css`;
+          }
+          return `${entry}-[name]-[hash][extname]`;
+        }
       }
     }
   }

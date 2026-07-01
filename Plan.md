@@ -203,7 +203,7 @@ SNL_Script/
     * **空**时：section header 右侧按钮变为 `Initialize Entry Kinds`，点击 dispatch `snlDoc.initEntryKinds`（弹 Panel 选 Preset）。
     * **非空**时：section header 右侧按钮变为 `Create Entry Kind`，点击 dispatch `snlDoc.createEntryKind`（弹 Panel 填单条）。
   * **SNL Macros**（第 2 块）：表格列出 `.SNL_Doc/term_macros/*.json` 的每个 package（文件名 + 内含 macro 数）。macro 数走 best-effort 推断（裸 array / `{macros:[…]}` / 顶层 keyed object 去掉 `version|name|description`），schema 未识别时显示 "—"。
-  * **Entries**（第 3 块）：默认折叠，仅显示全局共享条目池 `entries.json` 总条目数；展开后预留位置（等 Entry 接口定稿）。
+  * **Entries**（第 3 块）：section header 左侧为可折叠标题（chevron + 全局共享条目池 `entries.json` 总条目数），右侧恒显示 `Create Entry` 按钮（dispatch `snlDoc.createEntry`，弹 Entry 编辑器 Panel）。默认折叠；展开后预留条目表位置（等 Entry 表视图定稿）。
   * **Libraries**（第 4 块）：表格（Title / Slug / Entries / Relationships）+ `Create Library` 按钮（dispatch `snlDoc.createLibrary`）。Entries 列 = 该库 `relationships.json` 中出现的 distinct 节点 UUID 数；Relationships = 边数。
   Dashboard 注册 `FileSystemWatcher`，监听 `.SNL_Doc/(config|entries).json`、`.SNL_Doc/libraries/*/relationships.json`、`.SNL_Doc/term_macros/*.json` 与 `.SNL_Doc` 目录本身的 create/change/delete，事件触发自动重读 `readOverview` 并 push 给 webview。
 * 命令 `snlDoc.init`（标题 `SNL: Init`）：**无 panel**，直接调用 `initSnlDoc` 在当前工作区创建 `.SNL_Doc/` 空骨架（`config.json` 含 `version:'0.0.3'` + `libraries:[]` + `entry_kinds:[]`、顶层共享条目池 `entries.json` 空 array、`term_macros/`、空 `libraries/`），用 toast 反馈结果。`.SNL_Doc/` 已存在则警告并指向 `SNL: Create Library`；未打开工作区则报错。Dashboard 的 `Run SNL: Init` 按钮通过 `vscode.commands.executeCommand('snlDoc.init')` 触发。
@@ -213,7 +213,8 @@ SNL_Script/
   * `Lean 4 Document` / `TypeScript Document` / `Python Document`：占位（`kinds: []`），后续填充。
   Presets 存于 `src/snlDoc.ts` 的 `ENTRY_KIND_PRESETS`；`applyEntryKindsPreset` 拒绝在 `entry_kinds` 非空时执行（避免误覆盖），拒绝时 webview 给出 warning 提示。
 * 命令 `snlDoc.createEntryKind`（标题 `SNL: Create Entry Kind`）：向**已存在**的 `.SNL_Doc/` 追加单条 entry kind。webview = 表单（`createEntryKind.js`）：id（唯一必填）/ name（必填）/ stroke color / background color（两个 color picker + 文本框互通）/ 实时 Preview 框 / numbering DSL 输入 / style tag。`createEntryKind` 拒绝空 id/name 与重复 id，成功后 toast + webview 状态更新。
-* 文件系统操作集中在 `src/snlDoc.ts`（`initSnlDoc` / `createLibrary` / `readOverview` / `readMacroPackages` / `normalizeConfig` / `normalizeEntryKind` / `readEntryKinds` / `applyEntryKindsPreset` / `createEntryKind`，加 `ENTRY_KIND_PRESETS` 常量），全部走 `vscode.workspace.fs`，远程/虚拟 FS 兼容；panel 复用 `src/panelUtil.ts`（`buildPanelHtml` 共享 CSP + nonce + 可选 `<entry>.css` link）。webview 多 entry 构建：`main` / `createLibrary` / `dashboard` / `initEntryKinds` / `createEntryKind` 各自独立自包含 bundle（无 shared/vendor chunk），供经典 `<script>` 加载；只有 `main` pass 清空 outDir，后续 append。**所有 UI 字串使用英文**（本土化留待后续）。
+* 命令 `snlDoc.createEntry`（标题 `SNL: Create Entry`）：向**已存在**的 `.SNL_Doc/` 追加单条 Entry 到全局共享池 `entries.json`。webview = Entry 编辑器 MVP（`createEntry.js`，见下文 **Entry Editor panel plan**）。`addEntry` 校验 id 非空+唯一、`kind` 必须命中现存 `entry_kinds[].id`、title 非空、content 为 object；成功后 toast + webview 状态更新。Dashboard 的 `Create Entry` 按钮通过 `vscode.commands.executeCommand('snlDoc.createEntry')` 触发。
+* 文件系统操作集中在 `src/snlDoc.ts`（`initSnlDoc` / `createLibrary` / `readOverview` / `readMacroPackages` / `normalizeConfig` / `normalizeEntryKind` / `readEntryKinds` / `applyEntryKindsPreset` / `createEntryKind` / `listEntryKinds` / `addEntry`，加 `ENTRY_KIND_PRESETS` 常量与 `EntryData` 接口），全部走 `vscode.workspace.fs`，远程/虚拟 FS 兼容；panel 复用 `src/panelUtil.ts`（`buildPanelHtml` 共享 CSP + nonce + 可选 `<entry>.css` link）。webview 多 entry 构建：`main` / `createLibrary` / `dashboard` / `initEntryKinds` / `createEntryKind` / `createEntry` 各自独立自包含 bundle（无 shared/vendor chunk），供经典 `<script>` 加载；只有 `main` pass 清空 outDir，后续 append。**所有 UI 字串使用英文**（本土化留待后续）。
 
 ### config.json schema (v0.0.3)
 
@@ -246,6 +247,8 @@ SNL_Script/
   * `numbering: { pattern, start? }` → `numbering: pattern`（`start` 丢弃，改由 DSL 本身承载初值）；
   * 缺 `style` → `style: ""`（默认无 style 变体）。
   磁盘层保持不动，读时统一 shape；用户下次通过任何 write op 时才被落盘转换。
+
+> **Migration notes (v0.0.2 → v0.0.3, BREAKING).** 没有编写任何磁盘迁移脚本——目前没有任何 library 在野外存在。`normalizeEntryKind` 只在读时就地把旧 `color` / `numbering:{pattern,start}` 形状转成新 shape；如果你手上有 v0.0.2 config，最干净的做法是删掉 `entry_kinds` 后用 `SNL: Initialize Entry Kinds` 重新初始化。旧 v0.0.2 形状（`color: string` + `numbering: { pattern, start }`、无 `coloring` / `style`）仅作历史记录保留于此。
 
 #### Numbering DSL（Typst-like）
 
@@ -287,6 +290,78 @@ SNL_Script/
 ```
 
 注：`SNL: Init` 只创建到 `entries.json` + `term_macros/` + 空 `libraries/` 这一层骨架，不创建任何 `library_*`；具体 library 由 `SNL: Create Library` 命令逐个追加。
+
+### Entry schema
+
+全局共享条目池 `.SNL_Doc/entries.json` 是一个 `EntryData[]` 数组。单条 Entry：
+
+```ts
+interface EntryData {
+  id: string             // UUID v4, unique across entries.json
+  kind: string           // MUST match an existing entry_kinds[].id
+  title: string          // English only for now; i18n later
+  content: {             // At most ONE non-empty in practice, but all optional
+    snl?: string         // DSL compilable by SNL_Basics parser
+    typst?: string
+    latex?: string
+    markdown?: string
+    text?: string
+  }
+  contribution_info: unknown  // TODO: schema deferred
+  pointer: unknown            // TODO: schema deferred (binding to code)
+}
+```
+
+- `addEntry(workspaceRoot, entry)` 追加单条、按 id 去重，校验：id 非空+唯一、`kind` 命中现存 `entry_kinds[].id`、title 非空、`content` 为 object（各格式字段皆可选）。返回 `{status:'ok',id} | {status:'duplicate',id} | {status:'unknownKind',kind} | {status:'invalid',reason} | {status:'noSnlDoc'} | {status:'error',message}`。
+- `content` 中的空字符串字段落盘时会被剔除，保持 `entries.json` 精简。
+- `contribution_info` / `pointer` 的 schema 尚未定稿，暂存 `null`（webview 侧留占位）。
+
+### Entry Editor panel plan
+
+`snlDoc.createEntry` 弹出的 Entry 编辑器（`createEntry.js` / `CreateEntryApp.tsx`）为 MVP，自上而下 6 块 + 提交栏：
+
+1. **Header row**：Title 文本框（必填）+ ID 文本框（挂载时用 `crypto.randomUUID()` 预填、可编辑、必填校验非空）+ `Regenerate` 小按钮（重新摇一个 UUID v4）。
+2. **Kind dropdown**：`<select>` 由 host 的 `{type:'kinds'}` 消息填充，选中项旁显示该 kind 的 stroke+background 色块。无 kind 时（`No entry kinds defined — run Initialize Entry Kinds first`）整个表单禁用。
+3. **Live Preview box**：用选中 kind 的 `coloring.stroke`（1px border）+ `coloring.background` 渲染的框，标题行 `<mock-number> <title>`、正文为当前 tab 内容的 `<pre>`（**raw text**，暂不渲染）。mock number 直接把 `numbering` DSL 原样展示为占位（`"1.1.1"` → `"1.1.1"`，`""` → 无编号），真正的 counter 引擎后续接 `SNL_Basics`。
+4. **Content tabs**：5 按钮切换 SNL / Typst / LaTeX / Markdown / Text，每个 tab 各自的 `<textarea>`（内容持久在组件 state，切 tab 不丢其它格式）。SNL tab 内二级切换 `Text Editor`（默认，显示 textarea）/ `GUI Editor`（显示 `not implemented yet — Tree View / Line View coming later` 占位）。textarea 字体 `var(--vscode-editor-font-family, monospace)`，并附一行轻提示 `Monaco editor integration planned; for now a plain textarea`。
+5. **Contributor section**：`not implemented yet — deferred until schema is defined` 占位框。
+6. **Pointer section**：同上占位框。
+7. **Submit / Cancel row**：`Create Entry` 主按钮（title + id + kind 全部有效前禁用）+ `Cancel`（重置表单）+ 结果 banner（复用 `CreateLibraryApp` 的 status-line 模式，反馈 created/duplicate/unknownKind/invalid/…）。
+
+MVP 备注：
+- Preview 对所有格式一律渲染 **raw text**（暂无 Typst/LaTeX/MD/SNL 真实渲染管线，后续接 `SNL_Basics`）。
+- SNL 的 **GUI Editor**（Tree View / Line View）延后，先占位 `not implemented`。
+- Contributor / Pointer 编辑器延后，先占位 `not implemented`。
+
+### Fulcrum's Math Notes preset（附录）
+
+`SNL: Initialize Entry Kinds` 的 `Fulcrum's Math Notes` preset 共 12 项，逐条提炼自
+`Fulcrum-Notes-Typst/Fulcrum-Template-Typst/FulcrumCN.typ` 的 `#let *条目 = entry(...)` 定义。
+颜色 hex 与 style 原样照搬；numbering DSL 按 `count_mode` 翻译：`main`(章.节.K)→`1.1.1`、
+`sub`(章.节.K.j)→`1.1.1.1`、`single`(K)→`1`、`none`→`""`。
+
+| id             | name (EN)      | name (CN) | stroke  | background | numbering | style   |
+|----------------|----------------|-----------|---------|------------|-----------|---------|
+| definition     | Definition     | 定义      | #009C27 | #D6FEE0    | 1.1.1     | full    |
+| axiom          | Axiom          | 公理      | #C1C103 | #FFFFAC    | 1         | full    |
+| lemma          | Lemma          | 引理      | #005B9C | #DAF0FF    | 1.1.1     | full    |
+| theorem        | Theorem        | 定理      | #005B9C | #DAF0FF    | 1.1.1     | full    |
+| corollary      | Corollary      | 推论      | #005B9C | #DAF0FF    | 1.1.1.1   | full    |
+| property       | Property       | 性质      | #AC00AF | #FFEDFF    | 1.1.1.1   | full    |
+| remark         | Remark         | 注        | #E07B00 | #FFEBD2    |           | remark  |
+| example        | Example        | 例        | #7700E4 | #EFDFFF    | 1.1.1     | full    |
+| counterexample | Counterexample | 反例      | #D20022 | #FFD6DC    | 1.1.1     | full    |
+| construction   | Construction   | 构造      | #787878 | #F0F0F0    |           | proof   |
+| proof          | Proof          | 证明      | #787878 | #F0F0F0    |           | proof   |
+| problem        | Problem        | 题目      | #005B9C | #DAF0FF    | 1         | problem |
+
+> **刻意丢弃的字段。** FulcrumCN 原定义里的 `counter_name` / `count_mode` / `main_state` /
+> `sub_parent_state`（用于跨 kind 共享计数器的语义，如"引理/定理/例共用同一个 K 计数"）
+> **未**在新 `EntryKind` schema 里表达——当前 `numbering` DSL 只描述层级形状，还不能表达
+> 跨 kind 的 counter 绑定。等 numbering DSL 长出这套能力后再回填。
+>
+> **name 语言说明。** 本仓库当前 preset 落盘用 **中文** display name（与 FulcrumCN 源保持一致、
+> 便于 Fulcrum 直接识别）；上表额外列出对应英文名，供 i18n 落地时参考。
 
 ### 功能块
 

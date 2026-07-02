@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 //   - createEntry.js     -> Create Entry            (src/createEntry.tsx)
 //   - createMacroPackage.js -> Create Macro Package (src/createMacroPackage.tsx)
 //   - packagePanel.js    -> Macro Package Panel     (src/packagePanel.tsx)
+//   - createMacro.js     -> Create Macro editor     (src/createMacro.tsx)
 //
 // `npm run build:webview` runs all passes in sequence (see package.json).
 // Only the first pass (main) clears the output directory.
@@ -28,7 +29,8 @@ type Entry =
   | 'createEntryKind'
   | 'createEntry'
   | 'createMacroPackage'
-  | 'packagePanel';
+  | 'packagePanel'
+  | 'createMacro';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
@@ -38,7 +40,8 @@ const ENTRY_TO_INPUT: Record<Entry, string> = {
   createEntryKind: 'src/createEntryKind.tsx',
   createEntry: 'src/createEntry.tsx',
   createMacroPackage: 'src/createMacroPackage.tsx',
-  packagePanel: 'src/packagePanel.tsx'
+  packagePanel: 'src/packagePanel.tsx',
+  createMacro: 'src/createMacro.tsx'
 };
 
 const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';

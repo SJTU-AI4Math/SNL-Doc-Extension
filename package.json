@@ -49,12 +49,20 @@
       {
         "command": "snlDoc.openMacroPackage",
         "title": "SNL: Open Macro Package…"
+      },
+      {
+        "command": "snlDoc.createMacro",
+        "title": "SNL: Create Macro"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "snlDoc.openMacroPackage",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.createMacro",
           "when": "false"
         }
       ]
@@ -63,7 +71,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel",
+    "build:webview": "npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
     "build:webview:dashboard": "cross-env SNL_WEBVIEW_ENTRY=dashboard vite build --config webview/vite.config.ts",
@@ -72,6 +80,7 @@
     "build:webview:createEntry": "cross-env SNL_WEBVIEW_ENTRY=createEntry vite build --config webview/vite.config.ts",
     "build:webview:createMacroPackage": "cross-env SNL_WEBVIEW_ENTRY=createMacroPackage vite build --config webview/vite.config.ts",
     "build:webview:packagePanel": "cross-env SNL_WEBVIEW_ENTRY=packagePanel vite build --config webview/vite.config.ts",
+    "build:webview:createMacro": "cross-env SNL_WEBVIEW_ENTRY=createMacro vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "setup-snl": "node scripts/setup-submodule.mjs",

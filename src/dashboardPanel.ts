@@ -26,6 +26,8 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  *        | `{ type: 'initEntryKinds' }` (empty-catalog seed button)
  *        | `{ type: 'createEntryKind' }` (add-one button)
  *        | `{ type: 'createEntry' }` (Entries → Create Entry)
+ *        | `{ type: 'createMacroPackage' }` (SNL Macros → Add Package)
+ *        | `{ type: 'openMacroPackage', file }` (SNL Macros → open row)
  *        | `{ type: 'init' }` (placeholder → init command)
  *  - out : `{ type: 'overview', overview: SnlOverview }`
  */
@@ -158,6 +160,16 @@ export class DashboardPanel {
       case 'createEntry':
         await vscode.commands.executeCommand('snlDoc.createEntry');
         return;
+      case 'createMacroPackage':
+        await vscode.commands.executeCommand('snlDoc.createMacroPackage');
+        return;
+      case 'openMacroPackage': {
+        const file = (msg as { file?: unknown }).file;
+        if (typeof file === 'string') {
+          await vscode.commands.executeCommand('snlDoc.openMacroPackage', file);
+        }
+        return;
+      }
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;

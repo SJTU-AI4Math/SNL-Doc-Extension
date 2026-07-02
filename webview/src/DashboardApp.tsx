@@ -20,9 +20,10 @@
 // Create/Initialize actions are not header buttons. Each section instead
 // ends with a full-width dashed "+" bar (see `AddBar`) placed AFTER its
 // list; when a list is empty the section shows only that bar as its
-// call-to-action. SNL Macros has no create action (owner spec) and keeps a
-// Placeholder when empty. The Entries bar lives inside the collapsible body
-// so it only appears when the section is expanded.
+// call-to-action. SNL Macros now follows the same pattern: a "+ Add Package"
+// bar plus click-to-open rows (each opens a per-file PackagePanel). The
+// Entries bar lives inside the collapsible body so it only appears when the
+// section is expanded.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -198,11 +199,18 @@ function Initialized({
             overview.macroPackages.length === 1 ? '' : 's'
           })`}
         />
-        {overview.macroPackages.length === 0 ? (
-          <Placeholder text="No macro packages yet. Drop *.json files under .SNL_Doc/term_macros/ — schema is not finalized; the count is best-effort." />
-        ) : (
-          <MacroPackagesTable packages={overview.macroPackages} />
-        )}
+        {overview.macroPackages.length > 0 ? (
+          <MacroPackagesTable
+            packages={overview.macroPackages}
+            onOpen={(file) =>
+              api?.postMessage({ type: 'openMacroPackage', file })
+            }
+          />
+        ) : null}
+        <AddBar
+          label="Add Package"
+          onActivate={() => api?.postMessage({ type: 'createMacroPackage' })}
+        />
       </section>
 
       {/* === 3. Entries overview =========================================== */}
@@ -360,24 +368,6 @@ function CollapsibleHeader({
   );
 }
 
-function Placeholder({ text }: { text: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        marginTop: '0.5rem',
-        padding: '0.75rem 1rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        borderRadius: '3px',
-        opacity: 0.75,
-        fontStyle: 'italic'
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
 const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',
   borderBottom:
@@ -432,9 +422,11 @@ function LibrariesTable({
 }
 
 function MacroPackagesTable({
-  packages
+  packages,
+  onOpen
 }: {
   packages: MacroPackageSummary[];
+  onOpen: (file: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -453,15 +445,55 @@ function MacroPackagesTable({
       </thead>
       <tbody>
         {packages.map((pkg) => (
-          <tr key={pkg.file}>
-            <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
-            <td style={{ ...CELL, textAlign: 'right' }}>
-              {pkg.macroCount === null ? '—' : pkg.macroCount}
-            </td>
-          </tr>
+          <MacroPackageRow key={pkg.file} pkg={pkg} onOpen={onOpen} />
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * A single clickable macro-package row. Clicking (or Enter/Space) dispatches
+ * `openMacroPackage` for this file. Hover / focus paints the row with the
+ * theme's list-hover background, matching VS Code list affordances.
+ */
+function MacroPackageRow({
+  pkg,
+  onOpen
+}: {
+  pkg: MacroPackageSummary;
+  onOpen: (file: string) => void;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const activate = (): void => onOpen(pkg.file);
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      aria-label={`Open macro package ${pkg.file}`}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{
+        cursor: 'pointer',
+        background: hover
+          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+          : 'transparent'
+      }}
+    >
+      <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
+      <td style={{ ...CELL, textAlign: 'right' }}>
+        {pkg.macroCount === null ? '—' : pkg.macroCount}
+      </td>
+    </tr>
   );
 }
 

@@ -439,3 +439,37 @@ MVP 备注：
 ---
 
 *草拟：彩叶 🍂 ｜ 待子鱼与客户沟通后细化*
+
+---
+
+## 6. 宏管理 UI 层级（Macro Management UI）
+
+Dashboard 的 **SNL Macros** 侧现已与 Entries/Libraries/EntryKinds 对齐，
+形成一条从总览到编辑器的层级流（1 → 2 → 3 → 4）：
+
+1. **Dashboard → SNL Macros section**：列出 `.SNL_Doc/term_macros/*.json`
+   宏包文件；底部有一条全宽虚线 `+ Add Package` 大加号条。
+2. **点击某一行（package）**：派发 `openMacroPackage`，宿主按文件名打开
+   一个 **per-file PackagePanel**（同一文件复用同一面板，不同文件各自成板）。
+   PackagePanel 列出该包内的宏（Preview / Name / Description / Arity / Mode），
+   末尾有 `+ Create Macro` 大加号条；空包只显示大加号条。
+3. **`+ Add Package`**：打开 **CreateMacroPackagePanel** 小表单
+   （文件名 `[a-zA-Z0-9_-]+` / 显示名 / 可选描述，附实时
+   `will create: .SNL_Doc/term_macros/<file>.json` 预览），提交后写入
+   规范化空包并顺带打开其 PackagePanel。
+4. **`+ Create Macro`**：打开 **CreateMacroPanel** 完整编辑器——基本字段、
+   Source（entries/urls 列表编辑）、Behavior（arity/mode 单选 + 条件字段）、
+   7 个内容 Tab，以及核心的 **Live Preview**：把正在编辑的宏注册为
+   `_snl_draft`，空参数槽渲染为半透明编号占位盒（`_snl_arg_N` 注入宏 +
+   `.snl-arg-placeholder` 样式），非空槽解析为真实 SNL 子树，可 +/− 调整
+   变长参数数量并逐一覆写。
+
+**数据形状**：新写入的宏包一律采用规范形状
+`{ version, name, description?, macros: { <name>: SnlMacroWithoutName } }`；
+旧的三种形状（裸数组 / `{macros:[...]}` / 顶层 keyed）仍可读，由
+`readMacroPackage` 归一化为 `SnlMacro[]`。
+
+**安全**：`openMacroPackage` / `createMacro` 命令入口对 `file` 参数强制
+`^[a-zA-Z0-9_-]+(\.json)?$` 校验（防路径穿越）；PackagePanel 的
+FileSystemWatcher 在底层文件被删除时自动 dispose，避免悬挂面板。
+

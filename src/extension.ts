@@ -5,6 +5,8 @@ import { DashboardPanel } from './dashboardPanel';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
 import { CreateEntryPanel } from './createEntryPanel';
+import { CreateMacroPackagePanel } from './createMacroPackagePanel';
+import { PackagePanel } from './packagePanel';
 import { initSnlDoc } from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 
@@ -93,6 +95,33 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const createMacroPackage = vscode.commands.registerCommand(
+    'snlDoc.createMacroPackage',
+    () => {
+      CreateMacroPackagePanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  // No palette entry (see package.json `when: false`): invoked via
+  // executeCommand('snlDoc.openMacroPackage', file) from the Dashboard row
+  // click and from CreateMacroPackagePanel after a successful create.
+  const openMacroPackage = vscode.commands.registerCommand(
+    'snlDoc.openMacroPackage',
+    (file?: unknown) => {
+      if (typeof file !== 'string') {
+        return;
+      }
+      // Path-traversal safety: only bare filenames (optionally `.json`).
+      if (!/^[a-zA-Z0-9_-]+(\.json)?$/.test(file)) {
+        vscode.window.showErrorMessage(
+          `Refusing to open macro package with unsafe name: "${file}".`
+        );
+        return;
+      }
+      PackagePanel.createOrShow(context.extensionUri, file);
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     init,
@@ -100,7 +129,9 @@ export function activate(context: vscode.ExtensionContext): void {
     openDashboard,
     initEntryKinds,
     createEntryKind,
-    createEntry
+    createEntry,
+    createMacroPackage,
+    openMacroPackage
   );
 }
 

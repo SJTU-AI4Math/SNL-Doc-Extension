@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import { addMacro, readMacroPackage, type MacroPackageEntry } from './snlDoc';
+import {
+  addMacro,
+  readMacroKinds,
+  readMacroPackage,
+  type MacroKind,
+  type MacroPackageEntry
+} from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
@@ -97,17 +103,20 @@ export class CreateMacroPanel {
         type: 'context',
         file: `${this.file}.json`,
         packageName: this.file,
-        existingNames: []
+        existingNames: [],
+        macroKinds: []
       });
       return;
     }
+    const macroKinds: MacroKind[] = await readMacroKinds(root);
     const read = await readMacroPackage(root, this.file);
     if (read.status === 'ok') {
       void this.panel.webview.postMessage({
         type: 'context',
         file: `${this.file}.json`,
         packageName: read.pkg.name,
-        existingNames: read.macros.map((m) => m.name)
+        existingNames: read.macros.map((m) => m.name),
+        macroKinds
       });
       return;
     }
@@ -116,7 +125,8 @@ export class CreateMacroPanel {
       type: 'context',
       file: `${this.file}.json`,
       packageName: this.file,
-      existingNames: []
+      existingNames: [],
+      macroKinds
     });
   }
 

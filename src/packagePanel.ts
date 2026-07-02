@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import {
+  readMacroKinds,
   readMacroPackage,
+  type MacroKind,
   type MacroPackageFile,
   type MacroPackageEntry
 } from './snlDoc';
@@ -142,11 +144,13 @@ export class PackagePanel {
       }
       const pkg: MacroPackageFile = result.pkg;
       const macros: MacroPackageEntry[] = result.macros;
+      const macroKinds: MacroKind[] = await readMacroKinds(root);
       void this.panel.webview.postMessage({
         type: 'package',
         pkg,
         file: `${this.file}.json`,
-        macros
+        macros,
+        macroKinds
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

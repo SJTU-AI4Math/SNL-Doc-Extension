@@ -18,7 +18,8 @@ import {
   type SnlMacro,
   type SnlMacroDb,
   type SnlSyntaxTree,
-  type SnlRenderHooks
+  type SnlRenderHooks,
+  type KindPalette
 } from '@snl-basics/react';
 import {
   getVsCodeApi,
@@ -65,6 +66,14 @@ type Mode = 'formula' | 'text' | 'block';
 type Display = 'inline' | 'block';
 type SynthesisMode = 'formula' | 'text';
 
+/** A user-defined macro kind, sent from the extension host with `context`. */
+interface MacroKind {
+  id: string;
+  name: string;
+  description: string;
+  coloring: { stroke: string; background: string };
+}
+
 /**
  * The extended, on-disk macro shape written to a package file. It is a superset
  * of the library's render-only `SnlMacro` (0.4.0): it additionally carries the
@@ -89,6 +98,7 @@ interface ExtendedSnlMacro {
     arity: Arity;
     mode: Mode;
     display?: Display;
+    kind?: string;
     template: string;
     variadic_join?: string;
     react_renderer_key?: string;
@@ -110,6 +120,7 @@ interface ContextMsg {
   file: string;
   packageName: string;
   existingNames: string[];
+  macroKinds?: MacroKind[];
 }
 
 type Incoming =
@@ -176,6 +187,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [file, setFile] = useState('');
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
+  const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -185,6 +197,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [arity, setArity] = useState<Arity>('fixed');
   const [mode, setMode] = useState<Mode>('formula');
   const [display, setDisplay] = useState<Display>('inline');
+  const [kind, setKind] = useState<string>('');
   const [variadicJoin, setVariadicJoin] = useState('');
   const [reactRendererKey, setReactRendererKey] = useState('');
 
@@ -219,6 +232,7 @@ export function CreateMacroApp(): React.ReactElement {
           setFile(msg.file);
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
+          setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           break;
         case 'created':
           setStatus({ kind: 'created', name: msg.name });
@@ -258,13 +272,34 @@ export function CreateMacroApp(): React.ReactElement {
         arity,
         mode,
         display: mode === 'formula' && display === 'block' ? 'block' : undefined,
+        kind: kind || undefined,
         template: content.katex_template,
         variadic_join: variadicJoin || undefined,
         react_renderer_key: reactRendererKey || undefined
       }
     }),
-    [arity, mode, display, content.katex_template, variadicJoin, reactRendererKey]
+    [arity, mode, display, kind, content.katex_template, variadicJoin, reactRendererKey]
   );
+
+  // Build a KindPalette from the user's macro kinds so the live preview frames
+  // the draft macro's subtree with its declared kind's colours. Falls back to
+  // DEFAULT_KIND_PALETTE (SnlSyntaxTreeView merges over the defaults) when the
+  // user hasn't initialized any macro kinds.
+  const kindPalette: KindPalette | undefined = useMemo(() => {
+    if (macroKinds.length === 0) {
+      return undefined;
+    }
+    const palette: KindPalette = {};
+    for (const k of macroKinds) {
+      if (/^[A-Za-z0-9_-]+$/.test(k.id)) {
+        palette[k.id] = {
+          stroke: k.coloring.stroke,
+          background: k.coloring.background
+        };
+      }
+    }
+    return palette;
+  }, [macroKinds]);
 
   const previewMacroDb: SnlMacroDb = useMemo(
     () => ({
@@ -371,6 +406,7 @@ export function CreateMacroApp(): React.ReactElement {
         arity,
         mode,
         display: mode === 'formula' && display === 'block' ? 'block' : undefined,
+        kind: kind || undefined,
         template: content.katex_template,
         variadic_join: variadicJoin ? variadicJoin : undefined,
         react_renderer_key:
@@ -509,6 +545,55 @@ export function CreateMacroApp(): React.ReactElement {
             onChange={(v) => setDisplay(v as Display)}
           />
         ) : null}
+        <div>
+          <label htmlFor="m-kind" style={labelStyle}>
+            Kind
+          </label>
+          <select
+            id="m-kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            style={{ ...inputStyle, width: '14rem' }}
+          >
+            <option value="">(unset)</option>
+            {macroKinds.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.name} ({k.id})
+              </option>
+            ))}
+          </select>
+          {kind ? (
+            (() => {
+              const sel = macroKinds.find((k) => k.id === kind);
+              return sel ? (
+                <span
+                  title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
+                  style={{
+                    display: 'inline-block',
+                    width: '1.4rem',
+                    height: '1.1rem',
+                    marginLeft: '0.5rem',
+                    verticalAlign: 'middle',
+                    borderRadius: '3px',
+                    background: sel.coloring.background,
+                    border: `2px solid ${sel.coloring.stroke}`
+                  }}
+                />
+              ) : null;
+            })()
+          ) : null}
+          {macroKinds.length === 0 ? (
+            <p
+              style={{
+                margin: '0.3rem 0 0',
+                fontSize: '0.8rem',
+                opacity: 0.7
+              }}
+            >
+              No macro kinds defined — initialize them from the Dashboard.
+            </p>
+          ) : null}
+        </div>
         {arity === 'variadic' ? (
           <div>
             <label htmlFor="m-vjoin" style={labelStyle}>
@@ -615,6 +700,7 @@ export function CreateMacroApp(): React.ReactElement {
             macroDb={previewMacroDb}
             query={previewQuery}
             hooks={hooks}
+            kindPalette={kindPalette}
           />
         </PreviewBoundary>
       </div>

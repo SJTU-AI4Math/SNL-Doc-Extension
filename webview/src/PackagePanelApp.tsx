@@ -35,10 +35,18 @@ interface MacroPackageEntry {
   katex_react: {
     arity: 'fixed' | 'variadic';
     mode: 'formula' | 'text' | 'block';
+    kind?: string;
     template: string;
     variadic_join?: string;
     react_renderer_key?: string;
   };
+}
+
+interface MacroKind {
+  id: string;
+  name: string;
+  description: string;
+  coloring: { stroke: string; background: string };
 }
 
 interface MacroPackageFile {
@@ -49,14 +57,26 @@ interface MacroPackageFile {
 }
 
 type Incoming =
-  | { type: 'package'; pkg: MacroPackageFile; file: string; macros: MacroPackageEntry[] }
+  | {
+      type: 'package';
+      pkg: MacroPackageFile;
+      file: string;
+      macros: MacroPackageEntry[];
+      macroKinds?: MacroKind[];
+    }
   | { type: 'noFile'; file: string }
   | { type: 'error'; message: string }
   | undefined;
 
 type Model =
   | { kind: 'loading' }
-  | { kind: 'package'; pkg: MacroPackageFile; file: string; macros: MacroPackageEntry[] }
+  | {
+      kind: 'package';
+      pkg: MacroPackageFile;
+      file: string;
+      macros: MacroPackageEntry[];
+      macroKinds: MacroKind[];
+    }
   | { kind: 'noFile'; file: string }
   | { kind: 'error'; message: string };
 
@@ -78,7 +98,8 @@ export function PackagePanelApp(): React.ReactElement {
             kind: 'package',
             pkg: msg.pkg,
             file: msg.file,
-            macros: Array.isArray(msg.macros) ? msg.macros : []
+            macros: Array.isArray(msg.macros) ? msg.macros : [],
+            macroKinds: Array.isArray(msg.macroKinds) ? msg.macroKinds : []
           });
           break;
         case 'noFile':
@@ -137,7 +158,7 @@ export function PackagePanelApp(): React.ReactElement {
     );
   }
 
-  const { pkg, file, macros } = model;
+  const { pkg, file, macros, macroKinds } = model;
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '58rem' }}>
@@ -159,7 +180,7 @@ export function PackagePanelApp(): React.ReactElement {
       )}
 
       {macros.length > 0 ? (
-        <MacroTable macros={macros} />
+        <MacroTable macros={macros} macroKinds={macroKinds} />
       ) : (
         <p style={{ opacity: 0.7, fontStyle: 'italic', margin: '0.5rem 0' }}>
           No macros yet — use the bar below to create the first one.
@@ -183,7 +204,20 @@ const MONO: React.CSSProperties = {
   fontFamily: 'var(--vscode-editor-font-family, monospace)'
 };
 
-function MacroTable({ macros }: { macros: MacroPackageEntry[] }): React.ReactElement {
+function MacroTable({
+  macros,
+  macroKinds
+}: {
+  macros: MacroPackageEntry[];
+  macroKinds: MacroKind[];
+}): React.ReactElement {
+  const kindById = useMemo(() => {
+    const m = new Map<string, MacroKind>();
+    for (const k of macroKinds) {
+      m.set(k.id, k);
+    }
+    return m;
+  }, [macroKinds]);
   return (
     <table
       style={{
@@ -200,6 +234,7 @@ function MacroTable({ macros }: { macros: MacroPackageEntry[] }): React.ReactEle
           <th style={HEAD}>Description</th>
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
           <th style={{ ...HEAD, width: '4.5rem' }}>Mode</th>
+          <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
         </tr>
       </thead>
       <tbody>
@@ -214,10 +249,55 @@ function MacroTable({ macros }: { macros: MacroPackageEntry[] }): React.ReactEle
             </td>
             <td style={CELL}>{m.katex_react.arity}</td>
             <td style={CELL}>{m.katex_react.mode}</td>
+            <td style={CELL}>
+              <KindCell kindId={m.katex_react.kind} kind={
+                m.katex_react.kind ? kindById.get(m.katex_react.kind) : undefined
+              } />
+            </td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** Renders a macro's kind: swatch + name when known, raw id when the kind
+ *  isn't in the catalog, or "—" when unset. */
+function KindCell({
+  kindId,
+  kind
+}: {
+  kindId?: string;
+  kind?: MacroKind;
+}): React.ReactElement {
+  if (!kindId) {
+    return <span style={{ opacity: 0.5 }}>—</span>;
+  }
+  if (!kind) {
+    return (
+      <span
+        style={{ ...MONO, opacity: 0.75 }}
+        title="No matching macro kind in the catalog"
+      >
+        {kindId}
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+      <span
+        title={`stroke ${kind.coloring.stroke} / background ${kind.coloring.background}`}
+        style={{
+          display: 'inline-block',
+          width: '1.2rem',
+          height: '1rem',
+          borderRadius: '3px',
+          background: kind.coloring.background,
+          border: `2px solid ${kind.coloring.stroke}`
+        }}
+      />
+      {kind.name}
+    </span>
   );
 }
 

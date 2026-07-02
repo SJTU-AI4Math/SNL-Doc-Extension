@@ -79,6 +79,43 @@ git add external/SNL-Basics
 git commit -m "chore: bump SNL-Basics submodule to <new-commit>"
 ```
 
+## Troubleshooting
+
+### The webview shows a stale library (macros look un-migrated)
+
+The `@snl-basics/react` dependency is a **`file:` dependency** pointing at the
+`external/SNL-Basics` submodule. The artifact actually loaded by the webview is
+`external/SNL-Basics/dist-lib/index.js` — a **build artifact** produced by the
+submodule's own `npm run build:lib`, and `.gitignore`'d inside the submodule.
+
+Because it's a build artifact, pulling a new submodule pointer does **not**
+rebuild it:
+
+- `git submodule update` only moves the submodule's checked-out commit — it
+  does **not** run `build:lib`, so `dist-lib/` stays whatever it was.
+- VS Code's **F5 / Run Extension** builds the host + webview but does **not**
+  recurse into the submodule, so it happily packs a stale `dist-lib/`.
+
+The result is a webview that renders with an **old** copy of the library even
+though the submodule pointer moved.
+
+**Fix:** an auto-rebuild script (`scripts/rebuild-snl-basics.mjs`) keeps
+`dist-lib/` fresh. It rebuilds when `dist-lib/index.js` is missing or older than
+the submodule's `src/`, and is wired into:
+
+- `postinstall` — every `npm install` freshens `dist-lib/`,
+- `build:webview` — every F5 / webview pack freshens first,
+- `compile` — the host TS build freshens first.
+
+If you still see a stale library, force a rebuild and reload:
+
+```bash
+npm run snl:rebuild   # rebuilds dist-lib/ unconditionally (--force)
+```
+
+then run **Developer: Reload Window** in VS Code so the webview reloads the
+freshly built library.
+
 ## Macro naming rule (enforced by SNL-Basics parser)
 
 Macro names must match `[A-Za-z0-9_.]+`. No hyphens, no other punctuation.

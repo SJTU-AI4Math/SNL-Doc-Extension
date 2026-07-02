@@ -53,6 +53,13 @@ interface EntryKind {
   style: string;
 }
 
+interface MacroKind {
+  id: string;
+  name: string;
+  description: string;
+  coloring: { stroke: string; background: string };
+}
+
 interface EntryData {
   id: string;
   kind: string;
@@ -75,6 +82,7 @@ interface SnlOverview {
   libraries: LibrarySummary[];
   macroPackages: MacroPackageSummary[];
   entryKinds: EntryKind[];
+  macroKinds: MacroKind[];
 }
 
 const EMPTY: SnlOverview = {
@@ -83,7 +91,8 @@ const EMPTY: SnlOverview = {
   entries: [],
   libraries: [],
   macroPackages: [],
-  entryKinds: []
+  entryKinds: [],
+  macroKinds: []
 };
 
 export function DashboardApp(): React.ReactElement {
@@ -164,6 +173,7 @@ function Initialized({
   const total =
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
   const hasKinds = overview.entryKinds.length > 0;
+  const hasMacroKinds = overview.macroKinds.length > 0;
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '62rem' }}>
@@ -192,7 +202,28 @@ function Initialized({
         )}
       </section>
 
-      {/* === 2. SNL Macros ================================================= */}
+      {/* === 2. SNL Macro Kinds catalog =================================== */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <SectionRow title={`SNL Macro Kinds (${overview.macroKinds.length})`} />
+        {hasMacroKinds ? (
+          <>
+            <MacroKindsTable kinds={overview.macroKinds} />
+            <AddBar
+              label="Create Macro Kind"
+              onActivate={() =>
+                api?.postMessage({ type: 'createMacroKind' })
+              }
+            />
+          </>
+        ) : (
+          <AddBar
+            label="Initialize Macro Kinds"
+            onActivate={() => api?.postMessage({ type: 'initMacroKinds' })}
+          />
+        )}
+      </section>
+
+      {/* === 3. SNL Macros ================================================= */}
       <section style={{ marginBottom: '1.5rem' }}>
         <SectionRow
           title={`SNL Macros (${overview.macroPackages.length} package${
@@ -537,6 +568,48 @@ function EntryKindsTable({
             <td style={{ ...CELL, ...MONO }}>
               {kind.style ? kind.style : '—'}
             </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Macro-kinds catalog table for the Dashboard. */
+function MacroKindsTable({
+  kinds
+}: {
+  kinds: MacroKind[];
+}): React.ReactElement {
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={{ ...HEAD, width: '5.5rem' }}>Preview</th>
+          <th style={HEAD}>Name</th>
+          <th style={HEAD}>ID</th>
+          <th style={HEAD}>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {kinds.map((kind) => (
+          <tr key={kind.id}>
+            <td style={CELL}>
+              <KindPreview
+                stroke={kind.coloring.stroke}
+                background={kind.coloring.background}
+              />
+            </td>
+            <td style={CELL}>{kind.name}</td>
+            <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
+            <td style={CELL}>{kind.description ? kind.description : '—'}</td>
           </tr>
         ))}
       </tbody>

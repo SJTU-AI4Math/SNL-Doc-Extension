@@ -157,6 +157,12 @@ export class DashboardPanel {
       case 'createEntryKind':
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
         return;
+      case 'initMacroKinds':
+        await vscode.commands.executeCommand('snlDoc.initMacroKinds');
+        return;
+      case 'createMacroKind':
+        await vscode.commands.executeCommand('snlDoc.createMacroKind');
+        return;
       case 'createEntry':
         await vscode.commands.executeCommand('snlDoc.createEntry');
         return;

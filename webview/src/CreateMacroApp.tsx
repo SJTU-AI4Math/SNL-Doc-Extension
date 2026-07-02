@@ -45,8 +45,9 @@ for (let i = 0; i < MAX_ARGS; i++) {
       arity: 'fixed',
       mode: 'formula',
       // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
-      // from placeholderNode's node.kind, so the template only draws the box.
-      template: `\\htmlClass{snlArgPlaceholder}{\\boxed{${i}}}`
+      // from placeholderNode's node.kind. The frame is drawn purely in CSS via
+      // \htmlClass{snlArgPlaceholder}; KaTeX just renders the digit (no \boxed).
+      template: `\\htmlClass{snlArgPlaceholder}{${i}}`
     }
   };
 }

@@ -1,27 +1,30 @@
 /* Live-preview styling for the Create Macro editor. */
 
 /*
- * Argument placeholder box: a rounded, translucent slot with the argument
- * index inside. KaTeX's \boxed produces a `<span class="mord fbox">`; the
- * placeholder macro wraps it in \htmlData{...,kind=argPlaceholder} +
- * \htmlClass{snlArgPlaceholder}, so we can target either the data attribute
- * or the class. Names/classes fed to KaTeX must be dash-free (KaTeX treats
+ * Argument placeholder chip: a CSS-drawn frame with the argument index inside.
+ * The placeholder macro renders `\htmlClass{snlArgPlaceholder}{N}` (no KaTeX
+ * \boxed), so KaTeX emits `<span class="enclosing snlArgPlaceholder">N</span>`
+ * and the frame is drawn entirely here. The view layer also auto-wraps it in
+ * \htmlData{...,kind=argPlaceholder}, so we can target either the class or the
+ * data attribute. Names/classes fed to KaTeX must be dash-free (KaTeX treats
  * '-' as binary minus), hence camelCase instead of snl-arg-placeholder.
  */
-.snlArgPlaceholder .boxed,
-.snlArgPlaceholder,
-[data-kind='argPlaceholder'] {
-  opacity: 0.55;
-  border-radius: 6px;
+.snlArgPlaceholder {
+  display: inline-block;
   padding: 0 4px;
-  background: rgba(64, 128, 255, 0.1);
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  color: #d1d5db;
+  background: transparent;
+  vertical-align: baseline;
 }
 
-/* Soften the KaTeX \fbox border so the placeholder reads as a chip. */
-[data-kind='argPlaceholder'] .mord.fbox,
-.snlArgPlaceholder .mord.fbox {
-  border-radius: 6px;
-  border-color: rgba(64, 128, 255, 0.35);
+/* Hover: black text/frame, light grey background. */
+.snlArgPlaceholder:hover,
+[data-kind='argPlaceholder']:hover {
+  color: #111;
+  border-color: #111;
+  background: #e5e7eb;
 }
 
 /* The white preview canvas keeps macro rendering legible in any theme. */

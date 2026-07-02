@@ -461,7 +461,7 @@ Dashboard 的 **SNL Macros** 侧现已与 Entries/Libraries/EntryKinds 对齐，
    Source（entries/urls 列表编辑）、Behavior（arity/mode 单选 + 条件字段）、
    7 个内容 Tab，以及核心的 **Live Preview**：把正在编辑的宏注册为
    `_snl_draft`，空参数槽渲染为半透明编号占位盒（`_snl_arg_N` 注入宏 +
-   `.snl-arg-placeholder` 样式），非空槽解析为真实 SNL 子树，可 +/− 调整
+   `.snlArgPlaceholder` 样式），非空槽解析为真实 SNL 子树，可 +/− 调整
    变长参数数量并逐一覆写。
 
 **数据形状**：新写入的宏包一律采用规范形状

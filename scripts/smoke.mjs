@@ -326,6 +326,21 @@ async function main() {
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
 
+  console.log('\n[21] SNL-Basics submodule DB has camelCase macro names');
+  const macroDb = JSON.parse(
+    await fs.readFile(
+      nodePath.resolve(
+        process.cwd(),
+        'node_modules/@snl-basics/react/dist-lib/snl-macro-db.json'
+      ),
+      'utf8'
+    )
+  );
+  assert(macroDb['DivRing.div.inlineDiv'], 'inlineDiv macro should exist');
+  assert(macroDb['FOL.forall.binderTyped'], 'forall.binderTyped macro should exist');
+  assert(macroDb['FOL.exists.binderTyped'], 'exists.binderTyped macro should exist');
+  assert(!macroDb['DivRing.div.inline-div'], 'old inline-div should not exist');
+
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }
 

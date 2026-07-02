@@ -78,3 +78,12 @@ cd ../..
 git add external/SNL-Basics
 git commit -m "chore: bump SNL-Basics submodule to <new-commit>"
 ```
+
+## Macro naming rule (enforced by SNL-Basics parser)
+
+Macro names must match `[A-Za-z0-9_.]+`. No hyphens, no other punctuation.
+This is because KaTeX's `\htmlData{name=...}` and `\htmlClass{...}` treat `-`
+as binary minus and mangle the attribute value. Use camelCase for compound
+suffixes: `DivRing.div.inlineDiv`, not `DivRing.div.inline-div`. The same
+applies to `kind=` values and CSS classes handed to KaTeX (e.g.
+`kind=argPlaceholder`, `\htmlClass{snlArgPlaceholder}`).

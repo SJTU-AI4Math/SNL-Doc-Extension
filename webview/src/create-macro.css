@@ -27,12 +27,17 @@
   background: #e5e7eb;
 }
 
-/* The white preview canvas keeps macro rendering legible in any theme. */
+/* Theme-aware preview canvas: inherits the editor bg/fg and centers the
+   rendered math horizontally (Fulcrum #1). */
 .snl-preview-canvas {
-  background: #ffffff;
-  color: #111;
+  background: var(--vscode-editor-background, #ffffff);
+  color: var(--vscode-editor-foreground, #111);
   border-radius: 4px;
   padding: 0.9rem;
   min-height: 2.5rem;
   overflow-x: auto;
+  /* Center the rendered math horizontally */
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }

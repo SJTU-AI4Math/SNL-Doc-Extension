@@ -62,6 +62,7 @@ function placeholderNode(i: number): SnlSyntaxTree {
 
 type Arity = 'fixed' | 'variadic';
 type Mode = 'formula' | 'text' | 'block';
+type Display = 'inline' | 'block';
 type SynthesisMode = 'formula' | 'text';
 
 /**
@@ -87,6 +88,7 @@ interface ExtendedSnlMacro {
   katex_react: {
     arity: Arity;
     mode: Mode;
+    display?: Display;
     template: string;
     variadic_join?: string;
     react_renderer_key?: string;
@@ -182,6 +184,7 @@ export function CreateMacroApp(): React.ReactElement {
 
   const [arity, setArity] = useState<Arity>('fixed');
   const [mode, setMode] = useState<Mode>('formula');
+  const [display, setDisplay] = useState<Display>('inline');
   const [variadicJoin, setVariadicJoin] = useState('');
   const [reactRendererKey, setReactRendererKey] = useState('');
 
@@ -254,12 +257,13 @@ export function CreateMacroApp(): React.ReactElement {
       katex_react: {
         arity,
         mode,
+        display: mode === 'formula' && display === 'block' ? 'block' : undefined,
         template: content.katex_template,
         variadic_join: variadicJoin || undefined,
         react_renderer_key: reactRendererKey || undefined
       }
     }),
-    [arity, mode, content.katex_template, variadicJoin, reactRendererKey]
+    [arity, mode, display, content.katex_template, variadicJoin, reactRendererKey]
   );
 
   const previewMacroDb: SnlMacroDb = useMemo(
@@ -366,6 +370,7 @@ export function CreateMacroApp(): React.ReactElement {
       katex_react: {
         arity,
         mode,
+        display: mode === 'formula' && display === 'block' ? 'block' : undefined,
         template: content.katex_template,
         variadic_join: variadicJoin ? variadicJoin : undefined,
         react_renderer_key:
@@ -495,6 +500,15 @@ export function CreateMacroApp(): React.ReactElement {
           options={['formula', 'text', 'block']}
           onChange={(v) => setMode(v as Mode)}
         />
+        {mode === 'formula' ? (
+          <RadioGroup
+            legend="Display"
+            name="display"
+            value={display}
+            options={['inline', 'block']}
+            onChange={(v) => setDisplay(v as Display)}
+          />
+        ) : null}
         {arity === 'variadic' ? (
           <div>
             <label htmlFor="m-vjoin" style={labelStyle}>
@@ -595,7 +609,7 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Live preview --------------------------------------------------- */}
       <SectionHeader title="Preview" />
       <div className="snl-preview-canvas" style={{ marginBottom: '0.75rem' }}>
-        <PreviewBoundary key={content.katex_template + arity + mode}>
+        <PreviewBoundary key={content.katex_template + arity + mode + display}>
           <SnlSyntaxTreeView
             tree={draftTree}
             macroDb={previewMacroDb}

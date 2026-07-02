@@ -62,7 +62,7 @@
     "react": "^19",
     "react-dom": "^19",
     "katex": "^0.16.0",
-    "@snl-basics/react": "file:../SNL-Basics"
+    "@snl-basics/react": "file:./external/SNL-Basics"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -3,3 +3,6 @@ out/
 media/webview/
 *.vsix
 .DS_Store
+external/SNL-Basics/node_modules/
+external/SNL-Basics/dist-lib/
+external/SNL-Basics/dist/

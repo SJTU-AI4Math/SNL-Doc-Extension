@@ -1,0 +1,3 @@
+[submodule "external/SNL-Basics"]
+	path = external/SNL-Basics
+	url = git@github-snl-basics:SJTU-AI4Math/SNL-Basics.git

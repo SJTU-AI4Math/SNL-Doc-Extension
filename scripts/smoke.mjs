@@ -119,6 +119,9 @@ async function main() {
     initSnlDoc,
     applyEntryKindsPreset,
     createEntryKind,
+    readMacroKinds,
+    applyMacroKindsPreset,
+    createMacroKind,
     addEntry,
     readEntries: readEntriesApi,
     readOverview,
@@ -378,6 +381,70 @@ async function main() {
     oldMacro.latex.synthesis.mode === 'formula' &&
       !('output_type' in oldMacro.latex.synthesis),
     'latex.synthesis.output_type moved to .mode'
+  );
+
+  console.log('\n[20c] macro kinds: read empty -> apply preset -> create -> readback');
+  const emptyMacroKinds = await readMacroKinds(root);
+  assert(
+    Array.isArray(emptyMacroKinds) && emptyMacroKinds.length === 0,
+    'readMacroKinds empty -> []'
+  );
+  const mkApplied = await applyMacroKindsPreset(root, 'snl-basics-defaults');
+  assert(
+    mkApplied.status === 'applied',
+    'applyMacroKindsPreset -> applied'
+  );
+  assert(
+    mkApplied.count === 5,
+    `snl-basics-defaults seeds 5 kinds (got ${mkApplied.count})`
+  );
+  const mkAfterPreset = await readMacroKinds(root);
+  assert(mkAfterPreset.length === 5, 'readMacroKinds now 5 after preset');
+  const ruleKind = mkAfterPreset.find((k) => k.id === 'rule');
+  assert(!!ruleKind, 'rule macro kind present');
+  assert(
+    ruleKind.coloring.stroke === '#009C27' &&
+      ruleKind.coloring.background === '#D6FEE0',
+    'rule kind colors match DEFAULT_KIND_PALETTE (green)'
+  );
+
+  const mkPresetAgain = await applyMacroKindsPreset(root, 'snl-basics-defaults');
+  assert(
+    mkPresetAgain.status === 'nonEmpty',
+    'applyMacroKindsPreset re-run -> nonEmpty'
+  );
+
+  const mkCreated = await createMacroKind(root, {
+    id: 'custom',
+    name: 'Custom',
+    description: 'A user-defined macro kind.',
+    coloring: { stroke: '#123456', background: '#abcdef' }
+  });
+  assert(mkCreated.status === 'created', 'createMacroKind -> created');
+  const mkAfterCreate = await readMacroKinds(root);
+  assert(mkAfterCreate.length === 6, 'readMacroKinds now 6 after create');
+  const custom = mkAfterCreate.find((k) => k.id === 'custom');
+  assert(
+    !!custom &&
+      custom.name === 'Custom' &&
+      custom.description === 'A user-defined macro kind.' &&
+      custom.coloring.stroke === '#123456' &&
+      custom.coloring.background === '#abcdef',
+    'created macro kind round-trips'
+  );
+
+  const mkDup = await createMacroKind(root, {
+    id: 'rule',
+    name: 'Dupe',
+    description: '',
+    coloring: { stroke: '#000000', background: '#ffffff' }
+  });
+  assert(mkDup.status === 'duplicate', 'createMacroKind dup id -> duplicate');
+
+  const overviewMk = await readOverview(root);
+  assert(
+    Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 6,
+    'readOverview surfaces 6 macroKinds'
   );
 
   // Cleanup.

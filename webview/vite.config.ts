@@ -27,6 +27,8 @@ type Entry =
   | 'dashboard'
   | 'initEntryKinds'
   | 'createEntryKind'
+  | 'initMacroKinds'
+  | 'createMacroKind'
   | 'createEntry'
   | 'createMacroPackage'
   | 'packagePanel'
@@ -38,6 +40,8 @@ const ENTRY_TO_INPUT: Record<Entry, string> = {
   dashboard: 'src/dashboard.tsx',
   initEntryKinds: 'src/initEntryKinds.tsx',
   createEntryKind: 'src/createEntryKind.tsx',
+  initMacroKinds: 'src/initMacroKinds.tsx',
+  createMacroKind: 'src/createMacroKind.tsx',
   createEntry: 'src/createEntry.tsx',
   createMacroPackage: 'src/createMacroPackage.tsx',
   packagePanel: 'src/packagePanel.tsx',

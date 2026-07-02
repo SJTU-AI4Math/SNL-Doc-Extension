@@ -39,6 +39,14 @@
         "title": "SNL: Create Entry Kind"
       },
       {
+        "command": "snlDoc.initMacroKinds",
+        "title": "SNL: Initialize Macro Kinds"
+      },
+      {
+        "command": "snlDoc.createMacroKind",
+        "title": "SNL: Create Macro Kind"
+      },
+      {
         "command": "snlDoc.createEntry",
         "title": "SNL: Create Entry"
       },
@@ -73,12 +81,14 @@
     "snl:rebuild": "node scripts/rebuild-snl-basics.mjs --force",
     "compile": "node scripts/rebuild-snl-basics.mjs && tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro",
+    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
     "build:webview:dashboard": "cross-env SNL_WEBVIEW_ENTRY=dashboard vite build --config webview/vite.config.ts",
     "build:webview:initEntryKinds": "cross-env SNL_WEBVIEW_ENTRY=initEntryKinds vite build --config webview/vite.config.ts",
     "build:webview:createEntryKind": "cross-env SNL_WEBVIEW_ENTRY=createEntryKind vite build --config webview/vite.config.ts",
+    "build:webview:initMacroKinds": "cross-env SNL_WEBVIEW_ENTRY=initMacroKinds vite build --config webview/vite.config.ts",
+    "build:webview:createMacroKind": "cross-env SNL_WEBVIEW_ENTRY=createMacroKind vite build --config webview/vite.config.ts",
     "build:webview:createEntry": "cross-env SNL_WEBVIEW_ENTRY=createEntry vite build --config webview/vite.config.ts",
     "build:webview:createMacroPackage": "cross-env SNL_WEBVIEW_ENTRY=createMacroPackage vite build --config webview/vite.config.ts",
     "build:webview:packagePanel": "cross-env SNL_WEBVIEW_ENTRY=packagePanel vite build --config webview/vite.config.ts",

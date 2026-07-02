@@ -4,6 +4,8 @@ import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
+import { InitMacroKindsPanel } from './initMacroKindsPanel';
+import { CreateMacroKindPanel } from './createMacroKindPanel';
 import { CreateEntryPanel } from './createEntryPanel';
 import { CreateMacroPackagePanel } from './createMacroPackagePanel';
 import { PackagePanel } from './packagePanel';
@@ -89,6 +91,20 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const initMacroKinds = vscode.commands.registerCommand(
+    'snlDoc.initMacroKinds',
+    () => {
+      InitMacroKindsPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const createMacroKind = vscode.commands.registerCommand(
+    'snlDoc.createMacroKind',
+    () => {
+      CreateMacroKindPanel.createOrShow(context.extensionUri);
+    }
+  );
+
   const createEntry = vscode.commands.registerCommand(
     'snlDoc.createEntry',
     () => {
@@ -148,6 +164,8 @@ export function activate(context: vscode.ExtensionContext): void {
     openDashboard,
     initEntryKinds,
     createEntryKind,
+    initMacroKinds,
+    createMacroKind,
     createEntry,
     createMacroPackage,
     openMacroPackage,

@@ -48,13 +48,15 @@ for (let i = 0; i < MAX_ARGS; i++) {
     katex_react: {
       arity: 'fixed',
       mode: 'math',
-      template: `\\htmlData{name=@NAME@,kind=argPlaceholder}{\\htmlClass{snlArgPlaceholder}{\\boxed{${i}}}}`
+      // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
+      // from placeholderNode's node.kind, so the template only draws the box.
+      template: `\\htmlClass{snlArgPlaceholder}{\\boxed{${i}}}`
     }
   };
 }
 
 function placeholderNode(i: number): SnlSyntaxTree {
-  return { name: `_snl_arg_${i}`, kind: '', mdata: null, children: [] };
+  return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -122,10 +124,10 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600
 };
 
-/** Max @CHILDn@ index in a template, or -1 when none. */
+/** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
 function maxChildIndex(template: string): number {
   let max = -1;
-  const re = /@CHILD(\d+)@/g;
+  const re = /(?<!\\)#(\d+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(template)) !== null) {
     const idx = Number(m[1]);
@@ -540,6 +542,14 @@ export function CreateMacroApp(): React.ReactElement {
         />
       ) : null}
 
+      {activeTab === 'katex_template' ? (
+        <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
+          LaTeX template — use <code>#0</code>, <code>#1</code>, … for children,{' '}
+          <code>#*</code> for variadic. <code>\#</code> = literal <code>#</code>. Do
+          NOT write <code>\htmlData</code> — the wrapper is added automatically.
+        </p>
+      ) : null}
+
       <textarea
         value={content[activeTab]}
         onChange={(e) =>
@@ -547,7 +557,7 @@ export function CreateMacroApp(): React.ReactElement {
         }
         placeholder={
           activeTab === 'katex_template'
-            ? 'e.g. \\htmlData{name=@NAME@,kind=@KIND@}{@CHILD0@ + @CHILD1@}'
+            ? 'e.g. \\frac{#0}{#1}'
             : ''
         }
         rows={6}
@@ -617,7 +627,7 @@ export function CreateMacroApp(): React.ReactElement {
         {argCount === 0 ? (
           <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
             {arity === 'fixed'
-              ? 'No @CHILDn@ placeholders in the template — nothing to fill.'
+              ? 'No #N placeholders in the template — nothing to fill.'
               : 'No argument slots. Use “+ Add Arg”.'}
           </p>
         ) : (

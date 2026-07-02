@@ -286,7 +286,7 @@ async function main() {
     katex_react: {
       arity: 'fixed',
       mode: 'math',
-      template: '\\htmlData{name=@NAME@,kind=@KIND@}{@CHILD0@ + @CHILD1@}'
+      template: '#0 + #1'
     }
   };
 

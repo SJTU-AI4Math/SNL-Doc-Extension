@@ -3,13 +3,14 @@
 /*
  * Argument placeholder box: a rounded, translucent slot with the argument
  * index inside. KaTeX's \boxed produces a `<span class="mord fbox">`; the
- * placeholder macro wraps it in \htmlData{...,kind=arg-placeholder} +
- * \class{snl-arg-placeholder}, so we can target either the data attribute or
- * the class.
+ * placeholder macro wraps it in \htmlData{...,kind=argPlaceholder} +
+ * \htmlClass{snlArgPlaceholder}, so we can target either the data attribute
+ * or the class. Names/classes fed to KaTeX must be dash-free (KaTeX treats
+ * '-' as binary minus), hence camelCase instead of snl-arg-placeholder.
  */
-.snl-arg-placeholder .boxed,
-.snl-arg-placeholder,
-[data-kind='arg-placeholder'] {
+.snlArgPlaceholder .boxed,
+.snlArgPlaceholder,
+[data-kind='argPlaceholder'] {
   opacity: 0.55;
   border-radius: 6px;
   padding: 0 4px;
@@ -17,8 +18,8 @@
 }
 
 /* Soften the KaTeX \fbox border so the placeholder reads as a chip. */
-[data-kind='arg-placeholder'] .mord.fbox,
-.snl-arg-placeholder .mord.fbox {
+[data-kind='argPlaceholder'] .mord.fbox,
+.snlArgPlaceholder .mord.fbox {
   border-radius: 6px;
   border-color: rgba(64, 128, 255, 0.35);
 }

@@ -48,7 +48,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
     katex_react: {
       arity: 'fixed',
       mode: 'math',
-      template: `\\htmlData{name=@NAME@,kind=arg-placeholder}{\\class{snl-arg-placeholder}{\\boxed{${i}}}}`
+      template: `\\htmlData{name=@NAME@,kind=argPlaceholder}{\\htmlClass{snlArgPlaceholder}{\\boxed{${i}}}}`
     }
   };
 }

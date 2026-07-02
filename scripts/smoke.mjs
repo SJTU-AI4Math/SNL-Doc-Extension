@@ -121,7 +121,10 @@ async function main() {
     createEntryKind,
     addEntry,
     readEntries: readEntriesApi,
-    readOverview
+    readOverview,
+    createMacroPackage,
+    readMacroPackage,
+    addMacro
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
@@ -246,6 +249,79 @@ async function main() {
       overview.entries[0].id === entry.id,
     'readOverview.entries is a 1-element array with the same id'
   );
+
+  console.log('\n[11] createMacroPackage(test_pkg)');
+  const mkPkg = await createMacroPackage(root, 'test_pkg', 'Test Package', 'desc');
+  assert(mkPkg.status === 'ok', 'createMacroPackage -> ok');
+  assert(mkPkg.file === 'test_pkg.json', 'createMacroPackage file === test_pkg.json');
+
+  console.log('\n[12] createMacroPackage duplicate');
+  const dupPkg = await createMacroPackage(root, 'test_pkg', 'Test Package');
+  assert(dupPkg.status === 'duplicate', 'createMacroPackage dup -> duplicate');
+
+  console.log('\n[13] createMacroPackage invalid file name');
+  const badPkg = await createMacroPackage(root, '../evil', 'Evil');
+  assert(badPkg.status === 'invalid', 'createMacroPackage bad file -> invalid');
+
+  console.log('\n[14] readMacroPackage empty');
+  const readEmpty = await readMacroPackage(root, 'test_pkg');
+  assert(readEmpty.status === 'ok', 'readMacroPackage -> ok');
+  assert(
+    Array.isArray(readEmpty.macros) && readEmpty.macros.length === 0,
+    'readMacroPackage macros is empty array'
+  );
+  assert(
+    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '1',
+    'readMacroPackage pkg metadata round-trips'
+  );
+
+  const validMacro = {
+    name: 'Add.add.infix',
+    description: 'addition (infix)',
+    source: { entries: [], urls: [] },
+    typst: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
+    latex: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
+    markdown: '',
+    text: '',
+    katex_react: {
+      arity: 'fixed',
+      mode: 'math',
+      template: '\\htmlData{name=@NAME@,kind=@KIND@}{@CHILD0@ + @CHILD1@}'
+    }
+  };
+
+  console.log('\n[15] addMacro valid');
+  const addOkMacro = await addMacro(root, 'test_pkg', validMacro);
+  assert(addOkMacro.status === 'ok', 'addMacro valid -> ok');
+  assert(addOkMacro.name === 'Add.add.infix', 'addMacro returns name');
+
+  console.log('\n[16] addMacro duplicate');
+  const dupMacro = await addMacro(root, 'test_pkg', validMacro);
+  assert(dupMacro.status === 'duplicate', 'addMacro dup -> duplicate');
+
+  console.log('\n[17] addMacro empty template -> invalid');
+  const badMacro = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'Bad.macro',
+    katex_react: { arity: 'fixed', mode: 'math', template: '   ' }
+  });
+  assert(badMacro.status === 'invalid', 'addMacro empty template -> invalid');
+
+  console.log('\n[18] addMacro to missing package -> noFile');
+  const noFileMacro = await addMacro(root, 'no_such_pkg', validMacro);
+  assert(noFileMacro.status === 'noFile', 'addMacro missing pkg -> noFile');
+
+  console.log('\n[19] readMacroPackage after add -> 1 macro');
+  const readOne = await readMacroPackage(root, 'test_pkg.json');
+  assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
+  assert(
+    readOne.macros.length === 1 && readOne.macros[0].name === 'Add.add.infix',
+    'readMacroPackage returns the 1 appended macro (with name)'
+  );
+
+  console.log('\n[20] readMacroPackage missing -> noFile');
+  const readMissing = await readMacroPackage(root, 'does_not_exist');
+  assert(readMissing.status === 'noFile', 'readMacroPackage missing -> noFile');
 
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });

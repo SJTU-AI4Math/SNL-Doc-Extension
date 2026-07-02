@@ -409,6 +409,350 @@ export async function readMacroPackages(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Macro packages: canonical read/write ops
+// ---------------------------------------------------------------------------
+
+/**
+ * SnlMacro v1 — mirrored here to avoid webview↔host type-sync headaches.
+ *
+ * This is a structural copy of `@snl-basics/react`'s `SnlMacro`. We keep a
+ * local copy so the extension host (which cannot import the React/ESM package
+ * cleanly in a CommonJS `out/` build) and the smoke test share one canonical
+ * shape. The webviews still import the real type from `@snl-basics/react`.
+ */
+export interface SnlMacro {
+  name: string;
+  description: string;
+  source: { entries: string[]; urls: string[] };
+  typst: {
+    built_in: string;
+    synthesis: { output_type: 'formula' | 'text'; macro: string };
+  };
+  latex: {
+    built_in: string;
+    synthesis: { output_type: 'formula' | 'text'; macro: string };
+  };
+  markdown: string;
+  text: string;
+  katex_react: {
+    arity: 'fixed' | 'variadic';
+    mode: 'math' | 'text' | 'block';
+    template: string;
+    variadic_join?: string;
+    react_renderer_key?: string;
+  };
+}
+
+/** SnlMacro without redundant `name` (the name is the package-map key). */
+export type SnlMacroWithoutName = Omit<SnlMacro, 'name'>;
+
+/** Full canonical shape of a macro package file. */
+export interface MacroPackageFile {
+  version: string;
+  name: string;
+  description?: string;
+  /** key = macro.name */
+  macros: Record<string, SnlMacroWithoutName>;
+}
+
+/** Bare filename regex for a macro package (no path, no extension). */
+const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+$/;
+
+/** Strip a trailing `.json` (case-insensitive) from a package file argument. */
+function stripJsonExt(file: string): string {
+  return file.replace(/\.json$/i, '');
+}
+
+/** URI of a package file given a bare-or-suffixed filename. */
+function macroPackageUri(
+  workspaceRoot: vscode.Uri,
+  bareOrSuffixed: string
+): vscode.Uri {
+  const bare = stripJsonExt(bareOrSuffixed);
+  return vscode.Uri.joinPath(termMacrosDirUri(workspaceRoot), `${bare}.json`);
+}
+
+/**
+ * Normalize any of the legacy on-disk shapes to a canonical `SnlMacro[]`:
+ *  - bare array of macros                        → as-is
+ *  - `{ macros: [ ... ] }` (array)               → macros
+ *  - `{ macros: { name: macroWithoutName } }`    → canonical keyed map
+ *  - top-level `{ name: macroDef }` (legacy)     → keyed map minus meta keys
+ * Each element is coerced back into a full {@link SnlMacro} with its `name`.
+ */
+function normalizeMacros(raw: unknown): SnlMacro[] {
+  const out: SnlMacro[] = [];
+  const pushKeyed = (map: Record<string, unknown>): void => {
+    for (const [key, val] of Object.entries(map)) {
+      if (val && typeof val === 'object') {
+        const macro = val as Partial<SnlMacro>;
+        out.push({ ...(macro as SnlMacro), name: macro.name ?? key });
+      }
+    }
+  };
+
+  if (Array.isArray(raw)) {
+    for (const m of raw) {
+      if (m && typeof m === 'object' && typeof (m as SnlMacro).name === 'string') {
+        out.push(m as SnlMacro);
+      }
+    }
+    return out;
+  }
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.macros)) {
+      for (const m of obj.macros) {
+        if (
+          m &&
+          typeof m === 'object' &&
+          typeof (m as SnlMacro).name === 'string'
+        ) {
+          out.push(m as SnlMacro);
+        }
+      }
+      return out;
+    }
+    if (obj.macros && typeof obj.macros === 'object') {
+      pushKeyed(obj.macros as Record<string, unknown>);
+      return out;
+    }
+    // Legacy top-level keyed shape — skip reserved metadata keys.
+    const reserved = new Set(['version', 'name', 'description']);
+    const trimmed: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (!reserved.has(k)) {
+        trimmed[k] = v;
+      }
+    }
+    pushKeyed(trimmed);
+    return out;
+  }
+  return out;
+}
+
+/**
+ * Create an EMPTY macro package. Fails when the file already exists.
+ *
+ * `file` is the bare filename (no path, no `.json`), e.g. "mathlib_basic";
+ * `.json` is appended automatically. The written shape is always canonical
+ * (see {@link MacroPackageFile}).
+ */
+export async function createMacroPackage(
+  workspaceRoot: vscode.Uri,
+  file: string,
+  displayName: string,
+  description?: string
+): Promise<
+  | { status: 'ok'; file: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'duplicate'; file: string }
+  | { status: 'invalid'; reason: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+
+  const bare = typeof file === 'string' ? stripJsonExt(file.trim()) : '';
+  if (!MACRO_FILE_RE.test(bare)) {
+    return {
+      status: 'invalid',
+      reason: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+    };
+  }
+  const name = typeof displayName === 'string' ? displayName.trim() : '';
+  if (!name) {
+    return { status: 'invalid', reason: 'displayName is required' };
+  }
+
+  const target = macroPackageUri(workspaceRoot, bare);
+  if (await exists(target)) {
+    return { status: 'duplicate', file: `${bare}.json` };
+  }
+
+  const pkg: MacroPackageFile = {
+    version: '1',
+    name,
+    macros: {}
+  };
+  const desc = typeof description === 'string' ? description.trim() : '';
+  if (desc) {
+    pkg.description = desc;
+  }
+
+  try {
+    // Ensure the term_macros/ directory exists first.
+    await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
+    await fsApi.writeFile(target, jsonBytes(pkg));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', file: `${bare}.json` };
+}
+
+/**
+ * Read a macro package file, normalizing any legacy shape to a canonical
+ * `SnlMacro[]`. Missing file → `noFile`. Corrupt JSON → `error`.
+ *
+ * `file` may be a bare filename or carry the `.json` suffix.
+ */
+export async function readMacroPackage(
+  workspaceRoot: vscode.Uri,
+  file: string
+): Promise<
+  | { status: 'ok'; pkg: MacroPackageFile; macros: SnlMacro[] }
+  | { status: 'noFile' }
+  | { status: 'error'; message: string }
+> {
+  const bare = typeof file === 'string' ? stripJsonExt(file) : '';
+  const target = macroPackageUri(workspaceRoot, bare);
+  if (!(await exists(target))) {
+    return { status: 'noFile' };
+  }
+
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(target);
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+
+  const macros = normalizeMacros(raw);
+
+  // Recover the package metadata (name/description/version) best-effort.
+  let pkgName = bare;
+  let pkgVersion = '1';
+  let pkgDescription: string | undefined;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.name === 'string' && obj.name.trim()) {
+      pkgName = obj.name;
+    }
+    if (typeof obj.version === 'string' && obj.version.trim()) {
+      pkgVersion = obj.version;
+    }
+    if (typeof obj.description === 'string' && obj.description.trim()) {
+      pkgDescription = obj.description;
+    }
+  }
+
+  const macrosMap: Record<string, SnlMacroWithoutName> = {};
+  for (const m of macros) {
+    const { name, ...rest } = m;
+    macrosMap[name] = rest;
+  }
+
+  const pkg: MacroPackageFile = {
+    version: pkgVersion,
+    name: pkgName,
+    macros: macrosMap
+  };
+  if (pkgDescription) {
+    pkg.description = pkgDescription;
+  }
+
+  return { status: 'ok', pkg, macros };
+}
+
+/** Validate the structural invariants of a single {@link SnlMacro}. */
+function validateMacro(macro: SnlMacro): string | null {
+  const name = typeof macro?.name === 'string' ? macro.name.trim() : '';
+  if (!name) {
+    return 'name is required';
+  }
+  const kr = macro?.katex_react;
+  if (!kr || typeof kr !== 'object') {
+    return 'katex_react is required';
+  }
+  if (typeof kr.template !== 'string' || kr.template.trim().length === 0) {
+    return 'katex_react.template is required';
+  }
+  if (kr.arity !== 'fixed' && kr.arity !== 'variadic') {
+    return "katex_react.arity must be 'fixed' or 'variadic'";
+  }
+  if (kr.mode !== 'math' && kr.mode !== 'text' && kr.mode !== 'block') {
+    return "katex_react.mode must be 'math', 'text' or 'block'";
+  }
+  const src = macro?.source;
+  if (!src || typeof src !== 'object') {
+    return 'source is required';
+  }
+  const isStrArray = (v: unknown): boolean =>
+    Array.isArray(v) && v.every((s) => typeof s === 'string');
+  if (!isStrArray(src.entries)) {
+    return 'source.entries must be an array of strings';
+  }
+  if (!isStrArray(src.urls)) {
+    return 'source.urls must be an array of strings';
+  }
+  return null;
+}
+
+/**
+ * Append a macro to a package, deduping by `macro.name`. Writes the canonical
+ * shape back. Missing file → `noFile`; the caller is expected to create the
+ * package first via {@link createMacroPackage}.
+ */
+export async function addMacro(
+  workspaceRoot: vscode.Uri,
+  file: string,
+  macro: SnlMacro
+): Promise<
+  | { status: 'ok'; name: string }
+  | { status: 'noFile' }
+  | { status: 'duplicate'; name: string }
+  | { status: 'invalid'; reason: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+
+  const reason = validateMacro(macro);
+  if (reason) {
+    return { status: 'invalid', reason };
+  }
+
+  const read = await readMacroPackage(workspaceRoot, file);
+  if (read.status === 'noFile') {
+    return { status: 'noFile' };
+  }
+  if (read.status === 'error') {
+    return { status: 'error', message: read.message };
+  }
+
+  const name = macro.name.trim();
+  if (Object.prototype.hasOwnProperty.call(read.pkg.macros, name)) {
+    return { status: 'duplicate', name };
+  }
+
+  const { name: _drop, ...rest } = macro;
+  const next: MacroPackageFile = {
+    ...read.pkg,
+    macros: { ...read.pkg.macros, [name]: { ...rest } }
+  };
+
+  try {
+    await fsApi.writeFile(
+      macroPackageUri(workspaceRoot, file),
+      jsonBytes(next)
+    );
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', name };
+}
+
 /** Dashboard snapshot data. Counts are best-effort: a missing/corrupt file
  *  yields `null` for its count instead of crashing the panel. */
 export interface LibrarySummary {

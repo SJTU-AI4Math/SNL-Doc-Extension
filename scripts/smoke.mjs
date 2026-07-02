@@ -279,13 +279,13 @@ async function main() {
     name: 'Add.add.infix',
     description: 'addition (infix)',
     source: { entries: [], urls: [] },
-    typst: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
-    latex: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
+    typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
+    latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
     markdown: '',
     text: '',
     katex_react: {
       arity: 'fixed',
-      mode: 'math',
+      mode: 'formula',
       template: '#0 + #1'
     }
   };
@@ -303,9 +303,20 @@ async function main() {
   const badMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.macro',
-    katex_react: { arity: 'fixed', mode: 'math', template: '   ' }
+    katex_react: { arity: 'fixed', mode: 'formula', template: '   ' }
   });
   assert(badMacro.status === 'invalid', 'addMacro empty template -> invalid');
+
+  console.log('\n[17b] addMacro with legacy mode "math" -> invalid');
+  const legacyModeMacro = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'Legacy.mode',
+    katex_react: { arity: 'fixed', mode: 'math', template: '#0' }
+  });
+  assert(
+    legacyModeMacro.status === 'invalid',
+    'addMacro legacy mode:"math" -> invalid (renamed to formula)'
+  );
 
   console.log('\n[18] addMacro to missing package -> noFile');
   const noFileMacro = await addMacro(root, 'no_such_pkg', validMacro);
@@ -322,6 +333,52 @@ async function main() {
   console.log('\n[20] readMacroPackage missing -> noFile');
   const readMissing = await readMacroPackage(root, 'does_not_exist');
   assert(readMissing.status === 'noFile', 'readMacroPackage missing -> noFile');
+
+  console.log('\n[20b] readMacroPackage normalizes a legacy-shape package on load');
+  // Write an OLD-shape package straight to disk: katex_react.mode === 'math'
+  // and typst/latex.synthesis.output_type (pre-0.4.0). readMacroPackage must
+  // normalize it in-memory to mode:'formula' + synthesis.mode.
+  const legacyPkgUri = Uri.joinPath(
+    root,
+    '.SNL_Doc',
+    'term_macros',
+    'legacy_pkg.json'
+  );
+  const legacyPkg = {
+    version: '1',
+    name: 'Legacy Package',
+    macros: {
+      'Old.macro': {
+        description: 'legacy shape',
+        source: { entries: [], urls: [] },
+        typst: { built_in: '', synthesis: { output_type: 'text', macro: 't' } },
+        latex: { built_in: '', synthesis: { output_type: 'formula', macro: 'l' } },
+        markdown: '',
+        text: '',
+        katex_react: { arity: 'fixed', mode: 'math', template: '#0' }
+      }
+    }
+  };
+  await fs.mkdir(nodePath.dirname(legacyPkgUri.fsPath), { recursive: true });
+  await fs.writeFile(legacyPkgUri.fsPath, JSON.stringify(legacyPkg, null, 2));
+  const readLegacy = await readMacroPackage(root, 'legacy_pkg');
+  assert(readLegacy.status === 'ok', 'readMacroPackage legacy -> ok');
+  const oldMacro = readLegacy.macros.find((m) => m.name === 'Old.macro');
+  assert(!!oldMacro, 'legacy macro present after normalization');
+  assert(
+    oldMacro.katex_react.mode === 'formula',
+    `katex_react.mode normalized 'math'->'formula' (got ${oldMacro.katex_react.mode})`
+  );
+  assert(
+    oldMacro.typst.synthesis.mode === 'text' &&
+      !('output_type' in oldMacro.typst.synthesis),
+    'typst.synthesis.output_type moved to .mode'
+  );
+  assert(
+    oldMacro.latex.synthesis.mode === 'formula' &&
+      !('output_type' in oldMacro.latex.synthesis),
+    'latex.synthesis.output_type moved to .mode'
+  );
 
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { addMacro, readMacroPackage, type SnlMacro } from './snlDoc';
+import { addMacro, readMacroPackage, type MacroPackageEntry } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
@@ -15,12 +15,12 @@ function stripJsonExt(file: string): string {
  *
  * On `ready`, the host reads the target package and sends the existing macro
  * names (so the editor can warn about duplicates) plus the package display
- * name. On `create`, the assembled {@link SnlMacro} is appended via
+ * name. On `create`, the assembled {@link MacroPackageEntry} is appended via
  * {@link addMacro}.
  *
  * Message protocol with the webview (`createMacro.js`):
  *  - in  : `{ type: 'ready' }`
- *        | `{ type: 'create', macro: SnlMacro }`
+ *        | `{ type: 'create', macro: MacroPackageEntry }`
  *  - out : `{ type: 'context', file, packageName, existingNames }`
  *        | `{ type: 'created', name }`
  *        | `{ type: 'duplicate', name, message }`
@@ -122,7 +122,7 @@ export class CreateMacroPanel {
 
   private async handleMessage(message: unknown): Promise<void> {
     const msg = message as
-      | { type?: string; macro?: SnlMacro }
+      | { type?: string; macro?: MacroPackageEntry }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;

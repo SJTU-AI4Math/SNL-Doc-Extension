@@ -41,13 +41,9 @@ for (let i = 0; i < MAX_ARGS; i++) {
     name: `_snl_arg_${i}`,
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
-    typst: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
-    latex: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
-    markdown: '',
-    text: '',
     katex_react: {
       arity: 'fixed',
-      mode: 'math',
+      mode: 'formula',
       // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
       // from placeholderNode's node.kind, so the template only draws the box.
       template: `\\htmlClass{snlArgPlaceholder}{\\boxed{${i}}}`
@@ -64,8 +60,37 @@ function placeholderNode(i: number): SnlSyntaxTree {
 // ---------------------------------------------------------------------------
 
 type Arity = 'fixed' | 'variadic';
-type Mode = 'math' | 'text' | 'block';
-type OutputType = 'formula' | 'text';
+type Mode = 'formula' | 'text' | 'block';
+type SynthesisMode = 'formula' | 'text';
+
+/**
+ * The extended, on-disk macro shape written to a package file. It is a superset
+ * of the library's render-only `SnlMacro` (0.4.0): it additionally carries the
+ * consumer-owned output backends (typst / latex / markdown / text). The preview
+ * DB uses the slim lib `SnlMacro`; only the save-to-disk path uses this shape.
+ */
+interface ExtendedSnlMacro {
+  name: string;
+  description: string;
+  source: { entries: string[]; urls: string[] };
+  typst: {
+    built_in: string;
+    synthesis: { mode: SynthesisMode; macro: string };
+  };
+  latex: {
+    built_in: string;
+    synthesis: { mode: SynthesisMode; macro: string };
+  };
+  markdown: string;
+  text: string;
+  katex_react: {
+    arity: Arity;
+    mode: Mode;
+    template: string;
+    variadic_join?: string;
+    react_renderer_key?: string;
+  };
+}
 
 type Status =
   | { kind: 'idle' }
@@ -155,7 +180,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [sourceUrls, setSourceUrls] = useState<string[]>(['']);
 
   const [arity, setArity] = useState<Arity>('fixed');
-  const [mode, setMode] = useState<Mode>('math');
+  const [mode, setMode] = useState<Mode>('formula');
   const [variadicJoin, setVariadicJoin] = useState('');
   const [reactRendererKey, setReactRendererKey] = useState('');
 
@@ -168,8 +193,8 @@ export function CreateMacroApp(): React.ReactElement {
     markdown: '',
     text: ''
   });
-  const [typstOutputType, setTypstOutputType] = useState<OutputType>('formula');
-  const [latexOutputType, setLatexOutputType] = useState<OutputType>('formula');
+  const [typstSynthesisMode, setTypstSynthesisMode] = useState<SynthesisMode>('formula');
+  const [latexSynthesisMode, setLatexSynthesisMode] = useState<SynthesisMode>('formula');
 
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
 
@@ -225,10 +250,6 @@ export function CreateMacroApp(): React.ReactElement {
       name: DRAFT_KEY,
       description: '',
       source: { entries: [], urls: [] },
-      typst: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
-      latex: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
-      markdown: '',
-      text: '',
       katex_react: {
         arity,
         mode,
@@ -324,7 +345,7 @@ export function CreateMacroApp(): React.ReactElement {
     if (!canCreate) {
       return;
     }
-    const macro: SnlMacro = {
+    const macro: ExtendedSnlMacro = {
       name: trimmedName,
       description: description.trim(),
       source: {
@@ -333,11 +354,11 @@ export function CreateMacroApp(): React.ReactElement {
       },
       typst: {
         built_in: content.typst_built_in,
-        synthesis: { output_type: typstOutputType, macro: content.typst_synthesis }
+        synthesis: { mode: typstSynthesisMode, macro: content.typst_synthesis }
       },
       latex: {
         built_in: content.latex_built_in,
-        synthesis: { output_type: latexOutputType, macro: content.latex_synthesis }
+        synthesis: { mode: latexSynthesisMode, macro: content.latex_synthesis }
       },
       markdown: content.markdown,
       text: content.text,
@@ -347,7 +368,7 @@ export function CreateMacroApp(): React.ReactElement {
         template: content.katex_template,
         variadic_join: variadicJoin ? variadicJoin : undefined,
         react_renderer_key:
-          mode !== 'math' && reactRendererKey ? reactRendererKey : undefined
+          mode !== 'formula' && reactRendererKey ? reactRendererKey : undefined
       }
     };
     setStatus({ kind: 'creating' });
@@ -470,7 +491,7 @@ export function CreateMacroApp(): React.ReactElement {
           legend="Mode"
           name="mode"
           value={mode}
-          options={['math', 'text', 'block']}
+          options={['formula', 'text', 'block']}
           onChange={(v) => setMode(v as Mode)}
         />
         {arity === 'variadic' ? (
@@ -488,7 +509,7 @@ export function CreateMacroApp(): React.ReactElement {
             />
           </div>
         ) : null}
-        {mode !== 'math' ? (
+        {mode !== 'formula' ? (
           <div>
             <label htmlFor="m-rkey" style={labelStyle}>
               React renderer key
@@ -528,17 +549,17 @@ export function CreateMacroApp(): React.ReactElement {
       </div>
 
       {activeTab === 'typst_synthesis' ? (
-        <OutputTypeRow
-          name="typst-output-type"
-          value={typstOutputType}
-          onChange={setTypstOutputType}
+        <SynthesisModeRow
+          name="typst-synthesis-mode"
+          value={typstSynthesisMode}
+          onChange={setTypstSynthesisMode}
         />
       ) : null}
       {activeTab === 'latex_synthesis' ? (
-        <OutputTypeRow
-          name="latex-output-type"
-          value={latexOutputType}
-          onChange={setLatexOutputType}
+        <SynthesisModeRow
+          name="latex-synthesis-mode"
+          value={latexSynthesisMode}
+          onChange={setLatexSynthesisMode}
         />
       ) : null}
 
@@ -824,23 +845,23 @@ function RadioGroup({
   );
 }
 
-function OutputTypeRow({
+function SynthesisModeRow({
   name,
   value,
   onChange
 }: {
   name: string;
-  value: OutputType;
-  onChange: (v: OutputType) => void;
+  value: SynthesisMode;
+  onChange: (v: SynthesisMode) => void;
 }): React.ReactElement {
   return (
     <div style={{ marginBottom: '0.5rem' }}>
       <RadioGroup
-        legend="Synthesis output_type"
+        legend="Synthesis mode"
         name={name}
         value={value}
         options={['formula', 'text']}
-        onChange={(v) => onChange(v as OutputType)}
+        onChange={(v) => onChange(v as SynthesisMode)}
       />
     </div>
   );

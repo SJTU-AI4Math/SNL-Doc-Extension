@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import {
   readMacroPackage,
   type MacroPackageFile,
-  type SnlMacro
+  type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
@@ -141,7 +141,7 @@ export class PackagePanel {
         return;
       }
       const pkg: MacroPackageFile = result.pkg;
-      const macros: SnlMacro[] = result.macros;
+      const macros: MacroPackageEntry[] = result.macros;
       void this.panel.webview.postMessage({
         type: 'package',
         pkg,

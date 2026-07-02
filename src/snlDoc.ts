@@ -414,38 +414,41 @@ export async function readMacroPackages(
 // ---------------------------------------------------------------------------
 
 /**
- * SnlMacro v1 — mirrored here to avoid webview↔host type-sync headaches.
+ * Extended, on-disk macro shape — a superset of `@snl-basics/react`'s
+ * render-only `SnlMacro` (0.4.0). It additionally carries the consumer-owned
+ * output backends (typst / latex / markdown / text) that this extension writes
+ * to disk. Renamed from `SnlMacro` to signal it is NOT the library type.
  *
- * This is a structural copy of `@snl-basics/react`'s `SnlMacro`. We keep a
- * local copy so the extension host (which cannot import the React/ESM package
- * cleanly in a CommonJS `out/` build) and the smoke test share one canonical
- * shape. The webviews still import the real type from `@snl-basics/react`.
+ * We keep a local copy so the extension host (which cannot import the React/ESM
+ * package cleanly in a CommonJS `out/` build) and the smoke test share one
+ * canonical shape. The webviews import the real render type from
+ * `@snl-basics/react` for previews and keep their own extended copy for saves.
  */
-export interface SnlMacro {
+export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
   typst: {
     built_in: string;
-    synthesis: { output_type: 'formula' | 'text'; macro: string };
+    synthesis: { mode: 'formula' | 'text'; macro: string };
   };
   latex: {
     built_in: string;
-    synthesis: { output_type: 'formula' | 'text'; macro: string };
+    synthesis: { mode: 'formula' | 'text'; macro: string };
   };
   markdown: string;
   text: string;
   katex_react: {
     arity: 'fixed' | 'variadic';
-    mode: 'math' | 'text' | 'block';
+    mode: 'formula' | 'text' | 'block';
     template: string;
     variadic_join?: string;
     react_renderer_key?: string;
   };
 }
 
-/** SnlMacro without redundant `name` (the name is the package-map key). */
-export type SnlMacroWithoutName = Omit<SnlMacro, 'name'>;
+/** MacroPackageEntry without redundant `name` (the name is the package-map key). */
+export type MacroPackageEntryWithoutName = Omit<MacroPackageEntry, 'name'>;
 
 /** Full canonical shape of a macro package file. */
 export interface MacroPackageFile {
@@ -453,7 +456,7 @@ export interface MacroPackageFile {
   name: string;
   description?: string;
   /** key = macro.name */
-  macros: Record<string, SnlMacroWithoutName>;
+  macros: Record<string, MacroPackageEntryWithoutName>;
 }
 
 /** Bare filename regex for a macro package (no path, no extension). */
@@ -474,28 +477,61 @@ function macroPackageUri(
 }
 
 /**
- * Normalize any of the legacy on-disk shapes to a canonical `SnlMacro[]`:
+ * On-load migration for a single macro: normalize the legacy on-disk shape to
+ * the 0.4.0 naming. Mutates a shallow copy and returns it. Idempotent.
+ *  - `katex_react.mode === 'math'` → `'formula'`
+ *  - `typst.synthesis.output_type` → `typst.synthesis.mode` (delete old key)
+ *  - `latex.synthesis.output_type` → `latex.synthesis.mode` (delete old key)
+ * Write-back on the next save uses the new shape; there is no forced disk
+ * migration — old packages keep working, normalized in-memory on read.
+ */
+function migrateLegacyMacro(input: unknown): MacroPackageEntry {
+  const macro = { ...(input as Record<string, unknown>) } as Record<string, unknown>;
+
+  const kr = macro.katex_react as { mode?: unknown } | undefined;
+  if (kr && kr.mode === 'math') {
+    macro.katex_react = { ...kr, mode: 'formula' };
+  }
+
+  for (const field of ['typst', 'latex'] as const) {
+    const backend = macro[field] as
+      | { synthesis?: { output_type?: unknown; mode?: unknown } & Record<string, unknown> }
+      | undefined;
+    const synthesis = backend?.synthesis;
+    if (synthesis && 'output_type' in synthesis && !('mode' in synthesis)) {
+      const { output_type, ...rest } = synthesis;
+      macro[field] = { ...backend, synthesis: { ...rest, mode: output_type } };
+    }
+  }
+
+  return macro as unknown as MacroPackageEntry;
+}
+
+/**
+ * Normalize any of the legacy on-disk shapes to a canonical
+ * `MacroPackageEntry[]`:
  *  - bare array of macros                        → as-is
  *  - `{ macros: [ ... ] }` (array)               → macros
  *  - `{ macros: { name: macroWithoutName } }`    → canonical keyed map
  *  - top-level `{ name: macroDef }` (legacy)     → keyed map minus meta keys
- * Each element is coerced back into a full {@link SnlMacro} with its `name`.
+ * Each element is coerced back into a full {@link MacroPackageEntry} with its
+ * `name` and passed through {@link migrateLegacyMacro} (0.4.0 field renames).
  */
-function normalizeMacros(raw: unknown): SnlMacro[] {
-  const out: SnlMacro[] = [];
+function normalizeMacros(raw: unknown): MacroPackageEntry[] {
+  const out: MacroPackageEntry[] = [];
   const pushKeyed = (map: Record<string, unknown>): void => {
     for (const [key, val] of Object.entries(map)) {
       if (val && typeof val === 'object') {
-        const macro = val as Partial<SnlMacro>;
-        out.push({ ...(macro as SnlMacro), name: macro.name ?? key });
+        const macro = migrateLegacyMacro(val);
+        out.push({ ...macro, name: macro.name ?? key });
       }
     }
   };
 
   if (Array.isArray(raw)) {
     for (const m of raw) {
-      if (m && typeof m === 'object' && typeof (m as SnlMacro).name === 'string') {
-        out.push(m as SnlMacro);
+      if (m && typeof m === 'object' && typeof (m as MacroPackageEntry).name === 'string') {
+        out.push(migrateLegacyMacro(m));
       }
     }
     return out;
@@ -507,9 +543,9 @@ function normalizeMacros(raw: unknown): SnlMacro[] {
         if (
           m &&
           typeof m === 'object' &&
-          typeof (m as SnlMacro).name === 'string'
+          typeof (m as MacroPackageEntry).name === 'string'
         ) {
-          out.push(m as SnlMacro);
+          out.push(migrateLegacyMacro(m));
         }
       }
       return out;
@@ -598,7 +634,7 @@ export async function createMacroPackage(
 
 /**
  * Read a macro package file, normalizing any legacy shape to a canonical
- * `SnlMacro[]`. Missing file → `noFile`. Corrupt JSON → `error`.
+ * `MacroPackageEntry[]`. Missing file → `noFile`. Corrupt JSON → `error`.
  *
  * `file` may be a bare filename or carry the `.json` suffix.
  */
@@ -606,7 +642,7 @@ export async function readMacroPackage(
   workspaceRoot: vscode.Uri,
   file: string
 ): Promise<
-  | { status: 'ok'; pkg: MacroPackageFile; macros: SnlMacro[] }
+  | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
   | { status: 'noFile' }
   | { status: 'error'; message: string }
 > {
@@ -645,7 +681,7 @@ export async function readMacroPackage(
     }
   }
 
-  const macrosMap: Record<string, SnlMacroWithoutName> = {};
+  const macrosMap: Record<string, MacroPackageEntryWithoutName> = {};
   for (const m of macros) {
     const { name, ...rest } = m;
     macrosMap[name] = rest;
@@ -663,8 +699,8 @@ export async function readMacroPackage(
   return { status: 'ok', pkg, macros };
 }
 
-/** Validate the structural invariants of a single {@link SnlMacro}. */
-function validateMacro(macro: SnlMacro): string | null {
+/** Validate the structural invariants of a single {@link MacroPackageEntry}. */
+function validateMacro(macro: MacroPackageEntry): string | null {
   const name = typeof macro?.name === 'string' ? macro.name.trim() : '';
   if (!name) {
     return 'name is required';
@@ -679,8 +715,8 @@ function validateMacro(macro: SnlMacro): string | null {
   if (kr.arity !== 'fixed' && kr.arity !== 'variadic') {
     return "katex_react.arity must be 'fixed' or 'variadic'";
   }
-  if (kr.mode !== 'math' && kr.mode !== 'text' && kr.mode !== 'block') {
-    return "katex_react.mode must be 'math', 'text' or 'block'";
+  if (kr.mode !== 'formula' && kr.mode !== 'text' && kr.mode !== 'block') {
+    return "katex_react.mode must be 'formula', 'text' or 'block'";
   }
   const src = macro?.source;
   if (!src || typeof src !== 'object') {
@@ -705,7 +741,7 @@ function validateMacro(macro: SnlMacro): string | null {
 export async function addMacro(
   workspaceRoot: vscode.Uri,
   file: string,
-  macro: SnlMacro
+  macro: MacroPackageEntry
 ): Promise<
   | { status: 'ok'; name: string }
   | { status: 'noFile' }

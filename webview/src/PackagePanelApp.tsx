@@ -15,23 +15,26 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
-interface SnlMacro {
+// Extended, on-disk macro shape — a superset of the library's render-only
+// `SnlMacro` (0.4.0). It keeps the consumer-owned output backends (typst /
+// latex / markdown / text) that this panel reads back from a package file.
+interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
   typst: {
     built_in: string;
-    synthesis: { output_type: 'formula' | 'text'; macro: string };
+    synthesis: { mode: 'formula' | 'text'; macro: string };
   };
   latex: {
     built_in: string;
-    synthesis: { output_type: 'formula' | 'text'; macro: string };
+    synthesis: { mode: 'formula' | 'text'; macro: string };
   };
   markdown: string;
   text: string;
   katex_react: {
     arity: 'fixed' | 'variadic';
-    mode: 'math' | 'text' | 'block';
+    mode: 'formula' | 'text' | 'block';
     template: string;
     variadic_join?: string;
     react_renderer_key?: string;
@@ -42,18 +45,18 @@ interface MacroPackageFile {
   version: string;
   name: string;
   description?: string;
-  macros: Record<string, Omit<SnlMacro, 'name'>>;
+  macros: Record<string, Omit<MacroPackageEntry, 'name'>>;
 }
 
 type Incoming =
-  | { type: 'package'; pkg: MacroPackageFile; file: string; macros: SnlMacro[] }
+  | { type: 'package'; pkg: MacroPackageFile; file: string; macros: MacroPackageEntry[] }
   | { type: 'noFile'; file: string }
   | { type: 'error'; message: string }
   | undefined;
 
 type Model =
   | { kind: 'loading' }
-  | { kind: 'package'; pkg: MacroPackageFile; file: string; macros: SnlMacro[] }
+  | { kind: 'package'; pkg: MacroPackageFile; file: string; macros: MacroPackageEntry[] }
   | { kind: 'noFile'; file: string }
   | { kind: 'error'; message: string };
 
@@ -180,7 +183,7 @@ const MONO: React.CSSProperties = {
   fontFamily: 'var(--vscode-editor-font-family, monospace)'
 };
 
-function MacroTable({ macros }: { macros: SnlMacro[] }): React.ReactElement {
+function MacroTable({ macros }: { macros: MacroPackageEntry[] }): React.ReactElement {
   return (
     <table
       style={{

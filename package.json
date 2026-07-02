@@ -56,6 +56,8 @@
     "build:webview:createEntry": "cross-env SNL_WEBVIEW_ENTRY=createEntry vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
+    "setup-snl": "node scripts/setup-submodule.mjs",
+    "rebuild-snl": "cd external/SNL-Basics && npm run build:lib",
     "vscode:prepublish": "npm run compile && npm run build:webview"
   },
   "dependencies": {

@@ -47,10 +47,14 @@ function newestMtime(dir) {
 
 function run(args) {
   console.log(`[snl-rebuild] > ${npmBin} ${args.join(' ')}  (in ${submoduleDir})`)
+  // Windows note: Node ≥ 18.20.4 / 20.15.1 (CVE-2024-27980) refuses to spawn
+  // `.bat`/`.cmd` files with `shell: false` and returns EINVAL. On Windows we
+  // must use `shell: true` — safe here because `args` is a fixed compile-time
+  // whitelist (`['ci']` / `['run', 'build:lib']`), no user input to inject.
   const res = spawnSync(npmBin, args, {
     cwd: submoduleDir,
     stdio: 'inherit',
-    shell: false,
+    shell: process.platform === 'win32',
   })
   if (res.error) {
     console.error(`[snl-rebuild] failed to spawn npm: ${res.error.message}`)

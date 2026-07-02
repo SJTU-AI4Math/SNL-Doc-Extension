@@ -106,6 +106,28 @@ export interface EntryKind {
   style: string;
 }
 
+/**
+ * A macro kind — the semantic category a macro declares via
+ * `katex_react.kind`. Unlike {@link EntryKind}, macro kinds carry no
+ * numbering / style: they only drive the color palette (stroke/background)
+ * used when rendering the macro's subtree in the SNL syntax-tree view.
+ *
+ *  - `id`: stable identifier referenced by `katex_react.kind` (e.g. `rule`).
+ *  - `name`: display name shown in dropdowns / dashboard (e.g. `Rule`).
+ *  - `description`: short blurb shown next to the kind.
+ *  - `coloring.stroke` / `coloring.background`: any CSS colour value; drives
+ *    both the swatch and the rendered frame in the view's KindPalette.
+ *
+ * Stored under `config.json#macro_kinds` (sibling of `entry_kinds`). Extra
+ * on-disk fields survive round-trips; see {@link normalizeMacroKind}.
+ */
+export interface MacroKind {
+  id: string;
+  name: string;
+  description: string;
+  coloring: { stroke: string; background: string };
+}
+
 /** Persisted shapes. Kept minimal and forward-compatible. */
 export interface SnlConfig {
   version: string;
@@ -113,6 +135,8 @@ export interface SnlConfig {
   /** Entry-kind catalog. May be missing in pre-v0.0.2 configs (see
    *  `normalizeConfig`). */
   entry_kinds?: EntryKind[];
+  /** Macro-kind catalog. May be missing in older configs. */
+  macro_kinds?: MacroKind[];
 }
 
 export interface RelationshipsFile {
@@ -139,12 +163,48 @@ export type CreateLibraryResult =
 function normalizeConfig(raw: unknown): SnlConfig {
   const cfg = (raw ?? {}) as Partial<SnlConfig> & {
     entry_kinds?: unknown;
+    macro_kinds?: unknown;
   };
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
+  const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
   return {
     version: typeof cfg.version === 'string' ? cfg.version : '0.0.1',
     libraries: Array.isArray(cfg.libraries) ? cfg.libraries : [],
-    entry_kinds: rawKinds.map(normalizeEntryKind)
+    entry_kinds: rawKinds.map(normalizeEntryKind),
+    macro_kinds: rawMacroKinds.map(normalizeMacroKind)
+  };
+}
+
+/**
+ * Coerce a persisted macro-kind record into the current {@link MacroKind}
+ * shape. Never throws — bad fields fall back to safe defaults so the
+ * Dashboard always renders something.
+ */
+function normalizeMacroKind(raw: unknown): MacroKind {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+
+  const id = typeof obj.id === 'string' ? obj.id : '';
+  const name = typeof obj.name === 'string' ? obj.name : id;
+  const description =
+    typeof obj.description === 'string' ? obj.description : '';
+
+  let stroke = '#888888';
+  let background = '#eeeeee';
+  const coloringRaw = obj.coloring;
+  if (coloringRaw && typeof coloringRaw === 'object') {
+    const c = coloringRaw as Record<string, unknown>;
+    if (typeof c.stroke === 'string') stroke = c.stroke;
+    if (typeof c.background === 'string') background = c.background;
+  } else if (typeof obj.color === 'string') {
+    stroke = obj.color;
+    background = obj.color;
+  }
+
+  return {
+    id,
+    name,
+    description,
+    coloring: { stroke, background }
   };
 }
 
@@ -233,7 +293,8 @@ export async function initSnlDoc(
   const config: SnlConfig = {
     version: '0.0.3',
     libraries: [],
-    entry_kinds: []
+    entry_kinds: [],
+    macro_kinds: []
   };
   await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(config));
 
@@ -808,6 +869,8 @@ export interface SnlOverview {
   macroPackages: MacroPackageSummary[];
   /** Entry-kind catalog from `config.json#entry_kinds`. */
   entryKinds: EntryKind[];
+  /** Macro-kind catalog from `config.json#macro_kinds`. */
+  macroKinds: MacroKind[];
 }
 
 /**
@@ -836,7 +899,8 @@ export async function readOverview(
       entries: [],
       libraries: [],
       macroPackages: [],
-      entryKinds: []
+      entryKinds: [],
+      macroKinds: []
     };
   }
 
@@ -886,6 +950,7 @@ export async function readOverview(
 
   const macroPackages = await readMacroPackages(workspaceRoot);
   const entryKinds: EntryKind[] = config?.entry_kinds ?? [];
+  const macroKinds: MacroKind[] = config?.macro_kinds ?? [];
 
   return {
     hasSnlDoc: true,
@@ -893,7 +958,8 @@ export async function readOverview(
     entries,
     libraries,
     macroPackages,
-    entryKinds
+    entryKinds,
+    macroKinds
   };
 }
 
@@ -1049,8 +1115,145 @@ export async function listEntryKinds(
 }
 
 // ---------------------------------------------------------------------------
-// Entries write ops
+// Macro Kinds write ops
 // ---------------------------------------------------------------------------
+
+/**
+ * Load the current macro_kinds catalog from disk (normalized). Returns `[]`
+ * when the config or `.SNL_Doc/` doesn't exist yet.
+ */
+export async function readMacroKinds(
+  workspaceRoot: vscode.Uri
+): Promise<MacroKind[]> {
+  try {
+    const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
+    return cfg.macro_kinds ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist a full macro_kinds catalog to `config.json`. Preserves every
+ * unrelated field by round-tripping the raw JSON and only rewriting
+ * `macro_kinds`.
+ *
+ * Throws when `.SNL_Doc/config.json` is missing or unreadable.
+ */
+async function writeMacroKinds(
+  workspaceRoot: vscode.Uri,
+  kinds: MacroKind[]
+): Promise<void> {
+  const fsApi = vscode.workspace.fs;
+  const uri = configUri(workspaceRoot);
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await readJson<Record<string, unknown>>(uri)) ?? {};
+  } catch (err) {
+    throw new Error(
+      `Failed to read .SNL_Doc/config.json: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  raw.macro_kinds = kinds;
+  await fsApi.writeFile(uri, jsonBytes(raw));
+}
+
+export type ApplyMacroKindsPresetResult =
+  | { status: 'applied'; count: number }
+  | { status: 'noSnlDoc' }
+  | { status: 'nonEmpty'; existing: number }
+  | { status: 'unknownPreset'; presetId: string };
+
+/**
+ * Initialize `macro_kinds` from a named preset. Refuses to run when the
+ * catalog already has entries. `.SNL_Doc/` must exist. Presets live in
+ * {@link MACRO_KIND_PRESETS}.
+ */
+export async function applyMacroKindsPreset(
+  workspaceRoot: vscode.Uri,
+  presetId: string
+): Promise<ApplyMacroKindsPresetResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const preset = MACRO_KIND_PRESETS.find((p) => p.id === presetId);
+  if (!preset) {
+    return { status: 'unknownPreset', presetId };
+  }
+  const existing = await readMacroKinds(workspaceRoot);
+  if (existing.length > 0) {
+    return { status: 'nonEmpty', existing: existing.length };
+  }
+  const kinds = preset.kinds.map((k) => ({
+    id: k.id,
+    name: k.name,
+    description: k.description,
+    coloring: { stroke: k.coloring.stroke, background: k.coloring.background }
+  }));
+  await writeMacroKinds(workspaceRoot, kinds);
+  return { status: 'applied', count: kinds.length };
+}
+
+export type CreateMacroKindResult =
+  | { status: 'created'; kind: MacroKind }
+  | { status: 'noSnlDoc' }
+  | { status: 'duplicate'; id: string }
+  | { status: 'invalid'; message: string };
+
+/**
+ * Append a single new macro kind. Rejects duplicates by id and empty
+ * ids/names. All other fields are stored verbatim.
+ */
+export async function createMacroKind(
+  workspaceRoot: vscode.Uri,
+  input: {
+    id: string;
+    name: string;
+    description: string;
+    coloring: { stroke: string; background: string };
+  }
+): Promise<CreateMacroKindResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const id = (input.id ?? '').trim();
+  const name = (input.name ?? '').trim();
+  if (!id) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  if (!name) {
+    return { status: 'invalid', message: 'name is required' };
+  }
+  const existing = await readMacroKinds(workspaceRoot);
+  if (existing.some((k) => k.id === id)) {
+    return { status: 'duplicate', id };
+  }
+  const kind: MacroKind = {
+    id,
+    name,
+    description: (input.description ?? '').trim(),
+    coloring: {
+      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
+      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
+    }
+  };
+  await writeMacroKinds(workspaceRoot, [...existing, kind]);
+  return { status: 'created', kind };
+}
+
+/**
+ * Thin alias over {@link readMacroKinds} for the Create Macro webview, which
+ * needs the kind catalog to populate its "Kind" dropdown.
+ */
+export async function listMacroKinds(
+  workspaceRoot: vscode.Uri
+): Promise<MacroKind[]> {
+  return readMacroKinds(workspaceRoot);
+}
+
+
 
 /**
  * A single Entry in the shared `.SNL_Doc/entries.json` pool.
@@ -1350,5 +1553,63 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
     description:
       'Entry kinds for a Python code-mirrored document (placeholder).',
     kinds: []
+  }
+];
+
+// ---------------------------------------------------------------------------
+// Macro Kind Presets
+// ---------------------------------------------------------------------------
+
+export interface MacroKindPreset {
+  id: string;
+  label: string;
+  description: string;
+  kinds: MacroKind[];
+}
+
+/**
+ * Built-in macro-kind preset catalog. The single `snl-basics-defaults` preset
+ * mirrors SNL-Basics's `DEFAULT_KIND_PALETTE` (the 5 Lean-Expr default kinds),
+ * so a fresh project's macro kinds match the library's out-of-the-box colors.
+ */
+export const MACRO_KIND_PRESETS: MacroKindPreset[] = [
+  {
+    id: 'snl-basics-defaults',
+    label: 'SNL-Basics defaults',
+    description:
+      "The 5 default macro kinds from SNL-Basics's DEFAULT_KIND_PALETTE (rule / const / bvar / binder / fvar), with their Lean-Expr semantics and colors.",
+    kinds: [
+      {
+        id: 'rule',
+        name: 'Rule',
+        description:
+          'Meta-mathematical rule symbols (∀, ∃, `:`, `def`, apply, implies, paren…).',
+        coloring: { stroke: '#009C27', background: '#D6FEE0' }
+      },
+      {
+        id: 'const',
+        name: 'Const',
+        description: 'Mathematical constants / defined terms (add, mul, and, or…).',
+        coloring: { stroke: '#005B9C', background: '#DAF0FF' }
+      },
+      {
+        id: 'bvar',
+        name: 'Bound variable',
+        description: 'Bound-variable occurrences.',
+        coloring: { stroke: '#7700E4', background: '#EFDFFF' }
+      },
+      {
+        id: 'binder',
+        name: 'Binder',
+        description: 'Binding sites (∀-`x`, λ parameter, informal `dx`…).',
+        coloring: { stroke: '#E07B00', background: '#FFEBD2' }
+      },
+      {
+        id: 'fvar',
+        name: 'Free variable',
+        description: 'Free variables (undefined, effectively `sorry`s).',
+        coloring: { stroke: '#D20022', background: '#FFD6DC' }
+      }
+    ]
   }
 ];

@@ -107,12 +107,12 @@ export interface EntryKind {
 }
 
 /**
- * A macro kind — the semantic category a macro declares via
- * `katex_react.kind`. Unlike {@link EntryKind}, macro kinds carry no
+ * A macro kind — the semantic category a macro declares via its top-level
+ * `kind` field. Unlike {@link EntryKind}, macro kinds carry no
  * numbering / style: they only drive the color palette (stroke/background)
  * used when rendering the macro's subtree in the SNL syntax-tree view.
  *
- *  - `id`: stable identifier referenced by `katex_react.kind` (e.g. `rule`).
+ *  - `id`: stable identifier referenced by a macro's `kind` (e.g. `rule`).
  *  - `name`: display name shown in dropdowns / dashboard (e.g. `Rule`).
  *  - `description`: short blurb shown next to the kind.
  *  - `coloring.stroke` / `coloring.background`: any CSS colour value; drives
@@ -485,27 +485,36 @@ export async function readMacroPackages(
  * canonical shape. The webviews import the real render type from
  * `@snl-basics/react` for previews and keep their own extended copy for saves.
  */
+/**
+ * One render style of a macro (0.6.0 styles system) — mirrors
+ * `@snl-basics/react`'s `SnlMacroStyle`, extended with the consumer-owned
+ * output backends (typst / latex / markdown / text) which now live *per style*
+ * (they moved out of the top-level macro when `katex_react` was dropped).
+ */
+export interface MacroPackageStyle {
+  template: string;
+  variadic_join?: string;
+  react_renderer_key?: string;
+  // Extended (consumer-owned) output backends per style:
+  typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  markdown?: string;
+  text?: string;
+}
+
 export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
-  typst: {
-    built_in: string;
-    synthesis: { mode: 'formula' | 'text'; macro: string };
-  };
-  latex: {
-    built_in: string;
-    synthesis: { mode: 'formula' | 'text'; macro: string };
-  };
-  markdown: string;
-  text: string;
-  katex_react: {
-    arity: 'fixed' | 'variadic';
-    mode: 'formula' | 'text' | 'block';
-    template: string;
-    variadic_join?: string;
-    react_renderer_key?: string;
-  };
+  /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
+  kind?: string;
+  arity: 'fixed' | 'variadic';
+  mode: 'formula' | 'text' | 'block';
+  display?: 'inline' | 'block';
+  /** Style tag used when SNL source omits `[style]`. Must be a key in `styles`. */
+  defaultStyle: string;
+  /** All render styles keyed by tag. */
+  styles: Record<string, MacroPackageStyle>;
 }
 
 /** MacroPackageEntry without redundant `name` (the name is the package-map key). */
@@ -546,7 +555,7 @@ function macroPackageUri(
  * Write-back on the next save uses the new shape; there is no forced disk
  * migration — old packages keep working, normalized in-memory on read.
  */
-function migrateLegacyMacro(input: unknown): MacroPackageEntry {
+function migrateLegacyMacro(input: unknown): Record<string, unknown> {
   const macro = { ...(input as Record<string, unknown>) } as Record<string, unknown>;
 
   const kr = macro.katex_react as { mode?: unknown } | undefined;
@@ -565,37 +574,158 @@ function migrateLegacyMacro(input: unknown): MacroPackageEntry {
     }
   }
 
-  return macro as unknown as MacroPackageEntry;
+  return macro;
+}
+
+/** True when a macro is already in the 0.6.0 styles shape (no `katex_react`). */
+function isStylesShapeMacro(m: Record<string, unknown>): boolean {
+  return (
+    typeof m.styles === 'object' &&
+    m.styles !== null &&
+    !('katex_react' in m) &&
+    typeof m.defaultStyle === 'string'
+  );
+}
+
+/**
+ * Split a dotted macro name into a base name + style tag. If the name has more
+ * than one segment, the last segment is the style tag; otherwise the style is
+ * `'default'`. e.g. `Add.add.infix` → `{ base: 'Add.add', style: 'infix' }`,
+ * `pmatrix` → `{ base: 'pmatrix', style: 'default' }`.
+ */
+function splitBaseStyle(name: string): { base: string; style: string } {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) {
+    return { base: name, style: 'default' };
+  }
+  return { base: name.slice(0, dot), style: name.slice(dot + 1) };
+}
+
+/** Build a per-style entry from a legacy macro's katex_react + backends. */
+function legacyMacroToStyle(macro: Record<string, unknown>): MacroPackageStyle {
+  const kr = (macro.katex_react ?? {}) as Record<string, unknown>;
+  const style: MacroPackageStyle = {
+    template: typeof kr.template === 'string' ? kr.template : ''
+  };
+  if (kr.variadic_join !== undefined) {
+    style.variadic_join = kr.variadic_join as string;
+  }
+  if (kr.react_renderer_key !== undefined) {
+    style.react_renderer_key = kr.react_renderer_key as string;
+  }
+  if (macro.typst !== undefined) {
+    style.typst = macro.typst as MacroPackageStyle['typst'];
+  }
+  if (macro.latex !== undefined) {
+    style.latex = macro.latex as MacroPackageStyle['latex'];
+  }
+  if (macro.markdown !== undefined) {
+    style.markdown = macro.markdown as string;
+  }
+  if (macro.text !== undefined) {
+    style.text = macro.text as string;
+  }
+  return style;
+}
+
+/**
+ * Group a flat list of named macros into the 0.6.0 styles shape.
+ *  - macros already in styles shape pass through untouched;
+ *  - legacy macros (with `katex_react`) are grouped by base name (last dotted
+ *    segment becomes the style tag), with `template` / `variadic_join` /
+ *    `react_renderer_key` / `typst` / `latex` / `markdown` / `text` collected
+ *    into `styles[tag]`. `defaultStyle` is the first tag seen for each base.
+ * Best-effort: if any legacy macro can't be grouped cleanly (no `katex_react`
+ * and not styles-shaped), a warning is logged and the *original* entries are
+ * returned unchanged.
+ */
+function groupMacrosToStyles(
+  collected: Array<Record<string, unknown>>
+): MacroPackageEntry[] {
+  try {
+    const groups = new Map<string, MacroPackageEntry>();
+    const order: string[] = [];
+    for (const raw of collected) {
+      if (isStylesShapeMacro(raw)) {
+        const name = (raw.name as string) ?? '';
+        if (!groups.has(name)) {
+          order.push(name);
+        }
+        groups.set(name, raw as unknown as MacroPackageEntry);
+        continue;
+      }
+      const kr = raw.katex_react as Record<string, unknown> | undefined;
+      if (!kr) {
+        throw new Error(
+          `macro "${String(raw.name)}" has neither styles nor katex_react`
+        );
+      }
+      const { base, style } = splitBaseStyle((raw.name as string) ?? '');
+      let entry = groups.get(base);
+      if (!entry) {
+        entry = {
+          name: base,
+          description: (raw.description as string) ?? '',
+          source:
+            (raw.source as MacroPackageEntry['source']) ?? {
+              entries: [],
+              urls: []
+            },
+          arity: (kr.arity as MacroPackageEntry['arity']) ?? 'fixed',
+          mode: (kr.mode as MacroPackageEntry['mode']) ?? 'formula',
+          defaultStyle: style,
+          styles: {}
+        };
+        if (kr.kind !== undefined) {
+          entry.kind = kr.kind as string;
+        }
+        if (kr.display !== undefined) {
+          entry.display = kr.display as MacroPackageEntry['display'];
+        }
+        groups.set(base, entry);
+        order.push(base);
+      }
+      entry.styles[style] = legacyMacroToStyle(raw);
+    }
+    return order.map((n) => groups.get(n) as MacroPackageEntry);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[snlDoc] normalizeMacros: could not migrate legacy macros to the ` +
+        `styles shape (${reason}); returning original entries`
+    );
+    return collected as unknown as MacroPackageEntry[];
+  }
 }
 
 /**
  * Normalize any of the legacy on-disk shapes to a canonical
- * `MacroPackageEntry[]`:
+ * `MacroPackageEntry[]` (0.6.0 styles shape):
  *  - bare array of macros                        → as-is
  *  - `{ macros: [ ... ] }` (array)               → macros
  *  - `{ macros: { name: macroWithoutName } }`    → canonical keyed map
  *  - top-level `{ name: macroDef }` (legacy)     → keyed map minus meta keys
- * Each element is coerced back into a full {@link MacroPackageEntry} with its
- * `name` and passed through {@link migrateLegacyMacro} (0.4.0 field renames).
+ * Each element is passed through {@link migrateLegacyMacro} (0.4.0 field
+ * renames) then grouped into the styles shape by {@link groupMacrosToStyles}.
  */
 function normalizeMacros(raw: unknown): MacroPackageEntry[] {
-  const out: MacroPackageEntry[] = [];
+  const collected: Array<Record<string, unknown>> = [];
   const pushKeyed = (map: Record<string, unknown>): void => {
     for (const [key, val] of Object.entries(map)) {
       if (val && typeof val === 'object') {
         const macro = migrateLegacyMacro(val);
-        out.push({ ...macro, name: macro.name ?? key });
+        collected.push({ ...macro, name: macro.name ?? key });
       }
     }
   };
 
   if (Array.isArray(raw)) {
     for (const m of raw) {
-      if (m && typeof m === 'object' && typeof (m as MacroPackageEntry).name === 'string') {
-        out.push(migrateLegacyMacro(m));
+      if (m && typeof m === 'object' && typeof (m as { name?: unknown }).name === 'string') {
+        collected.push(migrateLegacyMacro(m));
       }
     }
-    return out;
+    return groupMacrosToStyles(collected);
   }
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
@@ -604,16 +734,16 @@ function normalizeMacros(raw: unknown): MacroPackageEntry[] {
         if (
           m &&
           typeof m === 'object' &&
-          typeof (m as MacroPackageEntry).name === 'string'
+          typeof (m as { name?: unknown }).name === 'string'
         ) {
-          out.push(migrateLegacyMacro(m));
+          collected.push(migrateLegacyMacro(m));
         }
       }
-      return out;
+      return groupMacrosToStyles(collected);
     }
     if (obj.macros && typeof obj.macros === 'object') {
       pushKeyed(obj.macros as Record<string, unknown>);
-      return out;
+      return groupMacrosToStyles(collected);
     }
     // Legacy top-level keyed shape — skip reserved metadata keys.
     const reserved = new Set(['version', 'name', 'description']);
@@ -624,9 +754,9 @@ function normalizeMacros(raw: unknown): MacroPackageEntry[] {
       }
     }
     pushKeyed(trimmed);
-    return out;
+    return groupMacrosToStyles(collected);
   }
-  return out;
+  return [];
 }
 
 /**
@@ -766,18 +896,34 @@ function validateMacro(macro: MacroPackageEntry): string | null {
   if (!name) {
     return 'name is required';
   }
-  const kr = macro?.katex_react;
-  if (!kr || typeof kr !== 'object') {
-    return 'katex_react is required';
+  if (macro.arity !== 'fixed' && macro.arity !== 'variadic') {
+    return "arity must be 'fixed' or 'variadic'";
   }
-  if (typeof kr.template !== 'string' || kr.template.trim().length === 0) {
-    return 'katex_react.template is required';
+  if (macro.mode !== 'formula' && macro.mode !== 'text' && macro.mode !== 'block') {
+    return "mode must be 'formula', 'text' or 'block'";
   }
-  if (kr.arity !== 'fixed' && kr.arity !== 'variadic') {
-    return "katex_react.arity must be 'fixed' or 'variadic'";
+  const styles = macro?.styles;
+  if (!styles || typeof styles !== 'object') {
+    return 'styles is required';
   }
-  if (kr.mode !== 'formula' && kr.mode !== 'text' && kr.mode !== 'block') {
-    return "katex_react.mode must be 'formula', 'text' or 'block'";
+  const tags = Object.keys(styles);
+  if (tags.length === 0) {
+    return 'styles must have at least one entry';
+  }
+  for (const tag of tags) {
+    const style = styles[tag];
+    if (!style || typeof style !== 'object') {
+      return `styles.${tag} must be an object`;
+    }
+    if (typeof style.template !== 'string' || style.template.trim().length === 0) {
+      return `styles.${tag}.template is required`;
+    }
+  }
+  if (typeof macro.defaultStyle !== 'string' || !macro.defaultStyle) {
+    return 'defaultStyle is required';
+  }
+  if (!Object.prototype.hasOwnProperty.call(styles, macro.defaultStyle)) {
+    return `defaultStyle "${macro.defaultStyle}" is not a key in styles`;
   }
   const src = macro?.source;
   if (!src || typeof src !== 'object') {

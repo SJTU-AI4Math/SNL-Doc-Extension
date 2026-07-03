@@ -111,7 +111,7 @@ export function CreateMacroKindApp(): React.ReactElement {
         Append a single macro kind to{' '}
         <code>.SNL_Doc/config.json#macro_kinds</code>. The id must be unique
         and non-empty; it is referenced by a macro's{' '}
-        <code>katex_react.kind</code>.
+        <code>kind</code>.
       </p>
 
       <TextField

@@ -16,30 +16,28 @@ import {
 } from './vscodeApi';
 
 // Extended, on-disk macro shape — a superset of the library's render-only
-// `SnlMacro` (0.4.0). It keeps the consumer-owned output backends (typst /
-// latex / markdown / text) that this panel reads back from a package file.
+// `SnlMacro` (0.6.0 styles system). It keeps the consumer-owned output backends
+// (typst / latex / markdown / text) that this panel reads back, now *per style*.
+interface MacroPackageStyle {
+  template: string;
+  variadic_join?: string;
+  react_renderer_key?: string;
+  typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  markdown?: string;
+  text?: string;
+}
+
 interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
-  typst: {
-    built_in: string;
-    synthesis: { mode: 'formula' | 'text'; macro: string };
-  };
-  latex: {
-    built_in: string;
-    synthesis: { mode: 'formula' | 'text'; macro: string };
-  };
-  markdown: string;
-  text: string;
-  katex_react: {
-    arity: 'fixed' | 'variadic';
-    mode: 'formula' | 'text' | 'block';
-    kind?: string;
-    template: string;
-    variadic_join?: string;
-    react_renderer_key?: string;
-  };
+  kind?: string;
+  arity: 'fixed' | 'variadic';
+  mode: 'formula' | 'text' | 'block';
+  display?: 'inline' | 'block';
+  defaultStyle: string;
+  styles: Record<string, MacroPackageStyle>;
 }
 
 interface MacroKind {
@@ -235,6 +233,7 @@ function MacroTable({
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
           <th style={{ ...HEAD, width: '4.5rem' }}>Mode</th>
           <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
+          <th style={{ ...HEAD, width: '9rem' }}>Styles</th>
         </tr>
       </thead>
       <tbody>
@@ -247,12 +246,19 @@ function MacroTable({
             <td style={{ ...CELL, opacity: 0.85 }}>
               {truncate(m.description ?? '', 60)}
             </td>
-            <td style={CELL}>{m.katex_react.arity}</td>
-            <td style={CELL}>{m.katex_react.mode}</td>
+            <td style={CELL}>{m.arity}</td>
+            <td style={CELL}>{m.mode}</td>
             <td style={CELL}>
-              <KindCell kindId={m.katex_react.kind} kind={
-                m.katex_react.kind ? kindById.get(m.katex_react.kind) : undefined
+              <KindCell kindId={m.kind} kind={
+                m.kind ? kindById.get(m.kind) : undefined
               } />
+            </td>
+            <td style={CELL}>
+              <span style={MONO}>{m.defaultStyle}</span>
+              <span style={{ opacity: 0.6 }}>
+                {' '}
+                ({Object.keys(m.styles ?? {}).length})
+              </span>
             </td>
           </tr>
         ))}

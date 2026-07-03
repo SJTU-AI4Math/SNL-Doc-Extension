@@ -283,17 +283,17 @@ async function main() {
     description: 'addition (infix)',
     source: { entries: [], urls: [] },
     arity: 'fixed',
-    mode: 'formula',
-    defaultStyle: 'infix',
-    styles: {
-      infix: {
+    styles: [
+      {
+        tag: 'infix',
+        mode: 'formula',
         template: '#0 + #1',
         typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
         latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
         markdown: '',
         text: ''
       }
-    }
+    ]
   };
 
   console.log('\n[15] addMacro valid');
@@ -309,23 +309,39 @@ async function main() {
   const badMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.macro',
-    defaultStyle: 'default',
-    styles: { default: { template: '   ' } }
+    styles: [{ tag: 'default', mode: 'formula', template: '   ' }]
   });
   assert(badMacro.status === 'invalid', 'addMacro empty template -> invalid');
 
-  console.log('\n[17b] addMacro with legacy mode "math" -> invalid');
+  console.log('\n[17b] addMacro with legacy per-style mode "math" -> invalid');
   const legacyModeMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Legacy.mode',
-    mode: 'math',
-    defaultStyle: 'default',
-    styles: { default: { template: '#0' } }
+    styles: [{ tag: 'default', mode: 'math', template: '#0' }]
   });
   assert(
     legacyModeMacro.status === 'invalid',
-    'addMacro legacy mode:"math" -> invalid (renamed to formula)'
+    'addMacro legacy per-style mode:"math" -> invalid (renamed to formula)'
   );
+
+  console.log('\n[17c] addMacro missing style.tag -> invalid');
+  const noTagMacro = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'NoTag.macro',
+    styles: [{ mode: 'formula', template: '#0' }]
+  });
+  assert(noTagMacro.status === 'invalid', 'addMacro missing style.tag -> invalid');
+
+  console.log('\n[17d] addMacro with duplicate style tags -> invalid');
+  const dupTagMacro = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'DupTag.macro',
+    styles: [
+      { tag: 'x', mode: 'formula', template: '#0' },
+      { tag: 'x', mode: 'text', template: '#0 (text)' }
+    ]
+  });
+  assert(dupTagMacro.status === 'invalid', 'addMacro duplicate tags -> invalid');
 
   console.log('\n[18] addMacro to missing package -> noFile');
   const noFileMacro = await addMacro(root, 'no_such_pkg', validMacro);
@@ -347,9 +363,9 @@ async function main() {
   // Write an OLD-shape package straight to disk: two macros sharing a base name
   // (Mul.mul.infix + Mul.mul.implicit), each with katex_react.mode === 'math'
   // and typst/latex.synthesis.output_type (pre-0.4.0). readMacroPackage must
-  // normalize them in-memory to the 0.6.0 styles shape: a single `Mul.mul`
-  // macro with mode:'formula', two styles keyed by the dotted suffix, and the
-  // per-style synthesis.output_type moved to synthesis.mode.
+  // normalize them in-memory all the way to the v5 shape: a single `Mul.mul`
+  // macro with a styles ARRAY (styles[0].tag === 'infix'), per-style mode
+  // 'formula', and per-style synthesis.output_type moved to synthesis.mode.
   const legacyPkgUri = Uri.joinPath(
     root,
     '.SNL_Doc',
@@ -358,24 +374,18 @@ async function main() {
   );
   const legacyPkg = {
     version: '1',
-    name: 'Legacy Package',
+    name: 'Legacy Pkg',
     macros: {
       'Mul.mul.infix': {
-        description: 'legacy shape (infix)',
+        description: 'multiplication (infix, cdot)',
         source: { entries: [], urls: [] },
-        typst: { built_in: '', synthesis: { output_type: 'text', macro: 't' } },
-        latex: { built_in: '', synthesis: { output_type: 'formula', macro: 'l' } },
-        markdown: '',
-        text: '',
+        typst: { built_in: '', synthesis: { output_type: 'text', macro: '#0 * #1' } },
+        latex: { built_in: '', synthesis: { output_type: 'formula', macro: '' } },
         katex_react: { arity: 'fixed', mode: 'math', kind: 'const', template: '#0 \\cdot #1' }
       },
       'Mul.mul.implicit': {
-        description: 'legacy shape (implicit)',
+        description: 'multiplication (implicit)',
         source: { entries: [], urls: [] },
-        typst: { built_in: '', synthesis: { output_type: 'formula', macro: 'ti' } },
-        latex: { built_in: '', synthesis: { output_type: 'formula', macro: 'li' } },
-        markdown: '',
-        text: '',
         katex_react: { arity: 'fixed', mode: 'math', kind: 'const', template: '#0#1' }
       }
     }
@@ -391,35 +401,36 @@ async function main() {
     'katex_react dropped from normalized macro'
   );
   assert(
-    oldMacro.mode === 'formula',
-    `mode normalized 'math'->'formula' (got ${oldMacro.mode})`
+    !('mode' in oldMacro) && !('defaultStyle' in oldMacro),
+    'top-level mode / defaultStyle stripped in v5 shape'
   );
   assert(oldMacro.arity === 'fixed', 'arity lifted to top-level');
   assert(oldMacro.kind === 'const', 'kind lifted to top-level');
+  assert(Array.isArray(oldMacro.styles), 'styles is a v5 array');
   assert(
-    !!oldMacro.styles && typeof oldMacro.styles === 'object',
-    'macro has a styles map'
+    oldMacro.styles.length === 2,
+    `both dotted suffixes became styles (got ${oldMacro.styles.length})`
   );
+  const infixStyle = oldMacro.styles.find((s) => s.tag === 'infix');
+  const implicitStyle = oldMacro.styles.find((s) => s.tag === 'implicit');
+  assert(!!infixStyle && !!implicitStyle, 'infix and implicit styles present');
   assert(
-    'infix' in oldMacro.styles && 'implicit' in oldMacro.styles,
-    'both dotted suffixes became style tags (infix, implicit)'
+    oldMacro.styles[0].tag === 'infix',
+    `styles[0] (default) is the first legacy sibling (got ${oldMacro.styles[0].tag})`
   );
+  assert(infixStyle.mode === 'formula', "per-style mode normalized 'math'->'formula'");
   assert(
-    oldMacro.defaultStyle === 'infix',
-    `defaultStyle is the first tag seen (got ${oldMacro.defaultStyle})`
-  );
-  assert(
-    oldMacro.styles.infix.template === '#0 \\cdot #1',
+    infixStyle.template === '#0 \\cdot #1',
     'style template preserved'
   );
   assert(
-    oldMacro.styles.infix.typst.synthesis.mode === 'text' &&
-      !('output_type' in oldMacro.styles.infix.typst.synthesis),
+    infixStyle.typst.synthesis.mode === 'text' &&
+      !('output_type' in infixStyle.typst.synthesis),
     'per-style typst.synthesis.output_type moved to .mode'
   );
   assert(
-    oldMacro.styles.infix.latex.synthesis.mode === 'formula' &&
-      !('output_type' in oldMacro.styles.infix.latex.synthesis),
+    infixStyle.latex.synthesis.mode === 'formula' &&
+      !('output_type' in infixStyle.latex.synthesis),
     'per-style latex.synthesis.output_type moved to .mode'
   );
 
@@ -490,7 +501,7 @@ async function main() {
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
 
-  console.log('\n[21] SNL-Basics submodule DB uses the v4 styles shape');
+  console.log('\n[21] SNL-Basics submodule DB uses the v5 styles-array shape');
   const macroDb = JSON.parse(
     await fs.readFile(
       nodePath.resolve(
@@ -503,21 +514,38 @@ async function main() {
   // DivRing.div collapsed frac + inlineDiv into a single macro with two styles.
   assert(macroDb['DivRing.div'], 'DivRing.div macro should exist');
   assert(
-    macroDb['DivRing.div'].styles &&
-      macroDb['DivRing.div'].styles.inlineDiv,
+    Array.isArray(macroDb['DivRing.div'].styles),
+    'DivRing.div styles is a v5 array'
+  );
+  assert(
+    macroDb['DivRing.div'].styles.some((s) => s.tag === 'inlineDiv'),
     'DivRing.div has an inlineDiv style'
   );
   assert(
-    macroDb['DivRing.div'].defaultStyle === 'frac',
-    'DivRing.div default style is frac'
+    macroDb['DivRing.div'].styles[0].tag === 'frac',
+    'DivRing.div default (styles[0]) is frac'
+  );
+  assert(
+    macroDb['DivRing.div'].styles[0].mode === 'formula',
+    'DivRing.div frac style has per-style mode formula'
   );
   // The typed binders stay separate macros (different arity).
   assert(macroDb['FOL.forall.typed'], 'forall.typed macro should exist');
   assert(macroDb['FOL.exists.typed'], 'exists.typed macro should exist');
   // FOL.implies gained a `double` (⇒) style alongside the default `infix` (→).
   assert(
-    macroDb['FOL.implies'].styles.double,
+    macroDb['FOL.implies'].styles.some((s) => s.tag === 'double'),
     'FOL.implies has a double (⇒) style'
+  );
+  assert(
+    macroDb['FOL.implies'].styles[0].tag === 'infix',
+    'FOL.implies default (styles[0]) is infix'
+  );
+  // Legacy top-level macro shape must be fully gone.
+  assert(
+    macroDb['Add.add'].mode === undefined &&
+      macroDb['Add.add'].defaultStyle === undefined,
+    'v5 macros drop top-level mode / defaultStyle'
   );
   // Old dotted-style macro names no longer exist as top-level entries.
   assert(!macroDb['DivRing.div.inlineDiv'], 'old DivRing.div.inlineDiv should not exist');

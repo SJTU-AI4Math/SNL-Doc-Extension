@@ -4,6 +4,25 @@
 // applied to a set of argument slots. Empty slots render as translucent
 // numbered placeholder boxes (via injected `_snl_arg_N` macros); non-empty
 // slots are parsed as SNL source and substituted as real subtrees.
+//
+// v5 layout (Macro Editor UI overhaul, 2026-07-03):
+//   1. Basic fields:  Name + Description        (top)
+//   2. Kind:          single-line control       (also top-cluster)
+//   3. Styles bar:    ★ marks styles[0] (the implicit default). Hovering a
+//                     style / control tab flips its background for feedback.
+//                     Up-arrow moves a style toward index 0 (default).
+//   4. Style editor:  tag + Mode + Display + Variadic join + Renderer key
+//   5. Content tabs:  KaTeX template + Typst/LaTeX/Markdown/Text
+//                     • Preview canvas lives INSIDE the KaTeX template tab,
+//                       ABOVE the textarea (other backends have no preview).
+//   6. Arity:         one-line control ABOVE Argument overrides
+//   7. Argument overrides
+//   8. Sources:       moved to the BOTTOM, above the Create button
+//   9. Create button
+//
+// The on-disk macro shape is v5: `styles` is an ordered array, mode/display
+// live on each style, `defaultStyle` is gone (styles[0] is the implicit
+// default).
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -17,6 +36,7 @@ import {
   bundledMacroDb,
   type SnlMacro,
   type SnlMacroDb,
+  type SnlMacroStyle,
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type KindPalette
@@ -43,14 +63,16 @@ for (let i = 0; i < MAX_ARGS; i++) {
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
     arity: 'fixed',
-    mode: 'formula',
-    defaultStyle: 'default',
-    styles: {
-      // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
-      // from placeholderNode's node.kind. The frame is drawn purely in CSS via
-      // \htmlClass{snlArgPlaceholder}; KaTeX just renders the digit (no \boxed).
-      default: { template: `\\htmlClass{snlArgPlaceholder}{${i}}` }
-    }
+    styles: [
+      {
+        // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
+        // from placeholderNode's node.kind. The frame is drawn purely in CSS via
+        // \htmlClass{snlArgPlaceholder}; KaTeX just renders the digit (no \boxed).
+        tag: 'default',
+        mode: 'formula',
+        template: `\\htmlClass{snlArgPlaceholder}{${i}}`
+      }
+    ]
   };
 }
 
@@ -70,6 +92,8 @@ type SynthesisMode = 'formula' | 'text';
 /** Editable per-style draft — flat mirror of {@link ExtendedSnlMacroStyle}. */
 interface StyleDraft {
   tag: string;
+  mode: Mode;
+  display: Display; // 'inline' when mode !== 'formula' (harmless — ignored on save)
   template: string;
   variadic_join: string;
   react_renderer_key: string;
@@ -86,6 +110,8 @@ interface StyleDraft {
 function newStyleDraft(tag: string): StyleDraft {
   return {
     tag,
+    mode: 'formula',
+    display: 'inline',
     template: '',
     variadic_join: '',
     react_renderer_key: '',
@@ -101,15 +127,19 @@ function newStyleDraft(tag: string): StyleDraft {
 }
 
 /** Serialize a {@link StyleDraft} into the on-disk per-style shape. */
-function styleDraftToExtended(
-  s: StyleDraft,
-  mode: Mode
-): ExtendedSnlMacroStyle {
-  const out: ExtendedSnlMacroStyle = { template: s.template };
+function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
+  const out: ExtendedSnlMacroStyle = {
+    tag: s.tag.trim(),
+    mode: s.mode,
+    template: s.template
+  };
+  if (s.mode === 'formula' && s.display === 'block') {
+    out.display = 'block';
+  }
   if (s.variadic_join) {
     out.variadic_join = s.variadic_join;
   }
-  if (mode !== 'formula' && s.react_renderer_key) {
+  if (s.mode !== 'formula' && s.react_renderer_key) {
     out.react_renderer_key = s.react_renderer_key;
   }
   out.typst = {
@@ -134,11 +164,14 @@ interface MacroKind {
 }
 
 /**
- * One render style of the extended, on-disk macro shape (0.6.0 styles system).
- * A superset of the library's `SnlMacroStyle`: it additionally carries the
- * consumer-owned output backends (typst / latex / markdown / text) per style.
+ * One render style of the extended, on-disk macro shape (v5). A superset of
+ * the library's `SnlMacroStyle`: additionally carries the consumer-owned
+ * output backends (typst / latex / markdown / text) per style.
  */
 interface ExtendedSnlMacroStyle {
+  tag: string;
+  mode: Mode;
+  display?: Display;
   template: string;
   variadic_join?: string;
   react_renderer_key?: string;
@@ -155,10 +188,10 @@ interface ExtendedSnlMacroStyle {
 }
 
 /**
- * The extended, on-disk macro shape written to a package file. It is a superset
- * of the library's render-only `SnlMacro` (0.6.0 styles system): the output
- * backends live inside each `styles[tag]`. The preview DB uses the slim lib
- * `SnlMacro`; only the save-to-disk path uses this shape.
+ * The extended, on-disk macro shape written to a package file (v5). Superset
+ * of the library's render-only `SnlMacro`: the output backends live inside
+ * each style. The preview DB uses the slim lib `SnlMacro`; only the
+ * save-to-disk path uses this shape.
  */
 interface ExtendedSnlMacro {
   name: string;
@@ -166,10 +199,7 @@ interface ExtendedSnlMacro {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   arity: Arity;
-  mode: Mode;
-  display?: Display;
-  defaultStyle: string;
-  styles: Record<string, ExtendedSnlMacroStyle>;
+  styles: ExtendedSnlMacroStyle[];
 }
 
 type Status =
@@ -273,16 +303,13 @@ export function CreateMacroApp(): React.ReactElement {
   const [sourceUrls, setSourceUrls] = useState<string[]>(['']);
 
   const [arity, setArity] = useState<Arity>('fixed');
-  const [mode, setMode] = useState<Mode>('formula');
-  const [display, setDisplay] = useState<Display>('inline');
   const [kind, setKind] = useState<string>('');
 
-  // Styles map (0.6.0). At least one style always exists; `activeStyle` is the
-  // style currently being edited in the Content tabs and used as the preview's
-  // default style. `defaultStyleTag` is what gets saved as `defaultStyle`.
+  // Ordered styles array (v5). At least one style always exists; `styles[0]` is
+  // the implicit default (marked ★). `activeStyle` is the style currently
+  // being edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
   const [activeStyle, setActiveStyle] = useState(0);
-  const [defaultStyleTag, setDefaultStyleTag] = useState('default');
 
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
 
@@ -344,32 +371,38 @@ export function CreateMacroApp(): React.ReactElement {
   // --- Draft macro + preview DB -------------------------------------------
 
   const draftMacro: SnlMacro = useMemo(() => {
-    const stylesMap: Record<string, { template: string; variadic_join?: string; react_renderer_key?: string }> = {};
-    for (const s of styles) {
-      const tag = s.tag.trim() || 'default';
-      stylesMap[tag] = {
-        template: s.template,
-        variadic_join: s.variadic_join || undefined,
-        react_renderer_key:
-          mode !== 'formula' && s.react_renderer_key ? s.react_renderer_key : undefined
+    const styleList: SnlMacroStyle[] = styles.map((s) => {
+      const style: SnlMacroStyle = {
+        tag: s.tag.trim() || 'default',
+        mode: s.mode,
+        template: s.template
       };
-    }
-    const activeTag = (current?.tag.trim() || 'default');
-    if (!stylesMap[activeTag]) {
-      stylesMap[activeTag] = { template: current?.template ?? '' };
+      if (s.mode === 'formula' && s.display === 'block') {
+        style.display = 'block';
+      }
+      if (s.variadic_join) {
+        style.variadic_join = s.variadic_join;
+      }
+      if (s.mode !== 'formula' && s.react_renderer_key) {
+        style.react_renderer_key = s.react_renderer_key;
+      }
+      return style;
+    });
+    // Move the active style to index 0 so the preview always uses it as the
+    // implicit default (no `[style]` in the injected draft tree).
+    if (activeStyle > 0 && activeStyle < styleList.length) {
+      const [pick] = styleList.splice(activeStyle, 1);
+      styleList.unshift(pick);
     }
     return {
       name: DRAFT_KEY,
       description: '',
       source: { entries: [], urls: [] },
       arity,
-      mode,
-      display: mode === 'formula' && display === 'block' ? 'block' : undefined,
       kind: kind || undefined,
-      defaultStyle: activeTag,
-      styles: stylesMap
+      styles: styleList.length > 0 ? styleList : [{ tag: 'default', mode: 'formula', template: '' }]
     };
-  }, [arity, mode, display, kind, styles, current]);
+  }, [arity, kind, styles, activeStyle]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
@@ -449,20 +482,17 @@ export function CreateMacroApp(): React.ReactElement {
 
   const trimmedName = name.trim();
   const isDuplicate = existingNames.includes(trimmedName);
-  const defaultStyleDraft =
-    styles.find((s) => s.tag.trim() === defaultStyleTag.trim()) ?? styles[0];
+  const defaultStyleDraft = styles[0];
   const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
   const tags = styles.map((s) => s.tag.trim());
   const hasEmptyTag = tags.some((t) => t.length === 0);
   const hasDupTag = new Set(tags).size !== tags.length;
-  const defaultTagValid = tags.includes(defaultStyleTag.trim());
   const canCreate =
     trimmedName.length > 0 &&
     !isDuplicate &&
     !templateEmpty &&
     !hasEmptyTag &&
     !hasDupTag &&
-    defaultTagValid &&
     status.kind !== 'creating';
 
   function setArg(i: number, value: string): void {
@@ -484,14 +514,9 @@ export function CreateMacroApp(): React.ReactElement {
     if (!canCreate) {
       return;
     }
-    const stylesMap: Record<string, ExtendedSnlMacroStyle> = {};
-    for (const s of styles) {
-      const tag = s.tag.trim();
-      if (!tag) {
-        continue;
-      }
-      stylesMap[tag] = styleDraftToExtended(s, mode);
-    }
+    const styleList: ExtendedSnlMacroStyle[] = styles
+      .filter((s) => s.tag.trim().length > 0)
+      .map(styleDraftToExtended);
     const macro: ExtendedSnlMacro = {
       name: trimmedName,
       description: description.trim(),
@@ -501,14 +526,13 @@ export function CreateMacroApp(): React.ReactElement {
       },
       kind: kind || undefined,
       arity,
-      mode,
-      display: mode === 'formula' && display === 'block' ? 'block' : undefined,
-      defaultStyle: defaultStyleTag.trim(),
-      styles: stylesMap
+      styles: styleList
     };
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({ type: 'create', macro });
   }
+
+  const showPreview = activeTab === 'katex_template';
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '60rem' }}>
@@ -519,7 +543,7 @@ export function CreateMacroApp(): React.ReactElement {
         Package: <strong>{packageName || '—'}</strong>
       </p>
 
-      {/* --- Basic fields --------------------------------------------------- */}
+      {/* --- Basic fields (Name + Description) ------------------------------ */}
       <div
         style={{
           display: 'grid',
@@ -536,7 +560,7 @@ export function CreateMacroApp(): React.ReactElement {
             id="m-name"
             type="text"
             value={name}
-            placeholder="e.g. Add.add.infix"
+            placeholder="e.g. Add.add"
             onChange={(e) => setName(e.target.value)}
             style={{
               ...inputStyle,
@@ -579,126 +603,63 @@ export function CreateMacroApp(): React.ReactElement {
         </p>
       ) : null}
 
-      {/* --- Source --------------------------------------------------------- */}
-      <SectionHeader title="Source" />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '1rem',
-          marginBottom: '1rem'
-        }}
-      >
-        <ListEditor
-          label="Entries"
-          placeholder="entry id"
-          values={sourceEntries}
-          onChange={setSourceEntries}
-        />
-        <ListEditor
-          label="URLs"
-          placeholder="https://…"
-          values={sourceUrls}
-          onChange={setSourceUrls}
-          warnNonHttp
-        />
-      </div>
-
-      {/* --- Behavior ------------------------------------------------------- */}
-      <SectionHeader title="Behavior" />
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '1.5rem',
-          marginBottom: '1rem',
-          alignItems: 'flex-start'
-        }}
-      >
-        <RadioGroup
-          legend="Arity"
-          name="arity"
-          value={arity}
-          options={['fixed', 'variadic']}
-          onChange={(v) => setArity(v as Arity)}
-        />
-        <RadioGroup
-          legend="Mode"
-          name="mode"
-          value={mode}
-          options={['formula', 'text', 'block']}
-          onChange={(v) => setMode(v as Mode)}
-        />
-        {mode === 'formula' ? (
-          <RadioGroup
-            legend="Display"
-            name="display"
-            value={display}
-            options={['inline', 'block']}
-            onChange={(v) => setDisplay(v as Display)}
-          />
+      {/* --- Kind (single line, no section header) ------------------------- */}
+      <div style={{ marginBottom: '1rem' }}>
+        <label htmlFor="m-kind" style={labelStyle}>
+          Kind
+        </label>
+        <select
+          id="m-kind"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          style={{ ...inputStyle, width: '14rem' }}
+        >
+          <option value="">(unset)</option>
+          {macroKinds.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.name} ({k.id})
+            </option>
+          ))}
+        </select>
+        {kind ? (
+          (() => {
+            const sel = macroKinds.find((k) => k.id === kind);
+            return sel ? (
+              <span
+                title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
+                style={{
+                  display: 'inline-block',
+                  width: '1.4rem',
+                  height: '1.1rem',
+                  marginLeft: '0.5rem',
+                  verticalAlign: 'middle',
+                  borderRadius: '3px',
+                  background: sel.coloring.background,
+                  border: `2px solid ${sel.coloring.stroke}`
+                }}
+              />
+            ) : null;
+          })()
         ) : null}
-        <div>
-          <label htmlFor="m-kind" style={labelStyle}>
-            Kind
-          </label>
-          <select
-            id="m-kind"
-            value={kind}
-            onChange={(e) => setKind(e.target.value)}
-            style={{ ...inputStyle, width: '14rem' }}
+        {macroKinds.length === 0 ? (
+          <p
+            style={{
+              margin: '0.3rem 0 0',
+              fontSize: '0.8rem',
+              opacity: 0.7
+            }}
           >
-            <option value="">(unset)</option>
-            {macroKinds.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.name} ({k.id})
-              </option>
-            ))}
-          </select>
-          {kind ? (
-            (() => {
-              const sel = macroKinds.find((k) => k.id === kind);
-              return sel ? (
-                <span
-                  title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
-                  style={{
-                    display: 'inline-block',
-                    width: '1.4rem',
-                    height: '1.1rem',
-                    marginLeft: '0.5rem',
-                    verticalAlign: 'middle',
-                    borderRadius: '3px',
-                    background: sel.coloring.background,
-                    border: `2px solid ${sel.coloring.stroke}`
-                  }}
-                />
-              ) : null;
-            })()
-          ) : null}
-          {macroKinds.length === 0 ? (
-            <p
-              style={{
-                margin: '0.3rem 0 0',
-                fontSize: '0.8rem',
-                opacity: 0.7
-              }}
-            >
-              No macro kinds defined — initialize them from the Dashboard.
-            </p>
-          ) : null}
-        </div>
+            No macro kinds defined — initialize them from the Dashboard.
+          </p>
+        ) : null}
       </div>
 
-      {/* --- Styles --------------------------------------------------------- */}
+      {/* --- Styles bar + style editor ------------------------------------- */}
       <StylesEditor
         styles={styles}
         setStyles={setStyles}
         activeStyle={activeStyle}
         setActiveStyle={setActiveStyle}
-        defaultStyleTag={defaultStyleTag}
-        setDefaultStyleTag={setDefaultStyleTag}
-        arity={arity}
-        mode={mode}
         patchStyle={patchStyle}
         hasDupTag={hasDupTag}
       />
@@ -727,6 +688,30 @@ export function CreateMacroApp(): React.ReactElement {
           </TabButton>
         ))}
       </div>
+
+      {/* --- Preview canvas (only under the KaTeX template tab, above the
+             template textarea — no other backend can render a live preview) */}
+      {showPreview ? (
+        <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
+          <PreviewBoundary
+            key={
+              (current?.template ?? '') +
+              arity +
+              (current?.mode ?? '') +
+              (current?.display ?? '') +
+              (current?.tag ?? '')
+            }
+          >
+            <SnlSyntaxTreeView
+              tree={draftTree}
+              macroDb={previewMacroDb}
+              query={previewQuery}
+              hooks={hooks}
+              kindPalette={kindPalette}
+            />
+          </PreviewBoundary>
+        </div>
+      ) : null}
 
       {activeTab === 'typst_synthesis' ? (
         <SynthesisModeRow
@@ -769,22 +754,18 @@ export function CreateMacroApp(): React.ReactElement {
         }}
       />
 
-      {/* --- Live preview --------------------------------------------------- */}
-      <SectionHeader title="Preview" />
-      <div className="snl-preview-canvas" style={{ marginBottom: '0.75rem' }}>
-        <PreviewBoundary
-          key={(current?.template ?? '') + arity + mode + display + (current?.tag ?? '')}
-        >
-          <SnlSyntaxTreeView
-            tree={draftTree}
-            macroDb={previewMacroDb}
-            query={previewQuery}
-            hooks={hooks}
-            kindPalette={kindPalette}
-          />
-        </PreviewBoundary>
+      {/* --- Arity (single line, sits above Argument overrides) ------------ */}
+      <div style={{ marginBottom: '0.5rem' }}>
+        <RadioGroup
+          legend="Arity"
+          name="arity"
+          value={arity}
+          options={['fixed', 'variadic']}
+          onChange={(v) => setArity(v as Arity)}
+        />
       </div>
 
+      {/* --- Argument overrides -------------------------------------------- */}
       <div
         style={{
           border:
@@ -878,6 +859,31 @@ export function CreateMacroApp(): React.ReactElement {
         )}
       </div>
 
+      {/* --- Sources (moved to the bottom, above Submit) ------------------- */}
+      <SectionHeader title="Sources" />
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '1rem',
+          marginBottom: '1rem'
+        }}
+      >
+        <ListEditor
+          label="Entries"
+          placeholder="entry id"
+          values={sourceEntries}
+          onChange={setSourceEntries}
+        />
+        <ListEditor
+          label="URLs"
+          placeholder="https://…"
+          values={sourceUrls}
+          onChange={setSourceUrls}
+          warnNonHttp
+        />
+      </div>
+
       {/* --- Submit --------------------------------------------------------- */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <button
@@ -923,10 +929,6 @@ function StylesEditor({
   setStyles,
   activeStyle,
   setActiveStyle,
-  defaultStyleTag,
-  setDefaultStyleTag,
-  arity,
-  mode,
   patchStyle,
   hasDupTag
 }: {
@@ -934,10 +936,6 @@ function StylesEditor({
   setStyles: React.Dispatch<React.SetStateAction<StyleDraft[]>>;
   activeStyle: number;
   setActiveStyle: (i: number) => void;
-  defaultStyleTag: string;
-  setDefaultStyleTag: (tag: string) => void;
-  arity: Arity;
-  mode: Mode;
   patchStyle: (patch: Partial<StyleDraft>) => void;
   hasDupTag: boolean;
 }): React.ReactElement {
@@ -959,14 +957,21 @@ function StylesEditor({
     if (styles.length <= 1) {
       return;
     }
-    const removed = styles[i];
     const next = styles.filter((_, idx) => idx !== i);
     setStyles(next);
     const newActive = Math.min(activeStyle, next.length - 1);
-    setActiveStyle(newActive);
-    if (removed.tag.trim() === defaultStyleTag.trim()) {
-      setDefaultStyleTag(next[0].tag);
-    }
+    setActiveStyle(Math.max(newActive, 0));
+  };
+
+  /** Move style at index i one slot toward index 0 (the default position). */
+  const moveUp = (i: number): void => {
+    if (i <= 0) return;
+    const next = styles.slice();
+    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    setStyles(next);
+    // Keep the active-tab pointing at the SAME style after the swap.
+    if (activeStyle === i) setActiveStyle(i - 1);
+    else if (activeStyle === i - 1) setActiveStyle(i);
   };
 
   return (
@@ -977,8 +982,13 @@ function StylesEditor({
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
             <TabButton active={i === activeStyle} onClick={() => setActiveStyle(i)}>
               {s.tag.trim() || '(empty)'}
-              {s.tag.trim() === defaultStyleTag.trim() ? ' ★' : ''}
+              {i === 0 ? ' ★' : ''}
             </TabButton>
+            {i > 0 ? (
+              <SmallButton onClick={() => moveUp(i)} title="Move earlier (toward default)">
+                ↑
+              </SmallButton>
+            ) : null}
             {styles.length > 1 ? (
               <SmallButton onClick={() => removeStyle(i)}>−</SmallButton>
             ) : null}
@@ -999,6 +1009,11 @@ function StylesEditor({
         </p>
       ) : null}
 
+      <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
+        ★ = default style (used when SNL source omits <code>[style]</code>). Use{' '}
+        <strong>↑</strong> to make another style the default.
+      </p>
+
       <div
         style={{
           display: 'flex',
@@ -1017,49 +1032,40 @@ function StylesEditor({
             type="text"
             value={current?.tag ?? ''}
             placeholder="e.g. infix"
-            onChange={(e) => {
-              const wasDefault = current?.tag.trim() === defaultStyleTag.trim();
-              patchStyle({ tag: e.target.value });
-              if (wasDefault) {
-                setDefaultStyleTag(e.target.value);
-              }
-            }}
+            onChange={(e) => patchStyle({ tag: e.target.value })}
             style={{ ...inputStyle, width: '12rem' }}
           />
         </div>
-        <div>
-          <label htmlFor="m-default-style" style={labelStyle}>
-            Default style
-          </label>
-          <select
-            id="m-default-style"
-            value={defaultStyleTag}
-            onChange={(e) => setDefaultStyleTag(e.target.value)}
-            style={{ ...inputStyle, width: '12rem' }}
-          >
-            {styles.map((s, i) => (
-              <option key={i} value={s.tag}>
-                {s.tag.trim() || '(empty)'}
-              </option>
-            ))}
-          </select>
-        </div>
-        {arity === 'variadic' ? (
-          <div>
-            <label htmlFor="m-vjoin" style={labelStyle}>
-              Variadic join
-            </label>
-            <input
-              id="m-vjoin"
-              type="text"
-              value={current?.variadic_join ?? ''}
-              placeholder=", "
-              onChange={(e) => patchStyle({ variadic_join: e.target.value })}
-              style={{ ...inputStyle, width: '8rem' }}
-            />
-          </div>
+        <RadioGroup
+          legend="Mode"
+          name="mode"
+          value={current?.mode ?? 'formula'}
+          options={['formula', 'text', 'block']}
+          onChange={(v) => patchStyle({ mode: v as Mode })}
+        />
+        {(current?.mode ?? 'formula') === 'formula' ? (
+          <RadioGroup
+            legend="Display"
+            name="display"
+            value={current?.display ?? 'inline'}
+            options={['inline', 'block']}
+            onChange={(v) => patchStyle({ display: v as Display })}
+          />
         ) : null}
-        {mode !== 'formula' ? (
+        <div>
+          <label htmlFor="m-vjoin" style={labelStyle}>
+            Variadic join
+          </label>
+          <input
+            id="m-vjoin"
+            type="text"
+            value={current?.variadic_join ?? ''}
+            placeholder=", "
+            onChange={(e) => patchStyle({ variadic_join: e.target.value })}
+            style={{ ...inputStyle, width: '8rem' }}
+          />
+        </div>
+        {(current?.mode ?? 'formula') !== 'formula' ? (
           <div>
             <label htmlFor="m-rkey" style={labelStyle}>
               React renderer key
@@ -1209,6 +1215,11 @@ function SynthesisModeRow({
   );
 }
 
+/**
+ * Themed button used both as content-tab and as styles-bar tab. Hovering flips
+ * the background to a subtle grey ({@link BUTTON_HOVER_BG}) for interaction
+ * feedback (Fulcrum, 2026-07-03 UI overhaul).
+ */
 function TabButton({
   active,
   onClick,
@@ -1218,10 +1229,19 @@ function TabButton({
   onClick: () => void;
   children: React.ReactNode;
 }): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const inactiveBg = hover
+    ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.06))'
+    : 'var(--vscode-tab-inactiveBackground, transparent)';
+  const activeBg = hover
+    ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.09))'
+    : 'var(--vscode-tab-activeBackground, #1e1e1e)';
   return (
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         padding: '0.3rem 0.7rem',
         border:
@@ -1229,15 +1249,14 @@ function TabButton({
         borderBottom: active
           ? '2px solid var(--vscode-focusBorder, #0e639c)'
           : '1px solid var(--vscode-panel-border, #444)',
-        background: active
-          ? 'var(--vscode-tab-activeBackground, #1e1e1e)'
-          : 'var(--vscode-tab-inactiveBackground, transparent)',
+        background: active ? activeBg : inactiveBg,
         color: 'inherit',
         cursor: 'pointer',
         borderRadius: '3px 3px 0 0',
         fontFamily: 'inherit',
         fontSize: '0.85rem',
-        fontWeight: active ? 600 : 400
+        fontWeight: active ? 600 : 400,
+        transition: 'background 80ms ease'
       }}
     >
       {children}
@@ -1247,25 +1266,34 @@ function TabButton({
 
 function SmallButton({
   onClick,
-  children
+  children,
+  title
 }: {
   onClick: () => void;
   children: React.ReactNode;
+  title?: string;
 }): React.ReactElement {
+  const [hover, setHover] = useState(false);
   return (
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={title}
       style={{
         padding: '0.2rem 0.55rem',
         border:
           '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: 'transparent',
+        background: hover
+          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.06))'
+          : 'transparent',
         color: 'inherit',
         cursor: 'pointer',
         borderRadius: '3px',
         fontFamily: 'inherit',
-        fontSize: '0.8rem'
+        fontSize: '0.8rem',
+        transition: 'background 80ms ease'
       }}
     >
       {children}

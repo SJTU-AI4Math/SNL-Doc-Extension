@@ -16,9 +16,14 @@ import {
 } from './vscodeApi';
 
 // Extended, on-disk macro shape — a superset of the library's render-only
-// `SnlMacro` (0.6.0 styles system). It keeps the consumer-owned output backends
-// (typst / latex / markdown / text) that this panel reads back, now *per style*.
+// `SnlMacro` (0.7.0 styles system). It keeps the consumer-owned output backends
+// (typst / latex / markdown / text) that this panel reads back, *per style*.
+// v5: mode / display / tag live on each style, styles is an ordered array
+// (styles[0] is the implicit default).
 interface MacroPackageStyle {
+  tag: string;
+  mode: 'formula' | 'text' | 'block';
+  display?: 'inline' | 'block';
   template: string;
   variadic_join?: string;
   react_renderer_key?: string;
@@ -34,10 +39,7 @@ interface MacroPackageEntry {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   arity: 'fixed' | 'variadic';
-  mode: 'formula' | 'text' | 'block';
-  display?: 'inline' | 'block';
-  defaultStyle: string;
-  styles: Record<string, MacroPackageStyle>;
+  styles: MacroPackageStyle[];
 }
 
 interface MacroKind {
@@ -231,9 +233,9 @@ function MacroTable({
           <th style={HEAD}>Name</th>
           <th style={HEAD}>Description</th>
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
-          <th style={{ ...HEAD, width: '4.5rem' }}>Mode</th>
+          <th style={{ ...HEAD, width: '10rem' }}>Modes</th>
           <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
-          <th style={{ ...HEAD, width: '9rem' }}>Styles</th>
+          <th style={{ ...HEAD, width: '12rem' }}>Styles</th>
         </tr>
       </thead>
       <tbody>
@@ -247,23 +249,61 @@ function MacroTable({
               {truncate(m.description ?? '', 60)}
             </td>
             <td style={CELL}>{m.arity}</td>
-            <td style={CELL}>{m.mode}</td>
+            <td style={CELL}>
+              <ModesCell styles={m.styles} />
+            </td>
             <td style={CELL}>
               <KindCell kindId={m.kind} kind={
                 m.kind ? kindById.get(m.kind) : undefined
               } />
             </td>
             <td style={CELL}>
-              <span style={MONO}>{m.defaultStyle}</span>
-              <span style={{ opacity: 0.6 }}>
-                {' '}
-                ({Object.keys(m.styles ?? {}).length})
-              </span>
+              <StylesCell styles={m.styles} />
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+function ModesCell({
+  styles
+}: {
+  styles: MacroPackageStyle[];
+}): React.ReactElement {
+  // Deduplicate + join modes with '/' so a mixed-mode macro shows e.g. "formula/text".
+  const modes: string[] = [];
+  for (const s of styles ?? []) {
+    if (s?.mode && !modes.includes(s.mode)) {
+      modes.push(s.mode);
+    }
+  }
+  if (modes.length === 0) {
+    return <span style={{ opacity: 0.5 }}>—</span>;
+  }
+  return <span>{modes.join(' / ')}</span>;
+}
+
+function StylesCell({
+  styles
+}: {
+  styles: MacroPackageStyle[];
+}): React.ReactElement {
+  // Default = styles[0]; show it with a ★, then remaining tags after.
+  if (!Array.isArray(styles) || styles.length === 0) {
+    return <span style={{ opacity: 0.5 }}>—</span>;
+  }
+  const [first, ...rest] = styles;
+  return (
+    <span>
+      <span style={MONO}>{first.tag} ★</span>
+      {rest.length > 0 ? (
+        <span style={{ opacity: 0.65 }}>
+          {' '}+ {rest.map((s) => s.tag).join(', ')}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

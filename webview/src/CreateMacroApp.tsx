@@ -65,7 +65,15 @@ const DRAFT_KEY = '_snl_draft';
 const PREVIEW_PLACEHOLDER_KEY = '_snl_preview_placeholder';
 const MAX_ARGS = 8;
 
-/** One placeholder macro per index — a rounded translucent numbered box. */
+/** One placeholder macro per index — a rounded translucent numbered box.
+ *
+ * The `\mathord{...}` wrap is REQUIRED: without it, KaTeX writes the trailing
+ * atom-spacing (`\mspace`) as a child of the `\htmlClass` span, so the
+ * placeholder's CSS frame visibly extends past the digit into empty right
+ * padding whenever a `+` / operator follows (bug 猫猫 flagged 2026-07-04).
+ * `\mathord` promotes the wrapper to its own atom so the spacing lands
+ * OUTSIDE the frame, adjacent to the following `\mbin`.
+ */
 const ARG_PLACEHOLDER_MACROS: Record<string, SnlMacro> = {};
 for (let i = 0; i < MAX_ARGS; i++) {
   ARG_PLACEHOLDER_MACROS[`_snl_arg_${i}`] = {
@@ -77,7 +85,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
       {
         tag: 'default',
         mode: 'formula_inline',
-        template: `\\htmlClass{snlArgPlaceholder}{${i}}`
+        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`
       }
     ]
   };
@@ -897,7 +905,7 @@ export function CreateMacroApp(): React.ReactElement {
                 value={current?.template ?? ''}
                 onChange={(e) => patchStyle({ template: e.target.value })}
                 placeholder="e.g. \frac{#0}{#1}"
-                rows={6}
+                rows={4}
                 style={{
                   ...inputStyle,
                   width: '100%',
@@ -1154,8 +1162,11 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
 
 /**
  * Vertical Mode switcher — a stack of 4 buttons matching the horizontal
- * Styles bar's TabButton visual language. Placed to the LEFT of the Preview +
- * template block so users see mode / preview / template top-to-bottom-ish.
+ * Styles bar's TabButton visual language (but with the active indicator on
+ * the RIGHT edge instead of the bottom, and text horizontally centered — see
+ * 猫猫 2026-07-04 UI note). Placed to the LEFT of the Preview + template
+ * block. Uses `flex: 1` on each button so all four evenly split the outer
+ * row's height and the group ends aligned with the bottom of the textarea.
  */
 function ModeSwitcher({
   value,
@@ -1185,11 +1196,76 @@ function ModeSwitcher({
         Mode
       </div>
       {MODE_ORDER.map((m) => (
-        <TabButton key={m} active={value === m} onClick={() => onChange(m)}>
-          {MODE_LABELS[m]}
-        </TabButton>
+        <div key={m} style={{ flex: 1, display: 'flex' }}>
+          <ModeButton
+            active={value === m}
+            onClick={() => onChange(m)}
+            label={MODE_LABELS[m]}
+          />
+        </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * A single Mode row — a self-contained vertical-tab button with the active
+ * indicator on the RIGHT edge and label horizontally centered. Uses
+ * `width: 100%; height: 100%` so its flex parent (per-row cell in
+ * {@link ModeSwitcher}) drives its size, keeping the 4 buttons evenly
+ * distributed across the outer row height.
+ *
+ * Not folded into {@link TabButton} because that button is used inline in
+ * horizontal styles bars and content tabs where the flex-grow / height-100
+ * / vertical-indicator wart would be inappropriate.
+ */
+function ModeButton({
+  active,
+  onClick,
+  label
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const inactiveBg = hover
+    ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.06))'
+    : 'var(--vscode-tab-inactiveBackground, transparent)';
+  const activeBg = hover
+    ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.09))'
+    : 'var(--vscode-tab-activeBackground, #1e1e1e)';
+  const defaultBorder =
+    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))';
+  const accentBorder = '2px solid var(--vscode-focusBorder, #0e639c)';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        width: '100%',
+        height: '100%',
+        padding: '0.3rem 0.7rem',
+        border: defaultBorder,
+        borderRight: active ? accentBorder : defaultBorder,
+        background: active ? activeBg : inactiveBg,
+        color: 'inherit',
+        cursor: 'pointer',
+        borderRadius: '3px 0 0 3px',
+        fontFamily: 'inherit',
+        fontSize: '0.85rem',
+        fontWeight: active ? 600 : 400,
+        transition: 'background 80ms ease',
+        textAlign: 'center',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -1229,7 +1305,7 @@ function DynamicArityTemplateRow({
         value={template}
         onChange={(e) => onTemplate(e.target.value)}
         placeholder="e.g. \begin{pmatrix}#*\end{pmatrix}"
-        rows={6}
+        rows={4}
         style={{
           ...inputStyle,
           flex: 1,

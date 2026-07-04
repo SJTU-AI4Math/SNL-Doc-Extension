@@ -108,7 +108,10 @@ type Model =
 const MAX_ARGS = 8;
 const VARIADIC_PREVIEW_ARGS = 3;
 
-/** One placeholder macro per index — a rounded translucent numbered box. */
+/** One placeholder macro per index — a rounded translucent numbered box.
+ *  Uses the same `\mathord{\htmlClass{...}}` shape as CreateMacroApp so
+ *  KaTeX emits the trailing atom-spacing OUTSIDE the frame — otherwise a
+ *  placeholder followed by `+` shows an empty right gap inside its border. */
 const ARG_PLACEHOLDER_MACROS: Record<string, SnlMacro> = {};
 for (let i = 0; i < MAX_ARGS; i++) {
   ARG_PLACEHOLDER_MACROS[`_snl_arg_${i}`] = {
@@ -120,7 +123,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
       {
         tag: 'default',
         mode: 'formula_inline',
-        template: `\\htmlClass{snlArgPlaceholder}{${i}}`
+        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`
       }
     ]
   };

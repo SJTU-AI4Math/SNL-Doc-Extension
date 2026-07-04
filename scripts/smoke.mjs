@@ -324,6 +324,18 @@ async function main() {
     'addMacro legacy per-style mode:"math" -> invalid (renamed to formula_inline in v6)'
   );
 
+  console.log('\n[17c] addMacro forbidden-char names -> invalid');
+  // 2026-07-04-late 猫猫 naming rule: forbid @ # $ % whitespace ( ) [ ] { }.
+  for (const badName of ['bad@name', 'bad#name', 'bad$name', 'bad%name', 'bad name', 'bad(name)', 'bad[name]', 'bad{name}']) {
+    const r = await addMacro(root, 'test_pkg', { ...validMacro, name: badName });
+    assert(r.status === 'invalid', `addMacro rejects reserved char in name: ${JSON.stringify(badName)}`);
+  }
+  // Allowed: backslash, dot, Unicode letters.
+  for (const okName of ['\\foo', 'foo.bar', 'δελτα', '中文名']) {
+    const r = await addMacro(root, 'test_pkg', { ...validMacro, name: okName });
+    assert(r.name === okName, `addMacro accepts non-ASCII / backslash / dotted name: ${okName}`);
+  }
+
   console.log('\n[17c] addMacro missing style.tag -> invalid');
   const noTagMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
@@ -351,8 +363,10 @@ async function main() {
   const readOne = await readMacroPackage(root, 'test_pkg.json');
   assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
   assert(
-    readOne.macros.length === 1 && readOne.macros[0].name === 'Add.add.infix',
-    'readMacroPackage returns the 1 appended macro (with name)'
+    // Adjusted expected count: 1 initial (Add.add.infix) + 4 new allowed
+    // (backslash, dotted, greek, CJK) from [17c].
+    readOne.macros.length === 5 && readOne.macros.some((m) => m.name === 'Add.add.infix'),
+    'readMacroPackage returns the 5 appended macros (Add.add.infix + 4 unicode/backslash/dotted names)'
   );
 
   console.log('\n[20] readMacroPackage missing -> noFile');
@@ -506,8 +520,9 @@ async function main() {
     'readOverview surfaces 7 macroKinds (5 Lean-Expr + partial + custom)'
   );
   // SNoogL index: overview.allMacros = flat index of every macro across every
-  // package. This test root has one macro from the [15] valid-macro addition
-  // (Add.add.infix into test_pkg). Just assert non-empty & shape.
+  // package. This test root has multiple macros in test_pkg (Add.add.infix
+  // from [15] plus 4 more allowed-name macros from [17c]). Assert non-empty
+  // and that Add.add.infix is present with correct package origin.
   assert(
     Array.isArray(overviewMk.allMacros),
     'readOverview.allMacros is an array (SNoogL index)'

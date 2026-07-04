@@ -1206,7 +1206,22 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
  * native language — cf. 猫猫's stance "定的比较松是因为我希望它能广泛支持
  * Unicode 命名".
  */
-const NAME_FORBIDDEN_CHARS = /[@#$%\s\\]/;
+/**
+ * ASCII characters forbidden in a macro name / namespace segment. Reserved
+ * by the SNL parser:
+ *   @ # $ %                — envMode / binder delimiters
+ *   whitespace             — token separator
+ *   ( ) [ ]                — application / style bracket
+ *   { }                    — reserved for future SNL syntax; also breaks the
+ *                            \htmlData{name=…} attribute the view emits.
+ *
+ * Everything else (including backslash, dots, Unicode letters, digits,
+ * emoji) is fair game. Rule intentionally permissive so authors can name
+ * macros in their native language — cf. 猫猫's stance "定的比较松是因为我
+ * 希望它能广泛支持 Unicode 命名". Kept in sync with snlDoc.ts's
+ * validateMacro().
+ */
+const NAME_FORBIDDEN_CHARS = /[@#$%\s(){}\[\]]/;
 
 /** True if a single name/namespace segment is legal. Empty is NOT legal here. */
 function isValidNameSegment(seg: string): boolean {
@@ -1488,7 +1503,7 @@ function MultiNameEditor({
           }}
         >
           Invalid segment — cannot contain <code>@ # $ %</code>, whitespace,
-          or <code>\</code>.
+          or bracket chars <code>( ) [ ] {'{'} {'}'}</code>.
         </p>
       ) : null}
     </div>

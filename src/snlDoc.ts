@@ -1124,6 +1124,19 @@ function validateMacro(macro: MacroPackageEntry): string | null {
   if (!name) {
     return 'name is required';
   }
+  // Naming rule (2026-07-04-late 猫猫 spec 1 + spec 3-update):
+  //   ASCII-forbidden set: @ # $ % whitespace ( ) [ ] { }
+  //   Everything else — including backslash, dots, Unicode letters, digits,
+  //   emoji — is allowed. The forbidden characters are all reserved by the
+  //   SNL syntax (delimiters / bracket forms) or would produce ambiguous
+  //   parses; everything else is fair game for user naming.
+  const forbidden = /[@#$%\s(){}\[\]]/;
+  if (forbidden.test(name)) {
+    return (
+      'name may not contain @ # $ % whitespace ( ) [ ] { } — ' +
+      'these characters are reserved by the SNL parser'
+    );
+  }
   if (typeof macro.dynamic_arity !== 'boolean') {
     return "dynamic_arity must be a boolean";
   }

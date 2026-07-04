@@ -31,18 +31,21 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
-// Extended, on-disk macro shape — a superset of the library's render-only
-// `SnlMacro` (0.7.0 styles system). It keeps the consumer-owned output backends
-// (typst / latex / markdown / text) that this panel reads back, *per style*.
-// v5: mode / display / tag live on each style, styles is an ordered array
-// (styles[0] is the implicit default).
+// Extended, on-disk macro shape (v6) — a superset of the library's render-only
+// `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
+// markdown / text) that this panel reads back, *per style*.
+// v6: `mode` is 4 flat values (formula_inline/formula_display/text/block),
+// no `display` axis; `dynamic_arity: boolean` replaces `arity`; variadic
+// delimiters are 3 optional strings; per-macro + per-style `tags`.
 interface MacroPackageStyle {
   tag: string;
-  mode: 'formula' | 'text' | 'block';
-  display?: 'inline' | 'block';
+  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
   template: string;
+  variadic_left?: string;
   variadic_join?: string;
+  variadic_right?: string;
   react_renderer_key?: string;
+  tags?: string[];
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   markdown?: string;
@@ -54,8 +57,9 @@ interface MacroPackageEntry {
   description: string;
   source: { entries: string[]; urls: string[] };
   kind?: string;
-  arity: 'fixed' | 'variadic';
+  dynamic_arity: boolean;
   styles: MacroPackageStyle[];
+  tags?: string[];
 }
 
 interface MacroKind {
@@ -111,11 +115,11 @@ for (let i = 0; i < MAX_ARGS; i++) {
     name: `_snl_arg_${i}`,
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
-    arity: 'fixed',
+    dynamic_arity: false,
     styles: [
       {
         tag: 'default',
-        mode: 'formula',
+        mode: 'formula_inline',
         template: `\\htmlClass{snlArgPlaceholder}{${i}}`
       }
     ]
@@ -141,9 +145,9 @@ function maxChildIndex(template: string): number {
 }
 
 /**
- * Convert an on-disk {@link MacroPackageEntry} to the render-only lib shape
+ * Convert an on-disk v6 {@link MacroPackageEntry} to the render-only lib shape
  * `SnlMacro` (only the fields the view needs — drop typst/latex/markdown/text
- * backends; keep name/description/source/kind/arity/styles).
+ * backends; keep name/description/source/kind/dynamic_arity/styles).
  */
 function macroToLibShape(m: MacroPackageEntry): SnlMacro {
   const styles = Array.isArray(m.styles)
@@ -153,13 +157,16 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
           mode: s.mode,
           template: s.template
         };
-        if (s.mode === 'formula' && s.display) {
-          out.display = s.display;
+        if (s.variadic_left) {
+          out.variadic_left = s.variadic_left;
         }
         if (s.variadic_join) {
           out.variadic_join = s.variadic_join;
         }
-        if (s.mode !== 'formula' && s.react_renderer_key) {
+        if (s.variadic_right) {
+          out.variadic_right = s.variadic_right;
+        }
+        if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
           out.react_renderer_key = s.react_renderer_key;
         }
         return out;
@@ -169,8 +176,10 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
     name: m.name,
     description: m.description ?? '',
     source: m.source ?? { entries: [], urls: [] },
-    arity: m.arity,
-    styles: styles.length > 0 ? styles : [{ tag: 'default', mode: 'formula', template: '' }]
+    dynamic_arity: !!m.dynamic_arity,
+    styles: styles.length > 0
+      ? styles
+      : [{ tag: 'default', mode: 'formula_inline', template: '' }]
   };
   if (m.kind) {
     lib.kind = m.kind;
@@ -347,6 +356,21 @@ const MONO: React.CSSProperties = {
   fontFamily: 'var(--vscode-editor-font-family, monospace)'
 };
 
+/**
+ * Human-readable arity label for a macro row (bug 2 fix).
+ * For a fixed-arity macro, show the derived argument count (from max #N in
+ * the default template + 1). For dynamic-arity, show "dynamic". "0" (a
+ * fixed nullary macro like `\LaTeX`) is a legitimate value.
+ */
+function arityLabel(macro: MacroPackageEntry): string {
+  if (macro.dynamic_arity) {
+    return 'dynamic';
+  }
+  const defaultStyle = macro.styles?.[0];
+  const count = Math.max(0, maxChildIndex(defaultStyle?.template ?? '') + 1);
+  return String(count);
+}
+
 function MacroTable({
   macros,
   macroKinds,
@@ -472,16 +496,25 @@ function MacroRow({
           : 'transparent'
       }}
     >
-      <td style={CELL}>
-        <MacroPreview
-          macro={macro}
-          macroDb={previewMacroDb}
-          query={previewQuery}
-          hooks={previewHooks}
-        />
+      <td style={{ ...CELL, textAlign: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '1.5rem'
+          }}
+        >
+          <MacroPreview
+            macro={macro}
+            macroDb={previewMacroDb}
+            query={previewQuery}
+            hooks={previewHooks}
+          />
+        </div>
       </td>
       <td style={{ ...CELL, ...MONO }}>{macro.name}</td>
-      <td style={CELL}>{macro.arity}</td>
+      <td style={CELL}>{arityLabel(macro)}</td>
       <td style={CELL}>
         <ModesCell styles={macro.styles} />
       </td>
@@ -604,7 +637,7 @@ function MacroPreview({
   hooks: SnlRenderHooks;
 }): React.ReactElement {
   const argCount = useMemo(() => {
-    if (macro.arity === 'variadic') {
+    if (macro.dynamic_arity) {
       return Math.min(VARIADIC_PREVIEW_ARGS, MAX_ARGS);
     }
     const defaultStyle = macro.styles?.[0];

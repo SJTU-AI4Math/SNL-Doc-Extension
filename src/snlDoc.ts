@@ -486,23 +486,30 @@ export async function readMacroPackages(
  * `@snl-basics/react` for previews and keep their own extended copy for saves.
  */
 /**
- * One render style of a macro (0.7.0 styles system) — mirrors
+ * One render style of a macro (v3, v6 on-disk) — mirrors
  * `@snl-basics/react`'s `SnlMacroStyle`, extended with the consumer-owned
  * output backends (typst / latex / markdown / text) which live *per style*.
  *
- * v5: `tag`, `mode`, and `display` moved onto the style so a single macro can
- * carry a formula style ("a = b") alongside a prose style ("a 与 b 相等").
+ * v3: `mode` is now 4 flat values (formula_inline / formula_display / text /
+ * block); the `display?: inline|block` axis is folded in. `variadic_join`
+ * is split into three optional delimiter/separator strings. Free-text
+ * `tags` may be attached per style.
  */
 export interface MacroPackageStyle {
   /** Style tag — the token used in `foo[tag](…)`. Must be unique per macro. */
   tag: string;
-  /** Semantic render mode for this style. */
-  mode: 'formula' | 'text' | 'block';
-  /** Only meaningful when mode === 'formula': KaTeX displayMode for the root render. */
-  display?: 'inline' | 'block';
+  /** Semantic render mode — 4 flat values (v3). */
+  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
   template: string;
+  /** Left delimiter for `#*` — ignored when the macro isn't dynamic_arity. */
+  variadic_left?: string;
+  /** Separator between `#*` children. Default: ', ' (formula), '' (text). */
   variadic_join?: string;
+  /** Right delimiter for `#*` — ignored when the macro isn't dynamic_arity. */
+  variadic_right?: string;
   react_renderer_key?: string;
+  /** Free-text labels attached to this style (backslash forbidden). */
+  tags?: string[];
   // Extended (consumer-owned) output backends per style:
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
@@ -516,13 +523,19 @@ export interface MacroPackageEntry {
   source: { entries: string[]; urls: string[] };
   /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
   kind?: string;
-  arity: 'fixed' | 'variadic';
+  /**
+   * True when the macro's child count is not fixed by its template (default
+   * template must contain `#*`). Replaces the v2 `arity: 'fixed'|'variadic'`.
+   */
+  dynamic_arity: boolean;
   /**
    * Ordered list of render styles. `styles[0]` is the implicit default used
    * when the SNL source omits `[style]`. Every macro has at least one style
    * and tags must be unique.
    */
   styles: MacroPackageStyle[];
+  /** Free-text labels attached to the macro itself (backslash forbidden). */
+  tags?: string[];
 }
 
 /** MacroPackageEntry without redundant `name` (the name is the package-map key). */
@@ -616,17 +629,20 @@ function splitBaseStyle(name: string): { base: string; style: string } {
 }
 
 /**
- * Build a per-style entry (v5) from a legacy (pre-v4) macro's `katex_react` +
- * backends. Style tag / mode / display come from the caller (the base macro).
+ * Build a per-style entry in **v5 shape** from a legacy (pre-v4) macro's
+ * `katex_react` + backends. This function DELIBERATELY returns v5 (with
+ * separate `mode: 'formula' | 'text' | 'block'` + optional `display`) — the
+ * final v5→v6 collapse happens in {@link v5MacroToV6} after grouping. Using
+ * v5 here lets the v4→v5 grouping logic stay unchanged.
  */
 function legacyMacroToStyle(
   macro: Record<string, unknown>,
   tag: string,
-  mode: MacroPackageStyle['mode'],
-  display: MacroPackageStyle['display'] | undefined
-): MacroPackageStyle {
+  mode: 'formula' | 'text' | 'block',
+  display: 'inline' | 'block' | undefined
+): Record<string, unknown> {
   const kr = (macro.katex_react ?? {}) as Record<string, unknown>;
-  const style: MacroPackageStyle = {
+  const style: Record<string, unknown> = {
     tag,
     mode,
     template: typeof kr.template === 'string' ? kr.template : ''
@@ -641,10 +657,10 @@ function legacyMacroToStyle(
     style.react_renderer_key = kr.react_renderer_key as string;
   }
   if (macro.typst !== undefined) {
-    style.typst = macro.typst as MacroPackageStyle['typst'];
+    style.typst = macro.typst;
   }
   if (macro.latex !== undefined) {
-    style.latex = macro.latex as MacroPackageStyle['latex'];
+    style.latex = macro.latex;
   }
   if (macro.markdown !== undefined) {
     style.markdown = macro.markdown as string;
@@ -657,9 +673,11 @@ function legacyMacroToStyle(
 
 /**
  * Migrate a v4 macro (styles keyed object + top-level mode/display/defaultStyle)
- * to v5 (styles array with per-style mode/display, no top-level defaultStyle).
+ * to a v5-shape intermediate (styles array with per-style mode/display,
+ * `arity` still on the macro). The final v5→v6 collapse happens in
+ * {@link v5MacroToV6} after grouping.
  */
-function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
+function v4MacroToV5(macro: Record<string, unknown>): Record<string, unknown> {
   const {
     mode: macroMode = 'formula',
     display: macroDisplay,
@@ -667,8 +685,8 @@ function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
     styles: stylesMap = {},
     ...rest
   } = macro as {
-    mode?: MacroPackageEntry['styles'][number]['mode'];
-    display?: MacroPackageEntry['styles'][number]['display'];
+    mode?: 'formula' | 'text' | 'block';
+    display?: 'inline' | 'block';
     defaultStyle?: string;
     styles?: Record<string, Record<string, unknown>>;
   } & Record<string, unknown>;
@@ -685,11 +703,11 @@ function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
     }
   }
 
-  const styles: MacroPackageStyle[] = orderedTags.map((tag) => {
+  const styles: Array<Record<string, unknown>> = orderedTags.map((tag) => {
     const raw = map[tag] ?? {};
-    const s: MacroPackageStyle = {
+    const s: Record<string, unknown> = {
       tag,
-      mode: (macroMode as MacroPackageStyle['mode']) ?? 'formula',
+      mode: macroMode ?? 'formula',
       template: typeof raw.template === 'string' ? (raw.template as string) : ''
     };
     if (s.mode === 'formula' && macroDisplay) {
@@ -702,10 +720,10 @@ function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
       s.react_renderer_key = raw.react_renderer_key as string;
     }
     if (raw.typst !== undefined) {
-      s.typst = raw.typst as MacroPackageStyle['typst'];
+      s.typst = raw.typst;
     }
     if (raw.latex !== undefined) {
-      s.latex = raw.latex as MacroPackageStyle['latex'];
+      s.latex = raw.latex;
     }
     if (raw.markdown !== undefined) {
       s.markdown = raw.markdown as string;
@@ -716,7 +734,67 @@ function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
     return s;
   });
 
-  return { ...(rest as unknown as MacroPackageEntry), styles };
+  return { ...rest, styles };
+}
+
+/**
+ * v5 → v6 (this-version) migration for a single macro. Called AFTER
+ * {@link groupMacrosToStyles} has produced a v5-shape entry, so we know the
+ * `styles` array exists and each style has `mode` / (optionally) `display`.
+ *
+ * Two orthogonal changes:
+ *   1. `arity: 'fixed'|'variadic'` → `dynamic_arity: boolean`
+ *   2. Each style's `mode: 'formula' | 'text' | 'block'` + optional
+ *      `display: 'inline' | 'block'` → new flat `mode` in
+ *      `'formula_inline' | 'formula_display' | 'text' | 'block'`.
+ *
+ * Idempotent: an already-v6 macro (has `dynamic_arity` and flat mode) passes
+ * through untouched.
+ */
+function v5MacroToV6(entry: MacroPackageEntry): MacroPackageEntry {
+  const raw = entry as unknown as Record<string, unknown>;
+  const out: MacroPackageEntry = { ...entry };
+
+  // Field 1: arity → dynamic_arity (idempotent).
+  if (typeof out.dynamic_arity !== 'boolean') {
+    const legacyArity = (raw.arity as string | undefined) ?? 'fixed';
+    out.dynamic_arity = legacyArity === 'variadic';
+    delete (out as unknown as Record<string, unknown>).arity;
+  }
+
+  // Field 2: each style's mode + display → flat mode.
+  if (Array.isArray(out.styles)) {
+    out.styles = out.styles.map((s) => {
+      const rawS = s as unknown as Record<string, unknown>;
+      const legacyMode = rawS.mode as string | undefined;
+      const legacyDisplay = rawS.display as string | undefined;
+      // Already-v6 modes pass through untouched.
+      if (
+        legacyMode === 'formula_inline' ||
+        legacyMode === 'formula_display' ||
+        legacyMode === 'text' ||
+        legacyMode === 'block'
+      ) {
+        const next = { ...s };
+        delete (next as unknown as Record<string, unknown>).display;
+        return next;
+      }
+      let newMode: MacroPackageStyle['mode'];
+      if (legacyMode === 'formula' || legacyMode === undefined) {
+        newMode = legacyDisplay === 'block' ? 'formula_display' : 'formula_inline';
+      } else if (legacyMode === 'text' || legacyMode === 'block') {
+        newMode = legacyMode as MacroPackageStyle['mode'];
+      } else {
+        // Unknown mode string — default to formula_inline (best-effort).
+        newMode = 'formula_inline';
+      }
+      const next: MacroPackageStyle = { ...s, mode: newMode };
+      delete (next as unknown as Record<string, unknown>).display;
+      return next;
+    });
+  }
+
+  return out;
 }
 
 /**
@@ -731,11 +809,29 @@ function v4MacroToV5(macro: Record<string, unknown>): MacroPackageEntry {
  * Best-effort: if any legacy macro can't be grouped cleanly, a warning is
  * logged and original entries are returned as-is.
  */
+/**
+ * Group a flat list of named macros into a v6-shape `MacroPackageEntry[]`.
+ * Legacy shapes are first grouped as v5-shape intermediates
+ * (Record<string, unknown> with `arity` + `mode` + `display`), then the whole
+ * batch is passed through {@link v5MacroToV6} to collapse to v6.
+ *
+ * Three input flavours handled in one pass:
+ *   - v5 or v6 macros (styles is an array): pass through — v5MacroToV6 is
+ *     idempotent on v6-shape input.
+ *   - v4 macros (styles is a keyed object + defaultStyle): converted via
+ *     {@link v4MacroToV5}.
+ *   - legacy macros (with `katex_react` and dotted name → style tag):
+ *     grouped by base name (last dotted segment becomes the style tag).
+ * Best-effort: if any legacy macro can't be grouped cleanly, a warning is
+ * logged and original entries are returned as-is.
+ */
 function groupMacrosToStyles(
   collected: Array<Record<string, unknown>>
 ): MacroPackageEntry[] {
   try {
-    const groups = new Map<string, MacroPackageEntry>();
+    // Intermediate map holds v5-shape records (or already-v6 pass-throughs).
+    // We only cast to MacroPackageEntry at the end, after v5MacroToV6.
+    const groups = new Map<string, Record<string, unknown>>();
     const order: string[] = [];
     for (const raw of collected) {
       if (isV5Macro(raw)) {
@@ -743,12 +839,12 @@ function groupMacrosToStyles(
         if (!groups.has(name)) {
           order.push(name);
         }
-        groups.set(name, raw as unknown as MacroPackageEntry);
+        groups.set(name, raw);
         continue;
       }
       if (isV4StylesMacro(raw)) {
         const converted = v4MacroToV5(raw);
-        const name = converted.name;
+        const name = (converted.name as string) ?? '';
         if (!groups.has(name)) {
           order.push(name);
         }
@@ -763,35 +859,37 @@ function groupMacrosToStyles(
       }
       const { base, style } = splitBaseStyle((raw.name as string) ?? '');
       let entry = groups.get(base);
-      const legacyMode =
-        (kr.mode as MacroPackageStyle['mode']) ?? 'formula';
-      const legacyDisplay = kr.display as MacroPackageStyle['display'] | undefined;
+      const legacyMode = (kr.mode as 'formula' | 'text' | 'block' | undefined) ?? 'formula';
+      const legacyDisplay = kr.display as 'inline' | 'block' | undefined;
       if (!entry) {
         entry = {
           name: base,
           description: (raw.description as string) ?? '',
-          source:
-            (raw.source as MacroPackageEntry['source']) ?? {
-              entries: [],
-              urls: []
-            },
-          arity: (kr.arity as MacroPackageEntry['arity']) ?? 'fixed',
+          source: raw.source ?? { entries: [], urls: [] },
+          arity: (kr.arity as string) ?? 'fixed',
           styles: []
         };
         if (kr.kind !== undefined) {
-          entry.kind = kr.kind as string;
+          entry.kind = kr.kind;
         }
         groups.set(base, entry);
         order.push(base);
       }
-      entry.styles.push(legacyMacroToStyle(raw, style, legacyMode, legacyDisplay));
+      (entry.styles as Array<Record<string, unknown>>).push(
+        legacyMacroToStyle(raw, style, legacyMode, legacyDisplay)
+      );
     }
-    return order.map((n) => groups.get(n) as MacroPackageEntry);
+    // Final v5→v6 collapse for every group. Cast to MacroPackageEntry at
+    // this boundary is safe because v5MacroToV6 guarantees v6 shape.
+    return order.map((n) => {
+      const g = groups.get(n) as Record<string, unknown>;
+      return v5MacroToV6(g as unknown as MacroPackageEntry);
+    });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
       `[snlDoc] normalizeMacros: could not migrate legacy macros to the ` +
-        `v5 styles array (${reason}); returning original entries`
+        `v6 styles array (${reason}); returning original entries`
     );
     return collected as unknown as MacroPackageEntry[];
   }
@@ -995,8 +1093,8 @@ function validateMacro(macro: MacroPackageEntry): string | null {
   if (!name) {
     return 'name is required';
   }
-  if (macro.arity !== 'fixed' && macro.arity !== 'variadic') {
-    return "arity must be 'fixed' or 'variadic'";
+  if (typeof macro.dynamic_arity !== 'boolean') {
+    return "dynamic_arity must be a boolean";
   }
   const styles = macro?.styles;
   if (!Array.isArray(styles)) {
@@ -1020,21 +1118,44 @@ function validateMacro(macro: MacroPackageEntry): string | null {
     }
     seen.add(tag);
     if (
-      style.mode !== 'formula' &&
+      style.mode !== 'formula_inline' &&
+      style.mode !== 'formula_display' &&
       style.mode !== 'text' &&
       style.mode !== 'block'
     ) {
-      return `styles[${i}].mode must be 'formula', 'text' or 'block'`;
+      return `styles[${i}].mode must be one of 'formula_inline', 'formula_display', 'text', 'block'`;
     }
     if (typeof style.template !== 'string' || style.template.trim().length === 0) {
       return `styles[${i}].template is required`;
     }
-    if (
-      style.display !== undefined &&
-      style.display !== 'inline' &&
-      style.display !== 'block'
-    ) {
-      return `styles[${i}].display must be 'inline' or 'block'`;
+    // v6: no `display` field on a style. Reject if lingering (should have
+    // been stripped by v5MacroToV6 during read).
+    const raw = style as unknown as Record<string, unknown>;
+    if (raw.display !== undefined) {
+      return `styles[${i}].display is a v5 field — should have been folded into mode`;
+    }
+  }
+  // Tags: strings, no backslashes.
+  const macroTags = (macro as MacroPackageEntry).tags;
+  if (macroTags !== undefined) {
+    if (!Array.isArray(macroTags)) {
+      return 'tags must be an array of strings';
+    }
+    for (const t of macroTags) {
+      if (typeof t !== 'string') return 'tags entries must be strings';
+      if (t.includes('\\')) return 'tags may not contain backslashes';
+    }
+  }
+  for (let i = 0; i < styles.length; i++) {
+    const styleTags = (styles[i] as MacroPackageStyle).tags;
+    if (styleTags !== undefined) {
+      if (!Array.isArray(styleTags)) {
+        return `styles[${i}].tags must be an array of strings`;
+      }
+      for (const t of styleTags) {
+        if (typeof t !== 'string') return `styles[${i}].tags entries must be strings`;
+        if (t.includes('\\')) return `styles[${i}].tags may not contain backslashes`;
+      }
     }
   }
   const src = macro?.source;

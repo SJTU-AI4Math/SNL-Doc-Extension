@@ -1,28 +1,37 @@
-// SNL Create Macro editor: the full macro form + a customizable Live Preview.
+// SNL Create/Edit Macro editor (v6 schema, 2026-07-04 UI overhaul).
 //
 // The preview renders the being-edited macro (registered under `_snl_draft`)
 // applied to a set of argument slots. Empty slots render as translucent
 // numbered placeholder boxes (via injected `_snl_arg_N` macros); non-empty
 // slots are parsed as SNL source and substituted as real subtrees.
 //
-// v5 layout (Macro Editor UI overhaul, 2026-07-03):
-//   1. Basic fields:  Name + Description        (top)
-//   2. Kind:          single-line control       (also top-cluster)
-//   3. Styles bar:    ★ marks styles[0] (the implicit default). Hovering a
-//                     style / control tab flips its background for feedback.
-//                     Up-arrow moves a style toward index 0 (default).
-//   4. Style editor:  tag + Mode + Display + Variadic join + Renderer key
-//   5. Content tabs:  KaTeX template + Typst/LaTeX/Markdown/Text
-//                     • Preview canvas lives INSIDE the KaTeX template tab,
-//                       ABOVE the textarea (other backends have no preview).
-//   6. Arity:         one-line control ABOVE Argument overrides
-//   7. Argument overrides
-//   8. Sources:       moved to the BOTTOM, above the Create button
-//   9. Create button
+// v6 schema (see snlDoc.ts / @snl-basics/react):
+//   - `mode` is 4 flat parallel values:
+//     formula_inline / formula_display / text / block
+//     (old `display` axis is folded into mode itself).
+//   - `dynamic_arity: boolean` replaces `arity: 'fixed' | 'variadic'`.
+//     UI: single checkbox "☐ Dynamic Arity". When ticked, the KaTeX
+//     template textarea shrinks to leave room for three delimiter fields
+//     (Left / Separator / Right) that populate `variadic_left` /
+//     `variadic_join` / `variadic_right` on the style.
+//   - Free-text `tags?: string[]` at both macro and style level.
+//     Backslashes forbidden.
 //
-// The on-disk macro shape is v5: `styles` is an ordered array, mode/display
-// live on each style, `defaultStyle` is gone (styles[0] is the implicit
-// default).
+// 2026-07-04 UI overhaul:
+//   * Title: "Create/Edit Macro in <package display name>" (fallback file).
+//     No subtitle row.
+//   * Row 1: Name (1/4) | Kind (1/4) | Description (1/2). No "Already
+//     taken" hint (host will 400 on true collision).
+//   * Modes UI: a single vertical Mode switcher (4 values), placed to the
+//     LEFT of the Preview + template block, styled to match Styles buttons.
+//   * Style rename: DOUBLE-CLICK a style switch button to inline-rename it.
+//     Enter or blur commits; Escape cancels. Single-click still selects.
+//   * "Argument overrides" section is labeled "Argument overrides during
+//     preview" to disambiguate from real macro arguments.
+//   * Tags: collapsible list editors appended at the end of the Style panel
+//     (per-style) and at the end of the whole Panel (per-macro).
+//   * Empty-template preview shows `\text{SNL Macro Preview}` instead of
+//     the raw internal `_snl_draft` name.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -53,6 +62,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const DRAFT_KEY = '_snl_draft';
+const PREVIEW_PLACEHOLDER_KEY = '_snl_preview_placeholder';
 const MAX_ARGS = 8;
 
 /** One placeholder macro per index — a rounded translucent numbered box. */
@@ -62,19 +72,35 @@ for (let i = 0; i < MAX_ARGS; i++) {
     name: `_snl_arg_${i}`,
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
-    arity: 'fixed',
+    dynamic_arity: false,
     styles: [
       {
-        // The view layer auto-wraps this in \htmlData; kind=argPlaceholder comes
-        // from placeholderNode's node.kind. The frame is drawn purely in CSS via
-        // \htmlClass{snlArgPlaceholder}; KaTeX just renders the digit (no \boxed).
         tag: 'default',
-        mode: 'formula',
+        mode: 'formula_inline',
         template: `\\htmlClass{snlArgPlaceholder}{${i}}`
       }
     ]
   };
 }
+
+/**
+ * Empty-state preview macro. Used when the current style's template is empty
+ * so the preview shows something informative instead of the internal
+ * `_snl_draft` name.
+ */
+const PREVIEW_PLACEHOLDER_MACRO: SnlMacro = {
+  name: PREVIEW_PLACEHOLDER_KEY,
+  description: 'SNL preview placeholder',
+  source: { entries: [], urls: [] },
+  dynamic_arity: false,
+  styles: [
+    {
+      tag: 'default',
+      mode: 'text',
+      template: 'SNL Macro Preview'
+    }
+  ]
+};
 
 function placeholderNode(i: number): SnlSyntaxTree {
   return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
@@ -84,19 +110,27 @@ function placeholderNode(i: number): SnlSyntaxTree {
 // Types / helpers
 // ---------------------------------------------------------------------------
 
-type Arity = 'fixed' | 'variadic';
-type Mode = 'formula' | 'text' | 'block';
-type Display = 'inline' | 'block';
+type Mode = 'formula_inline' | 'formula_display' | 'text' | 'block';
 type SynthesisMode = 'formula' | 'text';
+
+const MODE_LABELS: Record<Mode, string> = {
+  formula_inline: 'Formula (inline)',
+  formula_display: 'Formula (display)',
+  text: 'Text',
+  block: 'Block'
+};
+const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'];
 
 /** Editable per-style draft — flat mirror of {@link ExtendedSnlMacroStyle}. */
 interface StyleDraft {
   tag: string;
   mode: Mode;
-  display: Display; // 'inline' when mode !== 'formula' (harmless — ignored on save)
   template: string;
+  variadic_left: string;
   variadic_join: string;
+  variadic_right: string;
   react_renderer_key: string;
+  tags: string[];
   typst_built_in: string;
   typst_synthesis: string;
   typst_synthesis_mode: SynthesisMode;
@@ -110,11 +144,13 @@ interface StyleDraft {
 function newStyleDraft(tag: string): StyleDraft {
   return {
     tag,
-    mode: 'formula',
-    display: 'inline',
+    mode: 'formula_inline',
     template: '',
+    variadic_left: '',
     variadic_join: '',
+    variadic_right: '',
     react_renderer_key: '',
+    tags: [],
     typst_built_in: '',
     typst_synthesis: '',
     typst_synthesis_mode: 'formula',
@@ -133,14 +169,21 @@ function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
     mode: s.mode,
     template: s.template
   };
-  if (s.mode === 'formula' && s.display === 'block') {
-    out.display = 'block';
+  if (s.variadic_left) {
+    out.variadic_left = s.variadic_left;
   }
   if (s.variadic_join) {
     out.variadic_join = s.variadic_join;
   }
-  if (s.mode !== 'formula' && s.react_renderer_key) {
+  if (s.variadic_right) {
+    out.variadic_right = s.variadic_right;
+  }
+  if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
     out.react_renderer_key = s.react_renderer_key;
+  }
+  const trimmedTags = s.tags.map((t) => t.trim()).filter((t) => t.length > 0);
+  if (trimmedTags.length > 0) {
+    out.tags = trimmedTags;
   }
   out.typst = {
     built_in: s.typst_built_in,
@@ -164,17 +207,19 @@ interface MacroKind {
 }
 
 /**
- * One render style of the extended, on-disk macro shape (v5). A superset of
+ * One render style of the extended, on-disk macro shape (v6). A superset of
  * the library's `SnlMacroStyle`: additionally carries the consumer-owned
  * output backends (typst / latex / markdown / text) per style.
  */
 interface ExtendedSnlMacroStyle {
   tag: string;
   mode: Mode;
-  display?: Display;
   template: string;
+  variadic_left?: string;
   variadic_join?: string;
+  variadic_right?: string;
   react_renderer_key?: string;
+  tags?: string[];
   typst?: {
     built_in: string;
     synthesis: { mode: SynthesisMode; macro: string };
@@ -188,7 +233,7 @@ interface ExtendedSnlMacroStyle {
 }
 
 /**
- * The extended, on-disk macro shape written to a package file (v5). Superset
+ * The extended, on-disk macro shape written to a package file (v6). Superset
  * of the library's render-only `SnlMacro`: the output backends live inside
  * each style. The preview DB uses the slim lib `SnlMacro`; only the
  * save-to-disk path uses this shape.
@@ -198,15 +243,16 @@ interface ExtendedSnlMacro {
   description: string;
   source: { entries: string[]; urls: string[] };
   kind?: string;
-  arity: Arity;
+  dynamic_arity: boolean;
   styles: ExtendedSnlMacroStyle[];
+  tags?: string[];
 }
 
 type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
-  | { kind: 'created'; name: string }
-  | { kind: 'updated'; name: string }
+  | { kind: 'created'; name: string; at: number }
+  | { kind: 'updated'; name: string; at: number }
   | { kind: 'duplicate'; name: string; message: string }
   | { kind: 'notFound'; name: string; message: string }
   | { kind: 'invalid'; reason: string }
@@ -314,12 +360,13 @@ export function CreateMacroApp(): React.ReactElement {
   const [sourceEntries, setSourceEntries] = useState<string[]>(['']);
   const [sourceUrls, setSourceUrls] = useState<string[]>(['']);
 
-  const [arity, setArity] = useState<Arity>('fixed');
+  const [dynamicArity, setDynamicArity] = useState(false);
+  const [macroTags, setMacroTags] = useState<string[]>([]);
   const [kind, setKind] = useState<string>('');
 
-  // Ordered styles array (v5). At least one style always exists; `styles[0]` is
-  // the implicit default (marked ★). `activeStyle` is the style currently
-  // being edited in the Content tabs and used as the preview's style.
+  // Ordered styles array. At least one style always exists; `styles[0]` is the
+  // implicit default (marked ★). `activeStyle` is the style currently being
+  // edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
   const [activeStyle, setActiveStyle] = useState(0);
 
@@ -341,9 +388,8 @@ export function CreateMacroApp(): React.ReactElement {
 
   /**
    * Load an existing extended macro (from the host, edit mode) into the form
-   * state. Fields not present in the on-disk record fall back to sensible
-   * defaults. `name` is set from the record but the UI renders it readonly in
-   * edit mode.
+   * state. Field maps to defaults; the on-disk record must already have been
+   * migrated to v6 shape by the host reader (snlDoc.v5MacroToV6).
    */
   function hydrateFromExisting(existing: ExtendedSnlMacro): void {
     setName(existing.name ?? '');
@@ -357,16 +403,19 @@ export function CreateMacroApp(): React.ReactElement {
     setSourceUrls(
       Array.isArray(src.urls) && src.urls.length > 0 ? src.urls.slice() : ['']
     );
-    setArity(existing.arity === 'variadic' ? 'variadic' : 'fixed');
+    setDynamicArity(!!existing.dynamic_arity);
     setKind(existing.kind ?? '');
+    setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => ({
           tag: s.tag ?? 'default',
-          mode: (s.mode as Mode) ?? 'formula',
-          display: (s.display as Display) ?? 'inline',
+          mode: (s.mode as Mode) ?? 'formula_inline',
           template: s.template ?? '',
+          variadic_left: s.variadic_left ?? '',
           variadic_join: s.variadic_join ?? '',
+          variadic_right: s.variadic_right ?? '',
           react_renderer_key: s.react_renderer_key ?? '',
+          tags: Array.isArray(s.tags) ? s.tags.slice() : [],
           typst_built_in: s.typst?.built_in ?? '',
           typst_synthesis: s.typst?.synthesis?.macro ?? '',
           typst_synthesis_mode: (s.typst?.synthesis?.mode as SynthesisMode) ?? 'formula',
@@ -401,10 +450,10 @@ export function CreateMacroApp(): React.ReactElement {
           }
           break;
         case 'created':
-          setStatus({ kind: 'created', name: msg.name });
+          setStatus({ kind: 'created', name: msg.name, at: Date.now() });
           break;
         case 'updated':
-          setStatus({ kind: 'updated', name: msg.name });
+          setStatus({ kind: 'updated', name: msg.name, at: Date.now() });
           break;
         case 'duplicate':
           setStatus({ kind: 'duplicate', name: msg.name, message: msg.message });
@@ -436,6 +485,23 @@ export function CreateMacroApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  // Auto-dismiss the "saved" toast after 5s (猫猫 req: doesn't linger).
+  useEffect(() => {
+    if (status.kind !== 'created' && status.kind !== 'updated') {
+      return;
+    }
+    const at = status.at;
+    const t = setTimeout(() => {
+      // Only clear if the same status is still showing — a newer save wins.
+      setStatus((cur) =>
+        (cur.kind === 'created' || cur.kind === 'updated') && cur.at === at
+          ? { kind: 'idle' }
+          : cur
+      );
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [status]);
+
   // --- Draft macro + preview DB -------------------------------------------
 
   const draftMacro: SnlMacro = useMemo(() => {
@@ -445,13 +511,16 @@ export function CreateMacroApp(): React.ReactElement {
         mode: s.mode,
         template: s.template
       };
-      if (s.mode === 'formula' && s.display === 'block') {
-        style.display = 'block';
+      if (s.variadic_left) {
+        style.variadic_left = s.variadic_left;
       }
       if (s.variadic_join) {
         style.variadic_join = s.variadic_join;
       }
-      if (s.mode !== 'formula' && s.react_renderer_key) {
+      if (s.variadic_right) {
+        style.variadic_right = s.variadic_right;
+      }
+      if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
         style.react_renderer_key = s.react_renderer_key;
       }
       return style;
@@ -466,11 +535,14 @@ export function CreateMacroApp(): React.ReactElement {
       name: DRAFT_KEY,
       description: '',
       source: { entries: [], urls: [] },
-      arity,
+      dynamic_arity: dynamicArity,
       kind: kind || undefined,
-      styles: styleList.length > 0 ? styleList : [{ tag: 'default', mode: 'formula', template: '' }]
+      styles:
+        styleList.length > 0
+          ? styleList
+          : [{ tag: 'default', mode: 'formula_inline', template: '' }]
     };
-  }, [arity, kind, styles, activeStyle]);
+  }, [dynamicArity, kind, styles, activeStyle]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
@@ -496,6 +568,7 @@ export function CreateMacroApp(): React.ReactElement {
     () => ({
       ...bundledMacroDb,
       ...ARG_PLACEHOLDER_MACROS,
+      [PREVIEW_PLACEHOLDER_KEY]: PREVIEW_PLACEHOLDER_MACRO,
       [DRAFT_KEY]: draftMacro
     }),
     [draftMacro]
@@ -511,12 +584,12 @@ export function CreateMacroApp(): React.ReactElement {
   // --- Arg slots -----------------------------------------------------------
 
   const argCount = useMemo(() => {
-    if (arity === 'variadic') {
+    if (dynamicArity) {
       return Math.min(Math.max(variadicArgCount, 0), MAX_ARGS);
     }
     const derived = maxChildIndex(current?.template ?? '') + 1;
     return Math.min(Math.max(derived, 0), MAX_ARGS);
-  }, [arity, variadicArgCount, current]);
+  }, [dynamicArity, variadicArgCount, current]);
 
   const parseErrors = useMemo(() => {
     const errs: (string | null)[] = [];
@@ -533,6 +606,16 @@ export function CreateMacroApp(): React.ReactElement {
   }, [argCount, previewArgs]);
 
   const draftTree: SnlSyntaxTree = useMemo(() => {
+    // Empty template → show the "SNL Macro Preview" placeholder root so users
+    // don't see the raw internal `_snl_draft` name (猫猫 req).
+    if ((current?.template ?? '').trim().length === 0) {
+      return {
+        name: PREVIEW_PLACEHOLDER_KEY,
+        kind: '',
+        mdata: null,
+        children: []
+      };
+    }
     const children: SnlSyntaxTree[] = [];
     for (let i = 0; i < argCount; i++) {
       const src = previewArgs[i]?.trim();
@@ -544,7 +627,7 @@ export function CreateMacroApp(): React.ReactElement {
       }
     }
     return { name: DRAFT_KEY, kind: '', mdata: null, children };
-  }, [argCount, previewArgs]);
+  }, [argCount, previewArgs, current?.template]);
 
   // --- Validation ----------------------------------------------------------
 
@@ -556,9 +639,9 @@ export function CreateMacroApp(): React.ReactElement {
     panelMode === 'edit' ? false : existingNames.includes(trimmedName);
   const defaultStyleDraft = styles[0];
   const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
-  const tags = styles.map((s) => s.tag.trim());
-  const hasEmptyTag = tags.some((t) => t.length === 0);
-  const hasDupTag = new Set(tags).size !== tags.length;
+  const tagList = styles.map((s) => s.tag.trim());
+  const hasEmptyTag = tagList.some((t) => t.length === 0);
+  const hasDupTag = new Set(tagList).size !== tagList.length;
   const canCreate =
     trimmedName.length > 0 &&
     !isDuplicate &&
@@ -589,6 +672,9 @@ export function CreateMacroApp(): React.ReactElement {
     const styleList: ExtendedSnlMacroStyle[] = styles
       .filter((s) => s.tag.trim().length > 0)
       .map(styleDraftToExtended);
+    const trimmedMacroTags = macroTags
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
     const macro: ExtendedSnlMacro = {
       name: trimmedName,
       description: description.trim(),
@@ -597,9 +683,12 @@ export function CreateMacroApp(): React.ReactElement {
         urls: sourceUrls.map((s) => s.trim()).filter((s) => s.length > 0)
       },
       kind: kind || undefined,
-      arity,
+      dynamic_arity: dynamicArity,
       styles: styleList
     };
+    if (trimmedMacroTags.length > 0) {
+      macro.tags = trimmedMacroTags;
+    }
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
       type: panelMode === 'edit' ? 'update' : 'create',
@@ -608,22 +697,20 @@ export function CreateMacroApp(): React.ReactElement {
   }
 
   const showPreview = activeTab === 'katex_template';
+  const titlePackage = packageName || file || '\u2026';
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '60rem' }}>
-      <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.35rem' }}>
+    <main style={{ ...PANEL_STYLE, maxWidth: '64rem' }}>
+      <h1 style={{ margin: '0 0 1rem', fontSize: '1.35rem' }}>
         {panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in{' '}
-        <code>{file || '\u2026'}</code>
+        <code>{titlePackage}</code>
       </h1>
-      <p style={{ margin: '0 0 1rem', opacity: 0.75 }}>
-        Package: <strong>{packageName || '\u2014'}</strong>
-      </p>
 
-      {/* --- Basic fields (Name + Description) ------------------------------ */}
+      {/* --- Row 1: Name (1/4) | Kind (1/4) | Description (1/2) ------------- */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: '1fr 1fr 2fr',
           gap: '0.75rem',
           marginBottom: '1rem'
         }}
@@ -661,17 +748,45 @@ export function CreateMacroApp(): React.ReactElement {
               cursor: panelMode === 'edit' ? 'not-allowed' : 'text'
             }}
           />
-          {isDuplicate ? (
-            <p
-              style={{
-                margin: '0.25rem 0 0',
-                fontSize: '0.8rem',
-                color: 'var(--vscode-errorForeground, #f48771)'
-              }}
+        </div>
+        <div>
+          <label htmlFor="m-kind" style={labelStyle}>
+            Kind
+          </label>
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+            <select
+              id="m-kind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              style={{ ...inputStyle, flex: 1 }}
             >
-              A macro named "{trimmedName}" already exists in this package.
-            </p>
-          ) : null}
+              <option value="">(unset)</option>
+              {macroKinds.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name} ({k.id})
+                </option>
+              ))}
+            </select>
+            {kind
+              ? (() => {
+                  const sel = macroKinds.find((k) => k.id === kind);
+                  return sel ? (
+                    <span
+                      title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
+                      style={{
+                        display: 'inline-block',
+                        width: '1.4rem',
+                        height: '1.1rem',
+                        borderRadius: '3px',
+                        background: sel.coloring.background,
+                        border: `2px solid ${sel.coloring.stroke}`,
+                        flex: '0 0 auto'
+                      }}
+                    />
+                  ) : null;
+                })()
+              : null}
+          </div>
         </div>
         <div>
           <label htmlFor="m-desc" style={labelStyle}>
@@ -686,63 +801,6 @@ export function CreateMacroApp(): React.ReactElement {
             style={{ ...inputStyle, width: '100%' }}
           />
         </div>
-      </div>
-
-      {panelMode !== 'edit' && existingNames.length > 0 ? (
-        <p style={{ margin: '-0.5rem 0 1rem', fontSize: '0.8rem', opacity: 0.65 }}>
-          Already taken: {existingNames.join(', ')}
-        </p>
-      ) : null}
-
-      {/* --- Kind (single line, no section header) ------------------------- */}
-      <div style={{ marginBottom: '1rem' }}>
-        <label htmlFor="m-kind" style={labelStyle}>
-          Kind
-        </label>
-        <select
-          id="m-kind"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          style={{ ...inputStyle, width: '14rem' }}
-        >
-          <option value="">(unset)</option>
-          {macroKinds.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.name} ({k.id})
-            </option>
-          ))}
-        </select>
-        {kind ? (
-          (() => {
-            const sel = macroKinds.find((k) => k.id === kind);
-            return sel ? (
-              <span
-                title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
-                style={{
-                  display: 'inline-block',
-                  width: '1.4rem',
-                  height: '1.1rem',
-                  marginLeft: '0.5rem',
-                  verticalAlign: 'middle',
-                  borderRadius: '3px',
-                  background: sel.coloring.background,
-                  border: `2px solid ${sel.coloring.stroke}`
-                }}
-              />
-            ) : null;
-          })()
-        ) : null}
-        {macroKinds.length === 0 ? (
-          <p
-            style={{
-              margin: '0.3rem 0 0',
-              fontSize: '0.8rem',
-              opacity: 0.7
-            }}
-          >
-            No macro kinds defined — initialize them from the Dashboard.
-          </p>
-        ) : null}
       </div>
 
       {/* --- Styles bar + style editor ------------------------------------- */}
@@ -780,83 +838,148 @@ export function CreateMacroApp(): React.ReactElement {
         ))}
       </div>
 
-      {/* --- Preview canvas (only under the KaTeX template tab, above the
-             template textarea — no other backend can render a live preview) */}
+      {/* --- Mode + Preview + template textarea ----------------------------
+           Layout: [ Mode switcher (left, vertical) | Preview + Template (right) ]
+           Only under the KaTeX template tab; other backends show plain textarea. */}
       {showPreview ? (
-        <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
-          <PreviewBoundary
-            key={
-              (current?.template ?? '') +
-              arity +
-              (current?.mode ?? '') +
-              (current?.display ?? '') +
-              (current?.tag ?? '')
-            }
-          >
-            <SnlSyntaxTreeView
-              tree={draftTree}
-              macroDb={previewMacroDb}
-              query={previewQuery}
-              hooks={hooks}
-              kindPalette={kindPalette}
-            />
-          </PreviewBoundary>
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+            alignItems: 'stretch'
+          }}
+        >
+          {/* Left column: Mode switcher (vertical, matches Styles buttons). */}
+          <ModeSwitcher
+            value={current?.mode ?? 'formula_inline'}
+            onChange={(v) => patchStyle({ mode: v })}
+          />
+          {/* Right column: Preview + template body (grows). */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
+              <PreviewBoundary
+                key={
+                  (current?.template ?? '') +
+                  dynamicArity +
+                  (current?.mode ?? '') +
+                  (current?.tag ?? '')
+                }
+              >
+                <SnlSyntaxTreeView
+                  tree={draftTree}
+                  macroDb={previewMacroDb}
+                  query={previewQuery}
+                  hooks={hooks}
+                  kindPalette={kindPalette}
+                />
+              </PreviewBoundary>
+            </div>
+            <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
+              LaTeX template — use <code>#0</code>, <code>#1</code>, … for
+              children, <code>#*</code> for dynamic-arity variadic.{' '}
+              <code>\#</code> = literal <code>#</code>. Do NOT write{' '}
+              <code>\htmlData</code> — the wrapper is added automatically.
+            </p>
+            {dynamicArity ? (
+              <DynamicArityTemplateRow
+                template={current?.template ?? ''}
+                left={current?.variadic_left ?? ''}
+                sep={current?.variadic_join ?? ''}
+                right={current?.variadic_right ?? ''}
+                onTemplate={(v) => patchStyle({ template: v })}
+                onLeft={(v) => patchStyle({ variadic_left: v })}
+                onSep={(v) => patchStyle({ variadic_join: v })}
+                onRight={(v) => patchStyle({ variadic_right: v })}
+              />
+            ) : (
+              <textarea
+                value={current?.template ?? ''}
+                onChange={(e) => patchStyle({ template: e.target.value })}
+                placeholder="e.g. \frac{#0}{#1}"
+                rows={6}
+                style={{
+                  ...inputStyle,
+                  width: '100%',
+                  fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                  resize: 'vertical'
+                }}
+              />
+            )}
+          </div>
         </div>
-      ) : null}
+      ) : (
+        <>
+          {activeTab === 'typst_synthesis' ? (
+            <SynthesisModeRow
+              name="typst-synthesis-mode"
+              value={current?.typst_synthesis_mode ?? 'formula'}
+              onChange={(v) => patchStyle({ typst_synthesis_mode: v })}
+            />
+          ) : null}
+          {activeTab === 'latex_synthesis' ? (
+            <SynthesisModeRow
+              name="latex-synthesis-mode"
+              value={current?.latex_synthesis_mode ?? 'formula'}
+              onChange={(v) => patchStyle({ latex_synthesis_mode: v })}
+            />
+          ) : null}
+          <textarea
+            value={(current?.[TAB_FIELD[activeTab]] as string) ?? ''}
+            onChange={(e) =>
+              patchStyle({ [TAB_FIELD[activeTab]]: e.target.value })
+            }
+            rows={6}
+            style={{
+              ...inputStyle,
+              width: '100%',
+              marginBottom: '1.25rem',
+              fontFamily: 'var(--vscode-editor-font-family, monospace)',
+              resize: 'vertical'
+            }}
+          />
+        </>
+      )}
 
-      {activeTab === 'typst_synthesis' ? (
-        <SynthesisModeRow
-          name="typst-synthesis-mode"
-          value={current?.typst_synthesis_mode ?? 'formula'}
-          onChange={(v) => patchStyle({ typst_synthesis_mode: v })}
-        />
-      ) : null}
-      {activeTab === 'latex_synthesis' ? (
-        <SynthesisModeRow
-          name="latex-synthesis-mode"
-          value={current?.latex_synthesis_mode ?? 'formula'}
-          onChange={(v) => patchStyle({ latex_synthesis_mode: v })}
-        />
-      ) : null}
-
-      {activeTab === 'katex_template' ? (
-        <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
-          LaTeX template — use <code>#0</code>, <code>#1</code>, … for children,{' '}
-          <code>#*</code> for variadic. <code>\#</code> = literal <code>#</code>. Do
-          NOT write <code>\htmlData</code> — the wrapper is added automatically.
-        </p>
-      ) : null}
-
-      <textarea
-        value={(current?.[TAB_FIELD[activeTab]] as string) ?? ''}
-        onChange={(e) => patchStyle({ [TAB_FIELD[activeTab]]: e.target.value })}
-        placeholder={
-          activeTab === 'katex_template'
-            ? 'e.g. \\frac{#0}{#1}'
-            : ''
-        }
-        rows={6}
-        style={{
-          ...inputStyle,
-          width: '100%',
-          marginBottom: '1.25rem',
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          resize: 'vertical'
-        }}
+      {/* --- Style-level Tags (collapsible, follows active style) ---------- */}
+      <TagsEditor
+        legend={`Style tags — "${current?.tag || 'default'}"`}
+        values={current?.tags ?? []}
+        onChange={(next) => patchStyle({ tags: next })}
       />
 
-      {/* --- Arity (single line, sits above Argument overrides) ------------ */}
-      <div style={{ marginBottom: '0.5rem' }}>
-        <RadioGroup
-          legend="Arity"
-          name="arity"
-          value={arity}
-          options={['fixed', 'variadic']}
-          onChange={(v) => setArity(v as Arity)}
-        />
+      {/* --- Dynamic arity + Argument overrides ---------------------------- */}
+      <div
+        style={{
+          marginBottom: '0.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem'
+        }}
+      >
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            cursor: 'pointer',
+            fontWeight: 600
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={dynamicArity}
+            onChange={(e) => setDynamicArity(e.target.checked)}
+          />
+          Dynamic Arity
+        </label>
+        <span style={{ opacity: 0.65, fontSize: '0.85rem' }}>
+          when ticked, the template can use <code>#*</code> for a variable
+          number of children with delimiters + separator
+        </span>
       </div>
 
-      {/* --- Argument overrides -------------------------------------------- */}
+      {/* --- Argument overrides during preview ----------------------------- */}
       <div
         style={{
           border:
@@ -874,9 +997,11 @@ export function CreateMacroApp(): React.ReactElement {
             marginBottom: '0.5rem'
           }}
         >
-          <strong style={{ fontSize: '0.9rem' }}>Argument overrides</strong>
+          <strong style={{ fontSize: '0.9rem' }}>
+            Argument overrides during preview
+          </strong>
           <div style={{ display: 'flex', gap: '0.4rem' }}>
-            {arity === 'variadic' ? (
+            {dynamicArity ? (
               <>
                 <SmallButton
                   onClick={() =>
@@ -900,9 +1025,9 @@ export function CreateMacroApp(): React.ReactElement {
 
         {argCount === 0 ? (
           <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
-            {arity === 'fixed'
-              ? 'No #N placeholders in the template — nothing to fill.'
-              : 'No argument slots. Use “+ Add Arg”.'}
+            {dynamicArity
+              ? 'No argument slots. Use "+ Add Arg".'
+              : 'No #N placeholders in the template — nothing to fill.'}
           </p>
         ) : (
           Array.from({ length: argCount }).map((_, i) => (
@@ -975,6 +1100,13 @@ export function CreateMacroApp(): React.ReactElement {
         />
       </div>
 
+      {/* --- Macro-level Tags (collapsible, always shown) ------------------ */}
+      <TagsEditor
+        legend="Macro tags"
+        values={macroTags}
+        onChange={setMacroTags}
+      />
+
       {/* --- Submit --------------------------------------------------------- */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <button
@@ -987,11 +1119,14 @@ export function CreateMacroApp(): React.ReactElement {
             ? panelMode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
             : panelMode === 'edit' ? 'Update Macro' : 'Create Macro'}
         </button>
-        <span style={{ opacity: 0.6, fontSize: '0.85rem' }}>
+        {/* 猫猫: 保存成功提示应放在按钮右侧 + 时间戳 + 5s 自动消失 */}
+        <SavedInline status={status} />
+        <span style={{ opacity: 0.6, fontSize: '0.85rem', marginLeft: 'auto' }}>
           {templateEmpty ? 'KaTeX template is required.' : ''}
         </span>
       </div>
 
+      {/* Persistent errors stay visible until dismissed (only successes auto-dismiss). */}
       <StatusLine status={status} />
     </main>
   );
@@ -1014,6 +1149,228 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
     >
       {title}
     </h2>
+  );
+}
+
+/**
+ * Vertical Mode switcher — a stack of 4 buttons matching the horizontal
+ * Styles bar's TabButton visual language. Placed to the LEFT of the Preview +
+ * template block so users see mode / preview / template top-to-bottom-ish.
+ */
+function ModeSwitcher({
+  value,
+  onChange
+}: {
+  value: Mode;
+  onChange: (v: Mode) => void;
+}): React.ReactElement {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.25rem',
+        minWidth: '10rem'
+      }}
+      aria-label="Render mode"
+    >
+      <div
+        style={{
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          marginBottom: '0.15rem',
+          opacity: 0.85
+        }}
+      >
+        Mode
+      </div>
+      {MODE_ORDER.map((m) => (
+        <TabButton key={m} active={value === m} onClick={() => onChange(m)}>
+          {MODE_LABELS[m]}
+        </TabButton>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Dynamic-arity template row. Renders as:
+ *   [ Left delim ]  [ main template (wide) with #* ]  [ Separator ]  [ Right delim ]
+ * so the author can see the assembled shape at a glance. Actually
+ * horizontally stacked: main template is a full textarea; delimiters are
+ * single-line inputs.
+ */
+function DynamicArityTemplateRow({
+  template,
+  left,
+  sep,
+  right,
+  onTemplate,
+  onLeft,
+  onSep,
+  onRight
+}: {
+  template: string;
+  left: string;
+  sep: string;
+  right: string;
+  onTemplate: (v: string) => void;
+  onLeft: (v: string) => void;
+  onSep: (v: string) => void;
+  onRight: (v: string) => void;
+}): React.ReactElement {
+  const monoInput: React.CSSProperties = {
+    ...inputStyle,
+    fontFamily: 'var(--vscode-editor-font-family, monospace)'
+  };
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
+      <textarea
+        value={template}
+        onChange={(e) => onTemplate(e.target.value)}
+        placeholder="e.g. \begin{pmatrix}#*\end{pmatrix}"
+        rows={6}
+        style={{
+          ...inputStyle,
+          flex: 1,
+          fontFamily: 'var(--vscode-editor-font-family, monospace)',
+          resize: 'vertical'
+        }}
+      />
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.35rem',
+          width: '12rem'
+        }}
+      >
+        <input
+          type="text"
+          value={left}
+          placeholder="Left delimiter"
+          onChange={(e) => onLeft(e.target.value)}
+          style={monoInput}
+        />
+        <input
+          type="text"
+          value={sep}
+          placeholder="Separator"
+          onChange={(e) => onSep(e.target.value)}
+          style={monoInput}
+        />
+        <input
+          type="text"
+          value={right}
+          placeholder="Right delimiter"
+          onChange={(e) => onRight(e.target.value)}
+          style={monoInput}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Reusable collapsible tags editor. Backslash-forbidden strings only —
+ * validation is done on-input; a red border appears on offending rows.
+ * Used at both style and macro level.
+ */
+function TagsEditor({
+  legend,
+  values,
+  onChange
+}: {
+  legend: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+}): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const set = (i: number, v: string): void => {
+    const next = values.slice();
+    next[i] = v;
+    onChange(next);
+  };
+  const add = (): void => onChange([...values, '']);
+  const remove = (i: number): void => {
+    const next = values.filter((_, idx) => idx !== i);
+    onChange(next);
+  };
+  const summary =
+    values.length === 0 ? '(none)' : `${values.length} tag(s)`;
+  return (
+    <div
+      style={{
+        marginBottom: '1rem',
+        border:
+          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        borderRadius: '4px',
+        padding: '0.5rem 0.75rem'
+      }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setExpanded((e) => !e)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          userSelect: 'none'
+        }}
+      >
+        <strong style={{ fontSize: '0.9rem' }}>
+          <span style={{ opacity: 0.7, marginRight: '0.35rem' }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+          {legend}{' '}
+          <span style={{ opacity: 0.65, fontWeight: 400 }}>— {summary}</span>
+        </strong>
+      </div>
+      {expanded ? (
+        <div style={{ marginTop: '0.5rem' }}>
+          {values.length === 0 ? (
+            <p style={{ margin: '0 0 0.4rem', opacity: 0.7, fontSize: '0.85rem' }}>
+              No tags. Tags are free-text labels used by downstream search
+              indices. Backslashes are not allowed.
+            </p>
+          ) : (
+            values.map((v, i) => {
+              const bad = v.includes('\\');
+              return (
+                <div
+                  key={i}
+                  style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.3rem' }}
+                >
+                  <input
+                    type="text"
+                    value={v}
+                    placeholder="tag"
+                    onChange={(e) => set(i, e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      flex: 1,
+                      borderColor: bad
+                        ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
+                        : undefined
+                    }}
+                  />
+                  <SmallButton onClick={() => remove(i)}>−</SmallButton>
+                </div>
+              );
+            })
+          )}
+          <SmallButton onClick={add}>+ Add tag</SmallButton>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1067,16 +1424,24 @@ function StylesEditor({
     else if (activeStyle === i - 1) setActiveStyle(i);
   };
 
+  /** Commit a rename issued from a StyleSwitch's inline editor. */
+  const renameStyleAt = (i: number, next: string): void => {
+    setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, tag: next } : s)));
+  };
+
   return (
     <>
       <SectionHeader title="Styles" />
       <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
         {styles.map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
-            <TabButton active={i === activeStyle} onClick={() => setActiveStyle(i)}>
-              {s.tag.trim() || '(empty)'}
-              {i === 0 ? ' ★' : ''}
-            </TabButton>
+            <StyleSwitch
+              tag={s.tag}
+              active={i === activeStyle}
+              isDefault={i === 0}
+              onSelect={() => setActiveStyle(i)}
+              onRename={(next) => renameStyleAt(i, next)}
+            />
             {i > 0 ? (
               <SmallButton onClick={() => moveUp(i)} title="Move earlier (toward default)">
                 ↑
@@ -1104,77 +1469,118 @@ function StylesEditor({
 
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
         ★ = default style (used when SNL source omits <code>[style]</code>). Use{' '}
-        <strong>↑</strong> to make another style the default.
+        <strong>↑</strong> to make another style the default. Double-click a
+        style button to rename it.
       </p>
 
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '1.5rem',
-          marginBottom: '1rem',
-          alignItems: 'flex-start'
-        }}
-      >
-        <div>
-          <label htmlFor="m-style-tag" style={labelStyle}>
-            Style tag
+      {/* React renderer key row (only for text/block modes). No standalone
+          `Style tag` field or `Variadic join` field any more — rename lives on
+          the button itself, and dynamic-arity delimiters live next to the
+          template textarea. */}
+      {(current?.mode === 'text' || current?.mode === 'block') ? (
+        <div style={{ marginBottom: '1rem' }}>
+          <label htmlFor="m-rkey" style={labelStyle}>
+            React renderer key
           </label>
           <input
-            id="m-style-tag"
+            id="m-rkey"
             type="text"
-            value={current?.tag ?? ''}
-            placeholder="e.g. infix"
-            onChange={(e) => patchStyle({ tag: e.target.value })}
-            style={{ ...inputStyle, width: '12rem' }}
+            value={current?.react_renderer_key ?? ''}
+            placeholder="list | table | centered | (custom key)"
+            onChange={(e) => patchStyle({ react_renderer_key: e.target.value })}
+            style={{ ...inputStyle, width: '18rem' }}
           />
         </div>
-        <RadioGroup
-          legend="Mode"
-          name="mode"
-          value={current?.mode ?? 'formula'}
-          options={['formula', 'text', 'block']}
-          onChange={(v) => patchStyle({ mode: v as Mode })}
-        />
-        {(current?.mode ?? 'formula') === 'formula' ? (
-          <RadioGroup
-            legend="Display"
-            name="display"
-            value={current?.display ?? 'inline'}
-            options={['inline', 'block']}
-            onChange={(v) => patchStyle({ display: v as Display })}
-          />
-        ) : null}
-        <div>
-          <label htmlFor="m-vjoin" style={labelStyle}>
-            Variadic join
-          </label>
-          <input
-            id="m-vjoin"
-            type="text"
-            value={current?.variadic_join ?? ''}
-            placeholder=", "
-            onChange={(e) => patchStyle({ variadic_join: e.target.value })}
-            style={{ ...inputStyle, width: '8rem' }}
-          />
-        </div>
-        {(current?.mode ?? 'formula') !== 'formula' ? (
-          <div>
-            <label htmlFor="m-rkey" style={labelStyle}>
-              React renderer key
-            </label>
-            <input
-              id="m-rkey"
-              type="text"
-              value={current?.react_renderer_key ?? ''}
-              placeholder="list | table | centered | (custom key)"
-              onChange={(e) => patchStyle({ react_renderer_key: e.target.value })}
-              style={{ ...inputStyle, width: '18rem' }}
-            />
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </>
+  );
+}
+
+/**
+ * A single style-bar button. Single click → select. Double click → inline
+ * rename (backed by a plain text input; Enter/blur commits, Esc cancels).
+ */
+function StyleSwitch({
+  tag,
+  active,
+  isDefault,
+  onSelect,
+  onRename
+}: {
+  tag: string;
+  active: boolean;
+  isDefault: boolean;
+  onSelect: () => void;
+  onRename: (next: string) => void;
+}): React.ReactElement {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(tag);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(tag);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }
+  }, [editing, tag]);
+
+  const commit = (): void => {
+    const next = draft.trim();
+    if (next.length > 0 && next !== tag) {
+      onRename(next);
+    }
+    setEditing(false);
+  };
+  const cancel = (): void => {
+    setDraft(tag);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        style={{
+          padding: '0.3rem 0.7rem',
+          border: '1px solid var(--vscode-focusBorder, #0e639c)',
+          borderRadius: '3px 3px 0 0',
+          background: 'var(--vscode-input-background, #2a2a2a)',
+          color: 'var(--vscode-input-foreground, #ddd)',
+          fontFamily: 'inherit',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          minWidth: '6rem'
+        }}
+      />
+    );
+  }
+
+  return (
+    <TabButton
+      active={active}
+      onClick={onSelect}
+      onDoubleClick={() => setEditing(true)}
+      title="Double-click to rename"
+    >
+      {tag.trim() || '(empty)'}
+      {isDefault ? ' ★' : ''}
+    </TabButton>
   );
 }
 
@@ -1316,11 +1722,15 @@ function SynthesisModeRow({
 function TabButton({
   active,
   onClick,
-  children
+  onDoubleClick,
+  children,
+  title
 }: {
   active: boolean;
   onClick: () => void;
+  onDoubleClick?: () => void;
   children: React.ReactNode;
+  title?: string;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
   const inactiveBg = hover
@@ -1333,8 +1743,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      title={title}
       style={{
         padding: '0.3rem 0.7rem',
         border:
@@ -1349,7 +1761,8 @@ function TabButton({
         fontFamily: 'inherit',
         fontSize: '0.85rem',
         fontWeight: active ? 600 : 400,
-        transition: 'background 80ms ease'
+        transition: 'background 80ms ease',
+        textAlign: 'left'
       }}
     >
       {children}
@@ -1424,23 +1837,66 @@ class PreviewBoundary extends React.Component<
   }
 }
 
+function twoDigit(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+function formatSavedAt(ts: number): string {
+  const d = new Date(ts);
+  return `${twoDigit(d.getHours())}:${twoDigit(d.getMinutes())}:${twoDigit(d.getSeconds())}`;
+}
+
+/**
+ * Inline "saved" banner shown to the right of the submit button (猫猫 req).
+ * Shows a green check + macro name + parenthesized wall-clock time. Auto-
+ * dismissed by the parent's useEffect after 5s.
+ */
+function SavedInline({ status }: { status: Status }): React.ReactElement | null {
+  if (status.kind !== 'created' && status.kind !== 'updated') {
+    return null;
+  }
+  const verb = status.kind === 'created' ? 'Created' : 'Updated';
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.3rem',
+        fontSize: '0.85rem',
+        fontWeight: 600,
+        color: 'var(--vscode-testing-iconPassed, #89d185)'
+      }}
+    >
+      <span>✓</span>
+      <span>{verb} "{status.name}"</span>
+      <span style={{ opacity: 0.75, fontWeight: 400 }}>
+        ({formatSavedAt(status.at)})
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Persistent status banner — only rendered for ERROR-shaped statuses
+ * (duplicate / notFound / invalid / noFile / noWorkspace / noSnlDoc / error).
+ * Success statuses are handled by {@link SavedInline} + auto-dismiss.
+ */
 function StatusLine({
   status
 }: {
   status: Status;
 }): React.ReactElement | null {
-  if (status.kind === 'idle' || status.kind === 'creating') {
+  if (
+    status.kind === 'idle' ||
+    status.kind === 'creating' ||
+    status.kind === 'created' ||
+    status.kind === 'updated'
+  ) {
     return null;
   }
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
-  if (status.kind === 'created') {
-    text = `\u2705 Created macro "${status.name}".`;
-    color = 'var(--vscode-testing-iconPassed, #89d185)';
-  } else if (status.kind === 'updated') {
-    text = `\u2705 Updated macro "${status.name}".`;
-    color = 'var(--vscode-testing-iconPassed, #89d185)';
-  } else if (status.kind === 'duplicate') {
+  if (status.kind === 'duplicate') {
     text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'notFound') {

@@ -7,23 +7,21 @@
 // changes (via FileSystemWatcher).
 //
 // Section order (top → bottom):
-//   1. Entry Kinds  — catalogue of entry categories
-//   2. SNL Macros   — term-macro package files
-//   3. Entries      — shared entry pool (collapsed by default)
-//   4. Libraries    — per-library management
+//   1. Libraries    — per-library management (primary content)
+//   2. Entries      — shared entry pool (primary content)
+//   3. SNL Macros   — term-macro package files
+//   4. Entry Kinds  — catalogue of entry categories
+//   5. Macro Kinds  — catalogue of macro categories
 //
-// This matches the intended data-flow reading order: define your kinds and
-// macros first, then browse entries, finally manage libraries that use
-// them. Entries lives just above Libraries so scrolling from top gives you
-// the metadata before the actual pool of content.
+// This matches the reader's natural priority: what libraries exist, what
+// entries live in the shared pool, then the packaged macros used by them,
+// with the catalogue metadata (kinds) at the bottom as reference.
 //
-// Create/Initialize actions are not header buttons. Each section instead
-// ends with a full-width dashed "+" bar (see `AddBar`) placed AFTER its
-// list; when a list is empty the section shows only that bar as its
-// call-to-action. SNL Macros now follows the same pattern: a "+ Add Package"
-// bar plus click-to-open rows (each opens a per-file PackagePanel). The
-// Entries bar lives inside the collapsible body so it only appears when the
-// section is expanded.
+// Every section is a `CollapsibleSection` — the header shows count + toggle
+// chevron; the body is only mounted when expanded. Default state = all
+// collapsed (极简，用户按需展开). Each section's body ends with a full-width
+// dashed "+" bar (`AddBar`) that dispatches the section's create/init
+// message; when the list is empty the section shows only that bar.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -169,8 +167,15 @@ function Initialized({
   overview: SnlOverview;
   api: VsCodeApi | undefined;
 }): React.ReactElement {
-  const [entriesOpen, setEntriesOpen] = useState(false);
-  const total =
+  // All sections default collapsed. State is local (per-mount) — cheap and
+  // avoids workspaceState round-trips; users open what they care about.
+  const [openLibraries, setOpenLibraries] = useState(false);
+  const [openEntries, setOpenEntries] = useState(false);
+  const [openMacros, setOpenMacros] = useState(false);
+  const [openEntryKinds, setOpenEntryKinds] = useState(false);
+  const [openMacroKinds, setOpenMacroKinds] = useState(false);
+
+  const totalEntries =
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
   const hasKinds = overview.entryKinds.length > 0;
   const hasMacroKinds = overview.macroKinds.length > 0;
@@ -181,9 +186,75 @@ function Initialized({
         SNL Dashboard
       </h1>
 
-      {/* === 1. Entry Kinds catalog ======================================== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <SectionRow title={`Entry Kinds (${overview.entryKinds.length})`} />
+      {/* === 1. Libraries ================================================== */}
+      <CollapsibleSection
+        title="Libraries"
+        subtitle={`${overview.libraries.length} librar${
+          overview.libraries.length === 1 ? 'y' : 'ies'
+        }`}
+        expanded={openLibraries}
+        onToggle={() => setOpenLibraries((v) => !v)}
+      >
+        {overview.libraries.length > 0 ? (
+          <LibrariesTable libraries={overview.libraries} />
+        ) : null}
+        <AddBar
+          label="Create Library"
+          onActivate={() => api?.postMessage({ type: 'createLibrary' })}
+        />
+      </CollapsibleSection>
+
+      {/* === 2. Entries =================================================== */}
+      <CollapsibleSection
+        title="Entries"
+        subtitle={`${totalEntries} entries in shared pool`}
+        expanded={openEntries}
+        onToggle={() => setOpenEntries((v) => !v)}
+      >
+        {overview.entries.length > 0 ? (
+          <EntriesTable
+            entries={overview.entries}
+            kinds={overview.entryKinds}
+          />
+        ) : null}
+        <AddBar
+          label="Create Entry"
+          onActivate={() => api?.postMessage({ type: 'createEntry' })}
+        />
+      </CollapsibleSection>
+
+      {/* === 3. SNL Macros ================================================ */}
+      <CollapsibleSection
+        title="SNL Macros"
+        subtitle={`${overview.macroPackages.length} package${
+          overview.macroPackages.length === 1 ? '' : 's'
+        }`}
+        expanded={openMacros}
+        onToggle={() => setOpenMacros((v) => !v)}
+      >
+        {overview.macroPackages.length > 0 ? (
+          <MacroPackagesTable
+            packages={overview.macroPackages}
+            onOpen={(file) =>
+              api?.postMessage({ type: 'openMacroPackage', file })
+            }
+          />
+        ) : null}
+        <AddBar
+          label="Add Package"
+          onActivate={() => api?.postMessage({ type: 'createMacroPackage' })}
+        />
+      </CollapsibleSection>
+
+      {/* === 4. Entry Kinds =============================================== */}
+      <CollapsibleSection
+        title="Entry Kinds"
+        subtitle={`${overview.entryKinds.length} kind${
+          overview.entryKinds.length === 1 ? '' : 's'
+        }`}
+        expanded={openEntryKinds}
+        onToggle={() => setOpenEntryKinds((v) => !v)}
+      >
         {hasKinds ? (
           <>
             <EntryKindsTable kinds={overview.entryKinds} />
@@ -200,11 +271,17 @@ function Initialized({
             onActivate={() => api?.postMessage({ type: 'initEntryKinds' })}
           />
         )}
-      </section>
+      </CollapsibleSection>
 
-      {/* === 2. SNL Macro Kinds catalog =================================== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <SectionRow title={`SNL Macro Kinds (${overview.macroKinds.length})`} />
+      {/* === 5. Macro Kinds =============================================== */}
+      <CollapsibleSection
+        title="SNL Macro Kinds"
+        subtitle={`${overview.macroKinds.length} kind${
+          overview.macroKinds.length === 1 ? '' : 's'
+        }`}
+        expanded={openMacroKinds}
+        onToggle={() => setOpenMacroKinds((v) => !v)}
+      >
         {hasMacroKinds ? (
           <>
             <MacroKindsTable kinds={overview.macroKinds} />
@@ -221,65 +298,60 @@ function Initialized({
             onActivate={() => api?.postMessage({ type: 'initMacroKinds' })}
           />
         )}
-      </section>
-
-      {/* === 3. SNL Macros ================================================= */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <SectionRow
-          title={`SNL Macros (${overview.macroPackages.length} package${
-            overview.macroPackages.length === 1 ? '' : 's'
-          })`}
-        />
-        {overview.macroPackages.length > 0 ? (
-          <MacroPackagesTable
-            packages={overview.macroPackages}
-            onOpen={(file) =>
-              api?.postMessage({ type: 'openMacroPackage', file })
-            }
-          />
-        ) : null}
-        <AddBar
-          label="Add Package"
-          onActivate={() => api?.postMessage({ type: 'createMacroPackage' })}
-        />
-      </section>
-
-      {/* === 3. Entries overview =========================================== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <CollapsibleHeader
-          title="Entries"
-          subtitle={`${total} entries in shared pool`}
-          expanded={entriesOpen}
-          onToggle={() => setEntriesOpen((v) => !v)}
-        />
-        {entriesOpen ? (
-          <>
-            {overview.entries.length > 0 ? (
-              <EntriesTable
-                entries={overview.entries}
-                kinds={overview.entryKinds}
-              />
-            ) : null}
-            <AddBar
-              label="Create Entry"
-              onActivate={() => api?.postMessage({ type: 'createEntry' })}
-            />
-          </>
-        ) : null}
-      </section>
-
-      {/* === 4. Libraries ================================================== */}
-      <section>
-        <SectionRow title={`Libraries (${overview.libraries.length})`} />
-        {overview.libraries.length > 0 ? (
-          <LibrariesTable libraries={overview.libraries} />
-        ) : null}
-        <AddBar
-          label="Create Library"
-          onActivate={() => api?.postMessage({ type: 'createLibrary' })}
-        />
-      </section>
+      </CollapsibleSection>
     </main>
+  );
+}
+
+/**
+ * A collapsible section wrapper. Header shows title + subtitle + chevron;
+ * body is only rendered when `expanded` is true, so heavy tables don't pay
+ * layout cost while collapsed.
+ */
+function CollapsibleSection({
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+  children
+}: {
+  title: string;
+  subtitle: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section style={{ marginBottom: '1.5rem' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        style={{
+          display: 'flex',
+          width: '100%',
+          alignItems: 'baseline',
+          gap: '0.6rem',
+          padding: '0.4rem 0',
+          background: 'transparent',
+          color: 'inherit',
+          border: 'none',
+          borderBottom:
+            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+          cursor: 'pointer',
+          textAlign: 'left',
+          fontFamily: 'inherit',
+          fontSize: '1.05rem'
+        }}
+      >
+        <span style={{ width: '0.9rem', opacity: 0.7 }}>
+          {expanded ? '▾' : '▸'}
+        </span>
+        <span style={{ fontWeight: 600 }}>{title}</span>
+        <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
+      </button>
+      {expanded ? <div style={{ marginTop: '0.5rem' }}>{children}</div> : null}
+    </section>
   );
 }
 
@@ -337,65 +409,6 @@ function AddBar({
       <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
       <span>{label}</span>
     </div>
-  );
-}
-
-/** Static section header showing just the section title. */
-function SectionRow({ title }: { title: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '0.5rem'
-      }}
-    >
-      <h2 style={{ margin: 0, fontSize: '1.05rem' }}>{title}</h2>
-    </div>
-  );
-}
-
-/** Toggleable header used by the Entries section. */
-function CollapsibleHeader({
-  title,
-  subtitle,
-  expanded,
-  onToggle
-}: {
-  title: string;
-  subtitle: string;
-  expanded: boolean;
-  onToggle: () => void;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      style={{
-        display: 'flex',
-        width: '100%',
-        alignItems: 'baseline',
-        gap: '0.6rem',
-        padding: '0.4rem 0',
-        background: 'transparent',
-        color: 'inherit',
-        border: 'none',
-        borderBottom:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        cursor: 'pointer',
-        textAlign: 'left',
-        fontFamily: 'inherit',
-        fontSize: '1.05rem'
-      }}
-      aria-expanded={expanded}
-    >
-      <span style={{ width: '0.9rem', opacity: 0.7 }}>
-        {expanded ? '▾' : '▸'}
-      </span>
-      <span style={{ fontWeight: 600 }}>{title}</span>
-      <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
-    </button>
   );
 }
 

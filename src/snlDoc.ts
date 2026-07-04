@@ -1087,6 +1087,37 @@ export async function readMacroPackage(
   return { status: 'ok', pkg, macros };
 }
 
+/**
+ * Read every macro from every package under the workspace and return them
+ * as a flat map keyed by macro name (last-writer-wins on collisions —
+ * matches how consumers merge multiple package files into a single lookup
+ * for parsing / rendering).
+ *
+ * Result rows use the extended v6 on-disk shape (typst / latex / markdown /
+ * text backends included). Callers that need the lib-shape `SnlMacroDb`
+ * should map via `extendedToLibShape` on the receiver side.
+ *
+ * Best-effort: individual packages that fail to load (missing file, JSON
+ * parse error) are silently skipped so a single broken package can't
+ * take out the whole editor.
+ */
+export async function readAllMacros(
+  workspaceRoot: vscode.Uri
+): Promise<Record<string, MacroPackageEntry>> {
+  const packages = await readMacroPackages(workspaceRoot);
+  const out: Record<string, MacroPackageEntry> = {};
+  for (const summary of packages) {
+    const read = await readMacroPackage(workspaceRoot, summary.file);
+    if (read.status !== 'ok') continue;
+    for (const macro of read.macros) {
+      if (typeof macro.name === 'string' && macro.name.length > 0) {
+        out[macro.name] = macro;
+      }
+    }
+  }
+  return out;
+}
+
 /** Validate the structural invariants of a single {@link MacroPackageEntry}. */
 function validateMacro(macro: MacroPackageEntry): string | null {
   const name = typeof macro?.name === 'string' ? macro.name.trim() : '';
@@ -1246,10 +1277,33 @@ export interface SnlOverview {
   libraries: LibrarySummary[];
   /** Term macro packages enumerated under `term_macros/`. */
   macroPackages: MacroPackageSummary[];
+  /**
+   * Every macro's identity across every package in the workspace. Powers the
+   * Dashboard's Find Macro (SNoogL) search box — client-side substring match
+   * over `id`. Package origin is preserved so the search UI can offer
+   * "jump to package". Ordered by package then macro name.
+   */
+  allMacros: AllMacroIndexEntry[];
   /** Entry-kind catalog from `config.json#entry_kinds`. */
   entryKinds: EntryKind[];
   /** Macro-kind catalog from `config.json#macro_kinds`. */
   macroKinds: MacroKind[];
+}
+
+/**
+ * One entry in the flat "all macros in workspace" index for the SNoogL
+ * search box. Kept lightweight (no styles / templates / backends) — this is
+ * ship-in-overview data, not render data.
+ */
+export interface AllMacroIndexEntry {
+  /** Macro identity — e.g. `Set.union`. Unique within a package. */
+  id: string;
+  /** Package file this macro lives in — e.g. `mathlib_basic.json`. */
+  packageFile: string;
+  /** Package's declared name (falls back to the bare file stem). */
+  packageName: string;
+  /** Optional macro `kind` (rule / const / partial / …). */
+  kind?: string;
 }
 
 /**
@@ -1278,6 +1332,7 @@ export async function readOverview(
       entries: [],
       libraries: [],
       macroPackages: [],
+      allMacros: [],
       entryKinds: [],
       macroKinds: []
     };
@@ -1331,12 +1386,37 @@ export async function readOverview(
   const entryKinds: EntryKind[] = config?.entry_kinds ?? [];
   const macroKinds: MacroKind[] = config?.macro_kinds ?? [];
 
+  // SNoogL search index: one entry per macro across every package.
+  // Second per-package read is intentional — readMacroPackages only did
+  // structure-detection and count-inference, we now need actual macro
+  // rows. Cheap for our expected package counts.
+  const allMacros: AllMacroIndexEntry[] = [];
+  for (const summary of macroPackages) {
+    const read = await readMacroPackage(workspaceRoot, summary.file);
+    if (read.status !== 'ok') continue;
+    for (const macro of read.macros) {
+      if (typeof macro.name !== 'string' || macro.name.length === 0) continue;
+      allMacros.push({
+        id: macro.name,
+        packageFile: summary.file,
+        packageName: read.pkg?.name ?? summary.file.replace(/\.json$/i, ''),
+        ...(typeof macro.kind === 'string' && macro.kind ? { kind: macro.kind } : {})
+      });
+    }
+  }
+  allMacros.sort((a, b) =>
+    a.packageFile === b.packageFile
+      ? a.id.localeCompare(b.id)
+      : a.packageFile.localeCompare(b.packageFile),
+  );
+
   return {
     hasSnlDoc: true,
     totalEntryCount,
     entries,
     libraries,
     macroPackages,
+    allMacros,
     entryKinds,
     macroKinds
   };

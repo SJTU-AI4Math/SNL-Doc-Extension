@@ -1238,17 +1238,52 @@ function NameEditor({
   invalid,
   readOnlyTitle
 }: NameEditorProps): React.ReactElement {
-  // If the value has no `.`, render as a plain single input — spec:
-  // "如果 name 里没有 `.` 那么效果等同于这个功能不存在".
+  // `flat` = user is currently editing the whole ID as a single string.
+  // Auto-flat when the value has no `.` (spec: no `.` → editor is invisible).
+  // Otherwise chip-view. But we also let the user FORCE flat via the
+  // "Edit whole ID" button on the right of the last chip — that's the
+  // 2026-07-04-late "重新编辑" fix (猫猫 spec 1).
   //
-  // When the user types `.` in the single input, we UPGRADE on blur / Enter
-  // (below) to the multi-segment view via the joined-string round-trip
-  // (splitDotted). No mid-typing DOM juggling.
-  if (!value.includes('.')) {
+  // We stay in flat mode across a value-round-trip that adds a `.` in the
+  // middle of editing, so the user's caret survives typing `Set.union`
+  // without React remounting the input into a two-chip row.
+  const [forceFlat, setForceFlat] = useState(!value.includes('.'));
+
+  // When the parent value goes empty (e.g. hydrateFromExisting on a new
+  // macro), reset the "user typed a dot recently" latch so the next dot
+  // typed will still land in a single input.
+  //
+  // When the parent value goes DOTTED via a source other than this editor
+  // (e.g. loading an existing macro), snap to chip view — the user hasn't
+  // been mid-typing, so no caret to protect.
+  useEffect(() => {
+    if (value.length === 0) {
+      setForceFlat(true);
+    } else if (value.includes('.') && !forceFlat) {
+      // stay in chip view
+    }
+    // Intentionally NOT: else if (!value.includes('.')) setForceFlat(true)
+    // — that would flip back to flat every render, which is fine but
+    // redundant since the flat branch is entered on the next render anyway
+    // via the `!value.includes('.')` guard below.
+  }, [value]);
+
+  const isFlat = forceFlat || !value.includes('.');
+
+  if (isFlat) {
     return (
       <SingleNameInput
         value={value}
-        onChange={onChange}
+        onChange={(next) => {
+          onChange(next);
+          // Once the user commits (blur / Enter) with a `.`, drop out of
+          // forced-flat so the chip view takes over on next edit. But not
+          // if they explicitly hit the "Edit whole ID" button — that just
+          // sets forceFlat=true and stays there until commit.
+          if (next.includes('.')) {
+            setForceFlat(false);
+          }
+        }}
         readOnly={readOnly}
         invalid={invalid}
         title={readOnly ? readOnlyTitle : undefined}
@@ -1261,6 +1296,11 @@ function NameEditor({
     <MultiNameEditor
       segments={segments}
       onCommitSegments={(next) => onChange(joinDotted(next))}
+      onEditWholeId={
+        readOnly
+          ? undefined
+          : () => setForceFlat(true)
+      }
       readOnly={readOnly}
       invalid={invalid}
       readOnlyTitle={readOnlyTitle}
@@ -1268,7 +1308,14 @@ function NameEditor({
   );
 }
 
-/** Plain input, used until the user types their first `.`. */
+/**
+ * Plain input, used while the user is editing an ID as a single string.
+ * Commits ONLY on blur or Enter — never on every keystroke — so typing a
+ * mid-name `.` doesn't flip the parent's value halfway through and force
+ * a re-mount into chip view (which would eat the caret). This matches
+ * 猫猫's spec: "应当在编辑完成（比如 Enter 或者鼠标点击脱离编辑）以后
+ * 再判定拆框."
+ */
 function SingleNameInput({
   value,
   onChange,
@@ -1283,6 +1330,11 @@ function SingleNameInput({
   title?: string;
 }): React.ReactElement {
   const [local, setLocal] = useState(value);
+  // Only re-sync from parent when the parent's value CHANGES externally
+  // (e.g. hydrateFromExisting). During normal typing our own commit
+  // triggers a parent update, then this effect runs — but local already
+  // equals value, so it's a no-op. During mid-typing before commit, the
+  // parent hasn't changed, so local stays put.
   useEffect(() => setLocal(value), [value]);
   const commit = () => {
     if (local !== value) onChange(local);
@@ -1293,10 +1345,7 @@ function SingleNameInput({
       type="text"
       value={local}
       placeholder="e.g. Add.add"
-      onChange={(e) => {
-        setLocal(e.target.value);
-        onChange(e.target.value);
-      }}
+      onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -1325,12 +1374,15 @@ function SingleNameInput({
 function MultiNameEditor({
   segments,
   onCommitSegments,
+  onEditWholeId,
   readOnly,
   invalid,
   readOnlyTitle
 }: {
   segments: string[];
   onCommitSegments: (next: string[]) => void;
+  /** If set, renders an "Edit whole ID" button beside the last chip. */
+  onEditWholeId?: () => void;
   readOnly?: boolean;
   invalid?: boolean;
   readOnlyTitle?: string;
@@ -1398,6 +1450,34 @@ function MultiNameEditor({
             </React.Fragment>
           );
         })}
+        {/* "Edit whole ID" — collapses the chip row back into a single
+            input holding the joined string. For big-namespace-restructure
+            edits where clicking chip-by-chip is awkward. 猫猫 spec 1
+            (2026-07-04). */}
+        {onEditWholeId ? (
+          <button
+            type="button"
+            onClick={onEditWholeId}
+            title="Collapse back to a single ID input (Edit whole ID)"
+            aria-label="Edit whole ID"
+            style={{
+              alignSelf: 'stretch',
+              marginLeft: '0.25rem',
+              padding: '0 0.5rem',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+              borderRadius: '3px',
+              fontSize: '0.75rem',
+              fontFamily: 'inherit',
+              opacity: 0.75
+            }}
+          >
+            ✎ whole
+          </button>
+        ) : null}
       </div>
       {errIdx !== null ? (
         <p

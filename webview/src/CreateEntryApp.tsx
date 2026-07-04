@@ -5,23 +5,38 @@
 //   2. Kind      — dropdown seeded from config.json#entry_kinds
 //   3. Preview   — kind-aware live box (stroke + background + mock number)
 //   4. Content   — SNL / Typst / LaTeX / Markdown / Text tabs (each its own
-//                  textarea; SNL has a Text / GUI sub-switch)
+//                  textarea; SNL has a Text / GUI (Inductive) sub-switch)
 //   5. Contributor — deferred placeholder
 //   6. Pointer     — deferred placeholder
 //   7. Submit/Cancel + result banner
 //
-// Preview is intentionally raw-text only: no Typst/LaTeX/Markdown/SNL render
-// pipeline yet (that hooks into SNL_Basics later). See Plan.md.
+// SNL rendering uses a MERGED macroDb: bundledMacroDb (fixture) overridden
+// by every macro in every package in the current workspace, shipped via the
+// `context` message from createEntryPanel. See 猫猫 2026-07-04 spec 2:
+// "Entry 编辑器的 SNL parser 几乎等于没实装 ... 先把它做成能正常根据项目
+// 中已有的 Macro 来进行 Parse 和渲染的模式."
+//
+// GUI Editor (Inductive) wraps @snl-basics/react's SnlSyntaxTreeEditor with
+// a Add-child / Remove-node control layer, and syncs bidirectionally with
+// the SNL text via parse/serialize round-trips. 猫猫 spec 3: "把 SNL-Basics
+// 里的 Syntax Tree Editor 先给它搬过来，变成 GUI Editor (Inductive)".
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
 import '@snl-basics/react/style.css';
 import {
   tryParseSnlSyntaxTree,
+  serializeSnlSyntaxTree,
   createMacroTemplateQueryFromDb,
   defaultRenderHooks,
   SnlSyntaxTreeView,
+  SnlSyntaxTreeEditor,
   bundledMacroDb,
+  createSnlSyntaxTreeNode,
+  type SnlMacro,
+  type SnlMacroDb,
+  type SnlMacroStyle,
+  type SnlSyntaxTree,
   type SnlMacroTemplateQuery,
   type SnlRenderHooks
 } from '@snl-basics/react';
@@ -32,10 +47,73 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
-// Static, network-free macro DB bundled from @snl-basics/react — typed accessor,
-// no cast needed.
-const MACRO_DB = bundledMacroDb;
-const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
+// ---------------------------------------------------------------------------
+// Macro DB merge
+// ---------------------------------------------------------------------------
+
+/**
+ * The on-disk v6 macro entry shape as shipped from the host (see snlDoc.ts
+ * MacroPackageEntry). A superset of the library's render-only SnlMacro:
+ * additionally carries the consumer-owned output backends per style.
+ * We only mirror the fields the view layer needs.
+ */
+interface WirePackageStyle {
+  tag: string;
+  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
+  template: string;
+  variadic_left?: string;
+  variadic_join?: string;
+  variadic_right?: string;
+  react_renderer_key?: string;
+}
+interface WirePackageMacro {
+  name: string;
+  description?: string;
+  source?: { entries?: string[]; urls?: string[] };
+  kind?: string;
+  dynamic_arity: boolean;
+  styles: WirePackageStyle[];
+}
+
+/**
+ * Convert a wire-shape macro (extended v6 on-disk) to the render-only lib
+ * SnlMacro (drops output backends the preview doesn't consume). Mirrors the
+ * same shape reduction PackagePanelApp.macroToLibShape does.
+ */
+function wireMacroToLib(m: WirePackageMacro): SnlMacro {
+  const styles: SnlMacroStyle[] = Array.isArray(m.styles)
+    ? m.styles.map((s) => {
+        const out: SnlMacroStyle = {
+          tag: s.tag,
+          mode: s.mode,
+          template: s.template
+        };
+        if (s.variadic_left) out.variadic_left = s.variadic_left;
+        if (s.variadic_join) out.variadic_join = s.variadic_join;
+        if (s.variadic_right) out.variadic_right = s.variadic_right;
+        if (s.mode === 'block' && s.react_renderer_key) {
+          out.react_renderer_key = s.react_renderer_key;
+        }
+        return out;
+      })
+    : [];
+  const lib: SnlMacro = {
+    name: m.name,
+    description: m.description ?? '',
+    source: m.source
+      ? {
+          entries: Array.isArray(m.source.entries) ? m.source.entries : [],
+          urls: Array.isArray(m.source.urls) ? m.source.urls : []
+        }
+      : { entries: [], urls: [] },
+    dynamic_arity: !!m.dynamic_arity,
+    styles: styles.length > 0
+      ? styles
+      : [{ tag: 'default', mode: 'formula_inline', template: '' }]
+  };
+  if (m.kind) lib.kind = m.kind;
+  return lib;
+}
 
 // Preview render hooks: demonstrate consumer-side source resolution. The
 // CreateEntry panel has no Entry pool loaded, so we surface the raw first
@@ -125,6 +203,27 @@ export function CreateEntryApp(): React.ReactElement {
   const [kinds, setKinds] = useState<EntryKind[]>([]);
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
+  /**
+   * User-authored macros indexed by name (v6 wire shape from the host).
+   * Merged over bundledMacroDb via `macroDb` below. Empty until the first
+   * `context` message arrives — parse/render before that only sees the
+   * bundled fixture.
+   */
+  const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
+
+  const macroDb: SnlMacroDb = useMemo(() => {
+    const userDb: SnlMacroDb = {};
+    for (const [name, m] of Object.entries(wireMacros)) {
+      userDb[name] = wireMacroToLib(m);
+    }
+    return { ...bundledMacroDb, ...userDb };
+  }, [wireMacros]);
+
+  const macroQuery: SnlMacroTemplateQuery = useMemo(
+    () => createMacroTemplateQueryFromDb(macroDb),
+    [macroDb],
+  );
+
   const [title, setTitle] = useState('');
   const [id, setId] = useState<string>('');
   const [selectedKind, setSelectedKind] = useState<string>('');
@@ -153,6 +252,7 @@ export function CreateEntryApp(): React.ReactElement {
             mode: Mode;
             id?: string;
             kinds: EntryKind[];
+            macros?: Record<string, WirePackageMacro>;
             existing?: ExistingEntry | null;
           }
         | { type: 'created'; id: string }
@@ -181,6 +281,9 @@ export function CreateEntryApp(): React.ReactElement {
           setMode(msg.mode);
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
+          setWireMacros(
+            msg.macros && typeof msg.macros === 'object' ? msg.macros : {},
+          );
           if (msg.mode === 'edit') {
             if (msg.id) {
               setId(msg.id);
@@ -458,6 +561,8 @@ export function CreateEntryApp(): React.ReactElement {
             title={trimmedTitle}
             format={activeFormat}
             body={content[activeFormat]}
+            macroDb={macroDb}
+            macroQuery={macroQuery}
           />
         </div>
 
@@ -501,13 +606,19 @@ export function CreateEntryApp(): React.ReactElement {
                 active={snlMode === 'gui'}
                 onClick={() => setSnlMode('gui')}
               >
-                GUI Editor
+                GUI Editor (Inductive)
               </SubTabButton>
             </div>
           ) : null}
 
           {activeFormat === 'snl' && snlMode === 'gui' ? (
-            <PlaceholderBox text="GUI Editor not implemented yet — Tree View / Line View coming later." />
+            <GuiInductiveEditor
+              snl={content.snl}
+              macroDb={macroDb}
+              onChange={(next) =>
+                setContent((prev) => ({ ...prev, snl: next }))
+              }
+            />
           ) : (
             <>
               <textarea
@@ -595,12 +706,16 @@ function LivePreview({
   kind,
   title,
   format,
-  body
+  body,
+  macroDb,
+  macroQuery
 }: {
   kind: EntryKind | undefined;
   title: string;
   format: ContentFormat;
   body: string;
+  macroDb: SnlMacroDb;
+  macroQuery: SnlMacroTemplateQuery;
 }): React.ReactElement {
   const stroke = kind?.coloring.stroke ?? '#888888';
   const background = kind?.coloring.background ?? '#eeeeee';
@@ -631,7 +746,7 @@ function LivePreview({
         {title ? ` — ${title}` : ''}
       </div>
       {isSnl ? (
-        <SnlPreview snl={body} />
+        <SnlPreview snl={body} macroDb={macroDb} macroQuery={macroQuery} />
       ) : (
         <pre
           style={{
@@ -656,7 +771,15 @@ function LivePreview({
  * failures degrade to a subtle banner + raw-text fallback; render-time throws
  * are caught by {@link SnlRenderErrorBoundary}.
  */
-function SnlPreview({ snl }: { snl: string }): React.ReactElement {
+function SnlPreview({
+  snl,
+  macroDb,
+  macroQuery
+}: {
+  snl: string;
+  macroDb: SnlMacroDb;
+  macroQuery: SnlMacroTemplateQuery;
+}): React.ReactElement {
   const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
 
   if (!parsed.ok) {
@@ -688,8 +811,8 @@ function SnlPreview({ snl }: { snl: string }): React.ReactElement {
       <div style={{ color: '#111', fontSize: '1rem' }}>
         <SnlSyntaxTreeView
           tree={parsed.tree}
-          macroDb={MACRO_DB}
-          query={MACRO_QUERY}
+          macroDb={macroDb}
+          query={macroQuery}
           hooks={PREVIEW_HOOKS}
         />
       </div>
@@ -871,6 +994,253 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// GUI Editor (Inductive)
+// ---------------------------------------------------------------------------
+//
+// Recursive, node-per-row editor over an SnlSyntaxTree. Each row shows:
+//   [ node name input (with autocomplete over macroDb) ]  [+ child]  [− delete]
+// Children are indented under their parent. Editing propagates a serialized
+// SNL source string back to the parent via `onChange`.
+//
+// The tree state lives ONLY inside this component. When the parent's `snl`
+// text changes externally (e.g. the user typed something in Text Editor
+// mode and switched back), we re-parse; that's the ONLY sync direction that
+// works, because arbitrary edits in Text mode aren't representable as
+// incremental tree ops. When the user's GUI edits produce an invalid tree
+// (unlikely — the constructor guarantees a valid `SnlSyntaxTree`), we still
+// serialize and the resulting SNL text is deterministic.
+//
+// The name input on each row is powered by @snl-basics/react's built-in
+// SnlSyntaxTreeEditor for a single row (using its name-autocomplete UX);
+// wrapper adds + child / − self buttons.
+
+function GuiInductiveEditor({
+  snl,
+  macroDb,
+  onChange
+}: {
+  snl: string;
+  macroDb: SnlMacroDb;
+  onChange: (nextSnl: string) => void;
+}): React.ReactElement {
+  // Local editable tree. Bootstrapped from the incoming SNL text on mount
+  // and on external changes to that text (see effect below). All internal
+  // edits go through the tree, then get serialized back to `onChange`.
+  const [tree, setTree] = useState<SnlSyntaxTree>(() => parseOrDefault(snl));
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  // Ref to the last SNL text we ourselves produced. Guards against the
+  // ping-pong: onChange → parent state → snl prop → this effect → resetting
+  // tree to what we just serialized (which drops mid-edit selection state).
+  const lastSerializedRef = useRef<string>(serializeSnlSyntaxTree(tree));
+
+  useEffect(() => {
+    if (snl === lastSerializedRef.current) return;
+    // Text arrived from outside (Text mode / hydrate). Re-parse.
+    const parsed = tryParseSnlSyntaxTree(snl.trim() || '_snl_stub');
+    if (parsed.ok) {
+      setTree(parsed.tree);
+      setParseError(null);
+      lastSerializedRef.current = serializeSnlSyntaxTree(parsed.tree);
+    } else {
+      setParseError(parsed.error);
+      // Keep the last valid tree — user can flip back to Text and fix.
+    }
+  }, [snl]);
+
+  const propagate = (nextTree: SnlSyntaxTree): void => {
+    setTree(nextTree);
+    const nextSnl = serializeSnlSyntaxTree(nextTree);
+    lastSerializedRef.current = nextSnl;
+    setParseError(null);
+    onChange(nextSnl);
+  };
+
+  return (
+    <div
+      style={{
+        border:
+          '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+        borderRadius: '3px',
+        padding: '0.6rem',
+        background: 'var(--vscode-editorWidget-background, #252526)'
+      }}
+    >
+      {parseError ? (
+        <div
+          style={{
+            marginBottom: '0.5rem',
+            padding: '0.35rem 0.55rem',
+            background: '#fdecea',
+            border: '1px solid #f5c2c0',
+            color: '#8a1f11',
+            borderRadius: '3px',
+            fontSize: '0.8rem'
+          }}
+        >
+          Text-mode SNL is not parseable ({parseError}). Tree shown reflects
+          the last successful parse; editing here will overwrite the Text
+          content on next change.
+        </div>
+      ) : null}
+      <InductiveNode
+        node={tree}
+        onChange={propagate}
+        onDelete={undefined /* root cannot be deleted */}
+        macroDb={macroDb}
+        depth={0}
+      />
+      <p
+        style={{
+          margin: '0.5rem 0 0',
+          fontSize: '0.75rem',
+          opacity: 0.6,
+          fontStyle: 'italic'
+        }}
+      >
+        Inductive editor — click a node's + to add a child; − to delete a
+        subtree. Name field autocompletes from your macro packages.
+      </p>
+    </div>
+  );
+}
+
+/** Best-effort parse: returns a stub root when the text is empty / invalid. */
+function parseOrDefault(text: string): SnlSyntaxTree {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return createSnlSyntaxTreeNode('_snl_stub');
+  }
+  const parsed = tryParseSnlSyntaxTree(trimmed);
+  return parsed.ok ? parsed.tree : createSnlSyntaxTreeNode('_snl_stub');
+}
+
+/**
+ * One row in the inductive editor. Renders name + [+ child, − delete] on
+ * the same line, and its children indented below. Re-uses the library's
+ * SnlSyntaxTreeEditor for the single-row name input + autocomplete.
+ */
+function InductiveNode({
+  node,
+  onChange,
+  onDelete,
+  macroDb,
+  depth
+}: {
+  node: SnlSyntaxTree;
+  onChange: (next: SnlSyntaxTree) => void;
+  /** Undefined for the root row (root can't be deleted from the editor). */
+  onDelete: (() => void) | undefined;
+  macroDb: SnlMacroDb;
+  depth: number;
+}): React.ReactElement {
+  const addChild = (): void => {
+    onChange({
+      ...node,
+      children: [...node.children, createSnlSyntaxTreeNode('')]
+    });
+  };
+  const updateChild = (i: number, next: SnlSyntaxTree): void => {
+    const nextChildren = node.children.slice();
+    nextChildren[i] = next;
+    onChange({ ...node, children: nextChildren });
+  };
+  const deleteChild = (i: number): void => {
+    const nextChildren = node.children.filter((_, idx) => idx !== i);
+    onChange({ ...node, children: nextChildren });
+  };
+  return (
+    <div style={{ marginLeft: depth > 0 ? '1.2rem' : 0 }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.35rem',
+          alignItems: 'center',
+          marginBottom: '0.25rem'
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Library editor is recursive by default (renders children too).
+              We use it in "single row" mode by giving it a shim onChange
+              that ONLY promotes the {name, kind, mdata} patch and drops any
+              children the library might have handed back — we manage
+              children ourselves via the outer InductiveNode recursion. */}
+          <SnlSyntaxTreeEditor
+            value={{ ...node, children: [] }}
+            templateDb={macroDb}
+            nodeIndex={depth + 1}
+            onChange={(next) => {
+              onChange({
+                ...node,
+                name: next.name,
+                kind: next.kind ?? node.kind,
+                mdata: next.mdata ?? node.mdata
+              });
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={addChild}
+          title="Add a child under this node"
+          aria-label="Add child"
+          style={inductiveMiniButton}
+        >
+          + child
+        </button>
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete this subtree"
+            aria-label="Delete subtree"
+            style={{
+              ...inductiveMiniButton,
+              color: 'var(--vscode-errorForeground, #f48771)',
+              borderColor: 'var(--vscode-errorForeground, #f48771)'
+            }}
+          >
+            − delete
+          </button>
+        ) : null}
+      </div>
+      {node.children.length > 0 ? (
+        <div
+          style={{
+            paddingLeft: '0.35rem',
+            borderLeft:
+              '1px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
+          }}
+        >
+          {node.children.map((child, i) => (
+            <InductiveNode
+              key={i}
+              node={child}
+              onChange={(next) => updateChild(i, next)}
+              onDelete={() => deleteChild(i)}
+              macroDb={macroDb}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const inductiveMiniButton: React.CSSProperties = {
+  padding: '0.15rem 0.5rem',
+  border:
+    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #666))',
+  background: 'transparent',
+  color: 'inherit',
+  cursor: 'pointer',
+  borderRadius: '3px',
+  fontFamily: 'inherit',
+  fontSize: '0.75rem'
+};
 
 function StatusLine({
   status

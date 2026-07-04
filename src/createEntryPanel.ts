@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   addEntry,
   listEntryKinds,
+  readAllMacros,
   readEntries,
   updateEntry,
   type EntryData
@@ -110,19 +111,25 @@ export class CreateEntryPanel {
   private async pushContext(): Promise<void> {
     const root = firstWorkspaceFolder();
     const kinds = root ? await listEntryKinds(root) : [];
+    // Snapshot every macro from every package in the workspace so the
+    // Entry editor's SNL parser/renderer can dispatch on real user macros
+    // — not just the bundled fixture DB from @snl-basics. Merged into the
+    // webview's macroDb over bundledMacroDb (user macros win on collision).
+    const macros = root ? await readAllMacros(root) : {};
     let existing: EntryData | null = null;
     if (this.mode === 'edit' && root) {
       const entries = await readEntries(root);
       existing = entries.find((e) => e && e.id === this.id) ?? null;
     }
     // Legacy `kinds` payload for backward compat with the current webview code;
-    // `context` carries the same info plus mode + existing entry.
+    // `context` carries the same info plus mode + existing entry + macros.
     void this.panel.webview.postMessage({ type: 'kinds', kinds });
     void this.panel.webview.postMessage({
       type: 'context',
       mode: this.mode,
       id: this.id || undefined,
       kinds,
+      macros,
       existing
     });
   }

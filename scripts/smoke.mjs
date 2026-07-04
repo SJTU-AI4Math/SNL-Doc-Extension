@@ -505,6 +505,19 @@ async function main() {
     Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 7,
     'readOverview surfaces 7 macroKinds (5 Lean-Expr + partial + custom)'
   );
+  // SNoogL index: overview.allMacros = flat index of every macro across every
+  // package. This test root has one macro from the [15] valid-macro addition
+  // (Add.add.infix into test_pkg). Just assert non-empty & shape.
+  assert(
+    Array.isArray(overviewMk.allMacros),
+    'readOverview.allMacros is an array (SNoogL index)'
+  );
+  const idx = overviewMk.allMacros.find((m) => m.id === 'Add.add.infix');
+  assert(!!idx, 'SNoogL index contains Add.add.infix from test_pkg');
+  assert(
+    idx.packageFile === 'test_pkg.json' && idx.packageName === 'Test Package',
+    'SNoogL entry carries packageFile + packageName from disk'
+  );
 
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });

@@ -473,3 +473,43 @@ Dashboard 的 **SNL Macros** 侧现已与 Entries/Libraries/EntryKinds 对齐，
 `^[a-zA-Z0-9_-]+(\.json)?$` 校验（防路径穿越）；PackagePanel 的
 FileSystemWatcher 在底层文件被删除时自动 dispose，避免悬挂面板。
 
+---
+
+## 7. Dashboard 布局与 Edit 面板（2026-07-04）
+
+**Dashboard 顺序（上→下）：** Libraries → Entries → SNL Macros → Entry Kinds
+→ Macro Kinds。每个 section 都是可展开的 `CollapsibleSection`，**默认全部
+收起**（极简，按需展开）；body 只在 expanded 时才 mount，不为收起状态
+支付表格 layout。
+
+**Row click → Edit：** 5 张表 + PackagePanel macro 表都改成 clickable
+（通用 `ClickableRow` 组件：`role=button` + `Enter/Space` 键盘触发 + hover
+paint）。点击派发 `editXxx` 消息，宿主打开相应 Panel 的 edit 模式。
+PackagePanel 顶部另外提供一个 `Edit package` 按钮，编辑该 package 自身的
+`name` + `description` 元数据（不改 `file` 名——这是 identity）。
+
+**6 个 update API（`src/snlDoc.ts`）：**
+`updateLibrary` / `updateEntryKind` / `updateMacroKind` / `updateEntry` /
+`updateMacroPackage` / `updateMacro`。**identity 永远不通过 update 修改**——
+`Library.slug`（目录名）/ `EntryKind.id` / `MacroKind.id`（被 entries[]/macros[]
+引用）/ `EntryData.id`（被 relationships 引用）/ `MacroPackageFile` 的 file
+名 / `MacroPackageEntry.name`（被 SNL 源引用）都是 lookup key。要
+"重命名"须先删除再新建。缺失 identity 返回 `notFound`。
+
+**6 个 edit 命令（`src/extension.ts`）：**
+`snlDoc.editLibrary` / `editEntryKind` / `editMacroKind` / `editEntry` /
+`editMacroPackage` / `editMacro`。全部隐藏于 Command Palette（`when: false`），
+只能通过 Dashboard/PackagePanel 的行点击触发（需要 identity 参数）。
+
+**Panel 实例管理：** 6 个 `create*Panel.ts` 从"全局单例"改成
+`Map<${mode}:${identity}, Panel>` 键控——同一实体的 create/edit 各自成
+一个 window，不同实体的 edit 也各自成 window，不会互抢焦点。
+
+**Webview `${mode}` 状态：** 6 个 `Create*App.tsx` 追加 `mode` state；
+`context` 消息带 `mode` + `existing?` 让 app 用 on-disk 状态预填表单；
+identity 字段（id / slug / file / macro.name）在 edit 模式下 readonly
+（灰色 + `IDs are immutable; delete + recreate to rename` tooltip）；
+submit 按钮文案在 Create/Update 之间切换。
+
+**测试**：`npm run smoke` 76/76 通过；`build:webview` 11 bundle 干净。
+

@@ -1,14 +1,30 @@
 // SNL Macro Package panel webview: lists the macros in one package file and
-// offers a big-plus "+ Create Macro" bar. Each row shows a cheap KaTeX-mini
-// preview of the macro name, plus name / description / arity / mode columns.
+// offers a big-plus "+ Create Macro" bar. Each row shows a real KaTeX Preview
+// (macro applied to numbered argument placeholders — same style as the
+// CreateMacro editor's Live Preview) plus name / arity / modes / kind /
+// styles / description columns.
 //
-// The preview column deliberately does NOT render each macro's full template
-// (perf risk for large packages) — it renders `\mathrm{<name>}` as a light
-// visual swatch via katex.renderToString.
+// Preview strategy: build ONE preview macro DB per package load
+// (`{ ...bundledMacroDb, ...ARG_PLACEHOLDER_MACROS, ...packageMacros }`) and
+// pass it to every row. Each row constructs a syntax tree `{ macro.name,
+// [placeholder_0, placeholder_1, ...] }` sized by max #N in the default
+// style's template (fixed arity) or a fixed count (variadic). Row-level
+// try/catch keeps a bad macro from crashing the whole table.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
-import katex from 'katex';
+import '@snl-basics/react/style.css';
+import './create-macro.css';
+import {
+  bundledMacroDb,
+  createMacroTemplateQueryFromDb,
+  defaultRenderHooks,
+  SnlSyntaxTreeView,
+  type SnlMacro,
+  type SnlMacroDb,
+  type SnlSyntaxTree,
+  type SnlRenderHooks
+} from '@snl-basics/react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -79,6 +95,88 @@ type Model =
     }
   | { kind: 'noFile'; file: string }
   | { kind: 'error'; message: string };
+
+// ---------------------------------------------------------------------------
+// Preview constants — mirror the CreateMacro Live Preview so a package row's
+// preview matches what the user sees while editing that macro.
+// ---------------------------------------------------------------------------
+
+const MAX_ARGS = 8;
+const VARIADIC_PREVIEW_ARGS = 3;
+
+/** One placeholder macro per index — a rounded translucent numbered box. */
+const ARG_PLACEHOLDER_MACROS: Record<string, SnlMacro> = {};
+for (let i = 0; i < MAX_ARGS; i++) {
+  ARG_PLACEHOLDER_MACROS[`_snl_arg_${i}`] = {
+    name: `_snl_arg_${i}`,
+    description: `Argument placeholder ${i}`,
+    source: { entries: [], urls: [] },
+    arity: 'fixed',
+    styles: [
+      {
+        tag: 'default',
+        mode: 'formula',
+        template: `\\htmlClass{snlArgPlaceholder}{${i}}`
+      }
+    ]
+  };
+}
+
+function placeholderNode(i: number): SnlSyntaxTree {
+  return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
+}
+
+/** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
+function maxChildIndex(template: string): number {
+  let max = -1;
+  const re = /(?<!\\)#(\d+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(template)) !== null) {
+    const idx = Number(m[1]);
+    if (Number.isFinite(idx) && idx > max) {
+      max = idx;
+    }
+  }
+  return max;
+}
+
+/**
+ * Convert an on-disk {@link MacroPackageEntry} to the render-only lib shape
+ * `SnlMacro` (only the fields the view needs — drop typst/latex/markdown/text
+ * backends; keep name/description/source/kind/arity/styles).
+ */
+function macroToLibShape(m: MacroPackageEntry): SnlMacro {
+  const styles = Array.isArray(m.styles)
+    ? m.styles.map((s) => {
+        const out: SnlMacro['styles'][number] = {
+          tag: s.tag,
+          mode: s.mode,
+          template: s.template
+        };
+        if (s.mode === 'formula' && s.display) {
+          out.display = s.display;
+        }
+        if (s.variadic_join) {
+          out.variadic_join = s.variadic_join;
+        }
+        if (s.mode !== 'formula' && s.react_renderer_key) {
+          out.react_renderer_key = s.react_renderer_key;
+        }
+        return out;
+      })
+    : [];
+  const lib: SnlMacro = {
+    name: m.name,
+    description: m.description ?? '',
+    source: m.source ?? { entries: [], urls: [] },
+    arity: m.arity,
+    styles: styles.length > 0 ? styles : [{ tag: 'default', mode: 'formula', template: '' }]
+  };
+  if (m.kind) {
+    lib.kind = m.kind;
+  }
+  return lib;
+}
 
 export function PackagePanelApp(): React.ReactElement {
   const [model, setModel] = useState<Model>({ kind: 'loading' });
@@ -265,6 +363,32 @@ function MacroTable({
     }
     return m;
   }, [macroKinds]);
+
+  // Build ONE preview macro DB for the whole table: bundledMacroDb (background
+  // math) + argument placeholders + all macros in THIS package (so a macro
+  // referencing another sibling macro in the same package still renders). We
+  // memoize by the macros array identity — parent's onMessage handler creates
+  // a fresh array whenever the package file changes.
+  const previewMacroDb: SnlMacroDb = useMemo(() => {
+    const pkgDb: SnlMacroDb = {};
+    for (const m of macros) {
+      pkgDb[m.name] = macroToLibShape(m);
+    }
+    return { ...bundledMacroDb, ...ARG_PLACEHOLDER_MACROS, ...pkgDb };
+  }, [macros]);
+
+  const previewQuery = useMemo(
+    () => createMacroTemplateQueryFromDb(previewMacroDb),
+    [previewMacroDb]
+  );
+
+  // Tooltip / hover pipeline is pointless in a compact row preview and only
+  // adds jitter. Suppress via renderTooltip → null.
+  const previewHooks: SnlRenderHooks = useMemo(
+    () => ({ ...defaultRenderHooks, renderTooltip: () => null }),
+    []
+  );
+
   return (
     <table
       style={{
@@ -276,13 +400,14 @@ function MacroTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '7rem' }}>Preview</th>
+          <th style={{ ...HEAD, width: '9rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
-          <th style={HEAD}>Description</th>
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
           <th style={{ ...HEAD, width: '10rem' }}>Modes</th>
           <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
           <th style={{ ...HEAD, width: '12rem' }}>Styles</th>
+          {/* Description last: it can be long and wrapping is fine here. */}
+          <th style={HEAD}>Description</th>
         </tr>
       </thead>
       <tbody>
@@ -291,6 +416,9 @@ function MacroTable({
             key={m.name}
             macro={m}
             kindById={kindById}
+            previewMacroDb={previewMacroDb}
+            previewQuery={previewQuery}
+            previewHooks={previewHooks}
             onEdit={onEdit}
           />
         ))}
@@ -307,10 +435,16 @@ function MacroTable({
 function MacroRow({
   macro,
   kindById,
+  previewMacroDb,
+  previewQuery,
+  previewHooks,
   onEdit
 }: {
   macro: MacroPackageEntry;
   kindById: Map<string, MacroKind>;
+  previewMacroDb: SnlMacroDb;
+  previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
+  previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
@@ -339,12 +473,14 @@ function MacroRow({
       }}
     >
       <td style={CELL}>
-        <MacroMiniPreview name={macro.name} />
+        <MacroPreview
+          macro={macro}
+          macroDb={previewMacroDb}
+          query={previewQuery}
+          hooks={previewHooks}
+        />
       </td>
       <td style={{ ...CELL, ...MONO }}>{macro.name}</td>
-      <td style={{ ...CELL, opacity: 0.85 }}>
-        {truncate(macro.description ?? '', 60)}
-      </td>
       <td style={CELL}>{macro.arity}</td>
       <td style={CELL}>
         <ModesCell styles={macro.styles} />
@@ -357,6 +493,9 @@ function MacroRow({
       </td>
       <td style={CELL}>
         <StylesCell styles={macro.styles} />
+      </td>
+      <td style={{ ...CELL, opacity: 0.85 }}>
+        {macro.description ?? ''}
       </td>
     </tr>
   );
@@ -442,41 +581,70 @@ function KindCell({
   );
 }
 
-/** Cheap KaTeX-mini render of `\mathrm{<name>}` — no full template render. */
-function MacroMiniPreview({ name }: { name: string }): React.ReactElement {
-  const html = useMemo(() => {
-    try {
-      return katex.renderToString(`\\mathrm{${escapeForKatex(name)}}`, {
-        throwOnError: false
-      });
-    } catch {
-      return '';
+/**
+ * Real KaTeX preview of a macro: renders it applied to numbered argument
+ * placeholders using the same lib pipeline as the CreateMacro editor's Live
+ * Preview. For a `fixed`-arity macro, the arg count is derived from the max
+ * `#N` in the default (styles[0]) template. For `variadic`, we render with a
+ * fixed small number of args (VARIADIC_PREVIEW_ARGS) — sufficient to show
+ * the shape without exploding row height.
+ *
+ * A row-scoped try/catch (via a null template fallback) keeps a broken macro
+ * from taking down the whole table.
+ */
+function MacroPreview({
+  macro,
+  macroDb,
+  query,
+  hooks
+}: {
+  macro: MacroPackageEntry;
+  macroDb: SnlMacroDb;
+  query: ReturnType<typeof createMacroTemplateQueryFromDb>;
+  hooks: SnlRenderHooks;
+}): React.ReactElement {
+  const argCount = useMemo(() => {
+    if (macro.arity === 'variadic') {
+      return Math.min(VARIADIC_PREVIEW_ARGS, MAX_ARGS);
     }
-  }, [name]);
+    const defaultStyle = macro.styles?.[0];
+    const derived = maxChildIndex(defaultStyle?.template ?? '') + 1;
+    return Math.min(Math.max(derived, 0), MAX_ARGS);
+  }, [macro]);
+
+  const tree: SnlSyntaxTree = useMemo(() => {
+    const children: SnlSyntaxTree[] = [];
+    for (let i = 0; i < argCount; i++) {
+      children.push(placeholderNode(i));
+    }
+    return { name: macro.name, kind: '', mdata: null, children };
+  }, [macro.name, argCount]);
+
+  // A macro with an empty default template renders as nothing useful — bail
+  // to a soft "—" so the row doesn't show a phantom empty preview.
+  const defaultTemplate = (macro.styles?.[0]?.template ?? '').trim();
+  if (!defaultTemplate) {
+    return <span style={{ opacity: 0.5 }}>—</span>;
+  }
+
   return (
     <span
-      className="katex-mini"
       style={{
         display: 'inline-block',
-        padding: '0.1rem 0.35rem',
+        padding: '0.15rem 0.4rem',
         borderRadius: '4px',
-        background: 'var(--vscode-textBlockQuote-background, rgba(64,128,255,0.08))'
+        background:
+          'var(--vscode-textBlockQuote-background, rgba(64,128,255,0.06))'
       }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    >
+      <SnlSyntaxTreeView
+        tree={tree}
+        query={query}
+        macroDb={macroDb}
+        hooks={hooks}
+      />
+    </span>
   );
-}
-
-/** Escape characters KaTeX would treat specially inside \mathrm{...}. */
-function escapeForKatex(s: string): string {
-  return s.replace(/[\\{}$&#^_%~]/g, (ch) => `\\${ch}`);
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) {
-    return s;
-  }
-  return `${s.slice(0, max - 1)}…`;
 }
 
 /**

@@ -688,7 +688,7 @@ export function CreateMacroApp(): React.ReactElement {
         </div>
       </div>
 
-      {existingNames.length > 0 ? (
+      {panelMode !== 'edit' && existingNames.length > 0 ? (
         <p style={{ margin: '-0.5rem 0 1rem', fontSize: '0.8rem', opacity: 0.65 }}>
           Already taken: {existingNames.join(', ')}
         </p>

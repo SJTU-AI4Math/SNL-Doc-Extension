@@ -627,23 +627,18 @@ function MacroPreview({
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
 
+  // No wrapper background / border: the SNL preview should be the outermost
+  // block. SnlSyntaxTreeView emits its own `.katex-panel > .katex-html` divs
+  // (structural but paint-nothing after the 2026-07-04 SNL-Basics fix), so
+  // adding a chip here would just re-introduce the "framed panel" look that
+  // 猫猫 called out.
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '0.15rem 0.4rem',
-        borderRadius: '4px',
-        background:
-          'var(--vscode-textBlockQuote-background, rgba(64,128,255,0.06))'
-      }}
-    >
-      <SnlSyntaxTreeView
-        tree={tree}
-        query={query}
-        macroDb={macroDb}
-        hooks={hooks}
-      />
-    </span>
+    <SnlSyntaxTreeView
+      tree={tree}
+      query={query}
+      macroDb={macroDb}
+      hooks={hooks}
+    />
   );
 }
 

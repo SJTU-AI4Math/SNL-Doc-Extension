@@ -427,19 +427,23 @@ function MacroTable({
     >
       <thead>
         <tr>
+          {/* Expand-toggle stub column — 1.4rem wide, matches the button. */}
+          <th style={{ ...HEAD, width: '1.6rem', padding: '0.45rem 0.2rem' }} />
           <th style={{ ...HEAD, width: '9rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
-          <th style={{ ...HEAD, width: '10rem' }}>Modes</th>
+          <th style={{ ...HEAD, width: '9rem' }}>Mode</th>
           <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
-          <th style={{ ...HEAD, width: '12rem' }}>Styles</th>
+          <th style={{ ...HEAD, width: '11rem' }}>Style</th>
+          <th style={{ ...HEAD, width: '13rem' }}>Macro Tags</th>
+          <th style={{ ...HEAD, width: '13rem' }}>Style Tags</th>
           {/* Description last: it can be long and wrapping is fine here. */}
           <th style={HEAD}>Description</th>
         </tr>
       </thead>
       <tbody>
         {macros.map((m) => (
-          <MacroRow
+          <MacroRowGroup
             key={m.name}
             macro={m}
             kindById={kindById}
@@ -455,11 +459,16 @@ function MacroTable({
 }
 
 /**
- * A single clickable macro row. Clicking (or Enter/Space) dispatches
- * `editMacro` for this macro name. Hover / focus paint the row with the
- * theme's list-hover background, matching VS Code list affordances.
+ * One macro renders as N rows — a "default style" summary row (always shown)
+ * plus zero or more "additional style" rows (rendered only when the user
+ * expands the macro via the ▶ toggle in the leftmost column).
+ *
+ * 猫猫 spec 2026-07-04-late 3: "Macro Package Panel 应该按一个 Style 一行
+ * 展示，但在每个 default style 左侧加个展开/缩回按钮，默认缩回 ... 每个纵栏
+ * 的值就不用 / 或 + 分隔了，只显示那一行对应的；Name / Kind / Arity /
+ * Description 纵栏除了 default 的都用 `-` 占位".
  */
-function MacroRow({
+function MacroRowGroup({
   macro,
   kindById,
   previewMacroDb,
@@ -474,13 +483,114 @@ function MacroRow({
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
 }): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const styles = Array.isArray(macro.styles) ? macro.styles : [];
+  const defaultStyle = styles[0];
+  const extraStyles = styles.slice(1);
+  const canExpand = extraStyles.length > 0;
+  return (
+    <>
+      <MacroStyleRow
+        macro={macro}
+        style={defaultStyle}
+        styleIndex={0}
+        isDefault
+        showMacroLevel
+        expanded={expanded}
+        canExpand={canExpand}
+        onToggleExpand={
+          canExpand ? () => setExpanded((v) => !v) : undefined
+        }
+        kindById={kindById}
+        previewMacroDb={previewMacroDb}
+        previewQuery={previewQuery}
+        previewHooks={previewHooks}
+        onEdit={onEdit}
+      />
+      {expanded
+        ? extraStyles.map((s, i) => (
+            <MacroStyleRow
+              key={`${macro.name}::${s.tag}::${i + 1}`}
+              macro={macro}
+              style={s}
+              styleIndex={i + 1}
+              isDefault={false}
+              showMacroLevel={false}
+              expanded={false}
+              canExpand={false}
+              onToggleExpand={undefined}
+              kindById={kindById}
+              previewMacroDb={previewMacroDb}
+              previewQuery={previewQuery}
+              previewHooks={previewHooks}
+              onEdit={onEdit}
+            />
+          ))
+        : null}
+    </>
+  );
+}
+
+/**
+ * A single clickable macro/style row. Clicking (or Enter/Space) on any cell
+ * OTHER than the expand-toggle dispatches `editMacro` for this macro name.
+ * The expand toggle has its own click handler with stopPropagation.
+ *
+ * Cells are split into "macro-level" (Name / Arity / Kind / Macro Tags /
+ * Description) — shown only on the default row (`showMacroLevel=true`),
+ * `—` placeholder on extra style rows — and "style-level" (Preview / Mode /
+ * Style tag / Style Tags) — always shown per row.
+ */
+function MacroStyleRow({
+  macro,
+  style,
+  styleIndex,
+  isDefault,
+  showMacroLevel,
+  expanded,
+  canExpand,
+  onToggleExpand,
+  kindById,
+  previewMacroDb,
+  previewQuery,
+  previewHooks,
+  onEdit
+}: {
+  macro: MacroPackageEntry;
+  style: MacroPackageStyle | undefined;
+  styleIndex: number;
+  isDefault: boolean;
+  /** If true, render Name / Arity / Kind / Macro Tags / Description; else `—`. */
+  showMacroLevel: boolean;
+  expanded: boolean;
+  canExpand: boolean;
+  onToggleExpand: (() => void) | undefined;
+  kindById: Map<string, MacroKind>;
+  previewMacroDb: SnlMacroDb;
+  previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
+  previewHooks: SnlRenderHooks;
+  onEdit: (name: string) => void;
+}): React.ReactElement {
   const [hover, setHover] = useState(false);
   const activate = (): void => onEdit(macro.name);
+  const macroTags = Array.isArray(macro.tags) ? macro.tags : [];
+  const styleTags = Array.isArray(style?.tags) ? (style?.tags as string[]) : [];
+  const styleTag = style?.tag ?? '(untagged)';
+  const styleMode = style?.mode ?? '';
+  const rowBackground = hover
+    ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+    : isDefault
+      ? 'transparent'
+      : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.02))';
   return (
     <tr
       role="button"
       tabIndex={0}
-      aria-label={`Edit macro ${macro.name}`}
+      aria-label={
+        isDefault
+          ? `Edit macro ${macro.name}`
+          : `Edit macro ${macro.name} — style ${styleTag}`
+      }
       onClick={activate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -494,11 +604,59 @@ function MacroRow({
       onBlur={() => setHover(false)}
       style={{
         cursor: 'pointer',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-          : 'transparent'
+        background: rowBackground,
+        // Extra rows visually attach to their default row with no top border
+        // so the group reads as one block.
+        borderTop: isDefault
+          ? undefined
+          : '1px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #333))'
       }}
     >
+      {/* Expand toggle — only rendered on the default row of a multi-style macro. */}
+      <td
+        style={{
+          ...CELL,
+          width: '1.6rem',
+          padding: '0.45rem 0.2rem',
+          textAlign: 'center'
+        }}
+      >
+        {isDefault && canExpand ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand?.();
+            }}
+            onKeyDown={(e) => {
+              // Enter / Space on the toggle should NOT propagate to the row's
+              // activate() — the user is toggling, not editing.
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation();
+              }
+            }}
+            aria-label={expanded ? 'Collapse styles' : 'Expand styles'}
+            title={
+              expanded
+                ? 'Collapse this macro\u2019s style rows'
+                : `Show ${macro.styles.length - 1} more style row${macro.styles.length - 1 === 1 ? '' : 's'}`
+            }
+            style={{
+              padding: '0.05rem 0.35rem',
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              opacity: 0.75,
+              lineHeight: 1
+            }}
+          >
+            {expanded ? '▼' : '▶'}
+          </button>
+        ) : null}
+      </td>
+      {/* Preview: always per-style. */}
       <td style={{ ...CELL, textAlign: 'center' }}>
         <div
           style={{
@@ -508,71 +666,149 @@ function MacroRow({
             minHeight: '1.5rem'
           }}
         >
-          <MacroPreview
-            macro={macro}
-            macroDb={previewMacroDb}
-            query={previewQuery}
-            hooks={previewHooks}
-          />
+          {style ? (
+            <MacroPreview
+              macro={macro}
+              styleTag={isDefault ? undefined : style.tag}
+              macroDb={previewMacroDb}
+              query={previewQuery}
+              hooks={previewHooks}
+            />
+          ) : (
+            <span style={{ opacity: 0.5 }}>—</span>
+          )}
         </div>
       </td>
-      <td style={{ ...CELL, ...MONO }}>{macro.name}</td>
-      <td style={CELL}>{arityLabel(macro)}</td>
-      <td style={CELL}>
-        <ModesCell styles={macro.styles} />
+      {/* Name: macro-level. */}
+      <td style={{ ...CELL, ...MONO }}>
+        {showMacroLevel ? macro.name : <Dash />}
       </td>
+      {/* Arity: macro-level. */}
+      <td style={CELL}>{showMacroLevel ? arityLabel(macro) : <Dash />}</td>
+      {/* Mode: style-level. */}
       <td style={CELL}>
-        <KindCell
-          kindId={macro.kind}
-          kind={macro.kind ? kindById.get(macro.kind) : undefined}
-        />
+        {styleMode ? (
+          <span style={MONO}>{styleMode}</span>
+        ) : (
+          <span style={{ opacity: 0.5 }}>—</span>
+        )}
       </td>
+      {/* Kind: macro-level. */}
       <td style={CELL}>
-        <StylesCell styles={macro.styles} />
+        {showMacroLevel ? (
+          <KindCell
+            kindId={macro.kind}
+            kind={macro.kind ? kindById.get(macro.kind) : undefined}
+          />
+        ) : (
+          <Dash />
+        )}
       </td>
+      {/* Style tag: style-level (★ marker on the default row). */}
+      <td style={CELL}>
+        <span style={MONO}>{styleTag}</span>
+        {isDefault ? (
+          <span style={{ opacity: 0.7, marginLeft: '0.3rem' }} title="Default style">
+            ★
+          </span>
+        ) : null}
+      </td>
+      {/* Macro Tags: macro-level. */}
+      <td style={CELL}>
+        {showMacroLevel ? <TagChipList tags={macroTags} /> : <Dash />}
+      </td>
+      {/* Style Tags: style-level. */}
+      <td style={CELL}>
+        <TagChipList tags={styleTags} />
+      </td>
+      {/* Description: macro-level. */}
       <td style={{ ...CELL, opacity: 0.85 }}>
-        {macro.description ?? ''}
+        {showMacroLevel ? (macro.description ?? '') : <Dash />}
       </td>
     </tr>
   );
 }
 
-function ModesCell({
-  styles
-}: {
-  styles: MacroPackageStyle[];
-}): React.ReactElement {
-  // Deduplicate + join modes with '/' so a mixed-mode macro shows e.g. "formula/text".
-  const modes: string[] = [];
-  for (const s of styles ?? []) {
-    if (s?.mode && !modes.includes(s.mode)) {
-      modes.push(s.mode);
-    }
-  }
-  if (modes.length === 0) {
-    return <span style={{ opacity: 0.5 }}>—</span>;
-  }
-  return <span>{modes.join(' / ')}</span>;
+/** Placeholder cell used to signal "same as macro's default row". */
+function Dash(): React.ReactElement {
+  return (
+    <span aria-label="same as default" style={{ opacity: 0.45 }}>
+      —
+    </span>
+  );
 }
 
-function StylesCell({
-  styles
-}: {
-  styles: MacroPackageStyle[];
-}): React.ReactElement {
-  // Default = styles[0]; show it with a ★, then remaining tags after.
-  if (!Array.isArray(styles) || styles.length === 0) {
+/** How many tag chips to render before collapsing the tail into a `+N`. */
+const TAG_CHIP_VISIBLE = 3;
+
+/**
+ * Render a compact row of tag chips with an overflow `+N` chip. Empty tag
+ * list renders as `—`. Chips are inline-flex cards with a subtle border and
+ * background so they read as their own units against the row background.
+ */
+function TagChipList({ tags }: { tags: string[] }): React.ReactElement {
+  if (!Array.isArray(tags) || tags.length === 0) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
-  const [first, ...rest] = styles;
+  const visible = tags.slice(0, TAG_CHIP_VISIBLE);
+  const overflow = tags.length - visible.length;
   return (
-    <span>
-      <span style={MONO}>{first.tag} ★</span>
-      {rest.length > 0 ? (
-        <span style={{ opacity: 0.65 }}>
-          {' '}+ {rest.map((s) => s.tag).join(', ')}
-        </span>
+    <span
+      style={{
+        display: 'inline-flex',
+        flexWrap: 'wrap',
+        gap: '0.25rem',
+        alignItems: 'center'
+      }}
+    >
+      {visible.map((t, i) => (
+        <TagChip key={i} label={t} />
+      ))}
+      {overflow > 0 ? (
+        <TagChip
+          label={`+${overflow}`}
+          title={tags.slice(TAG_CHIP_VISIBLE).join(', ')}
+          muted
+        />
       ) : null}
+    </span>
+  );
+}
+
+function TagChip({
+  label,
+  title,
+  muted
+}: {
+  label: string;
+  title?: string;
+  muted?: boolean;
+}): React.ReactElement {
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '0.05rem 0.45rem',
+        borderRadius: '10px',
+        border:
+          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #555))',
+        background: muted
+          ? 'transparent'
+          : 'var(--vscode-badge-background, rgba(255,255,255,0.06))',
+        color: muted
+          ? 'var(--vscode-descriptionForeground, #999)'
+          : 'var(--vscode-badge-foreground, inherit)',
+        fontSize: '0.75rem',
+        lineHeight: 1.3,
+        maxWidth: '11rem',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {label}
     </span>
   );
 }
@@ -618,48 +854,70 @@ function KindCell({
 }
 
 /**
- * Real KaTeX preview of a macro: renders it applied to numbered argument
- * placeholders using the same lib pipeline as the CreateMacro editor's Live
- * Preview. For a `fixed`-arity macro, the arg count is derived from the max
- * `#N` in the default (styles[0]) template. For `variadic`, we render with a
- * fixed small number of args (VARIADIC_PREVIEW_ARGS) — sufficient to show
- * the shape without exploding row height.
+ * Real KaTeX preview of a macro applied to numbered argument placeholders.
+ *
+ * When `styleTag` is undefined the macro's default style (styles[0]) is
+ * used — the tree omits `[style]` and the render pipeline falls through to
+ * SnlMacro.styles[0]. When `styleTag` is provided, the tree carries that
+ * tag so the pipeline resolves to the matching non-default style. Arity is
+ * derived from the RESOLVED style's template (max `#N` + 1); dynamic-arity
+ * always uses VARIADIC_PREVIEW_ARGS. A macro with an empty template renders
+ * as a soft `—` so a broken row doesn't show a phantom empty preview.
  *
  * A row-scoped try/catch (via a null template fallback) keeps a broken macro
  * from taking down the whole table.
  */
 function MacroPreview({
   macro,
+  styleTag,
   macroDb,
   query,
   hooks
 }: {
   macro: MacroPackageEntry;
+  /** Non-default style tag to preview. Undefined → use the default (styles[0]). */
+  styleTag: string | undefined;
   macroDb: SnlMacroDb;
   query: ReturnType<typeof createMacroTemplateQueryFromDb>;
   hooks: SnlRenderHooks;
 }): React.ReactElement {
+  // Locate the specific style being previewed (fall back to styles[0]).
+  const style = useMemo<MacroPackageStyle | undefined>(() => {
+    if (!Array.isArray(macro.styles) || macro.styles.length === 0)
+      return undefined;
+    if (styleTag == null) return macro.styles[0];
+    return macro.styles.find((s) => s.tag === styleTag) ?? macro.styles[0];
+  }, [macro.styles, styleTag]);
+
   const argCount = useMemo(() => {
     if (macro.dynamic_arity) {
       return Math.min(VARIADIC_PREVIEW_ARGS, MAX_ARGS);
     }
-    const defaultStyle = macro.styles?.[0];
-    const derived = maxChildIndex(defaultStyle?.template ?? '') + 1;
+    const derived = maxChildIndex(style?.template ?? '') + 1;
     return Math.min(Math.max(derived, 0), MAX_ARGS);
-  }, [macro]);
+  }, [macro.dynamic_arity, style?.template]);
 
   const tree: SnlSyntaxTree = useMemo(() => {
     const children: SnlSyntaxTree[] = [];
     for (let i = 0; i < argCount; i++) {
       children.push(placeholderNode(i));
     }
-    return { name: macro.name, kind: '', mdata: null, children };
-  }, [macro.name, argCount]);
+    const node: SnlSyntaxTree = {
+      name: macro.name,
+      kind: '',
+      mdata: null,
+      children
+    };
+    // Only stamp `style` when the caller asked for a non-default style —
+    // omitting the field lets the render pipeline pick styles[0] cleanly.
+    if (styleTag != null) node.style = styleTag;
+    return node;
+  }, [macro.name, argCount, styleTag]);
 
-  // A macro with an empty default template renders as nothing useful — bail
-  // to a soft "—" so the row doesn't show a phantom empty preview.
-  const defaultTemplate = (macro.styles?.[0]?.template ?? '').trim();
-  if (!defaultTemplate) {
+  // A style with an empty template renders as nothing useful — bail to
+  // a soft "—" so the row doesn't show a phantom empty preview.
+  const template = (style?.template ?? '').trim();
+  if (!template) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
 

@@ -1,7 +1,10 @@
-// SNL Create Macro Package webview: a small form (file name / display name /
-// description) that forwards to the host, which creates an EMPTY canonical
-// macro package at `.SNL_Doc/term_macros/<file>.json`. Requires `.SNL_Doc/`
-// to already exist (see SNL: Init).
+// SNL Create/Edit Macro Package webview.
+//
+// Create mode: file name + display name + optional description; host creates
+// an empty canonical macro package at .SNL_Doc/term_macros/<file>.json.
+//
+// Edit mode: file name is readonly (renaming == delete + recreate). Only the
+// display name and description are editable.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -11,11 +14,21 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
+type Mode = 'create' | 'edit';
+
+interface ExistingPackage {
+  file: string;
+  name: string;
+  description: string;
+}
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
   | { kind: 'created'; file: string }
+  | { kind: 'updated'; file: string; name: string }
   | { kind: 'duplicate'; file: string; message: string }
+  | { kind: 'notFound'; file: string; message: string }
   | { kind: 'invalid'; reason: string }
   | { kind: 'noSnlDoc'; message: string }
   | { kind: 'noWorkspace'; message: string }
@@ -36,6 +49,14 @@ const inputStyle: React.CSSProperties = {
   fontSize: '0.95rem'
 };
 
+const readonlyStyle: React.CSSProperties = {
+  ...inputStyle,
+  color: 'var(--vscode-descriptionForeground, #999)',
+  opacity: 0.7,
+  cursor: 'not-allowed',
+  fontFamily: 'var(--vscode-editor-font-family, monospace)'
+};
+
 const labelStyle: React.CSSProperties = {
   display: 'block',
   marginBottom: '0.35rem',
@@ -43,6 +64,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export function CreateMacroPackageApp(): React.ReactElement {
+  const [mode, setMode] = useState<Mode>('create');
   const [file, setFile] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -54,8 +76,16 @@ export function CreateMacroPackageApp(): React.ReactElement {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
+        | {
+            type: 'context';
+            mode: Mode;
+            file?: string;
+            existing?: ExistingPackage | null;
+          }
         | { type: 'created'; file: string }
+        | { type: 'updated'; file: string; name: string }
         | { type: 'duplicate'; file: string; message: string }
+        | { type: 'notFound'; file: string; message: string }
         | { type: 'invalid'; reason: string }
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
@@ -65,15 +95,35 @@ export function CreateMacroPackageApp(): React.ReactElement {
         return;
       }
       switch (msg.type) {
+        case 'context':
+          setMode(msg.mode);
+          if (msg.mode === 'edit') {
+            setFile(msg.file ?? '');
+            if (msg.existing) {
+              setName(msg.existing.name);
+              setDescription(msg.existing.description);
+            }
+          }
+          break;
         case 'created':
           setStatus({ kind: 'created', file: msg.file });
           setFile('');
           setName('');
           setDescription('');
           break;
+        case 'updated':
+          setStatus({ kind: 'updated', file: msg.file, name: msg.name });
+          break;
         case 'duplicate':
           setStatus({
             kind: 'duplicate',
+            file: msg.file,
+            message: msg.message
+          });
+          break;
+        case 'notFound':
+          setStatus({
+            kind: 'notFound',
             file: msg.file,
             message: msg.message
           });
@@ -96,22 +146,23 @@ export function CreateMacroPackageApp(): React.ReactElement {
     }
 
     window.addEventListener('message', onMessage);
+    apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
   const trimmedFile = file.trim();
   const trimmedName = name.trim();
-  const fileValid = FILE_RE.test(trimmedFile);
-  const canCreate =
+  const fileValid = mode === 'edit' ? true : FILE_RE.test(trimmedFile);
+  const canSubmit =
     fileValid && trimmedName.length > 0 && status.kind !== 'creating';
 
-  function handleCreate(): void {
-    if (!canCreate) {
+  function handleSubmit(): void {
+    if (!canSubmit) {
       return;
     }
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
-      type: 'create',
+      type: mode === 'edit' ? 'update' : 'create',
       file: trimmedFile,
       name: trimmedName,
       description: description.trim()
@@ -121,38 +172,44 @@ export function CreateMacroPackageApp(): React.ReactElement {
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '34rem' }}>
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        Create Macro Package
+        {mode === 'edit' ? 'Edit Macro Package' : 'Create Macro Package'}
       </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
-        Create an empty macro package under{' '}
-        <code>.SNL_Doc/term_macros/</code>. The file name becomes the JSON
-        filename; the display name is stored in the package.
+        {mode === 'edit'
+          ? 'Update this package\u2019s display name and description. The file name is immutable \u2014 renaming means delete + recreate.'
+          : 'Create an empty macro package under .SNL_Doc/term_macros/. The file name becomes the JSON filename; the display name is stored in the package.'}
       </p>
 
       <label htmlFor="pkg-file" style={labelStyle}>
-        File name
+        {mode === 'edit' ? 'File name (readonly)' : 'File name'}
       </label>
       <input
         id="pkg-file"
         type="text"
         value={file}
+        readOnly={mode === 'edit'}
         placeholder="e.g. mathlib_basic"
         onChange={(e) => setFile(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
-            handleCreate();
+            handleSubmit();
           }
         }}
+        title={
+          mode === 'edit'
+            ? 'File names are immutable; delete + recreate to rename'
+            : undefined
+        }
         style={{
-          ...inputStyle,
+          ...(mode === 'edit' ? readonlyStyle : inputStyle),
           marginBottom: '0.35rem',
           borderColor:
-            trimmedFile.length > 0 && !fileValid
+            mode !== 'edit' && trimmedFile.length > 0 && !fileValid
               ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
               : undefined
         }}
       />
-      {trimmedFile.length > 0 && !fileValid ? (
+      {mode !== 'edit' && trimmedFile.length > 0 && !fileValid ? (
         <p
           style={{
             margin: '0 0 0.6rem',
@@ -163,13 +220,15 @@ export function CreateMacroPackageApp(): React.ReactElement {
           Only letters, digits, <code>_</code> and <code>-</code> allowed (no
           dots, no slashes).
         </p>
-      ) : (
+      ) : mode !== 'edit' ? (
         <p style={{ margin: '0 0 0.6rem', fontSize: '0.85rem', opacity: 0.7 }}>
           will create:{' '}
           <code>
             .SNL_Doc/term_macros/{fileValid ? trimmedFile : '<file>'}.json
           </code>
         </p>
+      ) : (
+        <div style={{ height: '0.6rem' }} />
       )}
 
       <label htmlFor="pkg-name" style={labelStyle}>
@@ -183,7 +242,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
-            handleCreate();
+            handleSubmit();
           }
         }}
         style={{ ...inputStyle, marginBottom: '0.9rem' }}
@@ -195,7 +254,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
       <textarea
         id="pkg-desc"
         value={description}
-        placeholder="What this package is for…"
+        placeholder="What this package is for\u2026"
         rows={3}
         onChange={(e) => setDescription(e.target.value)}
         style={{ ...inputStyle, marginBottom: '1rem', resize: 'vertical' }}
@@ -203,11 +262,13 @@ export function CreateMacroPackageApp(): React.ReactElement {
 
       <button
         type="button"
-        onClick={handleCreate}
-        disabled={!canCreate}
-        style={primaryButton(canCreate)}
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        style={primaryButton(canSubmit)}
       >
-        {status.kind === 'creating' ? 'Creating…' : 'Create Package'}
+        {status.kind === 'creating'
+          ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
+          : mode === 'edit' ? 'Update Package' : 'Create Package'}
       </button>
 
       <StatusLine status={status} />
@@ -227,22 +288,25 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `✅ Created package "${status.file}".`;
+    text = `\u2705 Created package "${status.file}".`;
     color = 'var(--vscode-testing-iconPassed, #89d185)';
-  } else if (status.kind === 'duplicate') {
-    text = `⚠️ ${status.message}`;
+  } else if (status.kind === 'updated') {
+    text = `\u2705 Updated package "${status.file}" (name: ${status.name}).`;
+    color = 'var(--vscode-testing-iconPassed, #89d185)';
+  } else if (status.kind === 'duplicate' || status.kind === 'notFound') {
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'invalid') {
-    text = `❌ Invalid: ${status.reason}`;
+    text = `\u274c Invalid: ${status.reason}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (
     status.kind === 'noSnlDoc' ||
     status.kind === 'noWorkspace'
   ) {
-    text = `❌ ${status.message}`;
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'error') {
-    text = `❌ Error: ${status.message}`;
+    text = `\u274c Error: ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

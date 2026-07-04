@@ -1,6 +1,9 @@
-// SNL Create Entry Kind webview: one-shot form. Fields are stored verbatim;
-// the numbering DSL isn't validated here — the Entry editor (not built yet)
-// owns that.
+// SNL Create/Edit Entry Kind webview: one-shot form. Fields are stored
+// verbatim; the numbering DSL isn't validated here — the Entry editor (not
+// built yet) owns that.
+//
+// In edit mode the id is readonly (it's a cross-reference key inside
+// entries.json). All other fields are freely editable.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -10,11 +13,23 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
+type Mode = 'create' | 'edit';
+
+interface ExistingEntryKind {
+  id: string;
+  name: string;
+  coloring: { stroke: string; background: string };
+  numbering: string;
+  style: string;
+}
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
   | { kind: 'created'; id: string; name: string }
+  | { kind: 'updated'; id: string; name: string }
   | { kind: 'duplicate'; message: string }
+  | { kind: 'notFound'; message: string }
   | { kind: 'invalid'; message: string }
   | { kind: 'noSnlDoc'; message: string }
   | { kind: 'noWorkspace'; message: string }
@@ -24,6 +39,7 @@ const DEFAULT_STROKE = '#888888';
 const DEFAULT_BACKGROUND = '#eeeeee';
 
 export function CreateEntryKindApp(): React.ReactElement {
+  const [mode, setMode] = useState<Mode>('create');
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const [stroke, setStroke] = useState(DEFAULT_STROKE);
@@ -38,8 +54,16 @@ export function CreateEntryKindApp(): React.ReactElement {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
+        | {
+            type: 'context';
+            mode: Mode;
+            id?: string;
+            existing?: ExistingEntryKind | null;
+          }
         | { type: 'created'; kind: { id: string; name: string } }
+        | { type: 'updated'; kind: { id: string; name: string } }
         | { type: 'duplicate'; id: string; message: string }
+        | { type: 'notFound'; id: string; message: string }
         | { type: 'invalid'; message: string }
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
@@ -47,20 +71,43 @@ export function CreateEntryKindApp(): React.ReactElement {
         | undefined;
       if (!msg || typeof msg.type !== 'string') return;
       switch (msg.type) {
+        case 'context':
+          setMode(msg.mode);
+          if (msg.mode === 'edit') {
+            setId(msg.id ?? '');
+            if (msg.existing) {
+              setName(msg.existing.name);
+              setStroke(msg.existing.coloring?.stroke || DEFAULT_STROKE);
+              setBackground(
+                msg.existing.coloring?.background || DEFAULT_BACKGROUND
+              );
+              setNumbering(msg.existing.numbering || '');
+              setStyle(msg.existing.style || '');
+            }
+          }
+          return;
         case 'created':
           setStatus({
             kind: 'created',
             id: msg.kind.id,
             name: msg.kind.name
           });
-          // Reset id/name so the panel can be used again quickly; keep
-          // colours/style since the user likely wants to reuse them.
           setId('');
           setName('');
           setNumbering('');
           return;
+        case 'updated':
+          setStatus({
+            kind: 'updated',
+            id: msg.kind.id,
+            name: msg.kind.name
+          });
+          return;
         case 'duplicate':
           setStatus({ kind: 'duplicate', message: msg.message });
+          return;
+        case 'notFound':
+          setStatus({ kind: 'notFound', message: msg.message });
           return;
         case 'invalid':
           setStatus({ kind: 'invalid', message: msg.message });
@@ -78,21 +125,22 @@ export function CreateEntryKindApp(): React.ReactElement {
     }
 
     window.addEventListener('message', onMessage);
+    apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
   const trimmedId = id.trim();
   const trimmedName = name.trim();
-  const canCreate =
+  const canSubmit =
     trimmedId.length > 0 &&
     trimmedName.length > 0 &&
     status.kind !== 'creating';
 
-  function handleCreate(): void {
-    if (!canCreate) return;
+  function handleSubmit(): void {
+    if (!canSubmit) return;
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
-      type: 'create',
+      type: mode === 'edit' ? 'update' : 'create',
       payload: {
         id: trimmedId,
         name: trimmedName,
@@ -107,19 +155,20 @@ export function CreateEntryKindApp(): React.ReactElement {
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        Create Entry Kind
+        {mode === 'edit' ? 'Edit Entry Kind' : 'Create Entry Kind'}
       </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
-        Append a single entry kind to{' '}
-        <code>.SNL_Doc/config.json#entry_kinds</code>. The id must be unique
-        and non-empty; other fields can be edited later by hand.
+        {mode === 'edit'
+          ? 'Update this entry kind in .SNL_Doc/config.json#entry_kinds. The id is immutable (referenced by every entry with this kind).'
+          : 'Append a single entry kind to .SNL_Doc/config.json#entry_kinds. The id must be unique and non-empty; other fields can be edited later.'}
       </p>
 
       <TextField
-        label="ID (unique)"
+        label={mode === 'edit' ? 'ID (readonly)' : 'ID (unique)'}
         value={id}
         placeholder="e.g. definition, theorem, remark…"
         onChange={setId}
+        readOnly={mode === 'edit'}
       />
       <TextField
         label="Name (display)"
@@ -129,11 +178,7 @@ export function CreateEntryKindApp(): React.ReactElement {
       />
 
       <div style={{ display: 'flex', gap: '0.75rem' }}>
-        <ColorField
-          label="Stroke"
-          value={stroke}
-          onChange={setStroke}
-        />
+        <ColorField label="Stroke" value={stroke} onChange={setStroke} />
         <ColorField
           label="Background"
           value={background}
@@ -141,7 +186,11 @@ export function CreateEntryKindApp(): React.ReactElement {
         />
       </div>
 
-      <ColorPreview stroke={stroke} background={background} name={trimmedName || 'preview'} />
+      <ColorPreview
+        stroke={stroke}
+        background={background}
+        name={trimmedName || 'preview'}
+      />
 
       <TextField
         label="Numbering DSL"
@@ -160,11 +209,13 @@ export function CreateEntryKindApp(): React.ReactElement {
 
       <button
         type="button"
-        onClick={handleCreate}
-        disabled={!canCreate}
-        style={{ ...primaryButton(canCreate), marginTop: '0.5rem' }}
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        style={{ ...primaryButton(canSubmit), marginTop: '0.5rem' }}
       >
-        {status.kind === 'creating' ? 'Creating…' : 'Create Entry Kind'}
+        {status.kind === 'creating'
+          ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
+          : mode === 'edit' ? 'Update Entry Kind' : 'Create Entry Kind'}
       </button>
 
       <StatusLine status={status} />
@@ -177,13 +228,15 @@ function TextField({
   value,
   onChange,
   placeholder,
-  mono
+  mono,
+  readOnly
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   mono?: boolean;
+  readOnly?: boolean;
 }): React.ReactElement {
   return (
     <div style={{ marginBottom: '0.75rem' }}>
@@ -197,11 +250,15 @@ function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        title={readOnly ? 'IDs are immutable; delete + recreate to rename' : undefined}
         style={{
           width: '100%',
           boxSizing: 'border-box',
           padding: '0.4rem 0.55rem',
-          color: 'var(--vscode-input-foreground, #ddd)',
+          color: readOnly
+            ? 'var(--vscode-descriptionForeground, #999)'
+            : 'var(--vscode-input-foreground, #ddd)',
           background: 'var(--vscode-input-background, #2a2a2a)',
           border:
             '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
@@ -209,7 +266,9 @@ function TextField({
           fontFamily: mono
             ? 'var(--vscode-editor-font-family, monospace)'
             : 'inherit',
-          fontSize: '0.95rem'
+          fontSize: '0.95rem',
+          opacity: readOnly ? 0.7 : 1,
+          cursor: readOnly ? 'not-allowed' : 'text'
         }}
       />
     </div>
@@ -312,13 +371,20 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `✅ Created "${status.name}" (id: ${status.id}).`;
+    text = `\u2705 Created "${status.name}" (id: ${status.id}).`;
     color = 'var(--vscode-testing-iconPassed, #89d185)';
-  } else if (status.kind === 'duplicate' || status.kind === 'invalid') {
-    text = `⚠️ ${status.message}`;
+  } else if (status.kind === 'updated') {
+    text = `\u2705 Updated "${status.name}" (id: ${status.id}).`;
+    color = 'var(--vscode-testing-iconPassed, #89d185)';
+  } else if (
+    status.kind === 'duplicate' ||
+    status.kind === 'invalid' ||
+    status.kind === 'notFound'
+  ) {
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else {
-    text = `❌ ${status.message}`;
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

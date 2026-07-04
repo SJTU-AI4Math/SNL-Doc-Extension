@@ -151,21 +151,49 @@ export class DashboardPanel {
       case 'createLibrary':
         await vscode.commands.executeCommand('snlDoc.createLibrary');
         return;
+      case 'editLibrary': {
+        const slug = (msg as { slug?: unknown }).slug;
+        if (typeof slug === 'string' && slug) {
+          await vscode.commands.executeCommand('snlDoc.editLibrary', slug);
+        }
+        return;
+      }
       case 'initEntryKinds':
         await vscode.commands.executeCommand('snlDoc.initEntryKinds');
         return;
       case 'createEntryKind':
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
         return;
+      case 'editEntryKind': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.editEntryKind', id);
+        }
+        return;
+      }
       case 'initMacroKinds':
         await vscode.commands.executeCommand('snlDoc.initMacroKinds');
         return;
       case 'createMacroKind':
         await vscode.commands.executeCommand('snlDoc.createMacroKind');
         return;
+      case 'editMacroKind': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.editMacroKind', id);
+        }
+        return;
+      }
       case 'createEntry':
         await vscode.commands.executeCommand('snlDoc.createEntry');
         return;
+      case 'editEntry': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.editEntry', id);
+        }
+        return;
+      }
       case 'createMacroPackage':
         await vscode.commands.executeCommand('snlDoc.createMacroPackage');
         return;

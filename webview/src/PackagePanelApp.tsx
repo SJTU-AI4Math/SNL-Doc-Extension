@@ -120,6 +120,10 @@ export function PackagePanelApp(): React.ReactElement {
 
   const createMacro = (): void =>
     apiRef.current?.postMessage({ type: 'createMacro' });
+  const editMacroPackage = (): void =>
+    apiRef.current?.postMessage({ type: 'editMacroPackage' });
+  const editMacro = (name: string): void =>
+    apiRef.current?.postMessage({ type: 'editMacro', name });
 
   if (model.kind === 'loading') {
     return (
@@ -162,25 +166,66 @@ export function PackagePanelApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '58rem' }}>
-      <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.4rem' }}>{pkg.name}</h1>
-      <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.9rem' }}>
-        <code
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: '1rem'
+        }}
+      >
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.4rem' }}>
+            {pkg.name}
+          </h1>
+          <p
+            style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.9rem' }}
+          >
+            <code
+              style={{
+                fontFamily: 'var(--vscode-editor-font-family, monospace)'
+              }}
+            >
+              {file}
+            </code>{' '}
+            · {macros.length} macro{macros.length === 1 ? '' : 's'}
+          </p>
+          {pkg.description ? (
+            <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
+              {pkg.description}
+            </p>
+          ) : (
+            <div style={{ height: '0.5rem' }} />
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={editMacroPackage}
+          title="Edit package name / description"
           style={{
-            fontFamily: 'var(--vscode-editor-font-family, monospace)'
+            flex: '0 0 auto',
+            padding: '0.35rem 0.75rem',
+            fontFamily: 'inherit',
+            fontSize: '0.9rem',
+            border:
+              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+            borderRadius: '4px',
+            background:
+              'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+            color: 'inherit',
+            cursor: 'pointer'
           }}
         >
-          {file}
-        </code>{' '}
-        · {macros.length} macro{macros.length === 1 ? '' : 's'}
-      </p>
-      {pkg.description ? (
-        <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>{pkg.description}</p>
-      ) : (
-        <div style={{ height: '0.5rem' }} />
-      )}
+          Edit package
+        </button>
+      </div>
 
       {macros.length > 0 ? (
-        <MacroTable macros={macros} macroKinds={macroKinds} />
+        <MacroTable
+          macros={macros}
+          macroKinds={macroKinds}
+          onEdit={editMacro}
+        />
       ) : (
         <p style={{ opacity: 0.7, fontStyle: 'italic', margin: '0.5rem 0' }}>
           No macros yet — use the bar below to create the first one.
@@ -206,10 +251,12 @@ const MONO: React.CSSProperties = {
 
 function MacroTable({
   macros,
-  macroKinds
+  macroKinds,
+  onEdit
 }: {
   macros: MacroPackageEntry[];
   macroKinds: MacroKind[];
+  onEdit: (name: string) => void;
 }): React.ReactElement {
   const kindById = useMemo(() => {
     const m = new Map<string, MacroKind>();
@@ -240,30 +287,78 @@ function MacroTable({
       </thead>
       <tbody>
         {macros.map((m) => (
-          <tr key={m.name}>
-            <td style={CELL}>
-              <MacroMiniPreview name={m.name} />
-            </td>
-            <td style={{ ...CELL, ...MONO }}>{m.name}</td>
-            <td style={{ ...CELL, opacity: 0.85 }}>
-              {truncate(m.description ?? '', 60)}
-            </td>
-            <td style={CELL}>{m.arity}</td>
-            <td style={CELL}>
-              <ModesCell styles={m.styles} />
-            </td>
-            <td style={CELL}>
-              <KindCell kindId={m.kind} kind={
-                m.kind ? kindById.get(m.kind) : undefined
-              } />
-            </td>
-            <td style={CELL}>
-              <StylesCell styles={m.styles} />
-            </td>
-          </tr>
+          <MacroRow
+            key={m.name}
+            macro={m}
+            kindById={kindById}
+            onEdit={onEdit}
+          />
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * A single clickable macro row. Clicking (or Enter/Space) dispatches
+ * `editMacro` for this macro name. Hover / focus paint the row with the
+ * theme's list-hover background, matching VS Code list affordances.
+ */
+function MacroRow({
+  macro,
+  kindById,
+  onEdit
+}: {
+  macro: MacroPackageEntry;
+  kindById: Map<string, MacroKind>;
+  onEdit: (name: string) => void;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const activate = (): void => onEdit(macro.name);
+  return (
+    <tr
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit macro ${macro.name}`}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{
+        cursor: 'pointer',
+        background: hover
+          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+          : 'transparent'
+      }}
+    >
+      <td style={CELL}>
+        <MacroMiniPreview name={macro.name} />
+      </td>
+      <td style={{ ...CELL, ...MONO }}>{macro.name}</td>
+      <td style={{ ...CELL, opacity: 0.85 }}>
+        {truncate(macro.description ?? '', 60)}
+      </td>
+      <td style={CELL}>{macro.arity}</td>
+      <td style={CELL}>
+        <ModesCell styles={macro.styles} />
+      </td>
+      <td style={CELL}>
+        <KindCell
+          kindId={macro.kind}
+          kind={macro.kind ? kindById.get(macro.kind) : undefined}
+        />
+      </td>
+      <td style={CELL}>
+        <StylesCell styles={macro.styles} />
+      </td>
+    </tr>
   );
 }
 

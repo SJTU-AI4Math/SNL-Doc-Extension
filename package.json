@@ -61,6 +61,30 @@
       {
         "command": "snlDoc.createMacro",
         "title": "SNL: Create Macro"
+      },
+      {
+        "command": "snlDoc.editLibrary",
+        "title": "SNL: Edit Library"
+      },
+      {
+        "command": "snlDoc.editEntryKind",
+        "title": "SNL: Edit Entry Kind"
+      },
+      {
+        "command": "snlDoc.editMacroKind",
+        "title": "SNL: Edit Macro Kind"
+      },
+      {
+        "command": "snlDoc.editEntry",
+        "title": "SNL: Edit Entry"
+      },
+      {
+        "command": "snlDoc.editMacroPackage",
+        "title": "SNL: Edit Macro Package"
+      },
+      {
+        "command": "snlDoc.editMacro",
+        "title": "SNL: Edit Macro"
       }
     ],
     "menus": {
@@ -71,6 +95,30 @@
         },
         {
           "command": "snlDoc.createMacro",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editLibrary",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editEntryKind",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editMacroKind",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editEntry",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editMacroPackage",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.editMacro",
           "when": "false"
         }
       ]

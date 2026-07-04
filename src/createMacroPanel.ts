@@ -3,6 +3,7 @@ import {
   addMacro,
   readMacroKinds,
   readMacroPackage,
+  updateMacro,
   type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
@@ -14,49 +15,80 @@ function stripJsonExt(file: string): string {
 }
 
 /**
- * Per-file singleton manager for the `SNL: Create Macro` editor panel.
+ * Per-mode-and-identity singleton manager for the SNL Macro editor panel.
  *
- * Keyed by the package's bare filename so at most one Create-Macro editor is
- * open per package. Mirrors {@link PackagePanel}'s Map-based instance tracking.
- *
- * On `ready`, the host reads the target package and sends the existing macro
- * names (so the editor can warn about duplicates) plus the package display
- * name. On `create`, the assembled {@link MacroPackageEntry} is appended via
- * {@link addMacro}.
+ * Two entry points share this class:
+ *  - `snlDoc.createMacro`(file)                → create-mode panel keyed by
+ *                                                package file (per-file editor).
+ *  - `snlDoc.editMacro`(file, macroName)       → edit-mode panel keyed by
+ *                                                package file + macro name.
  *
  * Message protocol with the webview (`createMacro.js`):
  *  - in  : `{ type: 'ready' }`
  *        | `{ type: 'create', macro: MacroPackageEntry }`
- *  - out : `{ type: 'context', file, packageName, existingNames }`
- *        | `{ type: 'created', name }`
- *        | `{ type: 'duplicate', name, message }`
- *        | `{ type: 'invalid', reason }`
- *        | `{ type: 'noFile' | 'error' | 'noWorkspace', message }`
+ *        | `{ type: 'update', macro: MacroPackageEntry }` (name = panel key)
+ *  - out : `{ type: 'context', mode, file, packageName, existingNames,
+ *            macroKinds, existing? }`
+ *        | `{ type: 'created' | 'updated' | 'duplicate' | 'notFound'
+ *            | 'invalid' | 'noFile' | 'error' | 'noWorkspace', ... }`
  */
 export class CreateMacroPanel {
-  private static readonly panels = new Map<string, CreateMacroPanel>();
+  private static readonly instances = new Map<string, CreateMacroPanel>();
 
   private static readonly viewType = 'snlCreateMacro';
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
+  private readonly mode: 'create' | 'edit';
   /** Bare filename (no `.json`) of the target package. */
   private readonly file: string;
+  /** Macro name being edited (mode === 'edit' only). */
+  private readonly macroName: string;
   private disposables: vscode.Disposable[] = [];
 
   public static createOrShow(extensionUri: vscode.Uri, file: string): void {
     const bare = stripJsonExt(file);
-    const column = vscode.ViewColumn.Active;
+    if (!bare) {
+      return;
+    }
+    CreateMacroPanel.open(extensionUri, 'create', bare, '');
+  }
 
-    const existing = CreateMacroPanel.panels.get(bare);
+  public static editOrShow(
+    extensionUri: vscode.Uri,
+    file: string,
+    macroName: string
+  ): void {
+    const bare = stripJsonExt(file);
+    if (!bare || !macroName) {
+      return;
+    }
+    CreateMacroPanel.open(extensionUri, 'edit', bare, macroName);
+  }
+
+  private static open(
+    extensionUri: vscode.Uri,
+    mode: 'create' | 'edit',
+    file: string,
+    macroName: string
+  ): void {
+    const column = vscode.ViewColumn.Active;
+    const key = `${mode}:${file}:${macroName}`;
+
+    const existing = CreateMacroPanel.instances.get(key);
     if (existing) {
       existing.panel.reveal(column);
       return;
     }
 
+    const title =
+      mode === 'edit'
+        ? `SNL Edit Macro — ${macroName} (${file})`
+        : `SNL Create Macro — ${file}`;
+
     const panel = vscode.window.createWebviewPanel(
       CreateMacroPanel.viewType,
-      `SNL Create Macro — ${bare}`,
+      title,
       column,
       {
         enableScripts: true,
@@ -65,26 +97,34 @@ export class CreateMacroPanel {
       }
     );
 
-    CreateMacroPanel.panels.set(
-      bare,
-      new CreateMacroPanel(panel, extensionUri, bare)
+    CreateMacroPanel.instances.set(
+      key,
+      new CreateMacroPanel(panel, extensionUri, mode, file, macroName)
     );
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    file: string
+    mode: 'create' | 'edit',
+    file: string,
+    macroName: string
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
+    this.mode = mode;
     this.file = file;
+    this.macroName = macroName;
 
+    const title =
+      mode === 'edit'
+        ? `SNL Edit Macro — ${macroName} (${file})`
+        : `SNL Create Macro — ${file}`;
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
       this.panel.webview,
       'createMacro',
-      `SNL Create Macro — ${this.file}`
+      title
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -101,32 +141,42 @@ export class CreateMacroPanel {
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'context',
+        mode: this.mode,
         file: `${this.file}.json`,
         packageName: this.file,
         existingNames: [],
-        macroKinds: []
+        macroKinds: [],
+        existing: null
       });
       return;
     }
     const macroKinds: MacroKind[] = await readMacroKinds(root);
     const read = await readMacroPackage(root, this.file);
     if (read.status === 'ok') {
+      const existing =
+        this.mode === 'edit'
+          ? read.macros.find((m) => m.name === this.macroName) ?? null
+          : null;
       void this.panel.webview.postMessage({
         type: 'context',
+        mode: this.mode,
         file: `${this.file}.json`,
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
-        macroKinds
+        macroKinds,
+        existing
       });
       return;
     }
     // noFile / error → still let the editor open, just with no existing names.
     void this.panel.webview.postMessage({
       type: 'context',
+      mode: this.mode,
       file: `${this.file}.json`,
       packageName: this.file,
       existingNames: [],
-      macroKinds
+      macroKinds,
+      existing: null
     });
   }
 
@@ -142,13 +192,13 @@ export class CreateMacroPanel {
       await this.pushContext();
       return;
     }
-    if (msg.type !== 'create') {
+    if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Create Macro requires an open folder / workspace.';
+      const text = 'SNL Macro editor requires an open folder / workspace.';
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -167,6 +217,56 @@ export class CreateMacroPanel {
     }
 
     try {
+      if (msg.type === 'update' || this.mode === 'edit') {
+        // Force the identity — ignore any name in the payload.
+        const patched: MacroPackageEntry = { ...macro, name: this.macroName };
+        const result = await updateMacro(root, this.file, patched);
+        switch (result.status) {
+          case 'updated':
+            vscode.window.showInformationMessage(
+              `Macro "${result.name}" in ${this.file}.json updated.`
+            );
+            void this.panel.webview.postMessage({
+              type: 'updated',
+              name: result.name
+            });
+            await this.pushContext();
+            return;
+          case 'notFound': {
+            const text = `Macro "${result.id}" no longer exists in ${this.file}.json.`;
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'notFound',
+              name: result.id,
+              message: text
+            });
+            return;
+          }
+          case 'noSnlDoc': {
+            const text =
+              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'noSnlDoc',
+              message: text
+            });
+            return;
+          }
+          case 'invalid':
+            void this.panel.webview.postMessage({
+              type: 'invalid',
+              reason: result.message
+            });
+            return;
+          case 'error':
+            void this.panel.webview.postMessage({
+              type: 'error',
+              message: result.message
+            });
+            return;
+        }
+      }
+      // Create path.
       const result = await addMacro(root, this.file, macro);
       switch (result.status) {
         case 'ok':
@@ -214,13 +314,14 @@ export class CreateMacroPanel {
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Create Macro failed: ${text}`);
+      vscode.window.showErrorMessage(`SNL Macro editor failed: ${text}`);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
 
   public dispose(): void {
-    CreateMacroPanel.panels.delete(this.file);
+    const key = `${this.mode}:${this.file}:${this.macroName}`;
+    CreateMacroPanel.instances.delete(key);
 
     this.panel.dispose();
 

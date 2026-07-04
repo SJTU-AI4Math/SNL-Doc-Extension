@@ -1871,3 +1871,389 @@ export const MACRO_KIND_PRESETS: MacroKindPreset[] = [
     ]
   }
 ];
+
+// ---------------------------------------------------------------------------
+// UPDATE ops
+// ---------------------------------------------------------------------------
+//
+// Design rule: **identifiers are never edited via these paths.**
+//   - EntryKind.id / MacroKind.id / EntryData.id are referenced elsewhere
+//     (entries.json#kind → EntryKind.id; relationships → Entry.id; SNL source
+//     → macro.name). Editing them would produce dangling references.
+//   - MacroPackageFile "file" (bare filename) is also identity — rename ==
+//     delete + recreate.
+//   - Library.slug is identity — the on-disk directory name uses it.
+//   - MacroPackageEntry.name is identity within its package.
+// Edit panels enforce the readonly UX; these helpers additionally treat the
+// identity parameter as the lookup key and silently ignore any conflicting
+// value in the payload. If the requested identity does not exist, they
+// return `notFound` so callers can surface a helpful error.
+
+/** Union return shape for the "update by identity" family of ops. */
+type UpdateResult<Ok, Extra = never> =
+  | Ok
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+  | Extra;
+
+export type UpdateEntryKindResult = UpdateResult<
+  { status: 'updated'; kind: EntryKind }
+>;
+
+/**
+ * Update an existing entry kind IN PLACE, keyed by `id`. `id` itself is
+ * never modified (it's the lookup key). Missing kinds → `notFound`.
+ */
+export async function updateEntryKind(
+  workspaceRoot: vscode.Uri,
+  id: string,
+  input: {
+    name: string;
+    stroke: string;
+    background: string;
+    numbering: string;
+    style: string;
+  }
+): Promise<UpdateEntryKindResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  const name = (input.name ?? '').trim();
+  if (!name) {
+    return { status: 'invalid', message: 'name is required' };
+  }
+  const existing = await readEntryKinds(workspaceRoot);
+  const idx = existing.findIndex((k) => k.id === targetId);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+  const next: EntryKind = {
+    id: targetId,
+    name,
+    coloring: {
+      stroke: (input.stroke ?? '').trim() || '#888888',
+      background: (input.background ?? '').trim() || '#eeeeee'
+    },
+    numbering: (input.numbering ?? '').trim(),
+    style: (input.style ?? '').trim()
+  };
+  const kinds = existing.slice();
+  kinds[idx] = next;
+  await writeEntryKinds(workspaceRoot, kinds);
+  return { status: 'updated', kind: next };
+}
+
+export type UpdateMacroKindResult = UpdateResult<
+  { status: 'updated'; kind: MacroKind }
+>;
+
+/**
+ * Update an existing macro kind IN PLACE, keyed by `id`. `id` itself is
+ * never modified. Missing kinds → `notFound`.
+ */
+export async function updateMacroKind(
+  workspaceRoot: vscode.Uri,
+  id: string,
+  input: {
+    name: string;
+    description: string;
+    coloring: { stroke: string; background: string };
+  }
+): Promise<UpdateMacroKindResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  const name = (input.name ?? '').trim();
+  if (!name) {
+    return { status: 'invalid', message: 'name is required' };
+  }
+  const existing = await readMacroKinds(workspaceRoot);
+  const idx = existing.findIndex((k) => k.id === targetId);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+  const next: MacroKind = {
+    id: targetId,
+    name,
+    description: (input.description ?? '').trim(),
+    coloring: {
+      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
+      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
+    }
+  };
+  const kinds = existing.slice();
+  kinds[idx] = next;
+  await writeMacroKinds(workspaceRoot, kinds);
+  return { status: 'updated', kind: next };
+}
+
+export type UpdateLibraryResult = UpdateResult<
+  { status: 'updated'; slug: string; title: string }
+>;
+
+/**
+ * Update a library's meta IN PLACE, keyed by `slug`. Currently only `title`
+ * is editable; `slug` is the identity (directory name) and never changes.
+ * Missing slugs → `notFound`.
+ */
+export async function updateLibrary(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  input: { title: string }
+): Promise<UpdateLibraryResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetSlug = (slug ?? '').trim();
+  if (!targetSlug) {
+    return { status: 'invalid', message: 'slug is required' };
+  }
+  const title = (input.title ?? '').trim();
+  if (!title) {
+    return { status: 'invalid', message: 'title is required' };
+  }
+  const fsApi = vscode.workspace.fs;
+  const uri = configUri(workspaceRoot);
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await readJson<Record<string, unknown>>(uri)) ?? {};
+  } catch (err) {
+    throw new Error(
+      `Failed to read .SNL_Doc/config.json: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  const libs = Array.isArray(raw.libraries)
+    ? (raw.libraries as Array<{ slug?: unknown; title?: unknown }>).slice()
+    : [];
+  const idx = libs.findIndex((l) => l && l.slug === targetSlug);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetSlug };
+  }
+  libs[idx] = { ...libs[idx], slug: targetSlug, title };
+  raw.libraries = libs;
+  await fsApi.writeFile(uri, jsonBytes(raw));
+  return { status: 'updated', slug: targetSlug, title };
+}
+
+export type UpdateEntryResult = UpdateResult<
+  { status: 'updated'; id: string },
+  { status: 'unknownKind'; kind: string }
+>;
+
+/**
+ * Update an existing {@link EntryData} in the shared pool IN PLACE, keyed by
+ * `id`. `id` itself is never modified. `kind` must still reference an
+ * existing entry kind. Missing entries → `notFound`.
+ */
+export async function updateEntry(
+  workspaceRoot: vscode.Uri,
+  id: string,
+  entry: Omit<EntryData, 'id'>
+): Promise<UpdateEntryResult> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
+  const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
+  if (!title) {
+    return { status: 'invalid', message: 'title is required' };
+  }
+  if (!kind) {
+    return { status: 'invalid', message: 'kind is required' };
+  }
+  if (entry.content === null || typeof entry.content !== 'object') {
+    return { status: 'invalid', message: 'content must be an object' };
+  }
+  const kinds = await readEntryKinds(workspaceRoot);
+  if (!kinds.some((k) => k.id === kind)) {
+    return { status: 'unknownKind', kind };
+  }
+
+  let pool: EntryData[] = [];
+  try {
+    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+    if (Array.isArray(raw)) {
+      pool = raw as EntryData[];
+    }
+  } catch {
+    pool = [];
+  }
+  const idx = pool.findIndex((e) => e && typeof e === 'object' && e.id === targetId);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+
+  const record: EntryData = {
+    id: targetId,
+    kind,
+    title,
+    content: {
+      snl: strOrUndef(entry.content.snl),
+      typst: strOrUndef(entry.content.typst),
+      latex: strOrUndef(entry.content.latex),
+      markdown: strOrUndef(entry.content.markdown),
+      text: strOrUndef(entry.content.text)
+    },
+    contribution_info: entry.contribution_info ?? null,
+    pointer: entry.pointer ?? null
+  };
+  for (const key of Object.keys(record.content) as Array<
+    keyof EntryData['content']
+  >) {
+    if (record.content[key] === undefined) {
+      delete record.content[key];
+    }
+  }
+
+  const next = pool.slice();
+  next[idx] = record;
+  try {
+    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes(next));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'updated', id: targetId };
+}
+
+export type UpdateMacroPackageResult = UpdateResult<
+  { status: 'updated'; file: string; name: string }
+>;
+
+/**
+ * Update a macro package's METADATA (name / description) IN PLACE. `file` is
+ * the identity — this does NOT rename the package file. To rename, delete
+ * and recreate. Macros inside the package are NOT touched by this call —
+ * use {@link updateMacro} / {@link addMacro} for per-macro edits.
+ */
+export async function updateMacroPackage(
+  workspaceRoot: vscode.Uri,
+  file: string,
+  input: { name: string; description: string }
+): Promise<UpdateMacroPackageResult> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const bare = typeof file === 'string' ? stripJsonExt(file.trim()) : '';
+  if (!MACRO_FILE_RE.test(bare)) {
+    return {
+      status: 'invalid',
+      message: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+    };
+  }
+  const name = (input.name ?? '').trim();
+  if (!name) {
+    return { status: 'invalid', message: 'name is required' };
+  }
+
+  const read = await readMacroPackage(workspaceRoot, bare);
+  if (read.status === 'noFile') {
+    return { status: 'notFound', id: `${bare}.json` };
+  }
+  if (read.status === 'error') {
+    return { status: 'error', message: read.message };
+  }
+
+  const next: MacroPackageFile = {
+    ...read.pkg,
+    name
+  };
+  const desc = (input.description ?? '').trim();
+  if (desc) {
+    next.description = desc;
+  } else {
+    delete next.description;
+  }
+
+  try {
+    await fsApi.writeFile(macroPackageUri(workspaceRoot, bare), jsonBytes(next));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'updated', file: `${bare}.json`, name };
+}
+
+export type UpdateMacroResult = UpdateResult<
+  { status: 'updated'; name: string }
+>;
+
+/**
+ * Update an existing macro inside a package IN PLACE, keyed by `macro.name`.
+ * The macro name is identity — rename == delete + recreate. All other fields
+ * (styles / description / source / kind / arity) are replaced. Missing
+ * macros → `notFound`. The write preserves insertion order in the package
+ * map (the on-disk `macros` object is rebuilt entry-by-entry).
+ */
+export async function updateMacro(
+  workspaceRoot: vscode.Uri,
+  file: string,
+  macro: MacroPackageEntry
+): Promise<UpdateMacroResult> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const reason = validateMacro(macro);
+  if (reason) {
+    return { status: 'invalid', message: reason };
+  }
+
+  const read = await readMacroPackage(workspaceRoot, file);
+  if (read.status === 'noFile') {
+    return { status: 'notFound', id: file };
+  }
+  if (read.status === 'error') {
+    return { status: 'error', message: read.message };
+  }
+
+  const name = macro.name.trim();
+  if (!Object.prototype.hasOwnProperty.call(read.pkg.macros, name)) {
+    return { status: 'notFound', id: name };
+  }
+
+  // Rebuild the map preserving insertion order — plain object iteration in
+  // V8 preserves insertion order for string keys, so simply replacing the
+  // value under `name` keeps its position in the file.
+  const { name: _drop, ...rest } = macro;
+  const nextMacros: Record<string, MacroPackageEntryWithoutName> = {};
+  for (const [key, val] of Object.entries(read.pkg.macros)) {
+    nextMacros[key] = key === name ? { ...rest } : val;
+  }
+  const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
+
+  try {
+    await fsApi.writeFile(
+      macroPackageUri(workspaceRoot, file),
+      jsonBytes(next)
+    );
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'updated', name };
+}

@@ -1,6 +1,9 @@
-// SNL Create Macro Kind webview: one-shot form. Appends a single macro kind
-// to `config.json#macro_kinds`. Macro kinds carry only id/name/description
-// and a stroke+background coloring (no numbering / style).
+// SNL Create/Edit Macro Kind webview: one-shot form. Appends / updates a
+// single macro kind in `config.json#macro_kinds`. Macro kinds carry only
+// id/name/description and a stroke+background coloring (no numbering /
+// style).
+//
+// In edit mode the id is readonly (it's referenced by macros' `kind` field).
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -10,11 +13,22 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 
+type Mode = 'create' | 'edit';
+
+interface ExistingMacroKind {
+  id: string;
+  name: string;
+  description: string;
+  coloring: { stroke: string; background: string };
+}
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
   | { kind: 'created'; id: string; name: string }
+  | { kind: 'updated'; id: string; name: string }
   | { kind: 'duplicate'; message: string }
+  | { kind: 'notFound'; message: string }
   | { kind: 'invalid'; message: string }
   | { kind: 'noSnlDoc'; message: string }
   | { kind: 'noWorkspace'; message: string }
@@ -24,6 +38,7 @@ const DEFAULT_STROKE = '#888888';
 const DEFAULT_BACKGROUND = '#eeeeee';
 
 export function CreateMacroKindApp(): React.ReactElement {
+  const [mode, setMode] = useState<Mode>('create');
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -37,8 +52,16 @@ export function CreateMacroKindApp(): React.ReactElement {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
+        | {
+            type: 'context';
+            mode: Mode;
+            id?: string;
+            existing?: ExistingMacroKind | null;
+          }
         | { type: 'created'; kind: { id: string; name: string } }
+        | { type: 'updated'; kind: { id: string; name: string } }
         | { type: 'duplicate'; id: string; message: string }
+        | { type: 'notFound'; id: string; message: string }
         | { type: 'invalid'; message: string }
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
@@ -46,20 +69,42 @@ export function CreateMacroKindApp(): React.ReactElement {
         | undefined;
       if (!msg || typeof msg.type !== 'string') return;
       switch (msg.type) {
+        case 'context':
+          setMode(msg.mode);
+          if (msg.mode === 'edit') {
+            setId(msg.id ?? '');
+            if (msg.existing) {
+              setName(msg.existing.name);
+              setDescription(msg.existing.description || '');
+              setStroke(msg.existing.coloring?.stroke || DEFAULT_STROKE);
+              setBackground(
+                msg.existing.coloring?.background || DEFAULT_BACKGROUND
+              );
+            }
+          }
+          return;
         case 'created':
           setStatus({
             kind: 'created',
             id: msg.kind.id,
             name: msg.kind.name
           });
-          // Reset id/name/description so the panel can be used again quickly;
-          // keep colours since the user likely wants to reuse them.
           setId('');
           setName('');
           setDescription('');
           return;
+        case 'updated':
+          setStatus({
+            kind: 'updated',
+            id: msg.kind.id,
+            name: msg.kind.name
+          });
+          return;
         case 'duplicate':
           setStatus({ kind: 'duplicate', message: msg.message });
+          return;
+        case 'notFound':
+          setStatus({ kind: 'notFound', message: msg.message });
           return;
         case 'invalid':
           setStatus({ kind: 'invalid', message: msg.message });
@@ -77,21 +122,22 @@ export function CreateMacroKindApp(): React.ReactElement {
     }
 
     window.addEventListener('message', onMessage);
+    apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
   const trimmedId = id.trim();
   const trimmedName = name.trim();
-  const canCreate =
+  const canSubmit =
     trimmedId.length > 0 &&
     trimmedName.length > 0 &&
     status.kind !== 'creating';
 
-  function handleCreate(): void {
-    if (!canCreate) return;
+  function handleSubmit(): void {
+    if (!canSubmit) return;
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
-      type: 'create',
+      type: mode === 'edit' ? 'update' : 'create',
       payload: {
         id: trimmedId,
         name: trimmedName,
@@ -105,31 +151,31 @@ export function CreateMacroKindApp(): React.ReactElement {
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        Create Macro Kind
+        {mode === 'edit' ? 'Edit Macro Kind' : 'Create Macro Kind'}
       </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
-        Append a single macro kind to{' '}
-        <code>.SNL_Doc/config.json#macro_kinds</code>. The id must be unique
-        and non-empty; it is referenced by a macro's{' '}
-        <code>kind</code>.
+        {mode === 'edit'
+          ? 'Update this macro kind in .SNL_Doc/config.json#macro_kinds. The id is immutable (referenced by every macro with this kind).'
+          : 'Append a single macro kind to .SNL_Doc/config.json#macro_kinds. The id must be unique and non-empty; it is referenced by a macro\u2019s kind field.'}
       </p>
 
       <TextField
-        label="ID (unique)"
+        label={mode === 'edit' ? 'ID (readonly)' : 'ID (unique)'}
         value={id}
-        placeholder="e.g. rule, const, bvar…"
+        placeholder="e.g. rule, const, bvar\u2026"
         onChange={setId}
+        readOnly={mode === 'edit'}
       />
       <TextField
         label="Name (display)"
         value={name}
-        placeholder="e.g. Rule, Const, Bound variable…"
+        placeholder="e.g. Rule, Constant, Bound variable\u2026"
         onChange={setName}
       />
       <TextField
-        label="Description"
+        label="Description (optional)"
         value={description}
-        placeholder="Shown in dropdowns / dashboard"
+        placeholder="One-line summary of what this kind means."
         onChange={setDescription}
       />
 
@@ -150,11 +196,13 @@ export function CreateMacroKindApp(): React.ReactElement {
 
       <button
         type="button"
-        onClick={handleCreate}
-        disabled={!canCreate}
-        style={{ ...primaryButton(canCreate), marginTop: '0.5rem' }}
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        style={{ ...primaryButton(canSubmit), marginTop: '0.5rem' }}
       >
-        {status.kind === 'creating' ? 'Creating…' : 'Create Macro Kind'}
+        {status.kind === 'creating'
+          ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
+          : mode === 'edit' ? 'Update Macro Kind' : 'Create Macro Kind'}
       </button>
 
       <StatusLine status={status} />
@@ -167,13 +215,15 @@ function TextField({
   value,
   onChange,
   placeholder,
-  mono
+  mono,
+  readOnly
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   mono?: boolean;
+  readOnly?: boolean;
 }): React.ReactElement {
   return (
     <div style={{ marginBottom: '0.75rem' }}>
@@ -187,11 +237,15 @@ function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        title={readOnly ? 'IDs are immutable; delete + recreate to rename' : undefined}
         style={{
           width: '100%',
           boxSizing: 'border-box',
           padding: '0.4rem 0.55rem',
-          color: 'var(--vscode-input-foreground, #ddd)',
+          color: readOnly
+            ? 'var(--vscode-descriptionForeground, #999)'
+            : 'var(--vscode-input-foreground, #ddd)',
           background: 'var(--vscode-input-background, #2a2a2a)',
           border:
             '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
@@ -199,7 +253,9 @@ function TextField({
           fontFamily: mono
             ? 'var(--vscode-editor-font-family, monospace)'
             : 'inherit',
-          fontSize: '0.95rem'
+          fontSize: '0.95rem',
+          opacity: readOnly ? 0.7 : 1,
+          cursor: readOnly ? 'not-allowed' : 'text'
         }}
       />
     </div>
@@ -257,9 +313,6 @@ function ColorField({
   );
 }
 
-/** `<input type="color">` only accepts `#rrggbb`. Fall back to grey for
- *  anything else so the picker keeps working; the text field always shows
- *  the original value. */
 function sanitizeForColorInput(value: string): string {
   const v = value.trim();
   return /^#[0-9a-fA-F]{6}$/.test(v) ? v : '#888888';
@@ -302,13 +355,20 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `✅ Created "${status.name}" (id: ${status.id}).`;
+    text = `\u2705 Created "${status.name}" (id: ${status.id}).`;
     color = 'var(--vscode-testing-iconPassed, #89d185)';
-  } else if (status.kind === 'duplicate' || status.kind === 'invalid') {
-    text = `⚠️ ${status.message}`;
+  } else if (status.kind === 'updated') {
+    text = `\u2705 Updated "${status.name}" (id: ${status.id}).`;
+    color = 'var(--vscode-testing-iconPassed, #89d185)';
+  } else if (
+    status.kind === 'duplicate' ||
+    status.kind === 'invalid' ||
+    status.kind === 'notFound'
+  ) {
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else {
-    text = `❌ ${status.message}`;
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

@@ -1,38 +1,63 @@
 import * as vscode from 'vscode';
-import { createEntryKind } from './snlDoc';
+import { createEntryKind, readEntryKinds, updateEntryKind } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
 /**
- * Singleton manager for the `SNL: Create Entry Kind` webview panel.
+ * Per-mode-and-identity singleton manager for the SNL Entry Kind editor panel.
  *
- * Takes one entry-kind record and appends it to
- * `config.json#entry_kinds`. Rejects empty ids/names and duplicate ids.
+ * Two entry points share this class:
+ *  - `snlDoc.createEntryKind` → create-mode panel (no identity).
+ *  - `snlDoc.editEntryKind`   → edit-mode panel keyed by kind id.
  *
  * Message protocol with the webview (`createEntryKind.js`):
- *  - in  : `{ type: 'create', payload: { id, name, stroke, background, numbering, style } }`
- *  - out : `{ type: 'created', kind }`
- *        | `{ type: 'duplicate' | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error', message, ... }`
+ *  - in  : `{ type: 'ready' }` (asks for context)
+ *        | `{ type: 'create', payload: { id, name, stroke, background, numbering, style } }`
+ *        | `{ type: 'update', payload: { name, stroke, background, numbering, style } }`
+ *  - out : `{ type: 'context', mode, existing? }`
+ *        | `{ type: 'created' | 'updated' | 'duplicate' | 'notFound'
+ *            | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error', ... }`
  */
 export class CreateEntryKindPanel {
-  public static currentPanel: CreateEntryKindPanel | undefined;
+  private static readonly instances = new Map<string, CreateEntryKindPanel>();
 
   private static readonly viewType = 'snlCreateEntryKind';
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
+  private readonly mode: 'create' | 'edit';
+  private readonly id: string;
   private disposables: vscode.Disposable[] = [];
 
   public static createOrShow(extensionUri: vscode.Uri): void {
-    const column = vscode.ViewColumn.Active;
+    CreateEntryKindPanel.open(extensionUri, 'create', '');
+  }
 
-    if (CreateEntryKindPanel.currentPanel) {
-      CreateEntryKindPanel.currentPanel.panel.reveal(column);
+  public static editOrShow(extensionUri: vscode.Uri, id: string): void {
+    if (!id) {
+      return;
+    }
+    CreateEntryKindPanel.open(extensionUri, 'edit', id);
+  }
+
+  private static open(
+    extensionUri: vscode.Uri,
+    mode: 'create' | 'edit',
+    id: string
+  ): void {
+    const column = vscode.ViewColumn.Active;
+    const key = `${mode}:${id}`;
+
+    const existing = CreateEntryKindPanel.instances.get(key);
+    if (existing) {
+      existing.panel.reveal(column);
       return;
     }
 
+    const title =
+      mode === 'edit' ? `SNL Edit Entry Kind — ${id}` : 'SNL Create Entry Kind';
     const panel = vscode.window.createWebviewPanel(
       CreateEntryKindPanel.viewType,
-      'SNL Create Entry Kind',
+      title,
       column,
       {
         enableScripts: true,
@@ -41,21 +66,30 @@ export class CreateEntryKindPanel {
       }
     );
 
-    CreateEntryKindPanel.currentPanel = new CreateEntryKindPanel(
-      panel,
-      extensionUri
+    CreateEntryKindPanel.instances.set(
+      key,
+      new CreateEntryKindPanel(panel, extensionUri, mode, id)
     );
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    mode: 'create' | 'edit',
+    id: string
+  ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
+    this.mode = mode;
+    this.id = id;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
       this.panel.webview,
       'createEntryKind',
-      'SNL Create Entry Kind'
+      mode === 'edit'
+        ? `SNL Edit Entry Kind — ${id}`
+        : 'SNL Create Entry Kind'
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -65,6 +99,31 @@ export class CreateEntryKindPanel {
     );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  private async pushContext(): Promise<void> {
+    if (this.mode === 'create') {
+      void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
+      return;
+    }
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.panel.webview.postMessage({
+        type: 'context',
+        mode: 'edit',
+        id: this.id,
+        existing: null
+      });
+      return;
+    }
+    const kinds = await readEntryKinds(root);
+    const existing = kinds.find((k) => k.id === this.id) ?? null;
+    void this.panel.webview.postMessage({
+      type: 'context',
+      mode: 'edit',
+      id: this.id,
+      existing
+    });
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -81,13 +140,20 @@ export class CreateEntryKindPanel {
           };
         }
       | undefined;
-    if (!msg || msg.type !== 'create') {
+    if (!msg || typeof msg.type !== 'string') {
+      return;
+    }
+    if (msg.type === 'ready') {
+      await this.pushContext();
+      return;
+    }
+    if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Create Entry Kind requires an open folder / workspace.';
+      const text = 'SNL Entry Kind editor requires an open folder / workspace.';
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -98,6 +164,59 @@ export class CreateEntryKindPanel {
 
     const p = msg.payload ?? {};
     try {
+      if (msg.type === 'update' || this.mode === 'edit') {
+        const result = await updateEntryKind(root, this.id, {
+          name: p.name ?? '',
+          stroke: p.stroke ?? '',
+          background: p.background ?? '',
+          numbering: p.numbering ?? '',
+          style: p.style ?? ''
+        });
+        switch (result.status) {
+          case 'updated':
+            vscode.window.showInformationMessage(
+              `Entry kind "${result.kind.name}" (${result.kind.id}) updated.`
+            );
+            void this.panel.webview.postMessage({
+              type: 'updated',
+              kind: result.kind
+            });
+            return;
+          case 'notFound': {
+            const text = `Entry kind "${result.id}" no longer exists.`;
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'notFound',
+              id: result.id,
+              message: text
+            });
+            return;
+          }
+          case 'noSnlDoc': {
+            const text =
+              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'noSnlDoc',
+              message: text
+            });
+            return;
+          }
+          case 'invalid':
+            void this.panel.webview.postMessage({
+              type: 'invalid',
+              message: result.message
+            });
+            return;
+          case 'error':
+            void this.panel.webview.postMessage({
+              type: 'error',
+              message: result.message
+            });
+            return;
+        }
+      }
+      // Create path.
       const result = await createEntryKind(root, {
         id: p.id ?? '',
         name: p.name ?? '',
@@ -146,14 +265,15 @@ export class CreateEntryKindPanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Create Entry Kind failed: ${text}`
+        `SNL Entry Kind editor failed: ${text}`
       );
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
 
   public dispose(): void {
-    CreateEntryKindPanel.currentPanel = undefined;
+    const key = `${this.mode}:${this.id}`;
+    CreateEntryKindPanel.instances.delete(key);
 
     this.panel.dispose();
 

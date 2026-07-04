@@ -206,27 +206,38 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
   | { kind: 'created'; name: string }
+  | { kind: 'updated'; name: string }
   | { kind: 'duplicate'; name: string; message: string }
+  | { kind: 'notFound'; name: string; message: string }
   | { kind: 'invalid'; reason: string }
   | { kind: 'noFile'; message: string }
   | { kind: 'noWorkspace'; message: string }
+  | { kind: 'noSnlDoc'; message: string }
   | { kind: 'error'; message: string };
+
+/** Panel mode — separate from Mode (macro render mode) to avoid name clash. */
+type PanelMode = 'create' | 'edit';
 
 interface ContextMsg {
   type: 'context';
+  mode: PanelMode;
   file: string;
   packageName: string;
   existingNames: string[];
   macroKinds?: MacroKind[];
+  existing?: ExtendedSnlMacro | null;
 }
 
 type Incoming =
   | ContextMsg
   | { type: 'created'; name: string }
+  | { type: 'updated'; name: string }
   | { type: 'duplicate'; name: string; message: string }
+  | { type: 'notFound'; name: string; message: string }
   | { type: 'invalid'; reason: string }
   | { type: 'noFile'; message: string }
   | { type: 'noWorkspace'; message: string }
+  | { type: 'noSnlDoc'; message: string }
   | { type: 'error'; message: string }
   | undefined;
 
@@ -292,6 +303,7 @@ function maxChildIndex(template: string): number {
 export function CreateMacroApp(): React.ReactElement {
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
+  const [panelMode, setPanelMode] = useState<PanelMode>('create');
   const [file, setFile] = useState('');
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
@@ -327,6 +339,49 @@ export function CreateMacroApp(): React.ReactElement {
     );
   }
 
+  /**
+   * Load an existing extended macro (from the host, edit mode) into the form
+   * state. Fields not present in the on-disk record fall back to sensible
+   * defaults. `name` is set from the record but the UI renders it readonly in
+   * edit mode.
+   */
+  function hydrateFromExisting(existing: ExtendedSnlMacro): void {
+    setName(existing.name ?? '');
+    setDescription(existing.description ?? '');
+    const src = existing.source ?? { entries: [], urls: [] };
+    setSourceEntries(
+      Array.isArray(src.entries) && src.entries.length > 0
+        ? src.entries.slice()
+        : ['']
+    );
+    setSourceUrls(
+      Array.isArray(src.urls) && src.urls.length > 0 ? src.urls.slice() : ['']
+    );
+    setArity(existing.arity === 'variadic' ? 'variadic' : 'fixed');
+    setKind(existing.kind ?? '');
+    const drafts: StyleDraft[] = Array.isArray(existing.styles)
+      ? existing.styles.map((s) => ({
+          tag: s.tag ?? 'default',
+          mode: (s.mode as Mode) ?? 'formula',
+          display: (s.display as Display) ?? 'inline',
+          template: s.template ?? '',
+          variadic_join: s.variadic_join ?? '',
+          react_renderer_key: s.react_renderer_key ?? '',
+          typst_built_in: s.typst?.built_in ?? '',
+          typst_synthesis: s.typst?.synthesis?.macro ?? '',
+          typst_synthesis_mode: (s.typst?.synthesis?.mode as SynthesisMode) ?? 'formula',
+          latex_built_in: s.latex?.built_in ?? '',
+          latex_synthesis: s.latex?.synthesis?.macro ?? '',
+          latex_synthesis_mode: (s.latex?.synthesis?.mode as SynthesisMode) ?? 'formula',
+          markdown: s.markdown ?? '',
+          text: s.text ?? ''
+        }))
+      : [newStyleDraft('default')];
+    setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
+    setActiveStyle(0);
+    setActiveTab('katex_template');
+  }
+
   useEffect(() => {
     apiRef.current = getVsCodeApi();
     function onMessage(event: MessageEvent): void {
@@ -336,16 +391,26 @@ export function CreateMacroApp(): React.ReactElement {
       }
       switch (msg.type) {
         case 'context':
+          setPanelMode(msg.mode);
           setFile(msg.file);
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+          if (msg.mode === 'edit' && msg.existing) {
+            hydrateFromExisting(msg.existing);
+          }
           break;
         case 'created':
           setStatus({ kind: 'created', name: msg.name });
           break;
+        case 'updated':
+          setStatus({ kind: 'updated', name: msg.name });
+          break;
         case 'duplicate':
           setStatus({ kind: 'duplicate', name: msg.name, message: msg.message });
+          break;
+        case 'notFound':
+          setStatus({ kind: 'notFound', name: msg.name, message: msg.message });
           break;
         case 'invalid':
           setStatus({ kind: 'invalid', reason: msg.reason });
@@ -355,6 +420,9 @@ export function CreateMacroApp(): React.ReactElement {
           break;
         case 'noWorkspace':
           setStatus({ kind: 'noWorkspace', message: msg.message });
+          break;
+        case 'noSnlDoc':
+          setStatus({ kind: 'noSnlDoc', message: msg.message });
           break;
         case 'error':
           setStatus({ kind: 'error', message: msg.message });
@@ -481,7 +549,11 @@ export function CreateMacroApp(): React.ReactElement {
   // --- Validation ----------------------------------------------------------
 
   const trimmedName = name.trim();
-  const isDuplicate = existingNames.includes(trimmedName);
+  // In edit mode, `trimmedName` is the identity of the macro being edited, so
+  // its own presence in existingNames must NOT count as a duplicate. Only a
+  // create-mode collision blocks submission.
+  const isDuplicate =
+    panelMode === 'edit' ? false : existingNames.includes(trimmedName);
   const defaultStyleDraft = styles[0];
   const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
   const tags = styles.map((s) => s.tag.trim());
@@ -510,7 +582,7 @@ export function CreateMacroApp(): React.ReactElement {
     setPreviewArgs(['', '', '', '']);
   }
 
-  function handleCreate(): void {
+  function handleSubmit(): void {
     if (!canCreate) {
       return;
     }
@@ -529,7 +601,10 @@ export function CreateMacroApp(): React.ReactElement {
       styles: styleList
     };
     setStatus({ kind: 'creating' });
-    apiRef.current?.postMessage({ type: 'create', macro });
+    apiRef.current?.postMessage({
+      type: panelMode === 'edit' ? 'update' : 'create',
+      macro
+    });
   }
 
   const showPreview = activeTab === 'katex_template';
@@ -537,10 +612,11 @@ export function CreateMacroApp(): React.ReactElement {
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '60rem' }}>
       <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.35rem' }}>
-        Create Macro in <code>{file || '…'}</code>
+        {panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in{' '}
+        <code>{file || '\u2026'}</code>
       </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.75 }}>
-        Package: <strong>{packageName || '—'}</strong>
+        Package: <strong>{packageName || '\u2014'}</strong>
       </p>
 
       {/* --- Basic fields (Name + Description) ------------------------------ */}
@@ -554,7 +630,10 @@ export function CreateMacroApp(): React.ReactElement {
       >
         <div>
           <label htmlFor="m-name" style={labelStyle}>
-            Name <span style={{ opacity: 0.6 }}>(unique)</span>
+            Name{' '}
+            <span style={{ opacity: 0.6 }}>
+              {panelMode === 'edit' ? '(readonly)' : '(unique)'}
+            </span>
           </label>
           <input
             id="m-name"
@@ -562,12 +641,24 @@ export function CreateMacroApp(): React.ReactElement {
             value={name}
             placeholder="e.g. Add.add"
             onChange={(e) => setName(e.target.value)}
+            readOnly={panelMode === 'edit'}
+            title={
+              panelMode === 'edit'
+                ? 'Macro names are immutable; delete + recreate to rename'
+                : undefined
+            }
             style={{
               ...inputStyle,
               width: '100%',
               borderColor: isDuplicate
                 ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
-                : undefined
+                : undefined,
+              color:
+                panelMode === 'edit'
+                  ? 'var(--vscode-descriptionForeground, #999)'
+                  : (inputStyle as React.CSSProperties).color,
+              opacity: panelMode === 'edit' ? 0.7 : 1,
+              cursor: panelMode === 'edit' ? 'not-allowed' : 'text'
             }}
           />
           {isDuplicate ? (
@@ -888,11 +979,13 @@ export function CreateMacroApp(): React.ReactElement {
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <button
           type="button"
-          onClick={handleCreate}
+          onClick={handleSubmit}
           disabled={!canCreate}
           style={primaryButton(canCreate)}
         >
-          {status.kind === 'creating' ? 'Creating…' : 'Create Macro'}
+          {status.kind === 'creating'
+            ? panelMode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
+            : panelMode === 'edit' ? 'Update Macro' : 'Create Macro'}
         </button>
         <span style={{ opacity: 0.6, fontSize: '0.85rem' }}>
           {templateEmpty ? 'KaTeX template is required.' : ''}
@@ -1342,19 +1435,29 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `✅ Created macro "${status.name}".`;
+    text = `\u2705 Created macro "${status.name}".`;
+    color = 'var(--vscode-testing-iconPassed, #89d185)';
+  } else if (status.kind === 'updated') {
+    text = `\u2705 Updated macro "${status.name}".`;
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'duplicate') {
-    text = `⚠️ ${status.message}`;
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
-  } else if (status.kind === 'invalid') {
-    text = `❌ Invalid: ${status.reason}`;
+  } else if (status.kind === 'notFound') {
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
-  } else if (status.kind === 'noFile' || status.kind === 'noWorkspace') {
-    text = `❌ ${status.message}`;
+  } else if (status.kind === 'invalid') {
+    text = `\u274c Invalid: ${status.reason}`;
+    color = 'var(--vscode-errorForeground, #f48771)';
+  } else if (
+    status.kind === 'noFile' ||
+    status.kind === 'noWorkspace' ||
+    status.kind === 'noSnlDoc'
+  ) {
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'error') {
-    text = `❌ Error: ${status.message}`;
+    text = `\u274c Error: ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   }
   return (

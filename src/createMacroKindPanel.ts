@@ -1,38 +1,63 @@
 import * as vscode from 'vscode';
-import { createMacroKind } from './snlDoc';
+import { createMacroKind, readMacroKinds, updateMacroKind } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
 /**
- * Singleton manager for the `SNL: Create Macro Kind` webview panel.
+ * Per-mode-and-identity singleton manager for the SNL Macro Kind editor panel.
  *
- * Takes one macro-kind record and appends it to
- * `config.json#macro_kinds`. Rejects empty ids/names and duplicate ids.
+ * Two entry points share this class:
+ *  - `snlDoc.createMacroKind` → create-mode panel (no identity).
+ *  - `snlDoc.editMacroKind`   → edit-mode panel keyed by kind id.
  *
  * Message protocol with the webview (`createMacroKind.js`):
- *  - in  : `{ type: 'create', payload: { id, name, description, stroke, background } }`
- *  - out : `{ type: 'created', kind }`
- *        | `{ type: 'duplicate' | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error', message, ... }`
+ *  - in  : `{ type: 'ready' }` (asks for context)
+ *        | `{ type: 'create', payload: { id, name, description, stroke, background } }`
+ *        | `{ type: 'update', payload: { name, description, stroke, background } }`
+ *  - out : `{ type: 'context', mode, existing? }`
+ *        | `{ type: 'created' | 'updated' | 'duplicate' | 'notFound'
+ *            | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error', ... }`
  */
 export class CreateMacroKindPanel {
-  public static currentPanel: CreateMacroKindPanel | undefined;
+  private static readonly instances = new Map<string, CreateMacroKindPanel>();
 
   private static readonly viewType = 'snlCreateMacroKind';
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
+  private readonly mode: 'create' | 'edit';
+  private readonly id: string;
   private disposables: vscode.Disposable[] = [];
 
   public static createOrShow(extensionUri: vscode.Uri): void {
-    const column = vscode.ViewColumn.Active;
+    CreateMacroKindPanel.open(extensionUri, 'create', '');
+  }
 
-    if (CreateMacroKindPanel.currentPanel) {
-      CreateMacroKindPanel.currentPanel.panel.reveal(column);
+  public static editOrShow(extensionUri: vscode.Uri, id: string): void {
+    if (!id) {
+      return;
+    }
+    CreateMacroKindPanel.open(extensionUri, 'edit', id);
+  }
+
+  private static open(
+    extensionUri: vscode.Uri,
+    mode: 'create' | 'edit',
+    id: string
+  ): void {
+    const column = vscode.ViewColumn.Active;
+    const key = `${mode}:${id}`;
+
+    const existing = CreateMacroKindPanel.instances.get(key);
+    if (existing) {
+      existing.panel.reveal(column);
       return;
     }
 
+    const title =
+      mode === 'edit' ? `SNL Edit Macro Kind — ${id}` : 'SNL Create Macro Kind';
     const panel = vscode.window.createWebviewPanel(
       CreateMacroKindPanel.viewType,
-      'SNL Create Macro Kind',
+      title,
       column,
       {
         enableScripts: true,
@@ -41,21 +66,30 @@ export class CreateMacroKindPanel {
       }
     );
 
-    CreateMacroKindPanel.currentPanel = new CreateMacroKindPanel(
-      panel,
-      extensionUri
+    CreateMacroKindPanel.instances.set(
+      key,
+      new CreateMacroKindPanel(panel, extensionUri, mode, id)
     );
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    mode: 'create' | 'edit',
+    id: string
+  ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
+    this.mode = mode;
+    this.id = id;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
       this.panel.webview,
       'createMacroKind',
-      'SNL Create Macro Kind'
+      mode === 'edit'
+        ? `SNL Edit Macro Kind — ${id}`
+        : 'SNL Create Macro Kind'
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -65,6 +99,31 @@ export class CreateMacroKindPanel {
     );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  private async pushContext(): Promise<void> {
+    if (this.mode === 'create') {
+      void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
+      return;
+    }
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.panel.webview.postMessage({
+        type: 'context',
+        mode: 'edit',
+        id: this.id,
+        existing: null
+      });
+      return;
+    }
+    const kinds = await readMacroKinds(root);
+    const existing = kinds.find((k) => k.id === this.id) ?? null;
+    void this.panel.webview.postMessage({
+      type: 'context',
+      mode: 'edit',
+      id: this.id,
+      existing
+    });
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -80,13 +139,20 @@ export class CreateMacroKindPanel {
           };
         }
       | undefined;
-    if (!msg || msg.type !== 'create') {
+    if (!msg || typeof msg.type !== 'string') {
+      return;
+    }
+    if (msg.type === 'ready') {
+      await this.pushContext();
+      return;
+    }
+    if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Create Macro Kind requires an open folder / workspace.';
+      const text = 'SNL Macro Kind editor requires an open folder / workspace.';
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -97,6 +163,60 @@ export class CreateMacroKindPanel {
 
     const p = msg.payload ?? {};
     try {
+      if (msg.type === 'update' || this.mode === 'edit') {
+        const result = await updateMacroKind(root, this.id, {
+          name: p.name ?? '',
+          description: p.description ?? '',
+          coloring: {
+            stroke: p.stroke ?? '',
+            background: p.background ?? ''
+          }
+        });
+        switch (result.status) {
+          case 'updated':
+            vscode.window.showInformationMessage(
+              `Macro kind "${result.kind.name}" (${result.kind.id}) updated.`
+            );
+            void this.panel.webview.postMessage({
+              type: 'updated',
+              kind: result.kind
+            });
+            return;
+          case 'notFound': {
+            const text = `Macro kind "${result.id}" no longer exists.`;
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'notFound',
+              id: result.id,
+              message: text
+            });
+            return;
+          }
+          case 'noSnlDoc': {
+            const text =
+              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            vscode.window.showErrorMessage(text);
+            void this.panel.webview.postMessage({
+              type: 'noSnlDoc',
+              message: text
+            });
+            return;
+          }
+          case 'invalid':
+            void this.panel.webview.postMessage({
+              type: 'invalid',
+              message: result.message
+            });
+            return;
+          case 'error':
+            void this.panel.webview.postMessage({
+              type: 'error',
+              message: result.message
+            });
+            return;
+        }
+      }
+      // Create path.
       const result = await createMacroKind(root, {
         id: p.id ?? '',
         name: p.name ?? '',
@@ -146,14 +266,15 @@ export class CreateMacroKindPanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Create Macro Kind failed: ${text}`
+        `SNL Macro Kind editor failed: ${text}`
       );
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
 
   public dispose(): void {
-    CreateMacroKindPanel.currentPanel = undefined;
+    const key = `${this.mode}:${this.id}`;
+    CreateMacroKindPanel.instances.delete(key);
 
     this.panel.dispose();
 

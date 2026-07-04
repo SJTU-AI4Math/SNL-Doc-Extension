@@ -61,6 +61,23 @@ interface EntryKind {
 
 type ContentFormat = 'snl' | 'typst' | 'latex' | 'markdown' | 'text';
 
+type Mode = 'create' | 'edit';
+
+interface ExistingEntry {
+  id: string;
+  kind: string;
+  title: string;
+  content: {
+    snl?: string;
+    typst?: string;
+    latex?: string;
+    markdown?: string;
+    text?: string;
+  };
+  contribution_info?: unknown;
+  pointer?: unknown;
+}
+
 const FORMAT_TABS: { id: ContentFormat; label: string }[] = [
   { id: 'snl', label: 'SNL' },
   { id: 'typst', label: 'Typst' },
@@ -73,7 +90,9 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'creating' }
   | { kind: 'created'; id: string }
+  | { kind: 'updated'; id: string }
   | { kind: 'duplicate'; id: string; message: string }
+  | { kind: 'notFound'; id: string; message: string }
   | { kind: 'unknownKind'; kindId: string; message: string }
   | { kind: 'invalid'; message: string }
   | { kind: 'noSnlDoc'; message: string }
@@ -102,6 +121,7 @@ function mockNumber(numbering: string): string {
 }
 
 export function CreateEntryApp(): React.ReactElement {
+  const [mode, setMode] = useState<Mode>('create');
   const [kinds, setKinds] = useState<EntryKind[]>([]);
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
@@ -128,8 +148,17 @@ export function CreateEntryApp(): React.ReactElement {
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
         | { type: 'kinds'; kinds: EntryKind[] }
+        | {
+            type: 'context';
+            mode: Mode;
+            id?: string;
+            kinds: EntryKind[];
+            existing?: ExistingEntry | null;
+          }
         | { type: 'created'; id: string }
+        | { type: 'updated'; id: string }
         | { type: 'duplicate'; id: string; message: string }
+        | { type: 'notFound'; id: string; message: string }
         | { type: 'unknownKind'; kind: string; message: string }
         | { type: 'invalid'; reason: string }
         | { type: 'noSnlDoc'; message: string }
@@ -148,11 +177,43 @@ export function CreateEntryApp(): React.ReactElement {
             return msg.kinds && msg.kinds.length > 0 ? msg.kinds[0].id : '';
           });
           break;
+        case 'context':
+          setMode(msg.mode);
+          setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
+          setKindsLoaded(true);
+          if (msg.mode === 'edit') {
+            if (msg.id) {
+              setId(msg.id);
+            }
+            if (msg.existing) {
+              setTitle(msg.existing.title || '');
+              setSelectedKind(msg.existing.kind || '');
+              setContent({
+                snl: msg.existing.content?.snl ?? '',
+                typst: msg.existing.content?.typst ?? '',
+                latex: msg.existing.content?.latex ?? '',
+                markdown: msg.existing.content?.markdown ?? '',
+                text: msg.existing.content?.text ?? ''
+              });
+            }
+          } else {
+            setSelectedKind((prev) => {
+              if (prev) return prev;
+              return msg.kinds && msg.kinds.length > 0 ? msg.kinds[0].id : '';
+            });
+          }
+          break;
         case 'created':
           setStatus({ kind: 'created', id: msg.id });
           break;
+        case 'updated':
+          setStatus({ kind: 'updated', id: msg.id });
+          break;
         case 'duplicate':
           setStatus({ kind: 'duplicate', id: msg.id, message: msg.message });
+          break;
+        case 'notFound':
+          setStatus({ kind: 'notFound', id: msg.id, message: msg.message });
           break;
         case 'unknownKind':
           setStatus({
@@ -197,7 +258,7 @@ export function CreateEntryApp(): React.ReactElement {
     selectedKind.length > 0 &&
     status.kind !== 'creating';
 
-  function handleCreate(): void {
+  function handleSubmit(): void {
     if (!canCreate) {
       return;
     }
@@ -216,10 +277,19 @@ export function CreateEntryApp(): React.ReactElement {
       contribution_info: null,
       pointer: null
     };
-    apiRef.current?.postMessage({ type: 'create', entry });
+    apiRef.current?.postMessage({
+      type: mode === 'edit' ? 'update' : 'create',
+      entry
+    });
   }
 
   function handleCancel(): void {
+    if (mode === 'edit') {
+      // Cancel in edit mode is a no-op reset that's rarely useful; just clear
+      // the status banner so the user can keep editing.
+      setStatus({ kind: 'idle' });
+      return;
+    }
     setTitle('');
     setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
@@ -234,7 +304,7 @@ export function CreateEntryApp(): React.ReactElement {
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '48rem' }}>
       <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.35rem' }}>
-        Create Entry
+        {mode === 'edit' ? 'Edit Entry' : 'Create Entry'}
       </h1>
 
       {noKinds ? (
@@ -283,7 +353,9 @@ export function CreateEntryApp(): React.ReactElement {
             />
           </div>
           <div style={{ flex: '3 1 20rem' }}>
-            <Label htmlFor="snl-entry-id">ID</Label>
+            <Label htmlFor="snl-entry-id">
+              {mode === 'edit' ? 'ID (readonly)' : 'ID'}
+            </Label>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input
                 id="snl-entry-id"
@@ -291,26 +363,44 @@ export function CreateEntryApp(): React.ReactElement {
                 value={id}
                 placeholder="e.g. pythagorean-theorem"
                 onChange={(e) => setId(e.target.value)}
-                style={{ ...inputStyle, ...monoStyle, marginBottom: 0 }}
-              />
-              <button
-                type="button"
-                onClick={() => setId(newUuid())}
+                readOnly={mode === 'edit'}
                 title={
-                  trimmedId
-                    ? 'Overwrite the ID with a fresh UUID v4'
-                    : 'Fill the ID with a fresh UUID v4'
+                  mode === 'edit'
+                    ? 'IDs are immutable; delete + recreate to rename'
+                    : undefined
                 }
                 style={{
-                  ...primaryButton(true),
-                  padding: '0.35rem 0.7rem',
-                  whiteSpace: 'nowrap',
-                  background:
-                    'var(--vscode-button-secondaryBackground, #444)'
+                  ...inputStyle,
+                  ...monoStyle,
+                  marginBottom: 0,
+                  color:
+                    mode === 'edit'
+                      ? 'var(--vscode-descriptionForeground, #999)'
+                      : (inputStyle as React.CSSProperties).color,
+                  opacity: mode === 'edit' ? 0.7 : 1,
+                  cursor: mode === 'edit' ? 'not-allowed' : 'text'
                 }}
-              >
-                {trimmedId ? 'Regenerate UUID' : 'Generate UUID'}
-              </button>
+              />
+              {mode === 'edit' ? null : (
+                <button
+                  type="button"
+                  onClick={() => setId(newUuid())}
+                  title={
+                    trimmedId
+                      ? 'Overwrite the ID with a fresh UUID v4'
+                      : 'Fill the ID with a fresh UUID v4'
+                  }
+                  style={{
+                    ...primaryButton(true),
+                    padding: '0.35rem 0.7rem',
+                    whiteSpace: 'nowrap',
+                    background:
+                      'var(--vscode-button-secondaryBackground, #444)'
+                  }}
+                >
+                  {trimmedId ? 'Regenerate UUID' : 'Generate UUID'}
+                </button>
+              )}
             </div>
             <p
               style={{
@@ -320,9 +410,9 @@ export function CreateEntryApp(): React.ReactElement {
                 lineHeight: 1.4
               }}
             >
-              Manually enter a semantic id, or click Generate UUID. IDs must be
-              unique in the shared entries pool and stable once created (they're
-              used by future relationship links).
+              {mode === 'edit'
+                ? 'IDs are stable references used by relationship links; they cannot be edited here.'
+                : "Manually enter a semantic id, or click Generate UUID. IDs must be unique in the shared entries pool and stable once created (they're used by future relationship links)."}
             </p>
           </div>
         </div>
@@ -475,11 +565,13 @@ export function CreateEntryApp(): React.ReactElement {
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
           <button
             type="button"
-            onClick={handleCreate}
+            onClick={handleSubmit}
             disabled={!canCreate}
             style={primaryButton(canCreate)}
           >
-            {status.kind === 'creating' ? 'Creating…' : 'Create Entry'}
+            {status.kind === 'creating'
+              ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
+              : mode === 'edit' ? 'Update Entry' : 'Create Entry'}
           </button>
           <button
             type="button"
@@ -489,7 +581,7 @@ export function CreateEntryApp(): React.ReactElement {
               background: 'var(--vscode-button-secondaryBackground, #444)'
             }}
           >
-            Cancel
+            {mode === 'edit' ? 'Reset banner' : 'Cancel'}
           </button>
         </div>
 
@@ -792,23 +884,29 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `✅ Created entry (id: ${status.id}).`;
+    text = `\u2705 Created entry (id: ${status.id}).`;
+    color = 'var(--vscode-testing-iconPassed, #89d185)';
+  } else if (status.kind === 'updated') {
+    text = `\u2705 Updated entry (id: ${status.id}).`;
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'duplicate') {
-    text = `⚠️ ${status.message}`;
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
+  } else if (status.kind === 'notFound') {
+    text = `\u274c ${status.message}`;
+    color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'unknownKind') {
-    text = `⚠️ ${status.message}`;
+    text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'invalid') {
-    text = `❌ Invalid: ${status.message}`;
+    text = `\u274c Invalid: ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (
     status.kind === 'noSnlDoc' ||
     status.kind === 'noWorkspace' ||
     status.kind === 'error'
   ) {
-    text = `❌ ${status.message}`;
+    text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

@@ -196,7 +196,12 @@ function Initialized({
         onToggle={() => setOpenLibraries((v) => !v)}
       >
         {overview.libraries.length > 0 ? (
-          <LibrariesTable libraries={overview.libraries} />
+          <LibrariesTable
+            libraries={overview.libraries}
+            onOpen={(slug) =>
+              api?.postMessage({ type: 'editLibrary', slug })
+            }
+          />
         ) : null}
         <AddBar
           label="Create Library"
@@ -215,6 +220,7 @@ function Initialized({
           <EntriesTable
             entries={overview.entries}
             kinds={overview.entryKinds}
+            onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
           />
         ) : null}
         <AddBar
@@ -257,7 +263,12 @@ function Initialized({
       >
         {hasKinds ? (
           <>
-            <EntryKindsTable kinds={overview.entryKinds} />
+            <EntryKindsTable
+              kinds={overview.entryKinds}
+              onOpen={(id) =>
+                api?.postMessage({ type: 'editEntryKind', id })
+              }
+            />
             <AddBar
               label="Create Entry Kind"
               onActivate={() =>
@@ -284,7 +295,12 @@ function Initialized({
       >
         {hasMacroKinds ? (
           <>
-            <MacroKindsTable kinds={overview.macroKinds} />
+            <MacroKindsTable
+              kinds={overview.macroKinds}
+              onOpen={(id) =>
+                api?.postMessage({ type: 'editMacroKind', id })
+              }
+            />
             <AddBar
               label="Create Macro Kind"
               onActivate={() =>
@@ -426,9 +442,11 @@ const MONO: React.CSSProperties = {
 };
 
 function LibrariesTable({
-  libraries
+  libraries,
+  onOpen
 }: {
   libraries: LibrarySummary[];
+  onOpen: (slug: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -449,7 +467,11 @@ function LibrariesTable({
       </thead>
       <tbody>
         {libraries.map((lib) => (
-          <tr key={lib.slug}>
+          <ClickableRow
+            key={lib.slug}
+            label={`Edit library ${lib.slug}`}
+            onActivate={() => onOpen(lib.slug)}
+          >
             <td style={CELL}>{lib.title}</td>
             <td style={{ ...CELL, ...MONO }}>{lib.slug}</td>
             <td style={{ ...CELL, textAlign: 'right' }}>
@@ -458,7 +480,7 @@ function LibrariesTable({
             <td style={{ ...CELL, textAlign: 'right' }}>
               {lib.relationshipCount === null ? '—' : lib.relationshipCount}
             </td>
-          </tr>
+          </ClickableRow>
         ))}
       </tbody>
     </table>
@@ -489,7 +511,16 @@ function MacroPackagesTable({
       </thead>
       <tbody>
         {packages.map((pkg) => (
-          <MacroPackageRow key={pkg.file} pkg={pkg} onOpen={onOpen} />
+          <ClickableRow
+            key={pkg.file}
+            label={`Open macro package ${pkg.file}`}
+            onActivate={() => onOpen(pkg.file)}
+          >
+            <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
+            <td style={{ ...CELL, textAlign: 'right' }}>
+              {pkg.macroCount === null ? '—' : pkg.macroCount}
+            </td>
+          </ClickableRow>
         ))}
       </tbody>
     </table>
@@ -497,29 +528,30 @@ function MacroPackagesTable({
 }
 
 /**
- * A single clickable macro-package row. Clicking (or Enter/Space) dispatches
- * `openMacroPackage` for this file. Hover / focus paints the row with the
- * theme's list-hover background, matching VS Code list affordances.
+ * Shared clickable-row wrapper. Clicking (or Enter/Space) fires `onActivate`;
+ * hover / focus paint the row with the theme's list-hover background,
+ * matching VS Code list affordances.
  */
-function MacroPackageRow({
-  pkg,
-  onOpen
+function ClickableRow({
+  label,
+  onActivate,
+  children
 }: {
-  pkg: MacroPackageSummary;
-  onOpen: (file: string) => void;
+  label: string;
+  onActivate: () => void;
+  children: React.ReactNode;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
-  const activate = (): void => onOpen(pkg.file);
   return (
     <tr
       role="button"
       tabIndex={0}
-      aria-label={`Open macro package ${pkg.file}`}
-      onClick={activate}
+      aria-label={label}
+      onClick={onActivate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          activate();
+          onActivate();
         }
       }}
       onMouseEnter={() => setHover(true)}
@@ -533,18 +565,17 @@ function MacroPackageRow({
           : 'transparent'
       }}
     >
-      <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
-      <td style={{ ...CELL, textAlign: 'right' }}>
-        {pkg.macroCount === null ? '—' : pkg.macroCount}
-      </td>
+      {children}
     </tr>
   );
 }
 
 function EntryKindsTable({
-  kinds
+  kinds,
+  onOpen
 }: {
   kinds: EntryKind[];
+  onOpen: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -566,7 +597,11 @@ function EntryKindsTable({
       </thead>
       <tbody>
         {kinds.map((kind) => (
-          <tr key={kind.id}>
+          <ClickableRow
+            key={kind.id}
+            label={`Edit entry kind ${kind.id}`}
+            onActivate={() => onOpen(kind.id)}
+          >
             <td style={CELL}>
               <KindPreview
                 stroke={kind.coloring.stroke}
@@ -581,7 +616,7 @@ function EntryKindsTable({
             <td style={{ ...CELL, ...MONO }}>
               {kind.style ? kind.style : '—'}
             </td>
-          </tr>
+          </ClickableRow>
         ))}
       </tbody>
     </table>
@@ -590,9 +625,11 @@ function EntryKindsTable({
 
 /** Macro-kinds catalog table for the Dashboard. */
 function MacroKindsTable({
-  kinds
+  kinds,
+  onOpen
 }: {
   kinds: MacroKind[];
+  onOpen: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -613,7 +650,11 @@ function MacroKindsTable({
       </thead>
       <tbody>
         {kinds.map((kind) => (
-          <tr key={kind.id}>
+          <ClickableRow
+            key={kind.id}
+            label={`Edit macro kind ${kind.id}`}
+            onActivate={() => onOpen(kind.id)}
+          >
             <td style={CELL}>
               <KindPreview
                 stroke={kind.coloring.stroke}
@@ -623,7 +664,7 @@ function MacroKindsTable({
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
             <td style={CELL}>{kind.description ? kind.description : '—'}</td>
-          </tr>
+          </ClickableRow>
         ))}
       </tbody>
     </table>
@@ -674,10 +715,12 @@ function populatedFormats(entry: EntryData): string {
 
 function EntriesTable({
   entries,
-  kinds
+  kinds,
+  onOpen
 }: {
   entries: EntryData[];
   kinds: EntryKind[];
+  onOpen: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -701,7 +744,11 @@ function EntriesTable({
         {entries.map((entry) => {
           const kind = kinds.find((k) => k.id === entry.kind);
           return (
-            <tr key={entry.id}>
+            <ClickableRow
+              key={entry.id}
+              label={`Edit entry ${entry.title}`}
+              onActivate={() => onOpen(entry.id)}
+            >
               <td style={CELL}>
                 <KindPreview
                   stroke={kind ? kind.coloring.stroke : '#888888'}
@@ -732,7 +779,7 @@ function EntriesTable({
                 )}
               </td>
               <td style={{ ...CELL, ...MONO }}>{populatedFormats(entry)}</td>
-            </tr>
+            </ClickableRow>
           );
         })}
       </tbody>

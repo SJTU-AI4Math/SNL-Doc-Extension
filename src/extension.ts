@@ -15,6 +15,9 @@ import { firstWorkspaceFolder } from './panelUtil';
 
 // TODO: import SNL_render from snl-script lib
 
+/** Regex for safe bare package filenames (path-traversal guard). */
+const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+(\.json)?$/;
+
 /**
  * Run `SNL: Init` directly — no webview, no extra UI step.
  *
@@ -70,6 +73,20 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Edit by slug. Slug validation is intentionally light — we trust it
+  // because it comes either from the Dashboard's overview (i.e. from disk)
+  // or from the user's own config. The panel re-verifies existence when
+  // reading context.
+  const editLibrary = vscode.commands.registerCommand(
+    'snlDoc.editLibrary',
+    (slug?: unknown) => {
+      if (typeof slug !== 'string' || !slug.trim()) {
+        return;
+      }
+      CreateLibraryPanel.editOrShow(context.extensionUri, slug.trim());
+    }
+  );
+
   const openDashboard = vscode.commands.registerCommand(
     'snlDoc.openDashboard',
     () => {
@@ -91,6 +108,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const editEntryKind = vscode.commands.registerCommand(
+    'snlDoc.editEntryKind',
+    (id?: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return;
+      }
+      CreateEntryKindPanel.editOrShow(context.extensionUri, id.trim());
+    }
+  );
+
   const initMacroKinds = vscode.commands.registerCommand(
     'snlDoc.initMacroKinds',
     () => {
@@ -105,6 +132,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const editMacroKind = vscode.commands.registerCommand(
+    'snlDoc.editMacroKind',
+    (id?: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return;
+      }
+      CreateMacroKindPanel.editOrShow(context.extensionUri, id.trim());
+    }
+  );
+
   const createEntry = vscode.commands.registerCommand(
     'snlDoc.createEntry',
     () => {
@@ -112,10 +149,30 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const editEntry = vscode.commands.registerCommand(
+    'snlDoc.editEntry',
+    (id?: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) {
+        return;
+      }
+      CreateEntryPanel.editOrShow(context.extensionUri, id.trim());
+    }
+  );
+
   const createMacroPackage = vscode.commands.registerCommand(
     'snlDoc.createMacroPackage',
     () => {
       CreateMacroPackagePanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const editMacroPackage = vscode.commands.registerCommand(
+    'snlDoc.editMacroPackage',
+    (file?: unknown) => {
+      if (typeof file !== 'string' || !MACRO_FILE_RE.test(file)) {
+        return;
+      }
+      CreateMacroPackagePanel.editOrShow(context.extensionUri, file);
     }
   );
 
@@ -128,8 +185,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof file !== 'string') {
         return;
       }
-      // Path-traversal safety: only bare filenames (optionally `.json`).
-      if (!/^[a-zA-Z0-9_-]+(\.json)?$/.test(file)) {
+      if (!MACRO_FILE_RE.test(file)) {
         vscode.window.showErrorMessage(
           `Refusing to open macro package with unsafe name: "${file}".`
         );
@@ -147,7 +203,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof file !== 'string') {
         return;
       }
-      if (!/^[a-zA-Z0-9_-]+(\.json)?$/.test(file)) {
+      if (!MACRO_FILE_RE.test(file)) {
         vscode.window.showErrorMessage(
           `Refusing to create a macro in package with unsafe name: "${file}".`
         );
@@ -157,19 +213,46 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // No palette entry: invoked via executeCommand('snlDoc.editMacro', file, macroName)
+  // from a PackagePanel's clickable macro row.
+  const editMacro = vscode.commands.registerCommand(
+    'snlDoc.editMacro',
+    (file?: unknown, macroName?: unknown) => {
+      if (typeof file !== 'string' || typeof macroName !== 'string') {
+        return;
+      }
+      if (!MACRO_FILE_RE.test(file)) {
+        vscode.window.showErrorMessage(
+          `Refusing to edit a macro in package with unsafe name: "${file}".`
+        );
+        return;
+      }
+      if (!macroName.trim()) {
+        return;
+      }
+      CreateMacroPanel.editOrShow(context.extensionUri, file, macroName.trim());
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     init,
     createLibrary,
+    editLibrary,
     openDashboard,
     initEntryKinds,
     createEntryKind,
+    editEntryKind,
     initMacroKinds,
     createMacroKind,
+    editMacroKind,
     createEntry,
+    editEntry,
     createMacroPackage,
+    editMacroPackage,
     openMacroPackage,
-    createMacro
+    createMacro,
+    editMacro
   );
 }
 

@@ -186,7 +186,7 @@ function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
   if (s.variadic_right) {
     out.variadic_right = s.variadic_right;
   }
-  if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
+  if (s.mode === 'block' && s.react_renderer_key) {
     out.react_renderer_key = s.react_renderer_key;
   }
   const trimmedTags = s.tags.map((t) => t.trim()).filter((t) => t.length > 0);
@@ -528,7 +528,7 @@ export function CreateMacroApp(): React.ReactElement {
       if (s.variadic_right) {
         style.variadic_right = s.variadic_right;
       }
-      if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
+      if (s.mode === 'block' && s.react_renderer_key) {
         style.react_renderer_key = s.react_renderer_key;
       }
       return style;
@@ -730,31 +730,12 @@ export function CreateMacroApp(): React.ReactElement {
               {panelMode === 'edit' ? '(readonly)' : '(unique)'}
             </span>
           </label>
-          <input
-            id="m-name"
-            type="text"
+          <NameEditor
             value={name}
-            placeholder="e.g. Add.add"
-            onChange={(e) => setName(e.target.value)}
+            onChange={setName}
             readOnly={panelMode === 'edit'}
-            title={
-              panelMode === 'edit'
-                ? 'Macro names are immutable; delete + recreate to rename'
-                : undefined
-            }
-            style={{
-              ...inputStyle,
-              width: '100%',
-              borderColor: isDuplicate
-                ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
-                : undefined,
-              color:
-                panelMode === 'edit'
-                  ? 'var(--vscode-descriptionForeground, #999)'
-                  : (inputStyle as React.CSSProperties).color,
-              opacity: panelMode === 'edit' ? 0.7 : 1,
-              cursor: panelMode === 'edit' ? 'not-allowed' : 'text'
-            }}
+            invalid={isDuplicate}
+            readOnlyTitle="Macro names are immutable; delete + recreate to rename"
           />
         </div>
         <div>
@@ -884,18 +865,28 @@ export function CreateMacroApp(): React.ReactElement {
               </PreviewBoundary>
             </div>
             <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
-              LaTeX template — use <code>#0</code>, <code>#1</code>, … for
-              children, <code>#*</code> for dynamic-arity variadic.{' '}
-              <code>\#</code> = literal <code>#</code>. Do NOT write{' '}
-              <code>\htmlData</code> — the wrapper is added automatically.
+              {dynamicArity ? (
+                <>
+                  Dynamic arity — configure the left / separator / right
+                  delimiters below. The macro renders as{' '}
+                  <code>left + children.join(sep) + right</code>. For more
+                  complex shapes (matrix rows, per-cell styling) split into
+                  multiple macros.
+                </>
+              ) : (
+                <>
+                  LaTeX template — use <code>#0</code>, <code>#1</code>, … for
+                  children. <code>\#</code> = literal <code>#</code>. Do NOT
+                  write <code>\htmlData</code> — the wrapper is added
+                  automatically.
+                </>
+              )}
             </p>
             {dynamicArity ? (
               <DynamicArityTemplateRow
-                template={current?.template ?? ''}
                 left={current?.variadic_left ?? ''}
                 sep={current?.variadic_join ?? ''}
                 right={current?.variadic_right ?? ''}
-                onTemplate={(v) => patchStyle({ template: v })}
                 onLeft={(v) => patchStyle({ variadic_left: v })}
                 onSep={(v) => patchStyle({ variadic_join: v })}
                 onRight={(v) => patchStyle({ variadic_right: v })}
@@ -977,13 +968,36 @@ export function CreateMacroApp(): React.ReactElement {
           <input
             type="checkbox"
             checked={dynamicArity}
-            onChange={(e) => setDynamicArity(e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setDynamicArity(next);
+              // When toggling ON: the UI hides the template textarea and only
+              // exposes left/sep/right, so we pin every style's template to
+              // '#*' so the render pipeline emits a dynamic-arity node.
+              // When toggling OFF: clear '#*' back to '' so the empty-template
+              // validation trips and the user is prompted to author a fixed
+              // template. Preserves user text when it's already something
+              // non-#* (unusual but possible if imported).
+              setStyles((prev) =>
+                prev.map((s) => {
+                  if (next) {
+                    return s.template.trim() === '' ||
+                      s.template.trim() === '#*'
+                      ? { ...s, template: '#*' }
+                      : s;
+                  }
+                  return s.template.trim() === '#*'
+                    ? { ...s, template: '' }
+                    : s;
+                }),
+              );
+            }}
           />
           Dynamic Arity
         </label>
         <span style={{ opacity: 0.65, fontSize: '0.85rem' }}>
-          when ticked, the template can use <code>#*</code> for a variable
-          number of children with delimiters + separator
+          renders as{' '}
+          <code>left + children.join(sep) + right</code>
         </span>
       </div>
 
@@ -1160,6 +1174,316 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Name editor — see 猫猫 2026-07-04 spec.
+// ---------------------------------------------------------------------------
+//
+// Purpose: for dotted names like `Set.union`, break the single input into a
+// row of small "namespace" chips (`Set`) followed by the final `name` chip
+// (`union`), joined visually by `.` separators. The underlying data model
+// is UNCHANGED — the parent still holds `name = 'Set.union'` in a plain
+// string and the on-disk record is a plain string. We just make editing
+// the head-namespace part of a dotted name a one-click affair.
+//
+// Behavior (all commits on blur / Enter, NOT while typing):
+//   * `.` splits the chip into more chips ({left}.{right} → two chips, etc.).
+//     If the split would create an empty middle chip that violates the empty
+//     rule, we reject and keep the pre-edit value.
+//   * An empty non-last chip is deleted (namespace segments must be non-empty).
+//     The last chip is never deleted (a macro without a name is meaningless).
+//   * Illegal characters (`@#$%` in ASCII, or spaces) fail validation with a
+//     red border + error text; the invalid value is kept in state so the user
+//     can fix it, and the parent's `onChange` gets the invalid joined string
+//     (upstream validators will trip).
+//
+// Rendered as a single input when the name has no `.` at all (spec: "如果
+// name 里没有 `.`，那么效果等同于这个功能不存在").
+
+/**
+ * Character rules for a name/namespace segment. Backslash / space / and the
+ * four reserved punctuation `@#$%` are forbidden. Kept LAX to allow Unicode
+ * (CJK, Greek, etc.) so users can write formal-math syntax trees in their
+ * native language — cf. 猫猫's stance "定的比较松是因为我希望它能广泛支持
+ * Unicode 命名".
+ */
+const NAME_FORBIDDEN_CHARS = /[@#$%\s\\]/;
+
+/** True if a single name/namespace segment is legal. Empty is NOT legal here. */
+function isValidNameSegment(seg: string): boolean {
+  if (seg.length === 0) return false;
+  return !NAME_FORBIDDEN_CHARS.test(seg);
+}
+
+/** Split a dotted name string into segments. Empty string → `['']` (one empty chip). */
+function splitDotted(s: string): string[] {
+  return s.length === 0 ? [''] : s.split('.');
+}
+
+function joinDotted(segments: string[]): string {
+  return segments.join('.');
+}
+
+interface NameEditorProps {
+  value: string;
+  onChange: (next: string) => void;
+  readOnly?: boolean;
+  invalid?: boolean;
+  readOnlyTitle?: string;
+}
+
+function NameEditor({
+  value,
+  onChange,
+  readOnly,
+  invalid,
+  readOnlyTitle
+}: NameEditorProps): React.ReactElement {
+  // If the value has no `.`, render as a plain single input — spec:
+  // "如果 name 里没有 `.` 那么效果等同于这个功能不存在".
+  //
+  // When the user types `.` in the single input, we UPGRADE on blur / Enter
+  // (below) to the multi-segment view via the joined-string round-trip
+  // (splitDotted). No mid-typing DOM juggling.
+  if (!value.includes('.')) {
+    return (
+      <SingleNameInput
+        value={value}
+        onChange={onChange}
+        readOnly={readOnly}
+        invalid={invalid}
+        title={readOnly ? readOnlyTitle : undefined}
+      />
+    );
+  }
+
+  const segments = splitDotted(value);
+  return (
+    <MultiNameEditor
+      segments={segments}
+      onCommitSegments={(next) => onChange(joinDotted(next))}
+      readOnly={readOnly}
+      invalid={invalid}
+      readOnlyTitle={readOnlyTitle}
+    />
+  );
+}
+
+/** Plain input, used until the user types their first `.`. */
+function SingleNameInput({
+  value,
+  onChange,
+  readOnly,
+  invalid,
+  title
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  readOnly?: boolean;
+  invalid?: boolean;
+  title?: string;
+}): React.ReactElement {
+  const [local, setLocal] = useState(value);
+  useEffect(() => setLocal(value), [value]);
+  const commit = () => {
+    if (local !== value) onChange(local);
+  };
+  return (
+    <input
+      id="m-name"
+      type="text"
+      value={local}
+      placeholder="e.g. Add.add"
+      onChange={(e) => {
+        setLocal(e.target.value);
+        onChange(e.target.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        }
+      }}
+      readOnly={readOnly}
+      title={title}
+      style={{
+        ...inputStyle,
+        width: '100%',
+        borderColor: invalid
+          ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
+          : undefined,
+        color: readOnly
+          ? 'var(--vscode-descriptionForeground, #999)'
+          : (inputStyle as React.CSSProperties).color,
+        opacity: readOnly ? 0.7 : 1,
+        cursor: readOnly ? 'not-allowed' : 'text'
+      }}
+    />
+  );
+}
+
+function MultiNameEditor({
+  segments,
+  onCommitSegments,
+  readOnly,
+  invalid,
+  readOnlyTitle
+}: {
+  segments: string[];
+  onCommitSegments: (next: string[]) => void;
+  readOnly?: boolean;
+  invalid?: boolean;
+  readOnlyTitle?: string;
+}): React.ReactElement {
+  const [errIdx, setErrIdx] = useState<number | null>(null);
+  const commitAt = (i: number, raw: string): void => {
+    const parts = raw.split('.');
+    // Validation gate: every non-empty part must be a valid segment.
+    for (const p of parts) {
+      if (p.length > 0 && !isValidNameSegment(p)) {
+        setErrIdx(i);
+        return;
+      }
+    }
+    const next = segments.slice();
+    next.splice(i, 1, ...parts);
+    // Empty rule: a middle/head segment cannot be empty (except the sole
+    // last chip — but we drop even that when it appears as an artifact of a
+    // ".foo" input). Iterate right-to-left dropping empties past the last
+    // slot; keep the last chip even if empty so the user can retype.
+    const collapsed = next.filter((s, idx) => idx === next.length - 1 || s.length > 0);
+    // If everything collapsed to just the last-empty chip AND that chip is
+    // empty, still keep it — the parent's own name-empty validation applies.
+    setErrIdx(null);
+    onCommitSegments(collapsed.length > 0 ? collapsed : ['']);
+  };
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          flexWrap: 'wrap',
+          gap: '0.15rem'
+        }}
+      >
+        {segments.map((seg, i) => {
+          const isLast = i === segments.length - 1;
+          return (
+            <React.Fragment key={i}>
+              <NameSegmentInput
+                value={seg}
+                isLast={isLast}
+                errored={errIdx === i}
+                invalidBorder={invalid && isLast}
+                readOnly={readOnly}
+                title={readOnly ? readOnlyTitle : undefined}
+                onCommit={(v) => commitAt(i, v)}
+                onFocus={() => setErrIdx(null)}
+              />
+              {!isLast ? (
+                <span
+                  aria-hidden
+                  style={{
+                    alignSelf: 'center',
+                    opacity: 0.55,
+                    padding: '0 0.15rem',
+                    fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                    userSelect: 'none'
+                  }}
+                >
+                  .
+                </span>
+              ) : null}
+            </React.Fragment>
+          );
+        })}
+      </div>
+      {errIdx !== null ? (
+        <p
+          style={{
+            margin: '0.25rem 0 0',
+            fontSize: '0.75rem',
+            color: 'var(--vscode-errorForeground, #f48771)'
+          }}
+        >
+          Invalid segment — cannot contain <code>@ # $ %</code>, whitespace,
+          or <code>\</code>.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function NameSegmentInput({
+  value,
+  isLast,
+  errored,
+  invalidBorder,
+  readOnly,
+  title,
+  onCommit,
+  onFocus
+}: {
+  value: string;
+  isLast: boolean;
+  errored: boolean;
+  invalidBorder?: boolean;
+  readOnly?: boolean;
+  title?: string;
+  onCommit: (v: string) => void;
+  onFocus?: () => void;
+}): React.ReactElement {
+  const [local, setLocal] = useState(value);
+  useEffect(() => setLocal(value), [value]);
+
+  const commit = () => {
+    if (local !== value) onCommit(local);
+  };
+  // Auto-size to content, but respect a floor so an empty chip is still
+  // clickable. Approximates `<input size>` in CSS ch units so styling
+  // matches the outer input frame.
+  const chWidth = Math.max((local.length || 4) + 2, isLast ? 12 : 4);
+
+  return (
+    <input
+      type="text"
+      value={local}
+      placeholder={isLast ? 'name' : 'namespace'}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onFocus={onFocus}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      readOnly={readOnly}
+      title={title}
+      style={{
+        ...inputStyle,
+        width: `${chWidth}ch`,
+        minWidth: '4ch',
+        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+        borderColor: errored || invalidBorder
+          ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
+          : isLast
+            ? undefined
+            : 'var(--vscode-panel-border, var(--vscode-contrastBorder, #666))',
+        background: isLast
+          ? 'var(--vscode-input-background, #2a2a2a)'
+          : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.04))',
+        color: readOnly
+          ? 'var(--vscode-descriptionForeground, #999)'
+          : (inputStyle as React.CSSProperties).color,
+        opacity: readOnly ? 0.7 : 1,
+        cursor: readOnly ? 'not-allowed' : 'text'
+      }}
+    />
+  );
+}
+
 /**
  * Vertical Mode switcher — a stack of 4 buttons matching the horizontal
  * Styles bar's TabButton visual language (but with the active indicator on
@@ -1270,75 +1594,81 @@ function ModeButton({
 }
 
 /**
- * Dynamic-arity template row. Renders as:
- *   [ Left delim ]  [ main template (wide) with #* ]  [ Separator ]  [ Right delim ]
- * so the author can see the assembled shape at a glance. Actually
- * horizontally stacked: main template is a full textarea; delimiters are
- * single-line inputs.
+ * Dynamic-arity template row. The template itself is fixed to `#*` — see
+ * the 2026-07-04 猫猫 spec: "Dynamic Arity 里用户必须输个 #* 完全没意义。
+ * 直接把大文本框删了，只放三个 left/separator/right 就够了。真需要
+ * 复杂结构的用户去拆多层宏（Matrix 那样）。"
+ *
+ * So we render only the three delimiter inputs side-by-side, and the caller
+ * is responsible for making sure `style.template = '#*'` on save. Combined
+ * with the library's dynamic-arity render path
+ * (`variadic_left + join(children) + variadic_right`), this produces the
+ * expected output for common shapes:
+ *
+ *   list :  variadic_left='['   sep=', '   variadic_right=']'
+ *   pmatrix: variadic_left='\\begin{pmatrix}' sep=' \\\\ ' right='\\end{pmatrix}'
  */
 function DynamicArityTemplateRow({
-  template,
   left,
   sep,
   right,
-  onTemplate,
   onLeft,
   onSep,
   onRight
 }: {
-  template: string;
   left: string;
   sep: string;
   right: string;
-  onTemplate: (v: string) => void;
   onLeft: (v: string) => void;
   onSep: (v: string) => void;
   onRight: (v: string) => void;
 }): React.ReactElement {
   const monoInput: React.CSSProperties = {
     ...inputStyle,
-    fontFamily: 'var(--vscode-editor-font-family, monospace)'
+    fontFamily: 'var(--vscode-editor-font-family, monospace)',
+    flex: 1,
+    minWidth: 0
   };
   return (
-    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
-      <textarea
-        value={template}
-        onChange={(e) => onTemplate(e.target.value)}
-        placeholder="e.g. \begin{pmatrix}#*\end{pmatrix}"
-        rows={4}
-        style={{
-          ...inputStyle,
-          flex: 1,
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          resize: 'vertical'
-        }}
-      />
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.35rem',
-          width: '12rem'
-        }}
-      >
+    <div
+      style={{
+        display: 'flex',
+        gap: '0.5rem',
+        alignItems: 'stretch'
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+          Left delimiter
+        </label>
         <input
           type="text"
           value={left}
-          placeholder="Left delimiter"
+          placeholder="e.g. \begin{pmatrix} or ["
           onChange={(e) => onLeft(e.target.value)}
           style={monoInput}
         />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+          Separator
+        </label>
         <input
           type="text"
           value={sep}
-          placeholder="Separator"
+          placeholder="e.g. \\\\ or , "
           onChange={(e) => onSep(e.target.value)}
           style={monoInput}
         />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+          Right delimiter
+        </label>
         <input
           type="text"
           value={right}
-          placeholder="Right delimiter"
+          placeholder="e.g. \end{pmatrix} or ]"
           onChange={(e) => onRight(e.target.value)}
           style={monoInput}
         />
@@ -1549,11 +1879,12 @@ function StylesEditor({
         style button to rename it.
       </p>
 
-      {/* React renderer key row (only for text/block modes). No standalone
-          `Style tag` field or `Variadic join` field any more — rename lives on
-          the button itself, and dynamic-arity delimiters live next to the
-          template textarea. */}
-      {(current?.mode === 'text' || current?.mode === 'block') ? (
+      {/* React renderer key row — only for `block` mode. Text mode goes
+          through the LaTeX pipeline (\text{...} + nested $...$) and has no
+          React renderer dispatch, so the key would be dead data. Rename
+          double-click lives on the style button itself. Dynamic-arity
+          delimiters live next to the template textarea. */}
+      {current?.mode === 'block' ? (
         <div style={{ marginBottom: '1rem' }}>
           <label htmlFor="m-rkey" style={labelStyle}>
             React renderer key

@@ -447,17 +447,24 @@ async function main() {
     'applyMacroKindsPreset -> applied'
   );
   assert(
-    mkApplied.count === 5,
-    `snl-basics-defaults seeds 5 kinds (got ${mkApplied.count})`
+    mkApplied.count === 6,
+    `snl-basics-defaults seeds 6 kinds (5 Lean-Expr + partial) (got ${mkApplied.count})`
   );
   const mkAfterPreset = await readMacroKinds(root);
-  assert(mkAfterPreset.length === 5, 'readMacroKinds now 5 after preset');
+  assert(mkAfterPreset.length === 6, 'readMacroKinds now 6 after preset');
   const ruleKind = mkAfterPreset.find((k) => k.id === 'rule');
   assert(!!ruleKind, 'rule macro kind present');
   assert(
     ruleKind.coloring.stroke === '#009C27' &&
       ruleKind.coloring.background === '#D6FEE0',
     'rule kind colors match DEFAULT_KIND_PALETTE (green)'
+  );
+  const partialKind = mkAfterPreset.find((k) => k.id === 'partial');
+  assert(!!partialKind, 'partial macro kind present in preset');
+  assert(
+    partialKind.coloring.stroke === 'inherit' &&
+      partialKind.coloring.background === 'transparent',
+    'partial kind uses inherit / transparent (no visual frame)'
   );
 
   const mkPresetAgain = await applyMacroKindsPreset(root, 'snl-basics-defaults');
@@ -474,7 +481,7 @@ async function main() {
   });
   assert(mkCreated.status === 'created', 'createMacroKind -> created');
   const mkAfterCreate = await readMacroKinds(root);
-  assert(mkAfterCreate.length === 6, 'readMacroKinds now 6 after create');
+  assert(mkAfterCreate.length === 7, 'readMacroKinds now 7 after create');
   const custom = mkAfterCreate.find((k) => k.id === 'custom');
   assert(
     !!custom &&
@@ -495,8 +502,8 @@ async function main() {
 
   const overviewMk = await readOverview(root);
   assert(
-    Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 6,
-    'readOverview surfaces 6 macroKinds'
+    Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 7,
+    'readOverview surfaces 7 macroKinds (5 Lean-Expr + partial + custom)'
   );
 
   // Cleanup.

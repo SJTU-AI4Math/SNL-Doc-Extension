@@ -1956,7 +1956,7 @@ export const MACRO_KIND_PRESETS: MacroKindPreset[] = [
     id: 'snl-basics-defaults',
     label: 'SNL-Basics defaults',
     description:
-      "The 5 default macro kinds from SNL-Basics's DEFAULT_KIND_PALETTE (rule / const / bvar / binder / fvar), with their Lean-Expr semantics and colors.",
+      "The 5 default macro kinds from SNL-Basics's DEFAULT_KIND_PALETTE (rule / const / bvar / binder / fvar), plus a 'partial' kind for helper subtrees that shouldn't fire hover feedback (e.g. matrix rows).",
     kinds: [
       {
         id: 'rule',
@@ -1988,6 +1988,13 @@ export const MACRO_KIND_PRESETS: MacroKindPreset[] = [
         name: 'Free variable',
         description: 'Free variables (undefined, effectively `sorry`s).',
         coloring: { stroke: '#D20022', background: '#FFD6DC' }
+      },
+      {
+        id: 'partial',
+        name: 'Partial',
+        description:
+          "Helper subtree that is NOT a complete syntactic node — e.g. a matrix.row inside a Matrix macro. Rendered with no visual frame, and hover feedback skips over it to its parent macro. Use for implementation-only intermediate macros that shouldn't attract user attention.",
+        coloring: { stroke: 'inherit', background: 'transparent' }
       }
     ]
   }

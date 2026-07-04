@@ -169,7 +169,7 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
         if (s.variadic_right) {
           out.variadic_right = s.variadic_right;
         }
-        if ((s.mode === 'text' || s.mode === 'block') && s.react_renderer_key) {
+        if (s.mode === 'block' && s.react_renderer_key) {
           out.react_renderer_key = s.react_renderer_key;
         }
         return out;

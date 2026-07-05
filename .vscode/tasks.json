@@ -2,16 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "bootstrap",
+      "type": "npm",
+      "script": "bootstrap",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
       "label": "build",
       "dependsOn": [
         "compile",
         "build:webview"
       ],
       "dependsOrder": "sequence",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
+      "group": "build",
       "problemMatcher": []
     },
     {

@@ -134,6 +134,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/rebuild-snl-basics.mjs",
+    "bootstrap": "node scripts/bootstrap.mjs",
     "snl:rebuild": "node scripts/rebuild-snl-basics.mjs --force",
     "compile": "node scripts/rebuild-snl-basics.mjs && tsc -p ./",
     "watch": "tsc -watch -p ./",

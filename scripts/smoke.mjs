@@ -127,7 +127,9 @@ async function main() {
     readOverview,
     createMacroPackage,
     readMacroPackage,
-    addMacro
+    addMacro,
+    readAllMacros,
+    setActiveMacroPackages
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
@@ -527,11 +529,48 @@ async function main() {
     Array.isArray(overviewMk.allMacros),
     'readOverview.allMacros is an array (SNoogL index)'
   );
+  // SNoogL index: overview.allMacros = flat index of every macro across every
+  // package. This test root has multiple macros in test_pkg (Add.add.infix
+  // from [15] plus 4 more allowed-name macros from [17c]). Assert non-empty
+  // and that Add.add.infix is present with correct package origin.
+  assert(
+    Array.isArray(overviewMk.allMacros),
+    'readOverview.allMacros is an array (SNoogL index)'
+  );
   const idx = overviewMk.allMacros.find((m) => m.id === 'Add.add.infix');
   assert(!!idx, 'SNoogL index contains Add.add.infix from test_pkg');
   assert(
     idx.packageFile === 'test_pkg.json' && idx.packageName === 'Test Package',
     'SNoogL entry carries packageFile + packageName from disk'
+  );
+
+  console.log('\n[20d] active_macro_packages: create -> membership -> filtered readAllMacros');
+  const mkFoo = await createMacroPackage(root, 'foo', 'Foo Package');
+  assert(mkFoo.status === 'ok', 'createMacroPackage(foo) -> ok');
+  const cfgActive = await readConfig(tmpRoot);
+  assert(
+    Array.isArray(cfgActive.active_macro_packages) &&
+      cfgActive.active_macro_packages.includes('foo'),
+    'config.active_macro_packages includes foo after create'
+  );
+  // foo starts empty; give it one macro, then flip the active list to prove
+  // readAllMacros gates purely on active-list membership.
+  await addMacro(root, 'foo', { ...validMacro, name: 'Foo.only' });
+  const allActive = await readAllMacros(root);
+  assert(
+    Object.prototype.hasOwnProperty.call(allActive, 'Foo.only'),
+    'readAllMacros includes Foo.only while foo is active'
+  );
+  // Deactivate foo -> its macro disappears from readAllMacros.
+  await setActiveMacroPackages(root, ['test_pkg']);
+  const allFiltered = await readAllMacros(root);
+  assert(
+    !Object.prototype.hasOwnProperty.call(allFiltered, 'Foo.only'),
+    'readAllMacros excludes Foo.only after foo removed from active list'
+  );
+  assert(
+    Object.prototype.hasOwnProperty.call(allFiltered, 'Add.add.infix'),
+    'readAllMacros still includes test_pkg macros (test_pkg active)'
   );
 
   // Cleanup.

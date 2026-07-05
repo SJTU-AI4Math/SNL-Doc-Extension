@@ -41,6 +41,28 @@ async function readJson<T>(uri: vscode.Uri): Promise<T> {
   return JSON.parse(DECODER.decode(bytes)) as T;
 }
 
+/**
+ * Lazily-created "SNL Macros" output channel. Mirrors InfoviewPanel's lazy
+ * accessor pattern. Guarded so non-VS-Code hosts (the Node smoke shim, which
+ * has no `vscode.window`) degrade to a no-op instead of throwing.
+ */
+let snlMacrosOutput: vscode.OutputChannel | null = null;
+function macrosOutput(): vscode.OutputChannel | null {
+  if (snlMacrosOutput) {
+    return snlMacrosOutput;
+  }
+  try {
+    const win = (vscode as { window?: typeof vscode.window }).window;
+    if (win && typeof win.createOutputChannel === 'function') {
+      snlMacrosOutput = win.createOutputChannel('SNL Macros');
+      return snlMacrosOutput;
+    }
+  } catch {
+    // Fall through to no-op.
+  }
+  return null;
+}
+
 /** Path helpers (all relative to a workspace root). */
 export function snlRootUri(workspaceRoot: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(workspaceRoot, '.SNL_Doc');
@@ -137,6 +159,13 @@ export interface SnlConfig {
   entry_kinds?: EntryKind[];
   /** Macro-kind catalog. May be missing in older configs. */
   macro_kinds?: MacroKind[];
+  /**
+   * Bare filenames (no `.json`) of macro packages currently active in
+   * this workspace. Only active packages contribute macros to
+   * readAllMacros(). Missing = treat every package on disk as active
+   * (backwards-compat auto-migration).
+   */
+  active_macro_packages?: string[];
 }
 
 export interface RelationshipsFile {
@@ -164,15 +193,25 @@ function normalizeConfig(raw: unknown): SnlConfig {
   const cfg = (raw ?? {}) as Partial<SnlConfig> & {
     entry_kinds?: unknown;
     macro_kinds?: unknown;
+    active_macro_packages?: unknown;
   };
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
-  return {
+  const rawActive = cfg.active_macro_packages;
+  const activeMacroPackages =
+    Array.isArray(rawActive) && rawActive.every((v) => typeof v === 'string')
+      ? (rawActive as string[])
+      : undefined;
+  const out: SnlConfig = {
     version: typeof cfg.version === 'string' ? cfg.version : '0.0.1',
     libraries: Array.isArray(cfg.libraries) ? cfg.libraries : [],
     entry_kinds: rawKinds.map(normalizeEntryKind),
     macro_kinds: rawMacroKinds.map(normalizeMacroKind)
   };
+  if (activeMacroPackages !== undefined) {
+    out.active_macro_packages = activeMacroPackages;
+  }
+  return out;
 }
 
 /**
@@ -1017,6 +1056,15 @@ export async function createMacroPackage(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+  // Newly-created packages default to active. Resolve the current effective
+  // active set (migrating older configs to "all on disk") and persist it with
+  // this package included, materializing the field on first create.
+  try {
+    const active = await resolveActiveMacroPackages(workspaceRoot);
+    await setActiveMacroPackages(workspaceRoot, [...active, bare]);
+  } catch {
+    // Config missing/unwritable — the package file was still created.
+  }
   return { status: 'ok', file: `${bare}.json` };
 }
 
@@ -1105,17 +1153,133 @@ export async function readAllMacros(
   workspaceRoot: vscode.Uri
 ): Promise<Record<string, MacroPackageEntry>> {
   const packages = await readMacroPackages(workspaceRoot);
+  const active = await resolveActiveMacroPackages(workspaceRoot);
+  const activeSet = new Set(active);
   const out: Record<string, MacroPackageEntry> = {};
+  // Track which active package first defined each name so we can report the
+  // two colliding packages (Feature 3 will make this actionable).
+  const origin: Record<string, string> = {};
   for (const summary of packages) {
+    const bare = stripJsonExt(summary.file);
+    if (!activeSet.has(bare)) continue;
     const read = await readMacroPackage(workspaceRoot, summary.file);
     if (read.status !== 'ok') continue;
     for (const macro of read.macros) {
       if (typeof macro.name === 'string' && macro.name.length > 0) {
+        if (Object.prototype.hasOwnProperty.call(out, macro.name)) {
+          macrosOutput()?.appendLine(
+            `[warn] macro name conflict: "${macro.name}" in packages: ` +
+              `${origin[macro.name]}, ${bare}. ` +
+              `Last write wins (order-dependent).`
+          );
+        }
         out[macro.name] = macro;
+        origin[macro.name] = bare;
       }
     }
   }
   return out;
+}
+
+/**
+ * Compute the effective set of active macro-package bare names for a
+ * workspace. When `config.json#active_macro_packages` is present it is used
+ * verbatim (garbage-collected against packages actually on disk); when it is
+ * absent (older workspaces) EVERY package on disk is treated as active —
+ * a side-effect-free backwards-compat migration. The returned list is
+ * deduped and only contains packages that currently exist on disk.
+ */
+export async function resolveActiveMacroPackages(
+  workspaceRoot: vscode.Uri
+): Promise<string[]> {
+  const packages = await readMacroPackages(workspaceRoot);
+  const onDisk = packages.map((p) => stripJsonExt(p.file));
+  let cfg: SnlConfig | null = null;
+  try {
+    cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
+  } catch {
+    cfg = null;
+  }
+  if (!cfg || cfg.active_macro_packages === undefined) {
+    // Missing field: all packages on disk are active.
+    return Array.from(new Set(onDisk)).sort((a, b) => a.localeCompare(b));
+  }
+  const declared = new Set(cfg.active_macro_packages.map(stripJsonExt));
+  // Garbage-collect on read: only surface packages still present on disk.
+  const resolved = onDisk.filter((bare) => declared.has(bare));
+  return Array.from(new Set(resolved)).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Persist the active macro-package list to `config.json`, deduping and
+ * sorting for stability. Preserves every unrelated config field by
+ * round-tripping the raw JSON. Bare names (any `.json` suffix is stripped).
+ */
+export async function setActiveMacroPackages(
+  workspaceRoot: vscode.Uri,
+  activeList: string[]
+): Promise<void> {
+  const fsApi = vscode.workspace.fs;
+  const uri = configUri(workspaceRoot);
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await readJson<Record<string, unknown>>(uri)) ?? {};
+  } catch (err) {
+    throw new Error(
+      `Failed to read .SNL_Doc/config.json: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  const normalized = Array.from(
+    new Set((Array.isArray(activeList) ? activeList : []).map(stripJsonExt))
+  ).sort((a, b) => a.localeCompare(b));
+  raw.active_macro_packages = normalized;
+  await fsApi.writeFile(uri, jsonBytes(raw));
+}
+
+/**
+ * Delete a macro-package JSON file and drop it from the active list.
+ * Returns `ok` even if the active list didn't contain it; `noFile` when the
+ * package file does not exist.
+ */
+export async function deleteMacroPackage(
+  workspaceRoot: vscode.Uri,
+  file: string
+): Promise<
+  | { status: 'ok'; file: string }
+  | { status: 'noFile' }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  const bare = typeof file === 'string' ? stripJsonExt(file.trim()) : '';
+  if (!MACRO_FILE_RE.test(bare)) {
+    return { status: 'error', message: 'invalid package file name' };
+  }
+  const target = macroPackageUri(workspaceRoot, bare);
+  if (!(await exists(target))) {
+    return { status: 'noFile' };
+  }
+  try {
+    await fsApi.delete(target, { useTrash: false });
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  try {
+    const active = await resolveActiveMacroPackages(workspaceRoot);
+    if (active.includes(bare)) {
+      await setActiveMacroPackages(
+        workspaceRoot,
+        active.filter((b) => b !== bare)
+      );
+    }
+  } catch {
+    // Config missing/unwritable — the file delete already succeeded.
+  }
+  return { status: 'ok', file: `${bare}.json` };
 }
 
 /** Validate the structural invariants of a single {@link MacroPackageEntry}. */

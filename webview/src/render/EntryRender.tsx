@@ -358,6 +358,21 @@ export function EntryRender({
           fontSize: '1.05rem'
         }}
       >
+        <div
+          style={{
+            padding: '2px 6px',
+            marginBottom: '6px',
+            background: '#ffd',
+            color: '#800',
+            fontSize: '0.7rem',
+            fontFamily: 'monospace',
+            border: '1px dashed #a80',
+            wordBreak: 'break-all'
+          }}
+        >
+          [debug] id={entry.id} snl.len={snl.length} parsed.ok={String(parsed.ok)}
+          {' '}first60={JSON.stringify(snl.slice(0, 60))}
+        </div>
         {parsed.ok ? (
           <SnlSyntaxTreeView
             tree={parseSnlSyntaxTree(snl)}

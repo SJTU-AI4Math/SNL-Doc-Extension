@@ -28,6 +28,7 @@ import {
   type EntryData,
   type EntryKind
 } from './EntryRender';
+import type { SnlMacroDb } from '@snl-basics/react';
 
 /** One live popover in the stack. */
 export interface PopoverInstance {
@@ -92,6 +93,8 @@ interface HoverPopoverProviderProps {
   postMessage: (msg: unknown) => void;
   /** Entry pool forwarded to popover EntryRenders for macro-source resolution. */
   entries: EntryOption[];
+  /** User macro DB forwarded to popover EntryRenders (so popovers render user macros too). */
+  userMacros?: SnlMacroDb;
 }
 
 let popoverCounter = 0;
@@ -107,7 +110,8 @@ function clampPointer(pointerX: number, pointerY: number): { x: number; y: numbe
 export function HoverPopoverProvider({
   children,
   postMessage,
-  entries
+  entries,
+  userMacros
 }: HoverPopoverProviderProps): React.ReactElement {
   const [popovers, setPopovers] = useState<PopoverInstance[]>([]);
   // Live mirror for stable callbacks / document listeners (avoids stale reads).
@@ -322,6 +326,7 @@ export function HoverPopoverProvider({
                       kind={details[p.entryId].kind}
                       entries={entries}
                       postMessage={postMessage}
+                      userMacros={userMacros}
                       counterLabel={undefined}
                       disableTitleJump={false}
                       onTitleCtrlClick={(entryId) =>

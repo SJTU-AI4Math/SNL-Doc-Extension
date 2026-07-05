@@ -16,14 +16,23 @@ import {
   defaultRenderHooks,
   SnlSyntaxTreeView,
   bundledMacroDb,
+  type SnlMacroDb,
   type SnlMacroTemplateQuery,
   type SnlRenderHooks
 } from '@snl-basics/react';
 import { useHoverPopovers, useCurrentPopoverId } from './HoverPopoverProvider';
 
-// Static, network-free macro DB bundled from @snl-basics/react.
-const MACRO_DB = bundledMacroDb;
-const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
+// Bundled core math macros ship with @snl-basics/react. User-defined macros
+// live in `.SNL_Doc/term_macros/*.json` and reach the webview via the
+// `macros` field on incoming host messages. `mergeMacroDb` layers the user
+// pool over the core so unknown names fall back to the core (matches the
+// Entry editor's precedence).
+export function mergeMacroDb(userMacros: SnlMacroDb | undefined | null): SnlMacroDb {
+  if (!userMacros) {
+    return bundledMacroDb;
+  }
+  return { ...bundledMacroDb, ...userMacros };
+}
 
 // ---------------------------------------------------------------------------
 // Host <-> webview shapes (mirrors src/snlDoc.ts, kept local so the webview
@@ -79,6 +88,15 @@ export interface EntryRenderProps {
    */
   counterLabel?: string;
   /**
+   * User-defined macro DB (name→SnlMacro). Merged over the bundled core DB
+   * before rendering, so unknown names still resolve against the core. When
+   * undefined, only the core DB is used (all user macros will render as fvar).
+   * The host pushes this via `macros` on `entries` / `entryDetails` /
+   * `popoverEntryDetails`; wire it here so per-entry, picker, AND popover
+   * surfaces all see the same macro universe.
+   */
+  userMacros?: SnlMacroDb;
+  /**
    * Caller-injected hooks merged OVER the defaults + resolveSource (so a caller
    * can override onHover / renderTooltip while keeping source resolution).
    */
@@ -95,6 +113,7 @@ export function EntryRender({
   entries,
   postMessage,
   counterLabel,
+  userMacros,
   hooksOverride,
   disableTitleJump,
   onTitleCtrlClick
@@ -102,6 +121,14 @@ export function EntryRender({
   const snl = entry.content?.snl ?? '';
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
+
+  // Merged DB: user macros layered over the bundled core. `MACRO_QUERY`
+  // derives from it so `SnlSyntaxTreeView` sees a single consistent DB.
+  const macroDb = useMemo<SnlMacroDb>(() => mergeMacroDb(userMacros), [userMacros]);
+  const macroQuery = useMemo<SnlMacroTemplateQuery>(
+    () => createMacroTemplateQueryFromDb(macroDb),
+    [macroDb]
+  );
 
   // Per-macro hover continuity: which macro element currently owns a popover,
   // and the pending 3s freeze timer. Persists across hook rebuilds (ref).
@@ -114,7 +141,7 @@ export function EntryRender({
   // Resolve a hovered/clicked macro name to an in-pool entry id (or null).
   const resolveEntryId = useCallback(
     (name: string): string | null => {
-      const macro = MACRO_DB[name];
+      const macro = macroDb[name];
       if (!macro) {
         return null;
       }
@@ -125,7 +152,7 @@ export function EntryRender({
       }
       return null;
     },
-    [entries]
+    [entries, macroDb]
   );
 
   // Dismiss this container's active (unfrozen) popover and cancel any pending
@@ -323,8 +350,8 @@ export function EntryRender({
         {parsed.ok ? (
           <SnlSyntaxTreeView
             tree={parseSnlSyntaxTree(snl)}
-            macroDb={MACRO_DB}
-            query={MACRO_QUERY}
+            macroDb={macroDb}
+            query={macroQuery}
             hooks={hooks}
           />
         ) : (

@@ -11,15 +11,17 @@ import {
   type EntryKind
 } from './render/EntryRender';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
+import type { SnlMacroDb } from '@snl-basics/react';
 
 type Incoming =
-  | { type: 'entries'; entries: EntryOption[] }
+  | { type: 'entries'; entries: EntryOption[]; macros?: SnlMacroDb }
   | { type: 'entryDetails'; entry: EntryData; kind: EntryKind | null }
   | undefined;
 
 export function App(): React.ReactElement {
   const [entries, setEntries] = useState<EntryOption[]>([]);
   const [entriesLoaded, setEntriesLoaded] = useState(false);
+  const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
   const [selected, setSelected] = useState<
     { entry: EntryData; kind: EntryKind | null } | null
   >(null);
@@ -36,6 +38,9 @@ export function App(): React.ReactElement {
       switch (msg.type) {
         case 'entries':
           setEntries(Array.isArray(msg.entries) ? msg.entries : []);
+          if (msg.macros && typeof msg.macros === 'object') {
+            setUserMacros(msg.macros);
+          }
           setEntriesLoaded(true);
           break;
         case 'entryDetails':
@@ -56,7 +61,11 @@ export function App(): React.ReactElement {
   };
 
   return (
-    <HoverPopoverProvider postMessage={postMessage} entries={entries}>
+    <HoverPopoverProvider
+      postMessage={postMessage}
+      entries={entries}
+      userMacros={userMacros}
+    >
       <main style={PANEL_STYLE}>
         <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.25rem' }}>SNL Infoview</h1>
 
@@ -77,6 +86,7 @@ export function App(): React.ReactElement {
                 kind={selected.kind}
                 entries={entries}
                 postMessage={postMessage}
+                userMacros={userMacros}
                 counterLabel={undefined}
                 disableTitleJump={false}
                 onTitleCtrlClick={(entryId) =>

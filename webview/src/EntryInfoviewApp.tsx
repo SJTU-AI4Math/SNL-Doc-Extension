@@ -11,6 +11,7 @@ import {
   type EntryKind
 } from './render/EntryRender';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
+import type { SnlMacroDb } from '@snl-basics/react';
 
 type Incoming =
   | {
@@ -18,6 +19,7 @@ type Incoming =
       entry: EntryData | null;
       kind: EntryKind | null;
       entries: EntryOption[];
+      macros?: SnlMacroDb;
     }
   | undefined;
 
@@ -28,6 +30,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     kind: EntryKind | null;
     entries: EntryOption[];
   } | null>(null);
+  const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -40,6 +43,9 @@ export function EntryInfoviewApp(): React.ReactElement {
       }
       if (msg.type === 'entryDetails') {
         setLoaded(true);
+        if (msg.macros && typeof msg.macros === 'object') {
+          setUserMacros(msg.macros);
+        }
         if (!msg.entry) {
           setState(null);
           return;
@@ -65,6 +71,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     <HoverPopoverProvider
       postMessage={postMessage}
       entries={state?.entries ?? []}
+      userMacros={userMacros}
     >
       <main style={PANEL_STYLE}>
         {!loaded ? (
@@ -77,6 +84,7 @@ export function EntryInfoviewApp(): React.ReactElement {
             kind={state.kind}
             entries={state.entries}
             postMessage={postMessage}
+            userMacros={userMacros}
             counterLabel={undefined}
             disableTitleJump={true}
           />

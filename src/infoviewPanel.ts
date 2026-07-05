@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import {
+  readAllMacros,
   readEntries,
   readEntryKinds,
   type EntryData,
-  type EntryKind
+  type EntryKind,
+  type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
@@ -29,9 +31,14 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  *        | `{ type: 'selectEntry', id }`            (picker only)
  *        | `{ type: 'openEntryInfoview', entryId }` (spawn per-entry panel)
  *        | `{ type: 'log', level, msg }`            → forward to output channel
- *  - out : `{ type: 'entries', entries: EntryOption[] }`                (picker)
+ *  - out : `{ type: 'entries', entries: EntryOption[], macros }`         (picker)
  *        | `{ type: 'entryDetails', entry, kind }`                      (picker)
- *        | `{ type: 'entryDetails', entry, kind, entries }`             (per-entry)
+ *        | `{ type: 'entryDetails', entry, kind, entries, macros }`     (per-entry)
+ *        | `{ type: 'popoverEntryDetails', entryId, entry, kind }`      (popover)
+ *
+ * `macros` is the flat name→MacroPackageEntry map produced by
+ * {@link readAllMacros} — the webview merges it over the bundled core DB so
+ * user-defined macros render instead of falling back to fvar.
  */
 export class InfoviewPanel {
   /** The single picker instance (loads `main`), or undefined when closed. */
@@ -218,17 +225,43 @@ export class InfoviewPanel {
       .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
   }
 
-  /** Send the picker list: every entry, flagged by whether it has SNL content. */
+  /** Send the picker list: every entry with SNL content, plus the macro DB. */
   private async pushEntries(): Promise<void> {
     try {
       const options = await this.readEntryOptions();
-      void this.panel.webview.postMessage({ type: 'entries', entries: options });
+      const macros = await this.readMacroDb();
+      void this.panel.webview.postMessage({
+        type: 'entries',
+        entries: options,
+        macros
+      });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to read entries: ${text}`
       );
-      void this.panel.webview.postMessage({ type: 'entries', entries: [] });
+      void this.panel.webview.postMessage({
+        type: 'entries',
+        entries: [],
+        macros: {}
+      });
+    }
+  }
+
+  /**
+   * Load the flat name→macro map from `.SNL_Doc/term_macros/*.json`. Best
+   * effort: returns `{}` when the workspace is missing or `readAllMacros`
+   * throws (individual broken packages are already swallowed inside it).
+   */
+  private async readMacroDb(): Promise<Record<string, MacroPackageEntry>> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      return {};
+    }
+    try {
+      return await readAllMacros(root);
+    } catch {
+      return {};
     }
   }
 
@@ -272,7 +305,8 @@ export class InfoviewPanel {
         type: 'entryDetails',
         entry: null,
         kind: null,
-        entries: []
+        entries: [],
+        macros: {}
       });
       return;
     }
@@ -285,13 +319,15 @@ export class InfoviewPanel {
             e.content.snl.trim().length > 0
         )
         .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
+      const macros = await this.readMacroDb();
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         void this.panel.webview.postMessage({
           type: 'entryDetails',
           entry: null,
           kind: null,
-          entries: options
+          entries: options,
+          macros
         });
         return;
       }
@@ -303,7 +339,8 @@ export class InfoviewPanel {
         type: 'entryDetails',
         entry,
         kind,
-        entries: options
+        entries: options,
+        macros
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

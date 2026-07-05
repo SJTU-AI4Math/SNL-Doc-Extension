@@ -513,3 +513,47 @@ submit 按钮文案在 Create/Update 之间切换。
 
 **测试**：`npm run smoke` 76/76 通过；`build:webview` 11 bundle 干净。
 
+
+## 未来功能：SNL text-mode 换行支持（下游 SNL-Basics 改造）
+
+**背景（2026-07-05）：** 悬浮窗内长 text-mode SNL 无法自动换行，会
+出现横向 scrollbar（也可能被截断/裁剪，取决于容器 overflow 策略）。
+formula-mode 天然不可 wrap（KaTeX 一次性 render 成一个
+`display: inline-block; white-space: nowrap` 的原子块，浏览器无 break
+opportunity），但 **text-mode 应当可以 wrap**——text 节点的字面文字
+只在 template 字符串里，将 template 切分成 (literal | child-slot)
+segments 后每个 literal 独立成 `<span>` 就能自然换行。
+
+**为什么值得做：** popover / Infoview 里读较长 text-mode 定义（如
+"若 X 是 Set 且 f: X → Y 是……"）时，横向 scrollbar 严重影响阅读；
+换行后紧凑舒适。
+
+**改动位置：** `external/SNL-Basics/src/components/SnlSyntaxTreeView.tsx`
+的 text-mode render 分支（当前统一走 `<MathSpan>` 一次性 KaTeX 渲染）。
+需要：
+1. 新增一个 `splitTextTemplate(template): (LiteralSegment | ChildSegment)[]`
+   工具函数，把 `'#0 与 #1 相等'` 之类的 template 切成
+   `[{child:0}, ' 与 ', {child:1}, ' 相等']`。
+2. text-mode render 分支不再一次性丢给 KaTeX，而是 map 切分结果：
+   * literal → `<span className="snl-text-literal">{text}</span>`
+   * child slot → 递归 `renderNode(child)`（child formula → 走 MathSpan
+     一次性 KaTeX；child text → 递归拆）
+3. root text 节点上继续挂 `data-name` / `data-kind` 等属性（hover event
+   delegation 不受影响）。
+4. `.snl-text-literal` CSS 用 Computer Modern（`font-family: 'KaTeX_Main',
+   serif`）与 KaTeX 输出的 formula 段保持字体一致。
+
+**权衡（已经与猫猫确认可接受）：**
+- text-formula-text 反复嵌套时，最内层的 text 因为是嵌套在 formula 里，
+  仍走 KaTeX `\text{...}`（该 formula 子树整体一次 render），字体一致
+  自然保持；只在**顶层**的 text/formula 交界处可能有字体细节差异（用
+  Computer Modern 兜底）。
+- 交互（hover / kind palette / binder scope）本来就绑在 tree-node
+  对应的 DOM 元素上，literal 文字不是 tree node 也就没有交互目标，
+  拆开不会损失交互。
+
+**estimate：** 200 行 core + 3-4 个 vitest 场景，~2 小时 focused work。
+写在下游因为改的是 SNL-Basics submodule，需要走完整的
+`build:lib` 流程，主 repo 再 `rebuild-snl-basics.mjs` 拉到 dist-lib。
+
+**依赖：** 无。可以随时开做。

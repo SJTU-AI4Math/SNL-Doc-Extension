@@ -299,6 +299,8 @@ export function PackagePanelApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'editMacroPackage' });
   const editMacro = (name: string): void =>
     apiRef.current?.postMessage({ type: 'editMacro', name });
+  const setPackageActive = (active: boolean): void =>
+    apiRef.current?.postMessage({ type: 'setPackageActive', active });
 
   const enterSelect = (): void => {
     setMode('multiselect');
@@ -398,7 +400,7 @@ export function PackagePanelApp(): React.ReactElement {
     );
   }
 
-  const { pkg, file, macros, macroKinds, otherPackages } = model;
+  const { pkg, file, macros, macroKinds, otherPackages, active } = model;
   const selectMode = mode === 'multiselect';
 
   return (
@@ -436,7 +438,8 @@ export function PackagePanelApp(): React.ReactElement {
             <div style={{ height: '0.5rem' }} />
           )}
         </div>
-        <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.5rem' }}>
+        <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <ActiveIndicator active={active} onToggle={() => setPackageActive(!active)} />
           <button
             type="button"
             onClick={selectMode ? cancelSelect : enterSelect}
@@ -519,6 +522,58 @@ const HEADER_BUTTON_STYLE: React.CSSProperties = {
   color: 'inherit',
   cursor: 'pointer'
 };
+
+/**
+ * Header active-state indicator: a colored dot + label plus a Toggle button.
+ * Green/"Active" when the package contributes to the workspace macro
+ * universe, gray/"Inactive" otherwise.
+ */
+function ActiveIndicator({
+  active,
+  onToggle
+}: {
+  active: boolean;
+  onToggle: () => void;
+}): React.ReactElement {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+        marginRight: '0.25rem'
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-block',
+          width: '0.6rem',
+          height: '0.6rem',
+          borderRadius: '50%',
+          background: active
+            ? 'var(--vscode-testing-iconPassed, #3fb950)'
+            : 'var(--vscode-descriptionForeground, #888)'
+        }}
+      />
+      <span style={{ fontSize: '0.85rem', opacity: 0.85 }}>
+        {active ? 'Active' : 'Inactive'}
+      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        title={
+          active
+            ? 'Deactivate this package (remove from active_macro_packages)'
+            : 'Activate this package (add to active_macro_packages)'
+        }
+        style={HEADER_BUTTON_STYLE}
+      >
+        Toggle
+      </button>
+    </span>
+  );
+}
 
 const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',

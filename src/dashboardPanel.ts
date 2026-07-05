@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { readOverview } from './snlDoc';
+import {
+  readOverview,
+  resolveActiveMacroPackages,
+  setActiveMacroPackages
+} from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 
 /**
@@ -204,11 +208,46 @@ export class DashboardPanel {
         }
         return;
       }
+      case 'setPackageActive': {
+        const m = msg as { file?: unknown; active?: unknown };
+        if (typeof m.file === 'string' && m.file && typeof m.active === 'boolean') {
+          await this.setPackageActive(m.file, m.active);
+        }
+        return;
+      }
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;
       default:
         return;
+    }
+  }
+
+  /**
+   * Add or remove a package from `config.json#active_macro_packages` and
+   * re-push the overview so the Active column reflects the new state.
+   */
+  private async setPackageActive(file: string, active: boolean): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      return;
+    }
+    const bare = file.replace(/\.json$/i, '');
+    try {
+      const current = await resolveActiveMacroPackages(root);
+      const set = new Set(current);
+      if (active) {
+        set.add(bare);
+      } else {
+        set.delete(bare);
+      }
+      await setActiveMacroPackages(root, Array.from(set));
+      await this.pushOverview();
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(
+        `SNL Dashboard: failed to update active packages: ${text}`
+      );
     }
   }
 

@@ -464,6 +464,12 @@ export interface MacroPackageSummary {
   file: string;
   /** Best-effort macro count, or `null` when schema is unrecognized. */
   macroCount: number | null;
+  /**
+   * Whether this package is currently in `config.json#active_macro_packages`
+   * (only active packages contribute to `readAllMacros`). Populated by
+   * `readOverview`; `readMacroPackages` leaves it undefined.
+   */
+  active?: boolean;
 }
 
 /**
@@ -1560,6 +1566,11 @@ export async function readOverview(
   }
 
   const macroPackages = await readMacroPackages(workspaceRoot);
+  const activeList = await resolveActiveMacroPackages(workspaceRoot);
+  const activeSet = new Set(activeList);
+  for (const summary of macroPackages) {
+    summary.active = activeSet.has(stripJsonExt(summary.file));
+  }
   const entryKinds: EntryKind[] = config?.entry_kinds ?? [];
   const macroKinds: MacroKind[] = config?.macro_kinds ?? [];
 

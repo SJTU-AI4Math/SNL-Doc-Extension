@@ -4,6 +4,7 @@ import {
   readMacroPackage,
   readMacroPackages,
   resolveActiveMacroPackages,
+  setActiveMacroPackages,
   batchDeleteMacros,
   batchMoveMacros,
   batchPackageAsNew,
@@ -298,12 +299,29 @@ export class PackagePanel {
         });
         return;
       }
+      case 'setPackageActive': {
+        const active = (msg as { active?: unknown }).active;
+        if (typeof active !== 'boolean') {
+          void this.postError('setPackageActive: active must be a boolean');
+          return;
+        }
+        await this.runBatch(async (root) => {
+          const current = await resolveActiveMacroPackages(root);
+          const set = new Set(current);
+          if (active) {
+            set.add(this.file);
+          } else {
+            set.delete(this.file);
+          }
+          await setActiveMacroPackages(root, Array.from(set));
+          return null;
+        });
+        return;
+      }
       default:
         return;
     }
   }
-
-  /** Post a typed error message to the webview. */
   private async postError(message: string): Promise<void> {
     await this.panel.webview.postMessage({ type: 'error', message });
   }

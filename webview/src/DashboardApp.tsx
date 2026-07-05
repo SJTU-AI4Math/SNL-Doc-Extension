@@ -41,6 +41,7 @@ interface LibrarySummary {
 interface MacroPackageSummary {
   file: string;
   macroCount: number | null;
+  active?: boolean;
 }
 
 /**
@@ -265,6 +266,9 @@ function Initialized({
             packages={overview.macroPackages}
             onOpen={(file) =>
               api?.postMessage({ type: 'openMacroPackage', file })
+            }
+            onSetActive={(file, active) =>
+              api?.postMessage({ type: 'setPackageActive', file, active })
             }
           />
         ) : null}
@@ -861,10 +865,12 @@ function LibrariesTable({
 
 function MacroPackagesTable({
   packages,
-  onOpen
+  onOpen,
+  onSetActive
 }: {
   packages: MacroPackageSummary[];
   onOpen: (file: string) => void;
+  onSetActive: (file: string, active: boolean) => void;
 }): React.ReactElement {
   return (
     <table
@@ -877,6 +883,7 @@ function MacroPackagesTable({
     >
       <thead>
         <tr>
+          <th style={{ ...HEAD, width: '4.5rem', textAlign: 'center' }}>Active</th>
           <th style={HEAD}>File</th>
           <th style={{ ...HEAD, textAlign: 'right' }}>Macros</th>
         </tr>
@@ -888,6 +895,21 @@ function MacroPackagesTable({
             label={`Open macro package ${pkg.file}`}
             onActivate={() => onOpen(pkg.file)}
           >
+            <td style={{ ...CELL, textAlign: 'center' }}>
+              <input
+                type="checkbox"
+                checked={pkg.active !== false}
+                aria-label={`Toggle active state for ${pkg.file}`}
+                title={
+                  pkg.active !== false
+                    ? 'Active — contributes macros to the workspace'
+                    : 'Inactive — excluded from readAllMacros'
+                }
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onSetActive(pkg.file, e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+            </td>
             <td style={{ ...CELL, ...MONO }}>{pkg.file}</td>
             <td style={{ ...CELL, textAlign: 'right' }}>
               {pkg.macroCount === null ? '—' : pkg.macroCount}

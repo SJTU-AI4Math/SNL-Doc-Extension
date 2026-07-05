@@ -506,8 +506,25 @@ export function HoverPopoverProvider({
                       }
                     />
                   ) : (
-                    <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>
-                      Loading…
+                    <div
+                      style={{
+                        padding: '0.6rem 0.8rem',
+                        color: '#333',
+                        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                        fontSize: '0.85rem',
+                        minWidth: '18rem'
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>
+                        Loading entry…
+                      </div>
+                      <div>id: <code>{p.entryId}</code></div>
+                      <div>
+                        request sent: {requestedRef.current.has(p.entryId) ? 'yes' : 'no'}
+                      </div>
+                      <div>
+                        details map keys: [{Object.keys(details).join(', ') || '—'}]
+                      </div>
                     </div>
                   )}
                 </CurrentPopoverContext.Provider>

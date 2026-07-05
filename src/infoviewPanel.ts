@@ -183,6 +183,11 @@ export class InfoviewPanel {
           );
         }
         return;
+      case 'requestEntryDetails':
+        if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
+          await this.pushPopoverEntryDetails(msg.entryId.trim());
+        }
+        return;
       case 'log': {
         // Log-only: surface consumer-injected hook events in the output
         // channel without spamming toasts.
@@ -304,6 +309,39 @@ export class InfoviewPanel {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to load entry: ${text}`
+      );
+    }
+  }
+
+  /**
+   * Popover preview payload: a single entry + its kind, echoed back with the
+   * entryId so the requesting webview popover can match it. Distinct from
+   * `entryDetails` so it never disturbs the picker's main selection.
+   */
+  private async pushPopoverEntryDetails(id: string): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      return;
+    }
+    try {
+      const entries = await readEntries(root);
+      const entry: EntryData | undefined = entries.find((e) => e.id === id);
+      if (!entry) {
+        return;
+      }
+      const kinds = await readEntryKinds(root);
+      const kind: EntryKind | null =
+        kinds.find((k) => k.id === entry.kind) ?? null;
+      void this.panel.webview.postMessage({
+        type: 'popoverEntryDetails',
+        entryId: id,
+        entry,
+        kind
+      });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(
+        `SNL Infoview: failed to load popover entry: ${text}`
       );
     }
   }

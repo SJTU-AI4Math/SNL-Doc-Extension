@@ -6,7 +6,7 @@
 // Self-contained: each webview entry bundles this file locally (no shared
 // runtime chunk — see webview/vite.config.ts).
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 import '@snl-basics/react/style.css';
 import {
@@ -19,6 +19,7 @@ import {
   type SnlMacroTemplateQuery,
   type SnlRenderHooks
 } from '@snl-basics/react';
+import { useHoverPopovers, useCurrentPopoverId } from './HoverPopoverProvider';
 
 // Static, network-free macro DB bundled from @snl-basics/react.
 const MACRO_DB = bundledMacroDb;
@@ -99,6 +100,49 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const snl = entry.content?.snl ?? '';
+  const popovers = useHoverPopovers();
+  const currentPopoverId = useCurrentPopoverId();
+
+  // Per-macro hover continuity: which macro element currently owns a popover,
+  // and the pending 3s freeze timer. Persists across hook rebuilds (ref).
+  const hoverStateRef = useRef<{
+    targetEl: Element | null;
+    popoverId: string | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ targetEl: null, popoverId: null, timer: null });
+
+  // Resolve a hovered/clicked macro name to an in-pool entry id (or null).
+  const resolveEntryId = useCallback(
+    (name: string): string | null => {
+      const macro = MACRO_DB[name];
+      if (!macro) {
+        return null;
+      }
+      for (const ref of macro.source.entries) {
+        if (entries.some((e) => e.id === ref)) {
+          return ref;
+        }
+      }
+      return null;
+    },
+    [entries]
+  );
+
+  // Dismiss this container's active (unfrozen) popover and cancel any pending
+  // freeze. No-op on a popover that has already frozen (it persists until the
+  // provider's document-level hit-test dismisses it).
+  const clearCurrentHover = useCallback((): void => {
+    const hs = hoverStateRef.current;
+    if (hs.timer) {
+      clearTimeout(hs.timer);
+      hs.timer = null;
+    }
+    if (hs.popoverId) {
+      popovers.cancelUnfrozen(hs.popoverId);
+    }
+    hs.targetEl = null;
+    hs.popoverId = null;
+  }, [popovers]);
 
   // Consumer-injected hooks. Rebuilt when the pool / overrides change so
   // resolveSource always sees the current entry universe.
@@ -121,10 +165,81 @@ export function EntryRender({
         }
         return null;
       },
-      // Caller overrides (onHover / renderTooltip / …) win over the defaults.
+      // Hover a macro that resolves to an in-pool entry → spawn a preview
+      // popover that follows the pointer, freezing after a 3s dwell.
+      onHover: (event) => {
+        const entryId = resolveEntryId(event.name);
+        if (!entryId) {
+          clearCurrentHover();
+          return;
+        }
+        const originEl = event.target;
+        const hs = hoverStateRef.current;
+        if (
+          hs.targetEl === originEl &&
+          hs.popoverId &&
+          popovers.isAlive(hs.popoverId)
+        ) {
+          popovers.updatePointer(hs.popoverId, event.clientX, event.clientY);
+          return;
+        }
+        clearCurrentHover();
+        const rect = originEl.getBoundingClientRect();
+        const id = popovers.spawn(
+          entryId,
+          rect,
+          event.clientX,
+          event.clientY,
+          currentPopoverId
+        );
+        hs.targetEl = originEl;
+        hs.popoverId = id;
+        hs.timer = setTimeout(() => popovers.freeze(id), 3000);
+      },
+      // Pointer left this render container → drop its unfrozen popover.
+      onLeave: () => {
+        clearCurrentHover();
+      },
+      // Caller overrides (onHover / renderTooltip / …) win over the above.
       ...(hooksOverride ?? {})
     };
-  }, [entries, hooksOverride]);
+  }, [entries, hooksOverride, popovers, currentPopoverId, resolveEntryId, clearCurrentHover]);
+
+  // Guard: SNL-Basics only fires onHover over macro nodes, so moving the
+  // pointer off the originating macro onto empty container space produces no
+  // event. Track pointer position over the whole body and drop the active
+  // (unfrozen) popover — and cancel its pending freeze — once the pointer is
+  // outside the originating macro's rect.
+  const handleBodyPointerMove = useCallback(
+    (e: React.PointerEvent): void => {
+      const hs = hoverStateRef.current;
+      if (!hs.targetEl || !hs.popoverId) {
+        return;
+      }
+      const rect = (hs.targetEl as HTMLElement).getBoundingClientRect();
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!inside) {
+        clearCurrentHover();
+      }
+    },
+    [clearCurrentHover]
+  );
+
+  // Clear any pending freeze timer when this render surface unmounts so a
+  // stale timer can't fire freeze() on a popover after the source is gone.
+  useEffect(() => {
+    const hs = hoverStateRef.current;
+    return () => {
+      if (hs.timer) {
+        clearTimeout(hs.timer);
+        hs.timer = null;
+      }
+    };
+  }, []);
 
   const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
   const stroke = kind?.coloring.stroke ?? FALLBACK_STROKE;
@@ -143,8 +258,32 @@ export function EntryRender({
     }
   };
 
+  // Event-delegated Ctrl/Meta+click on any rendered macro node: SNL-Basics
+  // annotates macro nodes with `data-name`, so walk up from the click target
+  // to find the nearest macro and open its resolved entry in the Infoview.
+  const handleSectionClick = (e: React.MouseEvent): void => {
+    if (!(e.ctrlKey || e.metaKey)) {
+      return;
+    }
+    let el: HTMLElement | null = e.target as HTMLElement | null;
+    const stop = e.currentTarget as HTMLElement;
+    while (el && el !== stop) {
+      const name = el.getAttribute('data-name');
+      if (name) {
+        const entryId = resolveEntryId(name);
+        if (entryId) {
+          e.preventDefault();
+          postMessage({ type: 'openEntryInfoview', entryId });
+        }
+        return;
+      }
+      el = el.parentElement;
+    }
+  };
+
   return (
     <section
+      onClick={handleSectionClick}
       style={{
         borderLeft: `5px solid ${stroke}`,
         borderRadius: 0,
@@ -174,6 +313,7 @@ export function EntryRender({
         }}
       />
       <div
+        onPointerMove={handleBodyPointerMove}
         style={{
           padding: '0.9rem',
           color: '#111',

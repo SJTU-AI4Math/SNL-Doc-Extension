@@ -10,6 +10,7 @@ import {
   type EntryData,
   type EntryKind
 } from './render/EntryRender';
+import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 
 type Incoming =
   | {
@@ -61,21 +62,26 @@ export function EntryInfoviewApp(): React.ReactElement {
   };
 
   return (
-    <main style={PANEL_STYLE}>
-      {!loaded ? (
-        <p style={{ opacity: 0.8 }}>Loading entry…</p>
-      ) : !state ? (
-        <p style={{ opacity: 0.8 }}>Entry not found in this workspace.</p>
-      ) : (
-        <EntryRender
-          entry={state.entry}
-          kind={state.kind}
-          entries={state.entries}
-          postMessage={postMessage}
-          counterLabel={undefined}
-          disableTitleJump={true}
-        />
-      )}
-    </main>
+    <HoverPopoverProvider
+      postMessage={postMessage}
+      entries={state?.entries ?? []}
+    >
+      <main style={PANEL_STYLE}>
+        {!loaded ? (
+          <p style={{ opacity: 0.8 }}>Loading entry…</p>
+        ) : !state ? (
+          <p style={{ opacity: 0.8 }}>Entry not found in this workspace.</p>
+        ) : (
+          <EntryRender
+            entry={state.entry}
+            kind={state.kind}
+            entries={state.entries}
+            postMessage={postMessage}
+            counterLabel={undefined}
+            disableTitleJump={true}
+          />
+        )}
+      </main>
+    </HoverPopoverProvider>
   );
 }

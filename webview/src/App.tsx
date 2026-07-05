@@ -10,6 +10,7 @@ import {
   type EntryData,
   type EntryKind
 } from './render/EntryRender';
+import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 
 type Incoming =
   | { type: 'entries'; entries: EntryOption[] }
@@ -55,40 +56,42 @@ export function App(): React.ReactElement {
   };
 
   return (
-    <main style={PANEL_STYLE}>
-      <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.25rem' }}>SNL Infoview</h1>
+    <HoverPopoverProvider postMessage={postMessage} entries={entries}>
+      <main style={PANEL_STYLE}>
+        <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.25rem' }}>SNL Infoview</h1>
 
-      {!entriesLoaded ? (
-        <p style={{ opacity: 0.8 }}>Loading entries…</p>
-      ) : entries.length === 0 ? (
-        <NoEntries />
-      ) : (
-        <>
-          <EntryPicker
-            entries={entries}
-            selectedId={selected?.entry.id}
-            onSelect={(id) => postMessage({ type: 'selectEntry', id })}
-          />
-          {selected ? (
-            <EntryRender
-              entry={selected.entry}
-              kind={selected.kind}
+        {!entriesLoaded ? (
+          <p style={{ opacity: 0.8 }}>Loading entries…</p>
+        ) : entries.length === 0 ? (
+          <NoEntries />
+        ) : (
+          <>
+            <EntryPicker
               entries={entries}
-              postMessage={postMessage}
-              counterLabel={undefined}
-              disableTitleJump={false}
-              onTitleCtrlClick={(entryId) =>
-                postMessage({ type: 'openEntryInfoview', entryId })
-              }
+              selectedId={selected?.entry.id}
+              onSelect={(id) => postMessage({ type: 'selectEntry', id })}
             />
-          ) : (
-            <p style={{ marginTop: '1rem', opacity: 0.7 }}>
-              Pick an entry above to render its SNL content.
-            </p>
-          )}
-        </>
-      )}
-    </main>
+            {selected ? (
+              <EntryRender
+                entry={selected.entry}
+                kind={selected.kind}
+                entries={entries}
+                postMessage={postMessage}
+                counterLabel={undefined}
+                disableTitleJump={false}
+                onTitleCtrlClick={(entryId) =>
+                  postMessage({ type: 'openEntryInfoview', entryId })
+                }
+              />
+            ) : (
+              <p style={{ marginTop: '1rem', opacity: 0.7 }}>
+                Pick an entry above to render its SNL content.
+              </p>
+            )}
+          </>
+        )}
+      </main>
+    </HoverPopoverProvider>
   );
 }
 

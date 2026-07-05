@@ -575,7 +575,12 @@ function PopoverView({
         background: '#ffffff',
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
         borderRadius: 0,
-        overflow: 'auto',
+        // Y-only scroll: KaTeX line-boxes occasionally overflow `max-content`
+        // by a fractional pixel, which under plain `overflow: auto` would
+        // trigger a spurious horizontal scrollbar at the bottom for content
+        // that visually fits.
+        overflowX: 'hidden',
+        overflowY: 'auto',
         maxHeight: '80vh',
         // Fade-in/out. Never render a closing popover at full opacity, and
         // never render an opening popover before its delay-open fires.

@@ -330,10 +330,10 @@ async function main() {
     const r = await addMacro(root, 'test_pkg', { ...validMacro, name: badName });
     assert(r.status === 'invalid', `addMacro rejects reserved char in name: ${JSON.stringify(badName)}`);
   }
-  // Allowed: backslash, dot, Unicode letters.
-  for (const okName of ['\\foo', 'foo.bar', 'δελτα', '中文名']) {
+  // Allowed: backslash, dot, hyphen, Unicode letters.
+  for (const okName of ['\\foo', 'foo.bar', 'foo-bar', 'δελτα', '中文名']) {
     const r = await addMacro(root, 'test_pkg', { ...validMacro, name: okName });
-    assert(r.name === okName, `addMacro accepts non-ASCII / backslash / dotted name: ${okName}`);
+    assert(r.name === okName, `addMacro accepts non-ASCII / backslash / hyphen / dotted name: ${okName}`);
   }
 
   console.log('\n[17c] addMacro missing style.tag -> invalid');
@@ -363,10 +363,10 @@ async function main() {
   const readOne = await readMacroPackage(root, 'test_pkg.json');
   assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
   assert(
-    // Adjusted expected count: 1 initial (Add.add.infix) + 4 new allowed
-    // (backslash, dotted, greek, CJK) from [17c].
-    readOne.macros.length === 5 && readOne.macros.some((m) => m.name === 'Add.add.infix'),
-    'readMacroPackage returns the 5 appended macros (Add.add.infix + 4 unicode/backslash/dotted names)'
+    // Adjusted expected count: 1 initial (Add.add.infix) + 5 new allowed
+    // (backslash, dotted, hyphen, greek, CJK) from [17c].
+    readOne.macros.length === 6 && readOne.macros.some((m) => m.name === 'Add.add.infix'),
+    'readMacroPackage returns the 6 appended macros (Add.add.infix + 5 unicode/backslash/hyphen/dotted names)'
   );
 
   console.log('\n[20] readMacroPackage missing -> noFile');

@@ -64,6 +64,19 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // No palette entry (see package.json `when: false`): invoked via
+  // executeCommand('snlDoc.openEntryInfoview', entryId) from a Ctrl+click on
+  // an EntryRender title or a hover popover.
+  const openEntryInfoview = vscode.commands.registerCommand(
+    'snlDoc.openEntryInfoview',
+    (entryId?: unknown) => {
+      if (typeof entryId !== 'string' || !entryId.trim()) {
+        return;
+      }
+      InfoviewPanel.createOrShowForEntry(context.extensionUri, entryId.trim());
+    }
+  );
+
   const init = vscode.commands.registerCommand('snlDoc.init', runInit);
 
   const createLibrary = vscode.commands.registerCommand(
@@ -236,6 +249,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     openInfoview,
+    openEntryInfoview,
     init,
     createLibrary,
     editLibrary,

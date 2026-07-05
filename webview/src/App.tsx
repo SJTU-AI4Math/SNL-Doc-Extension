@@ -76,7 +76,10 @@ export function App(): React.ReactElement {
               entries={entries}
               postMessage={postMessage}
               counterLabel={undefined}
-              disableTitleJump={true}
+              disableTitleJump={false}
+              onTitleCtrlClick={(entryId) =>
+                postMessage({ type: 'openEntryInfoview', entryId })
+              }
             />
           ) : (
             <p style={{ marginTop: '1rem', opacity: 0.7 }}>

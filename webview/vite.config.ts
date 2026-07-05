@@ -23,6 +23,7 @@ import { resolve } from 'node:path';
 // Only the first pass (main) clears the output directory.
 type Entry =
   | 'main'
+  | 'entryInfoview'
   | 'createLibrary'
   | 'dashboard'
   | 'initEntryKinds'
@@ -36,6 +37,7 @@ type Entry =
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
+  entryInfoview: 'src/entryInfoview.tsx',
   createLibrary: 'src/createLibrary.tsx',
   dashboard: 'src/dashboard.tsx',
   initEntryKinds: 'src/initEntryKinds.tsx',

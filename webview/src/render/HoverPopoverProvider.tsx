@@ -30,6 +30,9 @@ import {
 } from './EntryRender';
 import type { SnlMacroDb } from '@snl-basics/react';
 
+/** Life-cycle phase of a popover — used to drive fade-in/out. */
+export type PopoverPhase = 'opening' | 'visible' | 'closing';
+
 /** One live popover in the stack. */
 export interface PopoverInstance {
   id: string;
@@ -39,6 +42,14 @@ export interface PopoverInstance {
   y: number;
   frozen: boolean;
   spawnedFromPopoverId: string | null;
+  /**
+   * 'opening'  — spawned, waiting out the hover delay + entry-details fetch;
+   *              rendered with opacity 0 so nothing shows yet.
+   * 'visible'  — fade-in complete, fully rendered.
+   * 'closing'  — dismiss triggered, fade-out playing; will be swept after
+   *              FADE_MS and stops accepting further updates.
+   */
+  phase: PopoverPhase;
 }
 
 export interface HoverPopoverContextValue {
@@ -85,7 +96,12 @@ export function useCurrentPopoverId(): string | null {
 
 const POPOVER_OFFSET = 12;
 const VIEWPORT_MARGIN = 8;
-const MAX_POPOVER_WIDTH = 460;
+/** Cap on popover width — half a typical editor pane feels right. */
+const POPOVER_MAX_WIDTH = 720;
+/** Delay before an unfrozen popover appears (matches SNL-Basics tooltip UX). */
+const HOVER_OPEN_DELAY_MS = 1000;
+/** Fade duration for opacity transitions (in ms). */
+const FADE_MS = 150;
 
 interface HoverPopoverProviderProps {
   children: React.ReactNode;
@@ -172,6 +188,29 @@ export function HoverPopoverProvider({
     [postMessage]
   );
 
+  // Per-popover timers: delay-open timer + fade-out unmount timer.
+  const timersRef = useRef<Map<string, { open?: ReturnType<typeof setTimeout>; close?: ReturnType<typeof setTimeout> }>>(new Map());
+  const clearTimerBucket = useCallback((popoverId: string, keys: Array<'open' | 'close'>): void => {
+    const bucket = timersRef.current.get(popoverId);
+    if (!bucket) return;
+    for (const k of keys) {
+      const t = bucket[k];
+      if (t) {
+        clearTimeout(t);
+        bucket[k] = undefined;
+      }
+    }
+    if (!bucket.open && !bucket.close) {
+      timersRef.current.delete(popoverId);
+    }
+  }, []);
+
+  const setPhase = useCallback((popoverId: string, phase: PopoverPhase): void => {
+    setPopovers((prev) =>
+      prev.map((p) => (p.id === popoverId ? { ...p, phase } : p))
+    );
+  }, []);
+
   const spawn = useCallback(
     (
       entryId: string,
@@ -185,11 +224,29 @@ export function HoverPopoverProvider({
       requestDetails(entryId);
       setPopovers((prev) => [
         ...prev,
-        { id, entryId, originRect, x, y, frozen: false, spawnedFromPopoverId }
+        {
+          id,
+          entryId,
+          originRect,
+          x,
+          y,
+          frozen: false,
+          spawnedFromPopoverId,
+          phase: 'opening'
+        }
       ]);
+      // Schedule the delay-open transition. If the popover is dismissed
+      // before this fires, the corresponding `setPhase` becomes a no-op
+      // (id no longer in state) and we clear the timer bookkeeping.
+      const openTimer = setTimeout(() => {
+        setPhase(id, 'visible');
+        const bucket = timersRef.current.get(id);
+        if (bucket) bucket.open = undefined;
+      }, HOVER_OPEN_DELAY_MS);
+      timersRef.current.set(id, { open: openTimer });
       return id;
     },
-    [requestDetails]
+    [requestDetails, setPhase]
   );
 
   const updatePointer = useCallback(
@@ -197,7 +254,9 @@ export function HoverPopoverProvider({
       const { x, y } = clampPointer(pointerX, pointerY);
       setPopovers((prev) =>
         prev.map((p) =>
-          p.id === popoverId && !p.frozen ? { ...p, x, y } : p
+          p.id === popoverId && !p.frozen && p.phase !== 'closing'
+            ? { ...p, x, y }
+            : p
         )
       );
     },
@@ -206,18 +265,20 @@ export function HoverPopoverProvider({
 
   const freeze = useCallback((popoverId: string): void => {
     setPopovers((prev) =>
-      prev.map((p) => (p.id === popoverId ? { ...p, frozen: true } : p))
+      prev.map((p) =>
+        p.id === popoverId && p.phase !== 'closing' ? { ...p, frozen: true } : p
+      )
     );
   }, []);
 
-  // Dismiss a popover (and any descendants spawned from it).
-  const dismissSubtree = useCallback((popoverId: string): void => {
-    setPopovers((prev) => {
-      const doomed = new Set<string>([popoverId]);
+  // Compute the doomed-subtree for a given root id, using the current state.
+  const collectSubtree = useCallback(
+    (rootId: string, list: PopoverInstance[]): Set<string> => {
+      const doomed = new Set<string>([rootId]);
       let grew = true;
       while (grew) {
         grew = false;
-        for (const p of prev) {
+        for (const p of list) {
           if (
             p.spawnedFromPopoverId &&
             doomed.has(p.spawnedFromPopoverId) &&
@@ -228,17 +289,65 @@ export function HoverPopoverProvider({
           }
         }
       }
-      for (const id of doomed) {
-        elementsRef.current.delete(id);
+      return doomed;
+    },
+    []
+  );
+
+  // Dismiss a popover (and its descendants). 'opening' popovers are removed
+  // immediately (they were never visible); everything else transitions to
+  // 'closing' first so the CSS opacity transition can play, then is swept
+  // from state after FADE_MS.
+  const dismissSubtree = useCallback(
+    (popoverId: string): void => {
+      const list = popoversRef.current;
+      const doomed = collectSubtree(popoverId, list);
+      const toRemoveNow: string[] = [];
+      const toFade: string[] = [];
+      for (const p of list) {
+        if (!doomed.has(p.id)) continue;
+        if (p.phase === 'opening') {
+          toRemoveNow.push(p.id);
+        } else if (p.phase !== 'closing') {
+          toFade.push(p.id);
+        }
       }
-      return prev.filter((p) => !doomed.has(p.id));
-    });
-  }, []);
+      if (toRemoveNow.length > 0) {
+        for (const id of toRemoveNow) {
+          clearTimerBucket(id, ['open', 'close']);
+          elementsRef.current.delete(id);
+        }
+        setPopovers((prev) => prev.filter((p) => !toRemoveNow.includes(p.id)));
+      }
+      if (toFade.length > 0) {
+        // Cancel any pending open-delay for popovers that are now closing.
+        for (const id of toFade) {
+          clearTimerBucket(id, ['open']);
+        }
+        setPopovers((prev) =>
+          prev.map((p) =>
+            toFade.includes(p.id) ? { ...p, phase: 'closing' as const } : p
+          )
+        );
+        for (const id of toFade) {
+          const closeTimer = setTimeout(() => {
+            elementsRef.current.delete(id);
+            setPopovers((prev) => prev.filter((p) => p.id !== id));
+            clearTimerBucket(id, ['close']);
+          }, FADE_MS);
+          const existing = timersRef.current.get(id) ?? {};
+          existing.close = closeTimer;
+          timersRef.current.set(id, existing);
+        }
+      }
+    },
+    [clearTimerBucket, collectSubtree]
+  );
 
   const cancelUnfrozen = useCallback(
     (popoverId: string): void => {
       const target = popoversRef.current.find((p) => p.id === popoverId);
-      if (target && !target.frozen) {
+      if (target && !target.frozen && target.phase !== 'closing') {
         dismissSubtree(popoverId);
       }
     },
@@ -246,12 +355,31 @@ export function HoverPopoverProvider({
   );
 
   const dismissAll = useCallback((): void => {
-    elementsRef.current.clear();
-    setPopovers([]);
-  }, []);
+    const ids = popoversRef.current
+      .filter((p) => p.phase !== 'closing')
+      .map((p) => p.id);
+    for (const id of ids) {
+      dismissSubtree(id);
+    }
+  }, [dismissSubtree]);
 
   const isAlive = useCallback((popoverId: string): boolean => {
-    return popoversRef.current.some((p) => p.id === popoverId);
+    return popoversRef.current.some(
+      (p) => p.id === popoverId && p.phase !== 'closing'
+    );
+  }, []);
+
+  // Cleanup all pending timers on provider unmount so stale timeouts can't
+  // fire against a torn-down component tree.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const bucket of timers.values()) {
+        if (bucket.open) clearTimeout(bucket.open);
+        if (bucket.close) clearTimeout(bucket.close);
+      }
+      timers.clear();
+    };
   }, []);
 
   // Frozen-popover batch dismissal: once any popover has frozen, leaving the
@@ -396,12 +524,22 @@ function PopoverView({
         left: pos.left,
         top: pos.top,
         zIndex,
-        maxWidth: MAX_POPOVER_WIDTH,
+        // Width is content-driven, capped at POPOVER_MAX_WIDTH so a very long
+        // SNL body still stays bounded. Height is capped at 80vh with scroll.
+        maxWidth: POPOVER_MAX_WIDTH,
+        width: 'max-content',
         background: '#ffffff',
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
         borderRadius: 0,
         overflow: 'auto',
-        maxHeight: '80vh'
+        maxHeight: '80vh',
+        // Fade-in/out. Never render a closing popover at full opacity, and
+        // never render an opening popover before its delay-open fires.
+        opacity: instance.phase === 'visible' ? 1 : 0,
+        transition: `opacity ${FADE_MS}ms ease-in-out`,
+        // While opening/closing don't intercept pointer events — the origin
+        // macro or the enclosing document should still receive them.
+        pointerEvents: instance.phase === 'visible' ? 'auto' : 'none'
       }}
     >
       {children}

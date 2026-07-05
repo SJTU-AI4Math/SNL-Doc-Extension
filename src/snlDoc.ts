@@ -2642,3 +2642,234 @@ export async function updateMacro(
   }
   return { status: 'updated', name };
 }
+
+// ---------------------------------------------------------------------------
+// Macro packages: multi-select batch ops
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove a set of macros (by name) from a single package in one atomic write.
+ * Names not present are ignored. Reuses {@link readMacroPackage} for the read
+ * and the canonical {@link jsonBytes} write — no bespoke round-trip logic.
+ */
+export async function batchDeleteMacros(
+  workspaceRoot: vscode.Uri,
+  sourceFile: string,
+  names: string[]
+): Promise<
+  | { status: 'ok'; deletedCount: number }
+  | { status: 'noFile' }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  const wanted = new Set(
+    (Array.isArray(names) ? names : []).filter(
+      (n) => typeof n === 'string' && n.length > 0
+    )
+  );
+  const read = await readMacroPackage(workspaceRoot, sourceFile);
+  if (read.status === 'noFile') {
+    return { status: 'noFile' };
+  }
+  if (read.status === 'error') {
+    return { status: 'error', message: read.message };
+  }
+
+  const nextMacros: Record<string, MacroPackageEntryWithoutName> = {};
+  let deletedCount = 0;
+  for (const [key, val] of Object.entries(read.pkg.macros)) {
+    if (wanted.has(key)) {
+      deletedCount += 1;
+      continue;
+    }
+    nextMacros[key] = val;
+  }
+
+  const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
+  try {
+    await fsApi.writeFile(
+      macroPackageUri(workspaceRoot, sourceFile),
+      jsonBytes(next)
+    );
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', deletedCount };
+}
+
+/**
+ * Move a set of macros from a source package to a destination package
+ * (delete from source, add to destination). If the destination already
+ * contains any of the named macros the whole batch is refused and NO writes
+ * happen (`conflict`) — name-conflict resolution is a later feature. Names
+ * not present in the source are skipped.
+ */
+export async function batchMoveMacros(
+  workspaceRoot: vscode.Uri,
+  sourceFile: string,
+  destFile: string,
+  names: string[]
+): Promise<
+  | { status: 'ok'; movedCount: number }
+  | { status: 'conflict'; conflictNames: string[] }
+  | { status: 'noFile'; which: 'source' | 'dest' }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  const srcBare = stripJsonExt(sourceFile);
+  const destBare = stripJsonExt(destFile);
+  if (srcBare === destBare) {
+    return { status: 'error', message: 'source and destination are the same package' };
+  }
+  const wanted = (Array.isArray(names) ? names : []).filter(
+    (n) => typeof n === 'string' && n.length > 0
+  );
+
+  const srcRead = await readMacroPackage(workspaceRoot, srcBare);
+  if (srcRead.status === 'noFile') {
+    return { status: 'noFile', which: 'source' };
+  }
+  if (srcRead.status === 'error') {
+    return { status: 'error', message: srcRead.message };
+  }
+  const destRead = await readMacroPackage(workspaceRoot, destBare);
+  if (destRead.status === 'noFile') {
+    return { status: 'noFile', which: 'dest' };
+  }
+  if (destRead.status === 'error') {
+    return { status: 'error', message: destRead.message };
+  }
+
+  // Only move names that actually live in the source.
+  const moving = wanted.filter((n) =>
+    Object.prototype.hasOwnProperty.call(srcRead.pkg.macros, n)
+  );
+  // Refuse the whole batch on any destination-side name collision.
+  const conflictNames = moving.filter((n) =>
+    Object.prototype.hasOwnProperty.call(destRead.pkg.macros, n)
+  );
+  if (conflictNames.length > 0) {
+    return { status: 'conflict', conflictNames };
+  }
+
+  const movingSet = new Set(moving);
+  const nextSrcMacros: Record<string, MacroPackageEntryWithoutName> = {};
+  for (const [key, val] of Object.entries(srcRead.pkg.macros)) {
+    if (movingSet.has(key)) continue;
+    nextSrcMacros[key] = val;
+  }
+  const nextDestMacros: Record<string, MacroPackageEntryWithoutName> = {
+    ...destRead.pkg.macros
+  };
+  for (const n of moving) {
+    nextDestMacros[n] = srcRead.pkg.macros[n];
+  }
+
+  const nextSrc: MacroPackageFile = { ...srcRead.pkg, macros: nextSrcMacros };
+  const nextDest: MacroPackageFile = { ...destRead.pkg, macros: nextDestMacros };
+  try {
+    // Write destination first: if the source write then fails the macros
+    // exist in both places (recoverable) rather than being lost entirely.
+    await fsApi.writeFile(macroPackageUri(workspaceRoot, destBare), jsonBytes(nextDest));
+    await fsApi.writeFile(macroPackageUri(workspaceRoot, srcBare), jsonBytes(nextSrc));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', movedCount: moving.length };
+}
+
+/**
+ * Copy a set of macros from a source package into a BRAND-NEW package. The
+ * source package is NOT modified (copy-out, not move-out). Reuses
+ * {@link createMacroPackage} (which validates the bare filename, rejects
+ * duplicates, and appends the new package to `active_macro_packages`) and
+ * {@link addMacro} for each copied macro.
+ */
+export async function batchPackageAsNew(
+  workspaceRoot: vscode.Uri,
+  sourceFile: string,
+  names: string[],
+  newFile: string,
+  newDisplayName?: string,
+  newDescription?: string
+): Promise<
+  | { status: 'ok'; file: string; copiedCount: number }
+  | { status: 'noFile' }
+  | { status: 'duplicate'; file: string }
+  | { status: 'invalid'; reason: string }
+  | { status: 'error'; message: string }
+> {
+  const wanted = new Set(
+    (Array.isArray(names) ? names : []).filter(
+      (n) => typeof n === 'string' && n.length > 0
+    )
+  );
+  const read = await readMacroPackage(workspaceRoot, sourceFile);
+  if (read.status === 'noFile') {
+    return { status: 'noFile' };
+  }
+  if (read.status === 'error') {
+    return { status: 'error', message: read.message };
+  }
+
+  const selected = read.macros.filter((m) => wanted.has(m.name));
+  if (selected.length === 0) {
+    return { status: 'invalid', reason: 'no matching macros selected' };
+  }
+
+  const bare = typeof newFile === 'string' ? stripJsonExt(newFile.trim()) : '';
+  if (!MACRO_FILE_RE.test(bare)) {
+    return {
+      status: 'invalid',
+      reason: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+    };
+  }
+  const displayName =
+    (typeof newDisplayName === 'string' && newDisplayName.trim()) || bare;
+
+  const created = await createMacroPackage(
+    workspaceRoot,
+    bare,
+    displayName,
+    typeof newDescription === 'string' ? newDescription : undefined
+  );
+  if (created.status === 'duplicate') {
+    return { status: 'duplicate', file: created.file };
+  }
+  if (created.status === 'invalid') {
+    return { status: 'invalid', reason: created.reason };
+  }
+  if (created.status === 'noSnlDoc') {
+    return { status: 'error', message: '.SNL_Doc/ not found' };
+  }
+  if (created.status === 'error') {
+    return { status: 'error', message: created.message };
+  }
+
+  let copiedCount = 0;
+  for (const macro of selected) {
+    const added = await addMacro(workspaceRoot, bare, macro);
+    if (added.status === 'ok') {
+      copiedCount += 1;
+    } else if (added.status !== 'duplicate') {
+      // A duplicate inside a freshly-created package is impossible, but be
+      // defensive: any other failure aborts and surfaces the reason.
+      return {
+        status: 'error',
+        message:
+          added.status === 'invalid'
+            ? added.reason
+            : added.status === 'error'
+              ? added.message
+              : `failed to copy macro "${macro.name}" (${added.status})`
+      };
+    }
+  }
+  return { status: 'ok', file: created.file, copiedCount };
+}

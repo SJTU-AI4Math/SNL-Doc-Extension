@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import {
   readMacroKinds,
   readMacroPackage,
+  readMacroPackages,
+  resolveActiveMacroPackages,
+  batchDeleteMacros,
+  batchMoveMacros,
+  batchPackageAsNew,
   type MacroKind,
   type MacroPackageFile,
   type MacroPackageEntry
@@ -11,6 +16,17 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
   return file.replace(/\.json$/i, '');
+}
+
+/** Coerce an unknown into a non-empty `string[]`, or return null if invalid. */
+function toStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string' || v.length === 0) return null;
+    out.push(v);
+  }
+  return out;
 }
 
 /**
@@ -145,12 +161,33 @@ export class PackagePanel {
       const pkg: MacroPackageFile = result.pkg;
       const macros: MacroPackageEntry[] = result.macros;
       const macroKinds: MacroKind[] = await readMacroKinds(root);
+
+      // Bootstrap the "Move to package" dropdown with OTHER active packages
+      // (bare file + display name). Best-effort: a package that fails to read
+      // is simply omitted from the list.
+      const active = await resolveActiveMacroPackages(root);
+      const summaries = await readMacroPackages(root);
+      const otherPackages: Array<{ file: string; name: string }> = [];
+      for (const summary of summaries) {
+        const bare = summary.file.replace(/\.json$/i, '');
+        if (bare === this.file) continue;
+        if (!active.includes(bare)) continue;
+        const other = await readMacroPackage(root, bare);
+        otherPackages.push({
+          file: bare,
+          name: other.status === 'ok' ? other.pkg.name : bare
+        });
+      }
+      otherPackages.sort((a, b) => a.name.localeCompare(b.name));
+
       void this.panel.webview.postMessage({
         type: 'package',
         pkg,
         file: `${this.file}.json`,
         macros,
-        macroKinds
+        macroKinds,
+        otherPackages,
+        active: active.includes(this.file)
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
@@ -187,8 +224,112 @@ export class PackagePanel {
         }
         return;
       }
+      case 'batchDelete': {
+        const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
+        if (!names) {
+          void this.postError('batchDelete: macroNames must be a string array');
+          return;
+        }
+        await this.runBatch(async (root) => {
+          const res = await batchDeleteMacros(root, this.file, names);
+          if (res.status === 'ok') return null;
+          if (res.status === 'noFile') return 'Package file not found.';
+          return res.message;
+        });
+        return;
+      }
+      case 'batchMoveTo': {
+        const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
+        const destFile = (msg as { destFile?: unknown }).destFile;
+        if (!names || typeof destFile !== 'string' || !destFile) {
+          void this.postError('batchMoveTo: macroNames[] and destFile are required');
+          return;
+        }
+        await this.runBatch(async (root) => {
+          const res = await batchMoveMacros(root, this.file, destFile, names);
+          if (res.status === 'ok') return null;
+          if (res.status === 'conflict') {
+            return (
+              'Move refused — the destination package already has: ' +
+              res.conflictNames.join(', ') +
+              '. Rename or remove the conflicts first.'
+            );
+          }
+          if (res.status === 'noFile') {
+            return res.which === 'dest'
+              ? 'Destination package not found.'
+              : 'Source package not found.';
+          }
+          return res.message;
+        });
+        return;
+      }
+      case 'batchPackageAsNew': {
+        const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
+        const m = msg as {
+          newFile?: unknown;
+          newDisplayName?: unknown;
+          newDescription?: unknown;
+        };
+        if (!names || typeof m.newFile !== 'string' || !m.newFile) {
+          void this.postError('batchPackageAsNew: macroNames[] and newFile are required');
+          return;
+        }
+        const newDisplayName =
+          typeof m.newDisplayName === 'string' ? m.newDisplayName : undefined;
+        const newDescription =
+          typeof m.newDescription === 'string' ? m.newDescription : undefined;
+        await this.runBatch(async (root) => {
+          const res = await batchPackageAsNew(
+            root,
+            this.file,
+            names,
+            m.newFile as string,
+            newDisplayName,
+            newDescription
+          );
+          if (res.status === 'ok') return null;
+          if (res.status === 'duplicate') {
+            return `A package named "${res.file}" already exists.`;
+          }
+          if (res.status === 'noFile') return 'Source package not found.';
+          if (res.status === 'invalid') return res.reason;
+          return res.message;
+        });
+        return;
+      }
       default:
         return;
+    }
+  }
+
+  /** Post a typed error message to the webview. */
+  private async postError(message: string): Promise<void> {
+    await this.panel.webview.postMessage({ type: 'error', message });
+  }
+
+  /**
+   * Run a batch operation with a resolved workspace root. The callback
+   * returns `null` on success (panel is refreshed) or an error string to
+   * surface to the webview as a toast.
+   */
+  private async runBatch(
+    op: (root: vscode.Uri) => Promise<string | null>
+  ): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.postError('No workspace folder open.');
+      return;
+    }
+    try {
+      const err = await op(root);
+      if (err) {
+        void this.postError(err);
+        return;
+      }
+      await this.pushPackage();
+    } catch (e) {
+      void this.postError(e instanceof Error ? e.message : String(e));
     }
   }
 

@@ -83,6 +83,8 @@ type Incoming =
       file: string;
       macros: MacroPackageEntry[];
       macroKinds?: MacroKind[];
+      otherPackages?: Array<{ file: string; name: string }>;
+      active?: boolean;
     }
   | { type: 'noFile'; file: string }
   | { type: 'error'; message: string }
@@ -96,9 +98,23 @@ type Model =
       file: string;
       macros: MacroPackageEntry[];
       macroKinds: MacroKind[];
+      otherPackages: Array<{ file: string; name: string }>;
+      active: boolean;
     }
   | { kind: 'noFile'; file: string }
   | { kind: 'error'; message: string };
+
+/** Bare-filename rule shared with the host (`MACRO_FILE_RE`). */
+const BARE_FILE_RE = /^[a-zA-Z0-9_-]+$/;
+
+/** A transient toast surfaced after a batch action completes. */
+interface Toast {
+  kind: 'success' | 'error';
+  message: string;
+}
+
+/** Which batch modal is currently open (null = none). */
+type ActiveModal = 'packageAsNew' | 'moveTo' | null;
 
 // ---------------------------------------------------------------------------
 // Preview constants — mirror the CreateMacro Live Preview so a package row's
@@ -192,7 +208,23 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
 
 export function PackagePanelApp(): React.ReactElement {
   const [model, setModel] = useState<Model>({ kind: 'loading' });
+  const [mode, setMode] = useState<'normal' | 'multiselect'>('normal');
+  const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  // A pending batch action awaits either a fresh 'package' push (success) or
+  // an 'error' message (failure) from the host so we can toast the outcome.
+  const pendingActionRef = useRef<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (t: Toast): void => {
+    setToast(t);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+  };
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -203,20 +235,47 @@ export function PackagePanelApp(): React.ReactElement {
         return;
       }
       switch (msg.type) {
-        case 'package':
+        case 'package': {
           setModel({
             kind: 'package',
             pkg: msg.pkg,
             file: msg.file,
             macros: Array.isArray(msg.macros) ? msg.macros : [],
-            macroKinds: Array.isArray(msg.macroKinds) ? msg.macroKinds : []
+            macroKinds: Array.isArray(msg.macroKinds) ? msg.macroKinds : [],
+            otherPackages: Array.isArray(msg.otherPackages)
+              ? msg.otherPackages
+              : [],
+            active: msg.active !== false
           });
+          // A refresh following a batch action means it succeeded: toast,
+          // exit multi-select, and clear the selection.
+          const pending = pendingActionRef.current;
+          if (pending) {
+            pendingActionRef.current = null;
+            showToast({ kind: 'success', message: pending });
+            setMode('normal');
+            setSelectedNames(new Set());
+            setActiveModal(null);
+          }
           break;
+        }
         case 'noFile':
           setModel({ kind: 'noFile', file: msg.file });
           break;
         case 'error':
-          setModel({ kind: 'error', message: msg.message });
+          // A batch failure keeps the panel intact — surface a toast and let
+          // the user retry. Only a load-time error (no package yet) is fatal.
+          if (pendingActionRef.current !== null) {
+            pendingActionRef.current = null;
+            showToast({ kind: 'error', message: msg.message });
+          } else {
+            setModel((prev) =>
+              prev.kind === 'package'
+                ? prev
+                : { kind: 'error', message: msg.message }
+            );
+            showToast({ kind: 'error', message: msg.message });
+          }
           break;
         default:
           break;
@@ -225,7 +284,13 @@ export function PackagePanelApp(): React.ReactElement {
 
     window.addEventListener('message', onMessage);
     apiRef.current?.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const createMacro = (): void =>
@@ -234,6 +299,67 @@ export function PackagePanelApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'editMacroPackage' });
   const editMacro = (name: string): void =>
     apiRef.current?.postMessage({ type: 'editMacro', name });
+
+  const enterSelect = (): void => {
+    setMode('multiselect');
+    setSelectedNames(new Set());
+    setActiveModal(null);
+  };
+  const cancelSelect = (): void => {
+    setMode('normal');
+    setSelectedNames(new Set());
+    setActiveModal(null);
+  };
+  const toggleSelect = (name: string): void => {
+    setSelectedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
+
+  const submitBatchDelete = (): void => {
+    const names = Array.from(selectedNames);
+    if (names.length === 0) return;
+    const ok = window.confirm(
+      `Delete ${names.length} macro${names.length === 1 ? '' : 's'} from this package? This cannot be undone.`
+    );
+    if (!ok) return;
+    pendingActionRef.current = `Deleted ${names.length} macro${names.length === 1 ? '' : 's'}.`;
+    apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
+  };
+
+  const submitBatchMove = (destFile: string): void => {
+    const names = Array.from(selectedNames);
+    if (names.length === 0 || !destFile) return;
+    pendingActionRef.current = `Moved ${names.length} macro${names.length === 1 ? '' : 's'} to ${destFile}.`;
+    apiRef.current?.postMessage({
+      type: 'batchMoveTo',
+      macroNames: names,
+      destFile
+    });
+  };
+
+  const submitBatchPackageAsNew = (
+    newFile: string,
+    newDisplayName: string,
+    newDescription: string
+  ): void => {
+    const names = Array.from(selectedNames);
+    if (names.length === 0 || !newFile) return;
+    pendingActionRef.current = `Created package ${newFile} with ${names.length} macro${names.length === 1 ? '' : 's'}.`;
+    apiRef.current?.postMessage({
+      type: 'batchPackageAsNew',
+      macroNames: names,
+      newFile,
+      newDisplayName: newDisplayName || undefined,
+      newDescription: newDescription || undefined
+    });
+  };
 
   if (model.kind === 'loading') {
     return (
@@ -272,10 +398,12 @@ export function PackagePanelApp(): React.ReactElement {
     );
   }
 
-  const { pkg, file, macros, macroKinds } = model;
+  const { pkg, file, macros, macroKinds, otherPackages } = model;
+  const selectMode = mode === 'multiselect';
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '58rem' }}>
+      {toast ? <ToastBanner toast={toast} onDismiss={() => setToast(null)} /> : null}
       <div
         style={{
           display: 'flex',
@@ -308,26 +436,28 @@ export function PackagePanelApp(): React.ReactElement {
             <div style={{ height: '0.5rem' }} />
           )}
         </div>
-        <button
-          type="button"
-          onClick={editMacroPackage}
-          title="Edit package name / description"
-          style={{
-            flex: '0 0 auto',
-            padding: '0.35rem 0.75rem',
-            fontFamily: 'inherit',
-            fontSize: '0.9rem',
-            border:
-              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-            borderRadius: '4px',
-            background:
-              'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-            color: 'inherit',
-            cursor: 'pointer'
-          }}
-        >
-          Edit package
-        </button>
+        <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            onClick={selectMode ? cancelSelect : enterSelect}
+            title={
+              selectMode
+                ? 'Exit multi-select mode'
+                : 'Select macros for batch operations'
+            }
+            style={HEADER_BUTTON_STYLE}
+          >
+            {selectMode ? 'Cancel' : 'Select'}
+          </button>
+          <button
+            type="button"
+            onClick={editMacroPackage}
+            title="Edit package name / description"
+            style={HEADER_BUTTON_STYLE}
+          >
+            Edit package
+          </button>
+        </div>
       </div>
 
       {macros.length > 0 ? (
@@ -335,6 +465,9 @@ export function PackagePanelApp(): React.ReactElement {
           macros={macros}
           macroKinds={macroKinds}
           onEdit={editMacro}
+          selectMode={selectMode}
+          selectedNames={selectedNames}
+          onToggleSelect={toggleSelect}
         />
       ) : (
         <p style={{ opacity: 0.7, fontStyle: 'italic', margin: '0.5rem 0' }}>
@@ -342,10 +475,50 @@ export function PackagePanelApp(): React.ReactElement {
         </p>
       )}
 
-      <AddBar label="Create Macro" onActivate={createMacro} />
+      {selectMode ? (
+        <MultiSelectBar
+          count={selectedNames.size}
+          hasOtherPackages={otherPackages.length > 0}
+          onPackageAsNew={() => setActiveModal('packageAsNew')}
+          onMoveTo={() => setActiveModal('moveTo')}
+          onDelete={submitBatchDelete}
+        />
+      ) : (
+        <AddBar label="Create Macro" onActivate={createMacro} />
+      )}
+
+      {activeModal === 'packageAsNew' ? (
+        <PackageAsNewModal
+          count={selectedNames.size}
+          onCancel={() => setActiveModal(null)}
+          onSubmit={submitBatchPackageAsNew}
+        />
+      ) : null}
+      {activeModal === 'moveTo' ? (
+        <MoveToModal
+          count={selectedNames.size}
+          otherPackages={otherPackages}
+          onCancel={() => setActiveModal(null)}
+          onSubmit={submitBatchMove}
+        />
+      ) : null}
     </main>
   );
 }
+
+const HEADER_BUTTON_STYLE: React.CSSProperties = {
+  flex: '0 0 auto',
+  padding: '0.35rem 0.75rem',
+  fontFamily: 'inherit',
+  fontSize: '0.9rem',
+  border:
+    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+  borderRadius: '4px',
+  background:
+    'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+  color: 'inherit',
+  cursor: 'pointer'
+};
 
 const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',
@@ -377,11 +550,17 @@ function arityLabel(macro: MacroPackageEntry): string {
 function MacroTable({
   macros,
   macroKinds,
-  onEdit
+  onEdit,
+  selectMode,
+  selectedNames,
+  onToggleSelect
 }: {
   macros: MacroPackageEntry[];
   macroKinds: MacroKind[];
   onEdit: (name: string) => void;
+  selectMode: boolean;
+  selectedNames: Set<string>;
+  onToggleSelect: (name: string) => void;
 }): React.ReactElement {
   const kindById = useMemo(() => {
     const m = new Map<string, MacroKind>();
@@ -427,7 +606,8 @@ function MacroTable({
     >
       <thead>
         <tr>
-          {/* Expand-toggle stub column — 1.4rem wide, matches the button. */}
+          {/* Leftmost column doubles as expand-toggle stub (normal mode) or
+              checkbox column (multi-select mode) — 1.6rem wide. */}
           <th style={{ ...HEAD, width: '1.6rem', padding: '0.45rem 0.2rem' }} />
           <th style={{ ...HEAD, width: '9rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
@@ -451,6 +631,9 @@ function MacroTable({
             previewQuery={previewQuery}
             previewHooks={previewHooks}
             onEdit={onEdit}
+            selectMode={selectMode}
+            selected={selectedNames.has(m.name)}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       </tbody>
@@ -474,7 +657,10 @@ function MacroRowGroup({
   previewMacroDb,
   previewQuery,
   previewHooks,
-  onEdit
+  onEdit,
+  selectMode,
+  selected,
+  onToggleSelect
 }: {
   macro: MacroPackageEntry;
   kindById: Map<string, MacroKind>;
@@ -482,12 +668,17 @@ function MacroRowGroup({
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelect: (name: string) => void;
 }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const styles = Array.isArray(macro.styles) ? macro.styles : [];
   const defaultStyle = styles[0];
   const extraStyles = styles.slice(1);
-  const canExpand = extraStyles.length > 0;
+  // In multi-select mode a macro is one selectable unit — collapse the style
+  // rows so each macro is a single checkbox row.
+  const canExpand = !selectMode && extraStyles.length > 0;
   return (
     <>
       <MacroStyleRow
@@ -506,8 +697,11 @@ function MacroRowGroup({
         previewQuery={previewQuery}
         previewHooks={previewHooks}
         onEdit={onEdit}
+        selectMode={selectMode}
+        selected={selected}
+        onToggleSelect={onToggleSelect}
       />
-      {expanded
+      {!selectMode && expanded
         ? extraStyles.map((s, i) => (
             <MacroStyleRow
               key={`${macro.name}::${s.tag}::${i + 1}`}
@@ -524,6 +718,9 @@ function MacroRowGroup({
               previewQuery={previewQuery}
               previewHooks={previewHooks}
               onEdit={onEdit}
+              selectMode={false}
+              selected={false}
+              onToggleSelect={onToggleSelect}
             />
           ))
         : null}
@@ -554,7 +751,10 @@ function MacroStyleRow({
   previewMacroDb,
   previewQuery,
   previewHooks,
-  onEdit
+  onEdit,
+  selectMode,
+  selected,
+  onToggleSelect
 }: {
   macro: MacroPackageEntry;
   style: MacroPackageStyle | undefined;
@@ -570,27 +770,39 @@ function MacroStyleRow({
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelect: (name: string) => void;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
-  const activate = (): void => onEdit(macro.name);
+  // In multi-select mode a row click toggles selection instead of opening the
+  // macro editor.
+  const activate = (): void =>
+    selectMode ? onToggleSelect(macro.name) : onEdit(macro.name);
   const macroTags = Array.isArray(macro.tags) ? macro.tags : [];
   const styleTags = Array.isArray(style?.tags) ? (style?.tags as string[]) : [];
   const styleTag = style?.tag ?? '(untagged)';
   const styleMode = style?.mode ?? '';
-  const rowBackground = hover
-    ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-    : isDefault
-      ? 'transparent'
-      : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.02))';
+  const rowBackground =
+    selectMode && selected
+      ? 'var(--vscode-list-activeSelectionBackground, rgba(60,120,220,0.25))'
+      : hover
+        ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+        : isDefault
+          ? 'transparent'
+          : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.02))';
   return (
     <tr
       role="button"
       tabIndex={0}
       aria-label={
-        isDefault
-          ? `Edit macro ${macro.name}`
-          : `Edit macro ${macro.name} — style ${styleTag}`
+        selectMode
+          ? `${selected ? 'Deselect' : 'Select'} macro ${macro.name}`
+          : isDefault
+            ? `Edit macro ${macro.name}`
+            : `Edit macro ${macro.name} — style ${styleTag}`
       }
+      aria-pressed={selectMode ? selected : undefined}
       onClick={activate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -612,7 +824,7 @@ function MacroStyleRow({
           : '1px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #333))'
       }}
     >
-      {/* Expand toggle — only rendered on the default row of a multi-style macro. */}
+      {/* Leftmost cell: checkbox (multi-select) or expand toggle (normal). */}
       <td
         style={{
           ...CELL,
@@ -621,7 +833,16 @@ function MacroStyleRow({
           textAlign: 'center'
         }}
       >
-        {isDefault && canExpand ? (
+        {selectMode ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            aria-label={`Select macro ${macro.name}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggleSelect(macro.name)}
+            style={{ cursor: 'pointer' }}
+          />
+        ) : isDefault && canExpand ? (
           <button
             type="button"
             onClick={(e) => {
@@ -988,6 +1209,389 @@ function AddBar({
     >
       <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
       <span>{label}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Multi-select batch UI
+// ---------------------------------------------------------------------------
+
+/**
+ * Sticky bottom action bar shown in multi-select mode. Batch buttons are
+ * disabled when nothing is selected; "Move to package…" is additionally
+ * disabled when there are no other active packages to move into.
+ */
+function MultiSelectBar({
+  count,
+  hasOtherPackages,
+  onPackageAsNew,
+  onMoveTo,
+  onDelete
+}: {
+  count: number;
+  hasOtherPackages: boolean;
+  onPackageAsNew: () => void;
+  onMoveTo: () => void;
+  onDelete: () => void;
+}): React.ReactElement {
+  const none = count === 0;
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        bottom: 0,
+        marginTop: '0.75rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.6rem',
+        padding: '0.6rem 0.75rem',
+        borderRadius: '6px',
+        border:
+          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        background:
+          'var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e))'
+      }}
+    >
+      <span style={{ fontWeight: 600, marginRight: 'auto' }}>
+        {count} selected
+      </span>
+      <button
+        type="button"
+        disabled={none}
+        onClick={onPackageAsNew}
+        style={batchButtonStyle(none, false)}
+      >
+        Package as new
+      </button>
+      <button
+        type="button"
+        disabled={none || !hasOtherPackages}
+        onClick={onMoveTo}
+        title={
+          hasOtherPackages
+            ? 'Move the selected macros to another package'
+            : 'No other active packages to move into'
+        }
+        style={batchButtonStyle(none || !hasOtherPackages, false)}
+      >
+        Move to package…
+      </button>
+      <button
+        type="button"
+        disabled={none}
+        onClick={onDelete}
+        style={batchButtonStyle(none, true)}
+      >
+        Delete
+      </button>
+    </div>
+  );
+}
+
+function batchButtonStyle(
+  disabled: boolean,
+  destructive: boolean
+): React.CSSProperties {
+  return {
+    padding: '0.35rem 0.85rem',
+    fontFamily: 'inherit',
+    fontSize: '0.9rem',
+    borderRadius: '4px',
+    border: destructive
+      ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
+      : '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+    background: destructive
+      ? 'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.15))'
+      : 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+    color: destructive
+      ? 'var(--vscode-errorForeground, #f48771)'
+      : 'inherit',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1
+  };
+}
+
+/** A transient success/error toast banner pinned to the top of the panel. */
+function ToastBanner({
+  toast,
+  onDismiss
+}: {
+  toast: Toast;
+  onDismiss: () => void;
+}): React.ReactElement {
+  const isError = toast.kind === 'error';
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.6rem',
+        marginBottom: '0.75rem',
+        padding: '0.55rem 0.75rem',
+        borderRadius: '5px',
+        border: `1px solid ${
+          isError
+            ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
+            : 'var(--vscode-inputValidation-infoBorder, #3794ff)'
+        }`,
+        background: isError
+          ? 'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.15))'
+          : 'var(--vscode-inputValidation-infoBackground, rgba(55,148,255,0.15))',
+        color: isError
+          ? 'var(--vscode-errorForeground, #f48771)'
+          : 'inherit'
+      }}
+    >
+      <span style={{ marginRight: 'auto' }}>
+        {isError ? '❌' : '✓'} {toast.message}
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'inherit',
+          cursor: 'pointer',
+          fontSize: '1rem',
+          lineHeight: 1
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+/** Shared modal shell — dim backdrop + centered card. */
+function ModalShell({
+  title,
+  onCancel,
+  children
+}: {
+  title: string;
+  onCancel: () => void;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(28rem, 90vw)',
+          padding: '1.1rem 1.25rem',
+          borderRadius: '8px',
+          border:
+            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+          background:
+            'var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e))',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.4)'
+        }}
+      >
+        <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.1rem' }}>{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const MODAL_INPUT_BORDER =
+  '1px solid var(--vscode-input-border, var(--vscode-panel-border, #555))';
+
+const MODAL_INPUT_STYLE: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '0.4rem 0.5rem',
+  fontFamily: 'inherit',
+  fontSize: '0.9rem',
+  borderRadius: '4px',
+  border: MODAL_INPUT_BORDER,
+  background: 'var(--vscode-input-background, rgba(255,255,255,0.04))',
+  color: 'var(--vscode-input-foreground, inherit)'
+};
+
+/** "Package as new" modal — collects a bare filename + optional metadata. */
+function PackageAsNewModal({
+  count,
+  onCancel,
+  onSubmit
+}: {
+  count: number;
+  onCancel: () => void;
+  onSubmit: (
+    newFile: string,
+    newDisplayName: string,
+    newDescription: string
+  ) => void;
+}): React.ReactElement {
+  const [newFile, setNewFile] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [description, setDescription] = useState('');
+  const bare = newFile.trim();
+  const fileValid = BARE_FILE_RE.test(bare);
+  const canSubmit = fileValid && count > 0;
+  return (
+    <ModalShell title="Package as new" onCancel={onCancel}>
+      <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
+        Copy the {count} selected macro{count === 1 ? '' : 's'} into a new
+        package. The source package is left unchanged.
+      </p>
+      <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
+          File name (letters, digits, - and _ only)
+        </span>
+        <input
+          type="text"
+          value={newFile}
+          autoFocus
+          placeholder="my_new_package"
+          onChange={(e) => setNewFile(e.target.value)}
+          style={{
+            ...MODAL_INPUT_STYLE,
+            border:
+              bare.length > 0 && !fileValid
+                ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
+                : MODAL_INPUT_BORDER
+          }}
+        />
+        {bare.length > 0 && !fileValid ? (
+          <span
+            style={{
+              display: 'block',
+              marginTop: '0.2rem',
+              fontSize: '0.8rem',
+              color: 'var(--vscode-errorForeground, #f48771)'
+            }}
+          >
+            Only letters, digits, hyphen and underscore are allowed.
+          </span>
+        ) : null}
+      </label>
+      <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
+          Display name (optional)
+        </span>
+        <input
+          type="text"
+          value={displayName}
+          placeholder={bare || 'Package display name'}
+          onChange={(e) => setDisplayName(e.target.value)}
+          style={MODAL_INPUT_STYLE}
+        />
+      </label>
+      <label style={{ display: 'block', marginBottom: '1rem' }}>
+        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
+          Description (optional)
+        </span>
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          style={MODAL_INPUT_STYLE}
+        />
+      </label>
+      <ModalButtons
+        onCancel={onCancel}
+        submitLabel="Create package"
+        canSubmit={canSubmit}
+        onSubmit={() => onSubmit(bare, displayName.trim(), description.trim())}
+      />
+    </ModalShell>
+  );
+}
+
+/** "Move to package" modal — pick a destination from other active packages. */
+function MoveToModal({
+  count,
+  otherPackages,
+  onCancel,
+  onSubmit
+}: {
+  count: number;
+  otherPackages: Array<{ file: string; name: string }>;
+  onCancel: () => void;
+  onSubmit: (destFile: string) => void;
+}): React.ReactElement {
+  const [dest, setDest] = useState(otherPackages[0]?.file ?? '');
+  const canSubmit = count > 0 && dest.length > 0;
+  return (
+    <ModalShell title="Move to package" onCancel={onCancel}>
+      <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
+        Move the {count} selected macro{count === 1 ? '' : 's'} into another
+        package. They are removed from this package.
+      </p>
+      <label style={{ display: 'block', marginBottom: '1rem' }}>
+        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
+          Destination package
+        </span>
+        <select
+          value={dest}
+          onChange={(e) => setDest(e.target.value)}
+          style={MODAL_INPUT_STYLE}
+        >
+          {otherPackages.map((p) => (
+            <option key={p.file} value={p.file}>
+              {p.name} ({p.file})
+            </option>
+          ))}
+        </select>
+      </label>
+      <ModalButtons
+        onCancel={onCancel}
+        submitLabel="Move"
+        canSubmit={canSubmit}
+        onSubmit={() => onSubmit(dest)}
+      />
+    </ModalShell>
+  );
+}
+
+/** Cancel / submit button pair used by the batch modals. */
+function ModalButtons({
+  onCancel,
+  submitLabel,
+  canSubmit,
+  onSubmit
+}: {
+  onCancel: () => void;
+  submitLabel: string;
+  canSubmit: boolean;
+  onSubmit: () => void;
+}): React.ReactElement {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+      <button type="button" onClick={onCancel} style={HEADER_BUTTON_STYLE}>
+        Cancel
+      </button>
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={onSubmit}
+        style={{
+          ...HEADER_BUTTON_STYLE,
+          background:
+            'var(--vscode-button-background, var(--vscode-button-secondaryBackground, #0e639c))',
+          color: 'var(--vscode-button-foreground, #fff)',
+          cursor: canSubmit ? 'pointer' : 'not-allowed',
+          opacity: canSubmit ? 1 : 0.5
+        }}
+      >
+        {submitLabel}
+      </button>
     </div>
   );
 }

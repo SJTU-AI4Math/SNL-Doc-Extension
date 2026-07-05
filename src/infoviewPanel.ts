@@ -192,9 +192,6 @@ export class InfoviewPanel {
         return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
-          InfoviewPanel.getOutput().appendLine(
-            `[debug] requestEntryDetails id="${msg.entryId.trim()}"`
-          );
           await this.pushPopoverEntryDetails(msg.entryId.trim());
         }
         return;
@@ -361,28 +358,17 @@ export class InfoviewPanel {
   private async pushPopoverEntryDetails(id: string): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
-      InfoviewPanel.getOutput().appendLine(
-        `[debug] pushPopoverEntryDetails: no workspace root for id="${id}"`
-      );
       return;
     }
     try {
       const entries = await readEntries(root);
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
-        InfoviewPanel.getOutput().appendLine(
-          `[debug] pushPopoverEntryDetails: entry id="${id}" NOT FOUND in pool (${entries.length} entries total)`
-        );
         return;
       }
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
-      const snlLen =
-        typeof entry.content?.snl === 'string' ? entry.content.snl.length : 0;
-      InfoviewPanel.getOutput().appendLine(
-        `[debug] pushPopoverEntryDetails: OK id="${id}" title="${entry.title}" kind="${entry.kind}"→${kind ? 'resolved' : 'null'} snlLen=${snlLen}`
-      );
       void this.panel.webview.postMessage({
         type: 'popoverEntryDetails',
         entryId: id,
@@ -391,9 +377,6 @@ export class InfoviewPanel {
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      InfoviewPanel.getOutput().appendLine(
-        `[debug] pushPopoverEntryDetails: ERROR id="${id}" ${text}`
-      );
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to load popover entry: ${text}`
       );

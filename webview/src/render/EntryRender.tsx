@@ -280,6 +280,20 @@ export function EntryRender({
   }, []);
 
   const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
+  // Memoize the successful tree so `<SnlSyntaxTreeView tree={...}/>` gets a
+  // stable object reference across re-renders. SnlSyntaxTreeView renders
+  // KaTeX asynchronously in a useEffect keyed on `tree`; a fresh object on
+  // every render invalidates the deps and cancels the async render before
+  // it can setState, so the body silently stays empty. This bites popovers
+  // hard because HoverPopoverProvider re-renders the whole popover stack on
+  // every pointer-move (updatePointer → setPopovers), so the popover
+  // EntryRender never gets a stable enough render window for KaTeX to
+  // finish. Main-panel EntryRender was accidentally fine because it only
+  // re-renders on entry/kind selection, not pointer motion.
+  const tree = useMemo(
+    () => (parsed.ok ? parseSnlSyntaxTree(snl) : null),
+    [parsed.ok, snl]
+  );
   const stroke = kind?.coloring.stroke ?? FALLBACK_STROKE;
   const background = kind?.coloring.background ?? FALLBACK_BACKGROUND;
   const kindName = kind ? kind.name : entry.kind;
@@ -358,24 +372,9 @@ export function EntryRender({
           fontSize: '1.05rem'
         }}
       >
-        <div
-          style={{
-            padding: '2px 6px',
-            marginBottom: '6px',
-            background: '#ffd',
-            color: '#800',
-            fontSize: '0.7rem',
-            fontFamily: 'monospace',
-            border: '1px dashed #a80',
-            wordBreak: 'break-all'
-          }}
-        >
-          [debug] id={entry.id} snl.len={snl.length} parsed.ok={String(parsed.ok)}
-          {' '}first60={JSON.stringify(snl.slice(0, 60))}
-        </div>
-        {parsed.ok ? (
+        {parsed.ok && tree ? (
           <SnlSyntaxTreeView
-            tree={parseSnlSyntaxTree(snl)}
+            tree={tree}
             macroDb={macroDb}
             query={macroQuery}
             hooks={hooks}

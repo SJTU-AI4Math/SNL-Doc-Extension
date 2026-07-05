@@ -2,61 +2,14 @@
 // renders its SNL content via @snl-basics/react, demonstrating consumer-side
 // customization of the render hooks (resolveSource + onHover).
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import 'katex/dist/katex.min.css';
-import '@snl-basics/react/style.css';
-import {
-  parseSnlSyntaxTree,
-  tryParseSnlSyntaxTree,
-  createMacroTemplateQueryFromDb,
-  defaultRenderHooks,
-  SnlSyntaxTreeView,
-  bundledMacroDb,
-  type SnlMacroTemplateQuery,
-  type SnlRenderHooks
-} from '@snl-basics/react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
-
-// Static, network-free macro DB bundled from @snl-basics/react — typed accessor,
-// no cast needed.
-const MACRO_DB = bundledMacroDb;
-const MACRO_QUERY: SnlMacroTemplateQuery = createMacroTemplateQueryFromDb(MACRO_DB);
-
-// ---------------------------------------------------------------------------
-// Host <-> webview shapes (mirrors src/snlDoc.ts, kept local so the webview
-// doesn't pull in the `vscode`-dependent extension module).
-// ---------------------------------------------------------------------------
-
-interface EntryOption {
-  id: string;
-  title: string;
-  hasContent: boolean;
-}
-
-interface EntryContent {
-  snl?: string;
-  typst?: string;
-  latex?: string;
-  markdown?: string;
-  text?: string;
-}
-
-interface EntryData {
-  id: string;
-  kind: string;
-  title: string;
-  content: EntryContent;
-  contribution_info: unknown;
-  pointer: unknown;
-}
-
-interface EntryKind {
-  id: string;
-  name: string;
-  coloring: { stroke: string; background: string };
-  numbering: string;
-  style: string;
-}
+import {
+  EntryRender,
+  type EntryOption,
+  type EntryData,
+  type EntryKind
+} from './render/EntryRender';
 
 type Incoming =
   | { type: 'entries'; entries: EntryOption[] }
@@ -122,6 +75,8 @@ export function App(): React.ReactElement {
               kind={selected.kind}
               entries={entries}
               postMessage={postMessage}
+              counterLabel={undefined}
+              disableTitleJump={true}
             />
           ) : (
             <p style={{ marginTop: '1rem', opacity: 0.7 }}>
@@ -196,145 +151,6 @@ function EntryPicker({
           </option>
         ))}
       </select>
-    </div>
-  );
-}
-
-function EntryRender({
-  entry,
-  kind,
-  entries,
-  postMessage
-}: {
-  entry: EntryData;
-  kind: EntryKind | null;
-  entries: EntryOption[];
-  postMessage: (message: unknown) => void;
-}): React.ReactElement {
-  const snl = entry.content?.snl ?? '';
-
-  // Consumer-injected hooks. Rebuilt when the pool changes so resolveSource
-  // always sees the current entry universe.
-  const hooks: SnlRenderHooks = useMemo(() => {
-    return {
-      ...defaultRenderHooks,
-      // Resolve a macro's source binding against the local Entry pool: the
-      // first referenced id that exists becomes an `entry` link; otherwise
-      // fall back to the first URL.
-      resolveSource: (source) => {
-        for (const ref of source.entries) {
-          const match = entries.find((e) => e.id === ref);
-          if (match) {
-            return { kind: 'entry', ref, displayName: match.title };
-          }
-        }
-        if (source.urls.length > 0) {
-          const href = source.urls[0];
-          return { kind: 'url', ref: href, href };
-        }
-        return null;
-      },
-      // Demo: forward hover events to the extension host output channel.
-      onHover: (event) => {
-        postMessage({ type: 'log', level: 'info', msg: `hover ${event.name}` });
-      }
-    };
-  }, [entries, postMessage]);
-
-  const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
-  const stroke = kind?.coloring.stroke ?? '#888888';
-  const background = kind?.coloring.background ?? '#eeeeee';
-
-  return (
-    <section
-      style={{
-        border: `1px solid ${stroke}`,
-        borderRadius: '4px',
-        overflow: 'hidden'
-      }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.55rem 0.8rem',
-          background,
-          color: '#111'
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            display: 'inline-block',
-            width: '0.9rem',
-            height: '0.9rem',
-            borderRadius: '2px',
-            border: `1px solid ${stroke}`,
-            background: kind?.coloring.background ?? '#fff'
-          }}
-        />
-        <strong style={{ color: stroke }}>{entry.title}</strong>
-        <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>
-          {kind ? kind.name : entry.kind}
-        </span>
-      </header>
-      <div
-        style={{
-          padding: '0.9rem',
-          background: '#ffffff',
-          color: '#111',
-          fontSize: '1.05rem'
-        }}
-      >
-        {parsed.ok ? (
-          <SnlSyntaxTreeView
-            tree={parseSnlSyntaxTree(snl)}
-            macroDb={MACRO_DB}
-            query={MACRO_QUERY}
-            hooks={hooks}
-          />
-        ) : (
-          <div>
-            <ErrorBanner
-              text={`SNL parse error: ${parsed.error}${
-                parsed.position !== undefined ? ` (at ${parsed.position})` : ''
-              }`}
-            />
-            <pre
-              style={{
-                margin: 0,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                fontSize: '0.85rem',
-                color: '#222'
-              }}
-            >
-              {snl}
-            </pre>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ErrorBanner({ text }: { text: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        margin: '0 0 0.5rem',
-        padding: '0.4rem 0.6rem',
-        borderRadius: '3px',
-        background: '#fdecea',
-        border: '1px solid #f5c2c0',
-        color: '#8a1f11',
-        fontSize: '0.8rem',
-        fontFamily: 'var(--vscode-editor-font-family, monospace)'
-      }}
-    >
-      {text}
     </div>
   );
 }

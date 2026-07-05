@@ -227,6 +227,10 @@ export function EntryRender({
       onLeave: () => {
         clearCurrentHover();
       },
+      // Suppress SNL-Basics's built-in tooltip DOM — we render our own
+      // hover-preview popover via HoverPopoverProvider and don't want the
+      // two overlapping.
+      renderTooltip: () => null,
       // Caller overrides (onHover / renderTooltip / …) win over the above.
       ...(hooksOverride ?? {})
     };

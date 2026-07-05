@@ -197,7 +197,9 @@ export function EntryRender({
       onHover: (event) => {
         const entryId = resolveEntryId(event.name);
         if (!entryId) {
-          clearCurrentHover();
+          // Hovering a non-resolvable macro (e.g. fvar) — leave the current
+          // popover alone. Doc-level hit-test in HoverPopoverProvider governs
+          // dismissal, so we don't need to touch anything here.
           return;
         }
         const originEl = event.target;
@@ -223,9 +225,25 @@ export function EntryRender({
         hs.popoverId = id;
         hs.timer = setTimeout(() => popovers.freeze(id), 3000);
       },
-      // Pointer left this render container → drop its unfrozen popover.
+      // Pointer left this SNL render container.
+      //
+      // Deliberately do NOT dismiss the popover from here — dismissal is
+      // owned by HoverPopoverProvider's document-level union hit-test so the
+      // pointer can bridge from a macro node onto the portal-mounted popover
+      // DOM (which is outside this container, so leaving here doesn't mean
+      // the user actually left the popover's area of influence).
+      //
+      // We DO drop the pending 3s freeze timer — if the pointer wandered
+      // away, we shouldn't freeze the popover in place based on a stale
+      // "still hovering" assumption. Bookkeeping (targetEl / popoverId) is
+      // left intact so a re-enter on the SAME macro reuses the popover
+      // instead of spawning a duplicate.
       onLeave: () => {
-        clearCurrentHover();
+        const hs = hoverStateRef.current;
+        if (hs.timer) {
+          clearTimeout(hs.timer);
+          hs.timer = null;
+        }
       },
       // Suppress SNL-Basics's built-in tooltip DOM — we render our own
       // hover-preview popover via HoverPopoverProvider and don't want the
@@ -236,29 +254,18 @@ export function EntryRender({
     };
   }, [entries, hooksOverride, popovers, currentPopoverId, resolveEntryId, clearCurrentHover]);
 
-  // Guard: SNL-Basics only fires onHover over macro nodes, so moving the
-  // pointer off the originating macro onto empty container space produces no
-  // event. Track pointer position over the whole body and drop the active
-  // (unfrozen) popover — and cancel its pending freeze — once the pointer is
-  // outside the originating macro's rect.
-  const handleBodyPointerMove = useCallback(
-    (e: React.PointerEvent): void => {
-      const hs = hoverStateRef.current;
-      if (!hs.targetEl || !hs.popoverId) {
-        return;
-      }
-      const rect = (hs.targetEl as HTMLElement).getBoundingClientRect();
-      const inside =
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom;
-      if (!inside) {
-        clearCurrentHover();
-      }
-    },
-    [clearCurrentHover]
-  );
+  // Body-pointer-move handler was previously used to dismiss unfrozen
+  // popovers when the pointer strayed off the origin macro into empty body
+  // space. That aggressive dismissal made it impossible to reach the
+  // portal-mounted popover to read it. Dismissal is now owned entirely by
+  // HoverPopoverProvider's document-level union hit-test.
+  //
+  // We still install an empty handler (rather than deleting the prop) so
+  // React keeps a consistent event delegation topology on this div — no
+  // behavioural effect.
+  const handleBodyPointerMove = useCallback((): void => {
+    /* intentionally empty — see comment */
+  }, []);
 
   // Clear any pending freeze timer when this render surface unmounts so a
   // stale timer can't fire freeze() on a popover after the source is gone.

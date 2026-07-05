@@ -382,19 +382,29 @@ export function HoverPopoverProvider({
     };
   }, []);
 
-  // Frozen-popover batch dismissal: once any popover has frozen, leaving the
-  // union of (all origin-macro rects + all live popover rects) kills the stack.
+  // Document-level union hit-test: pointer position vs the union of every
+  // live popover's originating-macro rect + its own rect (post-portal).
+  // When the pointer is outside the union, dismiss any UNFROZEN popover
+  // (they were following the pointer and lost it). Frozen popovers get
+  // dismissed en masse only when NO popover in the stack — frozen or not —
+  // is under the pointer, matching the spec: "leave the union of all live
+  // popover rects and originating-macro rects → dismiss".
+  //
+  // Runs unconditionally (not gated on "any frozen") because the pre-freeze
+  // window is exactly when the pointer needs to be able to bridge from the
+  // origin macro onto the portal-mounted popover DOM. Without this we'd
+  // never let the user reach the popover to read it.
   useEffect(() => {
     function onDocPointerMove(e: PointerEvent): void {
-      const live = popoversRef.current;
-      if (!live.some((p) => p.frozen)) {
+      const live = popoversRef.current.filter((p) => p.phase !== 'closing');
+      if (live.length === 0) {
         return;
       }
       const px = e.clientX;
       const py = e.clientY;
-      // Inflate hit rects to bridge the pointer→popover offset gap so moving
-      // from a frozen popover's origin macro toward the popover doesn't fall
-      // into a dead zone and dismiss the stack prematurely.
+      // Inflate hit rects to bridge the pointer→popover offset gap so
+      // moving from a macro toward its popover doesn't fall into a dead
+      // zone and dismiss the stack prematurely.
       const pad = POPOVER_OFFSET + 8;
       const inside = (r: {
         left: number;
@@ -407,20 +417,54 @@ export function HoverPopoverProvider({
         py >= r.top - pad &&
         py <= r.bottom + pad;
 
+      // Which popovers is the pointer currently in the influence area of?
+      const insideIds = new Set<string>();
       for (const p of live) {
         if (inside(p.originRect)) {
-          return;
+          insideIds.add(p.id);
+          continue;
         }
         const el = elementsRef.current.get(p.id);
         if (el && inside(el.getBoundingClientRect())) {
-          return;
+          insideIds.add(p.id);
         }
       }
-      dismissAll();
+
+      if (insideIds.size === 0) {
+        // Outside everything → kill the whole stack.
+        dismissAll();
+        return;
+      }
+
+      // Inside at least one popover's influence area: unfrozen popovers
+      // that lost the pointer (are neither under it nor an ancestor of one
+      // that is) should die. Ancestors of any inside popover are kept alive
+      // because the recursion invariant says the parent's popover stays
+      // as long as any descendant is in play.
+      const keepAlive = new Set<string>(insideIds);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const p of live) {
+          if (
+            keepAlive.has(p.id) &&
+            p.spawnedFromPopoverId &&
+            !keepAlive.has(p.spawnedFromPopoverId)
+          ) {
+            keepAlive.add(p.spawnedFromPopoverId);
+            grew = true;
+          }
+        }
+      }
+      for (const p of live) {
+        if (!keepAlive.has(p.id) && !p.frozen) {
+          dismissSubtree(p.id);
+        }
+      }
     }
     document.addEventListener('pointermove', onDocPointerMove);
     return () => document.removeEventListener('pointermove', onDocPointerMove);
-  }, [dismissAll]);
+  }, [dismissAll, dismissSubtree]);
 
   const ctx = useMemo<HoverPopoverContextValue>(
     () => ({

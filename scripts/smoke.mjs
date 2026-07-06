@@ -130,7 +130,10 @@ async function main() {
     readMacroPackages,
     addMacro,
     readAllMacros,
-    setActiveMacroPackages
+    setActiveMacroPackages,
+    createLibrary,
+    readLibraryGraph,
+    writeLibraryGraph
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
@@ -759,6 +762,217 @@ async function main() {
   );
   await fs.rm(tmpRoot3, { recursive: true, force: true });
   await fs.rm(tmpRoot2, { recursive: true, force: true });
+
+  // --- [24] libraryGraph: numbering engine (spec §4-§5) --------------------
+  console.log('\n[24] libraryGraph numbering engine');
+  const graphMod = await import(
+    pathToFileURL(nodePath.resolve(process.cwd(), 'out', 'libraryGraph.js')).href
+  );
+  const { formatNumbering, numberFor, readingOrder } = graphMod;
+
+  // §5 magic-string formatter
+  assert(formatNumbering('1', 3) === '3', 'formatNumbering("1", 3) → "3"');
+  assert(formatNumbering('.1', 3) === '.3', 'formatNumbering(".1", 3) → ".3"');
+  assert(formatNumbering('A', 3) === 'C', 'formatNumbering("A", 3) → "C"');
+  assert(formatNumbering('A', 27) === 'AA', 'formatNumbering("A", 27) → "AA"');
+  assert(formatNumbering('a', 3) === 'c', 'formatNumbering("a", 3) → "c"');
+  assert(formatNumbering('I', 4) === 'IV', 'formatNumbering("I", 4) → "IV"');
+  assert(formatNumbering('i', 9) === 'ix', 'formatNumbering("i", 9) → "ix"');
+  assert(formatNumbering('(1)', 12) === '(12)', 'formatNumbering("(1)", 12) → "(12)"');
+  assert(formatNumbering('Ex. A.', 2) === 'Ex. B.', 'formatNumbering("Ex. A.", 2) → "Ex. B."');
+  assert(formatNumbering('§I.', 4) === '§IV.', 'formatNumbering("§I.", 4) → "§IV."');
+  assert(formatNumbering('Foo', 3) === 'Foo', 'formatNumbering("Foo", 3) → "Foo" (no slot)');
+  // First-slot-wins invariant: second 1 stays literal.
+  assert(formatNumbering('1.1', 3) === '3.1', 'formatNumbering("1.1", 3) → "3.1" (second slot is literal)');
+
+  // §4 numberFor — the cat-supplied 1.3B.5 example verbatim from spec §6.
+  const graph1 = {
+    nodes: [
+      { id: 'cSec', label: 'Counter', props: { numbering: '1' } },
+      { id: 'cSubsec', label: 'Counter', props: { numbering: '.1' } },
+      { id: 'cEntry', label: 'Counter', props: { numbering: 'A' } },
+      { id: 'cSubentry', label: 'Counter', props: { numbering: '.1' } },
+
+      { id: 's1', label: 'Section', props: { name: 'Chapter 1' } },
+
+      { id: 's1a', label: 'Section', props: { name: 'Section 1.1' } },
+      { id: 's1b', label: 'Section', props: { name: 'Section 1.2' } },
+      { id: 's1c', label: 'Section', props: { name: 'Section 1.3' } },
+
+      { id: 'eA', label: 'Entry', props: { entryId: 'uuid-A' } },
+      { id: 'eB', label: 'Entry', props: { entryId: 'uuid-B' } },
+
+      { id: 'eB1', label: 'Entry', props: { entryId: 'uuid-B1' } },
+      { id: 'eB2', label: 'Entry', props: { entryId: 'uuid-B2' } },
+      { id: 'eB3', label: 'Entry', props: { entryId: 'uuid-B3' } },
+      { id: 'eB4', label: 'Entry', props: { entryId: 'uuid-B4' } },
+      { id: 'eB5', label: 'Entry', props: { entryId: 'uuid-B5' } }
+    ],
+    relationships: [
+      { from: 'cSec', to: 's1', label: 'count' },
+
+      { from: 'cSubsec', to: 's1a', label: 'count' },
+      { from: 's1a', to: 's1b', label: 'next' },
+      { from: 's1b', to: 's1c', label: 'next' },
+
+      { from: 'cEntry', to: 'eA', label: 'count' },
+      { from: 'eA', to: 'eB', label: 'next' },
+
+      { from: 'cSubentry', to: 'eB1', label: 'count' },
+      { from: 'eB1', to: 'eB2', label: 'next' },
+      { from: 'eB2', to: 'eB3', label: 'next' },
+      { from: 'eB3', to: 'eB4', label: 'next' },
+      { from: 'eB4', to: 'eB5', label: 'next' },
+
+      { from: 's1', to: 's1c', label: 'branch' },
+      { from: 's1c', to: 'eB', label: 'branch' },
+      { from: 'eB', to: 'eB5', label: 'branch' },
+
+      // reading-next chain over Entries (spec §7): eA → eB → eB1..eB5
+      { from: 'eA', to: 'eB', label: 'reading-next' },
+      { from: 'eB', to: 'eB1', label: 'reading-next' },
+      { from: 'eB1', to: 'eB2', label: 'reading-next' },
+      { from: 'eB2', to: 'eB3', label: 'reading-next' },
+      { from: 'eB3', to: 'eB4', label: 'reading-next' },
+      { from: 'eB4', to: 'eB5', label: 'reading-next' }
+    ]
+  };
+
+  const n_eB5 = numberFor(graph1, 'eB5');
+  assert(n_eB5 === '1.3B.5', `numberFor(eB5) → "1.3B.5" (got ${JSON.stringify(n_eB5)})`);
+  // Intermediate numbers per spec §6 walk-through.
+  assert(numberFor(graph1, 's1') === '1', 'numberFor(s1) → "1"');
+  assert(numberFor(graph1, 's1c') === '1.3', 'numberFor(s1c) → "1.3"');
+  assert(numberFor(graph1, 'eB') === '1.3B', 'numberFor(eB) → "1.3B"');
+  // eA has count+next chain (ordinal 1, template "A" → "A") but no incoming
+  // branch edge in this fragment, so it has no sectional prefix. That's the
+  // expected shape for a sibling not on the specific branch chain being
+  // rendered — surrounding levels still position it via its own counter.
+  assert(numberFor(graph1, 'eA') === 'A', 'numberFor(eA) → "A" (no branch parent → bare counter segment)');
+  // Missing node → null.
+  assert(numberFor(graph1, 'nope') === null, 'numberFor(missing) → null');
+
+  // §7 reading order
+  const order = readingOrder(graph1);
+  const expectedOrder = ['eA', 'eB', 'eB1', 'eB2', 'eB3', 'eB4', 'eB5'];
+  assert(
+    JSON.stringify(order) === JSON.stringify(expectedOrder),
+    `readingOrder → ${JSON.stringify(expectedOrder)} (got ${JSON.stringify(order)})`
+  );
+
+  // Empty graph & orphan graph corner cases.
+  assert(
+    JSON.stringify(readingOrder({ nodes: [], relationships: [] })) === '[]',
+    'readingOrder(empty) → []'
+  );
+  assert(
+    numberFor({ nodes: [], relationships: [] }, 'anything') === null,
+    'numberFor(empty, anything) → null'
+  );
+  const orphanGraph = {
+    nodes: [{ id: 'e1', label: 'Entry', props: { entryId: 'x' } }],
+    relationships: []
+  };
+  assert(
+    numberFor(orphanGraph, 'e1') === null,
+    'numberFor on Entry with no count/next chain → null (unpositioned)'
+  );
+
+  // --- [25] readLibraryGraph / writeLibraryGraph host API ------------------
+  console.log('\n[25] library graph host API (createLibrary → graph.json)');
+  // Fresh workspace: init + create a library, verify graph.json exists at
+  // the expected path.
+  const tmpRoot4 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-graph-'));
+  const root4 = Uri.file(tmpRoot4);
+  const init4 = await initSnlDoc(root4);
+  assert(init4.status === 'created', 'initSnlDoc -> created (graph test root)');
+  const mkLib = await createLibrary(root4, 'graphtest', 'Graph Test');
+  assert(mkLib.status === 'created', 'createLibrary -> created');
+  const graphPath = nodePath.join(
+    tmpRoot4,
+    '.SNL_Doc',
+    'libraries',
+    'graphtest',
+    'graph.json'
+  );
+  const graphRaw = JSON.parse(await fs.readFile(graphPath, 'utf8'));
+  assert(
+    Array.isArray(graphRaw.nodes) && graphRaw.nodes.length === 0,
+    'createLibrary writes graph.json with empty nodes'
+  );
+  assert(
+    Array.isArray(graphRaw.relationships) && graphRaw.relationships.length === 0,
+    'createLibrary writes graph.json with empty relationships (not "edges")'
+  );
+  // Old relationships.json must NOT exist.
+  const oldPath = nodePath.join(
+    tmpRoot4,
+    '.SNL_Doc',
+    'libraries',
+    'graphtest',
+    'relationships.json'
+  );
+  let oldExists = true;
+  try {
+    await fs.access(oldPath);
+  } catch {
+    oldExists = false;
+  }
+  assert(!oldExists, 'legacy relationships.json is NOT created');
+
+  // writeLibraryGraph round-trip.
+  const write1 = await writeLibraryGraph(root4, 'graphtest', {
+    nodes: [
+      { id: 'c', label: 'Counter', props: { numbering: '1' } },
+      { id: 's', label: 'Section', props: { name: 'Chapter' } }
+    ],
+    relationships: [{ from: 'c', to: 's', label: 'count' }]
+  });
+  assert(write1.status === 'ok', 'writeLibraryGraph -> ok');
+  const read1 = await readLibraryGraph(root4, 'graphtest');
+  assert(read1.status === 'ok', 'readLibraryGraph -> ok after write');
+  assert(
+    read1.result.graph.nodes.length === 2 &&
+      read1.result.graph.relationships.length === 1,
+    'round-trip preserves 2 nodes + 1 rel'
+  );
+  assert(read1.result.warnings.length === 0, 'clean graph has no warnings');
+
+  // Dangling entryId → warning (spec §8).
+  const write2 = await writeLibraryGraph(root4, 'graphtest', {
+    nodes: [
+      { id: 'e1', label: 'Entry', props: { entryId: 'does-not-exist' } }
+    ],
+    relationships: []
+  });
+  assert(write2.status === 'ok', 'writeLibraryGraph with dangling entryId -> ok');
+  const read2 = await readLibraryGraph(root4, 'graphtest');
+  assert(read2.status === 'ok', 'readLibraryGraph returns ok even with dangling entryId');
+  // Note: knownEntryIds may be empty (this workspace has no entries yet), in
+  // which case the read side skips validation. Write an entry then re-read
+  // to actually exercise the dangling-warning path.
+  const entryKindsInit = await applyEntryKindsPreset(root4, 'fulcrum-math-notes');
+  assert(entryKindsInit.status === 'applied', 'applyEntryKindsPreset -> applied (root4)');
+  const addProbe = await addEntry(root4, {
+    id: 'real-entry',
+    kind: 'definition',
+    title: 'Real Entry',
+    tags: [],
+    content: { snl: '' }
+  });
+  assert(addProbe.status === 'ok', 'addEntry -> ok (real entry for dangling test)');
+  const read3 = await readLibraryGraph(root4, 'graphtest');
+  assert(read3.status === 'ok', 'readLibraryGraph -> ok after adding a real entry');
+  assert(
+    read3.result.warnings.some((w) => w.includes('does-not-exist')),
+    `dangling entryId surfaces as warning (got ${JSON.stringify(read3.result.warnings)})`
+  );
+
+  // No graph.json in a non-existent library slug -> noFile.
+  const read4 = await readLibraryGraph(root4, 'nonexistent-slug');
+  assert(read4.status === 'noFile', 'readLibraryGraph on missing lib -> noFile');
+
+  await fs.rm(tmpRoot4, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

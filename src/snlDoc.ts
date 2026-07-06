@@ -16,7 +16,7 @@ import { slugify } from './slug';
  *   ├── entries.json           shared entry pool (top-level, sibling of libraries/)
  *   ├── term_macros/<pkg>.json macro packages (one file = one package)
  *   └── libraries/<slug>/
- *       ├── relationships.json { nodes: [], edges: [] }
+ *       ├── graph.json           Neo4j-style { nodes, relationships }
  *       └── documents/{Typst,LaTeX,Markdown}/
  */
 
@@ -91,13 +91,13 @@ export function libraryDirUri(
   return vscode.Uri.joinPath(librariesDirUri(workspaceRoot), slug);
 }
 
-export function relationshipsUri(
+export function libraryGraphUri(
   workspaceRoot: vscode.Uri,
   slug: string
 ): vscode.Uri {
   return vscode.Uri.joinPath(
     libraryDirUri(workspaceRoot, slug),
-    'relationships.json'
+    'graph.json'
   );
 }
 
@@ -168,9 +168,19 @@ export interface SnlConfig {
   active_macro_packages?: string[];
 }
 
-export interface RelationshipsFile {
+/**
+ * On-disk shape of `libraries/<slug>/graph.json` — a Neo4j-style property
+ * graph. See `docs/library-graph-spec.md` for the full spec and
+ * `src/libraryGraph.ts` for the pure numbering / reading-order engine that
+ * consumes this file.
+ *
+ * Field-level types are kept `unknown[]` here so a malformed on-disk file
+ * doesn't reject the whole read; the graph-engine layer validates shapes
+ * lazily and surfaces per-node warnings via `readLibraryGraph`.
+ */
+export interface LibraryGraphFile {
   nodes: unknown[];
-  edges: unknown[];
+  relationships: unknown[];
 }
 
 /** Init / Create results returned to panels for UI feedback. */
@@ -361,7 +371,7 @@ export async function initSnlDoc(
  *  - `.SNL_Doc/` does not exist (`noSnlDoc`);
  *  - a library with the same slug already exists (`duplicate`).
  *
- * On success creates `libraries/<slug>/{relationships.json,documents/...}`
+ * On success creates `libraries/<slug>/{graph.json,documents/...}`
  * and appends `{slug, title}` to `config.json#libraries`.
  */
 export async function createLibrary(
@@ -412,8 +422,8 @@ export async function createLibrary(
   await fsApi.createDirectory(markdownDir);
 
   await fsApi.writeFile(
-    relationshipsUri(workspaceRoot, slug),
-    jsonBytes({ nodes: [], edges: [] } satisfies RelationshipsFile)
+    libraryGraphUri(workspaceRoot, slug),
+    jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile)
   );
 
   const gitkeep = ENCODER.encode('');
@@ -1507,7 +1517,7 @@ export interface AllMacroIndexEntry {
  * Returns `{ hasSnlDoc: false, ... }` when `.SNL_Doc/` is missing — panels use
  * this to render the "not initialized" placeholder. Otherwise scans
  * `config.json` for the library list and computes per-library counts from
- * each `relationships.json`.
+ * each `graph.json`.
  *
  * Per-library entry count = number of DISTINCT entry UUIDs that appear as
  * node ids in that library's relationship graph (the subset of the shared
@@ -1553,20 +1563,22 @@ export async function readOverview(
         relationshipCount: null
       };
       try {
-        const rel = await readJson<RelationshipsFile>(
-          relationshipsUri(workspaceRoot, entry.slug)
+        const rel = await readJson<LibraryGraphFile>(
+          libraryGraphUri(workspaceRoot, entry.slug)
         );
         const nodes = Array.isArray(rel.nodes) ? rel.nodes : [];
-        const edges = Array.isArray(rel.edges) ? rel.edges : [];
-        summary.relationshipCount = edges.length;
-        // Count distinct node ids that look like UUID references.
+        const rels = Array.isArray(rel.relationships) ? rel.relationships : [];
+        summary.relationshipCount = rels.length;
+        // Count distinct Entry-labelled nodes (Sections/Counters don't
+        // contribute to "entries in this library"). See spec §2.
         const ids = new Set<string>();
         for (const n of nodes) {
-          if (n && typeof n === 'object' && 'id' in n) {
-            const id = (n as { id: unknown }).id;
-            if (typeof id === 'string') {
-              ids.add(id);
-            }
+          if (!n || typeof n !== 'object') continue;
+          const label = (n as { label?: unknown }).label;
+          if (label !== 'Entry') continue;
+          const id = (n as { id?: unknown }).id;
+          if (typeof id === 'string') {
+            ids.add(id);
           }
         }
         summary.entryCount = ids.size;
@@ -3032,4 +3044,202 @@ export async function batchMoveToNewPackage(
     file: created.file,
     movedCount: created.copiedCount
   };
+}
+
+// ---------------------------------------------------------------------------
+// Library graph: read / write
+// ---------------------------------------------------------------------------
+
+/**
+ * Well-typed view of a library graph node. Mirrors `libraryGraph.ts`'s
+ * `GraphNode` but lives here so callers importing `snlDoc` don't need to pull
+ * in the engine module just to read a graph.
+ */
+export interface GraphNodeDto {
+  id: string;
+  label: string;
+  props: Record<string, unknown>;
+}
+
+/** Well-typed view of a library graph relationship (edge). */
+export interface GraphRelationshipDto {
+  from: string;
+  to: string;
+  label: string;
+}
+
+/** Result of {@link readLibraryGraph}. `warnings` names non-fatal issues
+ *  (dangling entryId, unknown node label, malformed edge, …) that the caller
+ *  should surface to the user. `graph` always parses — malformed pieces are
+ *  skipped and named in `warnings`. */
+export interface ReadLibraryGraphResult {
+  graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] };
+  warnings: string[];
+}
+
+/**
+ * Read `libraries/<slug>/graph.json` and normalize it into a well-typed
+ * shape. Non-fatal issues (dangling `entryId`, malformed rows, unknown label
+ * strings) are collected in `warnings` rather than aborting the read — see
+ * spec §8. Missing file → `{status: 'noFile'}`. Read/parse error → `{status:
+ * 'error', message}`.
+ */
+export async function readLibraryGraph(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<
+  | { status: 'ok'; result: ReadLibraryGraphResult }
+  | { status: 'noFile' }
+  | { status: 'error'; message: string }
+> {
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(libraryGraphUri(workspaceRoot, slug));
+  } catch (err) {
+    // The real VS Code fs throws FileSystemError with code 'FileNotFound';
+    // the Node-based smoke shim throws NodeJS.SystemError with code 'ENOENT'.
+    // Accept both so callers can render the "not initialized" placeholder
+    // whichever host we're running in.
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? (err as { code?: unknown }).code
+        : undefined;
+    if (code === 'FileNotFound' || code === 'ENOENT') {
+      return { status: 'noFile' };
+    }
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+
+  const warnings: string[] = [];
+  if (!raw || typeof raw !== 'object') {
+    return {
+      status: 'ok',
+      result: { graph: { nodes: [], relationships: [] }, warnings: ['graph file is not a JSON object'] }
+    };
+  }
+  const rawObj = raw as Record<string, unknown>;
+  const rawNodes = Array.isArray(rawObj.nodes) ? rawObj.nodes : [];
+  const rawRels = Array.isArray(rawObj.relationships)
+    ? rawObj.relationships
+    : [];
+  if (!Array.isArray(rawObj.nodes)) {
+    warnings.push('nodes is not an array (treated as empty)');
+  }
+  if (!Array.isArray(rawObj.relationships)) {
+    warnings.push('relationships is not an array (treated as empty)');
+  }
+
+  // Cheap pre-index of the shared entry pool so dangling-entryId warnings
+  // can be computed in one read.
+  const knownEntryIds = new Set<string>();
+  try {
+    const entries = await readEntries(workspaceRoot);
+    for (const e of entries) {
+      if (e && typeof e.id === 'string') knownEntryIds.add(e.id);
+    }
+  } catch {
+    // If the shared pool is unreadable we simply skip entryId validation.
+    // Not a fatal condition for reading a library's graph.
+  }
+
+  const nodes: GraphNodeDto[] = [];
+  const idSet = new Set<string>();
+  for (let i = 0; i < rawNodes.length; i++) {
+    const n = rawNodes[i];
+    if (!n || typeof n !== 'object') {
+      warnings.push(`node[${i}] is not an object; skipped`);
+      continue;
+    }
+    const obj = n as Record<string, unknown>;
+    const id = obj.id;
+    const label = obj.label;
+    if (typeof id !== 'string' || id.length === 0) {
+      warnings.push(`node[${i}] has no string id; skipped`);
+      continue;
+    }
+    if (typeof label !== 'string' || label.length === 0) {
+      warnings.push(`node[${id}] has no string label; skipped`);
+      continue;
+    }
+    if (idSet.has(id)) {
+      warnings.push(`node[${id}] duplicated in graph; kept first occurrence`);
+      continue;
+    }
+    idSet.add(id);
+    const props =
+      obj.props && typeof obj.props === 'object' && !Array.isArray(obj.props)
+        ? (obj.props as Record<string, unknown>)
+        : {};
+    nodes.push({ id, label, props });
+
+    // Spec §8: Entry nodes carry props.entryId → warn if dangling.
+    if (label === 'Entry' && knownEntryIds.size > 0) {
+      const entryId = props.entryId;
+      if (typeof entryId === 'string' && entryId && !knownEntryIds.has(entryId)) {
+        warnings.push(
+          `Entry node "${id}" references missing entry "${entryId}"`
+        );
+      }
+    }
+  }
+
+  const relationships: GraphRelationshipDto[] = [];
+  for (let i = 0; i < rawRels.length; i++) {
+    const r = rawRels[i];
+    if (!r || typeof r !== 'object') {
+      warnings.push(`relationship[${i}] is not an object; skipped`);
+      continue;
+    }
+    const obj = r as Record<string, unknown>;
+    const from = obj.from;
+    const to = obj.to;
+    const label = obj.label;
+    if (typeof from !== 'string' || typeof to !== 'string' || typeof label !== 'string') {
+      warnings.push(`relationship[${i}] is missing string from/to/label; skipped`);
+      continue;
+    }
+    if (!idSet.has(from)) {
+      warnings.push(`relationship[${i}] references unknown source node "${from}"; skipped`);
+      continue;
+    }
+    if (!idSet.has(to)) {
+      warnings.push(`relationship[${i}] references unknown target node "${to}"; skipped`);
+      continue;
+    }
+    relationships.push({ from, to, label });
+  }
+
+  return {
+    status: 'ok',
+    result: { graph: { nodes, relationships }, warnings }
+  };
+}
+
+/**
+ * Atomically write a library graph to `libraries/<slug>/graph.json`. Caller
+ * is responsible for validating the graph before writing (the read side is
+ * forgiving, the write side is not — we trust what we're given here).
+ */
+export async function writeLibraryGraph(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] }
+): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
+  const fsApi = vscode.workspace.fs;
+  const file: LibraryGraphFile = {
+    nodes: graph.nodes,
+    relationships: graph.relationships
+  };
+  try {
+    await fsApi.writeFile(libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
+    return { status: 'ok' };
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
 }

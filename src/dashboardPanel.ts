@@ -19,7 +19,7 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  * placeholder pointing the user at `snlDoc.init`.
  *
  * Auto-refresh: a `FileSystemWatcher` on `.SNL_Doc/(config|entries).json`
- * and `.SNL_Doc/libraries/** /relationships.json` re-reads the overview and
+ * and `.SNL_Doc/libraries/**​/graph.json` re-reads the overview and
  * pushes it to the webview. The watcher is created once per workspace folder
  * — multi-root projects only watch the first folder for now (matches the
  * single-folder assumption shared with init/create).
@@ -105,7 +105,7 @@ export class DashboardPanel {
       new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
       new vscode.RelativePattern(
         root,
-        '.SNL_Doc/libraries/*/relationships.json'
+        '.SNL_Doc/libraries/*/graph.json'
       ),
       // Macro packages: watch the whole term_macros tree (one file per pkg).
       new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),

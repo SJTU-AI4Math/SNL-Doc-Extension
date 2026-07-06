@@ -3,7 +3,7 @@
 // The Dashboard mirrors the management/reading split: this is the *manage*
 // surface (compare with the Infoview which is the *read* surface). On
 // mount it asks the host for an overview; the host re-pushes whenever
-// `.SNL_Doc/(config|entries).json` or any `libraries/*/relationships.json`
+// `.SNL_Doc/(config|entries).json` or any `libraries/*/graph.json`
 // changes (via FileSystemWatcher).
 //
 // Section order (top → bottom):

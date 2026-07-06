@@ -151,7 +151,7 @@ async function main() {
   console.log('\n[2] applyEntryKindsPreset(fulcrum-math-notes)');
   const applied = await applyEntryKindsPreset(root, 'fulcrum-math-notes');
   assert(applied.status === 'applied', 'applyEntryKindsPreset -> applied');
-  assert(applied.count === 12, `preset applied 12 kinds (got ${applied.count})`);
+  assert(applied.count === 15, `preset applied 15 kinds (got ${applied.count})`);
 
   const cfg = await readConfig(tmpRoot);
   assert(
@@ -159,8 +159,8 @@ async function main() {
     `config.version === "0.0.3" (got ${cfg.version})`
   );
   assert(
-    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 12,
-    `config has 12 entry_kinds (got ${cfg.entry_kinds?.length})`
+    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 15,
+    `config has 15 entry_kinds (got ${cfg.entry_kinds?.length})`
   );
   const defn = cfg.entry_kinds.find((k) => k.id === 'definition');
   assert(!!defn, 'definition kind present');
@@ -170,7 +170,9 @@ async function main() {
       defn.coloring.background === '#D6FEE0',
     'definition coloring matches Fulcrum preset'
   );
-  assert(defn.numbering === '1.1.1', 'definition numbering === "1.1.1"');
+  // v2 semantic change: numbering is a per-level magic string, not a
+  // multi-level '1.1.1' pattern (cat 2026-07-06).
+  assert(defn.numbering === '.1', 'definition numbering === ".1" (v2 single-level)');
 
   console.log('\n[3] addEntryKind (createEntryKind) fresh id');
   const created = await createEntryKind(root, {
@@ -183,7 +185,7 @@ async function main() {
   });
   assert(created.status === 'created', 'createEntryKind -> created');
   const cfg2 = await readConfig(tmpRoot);
-  assert(cfg2.entry_kinds.length === 13, 'entry_kinds now 13 after append');
+  assert(cfg2.entry_kinds.length === 16, 'entry_kinds now 16 after append');
 
   console.log('\n[4] addEntryKind duplicate id');
   const dupKind = await createEntryKind(root, {
@@ -232,7 +234,9 @@ async function main() {
   });
   assert(unknown.status === 'unknownKind', 'addEntry bad kind -> unknownKind');
 
-  console.log('\n[9] addEntry missing title');
+  console.log('\n[9] addEntry with only whitespace title is accepted (v2)');
+  // Title is now optional (cat 2026-07-06). Whitespace-only trims to '' and
+  // is stored as empty; the entry is valid.
   const noTitle = await addEntry(root, {
     id: 'a1b2c3d4-0000-4000-8000-000000000003',
     kind: 'definition',
@@ -241,26 +245,28 @@ async function main() {
     contribution_info: null,
     pointer: null
   });
-  assert(noTitle.status === 'invalid', 'addEntry no title -> invalid');
+  assert(noTitle.status === 'ok', 'addEntry with empty/whitespace title -> ok (v2)');
 
   console.log('\n[10] readEntries + readOverview.entries');
   const readBack = await readEntriesApi(root);
+  // Two entries now: the one from [6] + the empty-title one from [9].
   assert(
-    Array.isArray(readBack) && readBack.length === 1,
-    `readEntries returns 1-element array (got ${readBack?.length})`
+    Array.isArray(readBack) && readBack.length === 2,
+    `readEntries returns 2-element array (got ${readBack?.length})`
   );
+  const firstEntry = readBack.find((e) => e.id === entry.id);
   assert(
-    readBack[0].id === entry.id &&
-      readBack[0].kind === entry.kind &&
-      readBack[0].title === entry.title,
+    firstEntry &&
+      firstEntry.kind === entry.kind &&
+      firstEntry.title === entry.title,
     'readEntries record matches what was written'
   );
   const overview = await readOverview(root);
   assert(
     Array.isArray(overview.entries) &&
-      overview.entries.length === 1 &&
-      overview.entries[0].id === entry.id,
-    'readOverview.entries is a 1-element array with the same id'
+      overview.entries.length === 2 &&
+      overview.entries.some((e) => e.id === entry.id),
+    'readOverview.entries includes the entry with the same id'
   );
 
   console.log('\n[11] createMacroPackage(test_pkg)');
@@ -767,14 +773,14 @@ async function main() {
   await fs.rm(tmpRoot3, { recursive: true, force: true });
   await fs.rm(tmpRoot2, { recursive: true, force: true });
 
-  // --- [24] libraryGraph: numbering engine (spec §4-§5) --------------------
-  console.log('\n[24] libraryGraph numbering engine');
+  // --- [24] libraryGraph v2: kind-driven numbering + DFS reading order ----
+  console.log('\n[24] libraryGraph v2 numbering engine');
   const graphMod = await import(
     pathToFileURL(nodePath.resolve(process.cwd(), 'out', 'libraryGraph.js')).href
   );
   const { formatNumbering, numberFor, readingOrder } = graphMod;
 
-  // §5 magic-string formatter
+  // §5 magic-string formatter (unchanged from v1 semantics)
   assert(formatNumbering('1', 3) === '3', 'formatNumbering("1", 3) → "3"');
   assert(formatNumbering('.1', 3) === '.3', 'formatNumbering(".1", 3) → ".3"');
   assert(formatNumbering('A', 3) === 'C', 'formatNumbering("A", 3) → "C"');
@@ -786,100 +792,155 @@ async function main() {
   assert(formatNumbering('Ex. A.', 2) === 'Ex. B.', 'formatNumbering("Ex. A.", 2) → "Ex. B."');
   assert(formatNumbering('§I.', 4) === '§IV.', 'formatNumbering("§I.", 4) → "§IV."');
   assert(formatNumbering('Foo', 3) === 'Foo', 'formatNumbering("Foo", 3) → "Foo" (no slot)');
-  // First-slot-wins invariant: second 1 stays literal.
-  assert(formatNumbering('1.1', 3) === '3.1', 'formatNumbering("1.1", 3) → "3.1" (second slot is literal)');
+  assert(formatNumbering('1.1', 3) === '3.1', 'formatNumbering("1.1", 3) → "3.1" (second slot literal)');
 
-  // §4 numberFor — the cat-supplied 1.3B.5 example verbatim from spec §6.
+  // §6 numberFor — cat's 1.3B.5 example, v2 shape (no Counter nodes, no
+  // count/next relationships; kind numbering decides each level).
+  //
+  //   chapter kind: numbering '1'
+  //   section kind: numbering '.1'
+  //   theorem kind: numbering 'A'
+  //   remark  kind: numbering '.1'
+  const kindsById = new Map([
+    ['chapter', { numbering: '1' }],
+    ['section', { numbering: '.1' }],
+    ['theorem', { numbering: 'A' }],
+    ['remark', { numbering: '.1' }]
+  ]);
+  const entriesById = new Map([
+    ['uuid-chap1', { kind: 'chapter' }],
+    ['uuid-1_1', { kind: 'section' }],
+    ['uuid-1_2', { kind: 'section' }],
+    ['uuid-1_3', { kind: 'section' }],
+    ['uuid-1_3_A', { kind: 'theorem' }],
+    ['uuid-1_3_B', { kind: 'theorem' }],
+    ['uuid-1_3_B_1', { kind: 'remark' }],
+    ['uuid-1_3_B_2', { kind: 'remark' }],
+    ['uuid-1_3_B_3', { kind: 'remark' }],
+    ['uuid-1_3_B_4', { kind: 'remark' }],
+    ['uuid-1_3_B_5', { kind: 'remark' }]
+  ]);
   const graph1 = {
     nodes: [
-      { id: 'cSec', label: 'Counter', props: { numbering: '1' } },
-      { id: 'cSubsec', label: 'Counter', props: { numbering: '.1' } },
-      { id: 'cEntry', label: 'Counter', props: { numbering: 'A' } },
-      { id: 'cSubentry', label: 'Counter', props: { numbering: '.1' } },
-
-      { id: 's1', label: 'Section', props: { name: 'Chapter 1' } },
-
-      { id: 's1a', label: 'Section', props: { name: 'Section 1.1' } },
-      { id: 's1b', label: 'Section', props: { name: 'Section 1.2' } },
-      { id: 's1c', label: 'Section', props: { name: 'Section 1.3' } },
-
-      { id: 'eA', label: 'Entry', props: { entryId: 'uuid-A' } },
-      { id: 'eB', label: 'Entry', props: { entryId: 'uuid-B' } },
-
-      { id: 'eB1', label: 'Entry', props: { entryId: 'uuid-B1' } },
-      { id: 'eB2', label: 'Entry', props: { entryId: 'uuid-B2' } },
-      { id: 'eB3', label: 'Entry', props: { entryId: 'uuid-B3' } },
-      { id: 'eB4', label: 'Entry', props: { entryId: 'uuid-B4' } },
-      { id: 'eB5', label: 'Entry', props: { entryId: 'uuid-B5' } }
+      { id: 'chap1', label: 'Entry', props: { entryId: 'uuid-chap1' } },
+      { id: 's1_1', label: 'Entry', props: { entryId: 'uuid-1_1' } },
+      { id: 's1_2', label: 'Entry', props: { entryId: 'uuid-1_2' } },
+      { id: 's1_3', label: 'Entry', props: { entryId: 'uuid-1_3' } },
+      { id: 't_A', label: 'Entry', props: { entryId: 'uuid-1_3_A' } },
+      { id: 't_B', label: 'Entry', props: { entryId: 'uuid-1_3_B' } },
+      { id: 'r_1', label: 'Entry', props: { entryId: 'uuid-1_3_B_1' } },
+      { id: 'r_2', label: 'Entry', props: { entryId: 'uuid-1_3_B_2' } },
+      { id: 'r_3', label: 'Entry', props: { entryId: 'uuid-1_3_B_3' } },
+      { id: 'r_4', label: 'Entry', props: { entryId: 'uuid-1_3_B_4' } },
+      { id: 'r_5', label: 'Entry', props: { entryId: 'uuid-1_3_B_5' } }
     ],
     relationships: [
-      { from: 'cSec', to: 's1', label: 'count' },
-
-      { from: 'cSubsec', to: 's1a', label: 'count' },
-      { from: 's1a', to: 's1b', label: 'next' },
-      { from: 's1b', to: 's1c', label: 'next' },
-
-      { from: 'cEntry', to: 'eA', label: 'count' },
-      { from: 'eA', to: 'eB', label: 'next' },
-
-      { from: 'cSubentry', to: 'eB1', label: 'count' },
-      { from: 'eB1', to: 'eB2', label: 'next' },
-      { from: 'eB2', to: 'eB3', label: 'next' },
-      { from: 'eB3', to: 'eB4', label: 'next' },
-      { from: 'eB4', to: 'eB5', label: 'next' },
-
-      { from: 's1', to: 's1c', label: 'branch' },
-      { from: 's1c', to: 'eB', label: 'branch' },
-      { from: 'eB', to: 'eB5', label: 'branch' },
-
-      // reading-next chain over Entries (spec §7): eA → eB → eB1..eB5
-      { from: 'eA', to: 'eB', label: 'reading-next' },
-      { from: 'eB', to: 'eB1', label: 'reading-next' },
-      { from: 'eB1', to: 'eB2', label: 'reading-next' },
-      { from: 'eB2', to: 'eB3', label: 'reading-next' },
-      { from: 'eB3', to: 'eB4', label: 'reading-next' },
-      { from: 'eB4', to: 'eB5', label: 'reading-next' }
+      { from: 'chap1', to: 's1_1', label: 'branch' },
+      { from: 'chap1', to: 's1_2', label: 'branch' },
+      { from: 'chap1', to: 's1_3', label: 'branch' },
+      { from: 's1_3', to: 't_A', label: 'branch' },
+      { from: 's1_3', to: 't_B', label: 'branch' },
+      { from: 't_B', to: 'r_1', label: 'branch' },
+      { from: 't_B', to: 'r_2', label: 'branch' },
+      { from: 't_B', to: 'r_3', label: 'branch' },
+      { from: 't_B', to: 'r_4', label: 'branch' },
+      { from: 't_B', to: 'r_5', label: 'branch' }
     ]
   };
 
-  const n_eB5 = numberFor(graph1, 'eB5');
-  assert(n_eB5 === '1.3B.5', `numberFor(eB5) → "1.3B.5" (got ${JSON.stringify(n_eB5)})`);
-  // Intermediate numbers per spec §6 walk-through.
-  assert(numberFor(graph1, 's1') === '1', 'numberFor(s1) → "1"');
-  assert(numberFor(graph1, 's1c') === '1.3', 'numberFor(s1c) → "1.3"');
-  assert(numberFor(graph1, 'eB') === '1.3B', 'numberFor(eB) → "1.3B"');
-  // eA has count+next chain (ordinal 1, template "A" → "A") but no incoming
-  // branch edge in this fragment, so it has no sectional prefix. That's the
-  // expected shape for a sibling not on the specific branch chain being
-  // rendered — surrounding levels still position it via its own counter.
-  assert(numberFor(graph1, 'eA') === 'A', 'numberFor(eA) → "A" (no branch parent → bare counter segment)');
+  // The full cat example.
+  const n_r_5 = numberFor(graph1, 'r_5', entriesById, kindsById);
+  assert(n_r_5 === '1.3B.5', `numberFor(r_5) → "1.3B.5" (got ${JSON.stringify(n_r_5)})`);
+  // Intermediate numbers per spec §6.
+  assert(numberFor(graph1, 'chap1', entriesById, kindsById) === '1', 'numberFor(chap1) → "1"');
+  assert(numberFor(graph1, 's1_3', entriesById, kindsById) === '1.3', 'numberFor(s1_3) → "1.3"');
+  assert(numberFor(graph1, 't_B', entriesById, kindsById) === '1.3B', 'numberFor(t_B) → "1.3B"');
+  assert(numberFor(graph1, 't_A', entriesById, kindsById) === '1.3A', 'numberFor(t_A) → "1.3A"');
+  assert(numberFor(graph1, 'r_1', entriesById, kindsById) === '1.3B.1', 'numberFor(r_1) → "1.3B.1"');
   // Missing node → null.
-  assert(numberFor(graph1, 'nope') === null, 'numberFor(missing) → null');
+  assert(numberFor(graph1, 'nope', entriesById, kindsById) === null, 'numberFor(missing) → null');
 
-  // §7 reading order
-  const order = readingOrder(graph1);
-  const expectedOrder = ['eA', 'eB', 'eB1', 'eB2', 'eB3', 'eB4', 'eB5'];
+  // "First-child kind decides this level" invariant: change s1_1's kind to
+  // 'theorem' (numbering 'A') and s1_3 becomes '1C'.
+  const entriesTweak = new Map(entriesById);
+  entriesTweak.set('uuid-1_1', { kind: 'theorem' });
   assert(
-    JSON.stringify(order) === JSON.stringify(expectedOrder),
-    `readingOrder → ${JSON.stringify(expectedOrder)} (got ${JSON.stringify(order)})`
+    numberFor(graph1, 's1_3', entriesTweak, kindsById) === '1C',
+    'first-child kind change re-shapes the level (s1_3 → "1C" when first sibling is theorem-kinded)'
   );
 
-  // Empty graph & orphan graph corner cases.
+  // Fallback: first child's kind is missing → level uses ".1".
+  const entriesGap = new Map(entriesById);
+  entriesGap.delete('uuid-1_1');
+  assert(
+    numberFor(graph1, 's1_3', entriesGap, kindsById) === '1.3',
+    'fallback kicks in when first child\'s entryId is missing (level uses ".1")'
+  );
+  // Same fallback if the kind itself is unknown:
+  const kindsMissing = new Map(kindsById);
+  kindsMissing.delete('section');
+  assert(
+    numberFor(graph1, 's1_3', entriesById, kindsMissing) === '1.3',
+    'fallback also kicks in when the kind is not in kindsById'
+  );
+
+  // §4 reading order = DFS of branch in declaration order.
+  const order = readingOrder(graph1);
+  const expectedOrder = ['chap1', 's1_1', 's1_2', 's1_3', 't_A', 't_B', 'r_1', 'r_2', 'r_3', 'r_4', 'r_5'];
+  assert(
+    JSON.stringify(order) === JSON.stringify(expectedOrder),
+    `readingOrder DFS → ${JSON.stringify(expectedOrder)} (got ${JSON.stringify(order)})`
+  );
+
+  // Multiple roots → root-declaration order + DFS each.
+  const graph2 = {
+    nodes: [
+      { id: 'A', label: 'Entry', props: { entryId: 'x1' } },
+      { id: 'B', label: 'Entry', props: { entryId: 'x2' } },
+      { id: 'A1', label: 'Entry', props: { entryId: 'x3' } },
+      { id: 'B1', label: 'Entry', props: { entryId: 'x4' } }
+    ],
+    relationships: [
+      { from: 'A', to: 'A1', label: 'branch' },
+      { from: 'B', to: 'B1', label: 'branch' }
+    ]
+  };
+  assert(
+    JSON.stringify(readingOrder(graph2)) === JSON.stringify(['A', 'A1', 'B', 'B1']),
+    'readingOrder handles multiple roots (declaration order + DFS each)'
+  );
+
+  // Root-level numbering: cat's example has chap1 as the only root. First
+  // root's kind = chapter (numbering '1'), so chap1 = '1'. Verify with two
+  // roots that the second gets '2'.
+  const entriesById2 = new Map([
+    ['x1', { kind: 'chapter' }],
+    ['x2', { kind: 'chapter' }],
+    ['x3', { kind: 'section' }],
+    ['x4', { kind: 'section' }]
+  ]);
+  assert(numberFor(graph2, 'A', entriesById2, kindsById) === '1', 'root A → "1"');
+  assert(numberFor(graph2, 'B', entriesById2, kindsById) === '2', 'root B → "2"');
+  assert(numberFor(graph2, 'A1', entriesById2, kindsById) === '1.1', 'A1 → "1.1"');
+
+  // Empty graph & orphan corner cases.
   assert(
     JSON.stringify(readingOrder({ nodes: [], relationships: [] })) === '[]',
     'readingOrder(empty) → []'
   );
   assert(
-    numberFor({ nodes: [], relationships: [] }, 'anything') === null,
+    numberFor({ nodes: [], relationships: [] }, 'anything', entriesById, kindsById) === null,
     'numberFor(empty, anything) → null'
   );
   const orphanGraph = {
-    nodes: [{ id: 'e1', label: 'Entry', props: { entryId: 'x' } }],
+    nodes: [{ id: 'e1', label: 'Entry', props: { entryId: 'uuid-chap1' } }],
     relationships: []
   };
+  // Lone Entry node with no siblings is itself a root — root position 1,
+  // first-root's kind chapter → numbering '1' → returns "1".
   assert(
-    numberFor(orphanGraph, 'e1') === null,
-    'numberFor on Entry with no count/next chain → null (unpositioned)'
+    numberFor(orphanGraph, 'e1', entriesById, kindsById) === '1',
+    'lone root entry → "1" (numbered by its own kind at root level)'
   );
 
   // --- [25] readLibraryGraph / writeLibraryGraph host API ------------------
@@ -924,13 +985,13 @@ async function main() {
   }
   assert(!oldExists, 'legacy relationships.json is NOT created');
 
-  // writeLibraryGraph round-trip.
+  // writeLibraryGraph round-trip with valid v2 shape.
   const write1 = await writeLibraryGraph(root4, 'graphtest', {
     nodes: [
-      { id: 'c', label: 'Counter', props: { numbering: '1' } },
-      { id: 's', label: 'Section', props: { name: 'Chapter' } }
+      { id: 'root', label: 'Entry', props: { entryId: 'some-uuid' } },
+      { id: 'child', label: 'Entry', props: { entryId: 'other-uuid' } }
     ],
-    relationships: [{ from: 'c', to: 's', label: 'count' }]
+    relationships: [{ from: 'root', to: 'child', label: 'branch' }]
   });
   assert(write1.status === 'ok', 'writeLibraryGraph -> ok');
   const read1 = await readLibraryGraph(root4, 'graphtest');
@@ -940,7 +1001,33 @@ async function main() {
       read1.result.graph.relationships.length === 1,
     'round-trip preserves 2 nodes + 1 rel'
   );
-  assert(read1.result.warnings.length === 0, 'clean graph has no warnings');
+  // Warnings are non-empty because entryIds don't resolve — no shared-pool
+  // entries in this workspace yet. But no LABEL warnings.
+  assert(
+    !read1.result.warnings.some((w) => w.includes('is not an object') || w.includes('is missing string')),
+    'no structural warnings on well-formed v2 graph'
+  );
+
+  // Legacy v1 shape (Counter / Section / count relationships) surfaces
+  // v2-migration warnings but doesn't fail the read.
+  const writeLegacy = await writeLibraryGraph(root4, 'graphtest', {
+    nodes: [
+      { id: 'c', label: 'Counter', props: { numbering: '1' } },
+      { id: 's', label: 'Section', props: { name: 'Chapter' } }
+    ],
+    relationships: [{ from: 'c', to: 's', label: 'count' }]
+  });
+  assert(writeLegacy.status === 'ok', 'writeLibraryGraph accepts legacy shape too');
+  const readLegacyGraph = await readLibraryGraph(root4, 'graphtest');
+  assert(readLegacyGraph.status === 'ok', 'readLibraryGraph -> ok on legacy shape');
+  assert(
+    readLegacyGraph.result.warnings.some((w) => w.includes('Counter') && w.includes('only "Entry" is supported')),
+    'legacy Counter label surfaces v2-migration warning'
+  );
+  assert(
+    readLegacyGraph.result.warnings.some((w) => w.includes('count') && w.includes('only "branch" is supported')),
+    'legacy count relationship surfaces v2-migration warning'
+  );
 
   // Dangling entryId → warning (spec §8).
   const write2 = await writeLibraryGraph(root4, 'graphtest', {
@@ -1099,6 +1186,41 @@ async function main() {
   );
 
   await fs.rm(tmpRoot5, { recursive: true, force: true });
+
+  // --- [27] Entry v2: title / content are optional -----------------------
+  console.log('\n[27] entry title and content are optional (cat 2026-07-06)');
+  const tmpRoot6 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-entryopt-'));
+  const root6 = Uri.file(tmpRoot6);
+  await initSnlDoc(root6);
+  await applyEntryKindsPreset(root6, 'fulcrum-math-notes');
+
+  // No title, no content — just kind + id.
+  const addNoTitle = await addEntry(root6, {
+    id: 'placeholder',
+    kind: 'definition',
+    title: '',
+    content: {}
+  });
+  assert(addNoTitle.status === 'ok', 'addEntry with empty title -> ok');
+
+  // No content object at all.
+  const addNoContent = await addEntry(root6, {
+    id: 'placeholder2',
+    kind: 'section',
+    title: 'Just a section title'
+    // no `content` field
+  });
+  assert(addNoContent.status === 'ok', 'addEntry with no content field -> ok');
+
+  // Verify both entries persisted correctly.
+  const persisted = await readEntriesApi(root6);
+  const p1 = persisted.find((e) => e.id === 'placeholder');
+  const p2 = persisted.find((e) => e.id === 'placeholder2');
+  assert(p1 && p1.title === '', 'empty title round-trips as ""');
+  assert(p1 && !p1.content.snl, 'empty content stays empty');
+  assert(p2 && p2.title === 'Just a section title', 'section-style entry (title-only) persists');
+
+  await fs.rm(tmpRoot6, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

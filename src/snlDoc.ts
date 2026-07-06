@@ -2007,20 +2007,19 @@ export async function addEntry(
 
   const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
+  // Title is optional as of 2026-07-06 (cat: "支持无标题或无内容的 entry").
+  // We keep the field always present in on-disk shape but accept the empty
+  // string; the UI renders "(untitled)" in place of a title bar.
   const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
 
   if (!id) {
     return { status: 'invalid', reason: 'id is required' };
   }
-  if (!title) {
-    return { status: 'invalid', reason: 'title is required' };
-  }
   if (!kind) {
     return { status: 'invalid', reason: 'kind is required' };
   }
-  if (entry.content === null || typeof entry.content !== 'object') {
-    return { status: 'invalid', reason: 'content must be an object' };
-  }
+  // content is now also optional. If unset or non-object, coerce to
+  // `{ snl: '' }` so the on-disk row always parses.
 
   // kind must reference an existing entry kind.
   const kinds = await readEntryKinds(workspaceRoot);
@@ -2043,16 +2042,17 @@ export async function addEntry(
     return { status: 'duplicate', id };
   }
 
+  const content = (entry.content ?? {}) as EntryData['content'];
   const record: EntryData = {
     id,
     kind,
     title,
     content: {
-      snl: strOrUndef(entry.content.snl),
-      typst: strOrUndef(entry.content.typst),
-      latex: strOrUndef(entry.content.latex),
-      markdown: strOrUndef(entry.content.markdown),
-      text: strOrUndef(entry.content.text)
+      snl: strOrUndef(content.snl),
+      typst: strOrUndef(content.typst),
+      latex: strOrUndef(content.latex),
+      markdown: strOrUndef(content.markdown),
+      text: strOrUndef(content.text)
     },
     contribution_info: entry.contribution_info ?? null,
     pointer: entry.pointer ?? null
@@ -2144,48 +2144,71 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
     id: 'fulcrum-math-notes',
     label: "Fulcrum's Math Notes",
     description:
-      'The 12 entry kinds used by Fulcrum-Notes-Typst (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem).',
+      'Chapter/Section/Subsection scaffolding + 12 Fulcrum-Notes-Typst content kinds (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem). Numbering values are per-level magic strings (see docs/library-graph-spec.md §5).',
     kinds: [
+      // Structural kinds — parents that decide the numbering of their level.
+      {
+        id: 'chapter',
+        name: 'Chapter',
+        coloring: { stroke: '#787878', background: '#F0F0F0' },
+        numbering: '1',
+        style: 'section'
+      },
+      {
+        id: 'section',
+        name: 'Section',
+        coloring: { stroke: '#787878', background: '#F0F0F0' },
+        numbering: '.1',
+        style: 'section'
+      },
+      {
+        id: 'subsection',
+        name: 'Subsection',
+        coloring: { stroke: '#787878', background: '#F0F0F0' },
+        numbering: '.1',
+        style: 'section'
+      },
+      // Content kinds.
       {
         id: 'definition',
         name: 'Definition',
         coloring: { stroke: '#009C27', background: '#D6FEE0' },
-        numbering: '1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'axiom',
         name: 'Axiom',
         coloring: { stroke: '#C1C103', background: '#FFFFAC' },
-        numbering: '1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'lemma',
         name: 'Lemma',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'theorem',
         name: 'Theorem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'corollary',
         name: 'Corollary',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '1.1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'property',
         name: 'Property',
         coloring: { stroke: '#AC00AF', background: '#FFEDFF' },
-        numbering: '1.1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
@@ -2199,14 +2222,14 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
         id: 'example',
         name: 'Example',
         coloring: { stroke: '#7700E4', background: '#EFDFFF' },
-        numbering: '1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
         id: 'counterexample',
         name: 'Counterexample',
         coloring: { stroke: '#D20022', background: '#FFD6DC' },
-        numbering: '1.1.1',
+        numbering: '.1',
         style: ''
       },
       {
@@ -2227,7 +2250,7 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
         id: 'problem',
         name: 'Problem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '1',
+        numbering: '.1',
         style: 'problem'
       }
     ]
@@ -2522,15 +2545,10 @@ export async function updateEntry(
     return { status: 'invalid', message: 'id is required' };
   }
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
+  // Title and content are optional as of 2026-07-06 (see addEntry note).
   const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
-  if (!title) {
-    return { status: 'invalid', message: 'title is required' };
-  }
   if (!kind) {
     return { status: 'invalid', message: 'kind is required' };
-  }
-  if (entry.content === null || typeof entry.content !== 'object') {
-    return { status: 'invalid', message: 'content must be an object' };
   }
   const kinds = await readEntryKinds(workspaceRoot);
   if (!kinds.some((k) => k.id === kind)) {
@@ -2551,16 +2569,17 @@ export async function updateEntry(
     return { status: 'notFound', id: targetId };
   }
 
+  const content = (entry.content ?? {}) as EntryData['content'];
   const record: EntryData = {
     id: targetId,
     kind,
     title,
     content: {
-      snl: strOrUndef(entry.content.snl),
-      typst: strOrUndef(entry.content.typst),
-      latex: strOrUndef(entry.content.latex),
-      markdown: strOrUndef(entry.content.markdown),
-      text: strOrUndef(entry.content.text)
+      snl: strOrUndef(content.snl),
+      typst: strOrUndef(content.typst),
+      latex: strOrUndef(content.latex),
+      markdown: strOrUndef(content.markdown),
+      text: strOrUndef(content.text)
     },
     contribution_info: entry.contribution_info ?? null,
     pointer: entry.pointer ?? null
@@ -3350,6 +3369,15 @@ export async function readLibraryGraph(
         : {};
     nodes.push({ id, label, props });
 
+    // v2 spec §1: the only supported node label is 'Entry'. Anything else
+    // (e.g. leftover v1 'Section' / 'Counter') is kept in the graph but
+    // will be ignored by the numbering engine — flag it.
+    if (label !== 'Entry') {
+      warnings.push(
+        `node "${id}" has label "${label}"; only "Entry" is supported in v2 (kept, but ignored by numbering)`
+      );
+    }
+
     // Spec §8: Entry nodes carry props.entryId → warn if dangling.
     if (label === 'Entry' && knownEntryIds.size > 0) {
       const entryId = props.entryId;
@@ -3383,6 +3411,11 @@ export async function readLibraryGraph(
     if (!idSet.has(to)) {
       warnings.push(`relationship[${i}] references unknown target node "${to}"; skipped`);
       continue;
+    }
+    if (label !== 'branch') {
+      warnings.push(
+        `relationship[${i}] has label "${label}"; only "branch" is supported in v2 (kept, but ignored by numbering)`
+      );
     }
     relationships.push({ from, to, label });
   }

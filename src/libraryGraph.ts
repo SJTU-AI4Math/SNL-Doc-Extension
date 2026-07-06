@@ -1,27 +1,39 @@
 /**
  * Pure numbering engine for library graphs (`.SNL_Doc/libraries/<slug>/graph.json`).
  *
- * No vscode dependency — testable in isolation. See docs/library-graph-spec.md
- * for the full design; this module implements §5 (magic strings) and §4
- * (numbering derivation), plus §7 (reading order).
+ * v2 (2026-07-06) — see docs/library-graph-spec.md. This module has NO
+ * vscode dependency so it's smoke-testable in isolation.
+ *
+ * Schema (radically simplified from v1):
+ *   - one node label: "Entry"
+ *   - one relationship label: "branch" (parent -> child)
+ *   - sibling order = order of `branch` edges in the relationships[] array
+ *   - reading order = DFS of branch in that same declaration order
+ *   - numbering is derived from EntryKind.numbering of the FIRST child at
+ *     each level (cat 2026-07-06: "按第一个 sub-entry 的 entry kind 里
+ *     记录的 numbering 格式来")
  */
 
-/** Neo4j-style node labels understood by v1. Unknown labels are read as-is. */
-export type NodeLabel = 'Counter' | 'Section' | 'Entry';
+/** The only node label understood by v2. Anything else is retained as-is but
+ *  ignored by the numbering engine. */
+export type NodeLabel = 'Entry';
 
-/** Relationship labels understood by v1. Unknown labels are ignored. */
-export type RelLabel = 'count' | 'next' | 'branch' | 'reading-next';
+/** The only relationship label understood by v2. Anything else is ignored. */
+export type RelLabel = 'branch';
 
 export interface GraphNode {
   id: string;
-  label: NodeLabel;
-  props: Record<string, unknown>;
+  label: string; // typed loose so we can detect + warn on unknown labels
+  props: {
+    entryId?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface GraphRelationship {
   from: string;
   to: string;
-  label: RelLabel;
+  label: string; // typed loose so we can detect + warn on unknown labels
 }
 
 export interface LibraryGraph {
@@ -29,8 +41,18 @@ export interface LibraryGraph {
   relationships: GraphRelationship[];
 }
 
+/** Kind lookup shape needed by numberFor — a thin view of EntryKind. */
+export interface KindNumbering {
+  numbering: string;
+}
+
+/** Entry lookup shape needed by numberFor — a thin view of EntryData. */
+export interface EntryKindRef {
+  kind?: string;
+}
+
 // ---------------------------------------------------------------------------
-// §5 Magic-string formatter
+// §5 Magic-string formatter (unchanged from v1)
 // ---------------------------------------------------------------------------
 
 /** The five ordinal-slot characters. First occurrence wins; others literal. */
@@ -41,7 +63,7 @@ const SLOT_CHARS = new Set(['1', 'A', 'a', 'I', 'i']);
  *
  * Recognises exactly `1 / A / a / I / i` as the ordinal slot; only the FIRST
  * such character in the template is replaced. All other characters, including
- * any subsequent `1/A/a/I/i`, are copied verbatim. See spec §5.
+ * any subsequent `1/A/a/I/i`, are copied verbatim.
  *
  * Examples:
  *   formatNumbering("1", 3)      → "3"
@@ -50,7 +72,7 @@ const SLOT_CHARS = new Set(['1', 'A', 'a', 'I', 'i']);
  *   formatNumbering("(1)", 12)   → "(12)"
  *   formatNumbering("Ex. A.", 2) → "Ex. B."
  *   formatNumbering("§I.", 4)    → "§IV."
- *   formatNumbering("Foo", 3)    → "Foo"      (no slot → constant)
+ *   formatNumbering("Foo", 3)    → "Foo"
  */
 export function formatNumbering(template: string, k: number): string {
   if (!Number.isFinite(k) || k < 1) {
@@ -58,7 +80,7 @@ export function formatNumbering(template: string, k: number): string {
   }
   const idx = firstSlotIndex(template);
   if (idx < 0) {
-    return template; // no ordinal slot → constant template
+    return template;
   }
   const slot = template[idx];
   return template.slice(0, idx) + renderSlot(slot, k) + template.slice(idx + 1);
@@ -88,10 +110,7 @@ function renderSlot(slot: string, k: number): string {
   }
 }
 
-/**
- * 1-indexed Excel-column labels: A, B, ..., Z, AA, AB, ..., ZZ, AAA, ...
- * (Bijective base-26.)
- */
+/** Bijective base-26 (A, B, ..., Z, AA, AB, ...). 1-indexed. */
 function toExcelColumn(k: number, lower: boolean): string {
   const base = lower ? 'a'.charCodeAt(0) : 'A'.charCodeAt(0);
   let n = k;
@@ -104,27 +123,12 @@ function toExcelColumn(k: number, lower: boolean): string {
   return out;
 }
 
-/**
- * Roman numerals 1..3999 (spec doesn't say more is needed; beyond 3999 we
- * fall back to overlined-M-free lossy expansion — the ordinal is way beyond
- * any sane document depth). Case per `lower`.
- */
 function toRoman(k: number, lower: boolean): string {
   if (k < 1) return '';
   const pairs: Array<[number, string]> = [
-    [1000, 'M'],
-    [900, 'CM'],
-    [500, 'D'],
-    [400, 'CD'],
-    [100, 'C'],
-    [90, 'XC'],
-    [50, 'L'],
-    [40, 'XL'],
-    [10, 'X'],
-    [9, 'IX'],
-    [5, 'V'],
-    [4, 'IV'],
-    [1, 'I']
+    [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'],
+    [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'],
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
   ];
   let n = k;
   let out = '';
@@ -138,14 +142,19 @@ function toRoman(k: number, lower: boolean): string {
 }
 
 // ---------------------------------------------------------------------------
-// §4 Numbering derivation
+// Graph indexing
 // ---------------------------------------------------------------------------
 
-/** Precomputed edge indices used by numberFor / readingOrder. */
+/** Precomputed indices used by numberFor / readingOrder. */
 interface GraphIndex {
   nodesById: Map<string, GraphNode>;
-  outgoing: Map<string, GraphRelationship[]>;
-  incoming: Map<string, GraphRelationship[]>;
+  /** For each node id, the ordered list of its CHILDREN via branch edges in
+   *  the order those edges appear in relationships[]. */
+  childrenOf: Map<string, string[]>;
+  /** For each node id, its (single) branch parent, or undefined for roots. */
+  parentOf: Map<string, string>;
+  /** Roots in `nodes[]` declaration order (nodes with no incoming branch). */
+  roots: string[];
 }
 
 function indexGraph(graph: LibraryGraph): GraphIndex {
@@ -153,168 +162,158 @@ function indexGraph(graph: LibraryGraph): GraphIndex {
   for (const n of graph.nodes) {
     nodesById.set(n.id, n);
   }
-  const outgoing = new Map<string, GraphRelationship[]>();
-  const incoming = new Map<string, GraphRelationship[]>();
+  const childrenOf = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
   for (const r of graph.relationships) {
-    const outList = outgoing.get(r.from);
-    if (outList) {
-      outList.push(r);
+    if (r.label !== 'branch') continue;
+    const list = childrenOf.get(r.from);
+    if (list) {
+      list.push(r.to);
     } else {
-      outgoing.set(r.from, [r]);
+      childrenOf.set(r.from, [r.to]);
     }
-    const inList = incoming.get(r.to);
-    if (inList) {
-      inList.push(r);
-    } else {
-      incoming.set(r.to, [r]);
+    // First branch parent wins; extra edges are graph-level errors but we
+    // don't crash — numberFor prefers the first walk.
+    if (!parentOf.has(r.to)) {
+      parentOf.set(r.to, r.from);
     }
   }
-  return { nodesById, outgoing, incoming };
+  const roots: string[] = [];
+  for (const n of graph.nodes) {
+    if (!parentOf.has(n.id)) {
+      roots.push(n.id);
+    }
+  }
+  return { nodesById, childrenOf, parentOf, roots };
 }
 
-function edgesInto(idx: GraphIndex, nodeId: string): GraphRelationship[] {
-  return idx.incoming.get(nodeId) ?? [];
-}
+// ---------------------------------------------------------------------------
+// §3 Numbering
+// ---------------------------------------------------------------------------
 
-function edgesOutOf(idx: GraphIndex, nodeId: string): GraphRelationship[] {
-  return idx.outgoing.get(nodeId) ?? [];
-}
+/** Fallback template for a level whose first child has no resolvable kind. */
+const FALLBACK_LEVEL_NUMBERING = '.1';
 
 /**
- * Compute the full number of a positioned node (Section or Entry), e.g.
- * `"1.3B.5"`. Returns `null` when the node doesn't exist or when its branch
- * chain cannot be traced back to a top-level `count` (i.e. the node is not
- * yet properly positioned).
+ * Compute the full number of a node (e.g. `"1.3B.5"`).
  *
- * See spec §4. The algorithm:
- *   1. Walk `branch` incoming edges backwards to the root.
- *   2. For each node on that chain, walk `next` incoming edges back to the
- *      chain head (found via `count`), counting hops to derive the ordinal.
- *   3. Format each ordinal through its counter's numbering template and
- *      concatenate.
+ * `entriesById` maps shared-pool entryId -> EntryData (only `.kind` is
+ * consulted). `kindsById` maps kind.id -> EntryKind (only `.numbering` is
+ * consulted). Both are typically Maps built from readEntries/readEntryKinds.
+ *
+ * Returns `null` if the node doesn't exist or its branch chain is broken
+ * (cycle, missing parent). Returns "" for a lone root node (roots ARE
+ * numbered via §6, using the first-root kind at the root level — see
+ * numberRootLevel below).
  */
-export function numberFor(graph: LibraryGraph, nodeId: string): string | null {
+export function numberFor(
+  graph: LibraryGraph,
+  nodeId: string,
+  entriesById: Map<string, EntryKindRef>,
+  kindsById: Map<string, KindNumbering>
+): string | null {
   const idx = indexGraph(graph);
   if (!idx.nodesById.has(nodeId)) return null;
 
-  // Step 1: walk branch chain back to a node with no incoming branch.
+  // Walk branch parents back to a root. Chain = [root, ..., parent, node].
   const chain: string[] = [];
   const seen = new Set<string>();
-  let cur: string | null = nodeId;
-  while (cur !== null) {
-    if (seen.has(cur)) return null; // cycle guard
+  let cur: string | undefined = nodeId;
+  while (cur !== undefined) {
+    if (seen.has(cur)) return null; // cycle
     seen.add(cur);
     chain.unshift(cur);
-    const branchesIn: GraphRelationship[] = edgesInto(idx, cur).filter(
-      (r) => r.label === 'branch'
+    cur = idx.parentOf.get(cur);
+  }
+  if (chain.length === 0) return null;
+
+  // For each non-root node in the chain, compute its per-level segment
+  // using its parent's first child's kind. Roots use the "root level"
+  // kind — enumerated across ALL roots in nodes[] declaration order.
+  const segments: string[] = [];
+  for (let i = 0; i < chain.length; i++) {
+    const cur = chain[i];
+    const parent = i === 0 ? null : chain[i - 1];
+    const siblings = parent === null ? idx.roots : idx.childrenOf.get(parent) ?? [];
+    const position = siblings.indexOf(cur);
+    if (position < 0) return null;
+
+    const firstSibling = siblings[0];
+    const template = numberingTemplateFor(
+      firstSibling,
+      idx,
+      entriesById,
+      kindsById
     );
-    if (branchesIn.length === 0) break;
-    // Spec §3: each level picks exactly one branch to its child. If a node
-    // has multiple incoming branches, that's an editing conflict — pick the
-    // first deterministically so we still return something, but this is a
-    // graph the editor should surface as inconsistent.
-    cur = branchesIn[0].from;
+    segments.push(formatNumbering(template, position + 1));
   }
-
-  // Step 2 + 3: number each chain member; concatenate.
-  let out = '';
-  for (const id of chain) {
-    const seg = numberSegment(idx, id);
-    if (seg === null) return null; // any level missing → whole number invalid
-    out += seg;
-  }
-  return out;
+  return segments.join('');
 }
 
 /**
- * Number ONE level: find `nodeId`'s (ordinal, counter) pair by walking `next`
- * back to the chain head, whose incoming `count` names the counter.
- * Format `ordinal` through the counter's `props.numbering`. Returns null if
- * the node is not attached to a counter chain.
+ * Resolve the numbering template for a level, given the FIRST child at
+ * that level (whose kind decides). Falls back to `.1` when the kind is
+ * unresolvable at any step.
  */
-function numberSegment(idx: GraphIndex, nodeId: string): string | null {
-  let cur = nodeId;
-  let ordinal = 1;
-  const seen = new Set<string>();
-  while (true) {
-    if (seen.has(cur)) return null; // cycle guard
-    seen.add(cur);
-    // First look for a `count` edge into `cur` — that's the chain head.
-    const incoming = idx.incoming.get(cur) ?? [];
-    const countIn = incoming.find((r) => r.label === 'count');
-    if (countIn) {
-      const counter = idx.nodesById.get(countIn.from);
-      if (!counter || counter.label !== 'Counter') return null;
-      const template = readStringProp(counter.props, 'numbering');
-      if (template === null) return null;
-      return formatNumbering(template, ordinal);
-    }
-    // Otherwise, walk back one `next` hop.
-    const nextIn = incoming.find((r) => r.label === 'next');
-    if (!nextIn) return null; // not attached to any chain
-    cur = nextIn.from;
-    ordinal += 1;
+function numberingTemplateFor(
+  firstChildId: string,
+  idx: GraphIndex,
+  entriesById: Map<string, EntryKindRef>,
+  kindsById: Map<string, KindNumbering>
+): string {
+  const node = idx.nodesById.get(firstChildId);
+  if (!node) return FALLBACK_LEVEL_NUMBERING;
+  const entryId = node.props?.entryId;
+  if (typeof entryId !== 'string' || !entryId) {
+    return FALLBACK_LEVEL_NUMBERING;
   }
-}
-
-function readStringProp(
-  props: Record<string, unknown>,
-  key: string
-): string | null {
-  const v = props[key];
-  return typeof v === 'string' ? v : null;
+  const entry = entriesById.get(entryId);
+  if (!entry || typeof entry.kind !== 'string' || !entry.kind) {
+    return FALLBACK_LEVEL_NUMBERING;
+  }
+  const kind = kindsById.get(entry.kind);
+  if (!kind || typeof kind.numbering !== 'string' || !kind.numbering) {
+    return FALLBACK_LEVEL_NUMBERING;
+  }
+  return kind.numbering;
 }
 
 // ---------------------------------------------------------------------------
-// §7 Reading order
+// §4 Reading order — DFS on branch, root order = nodes[] declaration order
 // ---------------------------------------------------------------------------
 
 /**
- * Linear reading order over `Entry` nodes: follow the `reading-next` linked
- * list from its head (an Entry with no incoming `reading-next`). Returns the
- * ordered list of graph-local node ids (NOT entryIds — callers wanting UUIDs
- * should look them up via `nodesById[id].props.entryId`).
+ * Linear reading order over all Entry nodes: DFS from each root in
+ * `nodes[]` declaration order, visiting children in `relationships[]`
+ * declaration order. Returns node ids (not entryIds).
  *
- * When the graph has no `reading-next` edges, returns `[]` (the graph is
- * un-ordered; the Infoview should surface this as "no reading order yet").
- *
- * When multiple heads exist (partially-authored library), each head's chain
- * is emitted in the graph-declaration order of the head node, then any
- * remaining orphan Entries (no incoming AND no outgoing reading-next) are
- * omitted — orphans are surfaced separately by the caller if desired.
+ * Nodes not reachable from any root (orphans wrt branch tree) are appended
+ * at the end so no entry is silently dropped.
  */
 export function readingOrder(graph: LibraryGraph): string[] {
   const idx = indexGraph(graph);
-  const entryIds = graph.nodes
-    .filter((n) => n.label === 'Entry')
-    .map((n) => n.id);
-
-  // Find heads: Entry with no incoming `reading-next`, but at least one
-  // outgoing (i.e. participates in the chain).
-  const heads: string[] = [];
-  for (const id of entryIds) {
-    const incoming = (idx.incoming.get(id) ?? []).some(
-      (r) => r.label === 'reading-next'
-    );
-    const outgoing = (idx.outgoing.get(id) ?? []).some(
-      (r) => r.label === 'reading-next'
-    );
-    if (!incoming && outgoing) {
-      heads.push(id);
-    }
-  }
-
   const out: string[] = [];
   const visited = new Set<string>();
-  for (const head of heads) {
-    let cur: string | null = head;
-    while (cur !== null && !visited.has(cur)) {
-      visited.add(cur);
-      out.push(cur);
-      const step: GraphRelationship | undefined = edgesOutOf(idx, cur).find(
-        (r) => r.label === 'reading-next'
-      );
-      cur = step ? step.to : null;
+
+  const dfs = (nodeId: string): void => {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    out.push(nodeId);
+    const children = idx.childrenOf.get(nodeId) ?? [];
+    for (const child of children) {
+      dfs(child);
+    }
+  };
+
+  for (const root of idx.roots) {
+    dfs(root);
+  }
+  // Orphans (had a parent that didn't exist, but branch edges got them in
+  // childrenOf via a non-root walk). Append them to the tail in nodes[]
+  // declaration order so nothing gets lost.
+  for (const n of graph.nodes) {
+    if (!visited.has(n.id)) {
+      dfs(n.id);
     }
   }
   return out;

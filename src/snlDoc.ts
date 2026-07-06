@@ -435,11 +435,15 @@ export async function createLibrary(
 /**
  * Best-effort macro count inside a single term-macro package file.
  *
- * The macro file schema isn't finalized yet (see Plan §"待定 / 待补充"). To
- * stay useful before then we sniff three common shapes:
- *  - bare array of macros            → length
- *  - `{ macros: [ ... ] }`           → length of macros array
- *  - top-level object of `{ uuid: macroDef }` → number of own keys
+ * Handles both the canonical v6 shape and the older v5 shape (see
+ * `readMacroPackage` for the on-read migration path):
+ *  - v6: `{ version, name, description?, macros: { key: entry, ... } }`
+ *        → `Object.keys(macros).length`
+ *  - v5: `{ macros: [ ... ] }`                                → array length
+ *  - Bare array of macros (legacy)                            → array length
+ *  - Bare `{ uuid: macroDef }` object with no `macros` field  → own-key count
+ *    minus known metadata keys (last-ditch fallback for hand-authored files
+ *    predating the wrapped-object schema).
  * Anything else → `null` (Dashboard renders "—").
  */
 function inferMacroCount(raw: unknown): number | null {
@@ -448,11 +452,19 @@ function inferMacroCount(raw: unknown): number | null {
   }
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
-    if (Array.isArray(obj.macros)) {
-      return (obj.macros as unknown[]).length;
+    const inner = obj.macros;
+    // v6 canonical shape: macros is a keyed object.
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+      return Object.keys(inner).length;
     }
-    // Reserved metadata keys we don't want to count as macros.
-    const reservedKeys = new Set(['version', 'name', 'description']);
+    // v5 legacy shape: macros is an array.
+    if (Array.isArray(inner)) {
+      return inner.length;
+    }
+    // Last-ditch fallback: top-level `{ uuid: macroDef }` — subtract known
+    // metadata keys so a hand-authored file without a `macros` wrapper still
+    // reports something sensible.
+    const reservedKeys = new Set(['version', 'name', 'description', 'macros']);
     const keys = Object.keys(obj).filter((k) => !reservedKeys.has(k));
     return keys.length;
   }

@@ -127,6 +127,7 @@ async function main() {
     readOverview,
     createMacroPackage,
     readMacroPackage,
+    readMacroPackages,
     addMacro,
     readAllMacros,
     setActiveMacroPackages
@@ -712,6 +713,51 @@ async function main() {
     migMatrix.styles[0].variadic_join === ' \\\\ ',
     'v5→v6: variadic_join preserved (delimiters left/right default empty)'
   );
+
+  // Regression: Dashboard's per-package macroCount used to always report 1
+  // for v6 packages because inferMacroCount only recognized v5's array shape
+  // and then fell through to a keys-minus-metadata count where {version,
+  // name, description, macros} minus {version,name,description} = ['macros']
+  // → 1. Verify both v5 and v6 shapes now report the right count via
+  // readMacroPackages (which is what Dashboard consumes).
+  console.log('\n[23] readMacroPackages reports accurate macroCount');
+  // v6 shape: write a fresh package with 3 macros into the same tmp root2.
+  const v6Pkg = {
+    version: '6',
+    name: 'v6-count',
+    description: 'v6 shape count test',
+    macros: {
+      a: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'a' }] },
+      b: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'b' }] },
+      c: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'c' }] }
+    }
+  };
+  const tmpRoot3 = nodePath.join(os.tmpdir(), `snl-smoke-count-${Date.now()}`);
+  await fs.mkdir(nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros'), {
+    recursive: true
+  });
+  const root3 = { fsPath: tmpRoot3, path: tmpRoot3, scheme: 'file' };
+  await fs.writeFile(
+    nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'),
+    JSON.stringify(v6Pkg, null, 2)
+  );
+  // v5 shape alongside — historically was counted correctly (via the
+  // Array.isArray branch), but re-assert to lock it in.
+  await fs.writeFile(
+    nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v5_count.json'),
+    JSON.stringify({ version: '1', name: 'v5-count', macros: [{ name: 'x' }, { name: 'y' }] }, null, 2)
+  );
+  const summaries = await readMacroPackages(root3);
+  const summaryByFile = Object.fromEntries(summaries.map((s) => [s.file, s]));
+  assert(
+    summaryByFile['v6_count.json']?.macroCount === 3,
+    `v6 macroCount should be 3, got ${summaryByFile['v6_count.json']?.macroCount}`
+  );
+  assert(
+    summaryByFile['v5_count.json']?.macroCount === 2,
+    `v5 macroCount should be 2, got ${summaryByFile['v5_count.json']?.macroCount}`
+  );
+  await fs.rm(tmpRoot3, { recursive: true, force: true });
   await fs.rm(tmpRoot2, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

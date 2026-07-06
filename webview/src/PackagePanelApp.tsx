@@ -114,7 +114,7 @@ interface Toast {
 }
 
 /** Which batch modal is currently open (null = none). */
-type ActiveModal = 'packageAsNew' | 'moveTo' | null;
+type ActiveModal = 'transfer' | null;
 
 // ---------------------------------------------------------------------------
 // Preview constants — mirror the CreateMacro Live Preview so a package row's
@@ -335,31 +335,42 @@ export function PackagePanelApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
   };
 
-  const submitBatchMove = (destFile: string): void => {
+  const submitBatchTransfer = (params: {
+    mode: 'copy' | 'move';
+    target: 'existing' | 'new';
+    destFile?: string;
+    newFile?: string;
+    newDisplayName?: string;
+    newDescription?: string;
+  }): void => {
     const names = Array.from(selectedNames);
-    if (names.length === 0 || !destFile) return;
-    pendingActionRef.current = `Moved ${names.length} macro${names.length === 1 ? '' : 's'} to ${destFile}.`;
+    if (names.length === 0) return;
+    const verbPast = params.mode === 'move' ? 'Moved' : 'Copied';
+    const plural = names.length === 1 ? '' : 's';
+    if (params.target === 'existing') {
+      if (!params.destFile) return;
+      pendingActionRef.current = `${verbPast} ${names.length} macro${plural} to ${params.destFile}.`;
+      apiRef.current?.postMessage({
+        type: 'batchTransfer',
+        mode: params.mode,
+        target: 'existing',
+        macroNames: names,
+        destFile: params.destFile
+      });
+      return;
+    }
+    // target === 'new'
+    if (!params.newFile) return;
+    const verbGer = params.mode === 'move' ? 'Moved' : 'Copied';
+    pendingActionRef.current = `Created package ${params.newFile} and ${verbGer.toLowerCase()} ${names.length} macro${plural} into it.`;
     apiRef.current?.postMessage({
-      type: 'batchMoveTo',
+      type: 'batchTransfer',
+      mode: params.mode,
+      target: 'new',
       macroNames: names,
-      destFile
-    });
-  };
-
-  const submitBatchPackageAsNew = (
-    newFile: string,
-    newDisplayName: string,
-    newDescription: string
-  ): void => {
-    const names = Array.from(selectedNames);
-    if (names.length === 0 || !newFile) return;
-    pendingActionRef.current = `Created package ${newFile} with ${names.length} macro${names.length === 1 ? '' : 's'}.`;
-    apiRef.current?.postMessage({
-      type: 'batchPackageAsNew',
-      macroNames: names,
-      newFile,
-      newDisplayName: newDisplayName || undefined,
-      newDescription: newDescription || undefined
+      newFile: params.newFile,
+      newDisplayName: params.newDisplayName || undefined,
+      newDescription: params.newDescription || undefined
     });
   };
 
@@ -481,28 +492,19 @@ export function PackagePanelApp(): React.ReactElement {
       {selectMode ? (
         <MultiSelectBar
           count={selectedNames.size}
-          hasOtherPackages={otherPackages.length > 0}
-          onPackageAsNew={() => setActiveModal('packageAsNew')}
-          onMoveTo={() => setActiveModal('moveTo')}
+          onTransfer={() => setActiveModal('transfer')}
           onDelete={submitBatchDelete}
         />
       ) : (
         <AddBar label="Create Macro" onActivate={createMacro} />
       )}
 
-      {activeModal === 'packageAsNew' ? (
-        <PackageAsNewModal
-          count={selectedNames.size}
-          onCancel={() => setActiveModal(null)}
-          onSubmit={submitBatchPackageAsNew}
-        />
-      ) : null}
-      {activeModal === 'moveTo' ? (
-        <MoveToModal
+      {activeModal === 'transfer' ? (
+        <TransferModal
           count={selectedNames.size}
           otherPackages={otherPackages}
           onCancel={() => setActiveModal(null)}
-          onSubmit={submitBatchMove}
+          onSubmit={submitBatchTransfer}
         />
       ) : null}
     </main>
@@ -1273,21 +1275,18 @@ function AddBar({
 // ---------------------------------------------------------------------------
 
 /**
- * Sticky bottom action bar shown in multi-select mode. Batch buttons are
- * disabled when nothing is selected; "Move to package…" is additionally
- * disabled when there are no other active packages to move into.
+ * Sticky bottom action bar shown in multi-select mode. The primary batch
+ * action is a single "Copy / Move…" button that opens a unified modal where
+ * the user picks copy-vs-move and a destination (existing or new package).
+ * Both buttons are disabled when nothing is selected.
  */
 function MultiSelectBar({
   count,
-  hasOtherPackages,
-  onPackageAsNew,
-  onMoveTo,
+  onTransfer,
   onDelete
 }: {
   count: number;
-  hasOtherPackages: boolean;
-  onPackageAsNew: () => void;
-  onMoveTo: () => void;
+  onTransfer: () => void;
   onDelete: () => void;
 }): React.ReactElement {
   const none = count === 0;
@@ -1314,23 +1313,11 @@ function MultiSelectBar({
       <button
         type="button"
         disabled={none}
-        onClick={onPackageAsNew}
+        onClick={onTransfer}
+        title="Copy or move the selected macros to another package"
         style={batchButtonStyle(none, false)}
       >
-        Package as new
-      </button>
-      <button
-        type="button"
-        disabled={none || !hasOtherPackages}
-        onClick={onMoveTo}
-        title={
-          hasOtherPackages
-            ? 'Move the selected macros to another package'
-            : 'No other active packages to move into'
-        }
-        style={batchButtonStyle(none || !hasOtherPackages, false)}
-      >
-        Move to package…
+        Copy / Move…
       </button>
       <button
         type="button"
@@ -1479,98 +1466,28 @@ const MODAL_INPUT_STYLE: React.CSSProperties = {
   color: 'var(--vscode-input-foreground, inherit)'
 };
 
-/** "Package as new" modal — collects a bare filename + optional metadata. */
-function PackageAsNewModal({
-  count,
-  onCancel,
-  onSubmit
-}: {
-  count: number;
-  onCancel: () => void;
-  onSubmit: (
-    newFile: string,
-    newDisplayName: string,
-    newDescription: string
-  ) => void;
-}): React.ReactElement {
-  const [newFile, setNewFile] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [description, setDescription] = useState('');
-  const bare = newFile.trim();
-  const fileValid = BARE_FILE_RE.test(bare);
-  const canSubmit = fileValid && count > 0;
-  return (
-    <ModalShell title="Package as new" onCancel={onCancel}>
-      <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
-        Copy the {count} selected macro{count === 1 ? '' : 's'} into a new
-        package. The source package is left unchanged.
-      </p>
-      <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
-          File name (letters, digits, - and _ only)
-        </span>
-        <input
-          type="text"
-          value={newFile}
-          autoFocus
-          placeholder="my_new_package"
-          onChange={(e) => setNewFile(e.target.value)}
-          style={{
-            ...MODAL_INPUT_STYLE,
-            border:
-              bare.length > 0 && !fileValid
-                ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
-                : MODAL_INPUT_BORDER
-          }}
-        />
-        {bare.length > 0 && !fileValid ? (
-          <span
-            style={{
-              display: 'block',
-              marginTop: '0.2rem',
-              fontSize: '0.8rem',
-              color: 'var(--vscode-errorForeground, #f48771)'
-            }}
-          >
-            Only letters, digits, hyphen and underscore are allowed.
-          </span>
-        ) : null}
-      </label>
-      <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
-          Display name (optional)
-        </span>
-        <input
-          type="text"
-          value={displayName}
-          placeholder={bare || 'Package display name'}
-          onChange={(e) => setDisplayName(e.target.value)}
-          style={MODAL_INPUT_STYLE}
-        />
-      </label>
-      <label style={{ display: 'block', marginBottom: '1rem' }}>
-        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
-          Description (optional)
-        </span>
-        <input
-          type="text"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          style={MODAL_INPUT_STYLE}
-        />
-      </label>
-      <ModalButtons
-        onCancel={onCancel}
-        submitLabel="Create package"
-        canSubmit={canSubmit}
-        onSubmit={() => onSubmit(bare, displayName.trim(), description.trim())}
-      />
-    </ModalShell>
-  );
-}
+/**
+ * Unified "Copy / Move macros" modal (2026-07-06 merge).
+ *
+ * Replaces the two older single-purpose dialogs. A segmented toggle at the
+ * top picks copy-vs-move; the destination dropdown starts with a synthetic
+ * "— Create new package —" entry followed by every other active package.
+ * When the create-new entry is selected, three extra inputs appear (file
+ * name, display name, description) mirroring the old "Package as new" form.
+ *
+ * Behaviour matrix:
+ *   Copy + existing -> host `batchCopyMacros`   (conflicts refuse whole batch)
+ *   Move + existing -> host `batchMoveMacros`   (conflicts refuse whole batch)
+ *   Copy + new      -> host `batchPackageAsNew`
+ *   Move + new      -> host `batchMoveToNewPackage` (create + copy + delete-source)
+ *
+ * Default (`Copy` + first existing package, or `Copy` + create-new when
+ * there are no other active packages) is the safest choice — it never
+ * mutates the source package until the user explicitly flips to Move.
+ */
+const CREATE_NEW_VALUE = '__create_new__';
 
-/** "Move to package" modal — pick a destination from other active packages. */
-function MoveToModal({
+function TransferModal({
   count,
   otherPackages,
   onCancel,
@@ -1579,25 +1496,104 @@ function MoveToModal({
   count: number;
   otherPackages: Array<{ file: string; name: string }>;
   onCancel: () => void;
-  onSubmit: (destFile: string) => void;
+  onSubmit: (params: {
+    mode: 'copy' | 'move';
+    target: 'existing' | 'new';
+    destFile?: string;
+    newFile?: string;
+    newDisplayName?: string;
+    newDescription?: string;
+  }) => void;
 }): React.ReactElement {
-  const [dest, setDest] = useState(otherPackages[0]?.file ?? '');
-  const canSubmit = count > 0 && dest.length > 0;
+  const [mode, setMode] = useState<'copy' | 'move'>('copy');
+  // Default: first existing package if any, otherwise create-new.
+  const [destValue, setDestValue] = useState<string>(
+    otherPackages[0]?.file ?? CREATE_NEW_VALUE
+  );
+  const [newFile, setNewFile] = useState('');
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+
+  const isNew = destValue === CREATE_NEW_VALUE;
+  const bare = newFile.trim();
+  const fileValid = BARE_FILE_RE.test(bare);
+
+  const canSubmit =
+    count > 0 &&
+    (isNew ? fileValid : destValue.length > 0 && destValue !== CREATE_NEW_VALUE);
+
+  const submit = (): void => {
+    if (!canSubmit) return;
+    if (isNew) {
+      onSubmit({
+        mode,
+        target: 'new',
+        newFile: bare,
+        newDisplayName: newDisplayName.trim(),
+        newDescription: newDescription.trim()
+      });
+    } else {
+      onSubmit({ mode, target: 'existing', destFile: destValue });
+    }
+  };
+
+  const verb = mode === 'move' ? 'Move' : 'Copy';
+  const plural = count === 1 ? '' : 's';
+
   return (
-    <ModalShell title="Move to package" onCancel={onCancel}>
+    <ModalShell title="Copy / Move macros" onCancel={onCancel}>
+      {/* Copy / Move segmented toggle. */}
+      <div
+        role="radiogroup"
+        aria-label="Transfer mode"
+        style={{
+          display: 'inline-flex',
+          marginBottom: '0.75rem',
+          border: MODAL_INPUT_BORDER,
+          borderRadius: '4px',
+          overflow: 'hidden'
+        }}
+      >
+        <TransferModeButton
+          label="Copy"
+          active={mode === 'copy'}
+          onClick={() => setMode('copy')}
+          title="Copy selected macros — source package left unchanged"
+        />
+        <TransferModeButton
+          label="Move"
+          active={mode === 'move'}
+          onClick={() => setMode('move')}
+          title="Move selected macros — removed from source package"
+        />
+      </div>
+
       <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
-        Move the {count} selected macro{count === 1 ? '' : 's'} into another
-        package. They are removed from this package.
+        {verb} the {count} selected macro{plural}
+        {isNew
+          ? ' into a brand-new package.'
+          : ' to the selected package.'}
+        {mode === 'move'
+          ? ' They will be removed from this package.'
+          : ' The source package is left unchanged.'}
       </p>
-      <label style={{ display: 'block', marginBottom: '1rem' }}>
-        <span style={{ display: 'block', marginBottom: '0.2rem', fontSize: '0.85rem' }}>
+
+      <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+        <span
+          style={{
+            display: 'block',
+            marginBottom: '0.2rem',
+            fontSize: '0.85rem'
+          }}
+        >
           Destination package
         </span>
         <select
-          value={dest}
-          onChange={(e) => setDest(e.target.value)}
+          value={destValue}
+          onChange={(e) => setDestValue(e.target.value)}
           style={MODAL_INPUT_STYLE}
         >
+          <option value={CREATE_NEW_VALUE}>— Create new package —</option>
           {otherPackages.map((p) => (
             <option key={p.file} value={p.file}>
               {p.name} ({p.file})
@@ -1605,13 +1601,130 @@ function MoveToModal({
           ))}
         </select>
       </label>
+
+      {isNew ? (
+        <>
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span
+              style={{
+                display: 'block',
+                marginBottom: '0.2rem',
+                fontSize: '0.85rem'
+              }}
+            >
+              New package file name (letters, digits, - and _ only)
+            </span>
+            <input
+              type="text"
+              value={newFile}
+              autoFocus
+              placeholder="my_new_package"
+              onChange={(e) => setNewFile(e.target.value)}
+              style={{
+                ...MODAL_INPUT_STYLE,
+                border:
+                  bare.length > 0 && !fileValid
+                    ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
+                    : MODAL_INPUT_BORDER
+              }}
+            />
+            {bare.length > 0 && !fileValid ? (
+              <span
+                style={{
+                  display: 'block',
+                  marginTop: '0.2rem',
+                  fontSize: '0.8rem',
+                  color: 'var(--vscode-errorForeground, #f48771)'
+                }}
+              >
+                Only letters, digits, hyphen and underscore are allowed.
+              </span>
+            ) : null}
+          </label>
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span
+              style={{
+                display: 'block',
+                marginBottom: '0.2rem',
+                fontSize: '0.85rem'
+              }}
+            >
+              Display name (optional)
+            </span>
+            <input
+              type="text"
+              value={newDisplayName}
+              placeholder={bare || 'Package display name'}
+              onChange={(e) => setNewDisplayName(e.target.value)}
+              style={MODAL_INPUT_STYLE}
+            />
+          </label>
+          <label style={{ display: 'block', marginBottom: '1rem' }}>
+            <span
+              style={{
+                display: 'block',
+                marginBottom: '0.2rem',
+                fontSize: '0.85rem'
+              }}
+            >
+              Description (optional)
+            </span>
+            <input
+              type="text"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              style={MODAL_INPUT_STYLE}
+            />
+          </label>
+        </>
+      ) : null}
+
       <ModalButtons
         onCancel={onCancel}
-        submitLabel="Move"
+        submitLabel={isNew ? `${verb} into new package` : verb}
         canSubmit={canSubmit}
-        onSubmit={() => onSubmit(dest)}
+        onSubmit={submit}
       />
     </ModalShell>
+  );
+}
+
+/** One segment of the Copy/Move toggle. */
+function TransferModeButton({
+  label,
+  active,
+  onClick,
+  title
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  title: string;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      title={title}
+      style={{
+        padding: '0.35rem 0.9rem',
+        fontFamily: 'inherit',
+        fontSize: '0.9rem',
+        border: 'none',
+        cursor: 'pointer',
+        background: active
+          ? 'var(--vscode-button-background, var(--vscode-button-secondaryBackground, #0e639c))'
+          : 'transparent',
+        color: active
+          ? 'var(--vscode-button-foreground, #fff)'
+          : 'inherit',
+        fontWeight: active ? 600 : 400
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

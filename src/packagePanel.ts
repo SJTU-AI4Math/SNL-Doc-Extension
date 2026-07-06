@@ -7,7 +7,9 @@ import {
   setActiveMacroPackages,
   batchDeleteMacros,
   batchMoveMacros,
+  batchCopyMacros,
   batchPackageAsNew,
+  batchMoveToNewPackage,
   type MacroKind,
   type MacroPackageFile,
   type MacroPackageEntry
@@ -239,56 +241,108 @@ export class PackagePanel {
         });
         return;
       }
-      case 'batchMoveTo': {
-        const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
-        const destFile = (msg as { destFile?: unknown }).destFile;
-        if (!names || typeof destFile !== 'string' || !destFile) {
-          void this.postError('batchMoveTo: macroNames[] and destFile are required');
-          return;
-        }
-        await this.runBatch(async (root) => {
-          const res = await batchMoveMacros(root, this.file, destFile, names);
-          if (res.status === 'ok') return null;
-          if (res.status === 'conflict') {
-            return (
-              'Move refused — the destination package already has: ' +
-              res.conflictNames.join(', ') +
-              '. Rename or remove the conflicts first.'
-            );
-          }
-          if (res.status === 'noFile') {
-            return res.which === 'dest'
-              ? 'Destination package not found.'
-              : 'Source package not found.';
-          }
-          return res.message;
-        });
-        return;
-      }
-      case 'batchPackageAsNew': {
-        const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
+      case 'batchTransfer': {
+        // Unified copy/move dispatcher for the merged "Copy/Move macros"
+        // dialog. `mode`: 'copy' | 'move'. `target`: 'existing' picks
+        // {destFile}; 'new' creates a fresh package from
+        // {newFile, newDisplayName?, newDescription?}. The four
+        // combinations map onto:
+        //   copy+existing -> batchCopyMacros
+        //   move+existing -> batchMoveMacros
+        //   copy+new      -> batchPackageAsNew
+        //   move+new      -> batchMoveToNewPackage
         const m = msg as {
+          mode?: unknown;
+          target?: unknown;
+          macroNames?: unknown;
+          destFile?: unknown;
           newFile?: unknown;
           newDisplayName?: unknown;
           newDescription?: unknown;
         };
-        if (!names || typeof m.newFile !== 'string' || !m.newFile) {
-          void this.postError('batchPackageAsNew: macroNames[] and newFile are required');
+        const names = toStringArray(m.macroNames);
+        if (!names) {
+          void this.postError(
+            'batchTransfer: macroNames must be a string array'
+          );
           return;
         }
+        const mode = m.mode === 'move' ? 'move' : m.mode === 'copy' ? 'copy' : null;
+        if (!mode) {
+          void this.postError("batchTransfer: mode must be 'copy' or 'move'");
+          return;
+        }
+        const target =
+          m.target === 'new' ? 'new' : m.target === 'existing' ? 'existing' : null;
+        if (!target) {
+          void this.postError(
+            "batchTransfer: target must be 'existing' or 'new'"
+          );
+          return;
+        }
+
+        if (target === 'existing') {
+          const destFile = m.destFile;
+          if (typeof destFile !== 'string' || !destFile) {
+            void this.postError(
+              'batchTransfer: destFile is required when target=existing'
+            );
+            return;
+          }
+          await this.runBatch(async (root) => {
+            const res =
+              mode === 'move'
+                ? await batchMoveMacros(root, this.file, destFile, names)
+                : await batchCopyMacros(root, this.file, destFile, names);
+            if (res.status === 'ok') return null;
+            if (res.status === 'conflict') {
+              return (
+                `${mode === 'move' ? 'Move' : 'Copy'} refused — the destination package already has: ` +
+                res.conflictNames.join(', ') +
+                '. Rename or remove the conflicts first.'
+              );
+            }
+            if (res.status === 'noFile') {
+              return res.which === 'dest'
+                ? 'Destination package not found.'
+                : 'Source package not found.';
+            }
+            return res.message;
+          });
+          return;
+        }
+
+        // target === 'new'
+        if (typeof m.newFile !== 'string' || !m.newFile) {
+          void this.postError(
+            'batchTransfer: newFile is required when target=new'
+          );
+          return;
+        }
+        const newFile = m.newFile;
         const newDisplayName =
           typeof m.newDisplayName === 'string' ? m.newDisplayName : undefined;
         const newDescription =
           typeof m.newDescription === 'string' ? m.newDescription : undefined;
         await this.runBatch(async (root) => {
-          const res = await batchPackageAsNew(
-            root,
-            this.file,
-            names,
-            m.newFile as string,
-            newDisplayName,
-            newDescription
-          );
+          const res =
+            mode === 'move'
+              ? await batchMoveToNewPackage(
+                  root,
+                  this.file,
+                  names,
+                  newFile,
+                  newDisplayName,
+                  newDescription
+                )
+              : await batchPackageAsNew(
+                  root,
+                  this.file,
+                  names,
+                  newFile,
+                  newDisplayName,
+                  newDescription
+                );
           if (res.status === 'ok') return null;
           if (res.status === 'duplicate') {
             return `A package named "${res.file}" already exists.`;

@@ -2884,3 +2884,140 @@ export async function batchPackageAsNew(
   }
   return { status: 'ok', file: created.file, copiedCount };
 }
+
+/**
+ * Copy a set of macros from a source package into an EXISTING destination
+ * package (source is NOT modified). If the destination already contains any
+ * of the named macros the whole batch is refused and NO writes happen
+ * (`conflict`) — mirrors the {@link batchMoveMacros} conflict policy so both
+ * transfer flavors behave the same. Names not present in the source are
+ * silently skipped.
+ */
+export async function batchCopyMacros(
+  workspaceRoot: vscode.Uri,
+  sourceFile: string,
+  destFile: string,
+  names: string[]
+): Promise<
+  | { status: 'ok'; copiedCount: number }
+  | { status: 'conflict'; conflictNames: string[] }
+  | { status: 'noFile'; which: 'source' | 'dest' }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  const srcBare = stripJsonExt(sourceFile);
+  const destBare = stripJsonExt(destFile);
+  if (srcBare === destBare) {
+    return {
+      status: 'error',
+      message: 'source and destination are the same package'
+    };
+  }
+  const wanted = (Array.isArray(names) ? names : []).filter(
+    (n) => typeof n === 'string' && n.length > 0
+  );
+
+  const srcRead = await readMacroPackage(workspaceRoot, srcBare);
+  if (srcRead.status === 'noFile') {
+    return { status: 'noFile', which: 'source' };
+  }
+  if (srcRead.status === 'error') {
+    return { status: 'error', message: srcRead.message };
+  }
+  const destRead = await readMacroPackage(workspaceRoot, destBare);
+  if (destRead.status === 'noFile') {
+    return { status: 'noFile', which: 'dest' };
+  }
+  if (destRead.status === 'error') {
+    return { status: 'error', message: destRead.message };
+  }
+
+  // Only copy names that actually live in the source.
+  const copying = wanted.filter((n) =>
+    Object.prototype.hasOwnProperty.call(srcRead.pkg.macros, n)
+  );
+  // Refuse the whole batch on any destination-side name collision.
+  const conflictNames = copying.filter((n) =>
+    Object.prototype.hasOwnProperty.call(destRead.pkg.macros, n)
+  );
+  if (conflictNames.length > 0) {
+    return { status: 'conflict', conflictNames };
+  }
+
+  const nextDestMacros: Record<string, MacroPackageEntryWithoutName> = {
+    ...destRead.pkg.macros
+  };
+  for (const n of copying) {
+    nextDestMacros[n] = srcRead.pkg.macros[n];
+  }
+
+  const nextDest: MacroPackageFile = {
+    ...destRead.pkg,
+    macros: nextDestMacros
+  };
+  try {
+    await fsApi.writeFile(
+      macroPackageUri(workspaceRoot, destBare),
+      jsonBytes(nextDest)
+    );
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', copiedCount: copying.length };
+}
+
+/**
+ * Move a set of macros from a source package into a BRAND-NEW package (the
+ * source-side entries are removed). Composed from {@link batchPackageAsNew}
+ * (create+copy) followed by {@link batchDeleteMacros} on the source — if the
+ * source-side delete fails after the destination package was created, the
+ * new package is left in place (macros exist in both) rather than lost.
+ */
+export async function batchMoveToNewPackage(
+  workspaceRoot: vscode.Uri,
+  sourceFile: string,
+  names: string[],
+  newFile: string,
+  newDisplayName?: string,
+  newDescription?: string
+): Promise<
+  | { status: 'ok'; file: string; movedCount: number }
+  | { status: 'noFile' }
+  | { status: 'duplicate'; file: string }
+  | { status: 'invalid'; reason: string }
+  | { status: 'error'; message: string }
+> {
+  const created = await batchPackageAsNew(
+    workspaceRoot,
+    sourceFile,
+    names,
+    newFile,
+    newDisplayName,
+    newDescription
+  );
+  if (created.status !== 'ok') {
+    return created;
+  }
+  // Now remove the successfully-copied macros from the source. We use the
+  // ORIGINAL names[] input rather than derived counts so partial success on
+  // the copy side (a name absent from source silently skipped) does not turn
+  // into a source-side error.
+  const deleted = await batchDeleteMacros(workspaceRoot, sourceFile, names);
+  if (deleted.status !== 'ok') {
+    return {
+      status: 'error',
+      message:
+        deleted.status === 'noFile'
+          ? `Copied ${created.copiedCount} macro(s) into "${created.file}", but the source package vanished before removal.`
+          : `Copied ${created.copiedCount} macro(s) into "${created.file}", but source-side removal failed: ${deleted.message}`
+    };
+  }
+  return {
+    status: 'ok',
+    file: created.file,
+    movedCount: created.copiedCount
+  };
+}

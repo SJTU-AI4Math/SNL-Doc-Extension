@@ -1,7 +1,19 @@
 import * as vscode from 'vscode';
-import { createLibrary, updateLibrary } from './snlDoc';
+import {
+  addEntry,
+  createLibrary,
+  readEntries,
+  readEntryKinds,
+  readLibraryGraph,
+  readLibraryMeta,
+  updateLibrary,
+  writeLibraryGraph,
+  type EntryData,
+  type EntryKind,
+  type GraphNodeDto,
+  type GraphRelationshipDto
+} from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
-import { readOverview } from './snlDoc';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -12,15 +24,26 @@ import { readOverview } from './snlDoc';
  *
  * Scope:
  *  - Requires `.SNL_Doc/` to already exist. Create adds a new library dir;
- *    edit updates the config entry's `title` in place (slug is immutable).
+ *    edit updates meta.json's `title` in place (slug is immutable) AND
+ *    hosts the outline editor for graph.json (per cat 2026-07-06).
  *
  * Message protocol with the webview (`createLibrary.js`):
- *  - in  : `{ type: 'ready' }` (edit only — asks for context)
- *        | `{ type: 'create', title }`
- *        | `{ type: 'update', title }`
- *  - out : `{ type: 'context', mode, existing? }`
- *        | `{ type: 'created' | 'updated' | 'duplicate' | 'noSnlDoc'
- *            | 'notFound' | 'invalid' | 'error' | 'noWorkspace', ... }`
+ *  - in  :
+ *      Meta side:
+ *        `{ type: 'ready' }`
+ *        `{ type: 'create', title }`
+ *        `{ type: 'update', title }`
+ *      Outline side (edit mode only):
+ *        `{ type: 'requestGraph' }`  — refresh graph + entries + kinds
+ *        `{ type: 'graphOp', op }`   — mutate the graph (see GraphOp below)
+ *  - out :
+ *        `{ type: 'context', mode, existing? }`
+ *        `{ type: 'created' | 'updated' | 'duplicate' | 'noSnlDoc'
+ *              | 'notFound' | 'invalid' | 'error' | 'noWorkspace', ... }`
+ *        `{ type: 'graph', nodes, relationships, entries, kinds, warnings }`
+ *        `{ type: 'graphError', message }`
+ *
+ * GraphOp is a discriminated union — see `handleGraphOp` for the full list.
  */
 export class CreateLibraryPanel {
   private static readonly instances = new Map<string, CreateLibraryPanel>();
@@ -121,29 +144,95 @@ export class CreateLibraryPanel {
       return;
     }
     try {
-      const ov = await readOverview(root);
-      const lib = ov.libraries.find((l) => l.slug === this.slug) ?? null;
+      // meta.json is the source of truth for title (per Task 1 refactor).
+      const metaResult = await readLibraryMeta(root, this.slug);
+      const title =
+        metaResult.status === 'ok' && typeof metaResult.meta.title === 'string'
+          ? metaResult.meta.title
+          : this.slug;
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
         slug: this.slug,
-        existing: lib ? { slug: lib.slug, title: lib.title } : null
+        existing: { slug: this.slug, title }
       });
+      // Push the outline immediately after context so the webview has
+      // everything it needs to render in one paint.
+      await this.pushGraph();
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
 
+  /** Push the current graph + entry pool + kinds to the webview so the
+   *  outline editor can re-render. */
+  private async pushGraph(): Promise<void> {
+    if (this.mode !== 'edit') return;
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: 'No workspace folder open.'
+      });
+      return;
+    }
+    try {
+      const gResult = await readLibraryGraph(root, this.slug);
+      let nodes: GraphNodeDto[] = [];
+      let relationships: GraphRelationshipDto[] = [];
+      let warnings: string[] = [];
+      if (gResult.status === 'ok') {
+        nodes = gResult.result.graph.nodes;
+        relationships = gResult.result.graph.relationships;
+        warnings = gResult.result.warnings;
+      } else if (gResult.status === 'noFile') {
+        // No graph.json → treat as empty graph so the outline editor can
+        // start populating one.
+        warnings = ['graph.json does not exist; will be created on first edit'];
+      } else {
+        void this.panel.webview.postMessage({
+          type: 'graphError',
+          message: gResult.message
+        });
+        return;
+      }
+      const entries: EntryData[] = await readEntries(root);
+      const kinds: EntryKind[] = await readEntryKinds(root);
+      void this.panel.webview.postMessage({
+        type: 'graph',
+        nodes,
+        relationships,
+        entries,
+        kinds,
+        warnings
+      });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: text
+      });
+    }
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     const msg = message as
-      | { type?: string; title?: string }
+      | { type?: string; title?: string; op?: unknown }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
     }
     if (msg.type === 'ready') {
       await this.pushContext();
+      return;
+    }
+    if (msg.type === 'requestGraph') {
+      await this.pushGraph();
+      return;
+    }
+    if (msg.type === 'graphOp') {
+      await this.handleGraphOp(msg.op);
       return;
     }
     if (msg.type !== 'create' && msg.type !== 'update') {
@@ -251,6 +340,271 @@ export class CreateLibraryPanel {
     }
   }
 
+  /**
+   * Apply a graph-editor operation, then push the fresh graph back. All
+   * mutations go through readLibraryGraph → mutate → writeLibraryGraph so
+   * concurrent watchers see one atomic write. Ops are shape-validated here;
+   * the webview should never send malformed ones, but be defensive.
+   *
+   * Supported ops (all in edit mode only):
+   *   - addNode: { op: 'addNode', parentId | null, kind, title, insertAfter? }
+   *       Creates a new EntryData in the shared pool with a fresh uuid and
+   *       links it as a child of `parentId` (or as a root when null). When
+   *       `insertAfter` is given, the new branch edge is placed right after
+   *       the sibling with that node id; otherwise appended.
+   *   - deleteNode: { op: 'deleteNode', nodeId }
+   *       Removes the graph node + all its branch edges. Does NOT delete
+   *       the underlying shared-pool entry — undo-friendly.
+   *   - moveSibling: { op: 'moveSibling', nodeId, direction: 'up' | 'down' }
+   *       Swaps this node's branch-edge with its previous/next sibling's.
+   */
+  private async handleGraphOp(rawOp: unknown): Promise<void> {
+    if (this.mode !== 'edit') {
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: 'graphOp only valid in edit mode'
+      });
+      return;
+    }
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: 'No workspace folder open.'
+      });
+      return;
+    }
+    const op = rawOp as { op?: string; [k: string]: unknown } | undefined;
+    if (!op || typeof op.op !== 'string') {
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: 'graphOp: missing op field'
+      });
+      return;
+    }
+
+    try {
+      // Read → mutate → write in one shot. readLibraryGraph tolerates
+      // no-file by returning noFile; treat it as empty and write fresh.
+      const gRead = await readLibraryGraph(root, this.slug);
+      let nodes: GraphNodeDto[] = [];
+      let relationships: GraphRelationshipDto[] = [];
+      if (gRead.status === 'ok') {
+        nodes = gRead.result.graph.nodes.slice();
+        relationships = gRead.result.graph.relationships.slice();
+      } else if (gRead.status === 'error') {
+        void this.panel.webview.postMessage({
+          type: 'graphError',
+          message: gRead.message
+        });
+        return;
+      }
+
+      switch (op.op) {
+        case 'addNode': {
+          const parentId =
+            typeof op.parentId === 'string' ? op.parentId : null;
+          const kind = typeof op.kind === 'string' ? op.kind.trim() : '';
+          const title = typeof op.title === 'string' ? op.title : '';
+          const insertAfter =
+            typeof op.insertAfter === 'string' ? op.insertAfter : null;
+          if (!kind) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'addNode: kind is required'
+            });
+            return;
+          }
+          // Validate parent exists in the graph (or is null for a root).
+          if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: `addNode: parent "${parentId}" not found`
+            });
+            return;
+          }
+          // 1. Create a new entry in the shared pool.
+          const entryUuid = generateUuid();
+          const addRes = await addEntry(root, {
+            id: entryUuid,
+            kind,
+            title,
+            content: {},
+            contribution_info: null,
+            pointer: null
+          });
+          if (addRes.status !== 'ok') {
+            const message =
+              addRes.status === 'invalid'
+                ? addRes.reason
+                : addRes.status === 'unknownKind'
+                  ? `kind "${addRes.kind}" is not registered`
+                  : addRes.status === 'duplicate'
+                    ? `entry id collision (${addRes.id}) — retry`
+                    : addRes.status === 'noSnlDoc'
+                      ? '.SNL_Doc/ not found'
+                      : 'error' in addRes ? addRes.message : 'unknown';
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: `addNode: shared-pool addEntry failed: ${message}`
+            });
+            return;
+          }
+          // 2. Insert the graph node + branch edge.
+          const nodeLocalId = generateLocalId(nodes);
+          nodes.push({
+            id: nodeLocalId,
+            label: 'Entry',
+            props: { entryId: entryUuid }
+          });
+          if (parentId !== null) {
+            const newRel: GraphRelationshipDto = {
+              from: parentId,
+              to: nodeLocalId,
+              label: 'branch'
+            };
+            if (insertAfter) {
+              const idx = relationships.findIndex(
+                (r) =>
+                  r.label === 'branch' &&
+                  r.from === parentId &&
+                  r.to === insertAfter
+              );
+              if (idx >= 0) {
+                relationships.splice(idx + 1, 0, newRel);
+              } else {
+                relationships.push(newRel);
+              }
+            } else {
+              relationships.push(newRel);
+            }
+          }
+          // parentId === null → root node; no branch edge needed.
+          break;
+        }
+        case 'deleteNode': {
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          if (!nodeId) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'deleteNode: nodeId is required'
+            });
+            return;
+          }
+          // Refuse if the node still has children (cat 2026-07-06 default:
+          // no cascade — the user has to move children out first). Prevents
+          // accidental subtree loss.
+          if (
+            relationships.some(
+              (r) => r.label === 'branch' && r.from === nodeId
+            )
+          ) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message:
+                'deleteNode: node has children — delete or move them first'
+            });
+            return;
+          }
+          nodes = nodes.filter((n) => n.id !== nodeId);
+          relationships = relationships.filter(
+            (r) => r.from !== nodeId && r.to !== nodeId
+          );
+          break;
+        }
+        case 'moveSibling': {
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          const direction = op.direction === 'up' ? 'up' : op.direction === 'down' ? 'down' : null;
+          if (!nodeId || !direction) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'moveSibling: nodeId + direction required'
+            });
+            return;
+          }
+          // Find this node's parent branch edge, and its sibling under the
+          // same parent to swap with. For a root node the "parent" is
+          // conceptually the roots list — swap the two nodes' declaration
+          // order in nodes[].
+          const parentRel = relationships.find(
+            (r) => r.label === 'branch' && r.to === nodeId
+          );
+          if (!parentRel) {
+            // Root case: swap in nodes[] declaration order.
+            const idx = nodes.findIndex((n) => n.id === nodeId);
+            if (idx < 0) return;
+            // Find nearest sibling ROOT (also has no parent).
+            const isRoot = (nid: string): boolean =>
+              !relationships.some(
+                (r) => r.label === 'branch' && r.to === nid
+              );
+            const step = direction === 'up' ? -1 : 1;
+            for (let j = idx + step; j >= 0 && j < nodes.length; j += step) {
+              if (isRoot(nodes[j].id)) {
+                const tmp = nodes[idx];
+                nodes[idx] = nodes[j];
+                nodes[j] = tmp;
+                break;
+              }
+            }
+            break;
+          }
+          const parentId = parentRel.from;
+          // Enumerate this parent's branch edges in relationships[] order.
+          const siblingRelIndices: number[] = [];
+          for (let i = 0; i < relationships.length; i++) {
+            const r = relationships[i];
+            if (r.label === 'branch' && r.from === parentId) {
+              siblingRelIndices.push(i);
+            }
+          }
+          const myRelPos = siblingRelIndices.findIndex(
+            (i) => relationships[i].to === nodeId
+          );
+          if (myRelPos < 0) return;
+          const swapRelPos =
+            direction === 'up' ? myRelPos - 1 : myRelPos + 1;
+          if (swapRelPos < 0 || swapRelPos >= siblingRelIndices.length) {
+            // Already at edge; no-op.
+            return;
+          }
+          const a = siblingRelIndices[myRelPos];
+          const b = siblingRelIndices[swapRelPos];
+          const tmp = relationships[a];
+          relationships[a] = relationships[b];
+          relationships[b] = tmp;
+          break;
+        }
+        default:
+          void this.panel.webview.postMessage({
+            type: 'graphError',
+            message: `unknown graphOp: ${op.op}`
+          });
+          return;
+      }
+
+      const writeRes = await writeLibraryGraph(root, this.slug, {
+        nodes,
+        relationships
+      });
+      if (writeRes.status !== 'ok') {
+        void this.panel.webview.postMessage({
+          type: 'graphError',
+          message: writeRes.message
+        });
+        return;
+      }
+      // Refresh the webview with the new state.
+      await this.pushGraph();
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        message: text
+      });
+    }
+  }
+
   public dispose(): void {
     const key = `${this.mode}:${this.slug}`;
     CreateLibraryPanel.instances.delete(key);
@@ -264,4 +618,32 @@ export class CreateLibraryPanel {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local id generators
+// ---------------------------------------------------------------------------
+
+/** RFC-4122 v4 UUID. */
+function generateUuid(): string {
+  // Node 20+ / VS Code 1.90+ ship crypto.randomUUID globally.
+  const c: { randomUUID?: () => string } = (globalThis as unknown as {
+    crypto?: { randomUUID?: () => string };
+  }).crypto ?? {};
+  if (typeof c.randomUUID === 'function') {
+    return c.randomUUID();
+  }
+  // Defensive fallback shouldn't be reachable in VS Code, but keeps the
+  // smoke shim buildable.
+  const rand = () => Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0');
+  return `${rand()}-${rand().slice(0, 4)}-4${rand().slice(0, 3)}-8${rand().slice(0, 3)}-${rand()}${rand().slice(0, 4)}`;
+}
+
+/** Generate a fresh graph-local node id (`n_1`, `n_2`, ...) that doesn't
+ *  collide with any existing node in the given list. */
+function generateLocalId(nodes: GraphNodeDto[]): string {
+  const taken = new Set(nodes.map((n) => n.id));
+  let i = 1;
+  while (taken.has(`n_${i}`)) i += 1;
+  return `n_${i}`;
 }

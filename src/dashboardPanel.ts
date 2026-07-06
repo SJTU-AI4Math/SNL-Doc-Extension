@@ -107,6 +107,13 @@ export class DashboardPanel {
         root,
         '.SNL_Doc/libraries/*/graph.json'
       ),
+      new vscode.RelativePattern(
+        root,
+        '.SNL_Doc/libraries/*/meta.json'
+      ),
+      // Directory-level changes so paste / delete of a whole library dir
+      // refreshes the Dashboard without requiring an inner-file touch.
+      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
       // Macro packages: watch the whole term_macros tree (one file per pkg).
       new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
       // Catch `.SNL_Doc/` itself appearing/disappearing.

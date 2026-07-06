@@ -132,8 +132,12 @@ async function main() {
     readAllMacros,
     setActiveMacroPackages,
     createLibrary,
+    updateLibrary,
     readLibraryGraph,
-    writeLibraryGraph
+    writeLibraryGraph,
+    listLibraries,
+    readLibraryMeta,
+    writeLibraryMeta
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
@@ -973,6 +977,128 @@ async function main() {
   assert(read4.status === 'noFile', 'readLibraryGraph on missing lib -> noFile');
 
   await fs.rm(tmpRoot4, { recursive: true, force: true });
+
+  // --- [26] filesystem is source of truth for libraries -------------------
+  console.log('\n[26] libraries decoupled from config (fs is source of truth)');
+  const tmpRoot5 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-libs-'));
+  const root5 = Uri.file(tmpRoot5);
+  const init5 = await initSnlDoc(root5);
+  assert(init5.status === 'created', 'initSnlDoc -> created (libs test root)');
+
+  // After init, listLibraries returns empty.
+  const libs0 = await listLibraries(root5);
+  assert(libs0.length === 0, `fresh workspace -> [] libraries (got ${libs0.length})`);
+
+  // Also, init's config.json must NOT carry a libraries field.
+  const configPath5 = nodePath.join(tmpRoot5, '.SNL_Doc', 'config.json');
+  const cfg5 = JSON.parse(await fs.readFile(configPath5, 'utf8'));
+  assert(
+    !('libraries' in cfg5),
+    `init writes config without a libraries field (got keys: ${JSON.stringify(Object.keys(cfg5))})`
+  );
+
+  // createLibrary → shows up in listLibraries with meta.json title.
+  const mk5 = await createLibrary(root5, 'My First Library');
+  assert(mk5.status === 'created', 'createLibrary -> created');
+  const cfg5After = JSON.parse(await fs.readFile(configPath5, 'utf8'));
+  assert(
+    !('libraries' in cfg5After),
+    'createLibrary did NOT write config.libraries (fs is source of truth)'
+  );
+  const libs1 = await listLibraries(root5);
+  assert(libs1.length === 1, `after create, listLibraries -> 1 (got ${libs1.length})`);
+  assert(libs1[0].slug === 'My_First_Library', `slug slugified (got "${libs1[0].slug}")`);
+  assert(libs1[0].title === 'My First Library', `title from meta.json (got "${libs1[0].title}")`);
+  assert(libs1[0].hasMeta === true, 'hasMeta true after createLibrary');
+
+  // Bug cat reported: delete the folder → library disappears (config was
+  // sticky before).
+  await fs.rm(
+    nodePath.join(tmpRoot5, '.SNL_Doc', 'libraries', 'My_First_Library'),
+    { recursive: true, force: true }
+  );
+  const libs2 = await listLibraries(root5);
+  assert(
+    libs2.length === 0,
+    `deleting library folder makes it disappear (got ${libs2.length})`
+  );
+
+  // Import-by-paste: mkdir a new library folder externally with a meta.json
+  // and NO createLibrary call — listLibraries picks it up.
+  const pastedDir = nodePath.join(tmpRoot5, '.SNL_Doc', 'libraries', 'pasted-lib');
+  await fs.mkdir(pastedDir, { recursive: true });
+  await fs.writeFile(
+    nodePath.join(pastedDir, 'meta.json'),
+    JSON.stringify({ title: 'Pasted Library', description: 'imported from elsewhere' }, null, 2)
+  );
+  await fs.writeFile(
+    nodePath.join(pastedDir, 'graph.json'),
+    JSON.stringify({ nodes: [], relationships: [] }, null, 2)
+  );
+  const libs3 = await listLibraries(root5);
+  assert(libs3.length === 1, `pasted folder auto-discovered (got ${libs3.length})`);
+  assert(libs3[0].slug === 'pasted-lib', `pasted slug (got "${libs3[0].slug}")`);
+  assert(libs3[0].title === 'Pasted Library', `pasted title from its meta.json (got "${libs3[0].title}")`);
+  assert(libs3[0].description === 'imported from elsewhere', 'description round-trips through listLibraries');
+
+  // Folder without meta.json → still discovered, title falls back to slug.
+  await fs.mkdir(nodePath.join(tmpRoot5, '.SNL_Doc', 'libraries', 'nometa'), { recursive: true });
+  const libs4 = await listLibraries(root5);
+  const noMetaEntry = libs4.find((l) => l.slug === 'nometa');
+  assert(noMetaEntry !== undefined, 'meta-less folder is still discovered');
+  assert(noMetaEntry.title === 'nometa', 'meta-less folder title falls back to slug');
+  assert(noMetaEntry.hasMeta === false, 'hasMeta false when meta.json missing');
+
+  // updateLibrary edits meta.json in place.
+  const upd = await updateLibrary(root5, 'pasted-lib', {
+    title: 'Renamed Library',
+    description: 'renamed via updateLibrary'
+  });
+  assert(upd.status === 'updated', 'updateLibrary -> updated');
+  const readMeta = await readLibraryMeta(root5, 'pasted-lib');
+  assert(readMeta.status === 'ok', 'readLibraryMeta -> ok');
+  assert(readMeta.meta.title === 'Renamed Library', 'title changed on disk');
+  assert(readMeta.meta.description === 'renamed via updateLibrary', 'description changed on disk');
+  // And config.json is STILL clean.
+  const cfg5Final = JSON.parse(await fs.readFile(configPath5, 'utf8'));
+  assert(
+    !('libraries' in cfg5Final),
+    'updateLibrary did NOT write config.libraries either'
+  );
+
+  // updateLibrary on missing library slug -> notFound.
+  const badUpd = await updateLibrary(root5, 'does-not-exist', { title: 'x' });
+  assert(badUpd.status === 'notFound', 'updateLibrary on missing slug -> notFound');
+
+  // writeLibraryMeta directly.
+  const wMeta = await writeLibraryMeta(root5, 'nometa', { title: 'Now Has Title' });
+  assert(wMeta.status === 'ok', 'writeLibraryMeta -> ok');
+  const libs5 = await listLibraries(root5);
+  const nowMeta = libs5.find((l) => l.slug === 'nometa');
+  assert(nowMeta.hasMeta === true, 'after writeLibraryMeta, hasMeta is true');
+  assert(nowMeta.title === 'Now Has Title', 'after writeLibraryMeta, title reflects it');
+
+  // Legacy config with a stale `libraries` field is IGNORED by listLibraries.
+  const cfgWithStale = { ...cfg5Final, libraries: [{ slug: 'ghost', title: 'ghost lib' }] };
+  await fs.writeFile(configPath5, JSON.stringify(cfgWithStale, null, 2));
+  const libs6 = await listLibraries(root5);
+  assert(
+    !libs6.some((l) => l.slug === 'ghost'),
+    'stale config.libraries entry is ignored (fs is source of truth)'
+  );
+
+  // readOverview also sees only fs-discovered libraries.
+  const ov = await readOverview(root5);
+  assert(
+    ov.libraries.length === libs6.length,
+    `readOverview library count matches listLibraries (${ov.libraries.length} vs ${libs6.length})`
+  );
+  assert(
+    !ov.libraries.some((l) => l.slug === 'ghost'),
+    'readOverview also ignores stale config.libraries'
+  );
+
+  await fs.rm(tmpRoot5, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

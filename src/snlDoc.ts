@@ -12,11 +12,12 @@ import { slugify } from './slug';
  * Layout produced (see Plan.md §"实装项目时的文件结构"):
  *
  *   .SNL_Doc/
- *   ├── config.json            { version, libraries: [], entry_kinds: [] }
+ *   ├── config.json            { version, entry_kinds: [], macro_kinds: [] }
  *   ├── entries.json           shared entry pool (top-level, sibling of libraries/)
  *   ├── term_macros/<pkg>.json macro packages (one file = one package)
- *   └── libraries/<slug>/
- *       ├── graph.json           Neo4j-style { nodes, relationships }
+ *   └── libraries/<slug>/      one dir per library (source of truth)
+ *       ├── meta.json           { title, description? }
+ *       ├── graph.json          Neo4j-style { nodes, relationships }
  *       └── documents/{Typst,LaTeX,Markdown}/
  */
 
@@ -101,6 +102,16 @@ export function libraryGraphUri(
   );
 }
 
+export function libraryMetaUri(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): vscode.Uri {
+  return vscode.Uri.joinPath(
+    libraryDirUri(workspaceRoot, slug),
+    'meta.json'
+  );
+}
+
 /**
  * Entry-kind metadata. One element per *category* of Entry the user defines
  * (e.g. "Definition", "Theorem", "Example"). Schema (v0.0.3):
@@ -153,7 +164,14 @@ export interface MacroKind {
 /** Persisted shapes. Kept minimal and forward-compatible. */
 export interface SnlConfig {
   version: string;
-  libraries: Array<{ slug: string; title: string }>;
+  /**
+   * DEPRECATED (2026-07-06): the libraries list is now derived from the
+   * on-disk `libraries/<slug>/meta.json` tree by {@link listLibraries} —
+   * not from config. Kept as a nullable field so older configs still load
+   * without warnings, but new code MUST NOT write it. Callers should treat
+   * it as historical noise; the source of truth is the filesystem.
+   */
+  libraries?: Array<{ slug: string; title: string }>;
   /** Entry-kind catalog. May be missing in pre-v0.0.2 configs (see
    *  `normalizeConfig`). */
   entry_kinds?: EntryKind[];
@@ -166,6 +184,19 @@ export interface SnlConfig {
    * (backwards-compat auto-migration).
    */
   active_macro_packages?: string[];
+}
+
+/**
+ * On-disk shape of `libraries/<slug>/meta.json` — small sidecar carrying
+ * human-facing metadata (title, description). Kept separate from
+ * `graph.json` so pasting a folder in and dropping this one file is enough
+ * to "import a library" (per cat 2026-07-06). Both files are optional at
+ * read time; `listLibraries` falls back to the slug when meta.json is
+ * missing.
+ */
+export interface LibraryMetaFile {
+  title?: string;
+  description?: string;
 }
 
 /**
@@ -214,10 +245,15 @@ function normalizeConfig(raw: unknown): SnlConfig {
       : undefined;
   const out: SnlConfig = {
     version: typeof cfg.version === 'string' ? cfg.version : '0.0.1',
-    libraries: Array.isArray(cfg.libraries) ? cfg.libraries : [],
     entry_kinds: rawKinds.map(normalizeEntryKind),
     macro_kinds: rawMacroKinds.map(normalizeMacroKind)
   };
+  // Legacy `libraries` array is READ for backwards compat (older code paths
+  // may still inspect it in-memory), but its authoritative replacement is the
+  // on-disk `libraries/*/meta.json` tree. New writers do NOT populate it.
+  if (Array.isArray(cfg.libraries)) {
+    out.libraries = cfg.libraries;
+  }
   if (activeMacroPackages !== undefined) {
     out.active_macro_packages = activeMacroPackages;
   }
@@ -341,7 +377,6 @@ export async function initSnlDoc(
 
   const config: SnlConfig = {
     version: '0.0.3',
-    libraries: [],
     entry_kinds: [],
     macro_kinds: []
   };
@@ -369,10 +404,18 @@ export async function initSnlDoc(
  *
  * Fails (without writing anything) when:
  *  - `.SNL_Doc/` does not exist (`noSnlDoc`);
- *  - a library with the same slug already exists (`duplicate`).
+ *  - a library directory with the same slug already exists (`duplicate`).
  *
- * On success creates `libraries/<slug>/{graph.json,documents/...}`
- * and appends `{slug, title}` to `config.json#libraries`.
+ * On success creates:
+ *
+ *   libraries/<slug>/
+ *     meta.json     { title }
+ *     graph.json    { nodes: [], relationships: [] }
+ *     documents/{Typst,LaTeX,Markdown}/
+ *
+ * Does NOT touch `config.json` — the on-disk `libraries/` tree is the
+ * source of truth for what libraries exist (per cat 2026-07-06). Pasting a
+ * `<slug>/meta.json` folder in from another workspace is enough to import.
  */
 export async function createLibrary(
   workspaceRoot: vscode.Uri,
@@ -392,23 +435,6 @@ export async function createLibrary(
     return { status: 'duplicate', slug };
   }
 
-  // Read config first so we fail fast if it's missing/corrupt before any write.
-  let config: SnlConfig;
-  try {
-    config = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
-  } catch (err) {
-    throw new Error(
-      `Failed to read .SNL_Doc/config.json: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
-  }
-  // Also reject duplicates that exist in config even if the dir was deleted —
-  // keeps the on-disk state consistent.
-  if (config.libraries.some((l) => l.slug === slug)) {
-    return { status: 'duplicate', slug };
-  }
-
   // Create library tree.
   const documentsDir = vscode.Uri.joinPath(libDir, 'documents');
   const typstDir = vscode.Uri.joinPath(documentsDir, 'Typst');
@@ -422,6 +448,10 @@ export async function createLibrary(
   await fsApi.createDirectory(markdownDir);
 
   await fsApi.writeFile(
+    libraryMetaUri(workspaceRoot, slug),
+    jsonBytes({ title: trimmedTitle } satisfies LibraryMetaFile)
+  );
+  await fsApi.writeFile(
     libraryGraphUri(workspaceRoot, slug),
     jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile)
   );
@@ -433,11 +463,6 @@ export async function createLibrary(
     vscode.Uri.joinPath(markdownDir, '.gitkeep'),
     gitkeep
   );
-
-  // Append to config last so a partial failure above doesn't leave config
-  // claiming a library that's missing files.
-  config.libraries.push({ slug, title: trimmedTitle });
-  await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(config));
 
   return { status: 'created', slug, title: trimmedTitle };
 }
@@ -1553,40 +1578,43 @@ export async function readOverview(
     config = null;
   }
 
+  // Discover libraries by scanning the on-disk `libraries/` tree (per cat
+  // 2026-07-06: config is no longer the source of truth). `listLibraries`
+  // reads each meta.json (falling back to the slug when missing) and hands
+  // us back {slug, title} pairs.
+  const discovered = await listLibraries(workspaceRoot);
   const libraries: LibrarySummary[] = [];
-  if (config?.libraries) {
-    for (const entry of config.libraries) {
-      const summary: LibrarySummary = {
-        slug: entry.slug,
-        title: entry.title,
-        entryCount: null,
-        relationshipCount: null
-      };
-      try {
-        const rel = await readJson<LibraryGraphFile>(
-          libraryGraphUri(workspaceRoot, entry.slug)
-        );
-        const nodes = Array.isArray(rel.nodes) ? rel.nodes : [];
-        const rels = Array.isArray(rel.relationships) ? rel.relationships : [];
-        summary.relationshipCount = rels.length;
-        // Count distinct Entry-labelled nodes (Sections/Counters don't
-        // contribute to "entries in this library"). See spec §2.
-        const ids = new Set<string>();
-        for (const n of nodes) {
-          if (!n || typeof n !== 'object') continue;
-          const label = (n as { label?: unknown }).label;
-          if (label !== 'Entry') continue;
-          const id = (n as { id?: unknown }).id;
-          if (typeof id === 'string') {
-            ids.add(id);
-          }
+  for (const lib of discovered) {
+    const summary: LibrarySummary = {
+      slug: lib.slug,
+      title: lib.title,
+      entryCount: null,
+      relationshipCount: null
+    };
+    try {
+      const rel = await readJson<LibraryGraphFile>(
+        libraryGraphUri(workspaceRoot, lib.slug)
+      );
+      const nodes = Array.isArray(rel.nodes) ? rel.nodes : [];
+      const rels = Array.isArray(rel.relationships) ? rel.relationships : [];
+      summary.relationshipCount = rels.length;
+      // Count distinct Entry-labelled nodes (Sections/Counters don't
+      // contribute to "entries in this library"). See spec §2.
+      const ids = new Set<string>();
+      for (const n of nodes) {
+        if (!n || typeof n !== 'object') continue;
+        const label = (n as { label?: unknown }).label;
+        if (label !== 'Entry') continue;
+        const id = (n as { id?: unknown }).id;
+        if (typeof id === 'string') {
+          ids.add(id);
         }
-        summary.entryCount = ids.size;
-      } catch {
-        // Leave both null — the dashboard renders "—" for unknown.
       }
-      libraries.push(summary);
+      summary.entryCount = ids.size;
+    } catch {
+      // Leave both null — the dashboard renders "—" for unknown.
     }
+    libraries.push(summary);
   }
 
   const macroPackages = await readMacroPackages(workspaceRoot);
@@ -2424,12 +2452,13 @@ export type UpdateLibraryResult = UpdateResult<
 /**
  * Update a library's meta IN PLACE, keyed by `slug`. Currently only `title`
  * is editable; `slug` is the identity (directory name) and never changes.
- * Missing slugs → `notFound`.
+ * Missing library directory → `notFound`. Writes `libraries/<slug>/meta.json`;
+ * does NOT touch `config.json` (per cat 2026-07-06).
  */
 export async function updateLibrary(
   workspaceRoot: vscode.Uri,
   slug: string,
-  input: { title: string }
+  input: { title: string; description?: string }
 ): Promise<UpdateLibraryResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
@@ -2442,28 +2471,30 @@ export async function updateLibrary(
   if (!title) {
     return { status: 'invalid', message: 'title is required' };
   }
-  const fsApi = vscode.workspace.fs;
-  const uri = configUri(workspaceRoot);
-  let raw: Record<string, unknown>;
-  try {
-    raw = (await readJson<Record<string, unknown>>(uri)) ?? {};
-  } catch (err) {
-    throw new Error(
-      `Failed to read .SNL_Doc/config.json: ${
-        err instanceof Error ? err.message : String(err)
-      }`
-    );
-  }
-  const libs = Array.isArray(raw.libraries)
-    ? (raw.libraries as Array<{ slug?: unknown; title?: unknown }>).slice()
-    : [];
-  const idx = libs.findIndex((l) => l && l.slug === targetSlug);
-  if (idx < 0) {
+  const libDir = libraryDirUri(workspaceRoot, targetSlug);
+  if (!(await exists(libDir))) {
     return { status: 'notFound', id: targetSlug };
   }
-  libs[idx] = { ...libs[idx], slug: targetSlug, title };
-  raw.libraries = libs;
-  await fsApi.writeFile(uri, jsonBytes(raw));
+
+  const fsApi = vscode.workspace.fs;
+  // Merge into existing meta if present so we preserve unknown fields.
+  let existing: LibraryMetaFile = {};
+  try {
+    const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, targetSlug));
+    if (raw && typeof raw === 'object') {
+      existing = raw as LibraryMetaFile;
+    }
+  } catch {
+    // File missing or unreadable: start fresh.
+  }
+  const next: LibraryMetaFile = {
+    ...existing,
+    title
+  };
+  if (typeof input.description === 'string') {
+    next.description = input.description;
+  }
+  await fsApi.writeFile(libraryMetaUri(workspaceRoot, targetSlug), jsonBytes(next));
   return { status: 'updated', slug: targetSlug, title };
 }
 
@@ -3045,6 +3076,150 @@ export async function batchMoveToNewPackage(
     movedCount: created.copiedCount
   };
 }
+
+// ---------------------------------------------------------------------------
+// Library discovery / meta (filesystem is the source of truth)
+// ---------------------------------------------------------------------------
+
+/** Summary produced by {@link listLibraries}: one entry per on-disk library
+ *  directory. `title` falls back to the slug when meta.json is missing or
+ *  doesn't carry a `title` field. */
+export interface LibraryEntry {
+  slug: string;
+  title: string;
+  description?: string;
+  /** True iff `meta.json` exists AND parsed. False on missing/malformed
+   *  meta — the caller may want to surface "imported, needs meta" affordance. */
+  hasMeta: boolean;
+}
+
+/**
+ * Enumerate `.SNL_Doc/libraries/*​/` on disk and return one summary per
+ * subdirectory. Missing `.SNL_Doc/libraries/` (or missing `.SNL_Doc/` at
+ * all) → `[]`. Hidden dotfiles (`.gitkeep`) and non-directory entries are
+ * skipped. Results are sorted alphabetically by slug for deterministic UI.
+ *
+ * This is the SOURCE OF TRUTH for "which libraries exist" as of 2026-07-06:
+ * `config.json#libraries` is no longer consulted. Pasting a folder in from
+ * another workspace = the folder shows up here immediately, no config edit
+ * needed. Deleting a folder = it disappears here immediately, no config
+ * cleanup needed.
+ */
+export async function listLibraries(
+  workspaceRoot: vscode.Uri
+): Promise<LibraryEntry[]> {
+  const fsApi = vscode.workspace.fs;
+  const dir = librariesDirUri(workspaceRoot);
+  if (!(await exists(dir))) {
+    return [];
+  }
+
+  let entries: [string, vscode.FileType][];
+  try {
+    entries = await fsApi.readDirectory(dir);
+  } catch {
+    return [];
+  }
+
+  const out: LibraryEntry[] = [];
+  for (const [name, type] of entries) {
+    if (type !== vscode.FileType.Directory) continue;
+    if (name.startsWith('.')) continue;
+
+    const summary: LibraryEntry = {
+      slug: name,
+      title: name, // fallback: slug becomes the display title
+      hasMeta: false
+    };
+    try {
+      const raw = await readJson<LibraryMetaFile>(
+        libraryMetaUri(workspaceRoot, name)
+      );
+      if (raw && typeof raw === 'object') {
+        summary.hasMeta = true;
+        if (typeof raw.title === 'string' && raw.title.trim().length > 0) {
+          summary.title = raw.title.trim();
+        }
+        if (typeof raw.description === 'string') {
+          summary.description = raw.description;
+        }
+      }
+    } catch {
+      // Missing / malformed meta.json → keep hasMeta:false, use slug as title.
+    }
+    out.push(summary);
+  }
+  out.sort((a, b) => a.slug.localeCompare(b.slug));
+  return out;
+}
+
+/**
+ * Read `libraries/<slug>/meta.json` and return the normalized shape. Missing
+ * file → `{status: 'noFile'}`. Malformed / unreadable → `{status: 'error'}`.
+ */
+export async function readLibraryMeta(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<
+  | { status: 'ok'; meta: LibraryMetaFile }
+  | { status: 'noFile' }
+  | { status: 'error'; message: string }
+> {
+  try {
+    const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, slug));
+    if (!raw || typeof raw !== 'object') {
+      return { status: 'ok', meta: {} };
+    }
+    return { status: 'ok', meta: raw as LibraryMetaFile };
+  } catch (err) {
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? (err as { code?: unknown }).code
+        : undefined;
+    if (code === 'FileNotFound' || code === 'ENOENT') {
+      return { status: 'noFile' };
+    }
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+/**
+ * Atomically write `libraries/<slug>/meta.json`. Preserves unknown fields
+ * of the existing file. Errors bubble up as `{status: 'error'}`.
+ */
+export async function writeLibraryMeta(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  meta: LibraryMetaFile
+): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
+  const fsApi = vscode.workspace.fs;
+  let existing: LibraryMetaFile = {};
+  try {
+    const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, slug));
+    if (raw && typeof raw === 'object') {
+      existing = raw as LibraryMetaFile;
+    }
+  } catch {
+    // Missing / malformed → treat as empty and overwrite.
+  }
+  const merged: LibraryMetaFile = { ...existing, ...meta };
+  try {
+    await fsApi.writeFile(
+      libraryMetaUri(workspaceRoot, slug),
+      jsonBytes(merged)
+    );
+    return { status: 'ok' };
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Library graph: read / write

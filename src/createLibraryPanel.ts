@@ -347,11 +347,22 @@ export class CreateLibraryPanel {
    * the webview should never send malformed ones, but be defensive.
    *
    * Supported ops (all in edit mode only):
-   *   - addNode: { op: 'addNode', parentId | null, kind, title, insertAfter? }
-   *       Creates a new EntryData in the shared pool with a fresh uuid and
-   *       links it as a child of `parentId` (or as a root when null). When
-   *       `insertAfter` is given, the new branch edge is placed right after
-   *       the sibling with that node id; otherwise appended.
+   *   - addNode: { op: 'addNode', parentId | null, entryId?, kind?, title?, insertAfter? }
+   *       Two modes decided by `entryId`:
+   *       (a) entryId non-empty  → REFERENCE mode. Validates that this
+   *           entryId exists in the shared pool, then creates a graph node
+   *           pointing at it. `kind` and `title` are ignored — the entry
+   *           already carries them. Enables one entry being outlined in
+   *           multiple libraries (cat 2026-07-06: "一个 entry 能属多个
+   *           library").
+   *       (b) entryId empty/omitted → CREATE mode. Creates a fresh
+   *           EntryData in the shared pool with a new uuid using the
+   *           supplied `kind` (required) + `title`, then links a graph
+   *           node to it.
+   *       In both modes, when `insertAfter` is given, the new branch edge
+   *       is placed right after the sibling with that node id; otherwise
+   *       appended. `parentId=null` places the node as a new root (no
+   *       branch edge is written).
    *   - deleteNode: { op: 'deleteNode', nodeId }
    *       Removes the graph node + all its branch edges. Does NOT delete
    *       the underlying shared-pool entry — undo-friendly.
@@ -404,17 +415,12 @@ export class CreateLibraryPanel {
         case 'addNode': {
           const parentId =
             typeof op.parentId === 'string' ? op.parentId : null;
+          const rawEntryId =
+            typeof op.entryId === 'string' ? op.entryId.trim() : '';
           const kind = typeof op.kind === 'string' ? op.kind.trim() : '';
           const title = typeof op.title === 'string' ? op.title : '';
           const insertAfter =
             typeof op.insertAfter === 'string' ? op.insertAfter : null;
-          if (!kind) {
-            void this.panel.webview.postMessage({
-              type: 'graphError',
-              message: 'addNode: kind is required'
-            });
-            return;
-          }
           // Validate parent exists in the graph (or is null for a root).
           if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
             void this.panel.webview.postMessage({
@@ -423,34 +429,56 @@ export class CreateLibraryPanel {
             });
             return;
           }
-          // 1. Create a new entry in the shared pool.
-          const entryUuid = generateUuid();
-          const addRes = await addEntry(root, {
-            id: entryUuid,
-            kind,
-            title,
-            content: {},
-            contribution_info: null,
-            pointer: null
-          });
-          if (addRes.status !== 'ok') {
-            const message =
-              addRes.status === 'invalid'
-                ? addRes.reason
-                : addRes.status === 'unknownKind'
-                  ? `kind "${addRes.kind}" is not registered`
-                  : addRes.status === 'duplicate'
-                    ? `entry id collision (${addRes.id}) — retry`
-                    : addRes.status === 'noSnlDoc'
-                      ? '.SNL_Doc/ not found'
-                      : 'error' in addRes ? addRes.message : 'unknown';
-            void this.panel.webview.postMessage({
-              type: 'graphError',
-              message: `addNode: shared-pool addEntry failed: ${message}`
+
+          let entryUuid: string;
+          if (rawEntryId) {
+            // REFERENCE mode: entryId must exist in the shared pool.
+            const pool = await readEntries(root);
+            if (!pool.some((e) => e && e.id === rawEntryId)) {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: `addNode: entry "${rawEntryId}" not found in shared pool. Leave the id field empty to create a new entry.`
+              });
+              return;
+            }
+            entryUuid = rawEntryId;
+          } else {
+            // CREATE mode: need a kind; make a fresh shared-pool row.
+            if (!kind) {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: 'addNode: kind is required when creating a new entry'
+              });
+              return;
+            }
+            entryUuid = generateUuid();
+            const addRes = await addEntry(root, {
+              id: entryUuid,
+              kind,
+              title,
+              content: {},
+              contribution_info: null,
+              pointer: null
             });
-            return;
+            if (addRes.status !== 'ok') {
+              const message =
+                addRes.status === 'invalid'
+                  ? addRes.reason
+                  : addRes.status === 'unknownKind'
+                    ? `kind "${addRes.kind}" is not registered`
+                    : addRes.status === 'duplicate'
+                      ? `entry id collision (${addRes.id}) — retry`
+                      : addRes.status === 'noSnlDoc'
+                        ? '.SNL_Doc/ not found'
+                        : 'error' in addRes ? addRes.message : 'unknown';
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: `addNode: shared-pool addEntry failed: ${message}`
+              });
+              return;
+            }
           }
-          // 2. Insert the graph node + branch edge.
+          // Insert the graph node + branch edge.
           const nodeLocalId = generateLocalId(nodes);
           nodes.push({
             id: nodeLocalId,

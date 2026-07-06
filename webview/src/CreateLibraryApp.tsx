@@ -435,12 +435,14 @@ function OutlineEditor({
   // expanded; drill deeper on click). Persists across host pushes.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Optional "adding" mode: which parent is currently being extended, and
-  // with what pending kind selection + title. When null, no popover is open.
+  // with what pending kind selection + title + optional entryId to reuse.
+  // When null, no popover is open.
   const [addingUnder, setAddingUnder] = useState<{
     parentId: string | null;
     insertAfter: string | null;
     kind: string;
     title: string;
+    entryId: string;
   } | null>(null);
 
   // Precompute indices for the current graph.
@@ -510,19 +512,29 @@ function OutlineEditor({
   ): void => {
     // Default kind: the first kind in the workspace's list, or empty string.
     const defaultKind = graph?.kinds[0]?.id ?? '';
-    setAddingUnder({ parentId, insertAfter, kind: defaultKind, title: '' });
+    setAddingUnder({
+      parentId,
+      insertAfter,
+      kind: defaultKind,
+      title: '',
+      entryId: ''
+    });
   };
 
   const cancelAdd = (): void => setAddingUnder(null);
 
   const commitAdd = (): void => {
     if (!addingUnder) return;
+    const entryIdTrimmed = addingUnder.entryId.trim();
     onGraphOp({
       op: 'addNode',
       parentId: addingUnder.parentId,
       insertAfter: addingUnder.insertAfter,
-      kind: addingUnder.kind,
-      title: addingUnder.title
+      // Reference mode: send just entryId (host validates & skips create).
+      // Create mode: send kind + title (host mints uuid).
+      ...(entryIdTrimmed
+        ? { entryId: entryIdTrimmed }
+        : { kind: addingUnder.kind, title: addingUnder.title })
     });
     setAddingUnder(null);
   };
@@ -590,6 +602,7 @@ function OutlineEditor({
       {addingUnder && addingUnder.parentId === null && addingUnder.insertAfter === null ? (
         <AddNodeForm
           kinds={graph.kinds}
+          entriesById={entriesById}
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
@@ -623,6 +636,7 @@ interface OutlineRowProps {
     insertAfter: string | null;
     kind: string;
     title: string;
+    entryId: string;
   } | null;
   onStartAdd: (parentId: string | null, insertAfter: string | null) => void;
   onCancelAdd: () => void;
@@ -633,6 +647,7 @@ interface OutlineRowProps {
       insertAfter: string | null;
       kind: string;
       title: string;
+      entryId: string;
     } | null
   ) => void;
   onGraphOp: (op: Record<string, unknown>) => void;
@@ -731,6 +746,54 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
           {displayTitle}
         </span>
 
+        {/* Compact entryId badge — click to copy, so you can paste it into
+            another library's Add form to reference this same entry. */}
+        {entry ? (
+          <button
+            type="button"
+            title={`Click to copy entry id\n${entry.id}`}
+            onClick={() => {
+              const id = entry.id;
+              void (async () => {
+                try {
+                  await navigator.clipboard.writeText(id);
+                } catch {
+                  // Some webview contexts disable clipboard API. Fall back
+                  // to a text-selection trick.
+                  const ta = document.createElement('textarea');
+                  ta.value = id;
+                  document.body.appendChild(ta);
+                  ta.select();
+                  try {
+                    document.execCommand('copy');
+                  } catch {
+                    // give up silently
+                  }
+                  document.body.removeChild(ta);
+                }
+              })();
+            }}
+            style={{
+              fontFamily: 'var(--vscode-editor-font-family, monospace)',
+              fontSize: '0.7rem',
+              padding: '0.15rem 0.35rem',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+              borderRadius: '2px',
+              background: 'transparent',
+              color: 'var(--vscode-descriptionForeground, #999)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              maxWidth: '9rem',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {entry.id.slice(0, 8)}…
+          </button>
+        ) : null}
+
         <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
           <IconButton
             label="+ child"
@@ -800,6 +863,7 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
         <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}>
           <AddNodeForm
             kinds={graph.kinds}
+            entriesById={entriesById}
             state={addingUnder}
             onCancel={onCancelAdd}
             onCommit={onCommitAdd}
@@ -847,17 +911,20 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
 
 function AddNodeForm({
   kinds,
+  entriesById,
   state,
   onCancel,
   onCommit,
   onUpdate
 }: {
   kinds: KindItem[];
+  entriesById: Map<string, EntryPoolItem>;
   state: {
     parentId: string | null;
     insertAfter: string | null;
     kind: string;
     title: string;
+    entryId: string;
   };
   onCancel: () => void;
   onCommit: () => void;
@@ -867,89 +934,182 @@ function AddNodeForm({
       insertAfter: string | null;
       kind: string;
       title: string;
+      entryId: string;
     } | null
   ) => void;
 }): React.ReactElement {
+  const entryIdTrimmed = state.entryId.trim();
+  const referenceMode = entryIdTrimmed.length > 0;
+  const referencedEntry = referenceMode
+    ? entriesById.get(entryIdTrimmed)
+    : undefined;
+  const referenceInvalid = referenceMode && !referencedEntry;
+
   return (
     <div
       style={{
         margin: '0.35rem 0',
-        padding: '0.55rem 0.75rem',
+        padding: '0.6rem 0.75rem',
         borderRadius: '5px',
         border:
           '1px solid var(--vscode-focusBorder, var(--vscode-contrastActiveBorder, #007fd4))',
         background:
           'var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e))',
         display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'center'
+        flexDirection: 'column',
+        gap: '0.5rem'
       }}
     >
-      <select
-        value={state.kind}
-        onChange={(e) =>
-          onUpdate({
-            parentId: state.parentId,
-            insertAfter: state.insertAfter,
-            kind: e.target.value,
-            title: state.title
-          })
-        }
+      {/* Row 1: reference existing entry by uuid. */}
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <label
+          htmlFor="snl-outline-entryid"
+          style={{
+            flex: '0 0 auto',
+            fontSize: '0.8rem',
+            opacity: 0.75
+          }}
+        >
+          Existing entry id
+        </label>
+        <input
+          id="snl-outline-entryid"
+          type="text"
+          placeholder="(leave empty to create a new entry)"
+          value={state.entryId}
+          onChange={(e) =>
+            onUpdate({
+              parentId: state.parentId,
+              insertAfter: state.insertAfter,
+              kind: state.kind,
+              title: state.title,
+              entryId: e.target.value
+            })
+          }
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onCommit();
+            if (e.key === 'Escape') onCancel();
+          }}
+          style={{
+            flex: '1 1 auto',
+            padding: '0.35rem 0.5rem',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.8rem',
+            color: 'var(--vscode-input-foreground, #ddd)',
+            background: 'var(--vscode-input-background, #2a2a2a)',
+            border: referenceInvalid
+              ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
+              : '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            borderRadius: '2px'
+          }}
+        />
+      </div>
+
+      {/* Row 2: kind + title (only meaningful in create mode). */}
+      <div
         style={{
-          padding: '0.35rem 0.4rem',
-          fontFamily: 'inherit',
-          fontSize: '0.85rem',
-          color: 'var(--vscode-input-foreground, #ddd)',
-          background: 'var(--vscode-input-background, #2a2a2a)',
-          border:
-            '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-          borderRadius: '2px'
+          display: 'flex',
+          gap: '0.5rem',
+          alignItems: 'center',
+          opacity: referenceMode ? 0.5 : 1
         }}
       >
-        {kinds.length === 0 ? (
-          <option value="">(no entry kinds registered)</option>
-        ) : null}
-        {kinds.map((k) => (
-          <option key={k.id} value={k.id}>
-            {k.name}
-          </option>
-        ))}
-      </select>
-      <input
-        type="text"
-        placeholder="Title (optional)"
-        value={state.title}
-        autoFocus
-        onChange={(e) =>
-          onUpdate({
-            parentId: state.parentId,
-            insertAfter: state.insertAfter,
-            kind: state.kind,
-            title: e.target.value
-          })
-        }
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') onCommit();
-          if (e.key === 'Escape') onCancel();
-        }}
+        <select
+          value={state.kind}
+          disabled={referenceMode}
+          onChange={(e) =>
+            onUpdate({
+              parentId: state.parentId,
+              insertAfter: state.insertAfter,
+              kind: e.target.value,
+              title: state.title,
+              entryId: state.entryId
+            })
+          }
+          style={{
+            padding: '0.35rem 0.4rem',
+            fontFamily: 'inherit',
+            fontSize: '0.85rem',
+            color: 'var(--vscode-input-foreground, #ddd)',
+            background: 'var(--vscode-input-background, #2a2a2a)',
+            border:
+              '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            borderRadius: '2px'
+          }}
+        >
+          {kinds.length === 0 ? (
+            <option value="">(no entry kinds registered)</option>
+          ) : null}
+          {kinds.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          placeholder="Title (optional)"
+          value={state.title}
+          disabled={referenceMode}
+          autoFocus={!referenceMode}
+          onChange={(e) =>
+            onUpdate({
+              parentId: state.parentId,
+              insertAfter: state.insertAfter,
+              kind: state.kind,
+              title: e.target.value,
+              entryId: state.entryId
+            })
+          }
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onCommit();
+            if (e.key === 'Escape') onCancel();
+          }}
+          style={{
+            flex: '1 1 auto',
+            padding: '0.35rem 0.5rem',
+            fontFamily: 'inherit',
+            fontSize: '0.85rem',
+            color: 'var(--vscode-input-foreground, #ddd)',
+            background: 'var(--vscode-input-background, #2a2a2a)',
+            border:
+              '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            borderRadius: '2px'
+          }}
+        />
+      </div>
+
+      {/* Row 3: status / preview / actions. */}
+      <div
         style={{
-          flex: '1 1 auto',
-          padding: '0.35rem 0.5rem',
-          fontFamily: 'inherit',
-          fontSize: '0.85rem',
-          color: 'var(--vscode-input-foreground, #ddd)',
-          background: 'var(--vscode-input-background, #2a2a2a)',
-          border:
-            '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-          borderRadius: '2px'
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem'
         }}
-      />
-      <button type="button" onClick={onCommit} style={toolbarButtonStyle(false)}>
-        Add
-      </button>
-      <button type="button" onClick={onCancel} style={toolbarButtonStyle(false)}>
-        Cancel
-      </button>
+      >
+        <span style={{ flex: '1 1 auto', fontSize: '0.78rem', opacity: 0.8 }}>
+          {referenceMode
+            ? referencedEntry
+              ? `↩ Reference: "${referencedEntry.title || '(untitled)'}" — kind: ${referencedEntry.kind}`
+              : `⚠ No entry with id "${entryIdTrimmed}" in the shared pool`
+            : '+ New entry (a fresh uuid will be minted)'}
+        </span>
+        <button
+          type="button"
+          onClick={onCommit}
+          disabled={referenceInvalid}
+          style={{
+            ...toolbarButtonStyle(!referenceInvalid),
+            opacity: referenceInvalid ? 0.5 : 1,
+            cursor: referenceInvalid ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {referenceMode ? 'Reference' : 'Create & add'}
+        </button>
+        <button type="button" onClick={onCancel} style={toolbarButtonStyle(false)}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

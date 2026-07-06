@@ -135,77 +135,132 @@ export function CreateLibraryApp(): React.ReactElement {
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
           ? 'Update this library\u2019s display title. The slug (directory name) is immutable — delete + recreate to rename.'
-          : 'Add a new library to the existing .SNL_Doc/. The title is preserved verbatim in config.json; a filesystem-safe slug is derived for the directory name.'}
+          : 'Add a new library to the existing .SNL_Doc/. The title is written to libraries/<slug>/meta.json; the slug (directory name) is derived from the title.'}
       </p>
 
       {mode === 'edit' ? (
+        // Edit mode: slug (readonly) + title on the same row so they read as
+        // "directory / display name" instead of a stacked pair of near-duplicate
+        // fields (per cat 2026-07-06).
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.75rem',
+            alignItems: 'flex-end',
+            marginBottom: '0.9rem'
+          }}
+        >
+          <div style={{ flex: '0 1 12rem', minWidth: 0 }}>
+            <label
+              htmlFor="snl-library-slug"
+              style={{
+                display: 'block',
+                marginBottom: '0.35rem',
+                fontWeight: 600
+              }}
+            >
+              Slug (readonly)
+            </label>
+            <input
+              id="snl-library-slug"
+              type="text"
+              value={slug}
+              readOnly
+              title="IDs / slugs are immutable; delete + recreate to rename"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '0.4rem 0.55rem',
+                color: 'var(--vscode-descriptionForeground, #999)',
+                background: 'var(--vscode-input-background, #2a2a2a)',
+                border:
+                  '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #444))',
+                borderRadius: '2px',
+                fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                fontSize: '0.95rem',
+                opacity: 0.7,
+                cursor: 'not-allowed'
+              }}
+            />
+          </div>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <label
+              htmlFor="snl-library-title"
+              style={{
+                display: 'block',
+                marginBottom: '0.35rem',
+                fontWeight: 600
+              }}
+            >
+              Library title
+            </label>
+            <input
+              id="snl-library-title"
+              type="text"
+              value={title}
+              placeholder="e.g. Real Analysis"
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSubmit();
+                }
+              }}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '0.4rem 0.55rem',
+                color: 'var(--vscode-input-foreground, #ddd)',
+                background: 'var(--vscode-input-background, #2a2a2a)',
+                border:
+                  '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+                borderRadius: '2px',
+                fontFamily: 'inherit',
+                fontSize: '0.95rem'
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        // Create mode: single title field (no slug to preview until the user
+        // types something and the host slugifies on submit).
         <>
           <label
-            htmlFor="snl-library-slug"
+            htmlFor="snl-library-title"
             style={{
               display: 'block',
               marginBottom: '0.35rem',
               fontWeight: 600
             }}
           >
-            Slug (readonly)
+            Library title
           </label>
           <input
-            id="snl-library-slug"
+            id="snl-library-title"
             type="text"
-            value={slug}
-            readOnly
-            title="IDs / slugs are immutable; delete + recreate to rename"
+            value={title}
+            placeholder="e.g. Real Analysis"
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSubmit();
+              }
+            }}
             style={{
               width: '100%',
               boxSizing: 'border-box',
               padding: '0.4rem 0.55rem',
               marginBottom: '0.9rem',
-              color: 'var(--vscode-descriptionForeground, #999)',
+              color: 'var(--vscode-input-foreground, #ddd)',
               background: 'var(--vscode-input-background, #2a2a2a)',
               border:
-                '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #444))',
+                '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
               borderRadius: '2px',
-              fontFamily: 'var(--vscode-editor-font-family, monospace)',
-              fontSize: '0.95rem',
-              opacity: 0.7,
-              cursor: 'not-allowed'
+              fontFamily: 'inherit',
+              fontSize: '0.95rem'
             }}
           />
         </>
-      ) : null}
-
-      <label
-        htmlFor="snl-library-title"
-        style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}
-      >
-        Library title
-      </label>
-      <input
-        id="snl-library-title"
-        type="text"
-        value={title}
-        placeholder="e.g. Real Analysis"
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            handleSubmit();
-          }
-        }}
-        style={{
-          width: '100%',
-          boxSizing: 'border-box',
-          padding: '0.4rem 0.55rem',
-          marginBottom: '0.9rem',
-          color: 'var(--vscode-input-foreground, #ddd)',
-          background: 'var(--vscode-input-background, #2a2a2a)',
-          border:
-            '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-          borderRadius: '2px',
-          fontFamily: 'inherit',
-          fontSize: '0.95rem'
-        }}
-      />
+      )}
 
       <button
         type="button"

@@ -125,6 +125,19 @@ export class CreateLibraryPanel {
       this.disposables
     );
 
+    // Refresh the outline whenever this panel regains focus — the user
+    // might have popped over to Create Entry and just added a new entry
+    // in the shared pool that we now want to pick up.
+    this.panel.onDidChangeViewState(
+      () => {
+        if (this.mode === 'edit' && this.panel.active) {
+          void this.pushGraph();
+        }
+      },
+      null,
+      this.disposables
+    );
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -233,6 +246,13 @@ export class CreateLibraryPanel {
     }
     if (msg.type === 'graphOp') {
       await this.handleGraphOp(msg.op);
+      return;
+    }
+    if (msg.type === 'openCreateEntry') {
+      // Cat 2026-07-06: outline Add row's "Create" button routes to the
+      // full CreateEntry panel — user fills out kind/title/content there
+      // and comes back to paste the returned id.
+      await vscode.commands.executeCommand('snlDoc.createEntry');
       return;
     }
     if (msg.type !== 'create' && msg.type !== 'update') {

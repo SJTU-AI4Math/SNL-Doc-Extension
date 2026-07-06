@@ -435,13 +435,11 @@ function OutlineEditor({
   // expanded; drill deeper on click). Persists across host pushes.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Optional "adding" mode: which parent is currently being extended, and
-  // with what pending kind selection + title + optional entryId to reuse.
-  // When null, no popover is open.
+  // just the entryId the user is typing (cat 2026-07-06: reference-only,
+  // create-mode is routed to the CreateEntry panel instead).
   const [addingUnder, setAddingUnder] = useState<{
     parentId: string | null;
     insertAfter: string | null;
-    kind: string;
-    title: string;
     entryId: string;
   } | null>(null);
 
@@ -510,15 +508,7 @@ function OutlineEditor({
     parentId: string | null,
     insertAfter: string | null
   ): void => {
-    // Default kind: the first kind in the workspace's list, or empty string.
-    const defaultKind = graph?.kinds[0]?.id ?? '';
-    setAddingUnder({
-      parentId,
-      insertAfter,
-      kind: defaultKind,
-      title: '',
-      entryId: ''
-    });
+    setAddingUnder({ parentId, insertAfter, entryId: '' });
   };
 
   const cancelAdd = (): void => setAddingUnder(null);
@@ -526,15 +516,17 @@ function OutlineEditor({
   const commitAdd = (): void => {
     if (!addingUnder) return;
     const entryIdTrimmed = addingUnder.entryId.trim();
+    if (!entryIdTrimmed) {
+      // Empty id → route to Create Entry panel; DON'T close the popover
+      // so the user can paste the fresh id when they come back.
+      apiRef.current?.postMessage({ type: 'openCreateEntry' });
+      return;
+    }
     onGraphOp({
       op: 'addNode',
       parentId: addingUnder.parentId,
       insertAfter: addingUnder.insertAfter,
-      // Reference mode: send just entryId (host validates & skips create).
-      // Create mode: send kind + title (host mints uuid).
-      ...(entryIdTrimmed
-        ? { entryId: entryIdTrimmed }
-        : { kind: addingUnder.kind, title: addingUnder.title })
+      entryId: entryIdTrimmed
     });
     setAddingUnder(null);
   };
@@ -634,8 +626,6 @@ interface OutlineRowProps {
   addingUnder: {
     parentId: string | null;
     insertAfter: string | null;
-    kind: string;
-    title: string;
     entryId: string;
   } | null;
   onStartAdd: (parentId: string | null, insertAfter: string | null) => void;
@@ -645,8 +635,6 @@ interface OutlineRowProps {
     s: {
       parentId: string | null;
       insertAfter: string | null;
-      kind: string;
-      title: string;
       entryId: string;
     } | null
   ) => void;
@@ -910,20 +898,19 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
 }
 
 function AddNodeForm({
-  kinds,
   entriesById,
   state,
   onCancel,
   onCommit,
   onUpdate
 }: {
+  // kinds is unused now (Create routes to CreateEntry panel), but kept in
+  // the prop shape to avoid churn at the callsites.
   kinds: KindItem[];
   entriesById: Map<string, EntryPoolItem>;
   state: {
     parentId: string | null;
     insertAfter: string | null;
-    kind: string;
-    title: string;
     entryId: string;
   };
   onCancel: () => void;
@@ -932,18 +919,41 @@ function AddNodeForm({
     s: {
       parentId: string | null;
       insertAfter: string | null;
-      kind: string;
-      title: string;
       entryId: string;
     } | null
   ) => void;
 }): React.ReactElement {
   const entryIdTrimmed = state.entryId.trim();
-  const referenceMode = entryIdTrimmed.length > 0;
-  const referencedEntry = referenceMode
-    ? entriesById.get(entryIdTrimmed)
-    : undefined;
-  const referenceInvalid = referenceMode && !referencedEntry;
+  const isEmpty = entryIdTrimmed.length === 0;
+  const referencedEntry = !isEmpty ? entriesById.get(entryIdTrimmed) : undefined;
+
+  // Three states drive the visual language (cat 2026-07-06):
+  //   1. empty        → "Create" button opens the CreateEntry panel
+  //   2. matched      → green border + ✓ badge + Reference button
+  //   3. no-match     → yellow border + ⚠ badge + Create button (will
+  //                     mint a fresh entry via CreateEntry panel too;
+  //                     what the user typed becomes irrelevant because
+  //                     they haven't paste-copied an existing id yet)
+  type Mode = 'empty' | 'matched' | 'nomatch';
+  const mode: Mode = isEmpty ? 'empty' : referencedEntry ? 'matched' : 'nomatch';
+
+  const buttonLabel = mode === 'matched' ? 'Reference' : 'Create';
+
+  const borderColor =
+    mode === 'matched'
+      ? 'var(--vscode-testing-iconPassed, #4ec9b0)'
+      : mode === 'nomatch'
+        ? 'var(--vscode-inputValidation-warningBorder, #b89500)'
+        : 'var(--vscode-focusBorder, var(--vscode-contrastActiveBorder, #007fd4))';
+
+  const statusColor =
+    mode === 'matched'
+      ? 'var(--vscode-testing-iconPassed, #4ec9b0)'
+      : mode === 'nomatch'
+        ? 'var(--vscode-editorWarning-foreground, #cca700)'
+        : 'var(--vscode-descriptionForeground, #999)';
+
+  const statusIcon = mode === 'matched' ? '✓' : mode === 'nomatch' ? '⚠' : '';
 
   return (
     <div
@@ -951,16 +961,14 @@ function AddNodeForm({
         margin: '0.35rem 0',
         padding: '0.6rem 0.75rem',
         borderRadius: '5px',
-        border:
-          '1px solid var(--vscode-focusBorder, var(--vscode-contrastActiveBorder, #007fd4))',
+        border: `1px solid ${borderColor}`,
         background:
           'var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e))',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.5rem'
+        gap: '0.4rem'
       }}
     >
-      {/* Row 1: reference existing entry by uuid. */}
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
         <label
           htmlFor="snl-outline-entryid"
@@ -970,19 +978,18 @@ function AddNodeForm({
             opacity: 0.75
           }}
         >
-          Existing entry id
+          Entry id
         </label>
         <input
           id="snl-outline-entryid"
           type="text"
-          placeholder="(leave empty to create a new entry)"
+          placeholder="Paste an existing entry uuid, or leave empty and click Create"
           value={state.entryId}
+          autoFocus
           onChange={(e) =>
             onUpdate({
               parentId: state.parentId,
               insertAfter: state.insertAfter,
-              kind: state.kind,
-              title: state.title,
               entryId: e.target.value
             })
           }
@@ -997,89 +1004,28 @@ function AddNodeForm({
             fontSize: '0.8rem',
             color: 'var(--vscode-input-foreground, #ddd)',
             background: 'var(--vscode-input-background, #2a2a2a)',
-            border: referenceInvalid
-              ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
-              : '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            border: `1px solid ${borderColor}`,
             borderRadius: '2px'
           }}
         />
+        {statusIcon ? (
+          <span
+            style={{
+              flex: '0 0 auto',
+              fontSize: '1.1rem',
+              lineHeight: 1,
+              color: statusColor,
+              fontWeight: 700,
+              width: '1.25rem',
+              textAlign: 'center'
+            }}
+            aria-hidden
+          >
+            {statusIcon}
+          </span>
+        ) : null}
       </div>
 
-      {/* Row 2: kind + title (only meaningful in create mode). */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '0.5rem',
-          alignItems: 'center',
-          opacity: referenceMode ? 0.5 : 1
-        }}
-      >
-        <select
-          value={state.kind}
-          disabled={referenceMode}
-          onChange={(e) =>
-            onUpdate({
-              parentId: state.parentId,
-              insertAfter: state.insertAfter,
-              kind: e.target.value,
-              title: state.title,
-              entryId: state.entryId
-            })
-          }
-          style={{
-            padding: '0.35rem 0.4rem',
-            fontFamily: 'inherit',
-            fontSize: '0.85rem',
-            color: 'var(--vscode-input-foreground, #ddd)',
-            background: 'var(--vscode-input-background, #2a2a2a)',
-            border:
-              '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-            borderRadius: '2px'
-          }}
-        >
-          {kinds.length === 0 ? (
-            <option value="">(no entry kinds registered)</option>
-          ) : null}
-          {kinds.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          placeholder="Title (optional)"
-          value={state.title}
-          disabled={referenceMode}
-          autoFocus={!referenceMode}
-          onChange={(e) =>
-            onUpdate({
-              parentId: state.parentId,
-              insertAfter: state.insertAfter,
-              kind: state.kind,
-              title: e.target.value,
-              entryId: state.entryId
-            })
-          }
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommit();
-            if (e.key === 'Escape') onCancel();
-          }}
-          style={{
-            flex: '1 1 auto',
-            padding: '0.35rem 0.5rem',
-            fontFamily: 'inherit',
-            fontSize: '0.85rem',
-            color: 'var(--vscode-input-foreground, #ddd)',
-            background: 'var(--vscode-input-background, #2a2a2a)',
-            border:
-              '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-            borderRadius: '2px'
-          }}
-        />
-      </div>
-
-      {/* Row 3: status / preview / actions. */}
       <div
         style={{
           display: 'flex',
@@ -1087,24 +1033,21 @@ function AddNodeForm({
           gap: '0.75rem'
         }}
       >
-        <span style={{ flex: '1 1 auto', fontSize: '0.78rem', opacity: 0.8 }}>
-          {referenceMode
-            ? referencedEntry
-              ? `↩ Reference: "${referencedEntry.title || '(untitled)'}" — kind: ${referencedEntry.kind}`
-              : `⚠ No entry with id "${entryIdTrimmed}" in the shared pool`
-            : '+ New entry (a fresh uuid will be minted)'}
-        </span>
-        <button
-          type="button"
-          onClick={onCommit}
-          disabled={referenceInvalid}
+        <span
           style={{
-            ...toolbarButtonStyle(!referenceInvalid),
-            opacity: referenceInvalid ? 0.5 : 1,
-            cursor: referenceInvalid ? 'not-allowed' : 'pointer'
+            flex: '1 1 auto',
+            fontSize: '0.78rem',
+            color: statusColor
           }}
         >
-          {referenceMode ? 'Reference' : 'Create & add'}
+          {mode === 'matched'
+            ? `Reference: "${referencedEntry?.title || '(untitled)'}" — kind: ${referencedEntry?.kind}`
+            : mode === 'nomatch'
+              ? `No entry with id "${entryIdTrimmed}" — Create will add a new one`
+              : 'Empty — Create will open the Create Entry panel'}
+        </span>
+        <button type="button" onClick={onCommit} style={toolbarButtonStyle(true)}>
+          {buttonLabel}
         </button>
         <button type="button" onClick={onCancel} style={toolbarButtonStyle(false)}>
           Cancel

@@ -72,8 +72,30 @@ export interface EntryKind {
 }
 
 // Neutral fallback palette when the entry's kind can't be resolved.
+// Coloring magic values (cat 2026-07-06):
+//   stroke === ''  → use vscode-editor-foreground (auto light/dark)
+//   background === '' or 'transparent' → transparent (chameleon; no fill).
+// Any other value is passed through as a literal CSS color.
 const FALLBACK_STROKE = '#888888';
 const FALLBACK_BACKGROUND = '#eeeeee';
+const AUTO_STROKE = 'var(--vscode-editor-foreground, #ddd)';
+const TRANSPARENT_BACKGROUND = 'transparent';
+
+function resolveStroke(raw: string | undefined): string {
+  if (raw === undefined) return FALLBACK_STROKE;
+  const trimmed = raw.trim();
+  if (trimmed === '' || trimmed === 'auto') return AUTO_STROKE;
+  return trimmed;
+}
+
+function resolveBackground(raw: string | undefined): string {
+  if (raw === undefined) return FALLBACK_BACKGROUND;
+  const trimmed = raw.trim();
+  if (trimmed === '' || trimmed === 'transparent' || trimmed === 'none') {
+    return TRANSPARENT_BACKGROUND;
+  }
+  return trimmed;
+}
 
 export interface EntryRenderProps {
   entry: EntryData;
@@ -294,8 +316,8 @@ export function EntryRender({
     () => (parsed.ok ? parseSnlSyntaxTree(snl) : null),
     [parsed.ok, snl]
   );
-  const stroke = kind?.coloring.stroke ?? FALLBACK_STROKE;
-  const background = kind?.coloring.background ?? FALLBACK_BACKGROUND;
+  const stroke = resolveStroke(kind?.coloring.stroke);
+  const background = resolveBackground(kind?.coloring.background);
   const kindName = kind ? kind.name : entry.kind;
   const headerText = counterLabel
     ? `${kindName} ${counterLabel} -- ${entry.title}`
@@ -333,6 +355,11 @@ export function EntryRender({
     }
   };
 
+  // Empty SNL = don't render body at all (cat 2026-07-06: no error banner
+  // just because there's no content).
+  const hasContent = snl.trim().length > 0;
+  const isTransparent = background === TRANSPARENT_BACKGROUND;
+
   return (
     <section
       onClick={handleSectionClick}
@@ -352,55 +379,66 @@ export function EntryRender({
           onClick={handleTitleClick}
           style={{
             color: stroke,
-            cursor: disableTitleJump ? 'default' : 'pointer'
+            cursor: disableTitleJump ? 'default' : 'pointer',
+            fontSize: '1.25rem',
+            lineHeight: 1.3
           }}
         >
           {headerText}
         </strong>
       </header>
-      <div
-        style={{
-          borderTop: `0.5px solid ${stroke}`,
-          margin: '4px 0'
-        }}
-      />
-      <div
-        onPointerMove={handleBodyPointerMove}
-        style={{
-          padding: '0.9rem',
-          color: '#111',
-          fontSize: '1.05rem'
-        }}
-      >
-        {parsed.ok && tree ? (
-          <SnlSyntaxTreeView
-            tree={tree}
-            macroDb={macroDb}
-            query={macroQuery}
-            hooks={hooks}
+      {hasContent ? (
+        <>
+          <div
+            style={{
+              borderTop: `0.5px solid ${stroke}`,
+              margin: '4px 0'
+            }}
           />
-        ) : (
-          <div>
-            <ErrorBanner
-              text={`SNL parse error: ${parsed.error}${
-                parsed.position !== undefined ? ` (at ${parsed.position})` : ''
-              }`}
-            />
-            <pre
-              style={{
-                margin: 0,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                fontSize: '0.85rem',
-                color: '#222'
-              }}
-            >
-              {snl}
-            </pre>
+          <div
+            onPointerMove={handleBodyPointerMove}
+            style={{
+              padding: '0.9rem',
+              // Transparent chameleons inherit theme text color; solid
+              // backgrounds keep the dark-on-color reading contrast that
+              // the light-tinted content-kind backgrounds were designed for.
+              color: isTransparent ? undefined : '#111',
+              fontSize: '1.05rem'
+            }}
+          >
+            {parsed.ok && tree ? (
+              <SnlSyntaxTreeView
+                tree={tree}
+                macroDb={macroDb}
+                query={macroQuery}
+                hooks={hooks}
+              />
+            ) : (
+              <div>
+                <ErrorBanner
+                  text={`SNL parse error: ${!parsed.ok ? parsed.error : ''}${
+                    !parsed.ok && parsed.position !== undefined
+                      ? ` (at ${parsed.position})`
+                      : ''
+                  }`}
+                />
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                    fontSize: '0.85rem',
+                    color: isTransparent ? undefined : '#222'
+                  }}
+                >
+                  {snl}
+                </pre>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      ) : null}
     </section>
   );
 }

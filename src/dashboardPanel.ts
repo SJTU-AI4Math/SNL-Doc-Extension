@@ -225,6 +225,11 @@ export class DashboardPanel {
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;
+      case 'openInfoview':
+        // Dashboard → Infoview handoff (per cat 2026-07-06: reader/editor
+        // toggle from either surface).
+        await vscode.commands.executeCommand('snlDoc.openInfoview');
+        return;
       default:
         return;
     }

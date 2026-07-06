@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 import {
+  listLibraries,
   readAllMacros,
   readEntries,
   readEntryKinds,
+  readLibraryGraph,
   type EntryData,
   type EntryKind,
+  type LibraryEntry,
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
@@ -13,12 +16,17 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  * Manager for the SNL Infoview webview panels.
  *
  * The Infoview is the READING surface (renders SNL documents). Compare with
- * {@link DashboardPanel}, which is the *management* surface.
+ * {@link DashboardPanel}, which is the *management* surface. Per cat
+ * 2026-07-06 design: reader-facing browsing surface is a 3-layer drill-down
+ *   Libraries list → Entries in a library → single entry render
+ * with a top-right "Edit in Dashboard" button that jumps to the management
+ * surface, and a Back button to walk the stack back up.
  *
  * There are two panel flavours, both hosted by this one class:
- *  - the **picker** (singleton, {@link createOrShow}) — a directory of every
- *    entry that loads the `main` bundle. Selecting an entry renders it inline;
- *    Ctrl+clicking a rendered title spawns a dedicated per-entry panel.
+ *  - the **browser** (singleton, {@link createOrShow}) — loads the `main`
+ *    bundle. Starts on the Libraries list. Selecting a library shows its
+ *    entries; selecting an entry renders it inline. Ctrl+clicking a rendered
+ *    entry title spawns a dedicated per-entry panel.
  *  - the **per-entry** panels (multi-instance, {@link createOrShowForEntry},
  *    keyed by entryId in {@link panels}) — one dedicated tab per entry that
  *    loads the `entryInfoview` bundle and renders a single Entry.
@@ -26,46 +34,50 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
  * HTML boilerplate (CSP / nonce / optional CSS link) is shared via
  * {@link buildPanelHtml}.
  *
- * Message protocol with the webview:
+ * Message protocol with the browser webview (`main` bundle):
  *  - in  : `{ type: 'ready' }`
- *        | `{ type: 'selectEntry', id }`            (picker only)
- *        | `{ type: 'openEntryInfoview', entryId }` (spawn per-entry panel)
- *        | `{ type: 'log', level, msg }`            → forward to output channel
- *  - out : `{ type: 'entries', entries: EntryOption[], macros }`         (picker)
- *        | `{ type: 'entryDetails', entry, kind }`                      (picker)
- *        | `{ type: 'entryDetails', entry, kind, entries, macros }`     (per-entry)
- *        | `{ type: 'popoverEntryDetails', entryId, entry, kind }`      (popover)
+ *        | `{ type: 'selectLibrary', slug }`
+ *        | `{ type: 'selectEntry', id }`
+ *        | `{ type: 'back' }`
+ *        | `{ type: 'openDashboard' }`
+ *        | `{ type: 'openDashboardForEntry', entryId }`
+ *        | `{ type: 'openEntryInfoview', entryId }`
+ *        | `{ type: 'requestEntryDetails', entryId }`
+ *        | `{ type: 'log', level, msg }`
+ *  - out : `{ type: 'libraries', libraries }`
+ *        | `{ type: 'libraryEntries', slug, title, description?, entries, macros, warnings }`
+ *        | `{ type: 'entryDetails', slug?, entry, kind, entries, macros }`
+ *        | `{ type: 'popoverEntryDetails', entryId, entry, kind }`
  *
- * `macros` is the flat name→MacroPackageEntry map produced by
- * {@link readAllMacros} — the webview merges it over the bundled core DB so
- * user-defined macros render instead of falling back to fvar.
+ * Message protocol with the per-entry webview (`entryInfoview` bundle) is
+ * unchanged: expects `entryDetails` with the full entry pool + macros.
  */
 export class InfoviewPanel {
-  /** The single picker instance (loads `main`), or undefined when closed. */
-  private static pickerPanel: InfoviewPanel | undefined;
+  /** The single browser instance (loads `main`), or undefined when closed. */
+  private static browserPanel: InfoviewPanel | undefined;
   /** Per-entry panels keyed by entryId (loads `entryInfoview`). */
   public static readonly panels = new Map<string, InfoviewPanel>();
 
-  private static readonly pickerViewType = 'snlInfoview';
+  private static readonly browserViewType = 'snlInfoview';
   private static output: vscode.OutputChannel | undefined;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
-  /** null → picker instance; non-null → dedicated panel for this entryId. */
+  /** null → browser instance; non-null → dedicated panel for this entryId. */
   private readonly entryId: string | null;
   private disposables: vscode.Disposable[] = [];
 
-  /** Open (or reveal) the singleton picker panel. */
+  /** Open (or reveal) the singleton browser panel. */
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Beside;
 
-    if (InfoviewPanel.pickerPanel) {
-      InfoviewPanel.pickerPanel.panel.reveal(column);
+    if (InfoviewPanel.browserPanel) {
+      InfoviewPanel.browserPanel.panel.reveal(column);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
-      InfoviewPanel.pickerViewType,
+      InfoviewPanel.browserViewType,
       'SNL Infoview',
       column,
       {
@@ -75,7 +87,7 @@ export class InfoviewPanel {
       }
     );
 
-    InfoviewPanel.pickerPanel = new InfoviewPanel(
+    InfoviewPanel.browserPanel = new InfoviewPanel(
       panel,
       extensionUri,
       null,
@@ -118,6 +130,7 @@ export class InfoviewPanel {
       'entryInfoview',
       `SNL — ${entryId}`
     );
+
     InfoviewPanel.panels.set(entryId, instance);
   }
 
@@ -160,6 +173,7 @@ export class InfoviewPanel {
       | {
           type?: string;
           id?: string;
+          slug?: string;
           entryId?: string;
           level?: string;
           msg?: string;
@@ -172,14 +186,50 @@ export class InfoviewPanel {
     switch (msg.type) {
       case 'ready':
         if (this.entryId === null) {
-          await this.pushEntries();
+          await this.pushLibraries();
         } else {
           await this.pushEntryDetailsForEntry(this.entryId);
+        }
+        return;
+      case 'selectLibrary':
+        if (this.entryId === null && typeof msg.slug === 'string' && msg.slug) {
+          await this.pushLibraryEntries(msg.slug);
         }
         return;
       case 'selectEntry':
         if (this.entryId === null && typeof msg.id === 'string') {
           await this.pushEntryDetails(msg.id);
+        }
+        return;
+      case 'back':
+        // Client-driven navigation in the browser view. Host doesn't track
+        // history; on 'back' from the entry view the webview re-requests the
+        // library entries (needs slug it already knows), and 'back' from the
+        // library view re-requests libraries. We just re-push the libraries
+        // root on the assumption 'back' at the top of the stack means "go
+        // home"; deeper back-steps are handled entirely in the webview.
+        if (this.entryId === null) {
+          await this.pushLibraries();
+        }
+        return;
+      case 'openDashboard':
+        // Jump to the management surface. Fire-and-forget; the Dashboard
+        // command creates or reveals its own panel.
+        void vscode.commands.executeCommand('snlDoc.openDashboard');
+        return;
+      case 'openDashboardForEntry':
+        // Open the Dashboard and then jump to editing THIS entry (per cat
+        // 2026-07-06 spec §"编辑界面也应有一个保存并回到浏览的按钮"). The Dashboard
+        // command is what materializes the per-entry editor; we go through
+        // its editEntry command so the two panels' UX matches.
+        if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.openDashboard'
+          );
+          void vscode.commands.executeCommand(
+            'snlDoc.editEntry',
+            msg.entryId.trim()
+          );
         }
         return;
       case 'openEntryInfoview':
@@ -208,42 +258,113 @@ export class InfoviewPanel {
     }
   }
 
-  /** Build the picker option list: every entry that has SNL content. */
-  private async readEntryOptions(): Promise<
-    { id: string; title: string; hasContent: true }[]
-  > {
+  /** Send the top-level Libraries list (layer 1 of 3). */
+  private async pushLibraries(): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
-      return [];
+      void this.panel.webview.postMessage({ type: 'libraries', libraries: [] });
+      return;
     }
-    const entries = await readEntries(root);
-    return entries
-      .filter(
-        (e) =>
-          typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
-      )
-      .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
+    try {
+      const libraries = await listLibraries(root);
+      void this.panel.webview.postMessage({ type: 'libraries', libraries });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(
+        `SNL Infoview: failed to list libraries: ${text}`
+      );
+      void this.panel.webview.postMessage({ type: 'libraries', libraries: [] });
+    }
   }
 
-  /** Send the picker list: every entry with SNL content, plus the macro DB. */
-  private async pushEntries(): Promise<void> {
-    try {
-      const options = await this.readEntryOptions();
-      const macros = await this.readMacroDb();
+  /**
+   * Send the entries belonging to one Library (layer 2 of 3). "Belonging"
+   * = the Entry-labelled nodes in `libraries/<slug>/graph.json`, resolved
+   * to full EntryData via the shared pool. Entries that appear in the
+   * graph but not in the shared pool are surfaced as warnings but still
+   * listed (with a "missing entry" title) so cat can see what's dangling.
+   */
+  private async pushLibraryEntries(slug: string): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
       void this.panel.webview.postMessage({
-        type: 'entries',
-        entries: options,
-        macros
+        type: 'libraryEntries',
+        slug,
+        title: slug,
+        entries: [],
+        macros: {},
+        warnings: []
+      });
+      return;
+    }
+
+    try {
+      const libraries = await listLibraries(root);
+      const lib: LibraryEntry | undefined = libraries.find(
+        (l) => l.slug === slug
+      );
+      const displayTitle = lib?.title ?? slug;
+      const description = lib?.description;
+
+      const graphResult = await readLibraryGraph(root, slug);
+      const warnings: string[] = [];
+      const graphEntryIds: string[] = [];
+      if (graphResult.status === 'ok') {
+        warnings.push(...graphResult.result.warnings);
+        for (const node of graphResult.result.graph.nodes) {
+          if (node.label !== 'Entry') continue;
+          const entryId = node.props?.entryId;
+          if (typeof entryId === 'string' && entryId) {
+            graphEntryIds.push(entryId);
+          }
+        }
+      } else if (graphResult.status === 'error') {
+        warnings.push(graphResult.message);
+      }
+
+      // Resolve to full entry rows via the shared pool. Preserve the graph's
+      // declaration order (v1 doesn't have a reading-order fold-in here — the
+      // browser view just shows the list; ordering by numberFor() is a later
+      // enhancement).
+      const entryPool = await readEntries(root);
+      const byId = new Map<string, EntryData>();
+      for (const e of entryPool) {
+        byId.set(e.id, e);
+      }
+      const entries = graphEntryIds
+        .map((id) => byId.get(id))
+        .filter((e): e is EntryData => e !== undefined)
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          hasContent:
+            typeof e.content?.snl === 'string' &&
+            e.content.snl.trim().length > 0
+        }));
+
+      const macros = await this.readMacroDb();
+
+      void this.panel.webview.postMessage({
+        type: 'libraryEntries',
+        slug,
+        title: displayTitle,
+        description,
+        entries,
+        macros,
+        warnings
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to read entries: ${text}`
+        `SNL Infoview: failed to load library "${slug}": ${text}`
       );
       void this.panel.webview.postMessage({
-        type: 'entries',
+        type: 'libraryEntries',
+        slug,
+        title: slug,
         entries: [],
-        macros: {}
+        macros: {},
+        warnings: [text]
       });
     }
   }
@@ -265,7 +386,9 @@ export class InfoviewPanel {
     }
   }
 
-  /** Look up one entry by id + resolve its kind, and send back the details. */
+  /** Look up one entry by id + resolve its kind, and send back the details.
+   *  Includes the full entry pool + macros so the render can link between
+   *  entries via macro popovers. */
   private async pushEntryDetails(id: string): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -280,10 +403,20 @@ export class InfoviewPanel {
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
+      const options = entries
+        .filter(
+          (e) =>
+            typeof e.content?.snl === 'string' &&
+            e.content.snl.trim().length > 0
+        )
+        .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
+      const macros = await this.readMacroDb();
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         entry,
-        kind
+        kind,
+        entries: options,
+        macros
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
@@ -353,7 +486,7 @@ export class InfoviewPanel {
   /**
    * Popover preview payload: a single entry + its kind, echoed back with the
    * entryId so the requesting webview popover can match it. Distinct from
-   * `entryDetails` so it never disturbs the picker's main selection.
+   * `entryDetails` so it never disturbs the browser's main selection.
    */
   private async pushPopoverEntryDetails(id: string): Promise<void> {
     const root = firstWorkspaceFolder();
@@ -385,7 +518,7 @@ export class InfoviewPanel {
 
   public dispose(): void {
     if (this.entryId === null) {
-      InfoviewPanel.pickerPanel = undefined;
+      InfoviewPanel.browserPanel = undefined;
     } else {
       InfoviewPanel.panels.delete(this.entryId);
     }

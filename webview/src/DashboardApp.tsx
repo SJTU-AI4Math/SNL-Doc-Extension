@@ -199,9 +199,37 @@ function Initialized({
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '62rem' }}>
-      <h1 style={{ margin: '0 0 1rem', fontSize: '1.4rem' }}>
-        SNL Dashboard
-      </h1>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginBottom: '1rem'
+        }}
+      >
+        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNL Dashboard</h1>
+        <button
+          type="button"
+          onClick={() => api?.postMessage({ type: 'openInfoview' })}
+          title="Open the Infoview (reading surface)"
+          style={{
+            flex: '0 0 auto',
+            padding: '0.35rem 0.75rem',
+            fontFamily: 'inherit',
+            fontSize: '0.85rem',
+            border:
+              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+            borderRadius: '4px',
+            background:
+              'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+            color: 'inherit',
+            cursor: 'pointer'
+          }}
+        >
+          Open Infoview →
+        </button>
+      </div>
 
       {/* === 1. Libraries ================================================== */}
       <CollapsibleSection

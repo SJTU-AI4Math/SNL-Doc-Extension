@@ -11,6 +11,29 @@ import {
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import {
+  numberFor,
+  type LibraryGraph,
+  type GraphNode
+} from './libraryGraph';
+
+/**
+ * One node in the outline tree pushed to the webview for the Library page
+ * (layer 2). Materialises everything the webview needs to render an entry in
+ * place — full entry data, resolved kind, computed counter label, and its
+ * child subtree — so the client doesn't have to re-resolve anything.
+ *
+ * `entry` is null for placeholder nodes (graph node with no entryId, or an
+ * entryId that doesn't resolve in the shared pool). The webview shows those
+ * as a stub so the outline tree is still fully visible.
+ */
+interface OutlineNode {
+  nodeId: string;
+  entry: EntryData | null;
+  kind: EntryKind | null;
+  counterLabel: string | null;
+  children: OutlineNode[];
+}
 
 /**
  * Manager for the SNL Infoview webview panels.
@@ -278,11 +301,17 @@ export class InfoviewPanel {
   }
 
   /**
-   * Send the entries belonging to one Library (layer 2 of 3). "Belonging"
-   * = the Entry-labelled nodes in `libraries/<slug>/graph.json`, resolved
-   * to full EntryData via the shared pool. Entries that appear in the
-   * graph but not in the shared pool are surfaced as warnings but still
-   * listed (with a "missing entry" title) so cat can see what's dangling.
+   * Send the entries belonging to one Library (layer 2 of 3). Ships:
+   *  - `entries`: the flat picker pool (id / title / hasContent) — legacy
+   *    field kept for popover source resolution etc.
+   *  - `outline`: DFS-ordered outline tree with each node carrying its full
+   *    EntryData + resolved kind + computed counter label, so the webview
+   *    can render every entry inline with proper numbering. Placeholder
+   *    nodes (no entryId or unresolved entryId) get `entry: null` so the
+   *    tree structure stays intact.
+   *
+   * Warnings from `readLibraryGraph` and per-node resolution failures both
+   * feed into the `warnings` list.
    */
   private async pushLibraryEntries(slug: string): Promise<void> {
     const root = firstWorkspaceFolder();
@@ -292,6 +321,7 @@ export class InfoviewPanel {
         slug,
         title: slug,
         entries: [],
+        outline: [],
         macros: {},
         warnings: []
       });
@@ -308,39 +338,65 @@ export class InfoviewPanel {
 
       const graphResult = await readLibraryGraph(root, slug);
       const warnings: string[] = [];
-      const graphEntryIds: string[] = [];
+      let graph: LibraryGraph = { nodes: [], relationships: [] };
       if (graphResult.status === 'ok') {
         warnings.push(...graphResult.result.warnings);
-        for (const node of graphResult.result.graph.nodes) {
-          if (node.label !== 'Entry') continue;
-          const entryId = node.props?.entryId;
-          if (typeof entryId === 'string' && entryId) {
-            graphEntryIds.push(entryId);
-          }
-        }
+        graph = graphResult.result.graph;
       } else if (graphResult.status === 'error') {
         warnings.push(graphResult.message);
       }
 
-      // Resolve to full entry rows via the shared pool. Preserve the graph's
-      // declaration order (v1 doesn't have a reading-order fold-in here — the
-      // browser view just shows the list; ordering by numberFor() is a later
-      // enhancement).
+      // Shared pool + kinds for entry / kind / counter resolution.
       const entryPool = await readEntries(root);
-      const byId = new Map<string, EntryData>();
+      const kinds = await readEntryKinds(root);
+      const entriesById = new Map<string, EntryData>();
       for (const e of entryPool) {
-        byId.set(e.id, e);
+        entriesById.set(e.id, e);
       }
-      const entries = graphEntryIds
-        .map((id) => byId.get(id))
-        .filter((e): e is EntryData => e !== undefined)
-        .map((e) => ({
+      const kindsById = new Map<string, EntryKind>();
+      for (const k of kinds) {
+        kindsById.set(k.id, k);
+      }
+
+      // Legacy flat pool (order = graph declaration order for Entry nodes).
+      const flatEntries: {
+        id: string;
+        title: string;
+        hasContent: boolean;
+      }[] = [];
+      for (const node of graph.nodes) {
+        if (node.label !== 'Entry') continue;
+        const entryId = node.props?.entryId;
+        if (typeof entryId !== 'string' || !entryId) continue;
+        const e = entriesById.get(entryId);
+        if (!e) continue;
+        flatEntries.push({
           id: e.id,
           title: e.title,
           hasContent:
             typeof e.content?.snl === 'string' &&
             e.content.snl.trim().length > 0
-        }));
+        });
+      }
+
+      // Build the outline tree. numberFor needs the same graph + pool +
+      // kinds inputs, so hand them straight through — a thin view of each.
+      const entryKindRefById = new Map<string, { kind?: string }>();
+      for (const [id, e] of entriesById) {
+        entryKindRefById.set(id, { kind: e.kind });
+      }
+      const kindNumberingById = new Map<string, { numbering: string }>();
+      for (const [id, k] of kindsById) {
+        kindNumberingById.set(id, { numbering: k.numbering });
+      }
+      const outline = buildOutline(
+        graph,
+        entriesById,
+        kindsById,
+        entryKindRefById,
+        kindNumberingById,
+        warnings
+      );
 
       const macros = await this.readMacroDb();
 
@@ -349,7 +405,8 @@ export class InfoviewPanel {
         slug,
         title: displayTitle,
         description,
-        entries,
+        entries: flatEntries,
+        outline,
         macros,
         warnings
       });
@@ -363,6 +420,7 @@ export class InfoviewPanel {
         slug,
         title: slug,
         entries: [],
+        outline: [],
         macros: {},
         warnings: [text]
       });
@@ -532,4 +590,114 @@ export class InfoviewPanel {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Outline construction (Library page tree)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the DFS outline tree used by the Library page. Nodes are visited in
+ * `graph.nodes[]` declaration order for roots and `graph.relationships[]`
+ * declaration order for children — same rule as `readingOrder` in
+ * {@link ./libraryGraph}. Orphan Entry nodes (had a parent that doesn't
+ * exist) are appended after the roots so no entry silently disappears.
+ *
+ * `entriesById` maps shared-pool entryId -> EntryData (source of truth for
+ * title / kind id / content). `kindsById` maps kind.id -> EntryKind (for
+ * palette + numbering template).
+ *
+ * Unresolvable entries (graph node has an entryId but the pool doesn't
+ * have it) push a warning; the outline still emits a stub node with
+ * `entry: null` so the tree structure survives.
+ */
+function buildOutline(
+  graph: LibraryGraph,
+  entriesById: Map<string, EntryData>,
+  kindsById: Map<string, EntryKind>,
+  entryKindRefById: Map<string, { kind?: string }>,
+  kindNumberingById: Map<string, { numbering: string }>,
+  warnings: string[]
+): OutlineNode[] {
+  const nodesById = new Map<string, GraphNode>();
+  for (const n of graph.nodes) {
+    nodesById.set(n.id, n);
+  }
+  const childrenOf = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
+  for (const r of graph.relationships) {
+    if (r.label !== 'branch') continue;
+    const list = childrenOf.get(r.from);
+    if (list) {
+      list.push(r.to);
+    } else {
+      childrenOf.set(r.from, [r.to]);
+    }
+    if (!parentOf.has(r.to)) {
+      parentOf.set(r.to, r.from);
+    }
+  }
+
+  const visited = new Set<string>();
+
+  const buildNode = (nodeId: string): OutlineNode | null => {
+    if (visited.has(nodeId)) return null; // defensive: cycles / dupes
+    visited.add(nodeId);
+    const node = nodesById.get(nodeId);
+    if (!node) return null;
+
+    let entry: EntryData | null = null;
+    let kind: EntryKind | null = null;
+    const entryId = node.props?.entryId;
+    if (typeof entryId === 'string' && entryId) {
+      const resolved = entriesById.get(entryId);
+      if (resolved) {
+        entry = resolved;
+        kind = kindsById.get(resolved.kind) ?? null;
+      } else {
+        warnings.push(
+          `Entry "${entryId}" referenced by node "${nodeId}" not found in shared pool`
+        );
+      }
+    }
+
+    const counterLabel = numberFor(
+      graph,
+      nodeId,
+      entryKindRefById,
+      kindNumberingById
+    );
+
+    const childIds = childrenOf.get(nodeId) ?? [];
+    const children: OutlineNode[] = [];
+    for (const cid of childIds) {
+      const built = buildNode(cid);
+      if (built) children.push(built);
+    }
+
+    return {
+      nodeId,
+      entry,
+      kind,
+      counterLabel,
+      children
+    };
+  };
+
+  const roots: OutlineNode[] = [];
+  // Root pass: nodes[] declaration order, taking only nodes with no branch
+  // parent — matches the numbering engine's root-ordering rule.
+  for (const n of graph.nodes) {
+    if (parentOf.has(n.id)) continue;
+    const built = buildNode(n.id);
+    if (built) roots.push(built);
+  }
+  // Orphan pass: Entry nodes with a parent that doesn't exist in nodes[]
+  // wouldn't have been reached — append them so the tree isn't lossy.
+  for (const n of graph.nodes) {
+    if (visited.has(n.id)) continue;
+    const built = buildNode(n.id);
+    if (built) roots.push(built);
+  }
+  return roots;
 }

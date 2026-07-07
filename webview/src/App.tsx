@@ -1,15 +1,15 @@
-// SNL Infoview: the READING surface. Three-layer drill-down per cat's
-// 2026-07-06 design:
+// SNL Infoview: the READING surface. Two-layer drill-down per cat's
+// 2026-07-07 revision:
 //
 //   Layer 1 (Libraries)  ← default when opened
-//   Layer 2 (Entries)    ← contents of one Library, from its graph.json
-//   Layer 3 (Entry)      ← one entry rendered via @snl-basics/react
+//   Layer 2 (Library page) ← full outline of one Library, every Entry
+//                            rendered inline with expand/collapse to hide
+//                            subtrees. Ctrl+click on an entry title still
+//                            opens a dedicated per-entry Infoview panel.
 //
 // Every layer has a "Edit in Dashboard" button (top-right) that jumps to
-// the management surface — reader → editor handoff. Layers 2 & 3 also
-// have a Back button that walks the stack up one step. Ctrl+clicking a
-// rendered entry title still spawns the dedicated per-entry panel
-// (`snlDoc.openEntryInfoview`) — that's an orthogonal, ad-hoc lookup.
+// the management surface — reader → editor handoff. Layer 2 also has a
+// Back button that walks the stack up one step.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
@@ -29,6 +29,20 @@ interface LibraryEntry {
   hasMeta: boolean;
 }
 
+/**
+ * One outline node as sent by the host. Mirrors `OutlineNode` in
+ * `src/infoviewPanel.ts`. Placeholder nodes (no resolvable Entry) surface
+ * as `entry: null`; the webview shows a stub row so the tree structure is
+ * still visible.
+ */
+interface OutlineNode {
+  nodeId: string;
+  entry: EntryData | null;
+  kind: EntryKind | null;
+  counterLabel: string | null;
+  children: OutlineNode[];
+}
+
 type Incoming =
   | { type: 'libraries'; libraries: LibraryEntry[] }
   | {
@@ -37,50 +51,29 @@ type Incoming =
       title: string;
       description?: string;
       entries: EntryOption[];
+      outline: OutlineNode[];
       macros?: SnlMacroDb;
       warnings?: string[];
     }
-  | {
-      type: 'entryDetails';
-      entry: EntryData;
-      kind: EntryKind | null;
-      entries?: EntryOption[];
-      macros?: SnlMacroDb;
-    }
   | undefined;
 
-/** Current position in the 3-layer stack. */
+/** Current position in the 2-layer stack. */
 type View =
   | { kind: 'loading' }
   | { kind: 'libraries'; libraries: LibraryEntry[] }
   | {
-      kind: 'entries';
+      kind: 'library';
       slug: string;
       title: string;
       description?: string;
-      entries: EntryOption[];
+      outline: OutlineNode[];
       warnings: string[];
-    }
-  | {
-      kind: 'entry';
-      /** Slug of the library the user drilled in from, so Back returns to
-       *  the right entries list. `null` when the entry was opened without
-       *  a library context (shouldn't happen in normal flow but be safe). */
-      fromLibrarySlug: string | null;
-      entry: EntryData;
-      kind_: EntryKind | null;
-      /** The library's title, cached so we can render the Back label without
-       *  a round-trip. */
-      fromLibraryTitle: string | null;
     };
 
 export function App(): React.ReactElement {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
-  // Cache the current library context across an entry render so `Back`
-  // knows where to return.
-  const currentLibraryRef = useRef<{ slug: string; title: string } | null>(null);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -93,27 +86,12 @@ export function App(): React.ReactElement {
       }
       switch (msg.type) {
         case 'libraries':
-          currentLibraryRef.current = null;
           setView({
             kind: 'libraries',
             libraries: Array.isArray(msg.libraries) ? msg.libraries : []
           });
           break;
         case 'libraryEntries':
-          currentLibraryRef.current = { slug: msg.slug, title: msg.title };
-          if (msg.macros && typeof msg.macros === 'object') {
-            setUserMacros(msg.macros);
-          }
-          setView({
-            kind: 'entries',
-            slug: msg.slug,
-            title: msg.title,
-            description: msg.description,
-            entries: Array.isArray(msg.entries) ? msg.entries : [],
-            warnings: Array.isArray(msg.warnings) ? msg.warnings : []
-          });
-          break;
-        case 'entryDetails':
           if (msg.macros && typeof msg.macros === 'object') {
             setUserMacros(msg.macros);
           }
@@ -121,11 +99,12 @@ export function App(): React.ReactElement {
             setEntryPool(msg.entries);
           }
           setView({
-            kind: 'entry',
-            fromLibrarySlug: currentLibraryRef.current?.slug ?? null,
-            fromLibraryTitle: currentLibraryRef.current?.title ?? null,
-            entry: msg.entry,
-            kind_: msg.kind
+            kind: 'library',
+            slug: msg.slug,
+            title: msg.title,
+            description: msg.description,
+            outline: Array.isArray(msg.outline) ? msg.outline : [],
+            warnings: Array.isArray(msg.warnings) ? msg.warnings : []
           });
           break;
         default:
@@ -143,17 +122,8 @@ export function App(): React.ReactElement {
   };
 
   const goBack = (): void => {
-    if (view.kind === 'entry') {
-      // Back from entry → library entries. Re-request the library the user
-      // came from; if we lost the context, fall back to the libraries root.
-      const from = view.fromLibrarySlug;
-      if (from) {
-        postMessage({ type: 'selectLibrary', slug: from });
-      } else {
-        postMessage({ type: 'ready' });
-      }
-    } else if (view.kind === 'entries') {
-      // Back from library entries → libraries root.
+    if (view.kind === 'library') {
+      // Back from library → libraries root.
       postMessage({ type: 'ready' });
     }
   };
@@ -189,23 +159,14 @@ function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
       return <LoadingLayer />;
     case 'libraries':
       return <LibrariesLayer libraries={view.libraries} ctx={ctx} />;
-    case 'entries':
+    case 'library':
       return (
-        <EntriesLayer
+        <LibraryLayer
           slug={view.slug}
           title={view.title}
           description={view.description}
-          entries={view.entries}
+          outline={view.outline}
           warnings={view.warnings}
-          ctx={ctx}
-        />
-      );
-    case 'entry':
-      return (
-        <EntryLayer
-          entry={view.entry}
-          kind={view.kind_}
-          fromLibraryTitle={view.fromLibraryTitle}
           ctx={ctx}
         />
       );
@@ -295,26 +256,63 @@ function LibrariesLayer({
   );
 }
 
-function EntriesLayer({
+/**
+ * Layer 2 — the Library page. Renders the outline tree top-to-bottom as a
+ * flat sequence of full-Entry cards, one per outline node. Nesting is
+ * expressed via left indent + a small expand/collapse control at the
+ * corner of each parent card. Ctrl+click on an entry title still spawns a
+ * dedicated Infoview panel (Layer 3) for that entry.
+ */
+function LibraryLayer({
   slug,
   title,
   description,
-  entries,
+  outline,
   warnings,
   ctx
 }: {
   slug: string;
   title: string;
   description?: string;
-  entries: EntryOption[];
+  outline: OutlineNode[];
   warnings: string[];
   ctx: RenderCtx;
 }): React.ReactElement {
+  // Which nodes are currently collapsed. Default = all expanded, so we
+  // store the exceptions rather than the whole state. Rebuilt on every
+  // `outline` swap so stale nodeIds don't linger.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const outlineKey = React.useMemo(
+    () =>
+      outline
+        .map((n) => n.nodeId)
+        .join('|'),
+    [outline]
+  );
+  useEffect(() => {
+    setCollapsed(new Set());
+  }, [outlineKey, slug]);
+
+  const toggle = React.useCallback((nodeId: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Count total entries reachable via DFS so the subtitle isn't misleading.
+  const totalEntries = React.useMemo(() => countNodes(outline), [outline]);
+
   return (
     <>
       <TopBar
         title={title}
-        subtitle={`${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · ${slug}`}
+        subtitle={`${totalEntries} entr${totalEntries === 1 ? 'y' : 'ies'} · ${slug}`}
         actions={
           <>
             <ToolbarButton label="← Back" onClick={ctx.goBack} title="Back to libraries" />
@@ -330,99 +328,188 @@ function EntriesLayer({
         <p style={{ opacity: 0.85, marginTop: 0 }}>{description}</p>
       ) : null}
       {warnings.length > 0 ? <WarningBanner warnings={warnings} /> : null}
-      {entries.length === 0 ? (
+      {outline.length === 0 ? (
         <p style={{ opacity: 0.75, fontStyle: 'italic' }}>
           This library has no entries yet. Add some via the Dashboard.
         </p>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {entries.map((e) => (
-            <li key={e.id} style={{ marginBottom: '0.35rem' }}>
-              <button
-                type="button"
-                onClick={() => ctx.postMessage({ type: 'selectEntry', id: e.id })}
-                style={ENTRY_CARD_STYLE}
-              >
-                <span style={{ fontWeight: 500 }}>{e.title}</span>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    opacity: 0.6,
-                    marginLeft: '0.5rem',
-                    fontFamily: 'var(--vscode-editor-font-family, monospace)'
-                  }}
-                >
-                  ({e.id})
-                </span>
-                {!e.hasContent ? (
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      opacity: 0.7,
-                      marginLeft: '0.5rem',
-                      fontStyle: 'italic'
-                    }}
-                  >
-                    · empty
-                  </span>
-                ) : null}
-              </button>
-            </li>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {outline.map((node) => (
+            <OutlineTreeNode
+              key={node.nodeId}
+              node={node}
+              depth={0}
+              collapsed={collapsed}
+              toggle={toggle}
+              ctx={ctx}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </>
   );
 }
 
-function EntryLayer({
-  entry,
-  kind,
-  fromLibraryTitle,
+/** Count all descendants (including self) in an outline forest. */
+function countNodes(nodes: OutlineNode[]): number {
+  let n = 0;
+  const walk = (node: OutlineNode): void => {
+    n += 1;
+    for (const c of node.children) walk(c);
+  };
+  for (const root of nodes) walk(root);
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Outline row — one Entry (or placeholder) + its subtree
+// ---------------------------------------------------------------------------
+
+const INDENT_PER_LEVEL = 20; // px
+
+function OutlineTreeNode({
+  node,
+  depth,
+  collapsed,
+  toggle,
   ctx
 }: {
-  entry: EntryData;
-  kind: EntryKind | null;
-  fromLibraryTitle: string | null;
+  node: OutlineNode;
+  depth: number;
+  collapsed: Set<string>;
+  toggle: (nodeId: string) => void;
   ctx: RenderCtx;
 }): React.ReactElement {
-  const backLabel = fromLibraryTitle
-    ? `← Back to ${fromLibraryTitle}`
-    : '← Back';
+  const hasChildren = node.children.length > 0;
+  const isCollapsed = collapsed.has(node.nodeId);
+
   return (
-    <>
-      <TopBar
-        title={entry.title}
-        subtitle={entry.id}
-        actions={
-          <>
-            <ToolbarButton label={backLabel} onClick={ctx.goBack} />
-            <ToolbarButton
-              label="Edit in Dashboard"
-              title="Open this entry in the Dashboard editor"
-              onClick={() =>
-                ctx.postMessage({
-                  type: 'openDashboardForEntry',
-                  entryId: entry.id
-                })
-              }
+    <div
+      style={{
+        marginLeft: depth === 0 ? 0 : INDENT_PER_LEVEL,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem'
+      }}
+    >
+      <div style={{ position: 'relative' }}>
+        {hasChildren ? (
+          <CollapseToggle
+            collapsed={isCollapsed}
+            onClick={() => toggle(node.nodeId)}
+            childCount={countNodes(node.children)}
+          />
+        ) : null}
+        {node.entry ? (
+          <EntryRender
+            entry={node.entry}
+            kind={node.kind}
+            entries={ctx.entryPool}
+            postMessage={ctx.postMessage}
+            userMacros={ctx.userMacros}
+            counterLabel={node.counterLabel ?? undefined}
+            disableTitleJump={false}
+            onTitleCtrlClick={(entryId) =>
+              ctx.postMessage({ type: 'openEntryInfoview', entryId })
+            }
+          />
+        ) : (
+          <PlaceholderCard
+            nodeId={node.nodeId}
+            counterLabel={node.counterLabel}
+          />
+        )}
+      </div>
+      {hasChildren && !isCollapsed ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {node.children.map((child) => (
+            <OutlineTreeNode
+              key={child.nodeId}
+              node={child}
+              depth={depth + 1}
+              collapsed={collapsed}
+              toggle={toggle}
+              ctx={ctx}
             />
-          </>
-        }
-      />
-      <EntryRender
-        entry={entry}
-        kind={kind}
-        entries={ctx.entryPool}
-        postMessage={ctx.postMessage}
-        userMacros={ctx.userMacros}
-        counterLabel={undefined}
-        disableTitleJump={false}
-        onTitleCtrlClick={(entryId) =>
-          ctx.postMessage({ type: 'openEntryInfoview', entryId })
-        }
-      />
-    </>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Small caret in the top-left corner of a parent Entry card. Click flips
+ * the collapsed state for that node. Positioned outside the card's left
+ * border so it doesn't overlap the entry content or the kind-colored
+ * stripe.
+ */
+function CollapseToggle({
+  collapsed,
+  onClick,
+  childCount
+}: {
+  collapsed: boolean;
+  onClick: () => void;
+  childCount: number;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={
+        collapsed
+          ? `Expand ${childCount} sub-entr${childCount === 1 ? 'y' : 'ies'}`
+          : `Collapse ${childCount} sub-entr${childCount === 1 ? 'y' : 'ies'}`
+      }
+      aria-label={collapsed ? 'Expand' : 'Collapse'}
+      aria-expanded={!collapsed}
+      style={{
+        position: 'absolute',
+        left: -20,
+        top: 8,
+        width: 18,
+        height: 18,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--vscode-editor-foreground, #ddd)',
+        cursor: 'pointer',
+        fontSize: '0.85rem',
+        opacity: 0.75,
+        userSelect: 'none'
+      }}
+    >
+      {collapsed ? '▶' : '▼'}
+    </button>
+  );
+}
+
+/** Stub row for a graph node that couldn't be resolved to a real Entry. */
+function PlaceholderCard({
+  nodeId,
+  counterLabel
+}: {
+  nodeId: string;
+  counterLabel: string | null;
+}): React.ReactElement {
+  const label = counterLabel ? `${counterLabel} · ` : '';
+  return (
+    <section
+      style={{
+        borderLeft: '5px solid var(--vscode-editorWarning-foreground, #b89500)',
+        padding: '0.55rem 0.8rem',
+        background: 'transparent',
+        opacity: 0.75,
+        fontStyle: 'italic',
+        fontSize: '0.9rem'
+      }}
+    >
+      {label}(placeholder node · {nodeId})
+    </section>
   );
 }
 
@@ -544,21 +631,6 @@ const LIBRARY_CARD_STYLE: React.CSSProperties = {
   cursor: 'pointer',
   fontFamily: 'inherit',
   fontSize: '1rem'
-};
-
-const ENTRY_CARD_STYLE: React.CSSProperties = {
-  display: 'block',
-  width: '100%',
-  padding: '0.45rem 0.75rem',
-  textAlign: 'left',
-  color: 'inherit',
-  background: 'transparent',
-  border:
-    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-  borderRadius: '4px',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontSize: '0.95rem'
 };
 
 const TOOLBAR_BUTTON_STYLE: React.CSSProperties = {

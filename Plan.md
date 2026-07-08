@@ -557,3 +557,94 @@ segments 后每个 literal 独立成 `<span>` 就能自然换行。
 `build:lib` 流程，主 repo 再 `rebuild-snl-basics.mjs` 拉到 dist-lib。
 
 **依赖：** 无。可以随时开做。
+
+---
+
+## 8. SNL-Basics 接口盘点 (2026-07-08)
+
+**来源：** `external/SNL-Basics/src/snl-react-view/index.ts` package barrel，pin 到 submodule 当前 commit（v3 macro / v6 on-disk / v2 library-graph）。
+只列消费者面能看到、能覆盖的公开 API；`components/` 内部实现细节按住不表。
+
+### 8.1 数据类型接口
+
+| 类型 | 来源 | 语义 | 备注 |
+|---|---|---|---|
+| `SnlMacro` | `snl-macro/types.ts` | 单个宏定义。`name / description / source / kind? / dynamic_arity / styles[] / tags?` | v3 (v6 on-disk)。`kind` 缺省 → 节点 `data-kind='fvar'`；`dynamic_arity` 是宏级不可变契约（所有 style 共享） |
+| `SnlMacroSource` | 同上 | `{ entries: string[], urls: string[] }` | 解析顺序：`entries[0..]` 第一个可解析的，否则 `urls[0]`，否则 `null`。SNL-Basics 不解释 `entries`，靠 `hooks.resolveSource` |
+| `SnlMacroStyle` | 同上 | 单个渲染 style。`tag / mode / template / variadic_left? / variadic_join? / variadic_right? / react_renderer_key? / tags?` | `mode` 4 值：`formula_inline / formula_display / text / block`。`styles[0]` 是隐式默认 |
+| `SnlMacroDb` | 同上 | `Record<string, SnlMacro>` | 扁平的 name→macro 映射。宏名字全局唯一 |
+| `SnlSyntaxTree` | `snl-syntax-tree/types.ts` | parser 产出的 flat runtime node：`name / style? / envMode? / kind / scope? / mdata: unknown / children[]` | `envMode` 由 `%…% / $…$ / $$…$$` 触发，视为 temp macro 不查 db；`scope='binder'` 由 annotate-bind 标记 |
+| `SnlSyntaxTreeParseError` | `snl-react-view/parse` | 抛出的解析错误，携 `.position` (0-based char offset) | agent lint 报告用 `(at N)` 定位 |
+| `KindColoring` / `KindPalette` | `snl-react-view/kind-palette` | 每 kind 的颜色配置 / 全表 | 与 `DEFAULT_KIND_PALETTE` merge，consumer 覆盖 |
+| `SnlMacroTemplateQuery` | `snl-syntax-tree/query.ts` | `(args: { name, node }) => Promise<string>` | 查询宏名 → KaTeX template。异步以支持懒加载 db |
+
+### 8.2 函数接口 / 顶层导出
+
+| 函数 | 签名 (简) | 用途 |
+|---|---|---|
+| `parseSnlSyntaxTree(src)` | `(string) => SnlSyntaxTree` | 解析成功；失败 throw `SnlSyntaxTreeParseError` |
+| `tryParseSnlSyntaxTree(src)` | `(string) => {ok:true, tree} \| {ok:false, error, position?}` | 不抛异常的版本，agent lint 用这个 |
+| `serializeSnlSyntaxTree(tree)` | `(SnlSyntaxTree) => string` | 逆解析：tree → SNL 源码 |
+| `annotateBindings(tree)` | `(SnlSyntaxTree) => SnlSyntaxTree` | 就地补 `scope='binder'` + `mdata.bindRef`，view 层依赖这个做 bvar 高亮 |
+| `createSnlSyntaxTreeNode(name, opts?)` | `(name, {kind?, mdata?, children?}) => SnlSyntaxTree` | 手写 tree 时的构造 helper |
+| `isSnlSyntaxTree(v)` | `(unknown) => boolean` | runtime 类型守卫 |
+| `loadSnlMacroDb(url?)` | `(url) => Promise<SnlMacroDb>` | 从 URL 拉 JSON db，带缓存。默认 `/snl-macro-db.json` |
+| `setSnlMacroDbCache(db)` | `(SnlMacroDb \| null) => void` | 直接注入内存 db，绕过 fetch |
+| `clearSnlMacroDbCache()` | `() => void` | 清缓存 (热更 / 切换 db url) |
+| `createDefaultMacroTemplateQuery(url?, opts?)` | `(url, opts?) => SnlMacroTemplateQuery` | 用 URL 建 query，内部 lazy load db |
+| `createMacroTemplateQueryFromDb(db)` | `(SnlMacroDb) => SnlMacroTemplateQuery` | 用已 load 好的 db 建 query，无网络无延迟。Extension 走这条 |
+| `fillLatexTemplate(tpl, args)` | `(string, {...}) => string` | 低层：把 `#0/#1/#*/\#` 占位符填成 LaTeX。placeholder 缺失时渲染 `\htmlClass{snlMissingArg}{...}` |
+| `bundledMacroDb` | `SnlMacroDb` | 内置的核心宏（`\alpha`、`\frac` 等）。Extension 用 mergeMacroDb 把用户宏叠加在上面 |
+| `bundledSampleMacroDb` | `SnlMacroDb` | 示例 / 演示用宏 |
+| `HTMLDATA_KATEX_DEFAULTS` | `KatexOptions` | KaTeX 默认配置（trust / macros），传给 SnlSyntaxTreeView 的 katexOptions |
+| `DEFAULT_KIND_PALETTE` | `KindPalette` | 内置 kind 颜色表 |
+| `paletteToCss(palette)` | `(KindPalette) => string` | palette → CSS 字符串，view 层内联注入 |
+| `alpha(color, a)` | `(color, number) => string` | 颜色透明度调整 |
+| `assertSafeKindName(name)` | `(string) => void` | kind 名字合法性 assert |
+
+### 8.3 组件接口
+
+**`<SnlSyntaxTreeView>`** —— 唯一的对外渲染组件。
+
+`SnlSyntaxTreeViewProps`:
+
+| Prop | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `tree` | `SnlSyntaxTree` | ✓ | 已 annotate 的树（自己没 annotateBindings 也能渲染，只是 bvar/binder 高亮不工作） |
+| `query` | `SnlMacroTemplateQuery` | ✓ | 宏名→template 解析函数 |
+| `macroDb` | `SnlMacroDb` | ✓ | mode dispatch + metadata 查询 |
+| `katexOptions` | `KatexOptions` | | 传给 `katex.renderToString`。用 `HTMLDATA_KATEX_DEFAULTS` 作 base |
+| `kindPalette` | `KindPalette` | | 与 `DEFAULT_KIND_PALETTE` merge，view 内联 `<style>` 注入 |
+| `onResolved` | `(latexSource: string) => void` | | callback：formula root 渲染完 LaTeX 源码回传（用于导出/调试） |
+| `hooks` | `SnlRenderHooks` | | 全部 hook 都 optional，与 defaultRenderHooks merge |
+
+### 8.4 可自定义事件 / 钩子 (`SnlRenderHooks`) — 猫猫重点问的
+
+**全部 optional**，与 `defaultRenderHooks` 逐项覆盖。当前一共 **6 个 hook**：
+
+| Hook | 签名 | 时机 | 副作用允许 | 默认 |
+|---|---|---|---|---|
+| `onHover` | `(event: SnlHoverEvent) => void` | 鼠标进入 / 移动到宏节点上 | fire-and-forget，不 await。宿主用来做 side effect（记日志、跨 window 消息、spawn popover 等） | `undefined`（内部 hover state machine 照跑） |
+| `onLeave` | `() => void` | 指针离开渲染容器 | fire-and-forget | `undefined` |
+| `resolveMacroInfo` | `(name, macro?) => Promise<SnlMacroInfo>` | hover 开始后短 debounce 触发 | async，可 hit 网络/磁盘 cache；view 保持 `loading:true` 直到 resolve | 读 `macroDb[name].description` |
+| `resolveSource` | `(source: SnlMacroSource) => SnlResolvedSource \| null` | 每次 render 都 sync 调用 | **必须 sync**、必须 pure。要异步查请先在 React state/memo 缓存好 | 返回 `null` |
+| `renderTooltip` | `(state: SnlTooltipState) => ReactElement \| null` | 每次 hover 状态变化 render 时 | sync React render，pure，无副作用 | 内置 `.snl-hover-tooltip` DOM。返回 `null` 完全禁用 tooltip |
+| `highlightStrategy` | `{ computeHighlightSet(target, container, bvarScopeIndex) => SnlHighlightSet }` | 每次 hover 决定 highlight 哪些 DOM | sync | `defaultHighlightStrategy`（单元素高亮 + bvar/binder 全 scope 联动） |
+| `renderers` | `Record<string, SnlBlockRenderer>` | block-mode 宏 dispatch key → 组件 | 声明式 | `defaultRenderers` = `{ list, table, centered }`。spread 到 default 上扩展 |
+
+**事件 payload 类型:**
+
+- `SnlHoverEvent`: `{ name, kind, node: SnlSyntaxTree, bindingHint: string, variableRole: 'bvar'|'fvar'|'none', target: HTMLElement, clientX, clientY }`
+- `SnlMacroInfo`: `{ description: string, extra?: string }` — tooltip 主体
+- `SnlResolvedSource`: `{ kind: 'entry'|'url', ref: string, displayName?, href? }` — cross-link 目标
+- `SnlTooltipState`: `{ visible, x, y, name, kind, variableRole, bindingHint, info: SnlMacroInfo|null, loading, source: SnlResolvedSource|null }` — render 时喂给 renderTooltip 的完整状态
+- `SnlHighlightSet`: `{ singleHover: HTMLElement|null, bvarScope: HTMLElement[], binderDecl: HTMLElement[] }` — 三桶元素，view 分别打上 `.snl-single-hover / .snl-bvar-scope / .snl-binder-decl`
+
+**Extension 侧现在用了哪些：** 看 `webview/src/render/EntryRender.tsx` L198-277。当前只覆盖了 `resolveSource`（entry 池解析）、`onHover`（spawn popover + 3s freeze timer）、`onLeave`（清 timer）、`renderTooltip: () => null`（禁用内置 tooltip 让 popover 独占）。剩下 `resolveMacroInfo` / `highlightStrategy` / `renderers` 都跑默认。
+
+### 8.5 版本 pin
+
+Submodule 当前 commit 见 `git -C external/SNL-Basics rev-parse HEAD`。schema 版本：
+- `SnlMacro` v3 = **v6 on-disk** (`term_macros/*.json` 的 `version` 字段)
+- `SnlSyntaxTree` = flat runtime（未来会切到 discriminated `node-types` union，暂时并存）
+- `LibraryGraph` = v2（`label: 'Entry'` / `label: 'branch'`）

@@ -844,10 +844,24 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
         </div>
       </div>
 
-      {/* "add child" or "add sibling" popover attached below this row. */}
+      {/* "add child" or "add sibling" popover attached below this row.
+       *
+       * Bug (cat 2026-07-08): earlier this used a plain OR
+       * `parentId === nodeId || insertAfter === nodeId`. In the
+       * "+ sibling on non-root Y (parent P)" case both branches
+       * fired — Row P matched on `parentId===P` AND Row Y matched
+       * on `insertAfter===Y` — producing two AddNodeForm inputs.
+       *
+       * The two operations are distinguishable by `insertAfter`:
+       *   + child   : parentId=here,  insertAfter=null   → attach under HERE
+       *   + sibling : parentId=parent, insertAfter=here  → attach under HERE
+       * so a child popover MUST also require `insertAfter===null`
+       * to avoid poaching the parent row on a sibling insert.
+       * Root-sibling (both null) is handled by the top-level
+       * <AddNodeForm/> in the outer render, not here. */}
       {addingUnder &&
-      (addingUnder.parentId === nodeId ||
-        (addingUnder.insertAfter === nodeId)) ? (
+      ((addingUnder.parentId === nodeId && addingUnder.insertAfter === null) ||
+        addingUnder.insertAfter === nodeId) ? (
         <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}>
           <AddNodeForm
             kinds={graph.kinds}

@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
+import katex from 'katex';
 import '@snl-basics/react/style.css';
 import {
   parseSnlSyntaxTree,
@@ -319,9 +320,54 @@ export function EntryRender({
   const stroke = resolveStroke(kind?.coloring.stroke);
   const background = resolveBackground(kind?.coloring.background);
   const kindName = kind ? kind.name : entry.kind;
-  const headerText = counterLabel
-    ? `${kindName} ${counterLabel} -- ${entry.title}`
-    : `${kindName} -- ${entry.title}`;
+  // Header shape (cat 2026-07-08 spec): "<KindName> <counter> -- <title>"
+  // where the prefix ("<KindName> <counter> -- ") is PLAIN TEXT and the
+  // title after "--" is rendered by RAW KaTeX (NOT SNL). Rationale
+  // (verbatim from cat): 标题不走 SNL，只走裸的 KaTeX；标题给人看，
+  // 一个 Entry 只有 content 走 SNL，不能混淆语义。
+  const headerPrefix = counterLabel
+    ? `${kindName} ${counterLabel} -- `
+    : `${kindName} -- `;
+  // Render the title through raw KaTeX (cat 2026-07-08).
+  //
+  // Strategy: two-pass, LaTeX-tolerant.
+  //   Pass 1 — try the raw title as a KaTeX source string. This lets
+  //     titles like `\alpha`, `x^2`, `f: X \to Y` typeset correctly
+  //     without the author wrapping them in `$…$`.
+  //   Pass 2 — on any KaTeX parse error (e.g. plain prose containing
+  //     `%` or unbalanced `{`), fall back to wrapping in `\text{…}` so
+  //     "Hello, world" still renders as prose instead of a red banner.
+  //   Pass 3 — if even the escape-and-\text pass throws, return
+  //     HTML-escaped raw text as a last-ditch defense.
+  const titleHtml = useMemo(() => {
+    const raw = entry.title ?? '';
+    if (raw.length === 0) return '';
+    try {
+      return katex.renderToString(raw, {
+        displayMode: false,
+        throwOnError: true,
+        strict: false,
+        trust: false
+      });
+    } catch {
+      const escaped = raw
+        .replace(/\\/g, '\\backslash ')
+        .replace(/([{}$&#^_~%])/g, '\\$1');
+      try {
+        return katex.renderToString(`\\text{${escaped}}`, {
+          displayMode: false,
+          throwOnError: false,
+          strict: false,
+          trust: false
+        });
+      } catch {
+        return raw
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+    }
+  }, [entry.title]);
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     if (e.ctrlKey || e.metaKey) {
@@ -360,19 +406,47 @@ export function EntryRender({
   const hasContent = snl.trim().length > 0;
   const isTransparent = background === TRANSPARENT_BACKGROUND;
 
+  // Hover state for the "border thickens + bg goes white" affordance
+  // (cat 2026-07-08). Using pointer events + React state so the animation
+  // can be a plain CSS transition on border-color / background-color /
+  // outline-color, and NO layout box changes (uses `outline`, not extra
+  // border, so surrounding blocks don't shift).
+  const [isHovered, setIsHovered] = React.useState(false);
+
   return (
     <section
       onClick={handleSectionClick}
+      onPointerEnter={() => setIsHovered(true)}
+      onPointerLeave={() => setIsHovered(false)}
       style={{
+        // Left border always visible (kind stroke, 5px). Layout is FIXED
+        // by leaving room for the hover outline via `outline-offset: 0`
+        // — `outline` doesn't participate in layout, so `outline-width:
+        // 5px` on hover thickens the frame without shifting anything.
         borderLeft: `5px solid ${stroke}`,
         borderRadius: 0,
         width: '100%',
-        background
+        // Background flips to white on hover (cat 2026-07-08). Preserve
+        // the original `background` on the CSS variable used for the
+        // body region so its dark-on-color contrast stays correct.
+        background: isHovered ? '#ffffff' : background,
+        // Hover outline: +5px on all sides (left effectively 5+5=10 as
+        // requested; other sides go 0→5). `outline` is drawn OUTSIDE the
+        // border box and NOT counted in layout, so no reflow.
+        outline: isHovered ? `5px solid ${stroke}` : `5px solid transparent`,
+        outlineOffset: '0px',
+        // Smooth transition on the two properties that change on hover.
+        // `outline-color` alone (not `outline-width`) is enough because
+        // width stays constant at 5px — we only reveal/hide via color.
+        transition:
+          'background-color 150ms ease, outline-color 150ms ease'
       }}
     >
       <header
         style={{
-          padding: '0.55rem 0.8rem'
+          // Header vertical padding halved (cat 2026-07-08): 0.55rem → 0.275rem
+          // to tighten the title band. Horizontal padding preserved.
+          padding: '0.275rem 0.8rem'
         }}
       >
         <strong
@@ -384,7 +458,16 @@ export function EntryRender({
             lineHeight: 1.3
           }}
         >
-          {headerText}
+          {/* Prefix = plain text "<KindName> <counter> -- ". */}
+          {headerPrefix}
+          {/* Title = raw KaTeX HTML injected via dangerouslySetInnerHTML.
+              Wrapped in an inline <span> so the click / cursor styles on
+              the parent <strong> still apply. `.katex` KaTeX-emitted spans
+              inherit color from `stroke` via the parent — no extra CSS. */}
+          <span
+            style={{ display: 'inline' }}
+            dangerouslySetInnerHTML={{ __html: titleHtml }}
+          />
         </strong>
       </header>
       {hasContent ? (
@@ -392,7 +475,9 @@ export function EntryRender({
           <div
             style={{
               borderTop: `0.5px solid ${stroke}`,
-              margin: '4px 0'
+              // Horizontal 10px margin so the separator doesn't touch
+              // the left/right borders of the block (cat 2026-07-08).
+              margin: '4px 10px'
             }}
           />
           <div

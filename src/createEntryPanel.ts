@@ -7,7 +7,7 @@ import {
   updateEntry,
   type EntryData
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Entry editor panel.
@@ -196,7 +196,10 @@ export class CreateEntryPanel {
           contribution_info: entry.contribution_info,
           pointer: entry.pointer
         });
-        switch (result.status) {
+        if (await handlePanelNavMessage(message)) {
+          return;
+        }
+                switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Entry "${entry.title}" (${result.id}) updated.`

@@ -14,7 +14,7 @@ import {
   type MacroPackageFile,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -203,7 +203,10 @@ export class PackagePanel {
     if (!msg || typeof msg.type !== 'string') {
       return;
     }
-    switch (msg.type) {
+    if (await handlePanelNavMessage(message)) {
+      return;
+    }
+        switch (msg.type) {
       case 'ready':
         await this.pushPackage();
         return;

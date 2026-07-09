@@ -60,8 +60,12 @@ async function runInit(): Promise<void> {
 export function activate(context: vscode.ExtensionContext): void {
   const openInfoview = vscode.commands.registerCommand(
     'snlDoc.openInfoview',
-    () => {
-      InfoviewPanel.createOrShow(context.extensionUri);
+    (initialLibrarySlug?: unknown) => {
+      const slug =
+        typeof initialLibrarySlug === 'string' && initialLibrarySlug.trim()
+          ? initialLibrarySlug.trim()
+          : undefined;
+      InfoviewPanel.createOrShow(context.extensionUri, slug);
     }
   );
 

@@ -213,44 +213,60 @@ function LibrariesLayer({
           <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> folder in.
         </p>
       ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {libraries.map((lib) => (
-            <li key={lib.slug} style={{ marginBottom: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={() =>
-                  ctx.postMessage({ type: 'selectLibrary', slug: lib.slug })
-                }
-                style={LIBRARY_CARD_STYLE}
-              >
-                <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-                  {lib.title}
-                </div>
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    opacity: 0.7,
-                    fontFamily: 'var(--vscode-editor-font-family, monospace)'
-                  }}
+        <>
+          {/* Cat 2026-07-09: hover feedback on Library cards. Pure CSS,
+              same pattern as the Library outline hover-toolbar — avoids
+              the React-state / pointerEvents drop-bug. */}
+          <style>{`
+            .snl-library-card {
+              transition: background-color 90ms ease-in, border-color 90ms ease-in;
+            }
+            .snl-library-card:hover,
+            .snl-library-card:focus-visible {
+              background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.06)) !important;
+              border-color: var(--vscode-focusBorder, var(--vscode-contrastActiveBorder, #007fd4)) !important;
+            }
+          `}</style>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {libraries.map((lib) => (
+              <li key={lib.slug} style={{ marginBottom: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="snl-library-card"
+                  onClick={() =>
+                    ctx.postMessage({ type: 'selectLibrary', slug: lib.slug })
+                  }
+                  style={LIBRARY_CARD_STYLE}
                 >
-                  {lib.slug}
-                  {lib.hasMeta ? '' : ' · no meta.json'}
-                </div>
-                {lib.description ? (
+                  <div style={{ fontWeight: 600, fontSize: '1rem' }}>
+                    {lib.title}
+                  </div>
                   <div
                     style={{
-                      marginTop: '0.35rem',
-                      fontSize: '0.85rem',
-                      opacity: 0.85
+                      fontSize: '0.8rem',
+                      opacity: 0.7,
+                      fontFamily: 'var(--vscode-editor-font-family, monospace)'
                     }}
                   >
-                    {lib.description}
+                    {lib.slug}
+                    {lib.hasMeta ? '' : ' · no meta.json'}
                   </div>
-                ) : null}
-              </button>
-            </li>
-          ))}
-        </ul>
+                  {lib.description ? (
+                    <div
+                      style={{
+                        marginTop: '0.35rem',
+                        fontSize: '0.85rem',
+                        opacity: 0.85
+                      }}
+                    >
+                      {lib.description}
+                    </div>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </>
   );

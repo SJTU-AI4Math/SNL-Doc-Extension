@@ -18,6 +18,7 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { PanelNav } from './components/PanelNav';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 
@@ -207,6 +208,25 @@ export function CreateLibraryApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: mode === 'edit' ? '54rem' : '34rem' }}>
+      {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
+          jump to this library in the Infoview. */}
+      <PanelNav
+        vsApi={apiRef.current}
+        back={{
+          label: 'Dashboard',
+          title: 'Back to Dashboard',
+          message: { type: 'nav.openDashboard' }
+        }}
+        viewInInfoview={
+          mode === 'edit' && slug
+            ? {
+                label: 'View in Infoview',
+                title: `Open library "${slug}" in the Infoview reading surface`,
+                message: { type: 'nav.openInfoview', slug }
+              }
+            : undefined
+        }
+      />
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
         {mode === 'edit' ? 'Edit Library' : 'Create Library'}
       </h1>
@@ -558,6 +578,21 @@ function OutlineEditor({
 
   return (
     <section style={{ marginTop: '2rem' }}>
+      {/* Cat 2026-07-09: pure-CSS hover reveal for the per-row toolbar.
+          See OutlineRow's block comment for why this replaced the earlier
+          useState + pointerEvents approach. `opacity` (not visibility) lets
+          the button remain tab-focusable and hit-testable — the surrounding
+          row can still be hovered while a button is under the cursor. */}
+      <style>{`
+        .snl-outline-row-toolbar {
+          opacity: 0;
+          transition: opacity 90ms ease-in;
+        }
+        .snl-outline-row:hover .snl-outline-row-toolbar,
+        .snl-outline-row:focus-within .snl-outline-row-toolbar {
+          opacity: 1;
+        }
+      `}</style>
       <div
         style={{
           display: 'flex',
@@ -697,27 +732,26 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>(untitled)</em>;
 
   // Cat 2026-07-09: "现在右边一排按钮太繁冗，改成鼠标悬浮在哪一条上显示哪
-  // 一条的按钮". The toolbar (add child / add sibling / indent / move up /
-  // move down / delete) only shows while this row is hovered. Focus-within
-  // is included so a keyboard-focused button doesn't disappear from under
-  // the user's fingers if they Tab into the toolbar.
-  const [rowHovered, setRowHovered] = useState(false);
-  const [rowFocused, setRowFocused] = useState(false);
-  const showToolbar = rowHovered || rowFocused;
-
+  // 一条的按钮". Second pass 2026-07-09 (bug report: "多个条目同时显示按钮"
+  // + "删条目还是删不掉"). Root cause of both:
+  //   The first implementation used `useState + onPointerEnter/Leave` and
+  //   `pointerEvents: none` when not hovered. React's pointer events can
+  //   drop a `leave` firing when the mouse moves fast between rows, which
+  //   left multiple rows stuck in the `hovered=true` state. Worse, if the
+  //   hover state ever flipped for a frame while the user was mid-click
+  //   on Delete, `pointerEvents: none` swallowed the click, giving the
+  //   "delete doesn't work" symptom.
+  //
+  //   Fix: use pure CSS `:hover` + `:focus-within` — browser-native pointer
+  //   tracking never loses a leave event, and there's no `pointerEvents`
+  //   toggle to intercept clicks. We keep the toolbar in the DOM (opacity
+  //   0 by default) so layout stays stable when it becomes visible. No
+  //   useState needed. Global CSS injected once at the App root; see
+  //   `<style>` below.
   return (
     <li style={{ marginBottom: '0.15rem' }}>
       <div
-        onPointerEnter={() => setRowHovered(true)}
-        onPointerLeave={() => setRowHovered(false)}
-        onFocus={() => setRowFocused(true)}
-        onBlur={(e) => {
-          // Only clear focus state when focus leaves the row entirely —
-          // Tab between two buttons in the same row shouldn't collapse it.
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-            setRowFocused(false);
-          }
-        }}
+        className="snl-outline-row"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -822,16 +856,17 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
         ) : null}
 
         <div
+          className="snl-outline-row-toolbar"
           style={{
             display: 'flex',
             gap: '0.25rem',
-            flexShrink: 0,
-            // Hover-only toolbar (cat 2026-07-09). We keep the layout slot
-            // via visibility (not display:none) so hovering doesn't shift
-            // sibling columns as the toolbar reveals — the row's height and
-            // horizontal spacing stay stable.
-            visibility: showToolbar ? 'visible' : 'hidden',
-            pointerEvents: showToolbar ? 'auto' : 'none'
+            flexShrink: 0
+            // Visibility handled entirely by CSS `:hover` / `:focus-within`
+            // on `.snl-outline-row` — see the <style> block in the App
+            // component. NO inline conditional on visibility/pointerEvents
+            // here; React state was losing `pointerleave` events which
+            // stuck multiple rows in the "shown" state and (worse) ate
+            // Delete clicks via `pointerEvents: none`. Cat 2026-07-09.
           }}
         >
           <IconButton

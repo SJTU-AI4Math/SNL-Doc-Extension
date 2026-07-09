@@ -75,3 +75,47 @@ export function buildPanelHtml(
 export function firstWorkspaceFolder(): vscode.Uri | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri;
 }
+
+/**
+ * Shared handler for top-of-panel navigation messages posted by the
+ * `PanelNav` webview component (cat 2026-07-09). Every editor / list
+ * panel has a top-left back button and (where applicable) a right-side
+ * "View in Infoview" button; the messages they post are all funneled
+ * through this dispatcher so we don't repeat the 4 same case-branches
+ * in every panel class.
+ *
+ * Returns `true` when the message was recognized as a nav message and
+ * dispatched (so the caller should stop processing). Returns `false`
+ * when it's not a nav message and the caller should continue its own
+ * switch.
+ */
+export async function handlePanelNavMessage(message: unknown): Promise<boolean> {
+  const msg = message as { type?: unknown } | null | undefined;
+  if (!msg || typeof msg.type !== 'string') return false;
+  switch (msg.type) {
+    case 'nav.openDashboard':
+      await vscode.commands.executeCommand('snlDoc.openDashboard');
+      return true;
+    case 'nav.openInfoview': {
+      // Optional payload: `{ slug }` to open a specific library, `{ entryId }`
+      // to open per-entry infoview. Either omit both for the browser root.
+      const m = msg as { slug?: unknown; entryId?: unknown };
+      if (typeof m.entryId === 'string' && m.entryId.trim()) {
+        await vscode.commands.executeCommand(
+          'snlDoc.openEntryInfoview',
+          m.entryId.trim()
+        );
+      } else if (typeof m.slug === 'string' && m.slug.trim()) {
+        await vscode.commands.executeCommand(
+          'snlDoc.openInfoview',
+          m.slug.trim()
+        );
+      } else {
+        await vscode.commands.executeCommand('snlDoc.openInfoview');
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
+}

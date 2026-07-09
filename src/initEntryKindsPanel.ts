@@ -4,7 +4,7 @@ import {
   ENTRY_KIND_PRESETS,
   readEntryKinds
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Singleton manager for the `SNL: Initialize Entry Kinds` webview panel.
@@ -129,7 +129,10 @@ export class InitEntryKindsPanel {
 
     try {
       const result = await applyEntryKindsPreset(root, presetId);
-      switch (result.status) {
+      if (await handlePanelNavMessage(message)) {
+        return;
+      }
+            switch (result.status) {
         case 'applied':
           vscode.window.showInformationMessage(
             `Applied preset "${presetId}" — ${result.count} entry kind${

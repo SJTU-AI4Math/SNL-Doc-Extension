@@ -56,6 +56,7 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { PanelNav } from './components/PanelNav';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 
@@ -723,6 +724,10 @@ export function CreateMacroApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '64rem' }}>
+      <PanelNav
+        vsApi={apiRef.current}
+        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+      />
       <h1 style={{ margin: '0 0 1rem', fontSize: '1.35rem' }}>
         {panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in{' '}
         <code>{titlePackage}</code>

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createEntryKind, readEntryKinds, updateEntryKind } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Entry Kind editor panel.
@@ -190,7 +190,10 @@ export class CreateEntryKindPanel {
           numbering: p.numbering ?? '',
           style: p.style ?? ''
         });
-        switch (result.status) {
+        if (await handlePanelNavMessage(message)) {
+          return;
+        }
+                switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Entry kind "${result.kind.name}" (${result.kind.id}) updated.`

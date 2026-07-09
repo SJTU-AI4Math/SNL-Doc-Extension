@@ -4,7 +4,7 @@ import {
   MACRO_KIND_PRESETS,
   readMacroKinds
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Singleton manager for the `SNL: Initialize Macro Kinds` webview panel.
@@ -129,7 +129,10 @@ export class InitMacroKindsPanel {
 
     try {
       const result = await applyMacroKindsPreset(root, presetId);
-      switch (result.status) {
+      if (await handlePanelNavMessage(message)) {
+        return;
+      }
+            switch (result.status) {
         case 'applied':
           vscode.window.showInformationMessage(
             `Applied preset "${presetId}" — ${result.count} macro kind${

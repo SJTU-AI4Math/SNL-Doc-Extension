@@ -13,7 +13,7 @@ import {
   type GraphNodeDto,
   type GraphRelationshipDto
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -275,7 +275,10 @@ export class CreateLibraryPanel {
     try {
       if (msg.type === 'update' || this.mode === 'edit') {
         const result = await updateLibrary(workspaceRoot, this.slug, { title });
-        switch (result.status) {
+        if (await handlePanelNavMessage(message)) {
+          return;
+        }
+                switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Library "${result.slug}" title updated to "${result.title}".`

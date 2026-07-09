@@ -98,11 +98,24 @@ export class InfoviewPanel {
   private disposables: vscode.Disposable[] = [];
 
   /** Open (or reveal) the singleton browser panel. */
-  public static createOrShow(extensionUri: vscode.Uri): void {
+  /**
+   * Show the browser Infoview. When `initialLibrarySlug` is provided, the
+   * panel opens directly on that library's outline (used by
+   * `CreateLibrary`'s "View in Infoview" nav button — cat 2026-07-09).
+   */
+  public static createOrShow(
+    extensionUri: vscode.Uri,
+    initialLibrarySlug?: string
+  ): void {
     const column = vscode.ViewColumn.Beside;
 
     if (InfoviewPanel.browserPanel) {
       InfoviewPanel.browserPanel.panel.reveal(column);
+      if (initialLibrarySlug) {
+        // Navigate the already-open panel to the requested library.
+        InfoviewPanel.browserPanel.currentLibrarySlug = initialLibrarySlug;
+        void InfoviewPanel.browserPanel.pushLibraryEntries(initialLibrarySlug);
+      }
       return;
     }
 
@@ -117,13 +130,20 @@ export class InfoviewPanel {
       }
     );
 
-    InfoviewPanel.browserPanel = new InfoviewPanel(
+    const instance = new InfoviewPanel(
       panel,
       extensionUri,
       null,
       'main',
       'SNL Infoview'
     );
+    InfoviewPanel.browserPanel = instance;
+    if (initialLibrarySlug) {
+      // Wait a tick for the webview to send `ready` — the webview's own
+      // context initialization will then call pushLibraries; we override
+      // by seeding the slug so the very first push is the library page.
+      instance.currentLibrarySlug = initialLibrarySlug;
+    }
   }
 
   /**

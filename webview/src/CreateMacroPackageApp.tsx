@@ -13,6 +13,7 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { PanelNav } from './components/PanelNav';
 
 type Mode = 'create' | 'edit';
 
@@ -171,6 +172,10 @@ export function CreateMacroPackageApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '34rem' }}>
+      <PanelNav
+        vsApi={apiRef.current}
+        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+      />
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
         {mode === 'edit' ? 'Edit Macro Package' : 'Create Macro Package'}
       </h1>

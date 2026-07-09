@@ -4,7 +4,7 @@ import {
   readMacroPackage,
   updateMacroPackage
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Macro Package editor
@@ -185,7 +185,10 @@ export class CreateMacroPackagePanel {
           name,
           description
         });
-        switch (result.status) {
+        if (await handlePanelNavMessage(message)) {
+          return;
+        }
+                switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Macro package "${result.file}" updated.`

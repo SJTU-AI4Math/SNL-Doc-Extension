@@ -46,6 +46,7 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { PanelNav } from './components/PanelNav';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -418,6 +419,25 @@ export function CreateEntryApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '48rem' }}>
+      {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
+          jump to this entry's per-entry Infoview. */}
+      <PanelNav
+        vsApi={apiRef.current}
+        back={{
+          label: 'Dashboard',
+          title: 'Back to Dashboard',
+          message: { type: 'nav.openDashboard' }
+        }}
+        viewInInfoview={
+          mode === 'edit' && id
+            ? {
+                label: 'View in Infoview',
+                title: `Open entry "${id}" in the Infoview reading surface`,
+                message: { type: 'nav.openInfoview', entryId: id }
+              }
+            : undefined
+        }
+      />
       <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.35rem' }}>
         {mode === 'edit' ? 'Edit Entry' : 'Create Entry'}
       </h1>

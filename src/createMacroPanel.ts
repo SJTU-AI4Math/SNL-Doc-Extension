@@ -9,7 +9,7 @@ import {
   type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -257,7 +257,10 @@ export class CreateMacroPanel {
         // Force the identity — ignore any name in the payload.
         const patched: MacroPackageEntry = { ...macro, name: this.macroName };
         const result = await updateMacro(root, this.file, patched);
-        switch (result.status) {
+        if (await handlePanelNavMessage(message)) {
+          return;
+        }
+                switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Macro "${result.name}" in ${this.file}.json updated.`

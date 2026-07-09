@@ -12,6 +12,11 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import {
+  EntityIdSearchBox,
+  ENTRY_VALIDATE_RULES
+} from './components/EntityIdSearchBox';
+import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
 
@@ -40,6 +45,9 @@ const DEFAULT_BACKGROUND = '#eeeeee';
 export function CreateMacroKindApp(): React.ReactElement {
   const [mode, setMode] = useState<Mode>('create');
   const [id, setId] = useState('');
+  // Existing kind ids for the picker's dedupe check (create mode). See
+  // createMacroKindPanel.ts for the shape and cat 2026-07-09 note.
+  const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [stroke, setStroke] = useState(DEFAULT_STROKE);
@@ -57,6 +65,7 @@ export function CreateMacroKindApp(): React.ReactElement {
             mode: Mode;
             id?: string;
             existing?: ExistingMacroKind | null;
+            existingIds?: EntryOption[];
           }
         | { type: 'created'; kind: { id: string; name: string } }
         | { type: 'updated'; kind: { id: string; name: string } }
@@ -71,6 +80,7 @@ export function CreateMacroKindApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setMode(msg.mode);
+          setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
             setId(msg.id ?? '');
             if (msg.existing) {
@@ -159,13 +169,37 @@ export function CreateMacroKindApp(): React.ReactElement {
           : 'Append a single macro kind to .SNL_Doc/config.json#macro_kinds. The id must be unique and non-empty; it is referenced by a macro\u2019s kind field.'}
       </p>
 
-      <TextField
-        label={mode === 'edit' ? 'ID (readonly)' : 'ID (unique)'}
-        value={id}
-        placeholder="e.g. rule, const, bvar\u2026"
-        onChange={setId}
-        readOnly={mode === 'edit'}
-      />
+      {mode === 'edit' ? (
+        <TextField
+          label="ID (readonly)"
+          value={id}
+          placeholder="e.g. rule, const, bvar\u2026"
+          onChange={setId}
+          readOnly
+        />
+      ) : (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <label
+            style={{
+              display: 'block',
+              marginBottom: '0.25rem',
+              fontSize: '0.85rem',
+              opacity: 0.85
+            }}
+          >
+            ID (unique)
+          </label>
+          {/* Dedupe against existing macro-kind ids (cat 2026-07-09). */}
+          <EntityIdSearchBox
+            entries={existingIds}
+            value={id}
+            validate={ENTRY_VALIDATE_RULES.requireUnique}
+            hideResolvedChip
+            placeholder="e.g. rule, const, bvar\u2026"
+            onChange={setId}
+          />
+        </div>
+      )}
       <TextField
         label="Name (display)"
         value={name}

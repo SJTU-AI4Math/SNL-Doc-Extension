@@ -225,6 +225,45 @@ export class DashboardPanel {
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;
+      // Delete forwarders (cat 2026-07-09). Dashboard rows now carry a
+      // trash-icon action per entity; each posts its type + identifier
+      // here and we hand off to the shared `snlDoc.delete*` command,
+      // which owns the modal-confirmation UX.
+      case 'deleteEntry': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.deleteEntry', id);
+        }
+        return;
+      }
+      case 'deleteEntryKind': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.deleteEntryKind', id);
+        }
+        return;
+      }
+      case 'deleteMacroKind': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.deleteMacroKind', id);
+        }
+        return;
+      }
+      case 'deleteLibrary': {
+        const slug = (msg as { slug?: unknown }).slug;
+        if (typeof slug === 'string' && slug) {
+          await vscode.commands.executeCommand('snlDoc.deleteLibrary', slug);
+        }
+        return;
+      }
+      case 'deleteMacroPackage': {
+        const file = (msg as { file?: unknown }).file;
+        if (typeof file === 'string' && file) {
+          await vscode.commands.executeCommand('snlDoc.deleteMacroPackage', file);
+        }
+        return;
+      }
       case 'openInfoview':
         // Dashboard → Infoview handoff (per cat 2026-07-06: reader/editor
         // toggle from either surface).

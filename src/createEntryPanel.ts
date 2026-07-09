@@ -117,9 +117,20 @@ export class CreateEntryPanel {
     // webview's macroDb over bundledMacroDb (user macros win on collision).
     const macros = root ? await readAllMacros(root) : {};
     let existing: EntryData | null = null;
-    if (this.mode === 'edit' && root) {
-      const entries = await readEntries(root);
-      existing = entries.find((e) => e && e.id === this.id) ?? null;
+    // Full entry pool (id + title) for the id picker's dedupe check in
+    // create mode. Cat 2026-07-09: same widget, requireUnique rule. In
+    // edit mode we still send it — the webview uses it to know "everyone
+    // else's id" (excluding self) for warnings.
+    let allEntries: EntryData[] = [];
+    if (root) {
+      try {
+        allEntries = await readEntries(root);
+      } catch {
+        allEntries = [];
+      }
+      if (this.mode === 'edit') {
+        existing = allEntries.find((e) => e && e.id === this.id) ?? null;
+      }
     }
     // Legacy `kinds` payload for backward compat with the current webview code;
     // `context` carries the same info plus mode + existing entry + macros.
@@ -130,7 +141,13 @@ export class CreateEntryPanel {
       id: this.id || undefined,
       kinds,
       macros,
-      existing
+      existing,
+      existingIds: allEntries.map((e) => ({
+        id: e.id,
+        title: e.title ?? '',
+        hasContent:
+          typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
+      }))
     });
   }
 

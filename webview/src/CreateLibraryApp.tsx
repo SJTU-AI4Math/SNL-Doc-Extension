@@ -18,7 +18,7 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
-import { EntityIdSearchBox } from './components/EntityIdSearchBox';
+import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
@@ -696,9 +696,28 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
   const displayTitle =
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>(untitled)</em>;
 
+  // Cat 2026-07-09: "现在右边一排按钮太繁冗，改成鼠标悬浮在哪一条上显示哪
+  // 一条的按钮". The toolbar (add child / add sibling / indent / move up /
+  // move down / delete) only shows while this row is hovered. Focus-within
+  // is included so a keyboard-focused button doesn't disappear from under
+  // the user's fingers if they Tab into the toolbar.
+  const [rowHovered, setRowHovered] = useState(false);
+  const [rowFocused, setRowFocused] = useState(false);
+  const showToolbar = rowHovered || rowFocused;
+
   return (
     <li style={{ marginBottom: '0.15rem' }}>
       <div
+        onPointerEnter={() => setRowHovered(true)}
+        onPointerLeave={() => setRowHovered(false)}
+        onFocus={() => setRowFocused(true)}
+        onBlur={(e) => {
+          // Only clear focus state when focus leaves the row entirely —
+          // Tab between two buttons in the same row shouldn't collapse it.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setRowFocused(false);
+          }
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -802,7 +821,19 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
           </button>
         ) : null}
 
-        <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.25rem',
+            flexShrink: 0,
+            // Hover-only toolbar (cat 2026-07-09). We keep the layout slot
+            // via visibility (not display:none) so hovering doesn't shift
+            // sibling columns as the toolbar reveals — the row's height and
+            // horizontal spacing stay stable.
+            visibility: showToolbar ? 'visible' : 'hidden',
+            pointerEvents: showToolbar ? 'auto' : 'none'
+          }}
+        >
           <IconButton
             label="+ child"
             title="Add a child entry"
@@ -830,6 +861,14 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
                 onStartAdd(null, null);
               }
             }}
+          />
+          {/* Cat 2026-07-09: 变成上一个条目的子条目 = "indent". No-op if
+              there's no previous sibling (first child of parent, or first
+              root); the host quietly ignores it. */}
+          <IconButton
+            label="→|"
+            title="Indent — make this entry a child of its previous sibling"
+            onClick={() => onGraphOp({ op: 'indent', nodeId })}
           />
           <IconButton
             label="↑"
@@ -1036,7 +1075,8 @@ function AddNodeForm({
           <EntityIdSearchBox
             entries={entryOptions}
             value={state.entryId}
-            allowNew
+            validate={ENTRY_VALIDATE_RULES.permitNew}
+            hideResolvedChip
             autoFocus
             idPrefix="snl-outline-entryid"
             placeholder="Search existing entry, or type a new id and click Create"

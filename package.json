@@ -23,6 +23,31 @@
         "title": "SNL: Refresh Infoview"
       },
       {
+        "command": "snlDoc.deleteEntry",
+        "title": "SNL: Delete Entry",
+        "enablement": "false"
+      },
+      {
+        "command": "snlDoc.deleteEntryKind",
+        "title": "SNL: Delete Entry Kind",
+        "enablement": "false"
+      },
+      {
+        "command": "snlDoc.deleteMacroKind",
+        "title": "SNL: Delete Macro Kind",
+        "enablement": "false"
+      },
+      {
+        "command": "snlDoc.deleteLibrary",
+        "title": "SNL: Delete Library",
+        "enablement": "false"
+      },
+      {
+        "command": "snlDoc.deleteMacroPackage",
+        "title": "SNL: Delete Macro Package",
+        "enablement": "false"
+      },
+      {
         "command": "snlDoc.openEntryInfoview",
         "title": "SNL: Open Entry Infoview"
       },

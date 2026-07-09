@@ -246,6 +246,9 @@ function Initialized({
             onOpen={(slug) =>
               api?.postMessage({ type: 'editLibrary', slug })
             }
+            onDelete={(slug) =>
+              api?.postMessage({ type: 'deleteLibrary', slug })
+            }
           />
         ) : null}
         <AddBar
@@ -266,6 +269,9 @@ function Initialized({
             entries={overview.entries}
             kinds={overview.entryKinds}
             onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
+            onDelete={(id) =>
+              api?.postMessage({ type: 'deleteEntry', id })
+            }
           />
         ) : null}
         <AddBar
@@ -298,6 +304,9 @@ function Initialized({
             onSetActive={(file, active) =>
               api?.postMessage({ type: 'setPackageActive', file, active })
             }
+            onDelete={(file) =>
+              api?.postMessage({ type: 'deleteMacroPackage', file })
+            }
           />
         ) : null}
         <AddBar
@@ -321,6 +330,9 @@ function Initialized({
               kinds={overview.entryKinds}
               onOpen={(id) =>
                 api?.postMessage({ type: 'editEntryKind', id })
+              }
+              onDelete={(id) =>
+                api?.postMessage({ type: 'deleteEntryKind', id })
               }
             />
             <AddBar
@@ -353,6 +365,9 @@ function Initialized({
               kinds={overview.macroKinds}
               onOpen={(id) =>
                 api?.postMessage({ type: 'editMacroKind', id })
+              }
+              onDelete={(id) =>
+                api?.postMessage({ type: 'deleteMacroKind', id })
               }
             />
             <AddBar
@@ -847,10 +862,12 @@ const MONO: React.CSSProperties = {
 
 function LibrariesTable({
   libraries,
-  onOpen
+  onOpen,
+  onDelete
 }: {
   libraries: LibrarySummary[];
   onOpen: (slug: string) => void;
+  onDelete: (slug: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -867,6 +884,7 @@ function LibrariesTable({
           <th style={HEAD}>Slug</th>
           <th style={{ ...HEAD, textAlign: 'right' }}>Entries</th>
           <th style={{ ...HEAD, textAlign: 'right' }}>Relationships</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
@@ -884,6 +902,10 @@ function LibrariesTable({
             <td style={{ ...CELL, textAlign: 'right' }}>
               {lib.relationshipCount === null ? '—' : lib.relationshipCount}
             </td>
+            <RowDeleteCell
+              label={`Delete library ${lib.slug}`}
+              onDelete={() => onDelete(lib.slug)}
+            />
           </ClickableRow>
         ))}
       </tbody>
@@ -894,11 +916,13 @@ function LibrariesTable({
 function MacroPackagesTable({
   packages,
   onOpen,
-  onSetActive
+  onSetActive,
+  onDelete
 }: {
   packages: MacroPackageSummary[];
   onOpen: (file: string) => void;
   onSetActive: (file: string, active: boolean) => void;
+  onDelete: (file: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -914,6 +938,7 @@ function MacroPackagesTable({
           <th style={{ ...HEAD, width: '4.5rem', textAlign: 'center' }}>Active</th>
           <th style={HEAD}>File</th>
           <th style={{ ...HEAD, textAlign: 'right' }}>Macros</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
@@ -942,6 +967,10 @@ function MacroPackagesTable({
             <td style={{ ...CELL, textAlign: 'right' }}>
               {pkg.macroCount === null ? '—' : pkg.macroCount}
             </td>
+            <RowDeleteCell
+              label={`Delete macro package ${pkg.file}`}
+              onDelete={() => onDelete(pkg.file)}
+            />
           </ClickableRow>
         ))}
       </tbody>
@@ -954,6 +983,63 @@ function MacroPackagesTable({
  * hover / focus paint the row with the theme's list-hover background,
  * matching VS Code list affordances.
  */
+/**
+ * Trash-icon cell for a Dashboard table row. Placed inside a
+ * {@link ClickableRow} — stopPropagation is critical because the surrounding
+ * row treats any click as "open this entity", and we absolutely do not want
+ * clicking Delete to also open the editor for the doomed row.
+ *
+ * Cat 2026-07-09: every entity type (entry / library / entry-kind /
+ * macro-kind / macro-package) grows a matching Delete action. The confirm
+ * modal + reference reporting lives in extension.ts commands; here we just
+ * post the intent.
+ */
+function RowDeleteCell({
+  onDelete,
+  label
+}: {
+  onDelete: () => void;
+  label: string;
+}): React.ReactElement {
+  return (
+    <td
+      style={{ ...CELL, textAlign: 'right', width: '2.5rem' }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        onKeyDown={(e) => {
+          // Prevent the surrounding ClickableRow's Enter/Space handler
+          // from firing when a user focuses this button via keyboard.
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+          }
+        }}
+        style={{
+          padding: '0.15rem 0.5rem',
+          fontFamily: 'inherit',
+          fontSize: '0.85rem',
+          border:
+            '1px solid var(--vscode-inputValidation-errorBorder, #be1100)',
+          background:
+            'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.15))',
+          color: 'var(--vscode-errorForeground, #f48771)',
+          borderRadius: '3px',
+          cursor: 'pointer'
+        }}
+      >
+        ✕
+      </button>
+    </td>
+  );
+}
+
 function ClickableRow({
   label,
   onActivate,
@@ -994,10 +1080,12 @@ function ClickableRow({
 
 function EntryKindsTable({
   kinds,
-  onOpen
+  onOpen,
+  onDelete
 }: {
   kinds: EntryKind[];
   onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -1015,6 +1103,7 @@ function EntryKindsTable({
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Numbering</th>
           <th style={HEAD}>Style</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
@@ -1038,6 +1127,10 @@ function EntryKindsTable({
             <td style={{ ...CELL, ...MONO }}>
               {kind.style ? kind.style : '—'}
             </td>
+            <RowDeleteCell
+              label={`Delete entry kind ${kind.id}`}
+              onDelete={() => onDelete(kind.id)}
+            />
           </ClickableRow>
         ))}
       </tbody>
@@ -1048,10 +1141,12 @@ function EntryKindsTable({
 /** Macro-kinds catalog table for the Dashboard. */
 function MacroKindsTable({
   kinds,
-  onOpen
+  onOpen,
+  onDelete
 }: {
   kinds: MacroKind[];
   onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -1068,6 +1163,7 @@ function MacroKindsTable({
           <th style={HEAD}>Name</th>
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Description</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
@@ -1086,6 +1182,10 @@ function MacroKindsTable({
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
             <td style={CELL}>{kind.description ? kind.description : '—'}</td>
+            <RowDeleteCell
+              label={`Delete macro kind ${kind.id}`}
+              onDelete={() => onDelete(kind.id)}
+            />
           </ClickableRow>
         ))}
       </tbody>
@@ -1138,11 +1238,13 @@ function populatedFormats(entry: EntryData): string {
 function EntriesTable({
   entries,
   kinds,
-  onOpen
+  onOpen,
+  onDelete
 }: {
   entries: EntryData[];
   kinds: EntryKind[];
   onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
 }): React.ReactElement {
   return (
     <table
@@ -1160,6 +1262,7 @@ function EntriesTable({
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Kind</th>
           <th style={HEAD}>Formats</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
@@ -1201,6 +1304,10 @@ function EntriesTable({
                 )}
               </td>
               <td style={{ ...CELL, ...MONO }}>{populatedFormats(entry)}</td>
+              <RowDeleteCell
+                label={`Delete entry ${entry.id}`}
+                onDelete={() => onDelete(entry.id)}
+              />
             </ClickableRow>
           );
         })}

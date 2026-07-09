@@ -12,6 +12,11 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import {
+  EntityIdSearchBox,
+  ENTRY_VALIDATE_RULES
+} from './components/EntityIdSearchBox';
+import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
 
@@ -41,6 +46,9 @@ const DEFAULT_BACKGROUND = '#eeeeee';
 export function CreateEntryKindApp(): React.ReactElement {
   const [mode, setMode] = useState<Mode>('create');
   const [id, setId] = useState('');
+  // Existing kind ids for the picker's dedupe check (create mode). See
+  // createEntryKindPanel.ts for the shape and cat 2026-07-09 note.
+  const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [name, setName] = useState('');
   const [stroke, setStroke] = useState(DEFAULT_STROKE);
   const [background, setBackground] = useState(DEFAULT_BACKGROUND);
@@ -59,6 +67,7 @@ export function CreateEntryKindApp(): React.ReactElement {
             mode: Mode;
             id?: string;
             existing?: ExistingEntryKind | null;
+            existingIds?: EntryOption[];
           }
         | { type: 'created'; kind: { id: string; name: string } }
         | { type: 'updated'; kind: { id: string; name: string } }
@@ -73,6 +82,7 @@ export function CreateEntryKindApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setMode(msg.mode);
+          setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
             setId(msg.id ?? '');
             if (msg.existing) {
@@ -163,13 +173,39 @@ export function CreateEntryKindApp(): React.ReactElement {
           : 'Append a single entry kind to .SNL_Doc/config.json#entry_kinds. The id must be unique and non-empty; other fields can be edited later.'}
       </p>
 
-      <TextField
-        label={mode === 'edit' ? 'ID (readonly)' : 'ID (unique)'}
-        value={id}
-        placeholder="e.g. definition, theorem, remark…"
-        onChange={setId}
-        readOnly={mode === 'edit'}
-      />
+      {mode === 'edit' ? (
+        <TextField
+          label="ID (readonly)"
+          value={id}
+          placeholder="e.g. definition, theorem, remark…"
+          onChange={setId}
+          readOnly
+        />
+      ) : (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <label
+            style={{
+              display: 'block',
+              marginBottom: '0.25rem',
+              fontSize: '0.85rem',
+              opacity: 0.85
+            }}
+          >
+            ID (unique)
+          </label>
+          {/* Dedupe against existing entry-kind ids (cat 2026-07-09):
+              typing an id that already exists in config.json#entry_kinds
+              gets a red border + inline "already exists" message. */}
+          <EntityIdSearchBox
+            entries={existingIds}
+            value={id}
+            validate={ENTRY_VALIDATE_RULES.requireUnique}
+            hideResolvedChip
+            placeholder="e.g. definition, theorem, remark…"
+            onChange={setId}
+          />
+        </div>
+      )}
       <TextField
         label="Name (display)"
         value={name}

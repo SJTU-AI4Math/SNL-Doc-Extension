@@ -387,6 +387,10 @@ export class CreateLibraryPanel {
    *       Removes the graph node + all its branch edges. Does NOT delete
    *       the underlying shared-pool entry — undo-friendly.
    *   - moveSibling: { op: 'moveSibling', nodeId, direction: 'up' | 'down' }
+   *   - indent: { op: 'indent', nodeId }
+   *       Demote the node under its previous sibling (make it that
+   *       sibling's last child). No-op when there is no previous sibling
+   *       (first child of parent, or first root). Cat 2026-07-09.
    *       Swaps this node's branch-edge with its previous/next sibling's.
    */
   private async handleGraphOp(rawOp: unknown): Promise<void> {
@@ -621,6 +625,85 @@ export class CreateLibraryPanel {
           const tmp = relationships[a];
           relationships[a] = relationships[b];
           relationships[b] = tmp;
+          break;
+        }
+        case 'indent': {
+          // Cat 2026-07-09: "把当前条目变成上一个条目的子条目" — turn the
+          // current node into a child of its previous sibling. If there
+          // is no previous sibling (nodeId is already the first child of
+          // its parent, OR is the first root) this is a no-op.
+          //
+          // Implementation: locate the previous sibling under the same
+          // parent, then rewrite the branch edge that points to nodeId so
+          // its `from` becomes the previous sibling. For a root that we
+          // demote under a previous root, we CREATE a new branch edge
+          // (no existing one to rewrite because roots have no parent
+          // edge). The demoted node's own subtree comes along for free
+          // because we don't touch edges rooted at nodeId.
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          if (!nodeId) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'indent: nodeId required'
+            });
+            return;
+          }
+          const myParentRelIdx = relationships.findIndex(
+            (r) => r.label === 'branch' && r.to === nodeId
+          );
+          if (myParentRelIdx >= 0) {
+            // Non-root: has a parent edge; find previous sibling under
+            // that same parent.
+            const parentId = relationships[myParentRelIdx].from;
+            const siblingRelIndices: number[] = [];
+            for (let i = 0; i < relationships.length; i++) {
+              const r = relationships[i];
+              if (r.label === 'branch' && r.from === parentId) {
+                siblingRelIndices.push(i);
+              }
+            }
+            const myPos = siblingRelIndices.findIndex(
+              (i) => relationships[i].to === nodeId
+            );
+            if (myPos <= 0) {
+              // Already the first child; no previous sibling. No-op.
+              return;
+            }
+            const prevSiblingRelIdx = siblingRelIndices[myPos - 1];
+            const prevSiblingId = relationships[prevSiblingRelIdx].to;
+            // Rewrite my parent edge in-place. Preserves declaration order
+            // relative to other edges (matters for reading order — the
+            // new-child insertion point is where my old edge already sat).
+            relationships[myParentRelIdx] = {
+              ...relationships[myParentRelIdx],
+              from: prevSiblingId
+            };
+            break;
+          }
+          // Root case: find the previous root in nodes[] order and demote
+          // the current node under it by ADDING a branch edge.
+          const nodesIdx = nodes.findIndex((n) => n.id === nodeId);
+          if (nodesIdx <= 0) {
+            // Already first root; nothing to demote under. No-op.
+            return;
+          }
+          const isRoot = (nid: string): boolean =>
+            !relationships.some(
+              (r) => r.label === 'branch' && r.to === nid
+            );
+          let prevRootId: string | null = null;
+          for (let j = nodesIdx - 1; j >= 0; j--) {
+            if (isRoot(nodes[j].id)) {
+              prevRootId = nodes[j].id;
+              break;
+            }
+          }
+          if (!prevRootId) return;
+          relationships.push({
+            from: prevRootId,
+            to: nodeId,
+            label: 'branch'
+          });
           break;
         }
         default:

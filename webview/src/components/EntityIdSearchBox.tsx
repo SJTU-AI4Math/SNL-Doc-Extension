@@ -1,22 +1,28 @@
-// Reusable entry-picker widget: type-ahead search + list dropdown, backed by
+// Reusable entity-id widget: type-ahead search + list dropdown, backed by
 // the shared `.SNL_Doc/entries.json` pool.
 //
 // Origin (cat 2026-07-08): "所有需要输入 EntityId 的地方都要能选，不能只让人贴
 // uuid — 现在 Library outline 里加节点、Macro source.entries 里填 id，全都是
-// 干抄的，一旦手滑就是 hard-to-catch mismatch." This component is the shared
-// widget for those "lookup existing entry by id / title" slots.
+// 干抄的，一旦手滑就是 hard-to-catch mismatch."
 //
-// Two modes (chosen via props, not a discriminated union — the surface is
-// small enough that a couple of optional flags stay readable):
+// Design (cat 2026-07-09 refactor): the widget is parameterized by a
+// `validate` callback and does NOT hard-code semantics like "reject new
+// values" or "reject existing values". Callers pass the rule they need:
 //
-//   Lookup mode (default): user picks one of the existing entries in the
-//     pool. Free-typing is allowed for filtering but the value committed via
-//     `onChange` MUST resolve to a real id (checked by the caller — we just
-//     surface `resolvedEntry` so callers can show their own inline warnings).
+//   ENTRY_VALIDATE_RULES.requireMatch  — value MUST resolve to a pool entry
+//                                        (macro source.entries; kind
+//                                        selection; any "pick an existing
+//                                        thing" slot).
+//   ENTRY_VALIDATE_RULES.requireUnique — value MUST NOT already be in the
+//                                        pool (creating a new id where
+//                                        duplicates would collide).
+//   ENTRY_VALIDATE_RULES.permitNew     — either a match or a novel value
+//                                        is fine (Library AddNodeForm
+//                                        where "not in pool → mint new
+//                                        entry" is a legit path).
 //
-//   Lookup-or-new mode (`allowNew`): the same, but a value not matching any
-//     existing id is committed anyway. Used by AddNodeForm where "not found →
-//     create the entry as part of this node" is a legit path.
+// Callers with unusual rules just write their own validate function —
+// signature and return shape are documented on {@link EntityValidateFn}.
 //
 // Design notes:
 //   - Fuzzy match on both `id` and `title` (case-insensitive substring). We
@@ -32,6 +38,11 @@
 //     least a positioning context). We do NOT portal — VS Code webviews
 //     block a lot of portal patterns, and popovers overflowing a form scroll
 //     region is preferable to fighting the CSP.
+//   - The widget always commits raw text via `onChange` as the user types
+//     (parent state stays in sync). "commit on Enter/click" refers to the
+//     highlighted list item — Enter without a match just closes the dropdown
+//     if the rule permits novel values (or beeps via the caller's error
+//     rendering if not; the widget itself never blocks the keystroke).
 //   - This file has ZERO runtime deps beyond React + our own EntryOption
 //     type. It ships in every webview bundle that imports it (each entry is
 //     self-contained per webview/vite.config.ts).
@@ -39,18 +50,101 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntryOption } from '../render/EntryRender';
 
+/**
+ * Verdict returned by a {@link EntityValidateFn}.
+ *
+ *   ok      — value is acceptable, no visual affordance needed.
+ *   info    — value is acceptable but the caller wants to surface a note
+ *             (e.g. "will create new entry"). Rendered in neutral color.
+ *   warn    — value is acceptable but suspect (yellow border, warning
+ *             message). The widget commits it anyway; the caller's submit
+ *             handler decides whether to block.
+ *   error   — value is unacceptable. The widget renders red border +
+ *             message; commit still fires via onChange (state stays in
+ *             sync while typing) but the caller's submit handler is
+ *             expected to guard on the validate result too.
+ *   null    — no verdict (equivalent to `ok` visually; skipped entirely).
+ */
+export type EntityValidateStatus = 'ok' | 'info' | 'warn' | 'error';
+
+export interface EntityValidateVerdict {
+  status: EntityValidateStatus;
+  /** Optional inline message rendered under the input. Keep terse — one
+   *  line, ~60 chars. */
+  message?: string;
+}
+
+/**
+ * Validation function. Receives:
+ *   value   — raw string currently in the input (already trimmed).
+ *   matched — the EntryOption whose `id` equals `value`, or null if none.
+ *   entries — the full pool (in case a rule needs to scan for near-hits
+ *             or duplicate cases beyond exact-id).
+ *
+ * Return null / undefined to opt out of validation for this value (no
+ * badge, no border color change).
+ */
+export type EntityValidateFn = (
+  value: string,
+  matched: EntryOption | null,
+  entries: readonly EntryOption[]
+) => EntityValidateVerdict | null | undefined;
+
+/**
+ * Preset validation rules for the three common flavors. Rolling your own
+ * is fine — these just save a few lines at the callsite.
+ */
+export const ENTRY_VALIDATE_RULES: {
+  /** Empty is OK (row not filled yet); non-empty must resolve to a pool
+   *  entry. Used by macro source.entries and any "pick an existing" slot. */
+  requireMatch: EntityValidateFn;
+  /** Value must NOT already appear in the pool (creating a fresh unique
+   *  id). Empty is treated as "not yet decided" — no error. */
+  requireUnique: EntityValidateFn;
+  /** Either a match or a novel value; empty warns "will fall through";
+   *  match confirms; novel value surfaces an info note. */
+  permitNew: EntityValidateFn;
+} = {
+  requireMatch: (value, matched) => {
+    if (!value) return null;
+    if (matched) return { status: 'ok' };
+    return {
+      status: 'error',
+      message: 'No entry with this id in the current pool.'
+    };
+  },
+  requireUnique: (value, matched) => {
+    if (!value) return null;
+    if (!matched) return { status: 'ok' };
+    return {
+      status: 'error',
+      message: `Id "${value}" already exists.`
+    };
+  },
+  permitNew: (value, matched) => {
+    if (!value) return null;
+    if (matched) return { status: 'ok' };
+    return {
+      status: 'info',
+      message: 'New id — will be created on submit.'
+    };
+  }
+};
+
 export interface EntityIdSearchBoxProps {
-  /** The full entry pool the user is picking from. Filtered client-side. */
+  /** The full pool the user is picking from. Filtered client-side. */
   entries: readonly EntryOption[];
-  /** Current committed value (an entry id, or free text in `allowNew`). */
+  /** Current committed value (an entry id, or free text). */
   value: string;
   /** Emitted on Enter/click of a highlighted result OR on raw text edits
    *  (so parent state stays in sync while user is typing). */
   onChange: (nextValue: string) => void;
+  /** Validation rule. Default: {@link ENTRY_VALIDATE_RULES.requireMatch}
+   *  (the safest default — matches the original widget's "must pick from
+   *  the list" behavior). Pass a preset or your own function. */
+  validate?: EntityValidateFn;
   /** Text shown when the input is empty. */
   placeholder?: string;
-  /** Enable free-typing values not present in the pool. Default: false. */
-  allowNew?: boolean;
   /** Cap on how many results appear in the dropdown. Default: 30. */
   maxResults?: number;
   /** Optional inline label. Rendered as a `<label>` above the input. */
@@ -67,14 +161,17 @@ export interface EntityIdSearchBoxProps {
    *  for the `<label htmlFor>` wire. Defaults to a random-ish per-instance
    *  string; only pass if you need it stable. */
   idPrefix?: string;
+  /** Hide the inline resolved-title chip that normally appears below the
+   *  input on match. Useful when the caller already renders its own
+   *  status line (e.g. Library AddNodeForm). Default: false. */
+  hideResolvedChip?: boolean;
 }
 
 /**
  * Result of resolving `value` against `entries`. Callers can use this to
  * render their own inline badge / warning. `null` means the current value
- * doesn't match any entry (either a typo in lookup mode, or a legit
- * new-entry path in `allowNew` mode — the component doesn't distinguish;
- * callers decide how to treat it).
+ * doesn't match any entry — semantics of that state depend on the caller's
+ * `validate` rule; callers decide how to treat it.
  */
 export function resolveEntryOption(
   value: string,
@@ -92,14 +189,15 @@ export function EntityIdSearchBox(
     entries,
     value,
     onChange,
+    validate = ENTRY_VALIDATE_RULES.requireMatch,
     placeholder,
-    allowNew = false,
     maxResults = 30,
     label,
     style,
     inputStyle,
     autoFocus = false,
-    idPrefix
+    idPrefix,
+    hideResolvedChip = false
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -154,18 +252,15 @@ export function EntityIdSearchBox(
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
 
-  function commit(entry: EntryOption | null): void {
-    if (entry) {
-      onChange(entry.id);
-      setOpen(false);
-    } else if (allowNew) {
-      // Keep whatever's already in `value` — user is intentionally typing
-      // something new. Just close the popover.
-      setOpen(false);
-    }
-    // Lookup-only mode with no match: DO NOT commit, DO NOT close.
-    // The user needs to keep typing or pick from the list; the caller's
-    // inline warning tells them what's wrong.
+  const resolved = resolveEntryOption(value, entries);
+  const verdict = useMemo(
+    () => validate(trimmed, resolved, entries) ?? null,
+    [validate, trimmed, resolved, entries]
+  );
+
+  function commit(entry: EntryOption): void {
+    onChange(entry.id);
+    setOpen(false);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
@@ -183,9 +278,10 @@ export function EntityIdSearchBox(
         e.preventDefault();
         if (open && results[highlightIdx]) {
           commit(results[highlightIdx]);
-        } else if (allowNew) {
-          // No dropdown selection, but free-text is allowed — commit-as-is
-          // (the value is already in parent state via `onChange` on input).
+        } else {
+          // No highlighted result — just close the dropdown. Whether the
+          // typed value is acceptable is up to `validate`; the widget
+          // itself never eats the keystroke.
           setOpen(false);
         }
         return;
@@ -198,8 +294,33 @@ export function EntityIdSearchBox(
     }
   }
 
-  const resolved = resolveEntryOption(value, entries);
-  const isMismatch = trimmed.length > 0 && !resolved && !allowNew;
+  // Border color derived from the current verdict. `null` = neutral;
+  // `ok` = neutral (green would be too loud for every valid state);
+  // `info` = neutral border, message colored; `warn` = yellow; `error` = red.
+  const borderColor = (() => {
+    if (!verdict) return 'var(--vscode-input-border, transparent)';
+    switch (verdict.status) {
+      case 'error':
+        return 'var(--vscode-inputValidation-errorBorder, #be1100)';
+      case 'warn':
+        return 'var(--vscode-inputValidation-warningBorder, #cca700)';
+      default:
+        return 'var(--vscode-input-border, transparent)';
+    }
+  })();
+
+  const messageColor = (() => {
+    if (!verdict) return 'var(--vscode-descriptionForeground, #999)';
+    switch (verdict.status) {
+      case 'error':
+        return 'var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground, #f48771))';
+      case 'warn':
+        return 'var(--vscode-editorWarning-foreground, #cca700)';
+      case 'info':
+      case 'ok':
+        return 'var(--vscode-descriptionForeground, #999)';
+    }
+  })();
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative', ...style }}>
@@ -228,15 +349,11 @@ export function EntityIdSearchBox(
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        aria-invalid={isMismatch}
+        aria-invalid={verdict?.status === 'error'}
         style={{
           width: '100%',
           padding: '0.35rem 0.5rem',
-          border: `1px solid ${
-            isMismatch
-              ? 'var(--vscode-inputValidation-warningBorder, orange)'
-              : 'var(--vscode-input-border, transparent)'
-          }`,
+          border: `1px solid ${borderColor}`,
           background: 'var(--vscode-input-background, white)',
           color: 'var(--vscode-input-foreground, black)',
           borderRadius: '2px',
@@ -246,11 +363,26 @@ export function EntityIdSearchBox(
           ...inputStyle
         }}
       />
+      {/* Validation message. Rendered even in `info` / `ok` states when the
+          validate fn wants to communicate something (e.g. permitNew's
+          "will be created on submit"). */}
+      {verdict?.message ? (
+        <p
+          style={{
+            margin: '0.2rem 0 0',
+            fontSize: '0.75rem',
+            color: messageColor
+          }}
+        >
+          {verdict.message}
+        </p>
+      ) : null}
       {/* Inline resolved-title chip. Shows the picked entry's title next to
           the id so it's visually obvious what the id maps to. Only rendered
-          when the value actually resolves — mismatch state relies on the
-          input's aria-invalid + border color, plus caller-side warnings. */}
-      {resolved ? (
+          when the value actually resolves AND the caller hasn't opted out
+          via `hideResolvedChip` (used when the caller has its own status
+          line so the chip would be redundant). */}
+      {resolved && !hideResolvedChip ? (
         <div
           style={{
             marginTop: '0.25rem',
@@ -398,7 +530,9 @@ export function EntityIdSearchBox(
           }}
         >
           No matching entry.
-          {allowNew ? ' Press Enter to keep this as a new value.' : ''}
+          {verdict?.status === 'error'
+            ? ''
+            : ' Press Enter to keep this as a new value.'}
         </div>
       ) : null}
     </div>

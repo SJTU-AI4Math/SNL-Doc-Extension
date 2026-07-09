@@ -3451,3 +3451,319 @@ export async function writeLibraryGraph(
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Delete APIs (cat 2026-07-09).
+//
+// These four functions cover the "delete an entity" family that was missing
+// from snlDoc.ts before this batch — `deleteMacroPackage` and
+// `batchDeleteMacros` already existed for macros / macro packages.
+//
+// Semantics they share:
+//   - Read → mutate in memory → write back atomically. No inode-level tricks.
+//   - Return a discriminated status: 'ok' / 'noSnlDoc' / 'notFound' /
+//     'error' (plus 'invalid' where an argument shape is wrong).
+//   - Do NOT silently prune cross-references (Library outline nodes that
+//     point at deleted entries, Macro source.entries that reference deleted
+//     entries, entries whose kind == deletedKind.id). Callers get a
+//     `references` field on the result listing the dangling refs, and it's
+//     the UI's job to warn / confirm / prune. That keeps the delete API
+//     honest and lets the UI implement its own confirmation policy without
+//     racing another writer.
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a single entry from the shared pool (`.SNL_Doc/entries.json`).
+ *
+ * Does NOT prune library-graph nodes that reference this entry — Library
+ * outlines can safely tolerate a `node.props.entryId` whose target is gone
+ * (the outline renders it as a placeholder / "unresolved" node). Does NOT
+ * prune macro `source.entries[]` either — those become dead references but
+ * cause no runtime error; the linter surfaces them as warnings.
+ *
+ * If callers want to clean up references, they should walk libraries +
+ * macro packages after the delete succeeds. This function reports the
+ * counts in `references` so a UI can prompt the user.
+ */
+export async function deleteEntry(
+  workspaceRoot: vscode.Uri,
+  id: string
+): Promise<
+  | {
+      status: 'ok';
+      id: string;
+      references: {
+        libraryNodes: Array<{ librarySlug: string; nodeId: string }>;
+        macroSources: Array<{ packageFile: string; macroName: string }>;
+      };
+    }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  let pool: EntryData[] = [];
+  try {
+    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+    if (Array.isArray(raw)) {
+      pool = raw as EntryData[];
+    }
+  } catch {
+    pool = [];
+  }
+  const idx = pool.findIndex(
+    (e) => e && typeof e === 'object' && e.id === targetId
+  );
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+  // Collect references BEFORE we mutate — inconsistent snapshots are worse
+  // than a slightly stale reference list.
+  const references = {
+    libraryNodes: [] as Array<{ librarySlug: string; nodeId: string }>,
+    macroSources: [] as Array<{ packageFile: string; macroName: string }>
+  };
+  try {
+    const libs = await listLibraries(workspaceRoot);
+    for (const lib of libs) {
+      const graphRead = await readLibraryGraph(workspaceRoot, lib.slug);
+      if (graphRead.status !== 'ok') continue;
+      for (const node of graphRead.result.graph.nodes) {
+        // Node's entryId is stored on node.props per LibraryGraph spec.
+        const props =
+          (node as unknown as { props?: { entryId?: unknown } }).props ?? {};
+        if (typeof props.entryId === 'string' && props.entryId === targetId) {
+          references.libraryNodes.push({
+            librarySlug: lib.slug,
+            nodeId: node.id
+          });
+        }
+      }
+    }
+  } catch {
+    // Library scan is best-effort; don't fail the delete just because a
+    // library is unreadable.
+  }
+  try {
+    const pkgs = await readMacroPackages(workspaceRoot);
+    for (const summary of pkgs) {
+      const read = await readMacroPackage(workspaceRoot, summary.file);
+      if (read.status !== 'ok') continue;
+      for (const macro of read.macros) {
+        const src =
+          (macro as unknown as { source?: { entries?: unknown } }).source ?? {};
+        if (Array.isArray(src.entries) && src.entries.includes(targetId)) {
+          references.macroSources.push({
+            packageFile: summary.file,
+            macroName: macro.name
+          });
+        }
+      }
+    }
+  } catch {
+    // Same — best-effort.
+  }
+  pool.splice(idx, 1);
+  try {
+    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes(pool));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id: targetId, references };
+}
+
+/**
+ * Delete an entry-kind row from `.SNL_Doc/config.json#entry_kinds`.
+ *
+ * Reports entries whose `kind === id` as dangling references. Does NOT
+ * cascade — leaving orphaned "unknown kind" entries is safer than mass
+ * mutating entries whose semantics the user thought were stable.
+ */
+export async function deleteEntryKind(
+  workspaceRoot: vscode.Uri,
+  id: string
+): Promise<
+  | {
+      status: 'ok';
+      id: string;
+      references: { entries: string[] };
+    }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  let cfg: Record<string, unknown> = {};
+  try {
+    const raw = await readJson<unknown>(configUri(workspaceRoot));
+    if (raw && typeof raw === 'object') {
+      cfg = raw as Record<string, unknown>;
+    }
+  } catch {
+    cfg = {};
+  }
+  const list = Array.isArray(cfg.entry_kinds) ? (cfg.entry_kinds as EntryKind[]) : [];
+  const idx = list.findIndex((k) => k && k.id === targetId);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+  const references = { entries: [] as string[] };
+  try {
+    const entries = await readEntries(workspaceRoot);
+    for (const e of entries) {
+      if (e.kind === targetId) references.entries.push(e.id);
+    }
+  } catch {
+    // best-effort
+  }
+  const next = list.slice();
+  next.splice(idx, 1);
+  cfg.entry_kinds = next;
+  try {
+    await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(cfg));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id: targetId, references };
+}
+
+/**
+ * Delete a macro-kind row from `.SNL_Doc/config.json#macro_kinds`.
+ *
+ * Reports macros whose `kind === id` as dangling references (they'll fall
+ * back to an "unknown kind" hover badge but keep working).
+ */
+export async function deleteMacroKind(
+  workspaceRoot: vscode.Uri,
+  id: string
+): Promise<
+  | {
+      status: 'ok';
+      id: string;
+      references: Array<{ packageFile: string; macroName: string }>;
+    }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) {
+    return { status: 'invalid', message: 'id is required' };
+  }
+  let cfg: Record<string, unknown> = {};
+  try {
+    const raw = await readJson<unknown>(configUri(workspaceRoot));
+    if (raw && typeof raw === 'object') {
+      cfg = raw as Record<string, unknown>;
+    }
+  } catch {
+    cfg = {};
+  }
+  const list = Array.isArray(cfg.macro_kinds) ? (cfg.macro_kinds as MacroKind[]) : [];
+  const idx = list.findIndex((k) => k && k.id === targetId);
+  if (idx < 0) {
+    return { status: 'notFound', id: targetId };
+  }
+  const references: Array<{ packageFile: string; macroName: string }> = [];
+  try {
+    const pkgs = await readMacroPackages(workspaceRoot);
+    for (const summary of pkgs) {
+      const read = await readMacroPackage(workspaceRoot, summary.file);
+      if (read.status !== 'ok') continue;
+      for (const macro of read.macros) {
+        const k = (macro as unknown as { kind?: unknown }).kind;
+        if (typeof k === 'string' && k === targetId) {
+          references.push({ packageFile: summary.file, macroName: macro.name });
+        }
+      }
+    }
+  } catch {
+    // best-effort
+  }
+  const next = list.slice();
+  next.splice(idx, 1);
+  cfg.macro_kinds = next;
+  try {
+    await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(cfg));
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id: targetId, references };
+}
+
+/**
+ * Delete an entire library directory (`.SNL_Doc/libraries/<slug>/`),
+ * including its meta.json and graph.json.
+ *
+ * Does NOT delete the shared-pool entries the library referenced — that
+ * would silently destroy content that other libraries might link. Callers
+ * that want a scorched-earth delete should walk this library's graph nodes
+ * BEFORE calling this and issue per-entry `deleteEntry` calls.
+ */
+export async function deleteLibrary(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<
+  | { status: 'ok'; slug: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; slug: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+> {
+  const fsApi = vscode.workspace.fs;
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetSlug = (slug ?? '').trim();
+  if (!targetSlug) {
+    return { status: 'invalid', message: 'slug is required' };
+  }
+  const dir = libraryDirUri(workspaceRoot, targetSlug);
+  if (!(await exists(dir))) {
+    return { status: 'notFound', slug: targetSlug };
+  }
+  try {
+    // recursive=true so meta.json + graph.json + anything else the user has
+    // dropped in there goes with the directory. useTrash=true so the user
+    // can recover from the OS trash if they change their mind — a library
+    // is a lot of typed content, worth being kinder than we are with a
+    // single macro-package file.
+    await fsApi.delete(dir, { recursive: true, useTrash: true });
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', slug: targetSlug };
+}

@@ -102,27 +102,45 @@ export class CreateEntryKindPanel {
   }
 
   private async pushContext(): Promise<void> {
+    // For BOTH create + edit modes we send the full `existingIds` list so
+    // the webview's EntityIdSearchBox can dedupe against already-taken
+    // kind ids. Cat 2026-07-09. Failures reading the config fall back to
+    // an empty list — the picker degrades to "no dedupe check" rather
+    // than blocking the whole panel.
+    const root = firstWorkspaceFolder();
+    let kinds = root ? await readEntryKinds(root).catch(() => []) : [];
+    const existingIds = kinds.map((k) => ({
+      id: k.id,
+      title: k.name ?? '',
+      // hasContent doesn't apply to kinds — set true so the picker's
+      // "stub" badge stays hidden. Cat 2026-07-09.
+      hasContent: true
+    }));
     if (this.mode === 'create') {
-      void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
+      void this.panel.webview.postMessage({
+        type: 'context',
+        mode: 'create',
+        existingIds
+      });
       return;
     }
-    const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
         id: this.id,
-        existing: null
+        existing: null,
+        existingIds
       });
       return;
     }
-    const kinds = await readEntryKinds(root);
     const existing = kinds.find((k) => k.id === this.id) ?? null;
     void this.panel.webview.postMessage({
       type: 'context',
       mode: 'edit',
       id: this.id,
-      existing
+      existing,
+      existingIds
     });
   }
 

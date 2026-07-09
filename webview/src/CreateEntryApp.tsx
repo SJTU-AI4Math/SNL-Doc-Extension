@@ -46,6 +46,11 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import {
+  EntityIdSearchBox,
+  ENTRY_VALIDATE_RULES
+} from './components/EntityIdSearchBox';
+import type { EntryOption } from './render/EntryRender';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -226,6 +231,11 @@ export function CreateEntryApp(): React.ReactElement {
 
   const [title, setTitle] = useState('');
   const [id, setId] = useState<string>('');
+  // Full shared pool (id+title) for dedupe validation in create mode
+  // (`requireUnique`). In edit mode we still use it — the widget is
+  // suppressed but the pool would enable future reference features
+  // without another host roundtrip. Cat 2026-07-09.
+  const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
@@ -254,6 +264,7 @@ export function CreateEntryApp(): React.ReactElement {
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
             existing?: ExistingEntry | null;
+            existingIds?: EntryOption[];
           }
         | { type: 'created'; id: string }
         | { type: 'updated'; id: string }
@@ -284,6 +295,7 @@ export function CreateEntryApp(): React.ReactElement {
           setWireMacros(
             msg.macros && typeof msg.macros === 'object' ? msg.macros : {},
           );
+          setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
             if (msg.id) {
               setId(msg.id);
@@ -459,32 +471,47 @@ export function CreateEntryApp(): React.ReactElement {
             <Label htmlFor="snl-entry-id">
               {mode === 'edit' ? 'ID (readonly)' : 'ID'}
             </Label>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <input
-                id="snl-entry-id"
-                type="text"
-                value={id}
-                placeholder="e.g. pythagorean-theorem"
-                onChange={(e) => setId(e.target.value)}
-                readOnly={mode === 'edit'}
-                title={
-                  mode === 'edit'
-                    ? 'IDs are immutable; delete + recreate to rename'
-                    : undefined
-                }
-                style={{
-                  ...inputStyle,
-                  ...monoStyle,
-                  marginBottom: 0,
-                  color:
-                    mode === 'edit'
-                      ? 'var(--vscode-descriptionForeground, #999)'
-                      : (inputStyle as React.CSSProperties).color,
-                  opacity: mode === 'edit' ? 0.7 : 1,
-                  cursor: mode === 'edit' ? 'not-allowed' : 'text'
-                }}
-              />
-              {mode === 'edit' ? null : (
+            {mode === 'edit' ? (
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <input
+                  id="snl-entry-id"
+                  type="text"
+                  value={id}
+                  placeholder="e.g. pythagorean-theorem"
+                  onChange={(e) => setId(e.target.value)}
+                  readOnly
+                  title="IDs are immutable; delete + recreate to rename"
+                  style={{
+                    ...inputStyle,
+                    ...monoStyle,
+                    marginBottom: 0,
+                    color: 'var(--vscode-descriptionForeground, #999)',
+                    opacity: 0.7,
+                    cursor: 'not-allowed'
+                  }}
+                />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+                {/* create mode: EntityIdSearchBox with requireUnique so
+                    typing a colliding id gets a red border + inline
+                    "already exists" message. The picker still shows
+                    autocomplete of existing ids — useful for "I want to
+                    reference-like a similar id" pattern recognition —
+                    but the message + border-color make it obvious the
+                    duplicate would fail. Cat 2026-07-09. */}
+                <div style={{ flex: 1 }}>
+                  <EntityIdSearchBox
+                    entries={existingIds}
+                    value={id}
+                    validate={ENTRY_VALIDATE_RULES.requireUnique}
+                    hideResolvedChip
+                    idPrefix="snl-entry-id"
+                    placeholder="e.g. pythagorean-theorem"
+                    onChange={setId}
+                    inputStyle={{ ...monoStyle, marginBottom: 0 }}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => setId(newUuid())}
@@ -503,8 +530,8 @@ export function CreateEntryApp(): React.ReactElement {
                 >
                   {trimmedId ? 'Regenerate UUID' : 'Generate UUID'}
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             <p
               style={{
                 margin: '0.35rem 0 0',

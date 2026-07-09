@@ -36,6 +36,108 @@ export function mergeMacroDb(userMacros: SnlMacroDb | undefined | null): SnlMacr
 }
 
 // ---------------------------------------------------------------------------
+// Entry-title KaTeX helpers (cat 2026-07-09 spec).
+//
+// Titles render as TEXT by default (KaTeX `\text{…}`), with `$…$` spans
+// escaping into inline math. See the block-level comment above `titleHtml`
+// in `EntryHeaderAndBody` for the full semantic rules; these two helpers
+// implement the escape and the segment-and-splice.
+// ---------------------------------------------------------------------------
+
+/**
+ * Escape a string so it survives inside KaTeX `\text{…}`.
+ *
+ * KaTeX text mode is not LaTeX text mode: `\` needs `\textbackslash{}`,
+ * `^` needs `\textasciicircum{}`, and `~` needs `\textasciitilde{}` because
+ * the naive `\^` / `\~` / `\backslash` are not defined here. Other special
+ * characters (`{`, `}`, `$`, `&`, `#`, `_`, `%`) take a plain backslash.
+ * Order matters — escape backslashes first, then the caret/tilde words
+ * (they contain braces we'd otherwise double-escape), then the single
+ * chars.
+ */
+export function escapeForKatexText(s: string): string {
+  return s
+    .replace(/\\/g, '\\textbackslash{}')
+    .replace(/\^/g, '\\textasciicircum{}')
+    .replace(/~/g, '\\textasciitilde{}')
+    .replace(/([{}$&#_%])/g, '\\$1');
+}
+
+/**
+ * Convert an Entry title string into a KaTeX source string:
+ *   - Text runs are wrapped in `\text{…}` with `escapeForKatexText`.
+ *   - `$…$` runs become inline math (raw KaTeX, unescaped) between the
+ *     surrounding text runs.
+ *   - `\$` in a text run is a literal dollar sign; it does NOT open math.
+ *   - Adjacent `$$` in a text run is a literal `$$`; it does NOT open an
+ *     empty math seg (would otherwise emit empty math, which parses fine
+ *     but is almost certainly a typo). We collapse it before segmenting.
+ *   - Unbalanced `$` (no closing pair) is a syntax error; caller catches
+ *     the KaTeX throw and falls back to whole-title text.
+ *
+ * Returns a KaTeX source string ready for `renderToString`.
+ */
+export function titleToKatexSource(src: string): string {
+  if (src.length === 0) return '';
+
+  interface Seg { mode: 'text' | 'math'; text: string; }
+  const parts: Seg[] = [];
+  let mode: 'text' | 'math' = 'text';
+  let buf = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    // Only interpret `\$` as literal in text mode. Inside math, `\$` is
+    // valid LaTeX and passes through unchanged for KaTeX to handle.
+    if (mode === 'text' && c === '\\' && src[i + 1] === '$') {
+      buf += '\\$';
+      i += 2;
+      continue;
+    }
+    if (c === '$') {
+      // Adjacent `$$` in text mode: collapse to a literal `$$` glyph
+      // rather than opening then immediately closing an empty math seg.
+      if (mode === 'text' && src[i + 1] === '$') {
+        buf += '$$';
+        i += 2;
+        continue;
+      }
+      parts.push({ mode, text: buf });
+      buf = '';
+      mode = mode === 'text' ? 'math' : 'text';
+      i++;
+      continue;
+    }
+    buf += c;
+    i++;
+  }
+  parts.push({ mode, text: buf });
+
+  // Unbalanced dollar sign: force a KaTeX throw so the caller's Pass-2
+  // fallback (whole-title `\text{…}`) kicks in. We do that by returning
+  // a source string with an unclosed math seg — KaTeX's parser will
+  // reject it, our try/catch handles the rest.
+  if (mode !== 'text') {
+    return '$';
+  }
+
+  return parts
+    .map((p) => {
+      if (p.mode === 'math') {
+        // Empty math seg (e.g. from a stray `$$` we didn't collapse) →
+        // emit nothing rather than an empty `${}$` that would render as
+        // a zero-width invisible bump. `$$` is already collapsed to a
+        // literal above, so this branch normally only triggers for the
+        // trailing empty seg after a closing `$`.
+        return p.text;
+      }
+      if (!p.text) return '';
+      return `\\text{${escapeForKatexText(p.text)}}`;
+    })
+    .join('');
+}
+
+// ---------------------------------------------------------------------------
 // Host <-> webview shapes (mirrors src/snlDoc.ts, kept local so the webview
 // doesn't pull in the `vscode`-dependent extension module). Exported so every
 // webview entry shares one definition.
@@ -322,44 +424,57 @@ export function EntryRender({
   const kindName = kind ? kind.name : entry.kind;
   // Header shape (cat 2026-07-08 spec): "<KindName> <counter> -- <title>"
   // where the prefix ("<KindName> <counter> -- ") is PLAIN TEXT and the
-  // title after "--" is rendered by RAW KaTeX (NOT SNL). Rationale
+  // title after "--" is rendered by KaTeX (NOT SNL). Rationale
   // (verbatim from cat): 标题不走 SNL，只走裸的 KaTeX；标题给人看，
   // 一个 Entry 只有 content 走 SNL，不能混淆语义。
   const headerPrefix = counterLabel
     ? `${kindName} ${counterLabel} -- `
     : `${kindName} -- `;
-  // Render the title through raw KaTeX (cat 2026-07-08).
+  // Title rendering (cat 2026-07-09 revision, verbatim):
+  //   "Entry Title 的渲染应该是一段 text 而不是公式环境，里面有美刀的
+  //    话内部再调公式环境。"
   //
-  // Strategy: two-pass, LaTeX-tolerant.
-  //   Pass 1 — try the raw title as a KaTeX source string. This lets
-  //     titles like `\alpha`, `x^2`, `f: X \to Y` typeset correctly
-  //     without the author wrapping them in `$…$`.
-  //   Pass 2 — on any KaTeX parse error (e.g. plain prose containing
-  //     `%` or unbalanced `{`), fall back to wrapping in `\text{…}` so
-  //     "Hello, world" still renders as prose instead of a red banner.
-  //   Pass 3 — if even the escape-and-\text pass throws, return
-  //     HTML-escaped raw text as a last-ditch defense.
+  // Semantics:
+  //   - Default is TEXT mode (KaTeX `\text{…}`), NOT math mode. So a
+  //     title like `Continuity of f on X` renders as prose, and a bare
+  //     `\alpha` in a title is a literal backslash-α, not the Greek
+  //     letter. Authors who want math must wrap it in `$…$`.
+  //   - `$…$` switches to inline math for the enclosed span, then back
+  //     to text. `Ring $R$ with unit` → text "Ring " + math R + text
+  //     " with unit".
+  //   - `\$` is a literal dollar sign in text (does NOT open math).
+  //   - Adjacent `$$` in text mode is a literal `$$` (does NOT open an
+  //     empty math seg or display math).
+  //   - Unbalanced `$` (no closing pair) falls back to whole-title text.
+  //
+  // Fallback chain (3 passes) preserved from the pre-2026-07-09 code:
+  //   Pass 1 — parsed source through KaTeX with throwOnError.
+  //   Pass 2 — whole title escaped and wrapped in `\text{…}` for KaTeX.
+  //   Pass 3 — HTML-escaped raw text as last-ditch defense.
+  //
+  // Supersedes the 2026-07-08 "raw KaTeX for the entire title" behavior.
   const titleHtml = useMemo(() => {
     const raw = entry.title ?? '';
     if (raw.length === 0) return '';
+    const parsed = titleToKatexSource(raw);
     try {
-      return katex.renderToString(raw, {
+      return katex.renderToString(parsed, {
         displayMode: false,
         throwOnError: true,
         strict: false,
         trust: false
       });
     } catch {
-      const escaped = raw
-        .replace(/\\/g, '\\backslash ')
-        .replace(/([{}$&#^_~%])/g, '\\$1');
       try {
-        return katex.renderToString(`\\text{${escaped}}`, {
-          displayMode: false,
-          throwOnError: false,
-          strict: false,
-          trust: false
-        });
+        return katex.renderToString(
+          `\\text{${escapeForKatexText(raw)}}`,
+          {
+            displayMode: false,
+            throwOnError: false,
+            strict: false,
+            trust: false
+          }
+        );
       } catch {
         return raw
           .replace(/&/g, '&amp;')

@@ -24,6 +24,7 @@
 // message; when the list is empty the section shows only that bar.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from './components/Button';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -1006,8 +1007,9 @@ function RowDeleteCell({
       style={{ ...CELL, textAlign: 'right', width: '2.5rem' }}
       onClick={(e) => e.stopPropagation()}
     >
-      <button
-        type="button"
+      <Button
+        variant="destructive"
+        size="sm"
         aria-label={label}
         title={label}
         onClick={(e) => {
@@ -1021,21 +1023,9 @@ function RowDeleteCell({
             e.stopPropagation();
           }
         }}
-        style={{
-          padding: '0.15rem 0.5rem',
-          fontFamily: 'inherit',
-          fontSize: '0.85rem',
-          border:
-            '1px solid var(--vscode-inputValidation-errorBorder, #be1100)',
-          background:
-            'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.15))',
-          color: 'var(--vscode-errorForeground, #f48771)',
-          borderRadius: '3px',
-          cursor: 'pointer'
-        }}
       >
         ✕
-      </button>
+      </Button>
     </td>
   );
 }

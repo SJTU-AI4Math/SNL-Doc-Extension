@@ -363,6 +363,17 @@ export class InfoviewPanel {
         // command creates or reveals its own panel.
         void vscode.commands.executeCommand('snlDoc.openDashboard');
         return;
+      case 'editLibrary':
+        // Cat 2026-07-09: from a Library's Infoview page, "Edit this
+        // Library" should open THAT library's editor directly — not the
+        // Dashboard root the user would then have to click through.
+        if (typeof msg.slug === 'string' && msg.slug.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.editLibrary',
+            msg.slug.trim()
+          );
+        }
+        return;
       case 'openDashboardForEntry':
         // Open the Dashboard and then jump to editing THIS entry (per cat
         // 2026-07-06 spec §"编辑界面也应有一个保存并回到浏览的按钮"). The Dashboard

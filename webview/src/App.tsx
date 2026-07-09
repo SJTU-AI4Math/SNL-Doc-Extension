@@ -13,6 +13,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import { Button } from './components/Button';
 import {
   EntryRender,
   type EntryOption,
@@ -333,9 +334,11 @@ function LibraryLayer({
           <>
             <ToolbarButton label="← Back" onClick={ctx.goBack} title="Back to libraries" />
             <ToolbarButton
-              label="Edit in Dashboard"
-              title="Open the Dashboard (management surface)"
-              onClick={() => ctx.postMessage({ type: 'openDashboard' })}
+              label="Edit this Library"
+              title={`Open the editor for library "${slug}"`}
+              onClick={() =>
+                ctx.postMessage({ type: 'editLibrary', slug })
+              }
             />
           </>
         }
@@ -592,10 +595,12 @@ function ToolbarButton({
   title?: string;
   onClick: () => void;
 }): React.ReactElement {
+  // Cat 2026-07-09: unified through shared Button so all clickable
+  // affordances share hover / active / focus feedback.
   return (
-    <button type="button" title={title} onClick={onClick} style={TOOLBAR_BUTTON_STYLE}>
+    <Button variant="secondary" size="md" title={title} onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 }
 

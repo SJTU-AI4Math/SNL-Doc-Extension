@@ -19,6 +19,7 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 
@@ -920,18 +921,11 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
             title="Delete this entry from the outline (does not delete the shared-pool entry)"
             destructive
             onClick={() => {
-              if (hasKids) {
-                // eslint-disable-next-line no-alert
-                alert(
-                  'This node has children. Move or delete them first.'
-                );
-                return;
-              }
-              // eslint-disable-next-line no-alert
-              const ok = window.confirm(
-                `Remove "${title || '(untitled)'}" from this library's outline?\n\nThe underlying shared-pool entry is NOT deleted.`
-              );
-              if (!ok) return;
+              // Cat 2026-07-09: window.confirm() is blocked in VS Code
+              // webviews (returns undefined), so we cannot gate here.
+              // The host-side deleteNode handler now owns the modal
+              // confirmation; we just post the op and let it prompt.
+              // The child-count guard also lives host-side.
               onGraphOp({ op: 'deleteNode', nodeId });
             }}
           />
@@ -1245,31 +1239,18 @@ function IconButton({
   onClick: () => void;
   destructive?: boolean;
 }): React.ReactElement {
+  // Cat 2026-07-09: all buttons now go through the shared Button
+  // component so hover / active / focus feedback is consistent. IconButton
+  // becomes a thin size='sm' wrapper.
   return (
-    <button
-      type="button"
+    <Button
+      variant={destructive ? 'destructive' : 'secondary'}
+      size="sm"
       title={title}
       onClick={onClick}
-      style={{
-        padding: '0.2rem 0.5rem',
-        fontFamily: 'inherit',
-        fontSize: '0.75rem',
-        borderRadius: '3px',
-        border: destructive
-          ? '1px solid var(--vscode-inputValidation-errorBorder, #be1100)'
-          : '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: destructive
-          ? 'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.15))'
-          : 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-        color: destructive
-          ? 'var(--vscode-errorForeground, #f48771)'
-          : 'inherit',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap'
-      }}
     >
       {label}
-    </button>
+    </Button>
   );
 }
 

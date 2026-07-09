@@ -236,6 +236,19 @@ export class PackagePanel {
           void this.postError('batchDelete: macroNames must be a string array');
           return;
         }
+        // Host-side modal (cat 2026-07-09) — window.confirm is CSP-blocked
+        // in webviews. The previous webview-side confirm was a silent no-op.
+        const noun = `${names.length} macro${names.length === 1 ? '' : 's'}`;
+        const confirmed = await vscode.window.showWarningMessage(
+          `Delete ${noun} from this package?`,
+          {
+            modal: true,
+            detail:
+              'This cannot be undone. The package JSON is rewritten with these macros removed.'
+          },
+          'Delete'
+        );
+        if (confirmed !== 'Delete') return;
         await this.runBatch(async (root) => {
           const res = await batchDeleteMacros(root, this.file, names);
           if (res.status === 'ok') return null;

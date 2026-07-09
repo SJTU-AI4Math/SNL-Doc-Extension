@@ -328,10 +328,10 @@ export function PackagePanelApp(): React.ReactElement {
   const submitBatchDelete = (): void => {
     const names = Array.from(selectedNames);
     if (names.length === 0) return;
-    const ok = window.confirm(
-      `Delete ${names.length} macro${names.length === 1 ? '' : 's'} from this package? This cannot be undone.`
-    );
-    if (!ok) return;
+    // Cat 2026-07-09: modal confirm is host-side (window.confirm is
+    // CSP-blocked in VS Code webviews and silently returned undefined
+    // here, so this branch never showed a prompt). Host sees the intent
+    // via the batchDelete message and prompts before mutating.
     pendingActionRef.current = `Deleted ${names.length} macro${names.length === 1 ? '' : 's'}.`;
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
   };

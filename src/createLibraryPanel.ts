@@ -554,11 +554,34 @@ export class CreateLibraryPanel {
               (r) => r.label === 'branch' && r.from === nodeId
             )
           ) {
-            void this.panel.webview.postMessage({
-              type: 'graphError',
-              message:
-                'deleteNode: node has children — delete or move them first'
-            });
+            // Modal (not just a webview banner) — cat 2026-07-09 wants
+            // clear "why can't I delete this" feedback.
+            void vscode.window.showWarningMessage(
+              'Cannot delete: this node has children.',
+              {
+                modal: true,
+                detail:
+                  'Move or delete each child first, then delete the parent. This prevents accidental subtree loss.'
+              }
+            );
+            return;
+          }
+          // Host-side modal confirm (cat 2026-07-09). window.confirm() is
+          // blocked in VS Code webviews and silently returns undefined,
+          // which is exactly why the previous "确认再删" webview-side flow
+          // never fired the deleteNode op. Modal lives here now.
+          const nodeLabel =
+            nodes.find((n) => n.id === nodeId)?.props?.entryId ?? nodeId;
+          const confirmed = await vscode.window.showWarningMessage(
+            `Remove "${nodeLabel}" from this library's outline?`,
+            {
+              modal: true,
+              detail:
+                'The underlying shared-pool entry is NOT deleted — only this outline node and its branch edges. Use the Dashboard\u2019s Entries table if you want to delete the entry itself.'
+            },
+            'Remove'
+          );
+          if (confirmed !== 'Remove') {
             return;
           }
           nodes = nodes.filter((n) => n.id !== nodeId);

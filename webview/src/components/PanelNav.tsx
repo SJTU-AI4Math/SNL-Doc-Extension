@@ -23,6 +23,7 @@
 
 import React from 'react';
 import type { VsCodeApi } from '../vscodeApi';
+import { Button } from './Button';
 
 export interface PanelNavAction {
   /** Text on the button. Kept terse. */
@@ -60,9 +61,6 @@ export function PanelNav({
         marginBottom: '0.75rem',
         borderBottom:
           '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-        // Sticky so long-form editors keep the nav visible while scrolling.
-        // The webview root has no scroll ancestor here except the body,
-        // which is what we want.
         position: 'sticky',
         top: 0,
         zIndex: 10,
@@ -70,53 +68,26 @@ export function PanelNav({
           'var(--vscode-editor-background, var(--vscode-editorWidget-background, #1e1e1e))'
       }}
     >
-      <NavButton
-        label={`← ${back.label}`}
+      <Button
+        variant="secondary"
+        size="md"
         title={back.title ?? back.label}
         onClick={() => vsApi?.postMessage(back.message)}
-      />
+      >
+        {`← ${back.label}`}
+      </Button>
       {viewInInfoview ? (
-        <NavButton
-          label={`${viewInInfoview.label} →`}
+        <Button
+          variant="secondary"
+          size="md"
           title={viewInInfoview.title ?? viewInInfoview.label}
           onClick={() => vsApi?.postMessage(viewInInfoview.message)}
-        />
+        >
+          {`${viewInInfoview.label} →`}
+        </Button>
       ) : (
         <span />
       )}
     </nav>
-  );
-}
-
-function NavButton({
-  label,
-  title,
-  onClick
-}: {
-  label: string;
-  title: string;
-  onClick: () => void;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      style={{
-        padding: '0.3rem 0.75rem',
-        fontFamily: 'inherit',
-        fontSize: '0.85rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background:
-          'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-        color: 'var(--vscode-button-secondaryForeground, inherit)',
-        borderRadius: '3px',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap'
-      }}
-    >
-      {label}
-    </button>
   );
 }

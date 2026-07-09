@@ -728,6 +728,37 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
   const hasKids = kids.length > 0;
   const num = numbersById.get(nodeId);
 
+  // Cat 2026-07-09: indent/outdent enablement. Mirrors the host-side
+  // guards so the button reflects reality and the user isn't left
+  // wondering why a click did nothing.
+  const parentRel = graph.relationships.find(
+    (r) => r.label === 'branch' && r.to === nodeId
+  );
+  const canOutdent = !!parentRel; // roots have no parent to escape
+  let canIndent: boolean;
+  if (parentRel) {
+    // Non-root: enabled iff a previous sibling under the same parent exists.
+    const siblings = graph.relationships.filter(
+      (r) => r.label === 'branch' && r.from === parentRel.from
+    );
+    const myPos = siblings.findIndex((r) => r.to === nodeId);
+    canIndent = myPos > 0;
+  } else {
+    // Root: enabled iff a previous root exists in nodes[] order.
+    const isRoot = (nid: string): boolean =>
+      !graph.relationships.some(
+        (r) => r.label === 'branch' && r.to === nid
+      );
+    const myIdx = graph.nodes.findIndex((n) => n.id === nodeId);
+    canIndent = false;
+    for (let j = myIdx - 1; j >= 0; j--) {
+      if (isRoot(graph.nodes[j].id)) {
+        canIndent = true;
+        break;
+      }
+    }
+  }
+
   const title = entry?.title ?? '';
   const displayTitle =
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>(untitled)</em>;
@@ -760,7 +791,17 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
           paddingLeft: `${depth * 1.5}rem`,
           padding: '0.3rem 0',
           borderBottom:
-            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))'
+            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+          // Cat 2026-07-09: depth-tinted background matching the macro-
+          // style pattern in PackagePanel (extra style rows get a subtle
+          // white wash to visually anchor them as members of a collapsible
+          // group). Library outlines nest deeper than the 2-level macro
+          // rows, so we scale the alpha per depth with a small cap so
+          // deeply-nested rows don't blow out. depth=0 stays transparent.
+          background:
+            depth === 0
+              ? 'transparent'
+              : `rgba(255,255,255,${Math.min(0.02 * depth, 0.12)})`
         }}
       >
         {/* Expand / collapse toggle (or spacer when leaf). */}
@@ -898,12 +939,27 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
               }
             }}
           />
-          {/* Cat 2026-07-09: 变成上一个条目的子条目 = "indent". No-op if
-              there's no previous sibling (first child of parent, or first
-              root); the host quietly ignores it. */}
+          {/* Cat 2026-07-09: indent / outdent pair. Disabled when it
+              would be a no-op (indent needs a previous sibling, outdent
+              needs a parent) so users can see reachability at a glance. */}
+          <IconButton
+            label="←|"
+            title={
+              canOutdent
+                ? 'Outdent — promote to sibling of parent'
+                : 'Outdent unavailable — already at the top level'
+            }
+            disabled={!canOutdent}
+            onClick={() => onGraphOp({ op: 'outdent', nodeId })}
+          />
           <IconButton
             label="→|"
-            title="Indent — make this entry a child of its previous sibling"
+            title={
+              canIndent
+                ? 'Indent — make this entry a child of its previous sibling'
+                : 'Indent unavailable — no previous sibling to nest under'
+            }
+            disabled={!canIndent}
             onClick={() => onGraphOp({ op: 'indent', nodeId })}
           />
           <IconButton
@@ -1232,12 +1288,14 @@ function IconButton({
   label,
   title,
   onClick,
-  destructive
+  destructive,
+  disabled
 }: {
   label: string;
   title: string;
   onClick: () => void;
   destructive?: boolean;
+  disabled?: boolean;
 }): React.ReactElement {
   // Cat 2026-07-09: all buttons now go through the shared Button
   // component so hover / active / focus feedback is consistent. IconButton
@@ -1248,6 +1306,7 @@ function IconButton({
       size="sm"
       title={title}
       onClick={onClick}
+      disabled={disabled}
     >
       {label}
     </Button>

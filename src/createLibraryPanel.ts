@@ -394,6 +394,10 @@ export class CreateLibraryPanel {
    *       Demote the node under its previous sibling (make it that
    *       sibling's last child). No-op when there is no previous sibling
    *       (first child of parent, or first root). Cat 2026-07-09.
+   *   - outdent: { op: 'outdent', nodeId }
+   *       Promote the node to sibling-of-parent (grandparent becomes new
+   *       parent; if none, node becomes a root). No-op on roots.
+   *       Cat 2026-07-09.
    *       Swaps this node's branch-edge with its previous/next sibling's.
    */
   private async handleGraphOp(rawOp: unknown): Promise<void> {
@@ -730,6 +734,46 @@ export class CreateLibraryPanel {
             to: nodeId,
             label: 'branch'
           });
+          break;
+        }
+        case 'outdent': {
+          // Cat 2026-07-09: inverse of indent — promote this node to be
+          // a sibling of its parent. No-op when nodeId is already a root
+          // (no parent to escape). Non-root implementation: change the
+          // parent-branch edge so `from` becomes the grandparent
+          // (or, if grandparent is null, drop the edge entirely so this
+          // node becomes a root). Node order stays where it was in
+          // `nodes[]` — good enough; user can reorder afterwards.
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          if (!nodeId) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'outdent: nodeId required'
+            });
+            return;
+          }
+          const myParentRelIdx = relationships.findIndex(
+            (r) => r.label === 'branch' && r.to === nodeId
+          );
+          if (myParentRelIdx < 0) {
+            // Already a root; nothing to outdent from. No-op.
+            return;
+          }
+          const parentId = relationships[myParentRelIdx].from;
+          const grandRelIdx = relationships.findIndex(
+            (r) => r.label === 'branch' && r.to === parentId
+          );
+          if (grandRelIdx < 0) {
+            // Parent is a root → outdenting makes THIS a root: drop the
+            // parent-branch edge, keep the node in nodes[].
+            relationships.splice(myParentRelIdx, 1);
+          } else {
+            const grandparentId = relationships[grandRelIdx].from;
+            relationships[myParentRelIdx] = {
+              ...relationships[myParentRelIdx],
+              from: grandparentId
+            };
+          }
           break;
         }
         default:

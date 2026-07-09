@@ -56,6 +56,8 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { EntityIdSearchBox } from './components/EntityIdSearchBox';
+import type { EntryOption } from './render/EntryRender';
 
 // ---------------------------------------------------------------------------
 // Preview constants
@@ -280,6 +282,14 @@ interface ContextMsg {
   existingNames: string[];
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
+  /**
+   * Entry pool for the source.entries picker (EntityIdSearchBox). Pushed
+   * on initial context so the picker has options as soon as the panel
+   * opens. Optional so older host builds without the field still work
+   * (webview treats missing pool as empty — picker falls back to
+   * lookup-only "No matching entry"). Cat 2026-07-09.
+   */
+  entries?: EntryOption[];
 }
 
 type Incoming =
@@ -362,6 +372,9 @@ export function CreateMacroApp(): React.ReactElement {
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
+  // Shared entry pool for the source.entries picker (EntityIdSearchBox).
+  // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
+  const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -453,6 +466,7 @@ export function CreateMacroApp(): React.ReactElement {
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+          setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'edit' && msg.existing) {
             hydrateFromExisting(msg.existing);
           }
@@ -1107,9 +1121,9 @@ export function CreateMacroApp(): React.ReactElement {
           marginBottom: '1rem'
         }}
       >
-        <ListEditor
+        <EntryListEditor
           label="Entries"
-          placeholder="entry id"
+          entryPool={entryPool}
           values={sourceEntries}
           onChange={setSourceEntries}
         />
@@ -2083,6 +2097,63 @@ function StyleSwitch({
       {tag.trim() || '(empty)'}
       {isDefault ? ' ★' : ''}
     </TabButton>
+  );
+}
+
+/**
+ * Same "list of strings with +Add / − Remove" affordance as {@link ListEditor},
+ * but each row's input is an {@link EntityIdSearchBox} bound to the shared
+ * entry pool. Used by the macro editor's `source.entries` section — cat
+ * 2026-07-09: agent workers were pasting raw entry ids and typoing them, so
+ * the picker enforces "resolve to a real entry" (lookup-only, `allowNew`
+ * off; commit action only fires on match).
+ *
+ * Persistence semantics identical to ListEditor: `values` is a string[]
+ * (each element an entry id or empty string), the parent trims + filters
+ * empty before submit. We keep at least one empty row so users can add the
+ * first entry without hunting for a button.
+ */
+function EntryListEditor({
+  label,
+  entryPool,
+  values,
+  onChange
+}: {
+  label: string;
+  entryPool: EntryOption[];
+  values: string[];
+  onChange: (next: string[]) => void;
+}): React.ReactElement {
+  const set = (i: number, v: string): void => {
+    const next = values.slice();
+    next[i] = v;
+    onChange(next);
+  };
+  const add = (): void => onChange([...values, '']);
+  const remove = (i: number): void => {
+    const next = values.filter((_, idx) => idx !== i);
+    onChange(next.length > 0 ? next : ['']);
+  };
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {values.map((v, i) => (
+        <div key={i} style={{ marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <EntityIdSearchBox
+                entries={entryPool}
+                value={v}
+                onChange={(next) => set(i, next)}
+                placeholder="Search entry id or title…"
+              />
+            </div>
+            <SmallButton onClick={() => remove(i)}>−</SmallButton>
+          </div>
+        </div>
+      ))}
+      <SmallButton onClick={add}>+ Add</SmallButton>
+    </div>
   );
 }
 

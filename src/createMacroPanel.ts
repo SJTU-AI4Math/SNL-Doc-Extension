@@ -1,13 +1,36 @@
 import * as vscode from 'vscode';
 import {
   addMacro,
+  readEntries,
   readMacroKinds,
   readMacroPackage,
   updateMacro,
+  type EntryData,
   type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+
+/**
+ * Compact projection of {@link EntryData} sent to the webview's entry
+ * picker. Mirrors the `EntryOption` shape exported from
+ * `webview/src/render/EntryRender.tsx` — kept as a plain object literal here
+ * to avoid pulling the webview module into the host bundle.
+ */
+interface EntryOption {
+  id: string;
+  title: string;
+  hasContent: boolean;
+}
+
+/** Convert an EntryData record into the picker projection. Empty title is
+ *  legal (per snlDoc.ts spec); the picker renders it as "(untitled)". */
+function toEntryOption(e: EntryData): EntryOption {
+  const content = e.content ?? {};
+  const hasContent =
+    typeof content.snl === 'string' && content.snl.trim().length > 0;
+  return { id: e.id, title: e.title ?? '', hasContent };
+}
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -146,11 +169,22 @@ export class CreateMacroPanel {
         packageName: this.file,
         existingNames: [],
         macroKinds: [],
-        existing: null
+        existing: null,
+        entries: []
       });
       return;
     }
     const macroKinds: MacroKind[] = await readMacroKinds(root);
+    // Fetch shared entry pool for the source.entries picker. Failures
+    // (missing entries.json, parse error) are non-fatal — we surface an
+    // empty pool and the picker falls back to "No matching entry".
+    let entries: EntryOption[] = [];
+    try {
+      const rawEntries = await readEntries(root);
+      entries = rawEntries.map(toEntryOption);
+    } catch {
+      entries = [];
+    }
     const read = await readMacroPackage(root, this.file);
     if (read.status === 'ok') {
       const existing =
@@ -164,7 +198,8 @@ export class CreateMacroPanel {
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
         macroKinds,
-        existing
+        existing,
+        entries
       });
       return;
     }
@@ -176,7 +211,8 @@ export class CreateMacroPanel {
       packageName: this.file,
       existingNames: [],
       macroKinds,
-      existing: null
+      existing: null,
+      entries
     });
   }
 

@@ -18,6 +18,8 @@ import {
   primaryButton,
   type VsCodeApi
 } from './vscodeApi';
+import { EntityIdSearchBox } from './components/EntityIdSearchBox';
+import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
 
@@ -473,6 +475,20 @@ function OutlineEditor({
     return { childrenOf, roots, entriesById, kindsById };
   }, [graph]);
 
+  // Projection for the EntityIdSearchBox in AddNodeForm. Kept separate from
+  // entriesById so keystroke-driven filter re-renders don't re-project the
+  // whole pool. `hasContent` is derived from `content.snl` presence — same
+  // rule the render layer uses to decide "stub or real". Cat 2026-07-09.
+  const entryOptions = useMemo<EntryOption[]>(() => {
+    if (!graph) return [];
+    return graph.entries.map((e) => ({
+      id: e.id,
+      title: e.title ?? '',
+      hasContent:
+        typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
+    }));
+  }, [graph]);
+
   // Compute reading order and number-for-each-node in one pass.
   const numbersById = useMemo(() => {
     const out = new Map<string, string | null>();
@@ -575,6 +591,7 @@ function OutlineEditor({
               graph={graph}
               childrenOf={childrenOf}
               entriesById={entriesById}
+              entryOptions={entryOptions}
               kindsById={kindsById}
               numbersById={numbersById}
               collapsed={collapsed}
@@ -595,6 +612,7 @@ function OutlineEditor({
         <AddNodeForm
           kinds={graph.kinds}
           entriesById={entriesById}
+          entryOptions={entryOptions}
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
@@ -619,6 +637,7 @@ interface OutlineRowProps {
   graph: GraphState;
   childrenOf: Map<string, string[]>;
   entriesById: Map<string, EntryPoolItem>;
+  entryOptions: EntryOption[];
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
   collapsed: Set<string>;
@@ -648,6 +667,7 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
     graph,
     childrenOf,
     entriesById,
+    entryOptions,
     kindsById,
     numbersById,
     collapsed,
@@ -866,6 +886,7 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
           <AddNodeForm
             kinds={graph.kinds}
             entriesById={entriesById}
+            entryOptions={entryOptions}
             state={addingUnder}
             onCancel={onCancelAdd}
             onCommit={onCommitAdd}
@@ -913,6 +934,7 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
 
 function AddNodeForm({
   entriesById,
+  entryOptions,
   state,
   onCancel,
   onCommit,
@@ -922,6 +944,13 @@ function AddNodeForm({
   // the prop shape to avoid churn at the callsites.
   kinds: KindItem[];
   entriesById: Map<string, EntryPoolItem>;
+  /**
+   * Shared pool projected as EntryOption[] for the {@link EntityIdSearchBox}.
+   * Kept alongside `entriesById` (rather than derived inside the form) so
+   * the projection cost is paid once per graph fetch, not per keystroke.
+   * Cat 2026-07-09.
+   */
+  entryOptions: EntryOption[];
   state: {
     parentId: string | null;
     insertAfter: string | null;
@@ -983,45 +1012,48 @@ function AddNodeForm({
         gap: '0.4rem'
       }}
     >
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
         <label
           htmlFor="snl-outline-entryid"
           style={{
             flex: '0 0 auto',
             fontSize: '0.8rem',
-            opacity: 0.75
+            opacity: 0.75,
+            paddingTop: '0.4rem'
           }}
         >
           Entry id
         </label>
-        <input
-          id="snl-outline-entryid"
-          type="text"
-          placeholder="Paste an existing entry uuid, or leave empty and click Create"
-          value={state.entryId}
-          autoFocus
-          onChange={(e) =>
-            onUpdate({
-              parentId: state.parentId,
-              insertAfter: state.insertAfter,
-              entryId: e.target.value
-            })
-          }
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommit();
-            if (e.key === 'Escape') onCancel();
-          }}
-          style={{
-            flex: '1 1 auto',
-            padding: '0.35rem 0.5rem',
-            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.8rem',
-            color: 'var(--vscode-input-foreground, #ddd)',
-            background: 'var(--vscode-input-background, #2a2a2a)',
-            border: `1px solid ${borderColor}`,
-            borderRadius: '2px'
-          }}
-        />
+        <div style={{ flex: '1 1 auto' }}>
+          {/* Cat 2026-07-09: replace the bare paste-uuid input with an
+              autocomplete-backed picker. `allowNew=true` keeps the
+              "type a new id, click Create" path working — a value not in
+              the pool commits verbatim and drives the 'nomatch' mode below.
+              The picker's own resolved-title chip is redundant with our
+              existing status line (`Reference: "…" — kind: …`), so we hide
+              it visually by placing the picker alone; the status row below
+              carries the same info in this component's design language. */}
+          <EntityIdSearchBox
+            entries={entryOptions}
+            value={state.entryId}
+            allowNew
+            autoFocus
+            idPrefix="snl-outline-entryid"
+            placeholder="Search existing entry, or type a new id and click Create"
+            onChange={(next) =>
+              onUpdate({
+                parentId: state.parentId,
+                insertAfter: state.insertAfter,
+                entryId: next
+              })
+            }
+            inputStyle={{
+              fontFamily: 'var(--vscode-editor-font-family, monospace)',
+              fontSize: '0.8rem',
+              border: `1px solid ${borderColor}`
+            }}
+          />
+        </div>
         {statusIcon ? (
           <span
             style={{
@@ -1031,7 +1063,8 @@ function AddNodeForm({
               color: statusColor,
               fontWeight: 700,
               width: '1.25rem',
-              textAlign: 'center'
+              textAlign: 'center',
+              paddingTop: '0.4rem'
             }}
             aria-hidden
           >

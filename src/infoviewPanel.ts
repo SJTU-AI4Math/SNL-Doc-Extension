@@ -88,6 +88,13 @@ export class InfoviewPanel {
   private readonly extensionUri: vscode.Uri;
   /** null → browser instance; non-null → dedicated panel for this entryId. */
   private readonly entryId: string | null;
+  /**
+   * Browser-mode navigation memory: the slug the webview last requested via
+   * `selectLibrary`. `null` means the webview is on the Library-list root
+   * (never selected a library, or navigated 'back' out of one). Used only
+   * by the auto-refresh path — the webview drives normal navigation.
+   */
+  private currentLibrarySlug: string | null = null;
   private disposables: vscode.Disposable[] = [];
 
   /** Open (or reveal) the singleton browser panel. */
@@ -181,7 +188,98 @@ export class InfoviewPanel {
       this.disposables
     );
 
+    this.installWatcher();
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  /**
+   * Watch `.SNL_Doc/` for relevant JSON changes and re-push the current view.
+   *
+   * Cat 2026-07-09: Infoview's browser mode (Library outline) and per-Entry
+   * mode both went stale when the Dashboard / VS Code editor wrote to
+   * `entries.json`, `graph.json`, `config.json`, or `term_macros/*.json` —
+   * user had to close and reopen the panel to see updates. Mirrors the
+   * DashboardPanel / PackagePanel watcher pattern (same globs, same three
+   * event bindings).
+   *
+   * Refresh strategy: re-push whatever the panel is currently showing.
+   *   - Per-entry panel (entryId !== null): re-push that entry's details.
+   *   - Browser panel (entryId === null): we don't track which page the
+   *     webview is on (Library list vs Library outline), so we re-push the
+   *     Library list — the webview's back-button handler already treats
+   *     'root push' as "go home from wherever". This is intentionally
+   *     coarser than the Dashboard's refresh: cat can always click into a
+   *     Library again to see the updated outline.
+   */
+  private installWatcher(): void {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      return;
+    }
+    // Same coverage as DashboardPanel — narrow enough to not fire on every
+    // webview build write, broad enough to catch all data the panel reads.
+    const patterns: vscode.GlobPattern[] = [
+      new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/graph.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/meta.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
+      new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc')
+    ];
+
+    const refresh = (): void => {
+      void this.refresh();
+    };
+
+    for (const pattern of patterns) {
+      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      watcher.onDidCreate(refresh, null, this.disposables);
+      watcher.onDidChange(refresh, null, this.disposables);
+      watcher.onDidDelete(refresh, null, this.disposables);
+      this.disposables.push(watcher);
+    }
+  }
+
+  /**
+   * Re-push whatever this panel is currently showing. Called by the file
+   * watcher and by the manual `SNL: Refresh Infoview` command. Safe to call
+   * on a disposed panel — the webview.postMessage no-ops after dispose.
+   */
+  public async refresh(): Promise<void> {
+    if (this.entryId !== null) {
+      // Per-entry panel: re-push that entry's details.
+      await this.pushEntryDetailsForEntry(this.entryId);
+      return;
+    }
+    // Browser panel: preserve the user's spot in the 2-layer stack.
+    //   - If they'd selected a library → re-push that library's outline
+    //     (does NOT reset the webview's route; webview treats the
+    //     'libraryEntries' message the same whether it's initial or a
+    //     refresh, so scroll position is preserved).
+    //   - Otherwise → re-push the Library list (root).
+    if (this.currentLibrarySlug) {
+      await this.pushLibraryEntries(this.currentLibrarySlug);
+    } else {
+      await this.pushLibraries();
+    }
+  }
+
+  /**
+   * Refresh every open Infoview panel. Used by the `SNL: Refresh Infoview`
+   * command so a single keystroke updates both browser and per-entry views
+   * without the user having to focus each one.
+   */
+  public static async refreshAll(): Promise<void> {
+    const panels: InfoviewPanel[] = [];
+    if (InfoviewPanel.browserPanel) {
+      panels.push(InfoviewPanel.browserPanel);
+    }
+    for (const p of InfoviewPanel.panels.values()) {
+      panels.push(p);
+    }
+    await Promise.all(panels.map((p) => p.refresh()));
   }
 
   private static getOutput(): vscode.OutputChannel {
@@ -216,6 +314,7 @@ export class InfoviewPanel {
         return;
       case 'selectLibrary':
         if (this.entryId === null && typeof msg.slug === 'string' && msg.slug) {
+          this.currentLibrarySlug = msg.slug;
           await this.pushLibraryEntries(msg.slug);
         }
         return;
@@ -232,6 +331,10 @@ export class InfoviewPanel {
         // root on the assumption 'back' at the top of the stack means "go
         // home"; deeper back-steps are handled entirely in the webview.
         if (this.entryId === null) {
+          // Webview navigated 'back' to the Library-list root, so clear
+          // the remembered slug — the auto-refresh path should no longer
+          // treat this panel as sitting inside a library outline.
+          this.currentLibrarySlug = null;
           await this.pushLibraries();
         }
         return;

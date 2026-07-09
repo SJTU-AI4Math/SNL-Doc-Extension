@@ -77,6 +77,18 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Manual refresh — force every open Infoview panel (browser + per-entry)
+  // to re-fetch its data from disk. The auto-refresh watcher covers the
+  // usual write paths (Dashboard save, .SNL_Doc/* edits) but doesn't catch
+  // out-of-band writes like `git pull` or external scripts that mutate
+  // `.SNL_Doc/`. Cat 2026-07-09.
+  const refreshInfoview = vscode.commands.registerCommand(
+    'snlDoc.refreshInfoview',
+    () => {
+      void InfoviewPanel.refreshAll();
+    }
+  );
+
   const init = vscode.commands.registerCommand('snlDoc.init', runInit);
 
   const createLibrary = vscode.commands.registerCommand(
@@ -250,6 +262,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     openInfoview,
     openEntryInfoview,
+    refreshInfoview,
     init,
     createLibrary,
     editLibrary,

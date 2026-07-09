@@ -19,6 +19,10 @@
         "title": "SNL: Open Infoview"
       },
       {
+        "command": "snlDoc.refreshInfoview",
+        "title": "SNL: Refresh Infoview"
+      },
+      {
         "command": "snlDoc.openEntryInfoview",
         "title": "SNL: Open Entry Infoview"
       },

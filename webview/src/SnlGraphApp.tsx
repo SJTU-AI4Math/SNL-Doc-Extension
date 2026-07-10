@@ -148,8 +148,25 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
     preds.get(e.to)!.push(e.from);
     succs.get(e.from)!.push(e.to);
   }
+  // ---- 2. Layering: rank from SINKS upward (cat 2026-07-10).
+  //
+  // Semantics of a `depends` edge A→B: "A depends on B". A node with NO
+  // outgoing depends edges (a sink here) depends on nothing → cat's
+  // spec: "如果一个 Entry 没有依赖于其他 dependency，它应该在最下面一行."
+  // So compute rank_from_sink[X] = 1 + max(rank_from_sink[succ(X)]),
+  // sinks get 0. Then flip: layer[X] = maxSinkRank - rank_from_sink[X],
+  // so sinks land on the LAST layer (bottom of screen, largest y).
+  //
+  // The previous formula (rank[X] = 1+max(rank[pred(X)])) collapsed
+  // sinks that happened to have a shallower path length to the top of
+  // the graph — e.g. edges A→B, A→C, B→D put C at layer 1 (middle)
+  // even though C is a sink like D. Sink-anchored ranking puts C and
+  // D on the same bottom row.
   const indeg = new Map<string, number>();
   for (const n of nodes) indeg.set(n.id, preds.get(n.id)!.length);
+  // Kahn's topo order is used only to schedule the SINK-anchored DP:
+  // we walk it in REVERSE so every node's successors are ranked before
+  // the node itself.
   const queue: string[] = [];
   for (const n of nodes) if (indeg.get(n.id) === 0) queue.push(n.id);
   const topo: string[] = [];
@@ -163,16 +180,25 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
       if (d === 0) queue.push(s);
     }
   }
-  const rank = new Map<string, number>();
-  for (const n of nodes) rank.set(n.id, 0);
-  for (const id of topo) {
+  const rankFromSink = new Map<string, number>();
+  for (const n of nodes) rankFromSink.set(n.id, 0);
+  // Walk topo in reverse so successors are visited before predecessors.
+  for (let i = topo.length - 1; i >= 0; i--) {
+    const id = topo[i];
     let r = 0;
-    for (const p of preds.get(id)!) {
-      r = Math.max(r, (rank.get(p) ?? 0) + 1);
+    for (const s of succs.get(id)!) {
+      r = Math.max(r, (rankFromSink.get(s) ?? 0) + 1);
     }
-    rank.set(id, r);
+    rankFromSink.set(id, r);
   }
-  const maxRank = Math.max(0, ...Array.from(rank.values()));
+  const maxSinkRank = Math.max(0, ...Array.from(rankFromSink.values()));
+  // Flip: layer index counts from top of screen, so sinks (largest
+  // rankFromSink) go on the LAST layer.
+  const rank = new Map<string, number>();
+  for (const [id, r] of rankFromSink) {
+    rank.set(id, maxSinkRank - r);
+  }
+  const maxRank = maxSinkRank;
 
   // ---- 2b. Dummy-node insertion for long edges (cat 2026-07-10 §4).
   //

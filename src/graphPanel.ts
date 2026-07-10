@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   listLibraries,
+  readAllMacros,
   readEntries,
   readEntryKinds,
   readLibraryGraph,
@@ -188,6 +189,15 @@ export class GraphPanel {
         }
         return;
       }
+      case 'requestEntryDetails': {
+        // Popover full-Entry render. Same protocol as InfoviewPanel so
+        // the shared HoverPopoverProvider works unchanged (cat 2026-07-10).
+        const id = (msg as { entryId?: unknown }).entryId;
+        if (typeof id === 'string' && id.trim()) {
+          await this.pushPopoverEntryDetails(id.trim());
+        }
+        return;
+      }
     }
   }
 
@@ -326,14 +336,65 @@ export class GraphPanel {
     }
     nodes.sort((a, b) => a.id.localeCompare(b.id));
 
+    // Full pool as EntryOption + workspace macros, shipped so the
+    // popover EntryRender (via HoverPopoverProvider) can resolve
+    // cross-entry macro sources + render the SNL body faithfully.
+    // Cat 2026-07-10.
+    const entryOptions = entries.map((e) => ({
+      id: e.id,
+      title: e.title ?? '',
+      hasContent:
+        typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0,
+      snl: typeof e.content?.snl === 'string' ? e.content.snl : undefined
+    }));
+    let allMacros: unknown = {};
+    try {
+      allMacros = await readAllMacros(root);
+    } catch {
+      allMacros = {};
+    }
+
     void this.panel.webview.postMessage({
       type: 'graph',
       scope: this.scope,
       title: displayTitle,
       nodes,
       edges,
-      warnings
+      warnings,
+      entryOptions,
+      macros: allMacros
     });
+  }
+
+  private async pushPopoverEntryDetails(id: string): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) return;
+    try {
+      const entries = await readEntries(root);
+      const entry = entries.find((e) => e.id === id);
+      if (!entry) {
+        void this.panel.webview.postMessage({
+          type: 'popoverEntryDetails',
+          entryId: id,
+          entry: null,
+          kind: null
+        });
+        return;
+      }
+      const kinds = await readEntryKinds(root);
+      const kind = kinds.find((k) => k.id === entry.kind) ?? null;
+      void this.panel.webview.postMessage({
+        type: 'popoverEntryDetails',
+        entryId: id,
+        entry,
+        kind
+      });
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(
+        `SNL Graph: failed to load popover entry: ${text}`
+      );
+    }
   }
 
   public dispose(): void {

@@ -16,6 +16,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
+import type { EntryOption } from './render/EntryRender';
+import type { SnlMacroDb } from '@snl-basics/react';
 
 interface GraphNode {
   id: string;
@@ -44,6 +47,10 @@ interface GraphMessage {
   nodes: GraphNode[];
   edges: GraphEdge[];
   warnings: string[];
+  /** Full pool for popover render (cross-entry macro source resolution). */
+  entryOptions?: EntryOption[];
+  /** Workspace-wide macros for popover EntryRender. */
+  macros?: SnlMacroDb;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +87,6 @@ interface Layout {
   height: number;
 }
 
-const NODE_W = 220;
 const NODE_H = 44;
 const LAYER_GAP_Y = 90;
 const NODE_GAP_X = 24;
@@ -88,6 +94,21 @@ const MARGIN = 40;
 /** Virtual dummies get zero width — they occupy an x slot for routing but
  *  don't reserve display width in the row (their neighbours pack tight). */
 const DUMMY_W = 0;
+/** Auto-size bounds: keep boxes uniform-ish while accommodating long titles. */
+const NODE_W_MIN = 90;
+const NODE_W_MAX = 320;
+const NODE_PADDING_X = 20; // left + right combined
+/** Approximate pixel width per character at the label's font-size / weight. */
+const CHAR_W_TITLE = 7.5;   // 13px, weight 600
+const CHAR_W_KIND = 6.0;    // 11px, weight normal, opacity 0.65
+
+function nodeWidthFor(kindLabel: string, title: string): number {
+  const w = Math.max(
+    kindLabel.length * CHAR_W_KIND,
+    title.length * CHAR_W_TITLE
+  ) + NODE_PADDING_X;
+  return Math.min(NODE_W_MAX, Math.max(NODE_W_MIN, Math.round(w)));
+}
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   if (nodes.length === 0) {
@@ -326,16 +347,17 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   }
 
   // ---- 4. Assign pixel coordinates.
-  // Layer width computed with dummies collapsed (they contribute a small
-  // gap but no NODE_W).
+  // Layer width computed with per-node auto-sizing; dummies collapsed
+  // to zero-width slots (they still contribute a gap for routing).
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const nodeW = (id: string): number => {
+    if (id.startsWith('__dummy_')) return DUMMY_W;
+    const src = nodeById.get(id)!;
+    return nodeWidthFor(src.kind, src.title);
+  };
   const layerWidth = (layer: string[]): number => {
     let w = 0;
-    let realCount = 0;
-    for (const id of layer) {
-      const isDummy = id.startsWith('__dummy_');
-      w += isDummy ? DUMMY_W : NODE_W;
-      if (!isDummy) realCount += 1;
-    }
+    for (const id of layer) w += nodeW(id);
     if (layer.length > 1) w += (layer.length - 1) * NODE_GAP_X;
     return w;
   };
@@ -344,7 +366,6 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   const totalHeight =
     MARGIN * 2 + layers.length * NODE_H + (layers.length - 1) * LAYER_GAP_Y;
 
-  const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const laidNodesById = new Map<string, LaidOutNode>();
   const dummyCentres = new Map<string, { x: number; y: number }>();
 
@@ -354,10 +375,8 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
     const y = MARGIN + li * (NODE_H + LAYER_GAP_Y);
     for (const id of layer) {
       const isDummy = id.startsWith('__dummy_');
-      const w = isDummy ? DUMMY_W : NODE_W;
+      const w = nodeW(id);
       if (isDummy) {
-        // Waypoint: horizontal centre at x, vertical centre at layer
-        // middle. We stash x + y so edge routing can pick them up.
         dummyCentres.set(id, { x: x + w / 2, y: y + NODE_H / 2 });
       } else {
         const src = nodeById.get(id)!;
@@ -457,18 +476,6 @@ function edgePath(
 export function SnlGraphApp(): React.ReactElement {
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const [msg, setMsg] = useState<GraphMessage | null>(null);
-  const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
-  const [dragging, setDragging] = useState<null | {
-    startX: number;
-    startY: number;
-    vpX: number;
-    vpY: number;
-  }>(null);
-  const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
-  /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
-   *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
-  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
-  const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -482,12 +489,55 @@ export function SnlGraphApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  const post = useMemo(
+    () => (m: unknown): void => apiRef.current?.postMessage(m),
+    []
+  );
+
+  // Popover provider needs the pool + macros; both come from the host.
+  return (
+    <HoverPopoverProvider
+      postMessage={post}
+      entries={msg?.entryOptions ?? []}
+      userMacros={msg?.macros ?? {}}
+    >
+      <SnlGraphInner msg={msg} post={post} apiRef={apiRef} />
+    </HoverPopoverProvider>
+  );
+}
+
+function SnlGraphInner({
+  msg,
+  post,
+  apiRef
+}: {
+  msg: GraphMessage | null;
+  post: (m: unknown) => void;
+  apiRef: React.MutableRefObject<VsCodeApi | undefined>;
+}): React.ReactElement {
+  const popovers = useHoverPopovers();
+  const currentPopoverId = useCurrentPopoverId();
+  const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
+  const [dragging, setDragging] = useState<null | {
+    startX: number;
+    startY: number;
+    vpX: number;
+    vpY: number;
+  }>(null);
+  const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
+   *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
+  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // Per-node popover state, keyed by node id. Mirrors the pattern
+  // EntryRender uses for macro hovers.
+  const nodePopoverRef = useRef<Map<string, string>>(new Map());
+
   const laid = useMemo<Layout | null>(() => {
     if (!msg) return null;
-    // Apply the dependency filter (cat 2026-07-10 §4). In 'atomic-deps'
-    // mode we drop non-atomic dependency edges but keep everything else
-    // (user-authored rows, non-depends labels). Then re-hide nodes that
-    // are now isolated in the filtered graph.
     const filteredEdges =
       depFilter === 'atomic-deps'
         ? msg.edges.filter(
@@ -520,7 +570,6 @@ export function SnlGraphApp(): React.ReactElement {
       y: 20,
       scale: s
     });
-    // Only run once per new graph.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msg]);
 
@@ -548,6 +597,8 @@ export function SnlGraphApp(): React.ReactElement {
     if ((e.target as Element).tagName === 'svg' || (e.target as Element).id === 'snl-graph-background') {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
       setDragging({ startX: e.clientX, startY: e.clientY, vpX: vp.x, vpY: vp.y });
+      // Clicking blank canvas clears selection.
+      setSelectedId(null);
     }
   };
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -563,8 +614,6 @@ export function SnlGraphApp(): React.ReactElement {
     setDragging(null);
   };
 
-  const post = (m: unknown): void => apiRef.current?.postMessage(m);
-
   if (!msg || !laid) {
     return (
       <main style={PANEL_STYLE}>
@@ -577,6 +626,51 @@ export function SnlGraphApp(): React.ReactElement {
   const displayedNodeCount = laid.nodes.length;
   const displayedEdgeCount = laid.edges.length;
   const backEdgeCount = laid.edges.filter((e) => e.isBack).length;
+
+  // Node hover → spawn popover for that entry (cat 2026-07-10 §2).
+  const handleNodePointerEnter = (
+    n: LaidOutNode,
+    ev: React.PointerEvent<SVGGElement>
+  ): void => {
+    setHoverNodeId(n.id);
+    const rect = (ev.currentTarget as Element).getBoundingClientRect();
+    const popoverId = popovers.spawn(
+      n.id,
+      rect,
+      ev.clientX,
+      ev.clientY,
+      currentPopoverId
+    );
+    nodePopoverRef.current.set(n.id, popoverId);
+  };
+  const handleNodePointerMove = (
+    n: LaidOutNode,
+    ev: React.PointerEvent<SVGGElement>
+  ): void => {
+    const popoverId = nodePopoverRef.current.get(n.id);
+    if (popoverId) popovers.updatePointer(popoverId, ev.clientX, ev.clientY);
+  };
+  const handleNodePointerLeave = (n: LaidOutNode): void => {
+    setHoverNodeId((c) => (c === n.id ? null : c));
+    const popoverId = nodePopoverRef.current.get(n.id);
+    if (popoverId) {
+      popovers.cancelUnfrozen(popoverId);
+      nodePopoverRef.current.delete(n.id);
+    }
+  };
+  const handleNodeClick = (
+    n: LaidOutNode,
+    ev: React.MouseEvent<SVGGElement>
+  ): void => {
+    if (ev.ctrlKey || ev.metaKey) {
+      // Ctrl/Meta+Click → open this entry's own Infoview panel
+      // (cat 2026-07-10 §4).
+      post({ type: 'openEntryInfoview', entryId: n.id });
+      return;
+    }
+    // Plain click → select (cat 2026-07-10 §3).
+    setSelectedId((prev) => (prev === n.id ? null : n.id));
+  };
 
   return (
     <main
@@ -618,6 +712,9 @@ export function SnlGraphApp(): React.ReactElement {
               ? ` · ${backEdgeCount} cycle-breaking back-edge${backEdgeCount === 1 ? '' : 's'} (dashed)`
               : ''}
             {' · isolated nodes hidden'}
+            {selectedId
+              ? ` · selected: ${nodesById.get(selectedId)?.title ?? selectedId}`
+              : ''}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -654,7 +751,7 @@ export function SnlGraphApp(): React.ReactElement {
               : 'showing: all deps (atomic + composite)'}
           </button>
           <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
-            scroll to zoom · drag to pan · click node → open Infoview
+            scroll to zoom · drag to pan · click node → select · Ctrl+click → open Infoview
           </div>
         </div>
       </div>
@@ -721,7 +818,6 @@ export function SnlGraphApp(): React.ReactElement {
                 />
               </marker>
             </defs>
-            {/* Background hit-target so pan works even where there are no nodes. */}
             <rect
               id="snl-graph-background"
               x={0}
@@ -739,8 +835,12 @@ export function SnlGraphApp(): React.ReactElement {
                 const to = nodesById.get(e.to)!;
                 const { d } = edgePath(from, to, e.waypoints);
                 const hovered = hoverEdgeId === e.id;
+                const incidentToSelected =
+                  selectedId !== null &&
+                  (e.from === selectedId || e.to === selectedId);
                 const nonAtomicDep = e.isDependency && e.isAtomic === false;
                 const baseOpacity = nonAtomicDep ? 0.28 : 0.55;
+                const opacity = incidentToSelected || hovered ? 1 : baseOpacity;
                 return (
                   <g
                     key={e.id}
@@ -753,8 +853,6 @@ export function SnlGraphApp(): React.ReactElement {
                       post({ type: 'editRelationship', id: e.id })
                     }
                   >
-                    {/* Native tooltip carries the label until the
-                        interactive display lands (cat 2026-07-10 §2). */}
                     <title>
                       {e.label}
                       {e.isDependency && e.isAtomic !== null
@@ -766,8 +864,8 @@ export function SnlGraphApp(): React.ReactElement {
                       d={d}
                       fill="none"
                       stroke="var(--vscode-editor-foreground, #ddd)"
-                      strokeOpacity={hovered ? 1 : baseOpacity}
-                      strokeWidth={hovered ? 2 : 1.2}
+                      strokeOpacity={opacity}
+                      strokeWidth={incidentToSelected || hovered ? 2 : 1.2}
                       strokeDasharray={e.isBack ? '5 4' : undefined}
                       markerEnd="url(#snl-graph-arrow)"
                     />
@@ -775,56 +873,70 @@ export function SnlGraphApp(): React.ReactElement {
                 );
               })}
               {/* Nodes */}
-              {laid.nodes.map((n) => (
-                <g
-                  key={n.id}
-                  transform={`translate(${n.x} ${n.y})`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() =>
-                    post({ type: 'openEntryInfoview', entryId: n.id })
-                  }
-                >
-                  <title>
-                    {n.title}
-                    {'\n'}
-                    id: {n.id}
-                    {'\n'}
-                    kind: {n.kind}
-                  </title>
-                  <rect
-                    width={n.w}
-                    height={n.h}
-                    rx={4}
-                    ry={4}
-                    fill={
-                      n.background && n.background !== 'transparent'
-                        ? n.background
-                        : 'var(--vscode-editorWidget-background, #252526)'
-                    }
-                    stroke={n.color}
-                    strokeWidth={2}
-                  />
-                  <text
-                    x={10}
-                    y={16}
-                    fontSize={11}
-                    fontFamily="var(--vscode-editor-font-family, monospace)"
-                    opacity={0.65}
-                    fill="var(--vscode-editor-foreground, #ddd)"
+              {laid.nodes.map((n) => {
+                const isHovered = hoverNodeId === n.id;
+                const isSelected = selectedId === n.id;
+                // Cat 2026-07-10 §1+§2+§3: text takes the node's stroke
+                // color; hover/selection make the box white with a
+                // thicker border.
+                const highlighted = isHovered || isSelected;
+                const stroke = n.color;
+                const fill = highlighted
+                  ? 'var(--vscode-editor-background, #fff)'
+                  : n.background && n.background !== 'transparent'
+                    ? n.background
+                    : 'var(--vscode-editorWidget-background, #252526)';
+                // For dark themes the "white bg" contract translates to
+                // the editor background; the box already stands out via
+                // thicker stroke. Text color = stroke so it stays legible
+                // against either fill.
+                return (
+                  <g
+                    key={n.id}
+                    transform={`translate(${n.x} ${n.y})`}
+                    style={{ cursor: 'pointer' }}
+                    onPointerEnter={(ev) => handleNodePointerEnter(n, ev)}
+                    onPointerMove={(ev) => handleNodePointerMove(n, ev)}
+                    onPointerLeave={() => handleNodePointerLeave(n)}
+                    onClick={(ev) => handleNodeClick(n, ev)}
                   >
-                    {truncate(n.kind, 22)}
-                  </text>
-                  <text
-                    x={10}
-                    y={34}
-                    fontSize={13}
-                    fontWeight={600}
-                    fill="var(--vscode-editor-foreground, #ddd)"
-                  >
-                    {truncate(n.title, 26)}
-                  </text>
-                </g>
-              ))}
+                    <title>
+                      {n.title}
+                      {'\n'}id: {n.id}
+                      {'\n'}kind: {n.kind}
+                      {'\n'}click = select · Ctrl+click = open Infoview
+                    </title>
+                    <rect
+                      width={n.w}
+                      height={n.h}
+                      rx={4}
+                      ry={4}
+                      fill={fill}
+                      stroke={stroke}
+                      strokeWidth={highlighted ? 3.5 : 2}
+                    />
+                    <text
+                      x={10}
+                      y={16}
+                      fontSize={11}
+                      fontFamily="var(--vscode-editor-font-family, monospace)"
+                      opacity={0.85}
+                      fill={stroke}
+                    >
+                      {n.kind}
+                    </text>
+                    <text
+                      x={10}
+                      y={34}
+                      fontSize={13}
+                      fontWeight={600}
+                      fill={stroke}
+                    >
+                      {n.title}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           </svg>
         )}

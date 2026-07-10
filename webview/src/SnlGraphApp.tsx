@@ -565,6 +565,15 @@ function SnlGraphInner({
   /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
    *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
   const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
+  /**
+   * Cat 2026-07-10 §3: multi-select kind filter. `null` means "no
+   * filter — show every kind"; otherwise the Set holds the kindIds
+   * currently enabled. Empty Set = hide everything (edge case: user
+   * turned every kind off).
+   */
+  const [kindFilter, setKindFilter] = useState<Set<string> | null>(null);
+  /** Sidebar open/closed. Persists across msg updates. */
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // Per-node popover state, keyed by node id. Mirrors the pattern
@@ -573,20 +582,51 @@ function SnlGraphInner({
 
   const laid = useMemo<Layout | null>(() => {
     if (!msg) return null;
+    // Cat 2026-07-10 §3: apply kind filter FIRST — dropping nodes drops
+    // every edge that touched them, so we run kind then the dep-atomic
+    // filter which only touches surviving edges.
+    const allowKind = (id: string): boolean => {
+      if (kindFilter === null) return true;
+      const n = msg.nodes.find((x) => x.id === id);
+      if (!n) return false;
+      return kindFilter.has(n.kindId);
+    };
+    const kindKeptNodes = msg.nodes.filter((n) => allowKind(n.id));
+    const kindKeptIds = new Set(kindKeptNodes.map((n) => n.id));
+    const kindKeptEdges = msg.edges.filter(
+      (e) => kindKeptIds.has(e.from) && kindKeptIds.has(e.to)
+    );
     const filteredEdges =
       depFilter === 'atomic-deps'
-        ? msg.edges.filter(
+        ? kindKeptEdges.filter(
             (e) => !e.isDependency || e.isAtomic === true
           )
-        : msg.edges;
+        : kindKeptEdges;
     const kept = new Set<string>();
     for (const e of filteredEdges) {
       kept.add(e.from);
       kept.add(e.to);
     }
-    const filteredNodes = msg.nodes.filter((n) => kept.has(n.id));
+    const filteredNodes = kindKeptNodes.filter((n) => kept.has(n.id));
     return layout(filteredNodes, filteredEdges);
-  }, [msg, depFilter]);
+  }, [msg, depFilter, kindFilter]);
+
+  /**
+   * Kind universe: the set of distinct kindIds present in the current
+   * message, with a human-readable label + swatch color pulled from the
+   * first node with that kindId. Sorted by label.
+   */
+  const kindUniverse = useMemo<
+    Array<{ kindId: string; label: string; color: string }>
+  >(() => {
+    if (!msg) return [];
+    const seen = new Map<string, { kindId: string; label: string; color: string }>();
+    for (const n of msg.nodes) {
+      if (seen.has(n.kindId)) continue;
+      seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color: n.color });
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [msg]);
 
   // Fit-to-view on first load.
   useEffect(() => {
@@ -753,38 +793,6 @@ function SnlGraphInner({
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            type="button"
-            onClick={() =>
-              setDepFilter((v) => (v === 'all' ? 'atomic-deps' : 'all'))
-            }
-            title={
-              depFilter === 'all'
-                ? 'Currently showing every edge (atomic AND non-atomic dependencies + user-authored). Click to hide non-atomic dependency edges.'
-                : 'Currently hiding non-atomic dependency edges (composites). Click to show every edge again.'
-            }
-            style={{
-              padding: '0.25rem 0.6rem',
-              fontFamily: 'inherit',
-              fontSize: '0.8rem',
-              border:
-                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-              borderRadius: '3px',
-              background:
-                depFilter === 'atomic-deps'
-                  ? 'var(--vscode-button-background, #0e639c)'
-                  : 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-              color:
-                depFilter === 'atomic-deps'
-                  ? 'var(--vscode-button-foreground, white)'
-                  : 'inherit',
-              cursor: 'pointer'
-            }}
-          >
-            {depFilter === 'atomic-deps'
-              ? 'showing: atomic deps only'
-              : 'showing: all deps (atomic + composite)'}
-          </button>
           <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
             scroll to zoom · drag to pan · click node → select · Ctrl+click → open Infoview
           </div>
@@ -808,6 +816,19 @@ function SnlGraphInner({
         </div>
       ) : null}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Cat 2026-07-10 §3: Filters sidebar. Absolute-positioned on
+            the right edge of the graph container so it floats over the
+            SVG without stealing pan area. Collapsed = a single arrow
+            button; expanded = filter controls stack. */}
+        <FiltersSidebar
+          open={filtersOpen}
+          onToggle={() => setFiltersOpen((v) => !v)}
+          depFilter={depFilter}
+          onDepFilterChange={setDepFilter}
+          kindUniverse={kindUniverse}
+          kindFilter={kindFilter}
+          onKindFilterChange={setKindFilter}
+        />
         {displayedNodeCount === 0 ? (
           <div
             style={{
@@ -989,3 +1010,253 @@ function SnlGraphInner({
     </main>
   );
 }
+
+/**
+ * Right-edge Filters sidebar (cat 2026-07-10 §3).
+ *
+ * Two filter groups, both live-applied:
+ *
+ *   - **Edges**: the atomic-only toggle (previously the standalone
+ *     header button). Kept as a boolean because that's what it is.
+ *   - **Entry kinds**: one checkbox per kindId present in the graph,
+ *     with a kind-colored swatch. `null` filter (default) = all kinds
+ *     visible; toggling a kind switches to "specific set" mode.
+ *
+ * Collapsed state: a single tab pinned to the right edge with a `◀`
+ * arrow. Expanded state: the tab flips to `▶` and a ~220px panel
+ * slides in.
+ */
+function FiltersSidebar({
+  open,
+  onToggle,
+  depFilter,
+  onDepFilterChange,
+  kindUniverse,
+  kindFilter,
+  onKindFilterChange
+}: {
+  open: boolean;
+  onToggle: () => void;
+  depFilter: 'all' | 'atomic-deps';
+  onDepFilterChange: (v: 'all' | 'atomic-deps') => void;
+  kindUniverse: Array<{ kindId: string; label: string; color: string }>;
+  kindFilter: Set<string> | null;
+  onKindFilterChange: (v: Set<string> | null) => void;
+}): React.ReactElement {
+  const isKindEnabled = (id: string): boolean =>
+    kindFilter === null ? true : kindFilter.has(id);
+
+  const toggleKind = (id: string): void => {
+    // First toggle off `null` = start from the full set, then flip.
+    const base =
+      kindFilter === null
+        ? new Set<string>(kindUniverse.map((k) => k.kindId))
+        : new Set<string>(kindFilter);
+    if (base.has(id)) base.delete(id);
+    else base.add(id);
+    // If every kind is enabled again, collapse back to null so the
+    // filter code short-circuits.
+    const allOn =
+      kindUniverse.length > 0 &&
+      kindUniverse.every((k) => base.has(k.kindId));
+    onKindFilterChange(allOn ? null : base);
+  };
+  const activeKindCount =
+    kindFilter === null ? kindUniverse.length : kindFilter.size;
+  const totalKindCount = kindUniverse.length;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'stretch',
+        pointerEvents: 'none', // let SVG receive pans; children re-enable
+        zIndex: 20
+      }}
+    >
+      {/* Tab handle — always visible so the sidebar can be found. */}
+      <button
+        type="button"
+        onClick={onToggle}
+        title={open ? 'Collapse filters' : 'Expand filters'}
+        style={{
+          pointerEvents: 'auto',
+          alignSelf: 'flex-start',
+          marginTop: '0.5rem',
+          padding: '0.4rem 0.35rem',
+          background:
+            'var(--vscode-editorWidget-background, rgba(30,30,30,0.9))',
+          border:
+            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+          borderRight: 'none',
+          borderRadius: '3px 0 0 3px',
+          color: 'inherit',
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+          fontSize: '0.8rem',
+          writingMode: 'vertical-rl'
+        }}
+      >
+        {open ? '▶ Filters' : '◀ Filters'}
+      </button>
+      {open ? (
+        <div
+          style={{
+            pointerEvents: 'auto',
+            width: '240px',
+            padding: '0.8rem',
+            overflow: 'auto',
+            background:
+              'var(--vscode-editorWidget-background, rgba(30,30,30,0.95))',
+            borderLeft:
+              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
+          }}
+        >
+          <h3
+            style={{
+              margin: '0 0 0.4rem',
+              fontSize: '0.85rem',
+              opacity: 0.75,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em'
+            }}
+          >
+            Edges
+          </h3>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              marginBottom: '0.5rem'
+            }}
+            title={
+              depFilter === 'atomic-deps'
+                ? 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.'
+                : 'Currently showing every edge. Check to hide non-atomic dependency edges.'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={depFilter === 'atomic-deps'}
+              onChange={(e) =>
+                onDepFilterChange(e.target.checked ? 'atomic-deps' : 'all')
+              }
+            />
+            <span>atomic deps only</span>
+          </label>
+
+          <h3
+            style={{
+              margin: '0.9rem 0 0.4rem',
+              fontSize: '0.85rem',
+              opacity: 0.75,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between'
+            }}
+          >
+            <span>Entry kinds</span>
+            <span style={{ opacity: 0.55, fontSize: '0.7rem' }}>
+              {activeKindCount}/{totalKindCount}
+            </span>
+          </h3>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.4rem',
+              marginBottom: '0.4rem'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onKindFilterChange(null)}
+              style={smallLinkBtn}
+              title="Show every entry kind (reset kind filter)"
+            >
+              all
+            </button>
+            <button
+              type="button"
+              onClick={() => onKindFilterChange(new Set())}
+              style={smallLinkBtn}
+              title="Hide every entry kind"
+            >
+              none
+            </button>
+          </div>
+          {totalKindCount === 0 ? (
+            <p style={{ opacity: 0.55, fontSize: '0.8rem', margin: 0 }}>
+              No entry kinds in this graph yet.
+            </p>
+          ) : (
+            <ul
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.2rem'
+              }}
+            >
+              {kindUniverse.map((k) => {
+                const on = isKindEnabled(k.kindId);
+                return (
+                  <li key={k.kindId}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        opacity: on ? 1 : 0.5
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleKind(k.kindId)}
+                      />
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '0.7rem',
+                          height: '0.7rem',
+                          borderRadius: '2px',
+                          background: k.color,
+                          border: '1px solid rgba(0,0,0,0.25)'
+                        }}
+                      />
+                      <span>{k.label || k.kindId}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const smallLinkBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--vscode-textLink-foreground, #4ea3f5)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: '0.75rem',
+  padding: 0,
+  textDecoration: 'underline'
+};

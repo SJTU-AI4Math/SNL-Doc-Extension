@@ -5,6 +5,7 @@ import {
   readEntries,
   readEntryKinds,
   readLibraryGraph,
+  readRelationships,
   type EntryData,
   type EntryKind,
   type LibraryEntry,
@@ -242,6 +243,7 @@ export class InfoviewPanel {
     const patterns: vscode.GlobPattern[] = [
       new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/graph.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/meta.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
@@ -393,6 +395,15 @@ export class InfoviewPanel {
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
           void vscode.commands.executeCommand(
             'snlDoc.openEntryInfoview',
+            msg.entryId.trim()
+          );
+        }
+        return;
+      case 'editEntry':
+        // Cat 2026-07-10 §2: per-entry panel edit button.
+        if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.editEntry',
             msg.entryId.trim()
           );
         }
@@ -681,7 +692,8 @@ export class InfoviewPanel {
           entry: null,
           kind: null,
           entries: options,
-          macros
+          macros,
+          relatedEntries: null
         });
         return;
       }
@@ -689,12 +701,68 @@ export class InfoviewPanel {
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
+      // Cat 2026-07-10 §2: single-Entry panel now surfaces two
+      // collapsible lists — the entries providing CONTEXT bindings
+      // (uses_context edges FROM this entry) and the entries this
+      // entry DEPENDS on (depends edges FROM this entry). Rows outgoing
+      // from `id` win: cat's rule is "下面的条目依赖上面的" so we list
+      // things this entry consumes, sorted by title.
+      let relatedEntries: {
+        context: Array<{ id: string; title: string; kindId?: string }>;
+        dependencies: Array<{
+          id: string;
+          title: string;
+          kindId?: string;
+          isAtomic: boolean | null;
+        }>;
+      } = { context: [], dependencies: [] };
+      try {
+        const rels = await readRelationships(root);
+        const byId = new Map(entries.map((e) => [e.id, e]));
+        const ctxRows: typeof relatedEntries.context = [];
+        const depRows: typeof relatedEntries.dependencies = [];
+        const seenCtx = new Set<string>();
+        const seenDep = new Set<string>();
+        for (const r of rels) {
+          if (r.from !== id) continue;
+          const target = byId.get(r.to);
+          if (!target) continue;
+          if (r.label === 'uses_context' && !seenCtx.has(r.to)) {
+            seenCtx.add(r.to);
+            ctxRows.push({
+              id: target.id,
+              title: target.title ?? '',
+              kindId: target.kind
+            });
+          } else if (r.label === 'depends' && !seenDep.has(r.to)) {
+            seenDep.add(r.to);
+            const isAtomic =
+              r.metadata &&
+              typeof r.metadata === 'object' &&
+              typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'
+                ? (r.metadata as { isAtomic: boolean }).isAtomic
+                : null;
+            depRows.push({
+              id: target.id,
+              title: target.title ?? '',
+              kindId: target.kind,
+              isAtomic
+            });
+          }
+        }
+        ctxRows.sort((a, b) => a.title.localeCompare(b.title));
+        depRows.sort((a, b) => a.title.localeCompare(b.title));
+        relatedEntries = { context: ctxRows, dependencies: depRows };
+      } catch {
+        // relationships.json missing/malformed → empty lists, no crash.
+      }
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         entry,
         kind,
         entries: options,
-        macros
+        macros,
+        relatedEntries
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

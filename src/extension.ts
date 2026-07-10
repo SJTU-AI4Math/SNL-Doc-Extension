@@ -10,6 +10,7 @@ import { CreateEntryPanel } from './createEntryPanel';
 import { CreateMacroPackagePanel } from './createMacroPackagePanel';
 import { PackagePanel } from './packagePanel';
 import { CreateMacroPanel } from './createMacroPanel';
+import { CreateRelationshipPanel } from './createRelationshipPanel';
 import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
@@ -120,11 +121,14 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      const refCount = res.references.libraryNodes.length + res.references.macroSources.length;
+      const refCount =
+        res.references.libraryNodes.length +
+        res.references.macroSources.length +
+        res.references.relationships.length;
       const noun = refCount === 1 ? '1 reference' : `${refCount} references`;
       void vscode.window.showInformationMessage(
         refCount > 0
-          ? `Deleted entry "${id}". ${noun} left dangling (library outlines / macro sources).`
+          ? `Deleted entry "${id}". ${noun} left dangling (library outlines / macro sources / relationships).`
           : `Deleted entry "${id}".`
       );
     }
@@ -408,6 +412,52 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Relationship editor commands (cat 2026-07-10). Create/edit route to
+  // the shared CreateRelationshipPanel; delete goes through the same
+  // modal-confirm dance as other entities.
+  const createRelationship = vscode.commands.registerCommand(
+    'snlDoc.createRelationship',
+    () => {
+      CreateRelationshipPanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const editRelationship = vscode.commands.registerCommand(
+    'snlDoc.editRelationship',
+    (id?: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) return;
+      CreateRelationshipPanel.editOrShow(context.extensionUri, id.trim());
+    }
+  );
+
+  const deleteRelationship = vscode.commands.registerCommand(
+    'snlDoc.deleteRelationship',
+    async (relId?: unknown) => {
+      const id = typeof relId === 'string' ? relId.trim() : '';
+      if (!id) return;
+      const root = firstWorkspaceFolder();
+      if (!root) return;
+      const confirmed = await vscode.window.showWarningMessage(
+        `Delete relationship "${id}"?`,
+        {
+          modal: true,
+          detail:
+            'The edge is removed from the pool-wide relationship graph. Endpoint entries are NOT touched.'
+        },
+        'Delete'
+      );
+      if (confirmed !== 'Delete') return;
+      const res = await snlDoc.deleteRelationship(root, id);
+      if (res.status !== 'ok') {
+        void vscode.window.showErrorMessage(
+          `Delete relationship failed: ${'message' in res ? res.message : res.status}`
+        );
+        return;
+      }
+      void vscode.window.showInformationMessage(`Deleted relationship "${id}".`);
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     openEntryInfoview,
@@ -433,7 +483,10 @@ export function activate(context: vscode.ExtensionContext): void {
     editMacroPackage,
     openMacroPackage,
     createMacro,
-    editMacro
+    editMacro,
+    createRelationship,
+    editRelationship,
+    deleteRelationship
   );
 }
 

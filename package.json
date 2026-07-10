@@ -118,6 +118,19 @@
       {
         "command": "snlDoc.editMacro",
         "title": "SNL: Edit Macro"
+      },
+      {
+        "command": "snlDoc.createRelationship",
+        "title": "SNL: Create Relationship"
+      },
+      {
+        "command": "snlDoc.editRelationship",
+        "title": "SNL: Edit Relationship"
+      },
+      {
+        "command": "snlDoc.deleteRelationship",
+        "title": "SNL: Delete Relationship",
+        "enablement": "false"
       }
     ],
     "menus": {
@@ -157,6 +170,10 @@
         {
           "command": "snlDoc.editMacro",
           "when": "false"
+        },
+        {
+          "command": "snlDoc.editRelationship",
+          "when": "false"
         }
       ]
     }
@@ -167,7 +184,7 @@
     "snl:rebuild": "node scripts/rebuild-snl-basics.mjs --force",
     "compile": "node scripts/rebuild-snl-basics.mjs && tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro",
+    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:entryInfoview": "cross-env SNL_WEBVIEW_ENTRY=entryInfoview vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
@@ -180,6 +197,7 @@
     "build:webview:createMacroPackage": "cross-env SNL_WEBVIEW_ENTRY=createMacroPackage vite build --config webview/vite.config.ts",
     "build:webview:packagePanel": "cross-env SNL_WEBVIEW_ENTRY=packagePanel vite build --config webview/vite.config.ts",
     "build:webview:createMacro": "cross-env SNL_WEBVIEW_ENTRY=createMacro vite build --config webview/vite.config.ts",
+    "build:webview:createRelationship": "cross-env SNL_WEBVIEW_ENTRY=createRelationship vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "setup-snl": "node scripts/setup-submodule.mjs",

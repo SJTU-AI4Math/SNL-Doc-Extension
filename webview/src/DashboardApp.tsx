@@ -88,6 +88,14 @@ interface EntryData {
   pointer?: unknown;
 }
 
+interface RelationshipData {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  metadata: unknown;
+}
+
 interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
@@ -98,6 +106,7 @@ interface SnlOverview {
   allMacros: AllMacroIndexEntry[];
   entryKinds: EntryKind[];
   macroKinds: MacroKind[];
+  relationships: RelationshipData[];
 }
 
 const EMPTY: SnlOverview = {
@@ -108,7 +117,8 @@ const EMPTY: SnlOverview = {
   macroPackages: [],
   allMacros: [],
   entryKinds: [],
-  macroKinds: []
+  macroKinds: [],
+  relationships: []
 };
 
 export function DashboardApp(): React.ReactElement {
@@ -189,6 +199,7 @@ function Initialized({
   // avoids workspaceState round-trips; users open what they care about.
   const [openLibraries, setOpenLibraries] = useState(false);
   const [openEntries, setOpenEntries] = useState(false);
+  const [openRelationships, setOpenRelationships] = useState(false);
   const [openMacros, setOpenMacros] = useState(false);
   const [openEntryKinds, setOpenEntryKinds] = useState(false);
   const [openMacroKinds, setOpenMacroKinds] = useState(false);
@@ -281,7 +292,36 @@ function Initialized({
         />
       </CollapsibleSection>
 
-      {/* === 3. SNL Macros ================================================ */}
+      {/* === 3. Relationships ============================================ */}
+      <CollapsibleSection
+        title="Relationships"
+        subtitle={`${overview.relationships.length} edge${
+          overview.relationships.length === 1 ? '' : 's'
+        }`}
+        expanded={openRelationships}
+        onToggle={() => setOpenRelationships((v) => !v)}
+      >
+        {overview.relationships.length > 0 ? (
+          <RelationshipsTable
+            relationships={overview.relationships}
+            entries={overview.entries}
+            onOpen={(id) =>
+              api?.postMessage({ type: 'editRelationship', id })
+            }
+            onDelete={(id) =>
+              api?.postMessage({ type: 'deleteRelationship', id })
+            }
+          />
+        ) : null}
+        <AddBar
+          label="Create Relationship"
+          onActivate={() =>
+            api?.postMessage({ type: 'createRelationship' })
+          }
+        />
+      </CollapsibleSection>
+
+      {/* === 4. SNL Macros ================================================ */}
       <CollapsibleSection
         title="SNL Macros"
         subtitle={`${overview.macroPackages.length} package${
@@ -1304,4 +1344,113 @@ function EntriesTable({
       </tbody>
     </table>
   );
+}
+
+/**
+ * Relationships list for the Dashboard (cat 2026-07-10). Each row shows
+ * id / from → to / label / metadata-preview. Endpoints resolve to entry
+ * titles when available; a missing endpoint (entry deleted after the
+ * relationship was written) renders in error color as a hint.
+ */
+function RelationshipsTable({
+  relationships,
+  entries,
+  onOpen,
+  onDelete
+}: {
+  relationships: RelationshipData[];
+  entries: EntryData[];
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}): React.ReactElement {
+  const titleById = new Map(entries.map((e) => [e.id, e.title || '(untitled)']));
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={HEAD}>ID</th>
+          <th style={HEAD}>From</th>
+          <th style={HEAD}>→ To</th>
+          <th style={HEAD}>Label</th>
+          <th style={HEAD}>Metadata</th>
+          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
+        </tr>
+      </thead>
+      <tbody>
+        {relationships.map((r) => (
+          <ClickableRow
+            key={r.id}
+            label={`Edit relationship ${r.id}`}
+            onActivate={() => onOpen(r.id)}
+          >
+            <td style={{ ...CELL, ...MONO }}>{r.id}</td>
+            <td style={CELL}>
+              <EndpointCell id={r.from} title={titleById.get(r.from)} />
+            </td>
+            <td style={CELL}>
+              <EndpointCell id={r.to} title={titleById.get(r.to)} />
+            </td>
+            <td style={CELL}>{r.label}</td>
+            <td style={{ ...CELL, ...MONO, opacity: 0.75 }}>
+              {formatMetadataPreview(r.metadata)}
+            </td>
+            <RowDeleteCell
+              label={`Delete relationship ${r.id}`}
+              onDelete={() => onDelete(r.id)}
+            />
+          </ClickableRow>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** id + resolved title (or ⚠ unknown badge when the endpoint is gone). */
+function EndpointCell({
+  id,
+  title
+}: {
+  id: string;
+  title: string | undefined;
+}): React.ReactElement {
+  if (!title) {
+    return (
+      <span
+        title={`No entry with id "${id}" in the shared pool. The endpoint was likely deleted.`}
+        style={{
+          fontFamily: 'var(--vscode-editor-font-family, monospace)',
+          color: 'var(--vscode-errorForeground, #f14c4c)'
+        }}
+      >
+        ⚠ {id}
+      </span>
+    );
+  }
+  return (
+    <span>
+      <span style={{ ...MONO, marginRight: '0.4rem', opacity: 0.75 }}>
+        {id}
+      </span>
+      <span>{title}</span>
+    </span>
+  );
+}
+
+/** One-line preview of the metadata blob for the table cell. */
+function formatMetadataPreview(v: unknown): string {
+  if (v === null || v === undefined) return '—';
+  try {
+    const s = JSON.stringify(v);
+    if (s.length <= 48) return s;
+    return `${s.slice(0, 45)}…`;
+  } catch {
+    return '(unserializable)';
+  }
 }

@@ -116,6 +116,8 @@ export class DashboardPanel {
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
       // Macro packages: watch the whole term_macros tree (one file per pkg).
       new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
+      // Pool-wide relationships file (cat 2026-07-10).
+      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
       // Catch `.SNL_Doc/` itself appearing/disappearing.
       new vscode.RelativePattern(root, '.SNL_Doc')
     ];
@@ -261,6 +263,23 @@ export class DashboardPanel {
         const file = (msg as { file?: unknown }).file;
         if (typeof file === 'string' && file) {
           await vscode.commands.executeCommand('snlDoc.deleteMacroPackage', file);
+        }
+        return;
+      }
+      case 'createRelationship':
+        await vscode.commands.executeCommand('snlDoc.createRelationship');
+        return;
+      case 'editRelationship': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.editRelationship', id);
+        }
+        return;
+      }
+      case 'deleteRelationship': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id) {
+          await vscode.commands.executeCommand('snlDoc.deleteRelationship', id);
         }
         return;
       }

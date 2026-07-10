@@ -77,6 +77,19 @@ export function entriesUri(workspaceRoot: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'entries.json');
 }
 
+/**
+ * Pool-wide semantic relationships between entries (cat 2026-07-10).
+ * Sibling of `entries.json`. A library's on-disk `graph.json` remains its
+ * outline/branch structure; the relationship graph is GLOBAL and a library
+ * view of relationships is the *induced subgraph* over the library's entry
+ * set. See §"Relationships" in docs (TBD).
+ *
+ * File shape: `{ version, relationships: RelationshipData[] }`.
+ */
+export function relationshipsUri(workspaceRoot: vscode.Uri): vscode.Uri {
+  return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'relationships.json');
+}
+
 export function termMacrosDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'term_macros');
 }
@@ -1518,6 +1531,8 @@ export interface SnlOverview {
   entryKinds: EntryKind[];
   /** Macro-kind catalog from `config.json#macro_kinds`. */
   macroKinds: MacroKind[];
+  /** Pool-wide relationships from `relationships.json` (empty on missing). */
+  relationships: RelationshipData[];
 }
 
 /**
@@ -1564,7 +1579,8 @@ export async function readOverview(
       macroPackages: [],
       allMacros: [],
       entryKinds: [],
-      macroKinds: []
+      macroKinds: [],
+      relationships: []
     };
   }
 
@@ -1658,7 +1674,8 @@ export async function readOverview(
     macroPackages,
     allMacros,
     entryKinds,
-    macroKinds
+    macroKinds,
+    relationships: await readRelationships(workspaceRoot)
   };
 }
 
@@ -3509,6 +3526,7 @@ export async function deleteEntry(
       references: {
         libraryNodes: Array<{ librarySlug: string; nodeId: string }>;
         macroSources: Array<{ packageFile: string; macroName: string }>;
+        relationships: string[];
       };
     }
   | { status: 'noSnlDoc' }
@@ -3543,7 +3561,8 @@ export async function deleteEntry(
   // than a slightly stale reference list.
   const references = {
     libraryNodes: [] as Array<{ librarySlug: string; nodeId: string }>,
-    macroSources: [] as Array<{ packageFile: string; macroName: string }>
+    macroSources: [] as Array<{ packageFile: string; macroName: string }>,
+    relationships: [] as string[]
   };
   try {
     const libs = await listLibraries(workspaceRoot);
@@ -3584,6 +3603,16 @@ export async function deleteEntry(
     }
   } catch {
     // Same — best-effort.
+  }
+  try {
+    const rels = await readRelationships(workspaceRoot);
+    for (const r of rels) {
+      if (r.from === targetId || r.to === targetId) {
+        references.relationships.push(r.id);
+      }
+    }
+  } catch {
+    // Best-effort — a broken relationships.json shouldn't block delete.
   }
   pool.splice(idx, 1);
   try {
@@ -3780,4 +3809,237 @@ export async function deleteLibrary(
     };
   }
   return { status: 'ok', slug: targetSlug };
+}
+
+// ===========================================================================
+// Relationships (pool-wide semantic graph — cat 2026-07-10)
+// ===========================================================================
+//
+// A *relationship* is a directed edge between two entries in the shared pool,
+// carrying a free-text `label` (e.g. "depends-on", "generalizes", "proves")
+// and an opaque `metadata: unknown` payload the caller owns.
+//
+// The relationship graph is GLOBAL — one `relationships.json` at the
+// `.SNL_Doc/` root, sibling of `entries.json`. Per-library relationship
+// views are computed as *induced subgraphs* over the library's entry set
+// (endpoints ∈ library.entryIds); we don't store per-library edge lists.
+//
+// This is INTENTIONALLY distinct from `libraries/<slug>/graph.json` — that
+// file is the library's outline/branch tree, structural not semantic. A
+// library entry can appear in many relationships and vice versa.
+//
+// Design constraints (cat 2026-07-10):
+//   - endpoints are entry ids only (no urls / external refs).
+//   - label is a String (free-form; not registered in config.json — kinds
+//     may come later, but not needed for Phase 1).
+//   - metadata is `any` — stored verbatim as JSON; UI edits it as raw JSON.
+
+export interface RelationshipData {
+  /** Stable id, unique across relationships.json. Author-controlled. */
+  id: string;
+  /** Source entry id — MUST exist in entries.json at write time. */
+  from: string;
+  /** Target entry id — MUST exist in entries.json at write time. */
+  to: string;
+  /** Free-form edge label, e.g. "depends-on". Non-empty. */
+  label: string;
+  /** Arbitrary caller payload. Stored verbatim. */
+  metadata: unknown;
+}
+
+interface RelationshipsFile {
+  version?: number;
+  relationships?: RelationshipData[];
+}
+
+const RELATIONSHIPS_FILE_VERSION = 1;
+
+/**
+ * Read the pool-wide relationships list from `.SNL_Doc/relationships.json`.
+ * Missing / corrupt / wrong-shape → `[]` (defensive, matches readEntries).
+ */
+export async function readRelationships(
+  workspaceRoot: vscode.Uri
+): Promise<RelationshipData[]> {
+  try {
+    const raw = await readJson<unknown>(relationshipsUri(workspaceRoot));
+    // Accept both `{ relationships: [...] }` (canonical) and a bare array
+    // (defensive — a hand-edited file might drop the wrapper).
+    const list = Array.isArray(raw)
+      ? raw
+      : Array.isArray((raw as RelationshipsFile | null)?.relationships)
+        ? (raw as RelationshipsFile).relationships!
+        : [];
+    return list.filter(
+      (r): r is RelationshipData =>
+        r !== null &&
+        typeof r === 'object' &&
+        typeof (r as RelationshipData).id === 'string' &&
+        typeof (r as RelationshipData).from === 'string' &&
+        typeof (r as RelationshipData).to === 'string' &&
+        typeof (r as RelationshipData).label === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Write the canonical `{ version, relationships }` shape to disk. */
+async function writeRelationships(
+  workspaceRoot: vscode.Uri,
+  list: RelationshipData[]
+): Promise<void> {
+  const fsApi = vscode.workspace.fs;
+  const payload: RelationshipsFile = {
+    version: RELATIONSHIPS_FILE_VERSION,
+    relationships: list
+  };
+  await fsApi.writeFile(relationshipsUri(workspaceRoot), jsonBytes(payload));
+}
+
+export type AddRelationshipResult =
+  | { status: 'ok'; id: string }
+  | { status: 'duplicate'; id: string }
+  | { status: 'unknownEndpoint'; endpoint: 'from' | 'to'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'error'; message: string };
+
+/**
+ * Add a new relationship. Validates:
+ *  - `id` non-empty and unique in the current list;
+ *  - `from` and `to` both resolve to entries in the shared pool;
+ *  - `label` non-empty (trimmed).
+ * `metadata` is stored verbatim (may be null / undefined → null).
+ */
+export async function addRelationship(
+  workspaceRoot: vscode.Uri,
+  rel: RelationshipData
+): Promise<AddRelationshipResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const id = typeof rel?.id === 'string' ? rel.id.trim() : '';
+  const from = typeof rel?.from === 'string' ? rel.from.trim() : '';
+  const to = typeof rel?.to === 'string' ? rel.to.trim() : '';
+  const label = typeof rel?.label === 'string' ? rel.label.trim() : '';
+  if (!id) return { status: 'invalid', message: 'id is required' };
+  if (!from) return { status: 'invalid', message: 'from is required' };
+  if (!to) return { status: 'invalid', message: 'to is required' };
+  if (!label) return { status: 'invalid', message: 'label is required' };
+
+  const entries = await readEntries(workspaceRoot);
+  const pool = new Set(entries.map((e) => e.id));
+  if (!pool.has(from)) return { status: 'unknownEndpoint', endpoint: 'from', id: from };
+  if (!pool.has(to)) return { status: 'unknownEndpoint', endpoint: 'to', id: to };
+
+  const list = await readRelationships(workspaceRoot);
+  if (list.some((r) => r.id === id)) {
+    return { status: 'duplicate', id };
+  }
+  const record: RelationshipData = {
+    id,
+    from,
+    to,
+    label,
+    metadata: rel.metadata ?? null
+  };
+  try {
+    await writeRelationships(workspaceRoot, [...list, record]);
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id };
+}
+
+export type UpdateRelationshipResult =
+  | { status: 'updated'; id: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'unknownEndpoint'; endpoint: 'from' | 'to'; id: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Update an existing relationship IN PLACE, keyed by `id`. `id` itself is
+ * never modified (it's the lookup key). `from` / `to` must still resolve
+ * to entries in the shared pool.
+ */
+export async function updateRelationship(
+  workspaceRoot: vscode.Uri,
+  id: string,
+  input: Omit<RelationshipData, 'id'>
+): Promise<UpdateRelationshipResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) return { status: 'invalid', message: 'id is required' };
+  const from = typeof input?.from === 'string' ? input.from.trim() : '';
+  const to = typeof input?.to === 'string' ? input.to.trim() : '';
+  const label = typeof input?.label === 'string' ? input.label.trim() : '';
+  if (!from) return { status: 'invalid', message: 'from is required' };
+  if (!to) return { status: 'invalid', message: 'to is required' };
+  if (!label) return { status: 'invalid', message: 'label is required' };
+
+  const entries = await readEntries(workspaceRoot);
+  const pool = new Set(entries.map((e) => e.id));
+  if (!pool.has(from)) return { status: 'unknownEndpoint', endpoint: 'from', id: from };
+  if (!pool.has(to)) return { status: 'unknownEndpoint', endpoint: 'to', id: to };
+
+  const list = await readRelationships(workspaceRoot);
+  const idx = list.findIndex((r) => r.id === targetId);
+  if (idx < 0) return { status: 'notFound', id: targetId };
+
+  const next = list.slice();
+  next[idx] = { id: targetId, from, to, label, metadata: input.metadata ?? null };
+  try {
+    await writeRelationships(workspaceRoot, next);
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'updated', id: targetId };
+}
+
+export type DeleteRelationshipResult =
+  | { status: 'ok'; id: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'notFound'; id: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Delete a single relationship from `.SNL_Doc/relationships.json`. No
+ * reference-scan (relationships don't have consumers of their own id;
+ * anything referencing them would be new tooling we don't have yet).
+ */
+export async function deleteRelationship(
+  workspaceRoot: vscode.Uri,
+  id: string
+): Promise<DeleteRelationshipResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  const targetId = (id ?? '').trim();
+  if (!targetId) return { status: 'invalid', message: 'id is required' };
+  const list = await readRelationships(workspaceRoot);
+  const idx = list.findIndex((r) => r.id === targetId);
+  if (idx < 0) return { status: 'notFound', id: targetId };
+  const next = list.slice();
+  next.splice(idx, 1);
+  try {
+    await writeRelationships(workspaceRoot, next);
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+  return { status: 'ok', id: targetId };
 }

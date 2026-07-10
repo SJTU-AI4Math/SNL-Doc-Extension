@@ -230,6 +230,13 @@ export class CreateLibraryPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    // Nav messages (back to Dashboard etc.) MUST be handled first — they
+    // don't carry a `title`/`op` and would otherwise fall through the
+    // switch below without dispatching. Cat 2026-07-10: 'SNL Edit Library
+    // 左上角返回 Dashboard 按钮不 work'.
+    if (await handlePanelNavMessage(message)) {
+      return;
+    }
     const msg = message as
       | { type?: string; title?: string; op?: unknown }
       | undefined;
@@ -275,9 +282,6 @@ export class CreateLibraryPanel {
     try {
       if (msg.type === 'update' || this.mode === 'edit') {
         const result = await updateLibrary(workspaceRoot, this.slug, { title });
-        if (await handlePanelNavMessage(message)) {
-          return;
-        }
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(

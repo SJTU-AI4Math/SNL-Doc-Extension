@@ -4043,3 +4043,296 @@ export async function deleteRelationship(
   }
   return { status: 'ok', id: targetId };
 }
+
+// ===========================================================================
+// Auto-generated dependency relationships (cat 2026-07-10 §3)
+// ===========================================================================
+//
+// For each entry E, walk E.content.snl, collect every macro identifier
+// used, and — for each macro whose `source.entries[]` names an existing
+// entry — emit a relationship  `E → src`  with:
+//
+//   label:    "depends"
+//   metadata: {
+//     isAtomic: bool,                 // filled in by computeAtomicity
+//     generator: "macro-source-scan",
+//     macros: string[],                // deduped macro names that induced
+//                                        this edge (many-to-one collapse)
+//   }
+//
+// Atomicity per cat's spec: "若一个 dependency 可以表示为其他几个 dependency
+// 的复合，则它不是 Atomic." Implemented as transitive-reducibility over the
+// current depends-graph — a A→B edge is NOT atomic iff there is an
+// alternative path A→x1→…→xk→B of length ≥ 2 using only depends edges.
+//
+// SNL macro-name extraction: the parser lives in @snl-basics/react
+// (browser bundle, React-linked). Host code can't load it, so we run a
+// lightweight tokenizer that mirrors the parser's macro-identifier
+// recognition:
+//   - skip `%…%`, `$…$`, `$$…$$` delimited spans (opaque leaves);
+//   - skip `@` bare-binder introductions (bindings, not uses);
+//   - collect the identifier that starts with [A-Za-z_.][A-Za-z0-9_.]*
+//     everywhere else.
+// False positives (over-counted names) are harmless — an unregistered
+// name yields no source.entries and generates no edge.
+
+/** Identity marker written into metadata.generator for auto rows so we
+ *  know it's safe to regenerate without stomping user-authored edges. */
+const AUTO_GENERATOR_TAG = 'macro-source-scan';
+const AUTO_LABEL = 'depends';
+
+/** Extract every macro identifier referenced by an SNL string. */
+export function extractMacroNamesFromSnl(snl: string): string[] {
+  const out = new Set<string>();
+  if (!snl) return [];
+  let i = 0;
+  const n = snl.length;
+  const isIdStart = (c: string): boolean => /[A-Za-z_.]/.test(c);
+  const isIdCont = (c: string): boolean => /[A-Za-z0-9_.]/.test(c);
+  while (i < n) {
+    const c = snl[i];
+    if (/\s|[(),\[\]]/.test(c)) { i += 1; continue; }
+    if (c === '%') {
+      i += 1;
+      while (i < n && snl[i] !== '%') i += 1;
+      i += 1;
+      continue;
+    }
+    if (c === '$') {
+      const isDisplay = snl[i + 1] === '$';
+      const delim = isDisplay ? '$$' : '$';
+      i += delim.length;
+      while (i < n && snl.substr(i, delim.length) !== delim) i += 1;
+      i += delim.length;
+      continue;
+    }
+    if (c === '@') {
+      i += 1;
+      if (i < n && (snl[i] === '%' || snl[i] === '$')) continue;
+      while (i < n && isIdCont(snl[i])) i += 1;
+      continue;
+    }
+    if (isIdStart(c)) {
+      let j = i + 1;
+      while (j < n && isIdCont(snl[j])) j += 1;
+      out.add(snl.slice(i, j));
+      i = j;
+      if (i < n && snl[i] === '[') {
+        while (i < n && snl[i] !== ']') i += 1;
+        if (i < n) i += 1;
+      }
+      // Skip the `x@foo` src-postfix's `@name` chunk — it's a
+      // context-entry reference, not a macro use.
+      if (i < n && snl[i] === '@') {
+        i += 1;
+        while (i < n && isIdCont(snl[i])) i += 1;
+      }
+      continue;
+    }
+    i += 1;
+  }
+  return Array.from(out);
+}
+
+/** Report from {@link regenerateDependencyRelationships}. */
+export interface DependencyGenReport {
+  added: number;
+  removed: number;
+  updated: number;
+  preservedUser: number;
+  totalDepends: number;
+  atomicCount: number;
+}
+
+export interface DependencyScope {
+  /** Restrict scan to a subset of entry ids. `null` = every entry. */
+  entryIds: Set<string> | null;
+}
+
+/**
+ * Regenerate the auto-managed subset of `relationships.json` for a scope.
+ * Auto rows are identified by (label === "depends") AND
+ * (metadata.generator === "macro-source-scan"). User-authored rows and
+ * out-of-scope auto rows are preserved verbatim.
+ * Atomicity is recomputed globally over the union set.
+ */
+export async function regenerateDependencyRelationships(
+  workspaceRoot: vscode.Uri,
+  scope: DependencyScope
+): Promise<
+  | { status: 'ok'; report: DependencyGenReport }
+  | { status: 'noSnlDoc' }
+  | { status: 'error'; message: string }
+> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) {
+    return { status: 'noSnlDoc' };
+  }
+  try {
+    const entries = await readEntries(workspaceRoot);
+    const poolIds = new Set(entries.map((e) => e.id));
+    const macros = await readAllMacros(workspaceRoot);
+    const existing = await readRelationships(workspaceRoot);
+
+    const preservedRows: RelationshipData[] = [];
+    const inScopeAuto = new Map<string, RelationshipData>(); // key "from|to"
+    for (const r of existing) {
+      const isAuto =
+        r.label === AUTO_LABEL &&
+        r.metadata !== null &&
+        typeof r.metadata === 'object' &&
+        (r.metadata as { generator?: unknown }).generator ===
+          AUTO_GENERATOR_TAG;
+      const inScope = scope.entryIds === null || scope.entryIds.has(r.from);
+      if (isAuto && inScope) {
+        inScopeAuto.set(`${r.from}|${r.to}`, r);
+      } else {
+        preservedRows.push(r);
+      }
+    }
+    const preservedUserOnly = preservedRows.filter((r) => {
+      const isAuto =
+        r.label === AUTO_LABEL &&
+        r.metadata !== null &&
+        typeof r.metadata === 'object' &&
+        (r.metadata as { generator?: unknown }).generator ===
+          AUTO_GENERATOR_TAG;
+      return !isAuto;
+    }).length;
+
+    // Compute new in-scope auto rows.
+    const newAuto = new Map<
+      string,
+      { rel: RelationshipData; macrosSet: Set<string> }
+    >();
+    for (const e of entries) {
+      if (scope.entryIds !== null && !scope.entryIds.has(e.id)) continue;
+      const snl = e.content?.snl ?? '';
+      if (!snl.trim()) continue;
+      const names = extractMacroNamesFromSnl(snl);
+      for (const name of names) {
+        const m = macros[name];
+        if (!m || !Array.isArray(m.source?.entries)) continue;
+        for (const src of m.source.entries) {
+          if (!src || src === e.id) continue;
+          if (!poolIds.has(src)) continue;
+          const key = `${e.id}|${src}`;
+          let bucket = newAuto.get(key);
+          if (!bucket) {
+            const prev = inScopeAuto.get(key);
+            bucket = {
+              rel: {
+                id: prev?.id ?? `dep.${e.id}.${src}`,
+                from: e.id,
+                to: src,
+                label: AUTO_LABEL,
+                metadata: {
+                  generator: AUTO_GENERATOR_TAG,
+                  macros: [],
+                  isAtomic: true
+                }
+              },
+              macrosSet: new Set<string>()
+            };
+            newAuto.set(key, bucket);
+          }
+          bucket.macrosSet.add(name);
+        }
+      }
+    }
+
+    for (const b of newAuto.values()) {
+      const md = b.rel.metadata as {
+        generator: string;
+        macros: string[];
+        isAtomic: boolean;
+      };
+      md.macros = Array.from(b.macrosSet).sort();
+    }
+
+    const merged: RelationshipData[] = [...preservedRows];
+    for (const b of newAuto.values()) merged.push(b.rel);
+
+    computeAtomicityInPlace(merged);
+
+    merged.sort((a, b) => a.id.localeCompare(b.id));
+
+    let added = 0;
+    let updated = 0;
+    for (const k of newAuto.keys()) {
+      if (inScopeAuto.has(k)) updated += 1;
+      else added += 1;
+    }
+    let removed = 0;
+    for (const k of inScopeAuto.keys()) {
+      if (!newAuto.has(k)) removed += 1;
+    }
+    const totalDepends = merged.filter((r) => r.label === AUTO_LABEL).length;
+    const atomicCount = merged.filter(
+      (r) =>
+        r.label === AUTO_LABEL &&
+        r.metadata !== null &&
+        typeof r.metadata === 'object' &&
+        (r.metadata as { isAtomic?: unknown }).isAtomic === true
+    ).length;
+
+    const fsApi = vscode.workspace.fs;
+    await fsApi.writeFile(
+      relationshipsUri(workspaceRoot),
+      jsonBytes({ version: 1, relationships: merged })
+    );
+
+    return {
+      status: 'ok',
+      report: {
+        added,
+        removed,
+        updated,
+        preservedUser: preservedUserOnly,
+        totalDepends,
+        atomicCount
+      }
+    };
+  } catch (err) {
+    return {
+      status: 'error',
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+/**
+ * Mark each `depends` edge with metadata.isAtomic = true|false.
+ * An edge A→B is atomic iff there is NO alternative path A→…→B of
+ * length ≥ 2 over the depends-graph.
+ *
+ * Algorithm: for each edge, BFS from source over depends edges
+ * excluding that one direct edge; if target reachable, not atomic.
+ */
+export function computeAtomicityInPlace(rels: RelationshipData[]): void {
+  const dep: { rel: RelationshipData; idx: number }[] = [];
+  rels.forEach((r) => {
+    if (r.label === AUTO_LABEL) dep.push({ rel: r, idx: dep.length });
+  });
+  const adj = new Map<string, { to: string; edgeIdx: number }[]>();
+  dep.forEach(({ rel, idx }) => {
+    if (!adj.has(rel.from)) adj.set(rel.from, []);
+    adj.get(rel.from)!.push({ to: rel.to, edgeIdx: idx });
+  });
+  dep.forEach(({ rel, idx: thisIdx }) => {
+    const seen = new Set<string>([rel.from]);
+    const queue: string[] = [rel.from];
+    let hit = false;
+    while (queue.length > 0 && !hit) {
+      const cur = queue.shift()!;
+      const outs = adj.get(cur) ?? [];
+      for (const e of outs) {
+        if (cur === rel.from && e.edgeIdx === thisIdx) continue;
+        if (e.to === rel.to) { hit = true; break; }
+        if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
+      }
+    }
+    const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
+    md.isAtomic = !hit;
+    rel.metadata = md;
+  });
+}

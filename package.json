@@ -139,6 +139,10 @@
       {
         "command": "snlDoc.openInfoviewGraphForLibrary",
         "title": "SNL: Open Relationship Graph (Library)"
+      },
+      {
+        "command": "snlDoc.regenerateDependencies",
+        "title": "SNL: Regenerate Dependency Relationships"
       }
     ],
     "menus": {

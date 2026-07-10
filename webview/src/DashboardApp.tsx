@@ -339,6 +339,12 @@ function Initialized({
             api?.postMessage({ type: 'createRelationship' })
           }
         />
+        <AddBar
+          label="⚙ Regenerate Dependencies from Macro Sources"
+          onActivate={() =>
+            api?.postMessage({ type: 'regenerateDependencies' })
+          }
+        />
       </CollapsibleSection>
 
       {/* === 4. SNL Macros ================================================ */}

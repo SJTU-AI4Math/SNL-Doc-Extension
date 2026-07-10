@@ -31,6 +31,8 @@ interface GraphEdge {
   from: string;
   to: string;
   label: string;
+  isDependency: boolean;
+  isAtomic: boolean | null;
 }
 
 type Scope = { mode: 'pool' } | { mode: 'library'; slug: string };
@@ -302,6 +304,9 @@ export function SnlGraphApp(): React.ReactElement {
     vpY: number;
   }>(null);
   const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
+  /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
+   *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
+  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -318,8 +323,24 @@ export function SnlGraphApp(): React.ReactElement {
 
   const laid = useMemo<Layout | null>(() => {
     if (!msg) return null;
-    return layout(msg.nodes, msg.edges);
-  }, [msg]);
+    // Apply the dependency filter (cat 2026-07-10 §4). In 'atomic-deps'
+    // mode we drop non-atomic dependency edges but keep everything else
+    // (user-authored rows, non-depends labels). Then re-hide nodes that
+    // are now isolated in the filtered graph.
+    const filteredEdges =
+      depFilter === 'atomic-deps'
+        ? msg.edges.filter(
+            (e) => !e.isDependency || e.isAtomic === true
+          )
+        : msg.edges;
+    const kept = new Set<string>();
+    for (const e of filteredEdges) {
+      kept.add(e.from);
+      kept.add(e.to);
+    }
+    const filteredNodes = msg.nodes.filter((n) => kept.has(n.id));
+    return layout(filteredNodes, filteredEdges);
+  }, [msg, depFilter]);
 
   // Fit-to-view on first load.
   useEffect(() => {
@@ -438,8 +459,42 @@ export function SnlGraphApp(): React.ReactElement {
             {' · isolated nodes hidden'}
           </div>
         </div>
-        <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
-          scroll to zoom · drag to pan · click node → open Infoview
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <button
+            type="button"
+            onClick={() =>
+              setDepFilter((v) => (v === 'all' ? 'atomic-deps' : 'all'))
+            }
+            title={
+              depFilter === 'all'
+                ? 'Click to hide non-atomic dependency edges'
+                : 'Click to show every edge'
+            }
+            style={{
+              padding: '0.25rem 0.6rem',
+              fontFamily: 'inherit',
+              fontSize: '0.8rem',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+              borderRadius: '3px',
+              background:
+                depFilter === 'atomic-deps'
+                  ? 'var(--vscode-button-background, #0e639c)'
+                  : 'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+              color:
+                depFilter === 'atomic-deps'
+                  ? 'var(--vscode-button-foreground, white)'
+                  : 'inherit',
+              cursor: 'pointer'
+            }}
+          >
+            {depFilter === 'atomic-deps'
+              ? '● atomic deps only'
+              : '○ all edges'}
+          </button>
+          <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
+            scroll to zoom · drag to pan · click node → open Infoview
+          </div>
         </div>
       </div>
       {msg.warnings.length > 0 ? (
@@ -523,6 +578,8 @@ export function SnlGraphApp(): React.ReactElement {
                 const to = nodesById.get(e.to)!;
                 const { d, midX, midY } = edgePath(from, to);
                 const hovered = hoverEdgeId === e.id;
+                const nonAtomicDep = e.isDependency && e.isAtomic === false;
+                const baseOpacity = nonAtomicDep ? 0.28 : 0.55;
                 return (
                   <g
                     key={e.id}
@@ -539,7 +596,7 @@ export function SnlGraphApp(): React.ReactElement {
                       d={d}
                       fill="none"
                       stroke="var(--vscode-editor-foreground, #ddd)"
-                      strokeOpacity={hovered ? 1 : 0.55}
+                      strokeOpacity={hovered ? 1 : baseOpacity}
                       strokeWidth={hovered ? 2 : 1.2}
                       strokeDasharray={e.isBack ? '5 4' : undefined}
                       markerEnd="url(#snl-graph-arrow)"

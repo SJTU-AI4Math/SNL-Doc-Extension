@@ -291,6 +291,9 @@ export class DashboardPanel {
       case 'openInfoviewGraph':
         await vscode.commands.executeCommand('snlDoc.openInfoviewGraph');
         return;
+      case 'regenerateDependencies':
+        await vscode.commands.executeCommand('snlDoc.regenerateDependencies');
+        return;
       default:
         return;
     }

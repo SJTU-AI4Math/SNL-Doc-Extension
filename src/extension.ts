@@ -477,6 +477,63 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Auto-generate dependency relationships from macro-source scanning
+  // (cat 2026-07-10 §3). Two entry points:
+  //   - pool-wide  (Dashboard button, palette command)
+  //   - per-entry  (invoked from Entry editor after a save — future)
+  const regenerateDependencies = vscode.commands.registerCommand(
+    'snlDoc.regenerateDependencies',
+    async (scopeArg?: unknown) => {
+      const root = firstWorkspaceFolder();
+      if (!root) {
+        vscode.window.showErrorMessage(
+          'SNL: Regenerate Dependencies requires an open folder.'
+        );
+        return;
+      }
+      // scopeArg shape: undefined → pool-wide; { entryIds: string[] } → subset.
+      let scope: { entryIds: Set<string> | null } = { entryIds: null };
+      if (
+        scopeArg &&
+        typeof scopeArg === 'object' &&
+        Array.isArray((scopeArg as { entryIds?: unknown }).entryIds)
+      ) {
+        const arr = (scopeArg as { entryIds: string[] }).entryIds.filter(
+          (x) => typeof x === 'string' && x.trim()
+        );
+        scope = { entryIds: new Set(arr) };
+      }
+      const scopeLabel =
+        scope.entryIds === null
+          ? 'the whole entry pool'
+          : `${scope.entryIds.size} entr${scope.entryIds.size === 1 ? 'y' : 'ies'}`;
+      const confirmed = await vscode.window.showWarningMessage(
+        `Regenerate dependency relationships for ${scopeLabel}?`,
+        {
+          modal: true,
+          detail:
+            'Scans each entry\'s SNL content for macro uses, resolves each macro\'s source.entries[] and emits a "depends" edge per (entry, source) pair.\n\n' +
+            'User-authored relationships (label ≠ "depends" or missing generator tag) are preserved. Auto rows outside the scope are also preserved. Atomicity (metadata.isAtomic) is recomputed globally over the merged depends-graph.'
+        },
+        'Regenerate'
+      );
+      if (confirmed !== 'Regenerate') return;
+      const res = await snlDoc.regenerateDependencyRelationships(root, scope);
+      if (res.status !== 'ok') {
+        vscode.window.showErrorMessage(
+          `Regenerate dependencies failed: ${'message' in res ? res.message : res.status}`
+        );
+        return;
+      }
+      const r = res.report;
+      vscode.window.showInformationMessage(
+        `Dependencies regenerated. +${r.added} / ~${r.updated} / −${r.removed}. ` +
+          `${r.totalDepends} depends edges total (${r.atomicCount} atomic). ` +
+          `${r.preservedUser} user-authored rows preserved.`
+      );
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     openEntryInfoview,
@@ -507,7 +564,8 @@ export function activate(context: vscode.ExtensionContext): void {
     editRelationship,
     deleteRelationship,
     openInfoviewGraph,
-    openInfoviewGraphForLibrary
+    openInfoviewGraphForLibrary,
+    regenerateDependencies
   );
 }
 

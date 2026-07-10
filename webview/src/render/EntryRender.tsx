@@ -279,19 +279,30 @@ export function EntryRender({
     timer: ReturnType<typeof setTimeout> | null;
   }>({ targetEl: null, popoverId: null, timer: null });
 
-  // Resolve a hovered/clicked macro name to an in-pool entry id (or null).
+  // Resolve a hovered/clicked macro name to a popover-target entry id.
+  //
+  // Cat 2026-07-10: cross-library popovers must work. Previously we only
+  // returned an id when it appeared in the CURRENT library's entry pool,
+  // which meant macros pointing at another library's entry silently
+  // failed to spawn a popover. The host owns the DB and can resolve
+  // ANY entry id — so we just return the macro's declared first source
+  // entry id (if any) and let the host answer.
+  //
+  // `preferInPool` is used by resolveSource() for the KaTeX inline link
+  // (which needs a title we already have locally); popover onHover uses
+  // preferInPool=false so cross-library works.
   const resolveEntryId = useCallback(
-    (name: string): string | null => {
+    (name: string, preferInPool = false): string | null => {
       const macro = macroDb[name];
-      if (!macro) {
+      if (!macro) return null;
+      if (preferInPool) {
+        for (const ref of macro.source.entries) {
+          if (entries.some((e) => e.id === ref)) return ref;
+        }
         return null;
       }
-      for (const ref of macro.source.entries) {
-        if (entries.some((e) => e.id === ref)) {
-          return ref;
-        }
-      }
-      return null;
+      // Cross-library-friendly: first declared source, in-pool or not.
+      return macro.source.entries[0] ?? null;
     },
     [entries, macroDb]
   );
@@ -340,14 +351,12 @@ export function EntryRender({
         if (!entryId) {
           // Cat 2026-07-10: fallback for cross-entry `x@foo` refs. The
           // node is a bvar (post-context-lookup) whose *name* is `x`,
-          // not a macro name → resolveEntryId returns null. But the
-          // parser attached `mdata.src` and SnlSyntaxTreeView surfaced
-          // it as `data-src` on the KaTeX span. Read that and treat it
-          // as the popover target entry id, iff it exists in the pool.
+          // not a macro name → resolveEntryId returns null. The parser
+          // attached mdata.src which SnlSyntaxTreeView surfaced as
+          // `data-src`; use it verbatim (cross-library ok — the host
+          // owns the DB).
           const rawSrc = event.target.getAttribute('data-src') ?? '';
-          if (rawSrc && entries.some((e) => e.id === rawSrc)) {
-            entryId = rawSrc;
-          }
+          if (rawSrc) entryId = rawSrc;
         }
         if (!entryId) {
           // Hovering a non-resolvable macro (e.g. plain fvar) — leave the

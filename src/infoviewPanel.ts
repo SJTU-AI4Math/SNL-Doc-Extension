@@ -718,6 +718,16 @@ export class InfoviewPanel {
       const entries = await readEntries(root);
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
+        // Cat 2026-07-10: cross-library hover should still resolve
+        // against the shared pool — but if the id genuinely doesn't
+        // exist we tell the webview so it can render a "not found"
+        // popover instead of spinning on "Loading…" forever.
+        void this.panel.webview.postMessage({
+          type: 'popoverEntryDetails',
+          entryId: id,
+          entry: null,
+          kind: null
+        });
         return;
       }
       const kinds = await readEntryKinds(root);

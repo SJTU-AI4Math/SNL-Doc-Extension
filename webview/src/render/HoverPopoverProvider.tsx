@@ -134,9 +134,11 @@ export function HoverPopoverProvider({
   const popoversRef = useRef<PopoverInstance[]>([]);
   popoversRef.current = popovers;
 
-  // Lazily-fetched full details (SNL + kind) keyed by entryId.
+  // Lazily-fetched full details (SNL + kind) keyed by entryId. `entry`
+  // is null when the host has responded with "no such entry in the
+  // pool" (cross-library or genuinely missing). Cat 2026-07-10.
   const [details, setDetails] = useState<
-    Record<string, { entry: EntryData; kind: EntryKind | null }>
+    Record<string, { entry: EntryData | null; kind: EntryKind | null }>
   >({});
   const requestedRef = useRef<Set<string>>(new Set());
 
@@ -167,10 +169,13 @@ export function HoverPopoverProvider({
       if (!msg || msg.type !== 'popoverEntryDetails') {
         return;
       }
-      if (typeof msg.entryId === 'string' && msg.entry) {
-        const entry = msg.entry;
+      if (typeof msg.entryId === 'string') {
+        const entry = msg.entry ?? null;
         const kind = msg.kind ?? null;
-        setDetails((prev) => ({ ...prev, [msg.entryId as string]: { entry, kind } }));
+        setDetails((prev) => ({
+          ...prev,
+          [msg.entryId as string]: { entry, kind }
+        }));
       }
     }
     window.addEventListener('message', onMessage);
@@ -492,9 +497,23 @@ export function HoverPopoverProvider({
                 registerElement={registerElement}
               >
                 <CurrentPopoverContext.Provider value={p.id}>
-                  {details[p.entryId] ? (
+                  {details[p.entryId] === undefined ? (
+                    <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>
+                      Loading…
+                    </div>
+                  ) : details[p.entryId].entry === null ? (
+                    <div
+                      style={{
+                        padding: '0.6rem 0.8rem',
+                        color: '#333',
+                        fontStyle: 'italic'
+                      }}
+                    >
+                      Entry <code>{p.entryId}</code> not found in the shared pool.
+                    </div>
+                  ) : (
                     <EntryRender
-                      entry={details[p.entryId].entry}
+                      entry={details[p.entryId].entry!}
                       kind={details[p.entryId].kind}
                       entries={entries}
                       postMessage={postMessage}
@@ -505,10 +524,6 @@ export function HoverPopoverProvider({
                         postMessage({ type: 'openEntryInfoview', entryId })
                       }
                     />
-                  ) : (
-                    <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>
-                      Loading…
-                    </div>
                   )}
                 </CurrentPopoverContext.Provider>
               </PopoverView>

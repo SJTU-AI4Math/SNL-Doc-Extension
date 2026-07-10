@@ -10,6 +10,7 @@ import {
   batchCopyMacros,
   batchPackageAsNew,
   batchMoveToNewPackage,
+  readEntries,
   type MacroKind,
   type MacroPackageFile,
   type MacroPackageEntry
@@ -134,6 +135,15 @@ export class PackagePanel {
     watcher.onDidChange(refresh, null, this.disposables);
     watcher.onDidDelete(() => this.dispose(), null, this.disposables);
     this.disposables.push(watcher);
+    // Also refresh when the entry pool changes — the macro table's Src
+    // column resolves ids against entries.json (cat 2026-07-10 §2).
+    const entriesWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, '.SNL_Doc/entries.json')
+    );
+    entriesWatcher.onDidCreate(refresh, null, this.disposables);
+    entriesWatcher.onDidChange(refresh, null, this.disposables);
+    entriesWatcher.onDidDelete(refresh, null, this.disposables);
+    this.disposables.push(entriesWatcher);
   }
 
   private async pushPackage(): Promise<void> {
@@ -183,6 +193,12 @@ export class PackagePanel {
       }
       otherPackages.sort((a, b) => a.name.localeCompare(b.name));
 
+      // Ship the entry-pool id set so the macro table can render each
+      // row's src status (green/yellow/red) without an extra round-trip.
+      // Cat 2026-07-10 §2.
+      const entryPool = await readEntries(root);
+      const entryPoolIds = entryPool.map((e) => e.id);
+
       void this.panel.webview.postMessage({
         type: 'package',
         pkg,
@@ -190,7 +206,8 @@ export class PackagePanel {
         macros,
         macroKinds,
         otherPackages,
-        active: active.includes(this.file)
+        active: active.includes(this.file),
+        entryPoolIds
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

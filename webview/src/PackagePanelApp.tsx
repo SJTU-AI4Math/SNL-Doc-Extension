@@ -86,6 +86,7 @@ type Incoming =
       macroKinds?: MacroKind[];
       otherPackages?: Array<{ file: string; name: string }>;
       active?: boolean;
+      entryPoolIds?: string[];
     }
   | { type: 'noFile'; file: string }
   | { type: 'error'; message: string }
@@ -101,6 +102,7 @@ type Model =
       macroKinds: MacroKind[];
       otherPackages: Array<{ file: string; name: string }>;
       active: boolean;
+      entryPoolIds: Set<string>;
     }
   | { kind: 'noFile'; file: string }
   | { kind: 'error'; message: string };
@@ -246,7 +248,10 @@ export function PackagePanelApp(): React.ReactElement {
             otherPackages: Array.isArray(msg.otherPackages)
               ? msg.otherPackages
               : [],
-            active: msg.active !== false
+            active: msg.active !== false,
+            entryPoolIds: new Set(
+              Array.isArray(msg.entryPoolIds) ? msg.entryPoolIds : []
+            )
           });
           // A refresh following a batch action means it succeeded: toast,
           // exit multi-select, and clear the selection.
@@ -424,7 +429,7 @@ export function PackagePanelApp(): React.ReactElement {
     );
   }
 
-  const { pkg, file, macros, macroKinds, otherPackages, active } = model;
+  const { pkg, file, macros, macroKinds, otherPackages, active, entryPoolIds } = model;
   const selectMode = mode === 'multiselect';
 
   return (
@@ -495,6 +500,7 @@ export function PackagePanelApp(): React.ReactElement {
         <MacroTable
           macros={macros}
           macroKinds={macroKinds}
+          entryPoolIds={entryPoolIds}
           onEdit={editMacro}
           selectMode={selectMode}
           selectedNames={selectedNames}
@@ -624,6 +630,7 @@ function arityLabel(macro: MacroPackageEntry): string {
 function MacroTable({
   macros,
   macroKinds,
+  entryPoolIds,
   onEdit,
   selectMode,
   selectedNames,
@@ -631,6 +638,7 @@ function MacroTable({
 }: {
   macros: MacroPackageEntry[];
   macroKinds: MacroKind[];
+  entryPoolIds: Set<string>;
   onEdit: (name: string) => void;
   selectMode: boolean;
   selectedNames: Set<string>;
@@ -686,6 +694,12 @@ function MacroTable({
           <th style={{ ...HEAD, width: '9rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
           <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
+          <th
+            style={{ ...HEAD, width: '3.5rem', textAlign: 'center' }}
+            title="Src status. 🟢 has entry src and it resolves in the pool. 🟡 has entry src but unresolved, OR only url srcs. 🔴 no src declared."
+          >
+            Src
+          </th>
           <th style={{ ...HEAD, width: '9rem' }}>Mode</th>
           <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
           <th style={{ ...HEAD, width: '11rem' }}>Style</th>
@@ -701,6 +715,7 @@ function MacroTable({
             key={m.name}
             macro={m}
             kindById={kindById}
+            entryPoolIds={entryPoolIds}
             previewMacroDb={previewMacroDb}
             previewQuery={previewQuery}
             previewHooks={previewHooks}
@@ -728,6 +743,7 @@ function MacroTable({
 function MacroRowGroup({
   macro,
   kindById,
+  entryPoolIds,
   previewMacroDb,
   previewQuery,
   previewHooks,
@@ -738,6 +754,7 @@ function MacroRowGroup({
 }: {
   macro: MacroPackageEntry;
   kindById: Map<string, MacroKind>;
+  entryPoolIds: Set<string>;
   previewMacroDb: SnlMacroDb;
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
@@ -767,6 +784,7 @@ function MacroRowGroup({
           canExpand ? () => setExpanded((v) => !v) : undefined
         }
         kindById={kindById}
+        entryPoolIds={entryPoolIds}
         previewMacroDb={previewMacroDb}
         previewQuery={previewQuery}
         previewHooks={previewHooks}
@@ -788,6 +806,7 @@ function MacroRowGroup({
               canExpand={false}
               onToggleExpand={undefined}
               kindById={kindById}
+              entryPoolIds={entryPoolIds}
               previewMacroDb={previewMacroDb}
               previewQuery={previewQuery}
               previewHooks={previewHooks}
@@ -822,6 +841,7 @@ function MacroStyleRow({
   canExpand,
   onToggleExpand,
   kindById,
+  entryPoolIds,
   previewMacroDb,
   previewQuery,
   previewHooks,
@@ -840,6 +860,7 @@ function MacroStyleRow({
   canExpand: boolean;
   onToggleExpand: (() => void) | undefined;
   kindById: Map<string, MacroKind>;
+  entryPoolIds: Set<string>;
   previewMacroDb: SnlMacroDb;
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
@@ -980,6 +1001,17 @@ function MacroStyleRow({
       </td>
       {/* Arity: macro-level. */}
       <td style={CELL}>{showMacroLevel ? arityLabel(macro) : <Dash />}</td>
+      {/* Src status: macro-level. Cat 2026-07-10 §2. */}
+      <td style={{ ...CELL, textAlign: 'center' }}>
+        {showMacroLevel ? (
+          <SrcStatusLight
+            source={macro.source}
+            entryPoolIds={entryPoolIds}
+          />
+        ) : (
+          <Dash />
+        )}
+      </td>
       {/* Mode: style-level. */}
       <td style={CELL}>
         {styleMode ? (
@@ -1778,5 +1810,83 @@ function ModalButtons({
         {submitLabel}
       </button>
     </div>
+  );
+}
+
+/**
+ * Traffic-light indicator for a macro's `source` binding
+ * (cat 2026-07-10 §2):
+ *   🟢 green  — at least one entry src that resolves in the pool.
+ *   🟡 yellow — has entry src(s) but none resolve; OR only url src(s).
+ *   🔴 red    — no src at all (no entries, no urls).
+ * Wrapped in a `<span>` with a hover title spelling out what was found.
+ */
+function SrcStatusLight({
+  source,
+  entryPoolIds
+}: {
+  source: { entries?: string[]; urls?: string[] } | null | undefined;
+  entryPoolIds: Set<string>;
+}): React.ReactElement {
+  const entries = Array.isArray(source?.entries) ? source!.entries : [];
+  const urls = Array.isArray(source?.urls) ? source!.urls : [];
+  const resolved = entries.filter((id) => entryPoolIds.has(id));
+  const unresolved = entries.filter((id) => !entryPoolIds.has(id));
+
+  let color: 'green' | 'yellow' | 'red';
+  let title: string;
+  if (resolved.length > 0) {
+    color = 'green';
+    const bits = [
+      `${resolved.length} entry src${resolved.length === 1 ? '' : 's'} resolved: ${resolved.join(', ')}`
+    ];
+    if (unresolved.length > 0) {
+      bits.push(
+        `${unresolved.length} unresolved: ${unresolved.join(', ')}`
+      );
+    }
+    if (urls.length > 0) {
+      bits.push(`${urls.length} url src${urls.length === 1 ? '' : 's'}`);
+    }
+    title = bits.join('\n');
+  } else if (entries.length > 0 || urls.length > 0) {
+    color = 'yellow';
+    const bits: string[] = [];
+    if (unresolved.length > 0) {
+      bits.push(
+        `${unresolved.length} entry src${unresolved.length === 1 ? '' : 's'} NOT in pool: ${unresolved.join(', ')}`
+      );
+    }
+    if (urls.length > 0) {
+      bits.push(
+        `${urls.length} url src${urls.length === 1 ? '' : 's'}: ${urls.join(', ')}`
+      );
+    }
+    title = bits.join('\n');
+  } else {
+    color = 'red';
+    title = 'No src declared (neither entry nor url).';
+  }
+
+  const dotColor =
+    color === 'green'
+      ? 'var(--vscode-testing-iconPassed, #4caf50)'
+      : color === 'yellow'
+        ? 'var(--vscode-editorWarning-foreground, #d7a35a)'
+        : 'var(--vscode-errorForeground, #f14c4c)';
+  return (
+    <span
+      title={title}
+      aria-label={`Src status: ${color}`}
+      style={{
+        display: 'inline-block',
+        width: '0.75rem',
+        height: '0.75rem',
+        borderRadius: '50%',
+        background: dotColor,
+        border: '1px solid rgba(0,0,0,0.25)',
+        verticalAlign: 'middle'
+      }}
+    />
   );
 }

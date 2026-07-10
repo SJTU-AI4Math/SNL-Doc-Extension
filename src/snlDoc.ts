@@ -4080,11 +4080,30 @@ export async function deleteRelationship(
  *  know it's safe to regenerate without stomping user-authored edges. */
 const AUTO_GENERATOR_TAG = 'macro-source-scan';
 const AUTO_LABEL = 'depends';
+/** Labels that {@link regenerateDependencyRelationships} manages. Both
+ *  are (label, generator) tuples on the metadata side; treat this list
+ *  as the source of truth for "is this row auto-managed?". */
+const AUTO_LABELS: readonly string[] = ['depends', 'uses_context'];
+const AUTO_LABEL_USES_CONTEXT = 'uses_context';
 
-/** Extract every macro identifier referenced by an SNL string. */
-export function extractMacroNamesFromSnl(snl: string): string[] {
-  const out = new Set<string>();
-  if (!snl) return [];
+/**
+ * Extract macro identifiers AND `x@foo` context-src target entry ids from
+ * an SNL string. The scanner is a lightweight tokenizer that mirrors the
+ * parser's identifier recognition without pulling the parser itself into
+ * the host bundle.
+ *
+ * `macros`: bare identifiers used as macro references (used to look up
+ *   `source.entries[]` for the "depends" auto-edge).
+ * `contextSrcs`: the `<name>` in `x@<name>` postfixes — a direct
+ *   entry-id reference (Stage 1 §src-postfix), used for the
+ *   "uses_context" auto-edge (cat 2026-07-10).
+ */
+export function extractSnlReferences(
+  snl: string
+): { macros: string[]; contextSrcs: string[] } {
+  const macros = new Set<string>();
+  const contextSrcs = new Set<string>();
+  if (!snl) return { macros: [], contextSrcs: [] };
   let i = 0;
   const n = snl.length;
   const isIdStart = (c: string): boolean => /[A-Za-z_.]/.test(c);
@@ -4107,6 +4126,8 @@ export function extractMacroNamesFromSnl(snl: string): string[] {
       continue;
     }
     if (c === '@') {
+      // Bare `@foo` = binder introduction. Skip the following name — it's
+      // a binding site, not a use.
       i += 1;
       if (i < n && (snl[i] === '%' || snl[i] === '$')) continue;
       while (i < n && isIdCont(snl[i])) i += 1;
@@ -4115,23 +4136,36 @@ export function extractMacroNamesFromSnl(snl: string): string[] {
     if (isIdStart(c)) {
       let j = i + 1;
       while (j < n && isIdCont(snl[j])) j += 1;
-      out.add(snl.slice(i, j));
+      macros.add(snl.slice(i, j));
       i = j;
       if (i < n && snl[i] === '[') {
         while (i < n && snl[i] !== ']') i += 1;
         if (i < n) i += 1;
       }
-      // Skip the `x@foo` src-postfix's `@name` chunk — it's a
-      // context-entry reference, not a macro use.
+      // `x@foo` src postfix: `x` was just collected as a macro name (a
+      // false positive we accept — unregistered names produce no edge),
+      // but the `@foo` chunk names a context-entry id and IS the
+      // uses_context source ref.
       if (i < n && snl[i] === '@') {
         i += 1;
+        const start = i;
         while (i < n && isIdCont(snl[i])) i += 1;
+        if (i > start) contextSrcs.add(snl.slice(start, i));
       }
       continue;
     }
     i += 1;
   }
-  return Array.from(out);
+  return { macros: Array.from(macros), contextSrcs: Array.from(contextSrcs) };
+}
+
+/**
+ * @deprecated Prefer {@link extractSnlReferences} which also returns the
+ * `x@foo` context-src target set. Retained for callers only interested
+ * in macro names.
+ */
+export function extractMacroNamesFromSnl(snl: string): string[] {
+  return extractSnlReferences(snl).macros;
 }
 
 /** Report from {@link regenerateDependencyRelationships}. */
@@ -4141,6 +4175,7 @@ export interface DependencyGenReport {
   updated: number;
   preservedUser: number;
   totalDepends: number;
+  totalUsesContext: number;
   atomicCount: number;
 }
 
@@ -4151,10 +4186,20 @@ export interface DependencyScope {
 
 /**
  * Regenerate the auto-managed subset of `relationships.json` for a scope.
- * Auto rows are identified by (label === "depends") AND
+ * Auto rows are identified by (label ∈ AUTO_LABELS) AND
  * (metadata.generator === "macro-source-scan"). User-authored rows and
  * out-of-scope auto rows are preserved verbatim.
- * Atomicity is recomputed globally over the union set.
+ *
+ * Two auto label kinds (cat 2026-07-10):
+ *   - "depends"      — source: `macros[name].source.entries` for each
+ *                      macro name used in the entry's SNL.
+ *   - "uses_context" — source: the `<foo>` target of every `x@<foo>`
+ *                      postfix in the entry's SNL (cross-entry context
+ *                      binding, Stage 1 §src-postfix).
+ *
+ * Atomicity (metadata.isAtomic) is recomputed PER LABEL over the merged
+ * graph: A→B in label L is atomic iff no alternative path A→…→B exists
+ * using only label-L edges.
  */
 export async function regenerateDependencyRelationships(
   workspaceRoot: vscode.Uri,
@@ -4173,80 +4218,100 @@ export async function regenerateDependencyRelationships(
     const macros = await readAllMacros(workspaceRoot);
     const existing = await readRelationships(workspaceRoot);
 
+    const isAutoRow = (r: RelationshipData): boolean =>
+      AUTO_LABELS.includes(r.label) &&
+      r.metadata !== null &&
+      typeof r.metadata === 'object' &&
+      (r.metadata as { generator?: unknown }).generator ===
+        AUTO_GENERATOR_TAG;
+
+    // Preserve: user-authored rows AND out-of-scope auto rows.
+    // In-scope auto rows are indexed for id-stable regen.
     const preservedRows: RelationshipData[] = [];
-    const inScopeAuto = new Map<string, RelationshipData>(); // key "from|to"
+    // key = "<label>|<from>|<to>"
+    const inScopeAuto = new Map<string, RelationshipData>();
     for (const r of existing) {
-      const isAuto =
-        r.label === AUTO_LABEL &&
-        r.metadata !== null &&
-        typeof r.metadata === 'object' &&
-        (r.metadata as { generator?: unknown }).generator ===
-          AUTO_GENERATOR_TAG;
       const inScope = scope.entryIds === null || scope.entryIds.has(r.from);
-      if (isAuto && inScope) {
-        inScopeAuto.set(`${r.from}|${r.to}`, r);
+      if (isAutoRow(r) && inScope) {
+        inScopeAuto.set(`${r.label}|${r.from}|${r.to}`, r);
       } else {
         preservedRows.push(r);
       }
     }
-    const preservedUserOnly = preservedRows.filter((r) => {
-      const isAuto =
-        r.label === AUTO_LABEL &&
-        r.metadata !== null &&
-        typeof r.metadata === 'object' &&
-        (r.metadata as { generator?: unknown }).generator ===
-          AUTO_GENERATOR_TAG;
-      return !isAuto;
-    }).length;
+    const preservedUserOnly = preservedRows.filter((r) => !isAutoRow(r)).length;
 
-    // Compute new in-scope auto rows.
+    // Compute new in-scope auto rows for BOTH labels.
     const newAuto = new Map<
       string,
-      { rel: RelationshipData; macrosSet: Set<string> }
+      { rel: RelationshipData; witnessSet: Set<string> }
     >();
+
+    const idPrefix: Record<string, string> = {
+      [AUTO_LABEL]: 'dep',
+      [AUTO_LABEL_USES_CONTEXT]: 'ctx'
+    };
+    const witnessField: Record<string, string> = {
+      [AUTO_LABEL]: 'macros',       // depends: which macros triggered
+      [AUTO_LABEL_USES_CONTEXT]: 'postfixes' // uses_context: which local var names
+    };
+    const upsert = (
+      label: string,
+      from: string,
+      to: string,
+      witness: string
+    ): void => {
+      if (!to || from === to) return;
+      if (!poolIds.has(to)) return;
+      const key = `${label}|${from}|${to}`;
+      let bucket = newAuto.get(key);
+      if (!bucket) {
+        const prev = inScopeAuto.get(key);
+        bucket = {
+          rel: {
+            id: prev?.id ?? `${idPrefix[label]}.${from}.${to}`,
+            from,
+            to,
+            label,
+            metadata: {
+              generator: AUTO_GENERATOR_TAG,
+              [witnessField[label]]: [] as string[],
+              isAtomic: true
+            }
+          },
+          witnessSet: new Set<string>()
+        };
+        newAuto.set(key, bucket);
+      }
+      bucket.witnessSet.add(witness);
+    };
+
     for (const e of entries) {
       if (scope.entryIds !== null && !scope.entryIds.has(e.id)) continue;
       const snl = e.content?.snl ?? '';
       if (!snl.trim()) continue;
-      const names = extractMacroNamesFromSnl(snl);
-      for (const name of names) {
+      const refs = extractSnlReferences(snl);
+      // "depends" via macro source resolution.
+      for (const name of refs.macros) {
         const m = macros[name];
         if (!m || !Array.isArray(m.source?.entries)) continue;
         for (const src of m.source.entries) {
-          if (!src || src === e.id) continue;
-          if (!poolIds.has(src)) continue;
-          const key = `${e.id}|${src}`;
-          let bucket = newAuto.get(key);
-          if (!bucket) {
-            const prev = inScopeAuto.get(key);
-            bucket = {
-              rel: {
-                id: prev?.id ?? `dep.${e.id}.${src}`,
-                from: e.id,
-                to: src,
-                label: AUTO_LABEL,
-                metadata: {
-                  generator: AUTO_GENERATOR_TAG,
-                  macros: [],
-                  isAtomic: true
-                }
-              },
-              macrosSet: new Set<string>()
-            };
-            newAuto.set(key, bucket);
-          }
-          bucket.macrosSet.add(name);
+          upsert(AUTO_LABEL, e.id, src, name);
         }
+      }
+      // "uses_context" via x@foo direct-target references.
+      for (const src of refs.contextSrcs) {
+        // Use the entry's SNL scanner already collected the local-var
+        // name via the `x` prefix; but we didn't return it, so witness
+        // is the src itself. Good enough — the target IS the interesting
+        // datum, and duplicates collapse naturally into one edge.
+        upsert(AUTO_LABEL_USES_CONTEXT, e.id, src, src);
       }
     }
 
+    // Freeze witness arrays into stable-sorted lists on metadata.
     for (const b of newAuto.values()) {
-      const md = b.rel.metadata as {
-        generator: string;
-        macros: string[];
-        isAtomic: boolean;
-      };
-      md.macros = Array.from(b.macrosSet).sort();
+      const md = b.rel.metadata as Record<string, unknown>;
+      md[witnessField[b.rel.label]] = Array.from(b.witnessSet).sort();
     }
 
     const merged: RelationshipData[] = [...preservedRows];
@@ -4266,10 +4331,15 @@ export async function regenerateDependencyRelationships(
     for (const k of inScopeAuto.keys()) {
       if (!newAuto.has(k)) removed += 1;
     }
-    const totalDepends = merged.filter((r) => r.label === AUTO_LABEL).length;
+    const totalDepends = merged.filter(
+      (r) => r.label === AUTO_LABEL
+    ).length;
+    const totalUsesContext = merged.filter(
+      (r) => r.label === AUTO_LABEL_USES_CONTEXT
+    ).length;
     const atomicCount = merged.filter(
       (r) =>
-        r.label === AUTO_LABEL &&
+        AUTO_LABELS.includes(r.label) &&
         r.metadata !== null &&
         typeof r.metadata === 'object' &&
         (r.metadata as { isAtomic?: unknown }).isAtomic === true
@@ -4289,6 +4359,7 @@ export async function regenerateDependencyRelationships(
         updated,
         preservedUser: preservedUserOnly,
         totalDepends,
+        totalUsesContext,
         atomicCount
       }
     };
@@ -4301,38 +4372,42 @@ export async function regenerateDependencyRelationships(
 }
 
 /**
- * Mark each `depends` edge with metadata.isAtomic = true|false.
- * An edge A→B is atomic iff there is NO alternative path A→…→B of
- * length ≥ 2 over the depends-graph.
+ * Mark each auto-managed edge (label ∈ AUTO_LABELS) with
+ * `metadata.isAtomic = true|false`. Atomicity is computed PER LABEL:
+ * an A→B edge with label L is atomic iff no alternative path A→…→B of
+ * length ≥ 2 exists using only label-L edges.
  *
- * Algorithm: for each edge, BFS from source over depends edges
- * excluding that one direct edge; if target reachable, not atomic.
+ * Algorithm: bucket by label, for each edge BFS from source over
+ * same-label edges excluding that one direct edge; if target reachable,
+ * not atomic. O(V × (V+E)) per label.
  */
 export function computeAtomicityInPlace(rels: RelationshipData[]): void {
-  const dep: { rel: RelationshipData; idx: number }[] = [];
-  rels.forEach((r) => {
-    if (r.label === AUTO_LABEL) dep.push({ rel: r, idx: dep.length });
-  });
-  const adj = new Map<string, { to: string; edgeIdx: number }[]>();
-  dep.forEach(({ rel, idx }) => {
-    if (!adj.has(rel.from)) adj.set(rel.from, []);
-    adj.get(rel.from)!.push({ to: rel.to, edgeIdx: idx });
-  });
-  dep.forEach(({ rel, idx: thisIdx }) => {
-    const seen = new Set<string>([rel.from]);
-    const queue: string[] = [rel.from];
-    let hit = false;
-    while (queue.length > 0 && !hit) {
-      const cur = queue.shift()!;
-      const outs = adj.get(cur) ?? [];
-      for (const e of outs) {
-        if (cur === rel.from && e.edgeIdx === thisIdx) continue;
-        if (e.to === rel.to) { hit = true; break; }
-        if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
+  for (const label of AUTO_LABELS) {
+    const bucket: { rel: RelationshipData; idx: number }[] = [];
+    rels.forEach((r) => {
+      if (r.label === label) bucket.push({ rel: r, idx: bucket.length });
+    });
+    const adj = new Map<string, { to: string; edgeIdx: number }[]>();
+    bucket.forEach(({ rel, idx }) => {
+      if (!adj.has(rel.from)) adj.set(rel.from, []);
+      adj.get(rel.from)!.push({ to: rel.to, edgeIdx: idx });
+    });
+    bucket.forEach(({ rel, idx: thisIdx }) => {
+      const seen = new Set<string>([rel.from]);
+      const queue: string[] = [rel.from];
+      let hit = false;
+      while (queue.length > 0 && !hit) {
+        const cur = queue.shift()!;
+        const outs = adj.get(cur) ?? [];
+        for (const e of outs) {
+          if (cur === rel.from && e.edgeIdx === thisIdx) continue;
+          if (e.to === rel.to) { hit = true; break; }
+          if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
+        }
       }
-    }
-    const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
-    md.isAtomic = !hit;
-    rel.metadata = md;
-  });
+      const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
+      md.isAtomic = !hit;
+      rel.metadata = md;
+    });
+  }
 }

@@ -50,7 +50,15 @@ interface GraphMessage {
 // Layout
 // ---------------------------------------------------------------------------
 
-interface LaidOutNode extends GraphNode {
+interface LaidOutNode {
+  id: string;          // real node id (participating rows) or "__dummy_<n>" for virtuals
+  isDummy: boolean;
+  // Only meaningful when !isDummy:
+  title: string;
+  kind: string;
+  kindId: string;
+  color: string;
+  background: string;
   x: number;
   y: number;
   w: number;
@@ -59,6 +67,10 @@ interface LaidOutNode extends GraphNode {
 
 interface LaidOutEdge extends GraphEdge {
   isBack: boolean; // was reversed during cycle-break; render dashed
+  /** X/Y waypoints threaded through dummy-node centres between endpoints.
+   *  Endpoints themselves are NOT included; empty for short (single-layer)
+   *  edges. */
+  waypoints: { x: number; y: number }[];
 }
 
 interface Layout {
@@ -73,6 +85,9 @@ const NODE_H = 44;
 const LAYER_GAP_Y = 90;
 const NODE_GAP_X = 24;
 const MARGIN = 40;
+/** Virtual dummies get zero width — they occupy an x slot for routing but
+ *  don't reserve display width in the row (their neighbours pack tight). */
+const DUMMY_W = 0;
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   if (nodes.length === 0) {
@@ -94,8 +109,6 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   const color = new Map<string, 0 | 1 | 2>();
   for (const n of nodes) color.set(n.id, 0);
   const dfs = (start: string): void => {
-    // Iterative DFS with a small state stack to avoid blowing recursion on
-    // ~10k nodes.
     const stack: { id: string; i: number }[] = [{ id: start, i: 0 }];
     color.set(start, 1);
     while (stack.length > 0) {
@@ -135,7 +148,6 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
     preds.get(e.to)!.push(e.from);
     succs.get(e.from)!.push(e.to);
   }
-  // Topological order via Kahn.
   const indeg = new Map<string, number>();
   for (const n of nodes) indeg.set(n.id, preds.get(n.id)!.length);
   const queue: string[] = [];
@@ -151,7 +163,6 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
       if (d === 0) queue.push(s);
     }
   }
-  // Rank = 1 + max(pred.rank) (roots at rank 0).
   const rank = new Map<string, number>();
   for (const n of nodes) rank.set(n.id, 0);
   for (const id of topo) {
@@ -163,13 +174,75 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   }
   const maxRank = Math.max(0, ...Array.from(rank.values()));
 
-  // ---- 3. Bucket into layers + median-sort to reduce crossings
-  const layers: string[][] = Array.from({ length: maxRank + 1 }, () => []);
-  for (const n of nodes) {
-    layers[rank.get(n.id) ?? 0].push(n.id);
+  // ---- 2b. Dummy-node insertion for long edges (cat 2026-07-10 §4).
+  //
+  // A long edge A(r=k) → B(r=k+m) with m>1 skips intermediate layers and
+  // has no barycentre input for the sort — this is exactly the
+  // "很左边的拉一条边到最右边" symptom cat flagged. Fix: replace each
+  // long edge with a chain A → d1(r=k+1) → d2(r=k+2) → … → B, where
+  // d_i are virtual dummies that participate in ordering but render as
+  // waypoints on the real edge.
+  //
+  // `dummiesByEdge` holds the chain per original edge id (in visit
+  // order — d1 at rank k+1, d2 at k+2, …). Empty for short edges.
+  interface DummyRec { id: string; rank: number }
+  const dummiesByEdge = new Map<string, DummyRec[]>();
+  // `layerPreds` and `layerSuccs` are the PER-LAYER-PAIR adjacency we
+  // sort against. They include dummies + real nodes.
+  const layerPreds = new Map<string, string[]>();
+  const layerSuccs = new Map<string, string[]>();
+  const initEdges = (id: string): void => {
+    if (!layerPreds.has(id)) layerPreds.set(id, []);
+    if (!layerSuccs.has(id)) layerSuccs.set(id, []);
+  };
+  for (const n of nodes) initEdges(n.id);
+
+  // Track dummy rank for later coord assignment.
+  const dummyRank = new Map<string, number>();
+
+  let dummyCounter = 0;
+  for (const e of forwardEdges) {
+    const rFrom = rank.get(e.from)!;
+    const rTo = rank.get(e.to)!;
+    if (rTo - rFrom <= 1) {
+      // Short edge: direct sort input.
+      layerSuccs.get(e.from)!.push(e.to);
+      layerPreds.get(e.to)!.push(e.from);
+      continue;
+    }
+    // Long edge: create dummies at every intermediate rank.
+    const chain: DummyRec[] = [];
+    for (let r = rFrom + 1; r < rTo; r++) {
+      const id = `__dummy_${dummyCounter++}`;
+      chain.push({ id, rank: r });
+      dummyRank.set(id, r);
+      initEdges(id);
+    }
+    dummiesByEdge.set(e.id, chain);
+    // Link the chain: from → d1 → d2 → … → to.
+    let prev = e.from;
+    for (const d of chain) {
+      layerSuccs.get(prev)!.push(d.id);
+      layerPreds.get(d.id)!.push(prev);
+      prev = d.id;
+    }
+    layerSuccs.get(prev)!.push(e.to);
+    layerPreds.get(e.to)!.push(prev);
   }
-  // Initial order: by id for determinism.
-  for (const layer of layers) layer.sort();
+
+  // ---- 3. Bucket into layers (real + dummy) + barycentre sort
+  const layers: string[][] = Array.from({ length: maxRank + 1 }, () => []);
+  for (const n of nodes) layers[rank.get(n.id) ?? 0].push(n.id);
+  for (const [id, r] of dummyRank) layers[r].push(id);
+  // Initial deterministic order (real first for stability, then dummies).
+  for (const layer of layers) {
+    layer.sort((a, b) => {
+      const ad = a.startsWith('__dummy_');
+      const bd = b.startsWith('__dummy_');
+      if (ad !== bd) return ad ? 1 : -1;
+      return a.localeCompare(b);
+    });
+  }
   const orderIdx = new Map<string, number>();
   const recomputeOrder = (): void => {
     for (const layer of layers) {
@@ -177,41 +250,44 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
     }
   };
   recomputeOrder();
-  const median = (arr: number[]): number => {
+
+  // Barycentre = arithmetic mean of neighbour positions. Cat 2026-07-10
+  // §4: "根据下层依赖节点的 x 值取平均后比大小然后横向排列" — the
+  // downstream direction uses successor barycentre.
+  const barycentre = (arr: number[]): number => {
     if (arr.length === 0) return -1;
-    const sorted = arr.slice().sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
+    let s = 0;
+    for (const v of arr) s += v;
+    return s / arr.length;
   };
-  // Two passes: down (use predecessor medians), up (use successor medians).
-  for (let iter = 0; iter < 4; iter++) {
+  // Alternate down and up passes. 8 iterations is more than enough at
+  // typical sizes and cheap thanks to O(|E|) per pass. Barycentre with
+  // dummies inserted converges to a Sugiyama-quality layout.
+  for (let iter = 0; iter < 8; iter++) {
+    // Down pass: layer li's order sorted by mean of PREDECESSOR positions.
     for (let li = 1; li < layers.length; li++) {
       const layer = layers[li];
       const key = new Map<string, number>();
       for (const id of layer) {
-        const ps = preds.get(id)!;
-        key.set(
-          id,
-          median(ps.map((p) => orderIdx.get(p) ?? 0))
-        );
+        const ps = layerPreds.get(id) ?? [];
+        key.set(id, barycentre(ps.map((p) => orderIdx.get(p) ?? 0)));
       }
       layer.sort((a, b) => {
         const ka = key.get(a) ?? -1;
         const kb = key.get(b) ?? -1;
         if (ka === kb) return a.localeCompare(b);
-        // -1 (no preds) → stays at start
         return ka - kb;
       });
     }
     recomputeOrder();
+    // Up pass: layer li's order sorted by mean of SUCCESSOR positions.
+    // Cat's spec framed it as "下层" (successors) explicitly.
     for (let li = layers.length - 2; li >= 0; li--) {
       const layer = layers[li];
       const key = new Map<string, number>();
       for (const id of layer) {
-        const ss = succs.get(id)!;
-        key.set(
-          id,
-          median(ss.map((s) => orderIdx.get(s) ?? 0))
-        );
+        const ss = layerSuccs.get(id) ?? [];
+        key.set(id, barycentre(ss.map((s) => orderIdx.get(s) ?? 0)));
       }
       layer.sort((a, b) => {
         const ka = key.get(a) ?? -1;
@@ -224,34 +300,73 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   }
 
   // ---- 4. Assign pixel coordinates.
-  const maxWidthNodes = Math.max(...layers.map((l) => l.length));
-  const totalWidth =
-    MARGIN * 2 + Math.max(1, maxWidthNodes) * NODE_W +
-    Math.max(0, maxWidthNodes - 1) * NODE_GAP_X;
+  // Layer width computed with dummies collapsed (they contribute a small
+  // gap but no NODE_W).
+  const layerWidth = (layer: string[]): number => {
+    let w = 0;
+    let realCount = 0;
+    for (const id of layer) {
+      const isDummy = id.startsWith('__dummy_');
+      w += isDummy ? DUMMY_W : NODE_W;
+      if (!isDummy) realCount += 1;
+    }
+    if (layer.length > 1) w += (layer.length - 1) * NODE_GAP_X;
+    return w;
+  };
+  const maxRowW = Math.max(0, ...layers.map((l) => layerWidth(l)));
+  const totalWidth = MARGIN * 2 + maxRowW;
   const totalHeight =
     MARGIN * 2 + layers.length * NODE_H + (layers.length - 1) * LAYER_GAP_Y;
 
-  const laidNodesById = new Map<string, LaidOutNode>();
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const laidNodesById = new Map<string, LaidOutNode>();
+  const dummyCentres = new Map<string, { x: number; y: number }>();
+
   layers.forEach((layer, li) => {
-    const rowW =
-      layer.length * NODE_W + Math.max(0, layer.length - 1) * NODE_GAP_X;
-    const startX = (totalWidth - rowW) / 2;
-    layer.forEach((id, i) => {
-      const src = nodeById.get(id)!;
-      laidNodesById.set(id, {
-        ...src,
-        x: startX + i * (NODE_W + NODE_GAP_X),
-        y: MARGIN + li * (NODE_H + LAYER_GAP_Y),
-        w: NODE_W,
-        h: NODE_H
-      });
-    });
+    const rowW = layerWidth(layer);
+    let x = (totalWidth - rowW) / 2;
+    const y = MARGIN + li * (NODE_H + LAYER_GAP_Y);
+    for (const id of layer) {
+      const isDummy = id.startsWith('__dummy_');
+      const w = isDummy ? DUMMY_W : NODE_W;
+      if (isDummy) {
+        // Waypoint: horizontal centre at x, vertical centre at layer
+        // middle. We stash x + y so edge routing can pick them up.
+        dummyCentres.set(id, { x: x + w / 2, y: y + NODE_H / 2 });
+      } else {
+        const src = nodeById.get(id)!;
+        laidNodesById.set(id, {
+          id,
+          isDummy: false,
+          title: src.title,
+          kind: src.kind,
+          kindId: src.kindId,
+          color: src.color,
+          background: src.background,
+          x,
+          y,
+          w,
+          h: NODE_H
+        });
+      }
+      x += w + NODE_GAP_X;
+    }
   });
 
-  const laidEdges: LaidOutEdge[] = edges
-    .filter((e) => laidNodesById.has(e.from) && laidNodesById.has(e.to))
-    .map((e) => ({ ...e, isBack: backEdgeIds.has(e.id) }));
+  // ---- 5. Build edges with waypoints threaded through dummies.
+  const laidEdges: LaidOutEdge[] = [];
+  for (const e of edges) {
+    if (!laidNodesById.has(e.from) || !laidNodesById.has(e.to)) continue;
+    const dummies = dummiesByEdge.get(e.id) ?? [];
+    const waypoints = dummies
+      .map((d) => dummyCentres.get(d.id))
+      .filter((p): p is { x: number; y: number } => !!p);
+    laidEdges.push({
+      ...e,
+      isBack: backEdgeIds.has(e.id),
+      waypoints
+    });
+  }
 
   return {
     nodes: Array.from(laidNodesById.values()),
@@ -276,21 +391,41 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1) + '…';
 }
 
-/** Compute an SVG path for an edge, curving to avoid horizontal collinearity. */
+/**
+ * Compute an SVG path for an edge, routing through any waypoints
+ * (dummy-node centres inserted at intermediate layers). Segments between
+ * consecutive waypoints (or endpoint↔waypoint) are cubic beziers with
+ * vertical control tangents so the overall path stays smooth.
+ */
 function edgePath(
   from: LaidOutNode,
-  to: LaidOutNode
+  to: LaidOutNode,
+  waypoints: { x: number; y: number }[]
 ): { d: string; midX: number; midY: number } {
   const x1 = from.x + from.w / 2;
   const y1 = from.y + from.h;
   const x2 = to.x + to.w / 2;
   const y2 = to.y;
-  // Cubic bezier with vertical control points.
-  const dy = y2 - y1;
-  const c1y = y1 + dy * 0.5;
-  const c2y = y2 - dy * 0.5;
-  const d = `M ${x1} ${y1} C ${x1} ${c1y}, ${x2} ${c2y}, ${x2} ${y2}`;
-  return { d, midX: (x1 + x2) / 2, midY: (y1 + y2) / 2 };
+  // Full point sequence: source-anchor, waypoints…, target-anchor.
+  const pts = [{ x: x1, y: y1 }, ...waypoints, { x: x2, y: y2 }];
+  const segments: string[] = [`M ${pts[0].x} ${pts[0].y}`];
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[i - 1];
+    const p1 = pts[i];
+    const dy = p1.y - p0.y;
+    const c1y = p0.y + dy * 0.5;
+    const c2y = p1.y - dy * 0.5;
+    segments.push(
+      `C ${p0.x} ${c1y}, ${p1.x} ${c2y}, ${p1.x} ${p1.y}`
+    );
+  }
+  // Label anchor: middle of the WHOLE run (endpoint-to-endpoint midpoint
+  // is fine even with waypoints, since we're hiding labels for now).
+  return {
+    d: segments.join(' '),
+    midX: (x1 + x2) / 2,
+    midY: (y1 + y2) / 2
+  };
 }
 
 export function SnlGraphApp(): React.ReactElement {
@@ -467,8 +602,8 @@ export function SnlGraphApp(): React.ReactElement {
             }
             title={
               depFilter === 'all'
-                ? 'Click to hide non-atomic dependency edges'
-                : 'Click to show every edge'
+                ? 'Currently showing every edge (atomic AND non-atomic dependencies + user-authored). Click to hide non-atomic dependency edges.'
+                : 'Currently hiding non-atomic dependency edges (composites). Click to show every edge again.'
             }
             style={{
               padding: '0.25rem 0.6rem',
@@ -489,8 +624,8 @@ export function SnlGraphApp(): React.ReactElement {
             }}
           >
             {depFilter === 'atomic-deps'
-              ? '● atomic deps only'
-              : '○ all edges'}
+              ? 'showing: atomic deps only'
+              : 'showing: all deps (atomic + composite)'}
           </button>
           <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
             scroll to zoom · drag to pan · click node → open Infoview
@@ -576,7 +711,7 @@ export function SnlGraphApp(): React.ReactElement {
               {laid.edges.map((e) => {
                 const from = nodesById.get(e.from)!;
                 const to = nodesById.get(e.to)!;
-                const { d, midX, midY } = edgePath(from, to);
+                const { d } = edgePath(from, to, e.waypoints);
                 const hovered = hoverEdgeId === e.id;
                 const nonAtomicDep = e.isDependency && e.isAtomic === false;
                 const baseOpacity = nonAtomicDep ? 0.28 : 0.55;
@@ -592,6 +727,15 @@ export function SnlGraphApp(): React.ReactElement {
                       post({ type: 'editRelationship', id: e.id })
                     }
                   >
+                    {/* Native tooltip carries the label until the
+                        interactive display lands (cat 2026-07-10 §2). */}
+                    <title>
+                      {e.label}
+                      {e.isDependency && e.isAtomic !== null
+                        ? ` (${e.isAtomic ? 'atomic' : 'composite'})`
+                        : ''}
+                      {'\n'}{e.from} → {e.to}
+                    </title>
                     <path
                       d={d}
                       fill="none"
@@ -601,31 +745,6 @@ export function SnlGraphApp(): React.ReactElement {
                       strokeDasharray={e.isBack ? '5 4' : undefined}
                       markerEnd="url(#snl-graph-arrow)"
                     />
-                    {e.label ? (
-                      <g transform={`translate(${midX} ${midY})`}>
-                        <rect
-                          x={-Math.min(80, e.label.length * 4 + 6)}
-                          y={-9}
-                          width={Math.min(160, e.label.length * 8 + 12)}
-                          height={18}
-                          rx={3}
-                          ry={3}
-                          fill="var(--vscode-editor-background, #1e1e1e)"
-                          fillOpacity={hovered ? 0.95 : 0.75}
-                          stroke="var(--vscode-editor-foreground, #ddd)"
-                          strokeOpacity={hovered ? 0.7 : 0.25}
-                        />
-                        <text
-                          textAnchor="middle"
-                          dominantBaseline="central"
-                          fontSize={11}
-                          fontFamily="var(--vscode-editor-font-family, monospace)"
-                          fill="var(--vscode-editor-foreground, #ddd)"
-                        >
-                          {truncate(e.label, 24)}
-                        </text>
-                      </g>
-                    ) : null}
                   </g>
                 );
               })}

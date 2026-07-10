@@ -528,7 +528,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const r = res.report;
       vscode.window.showInformationMessage(
         `Dependencies regenerated. +${r.added} / ~${r.updated} / −${r.removed}. ` +
-          `${r.totalDepends} depends edges total (${r.atomicCount} atomic). ` +
+          `${r.totalDepends} "depends" edges, ${r.totalUsesContext} "uses_context" edges ` +
+          `(${r.atomicCount} atomic total). ` +
           `${r.preservedUser} user-authored rows preserved.`
       );
     }

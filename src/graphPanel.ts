@@ -290,14 +290,17 @@ export class GraphPanel {
         from: r.from,
         to: r.to,
         label: r.label,
+        // Auto-managed = generator tag AND label ∈ {depends, uses_context}.
+        // The graph filter treats them uniformly so cat's atomic-only
+        // toggle covers both kinds (cat 2026-07-10).
         isDependency:
-          r.label === 'depends' &&
+          (r.label === 'depends' || r.label === 'uses_context') &&
           r.metadata !== null &&
           typeof r.metadata === 'object' &&
           (r.metadata as { generator?: unknown }).generator ===
             'macro-source-scan',
         isAtomic:
-          r.label === 'depends' &&
+          (r.label === 'depends' || r.label === 'uses_context') &&
           r.metadata !== null &&
           typeof r.metadata === 'object' &&
           typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'

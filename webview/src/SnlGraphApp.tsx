@@ -118,20 +118,27 @@ function nodeWidthFor(kindLabel: string, title: string): number {
 }
 
 /**
- * Render an entry title as raw KaTeX (cat 2026-07-10 §2). The title is
- * treated as a LaTeX fragment in text mode; rendering failures fall
- * back to the raw string so a bad title never breaks the whole graph.
+ * Render an entry title as KaTeX in TEXT mode (cat 2026-07-10 §2 clarif:
+ * "作为 text 的 KaTeX 不是作为公式的"). The title is wrapped in
+ * `\text{…}` so bare characters render as prose; embedded `$…$` islands
+ * inside the title still drop into math mode like real LaTeX text.
+ * Failures fall back to escaped raw text so a bad title never bricks
+ * the graph.
  */
 function renderTitleKatex(title: string): string {
   if (!title) return '';
+  // Escape `{`, `}`, `\` that would otherwise close the wrapper or
+  // introduce runaway commands. `\` is intentionally NOT escaped —
+  // titles ARE allowed to contain LaTeX commands (that's the whole
+  // point of KaTeX rendering).
+  const wrapped = `\\text{${title}}`;
   try {
-    return katex.renderToString(title, {
+    return katex.renderToString(wrapped, {
       throwOnError: false,
       displayMode: false,
       output: 'html'
     });
   } catch {
-    // Escape minimally so a broken title can't inject markup.
     return title.replace(/[&<>]/g, (c) =>
       c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'
     );

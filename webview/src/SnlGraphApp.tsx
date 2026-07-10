@@ -14,6 +14,8 @@
 // label → post `editRelationship`. No physics.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
@@ -103,11 +105,37 @@ const CHAR_W_TITLE = 7.5;   // 13px, weight 600
 const CHAR_W_KIND = 6.0;    // 11px, weight normal, opacity 0.65
 
 function nodeWidthFor(kindLabel: string, title: string): number {
+  // Title now renders via KaTeX (cat 2026-07-10 §2), so the raw
+  // character count is only a rough proxy — LaTeX escapes shrink
+  // (\alpha → 1 glyph) while sub/sup and matrices swell. Pad the
+  // estimate a bit and keep the clamp so weird cases stay in bounds.
+  const titleChars = title.replace(/\\[a-zA-Z]+/g, 'X').length;
   const w = Math.max(
     kindLabel.length * CHAR_W_KIND,
-    title.length * CHAR_W_TITLE
+    titleChars * CHAR_W_TITLE
   ) + NODE_PADDING_X;
   return Math.min(NODE_W_MAX, Math.max(NODE_W_MIN, Math.round(w)));
+}
+
+/**
+ * Render an entry title as raw KaTeX (cat 2026-07-10 §2). The title is
+ * treated as a LaTeX fragment in text mode; rendering failures fall
+ * back to the raw string so a bad title never breaks the whole graph.
+ */
+function renderTitleKatex(title: string): string {
+  if (!title) return '';
+  try {
+    return katex.renderToString(title, {
+      throwOnError: false,
+      displayMode: false,
+      output: 'html'
+    });
+  } catch {
+    // Escape minimally so a broken title can't inject markup.
+    return title.replace(/[&<>]/g, (c) =>
+      c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'
+    );
+  }
 }
 
 function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
@@ -876,20 +904,18 @@ function SnlGraphInner({
               {laid.nodes.map((n) => {
                 const isHovered = hoverNodeId === n.id;
                 const isSelected = selectedId === n.id;
-                // Cat 2026-07-10 §1+§2+§3: text takes the node's stroke
-                // color; hover/selection make the box white with a
-                // thicker border.
+                // Cat 2026-07-10: hover/selection → OPAQUE WHITE bg
+                // (dark-vs-light theme handling deferred). Text color
+                // stays at the node's kind-stroke color, which reads
+                // fine on white.
                 const highlighted = isHovered || isSelected;
                 const stroke = n.color;
                 const fill = highlighted
-                  ? 'var(--vscode-editor-background, #fff)'
+                  ? '#ffffff'
                   : n.background && n.background !== 'transparent'
                     ? n.background
                     : 'var(--vscode-editorWidget-background, #252526)';
-                // For dark themes the "white bg" contract translates to
-                // the editor background; the box already stands out via
-                // thicker stroke. Text color = stroke so it stays legible
-                // against either fill.
+                const titleHtml = renderTitleKatex(n.title);
                 return (
                   <g
                     key={n.id}
@@ -900,12 +926,9 @@ function SnlGraphInner({
                     onPointerLeave={() => handleNodePointerLeave(n)}
                     onClick={(ev) => handleNodeClick(n, ev)}
                   >
-                    <title>
-                      {n.title}
-                      {'\n'}id: {n.id}
-                      {'\n'}kind: {n.kind}
-                      {'\n'}click = select · Ctrl+click = open Infoview
-                    </title>
+                    {/* Cat 2026-07-10 §3: dropped the native <title>
+                        tooltip — the full-Entry hover popover already
+                        carries every fact this used to duplicate. */}
                     <rect
                       width={n.w}
                       height={n.h}
@@ -925,15 +948,30 @@ function SnlGraphInner({
                     >
                       {n.kind}
                     </text>
-                    <text
+                    {/* Cat 2026-07-10 §2: entry title rendered as raw
+                        KaTeX (LaTeX text-mode fragment). Uses
+                        foreignObject to embed KaTeX HTML output inside
+                        the SVG — KaTeX SVG output isn't a stable API. */}
+                    <foreignObject
                       x={10}
-                      y={34}
-                      fontSize={13}
-                      fontWeight={600}
-                      fill={stroke}
+                      y={20}
+                      width={n.w - 20}
+                      height={n.h - 22}
+                      style={{ pointerEvents: 'none' }}
                     >
-                      {n.title}
-                    </text>
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          color: stroke,
+                          lineHeight: '20px',
+                          overflow: 'hidden',
+                          whiteSpace: 'nowrap',
+                          textOverflow: 'ellipsis'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: titleHtml }}
+                      />
+                    </foreignObject>
                   </g>
                 );
               })}

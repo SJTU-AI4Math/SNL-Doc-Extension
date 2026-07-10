@@ -247,6 +247,34 @@ export function EntryRender({
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
 
+  // Cat 2026-07-09: cross-entry `x@foo` src-badge stylesheet. Injected
+  // ONCE per document (guarded by id) rather than per-EntryRender so
+  // long library outlines don't fight with hundreds of dupe <style>
+  // tags. Idempotent — subsequent EntryRender mounts noop.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('snl-src-badge-style')) return;
+    const el = document.createElement('style');
+    el.id = 'snl-src-badge-style';
+    el.textContent = `
+      .katex-html [data-src]::after {
+        content: "\u2197" attr(data-src);
+        display: inline-block;
+        margin-left: 0.15em;
+        padding: 0 0.28em;
+        font-size: 0.65em;
+        line-height: 1.4;
+        vertical-align: super;
+        border: 1px solid currentColor;
+        border-radius: 2px;
+        opacity: 0.65;
+        font-family: var(--vscode-editor-font-family, monospace);
+      }
+      .katex-html [data-src]:hover::after { opacity: 1; }
+    `;
+    document.head.appendChild(el);
+  }, []);
+
   // Merged DB: user macros layered over the bundled core. `MACRO_QUERY`
   // derives from it so `SnlSyntaxTreeView` sees a single consistent DB.
   const macroDb = useMemo<SnlMacroDb>(() => mergeMacroDb(userMacros), [userMacros]);
@@ -557,30 +585,6 @@ export function EntryRender({
           'background-color 150ms ease, outline-color 150ms ease'
       }}
     >
-      {/* Cat 2026-07-09: cross-entry `x@foo` src postfix — parser attaches
-          mdata.src, SNL-Basics emits `data-src="foo"` on the KaTeX span.
-          We surface it as a small badge via ::after so hover / navigate
-          wiring can land later without changing the DOM shape. The badge
-          is scoped to `[data-src]` inside `.katex-html` so it never
-          collides with the section-frame layout. */}
-      <style>{`
-        .katex-html [data-src]::after {
-          content: "↗" attr(data-src);
-          display: inline-block;
-          margin-left: 0.15em;
-          padding: 0 0.28em;
-          font-size: 0.65em;
-          line-height: 1.4;
-          vertical-align: super;
-          border: 1px solid currentColor;
-          border-radius: 2px;
-          opacity: 0.65;
-          font-family: var(--vscode-editor-font-family, monospace);
-        }
-        .katex-html [data-src]:hover::after {
-          opacity: 1;
-        }
-      `}</style>
       <header
         style={{
           // Header vertical padding halved (cat 2026-07-08): 0.55rem → 0.275rem

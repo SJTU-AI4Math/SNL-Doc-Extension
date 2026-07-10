@@ -22,6 +22,7 @@ import {
   type SnlRenderHooks
 } from '@snl-basics/react';
 import { useHoverPopovers, useCurrentPopoverId } from './HoverPopoverProvider';
+import { buildContextIndex, applyContextSrcLookup } from './contextSrcLookup';
 
 // Bundled core math macros ship with @snl-basics/react. User-defined macros
 // live in `.SNL_Doc/term_macros/*.json` and reach the webview via the
@@ -147,6 +148,14 @@ export interface EntryOption {
   id: string;
   title: string;
   hasContent: boolean;
+  /**
+   * Optional raw SNL content — used by the cross-entry `x@foo` bvar-
+   * upgrade lookup (cat 2026-07-09 Stage 1 §5). Included in the
+   * Infoview push so EntryRender can build the context index without
+   * a second round-trip. Other panels (search boxes, list dropdowns)
+   * don't need this and receive `undefined`.
+   */
+  snl?: string;
 }
 
 export interface EntryContent {
@@ -444,8 +453,25 @@ export function EntryRender({
   // finish. Main-panel EntryRender was accidentally fine because it only
   // re-renders on entry/kind selection, not pointer motion.
   const tree = useMemo(
-    () => (parsed.ok ? parseSnlSyntaxTree(snl) : null),
-    [parsed.ok, snl]
+    () => {
+      if (!parsed.ok) return null;
+      const t = parseSnlSyntaxTree(snl);
+      // Cat 2026-07-09 Stage 1 §5 — upgrade `x@foo` fvars to bvar when
+      // the target entry actually declares @x at top level. Runs post
+      // parse (annotate-bind only sees local scope) so any node whose
+      // mdata.src resolves picks up kind='bvar' and thus the bvar
+      // palette color + hover treatment.
+      const ctxIndex = buildContextIndex(
+        entries
+          .filter((e) => typeof e.snl === 'string' && e.snl.length > 0)
+          .map((e) => ({ id: e.id, content: { snl: e.snl } }))
+      );
+      if (ctxIndex.size > 0) {
+        applyContextSrcLookup(t, ctxIndex);
+      }
+      return t;
+    },
+    [parsed.ok, snl, entries]
   );
   const stroke = resolveStroke(kind?.coloring.stroke);
   const background = resolveBackground(kind?.coloring.background);

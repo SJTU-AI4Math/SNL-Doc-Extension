@@ -493,10 +493,14 @@ export class InfoviewPanel {
       }
 
       // Legacy flat pool (order = graph declaration order for Entry nodes).
+      // Cat 2026-07-09 Stage 1 lookup: include content.snl so the webview
+      // can build the cross-entry `x@foo` bvar-upgrade index. hasContent
+      // stays for callers that only care about non-emptiness.
       const flatEntries: {
         id: string;
         title: string;
         hasContent: boolean;
+        snl?: string;
       }[] = [];
       for (const node of graph.nodes) {
         if (node.label !== 'Entry') continue;
@@ -504,12 +508,12 @@ export class InfoviewPanel {
         if (typeof entryId !== 'string' || !entryId) continue;
         const e = entriesById.get(entryId);
         if (!e) continue;
+        const snl = typeof e.content?.snl === 'string' ? e.content.snl : '';
         flatEntries.push({
           id: e.id,
           title: e.title,
-          hasContent:
-            typeof e.content?.snl === 'string' &&
-            e.content.snl.trim().length > 0
+          hasContent: snl.trim().length > 0,
+          snl: snl || undefined
         });
       }
 
@@ -601,7 +605,14 @@ export class InfoviewPanel {
             typeof e.content?.snl === 'string' &&
             e.content.snl.trim().length > 0
         )
-        .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          hasContent: true as const,
+          // Cat 2026-07-09 Stage 1 lookup: include snl so webview's
+          // buildContextIndex can flip `x@foo` fvars to bvar.
+          snl: e.content?.snl
+        }));
       const macros = await this.readMacroDb();
       void this.panel.webview.postMessage({
         type: 'entryDetails',
@@ -643,7 +654,14 @@ export class InfoviewPanel {
             typeof e.content?.snl === 'string' &&
             e.content.snl.trim().length > 0
         )
-        .map((e) => ({ id: e.id, title: e.title, hasContent: true as const }));
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          hasContent: true as const,
+          // Cat 2026-07-09 Stage 1 lookup: include snl so webview's
+          // buildContextIndex can flip `x@foo` fvars to bvar.
+          snl: e.content?.snl
+        }));
       const macros = await this.readMacroDb();
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {

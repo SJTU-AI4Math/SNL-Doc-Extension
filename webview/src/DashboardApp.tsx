@@ -221,26 +221,46 @@ function Initialized({
         }}
       >
         <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNL Dashboard</h1>
-        <button
-          type="button"
-          onClick={() => api?.postMessage({ type: 'openInfoview' })}
-          title="Open the Infoview (reading surface)"
-          style={{
-            flex: '0 0 auto',
-            padding: '0.35rem 0.75rem',
-            fontFamily: 'inherit',
-            fontSize: '0.85rem',
-            border:
-              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-            borderRadius: '4px',
-            background:
-              'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-            color: 'inherit',
-            cursor: 'pointer'
-          }}
-        >
-          Open Infoview →
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', flex: '0 0 auto' }}>
+          <button
+            type="button"
+            onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
+            title="Open the pool-wide relationship graph"
+            style={{
+              padding: '0.35rem 0.75rem',
+              fontFamily: 'inherit',
+              fontSize: '0.85rem',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+              borderRadius: '4px',
+              background:
+                'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+              color: 'inherit',
+              cursor: 'pointer'
+            }}
+          >
+            View Graph
+          </button>
+          <button
+            type="button"
+            onClick={() => api?.postMessage({ type: 'openInfoview' })}
+            title="Open the Infoview (reading surface)"
+            style={{
+              padding: '0.35rem 0.75rem',
+              fontFamily: 'inherit',
+              fontSize: '0.85rem',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+              borderRadius: '4px',
+              background:
+                'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
+              color: 'inherit',
+              cursor: 'pointer'
+            }}
+          >
+            Open Infoview →
+          </button>
+        </div>
       </div>
 
       {/* === 1. Libraries ================================================== */}

@@ -200,11 +200,20 @@ function LibrariesLayer({
         title="SNL Infoview"
         subtitle={`${libraries.length} librar${libraries.length === 1 ? 'y' : 'ies'}`}
         actions={
-          <ToolbarButton
-            label="Edit in Dashboard"
-            title="Open the Dashboard (management surface)"
-            onClick={() => ctx.postMessage({ type: 'openDashboard' })}
-          />
+          <>
+            <ToolbarButton
+              label="View Graph"
+              title="Open the pool-wide relationship graph"
+              onClick={() =>
+                ctx.postMessage({ type: 'openInfoviewGraph' })
+              }
+            />
+            <ToolbarButton
+              label="Edit in Dashboard"
+              title="Open the Dashboard (management surface)"
+              onClick={() => ctx.postMessage({ type: 'openDashboard' })}
+            />
+          </>
         }
       />
       {libraries.length === 0 ? (
@@ -333,6 +342,16 @@ function LibraryLayer({
         actions={
           <>
             <ToolbarButton label="← Back" onClick={ctx.goBack} title="Back to libraries" />
+            <ToolbarButton
+              label="View Graph"
+              title={`Open the induced relationship subgraph for library "${slug}"`}
+              onClick={() =>
+                ctx.postMessage({
+                  type: 'openInfoviewGraphForLibrary',
+                  slug
+                })
+              }
+            />
             <ToolbarButton
               label="Edit this Library"
               title={`Open the editor for library "${slug}"`}

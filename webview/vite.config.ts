@@ -34,7 +34,8 @@ type Entry =
   | 'createMacroPackage'
   | 'packagePanel'
   | 'createMacro'
-  | 'createRelationship';
+  | 'createRelationship'
+  | 'snlGraph';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
@@ -49,7 +50,8 @@ const ENTRY_TO_INPUT: Record<Entry, string> = {
   createMacroPackage: 'src/createMacroPackage.tsx',
   packagePanel: 'src/packagePanel.tsx',
   createMacro: 'src/createMacro.tsx',
-  createRelationship: 'src/createRelationship.tsx'
+  createRelationship: 'src/createRelationship.tsx',
+  snlGraph: 'src/snlGraph.tsx'
 };
 
 const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';

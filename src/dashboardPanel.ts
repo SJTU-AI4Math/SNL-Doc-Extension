@@ -288,6 +288,9 @@ export class DashboardPanel {
         // toggle from either surface).
         await vscode.commands.executeCommand('snlDoc.openInfoview');
         return;
+      case 'openInfoviewGraph':
+        await vscode.commands.executeCommand('snlDoc.openInfoviewGraph');
+        return;
       default:
         return;
     }

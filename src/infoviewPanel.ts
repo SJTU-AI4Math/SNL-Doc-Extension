@@ -397,6 +397,17 @@ export class InfoviewPanel {
           );
         }
         return;
+      case 'openInfoviewGraph':
+        void vscode.commands.executeCommand('snlDoc.openInfoviewGraph');
+        return;
+      case 'openInfoviewGraphForLibrary':
+        if (typeof msg.slug === 'string' && msg.slug.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.openInfoviewGraphForLibrary',
+            msg.slug.trim()
+          );
+        }
+        return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
           await this.pushPopoverEntryDetails(msg.entryId.trim());

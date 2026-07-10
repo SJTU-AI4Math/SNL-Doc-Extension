@@ -11,6 +11,7 @@ import { CreateMacroPackagePanel } from './createMacroPackagePanel';
 import { PackagePanel } from './packagePanel';
 import { CreateMacroPanel } from './createMacroPanel';
 import { CreateRelationshipPanel } from './createRelationshipPanel';
+import { GraphPanel } from './graphPanel';
 import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
@@ -458,6 +459,24 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Graph viewer commands (cat 2026-07-10 Phase 2). Pool-wide entry
+  // point (palette) + per-library entry point (from Infoview library
+  // page). Both open the same GraphPanel class with different scopes.
+  const openInfoviewGraph = vscode.commands.registerCommand(
+    'snlDoc.openInfoviewGraph',
+    () => {
+      GraphPanel.openPool(context.extensionUri);
+    }
+  );
+
+  const openInfoviewGraphForLibrary = vscode.commands.registerCommand(
+    'snlDoc.openInfoviewGraphForLibrary',
+    (slug?: unknown) => {
+      if (typeof slug !== 'string' || !slug.trim()) return;
+      GraphPanel.openForLibrary(context.extensionUri, slug.trim());
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     openEntryInfoview,
@@ -486,7 +505,9 @@ export function activate(context: vscode.ExtensionContext): void {
     editMacro,
     createRelationship,
     editRelationship,
-    deleteRelationship
+    deleteRelationship,
+    openInfoviewGraph,
+    openInfoviewGraphForLibrary
   );
 }
 

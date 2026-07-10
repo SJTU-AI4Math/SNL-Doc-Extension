@@ -1,0 +1,323 @@
+import * as vscode from 'vscode';
+import {
+  listLibraries,
+  readEntries,
+  readEntryKinds,
+  readLibraryGraph,
+  readRelationships,
+  type EntryData,
+  type EntryKind,
+  type RelationshipData
+} from './snlDoc';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+
+/**
+ * Singleton graph-viewer panels (cat 2026-07-10 Phase 2).
+ *
+ * Renders the pool-wide relationship graph as a DAG-hierarchy layout with
+ * no physics, hiding isolated nodes. Two scopes:
+ *  - `pool` — every entry in the shared pool that appears on at least one
+ *    edge in relationships.json.
+ *  - `library:<slug>` — the induced subgraph over the library's entry set
+ *    (endpoints ∈ library.entryIds).
+ *
+ * Message protocol with the webview (`snlGraph` bundle):
+ *  - in  : `{ type: 'ready' }`
+ *        | `{ type: 'openEntryInfoview', entryId }`
+ *        | `{ type: 'editRelationship', id }`
+ *        | (nav messages via handlePanelNavMessage)
+ *  - out : `{ type: 'graph', scope, title, nodes[], edges[], warnings[] }`
+ *
+ * Auto-refresh: watches `.SNL_Doc/(config|entries|relationships).json`,
+ * `libraries/<slug>/graph.json` (for scope=library), and macro packages
+ * would refresh too but they don't affect the graph — kept narrow.
+ */
+
+interface GraphNodeOut {
+  id: string;
+  title: string;
+  kind: string; // entry kind name (fallback: kind id)
+  kindId: string;
+  color: string; // stroke/border color from kind palette
+  background: string;
+}
+
+interface GraphEdgeOut {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+}
+
+type GraphScope = { mode: 'pool' } | { mode: 'library'; slug: string };
+
+export class GraphPanel {
+  private static readonly instances = new Map<string, GraphPanel>();
+  private static readonly viewType = 'snlInfoviewGraph';
+
+  private readonly panel: vscode.WebviewPanel;
+  private readonly extensionUri: vscode.Uri;
+  private readonly scope: GraphScope;
+  private disposables: vscode.Disposable[] = [];
+
+  public static openPool(extensionUri: vscode.Uri): void {
+    GraphPanel.open(extensionUri, { mode: 'pool' });
+  }
+
+  public static openForLibrary(extensionUri: vscode.Uri, slug: string): void {
+    if (!slug) return;
+    GraphPanel.open(extensionUri, { mode: 'library', slug });
+  }
+
+  private static open(extensionUri: vscode.Uri, scope: GraphScope): void {
+    const column = vscode.ViewColumn.Active;
+    const key = scope.mode === 'pool' ? 'pool' : `library:${scope.slug}`;
+    const existing = GraphPanel.instances.get(key);
+    if (existing) {
+      existing.panel.reveal(column);
+      void existing.pushGraph();
+      return;
+    }
+    const title =
+      scope.mode === 'pool'
+        ? 'SNL Relationship Graph'
+        : `SNL Graph — ${scope.slug}`;
+    const panel = vscode.window.createWebviewPanel(
+      GraphPanel.viewType,
+      title,
+      column,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+      }
+    );
+    GraphPanel.instances.set(key, new GraphPanel(panel, extensionUri, scope));
+  }
+
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    scope: GraphScope
+  ) {
+    this.panel = panel;
+    this.extensionUri = extensionUri;
+    this.scope = scope;
+
+    const title =
+      scope.mode === 'pool'
+        ? 'SNL Relationship Graph'
+        : `SNL Graph — ${scope.slug}`;
+
+    this.panel.webview.html = buildPanelHtml(
+      this.extensionUri,
+      this.panel.webview,
+      'snlGraph',
+      title
+    );
+
+    this.panel.webview.onDidReceiveMessage(
+      (m) => this.handleMessage(m),
+      null,
+      this.disposables
+    );
+
+    this.installWatcher();
+
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  private installWatcher(): void {
+    const root = firstWorkspaceFolder();
+    if (!root) return;
+    const patterns: vscode.GlobPattern[] = [
+      new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json')
+    ];
+    if (this.scope.mode === 'library') {
+      patterns.push(
+        new vscode.RelativePattern(
+          root,
+          `.SNL_Doc/libraries/${this.scope.slug}/graph.json`
+        )
+      );
+    }
+    for (const p of patterns) {
+      const w = vscode.workspace.createFileSystemWatcher(p);
+      const refresh = (): void => {
+        void this.pushGraph();
+      };
+      w.onDidCreate(refresh, null, this.disposables);
+      w.onDidChange(refresh, null, this.disposables);
+      w.onDidDelete(refresh, null, this.disposables);
+      this.disposables.push(w);
+    }
+  }
+
+  private async handleMessage(message: unknown): Promise<void> {
+    if (await handlePanelNavMessage(message)) return;
+    const msg = message as { type?: string } | undefined;
+    if (!msg || typeof msg.type !== 'string') return;
+    switch (msg.type) {
+      case 'ready':
+        await this.pushGraph();
+        return;
+      case 'openEntryInfoview': {
+        const id = (msg as { entryId?: unknown }).entryId;
+        if (typeof id === 'string' && id.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.openEntryInfoview',
+            id.trim()
+          );
+        }
+        return;
+      }
+      case 'editRelationship': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.editRelationship',
+            id.trim()
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  private async pushGraph(): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      void this.panel.webview.postMessage({
+        type: 'graph',
+        scope: this.scope,
+        title:
+          this.scope.mode === 'pool'
+            ? 'Relationship Graph'
+            : `Graph — ${this.scope.slug}`,
+        nodes: [],
+        edges: [],
+        warnings: ['No workspace folder open.']
+      });
+      return;
+    }
+    const warnings: string[] = [];
+    let entries: EntryData[] = [];
+    let kinds: EntryKind[] = [];
+    let rels: RelationshipData[] = [];
+    try {
+      entries = await readEntries(root);
+    } catch (err) {
+      warnings.push(
+        `Failed to read entries.json: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    try {
+      kinds = await readEntryKinds(root);
+    } catch (err) {
+      warnings.push(
+        `Failed to read entry kinds: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    try {
+      rels = await readRelationships(root);
+    } catch (err) {
+      warnings.push(
+        `Failed to read relationships.json: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Scope filter: for a library, restrict endpoints to that library's
+    // entry set (induced subgraph).
+    let allowedIds: Set<string> | null = null;
+    let displayTitle: string;
+    if (this.scope.mode === 'library') {
+      const scopeSlug = this.scope.slug;
+      displayTitle = `Graph — ${scopeSlug}`;
+      const libraries = await listLibraries(root);
+      const lib = libraries.find((l) => l.slug === scopeSlug);
+      if (!lib) {
+        warnings.push(`Library "${scopeSlug}" not found.`);
+        void this.panel.webview.postMessage({
+          type: 'graph',
+          scope: this.scope,
+          title: displayTitle,
+          nodes: [],
+          edges: [],
+          warnings
+        });
+        return;
+      }
+      displayTitle = `Graph — ${lib.title}`;
+      const graphResult = await readLibraryGraph(root, scopeSlug);
+      allowedIds = new Set<string>();
+      if (graphResult.status === 'ok') {
+        for (const node of graphResult.result.graph.nodes) {
+          if (node.label !== 'Entry') continue;
+          const eid = (node.props as { entryId?: unknown } | undefined)
+            ?.entryId;
+          if (typeof eid === 'string' && eid) allowedIds.add(eid);
+        }
+      } else if (graphResult.status === 'error') {
+        warnings.push(graphResult.message);
+      }
+    } else {
+      displayTitle = 'Relationship Graph';
+    }
+
+    // Build filtered edge set + participating node set. "Isolated" here
+    // means: not the endpoint of any edge in the (filtered) view. Cat
+    // 2026-07-10: hide isolated nodes.
+    const kindById = new Map<string, EntryKind>();
+    for (const k of kinds) kindById.set(k.id, k);
+    const entryById = new Map<string, EntryData>();
+    for (const e of entries) entryById.set(e.id, e);
+
+    const edges: GraphEdgeOut[] = [];
+    const participating = new Set<string>();
+    for (const r of rels) {
+      if (allowedIds && !(allowedIds.has(r.from) && allowedIds.has(r.to))) {
+        continue;
+      }
+      edges.push({ id: r.id, from: r.from, to: r.to, label: r.label });
+      participating.add(r.from);
+      participating.add(r.to);
+    }
+
+    const nodes: GraphNodeOut[] = [];
+    for (const id of participating) {
+      const e = entryById.get(id);
+      const kind = e ? kindById.get(e.kind) : undefined;
+      nodes.push({
+        id,
+        title: e ? e.title || '(untitled)' : `⚠ ${id}`,
+        kind: kind ? kind.name : e ? e.kind : 'unknown',
+        kindId: e ? e.kind : '',
+        color: kind ? kind.coloring.stroke : '#888888',
+        background: kind ? kind.coloring.background : 'transparent'
+      });
+    }
+    nodes.sort((a, b) => a.id.localeCompare(b.id));
+
+    void this.panel.webview.postMessage({
+      type: 'graph',
+      scope: this.scope,
+      title: displayTitle,
+      nodes,
+      edges,
+      warnings
+    });
+  }
+
+  public dispose(): void {
+    const key =
+      this.scope.mode === 'pool' ? 'pool' : `library:${this.scope.slug}`;
+    GraphPanel.instances.delete(key);
+    this.panel.dispose();
+    while (this.disposables.length) {
+      const d = this.disposables.pop();
+      if (d) d.dispose();
+    }
+  }
+}

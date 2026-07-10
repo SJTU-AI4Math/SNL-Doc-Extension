@@ -256,33 +256,12 @@ export function EntryRender({
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
 
-  // Cat 2026-07-09: cross-entry `x@foo` src-badge stylesheet. Injected
-  // ONCE per document (guarded by id) rather than per-EntryRender so
-  // long library outlines don't fight with hundreds of dupe <style>
-  // tags. Idempotent — subsequent EntryRender mounts noop.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    if (document.getElementById('snl-src-badge-style')) return;
-    const el = document.createElement('style');
-    el.id = 'snl-src-badge-style';
-    el.textContent = `
-      .katex-html [data-src]::after {
-        content: "\u2197" attr(data-src);
-        display: inline-block;
-        margin-left: 0.15em;
-        padding: 0 0.28em;
-        font-size: 0.65em;
-        line-height: 1.4;
-        vertical-align: super;
-        border: 1px solid currentColor;
-        border-radius: 2px;
-        opacity: 0.65;
-        font-family: var(--vscode-editor-font-family, monospace);
-      }
-      .katex-html [data-src]:hover::after { opacity: 1; }
-    `;
-    document.head.appendChild(el);
-  }, []);
+  // Cat 2026-07-10: src badge (↗<entryId>) removed. Cross-entry
+  // `x@foo` context refs no longer surface a visual marker in-line —
+  // the bvar palette flip (via applyContextSrcLookup) plus the hover
+  // popover (via `data-src` fallback in onHover below) carry the
+  // affordance. Keeping this history for the next time someone asks
+  // "where did the little arrow go".
 
   // Merged DB: user macros layered over the bundled core. `MACRO_QUERY`
   // derives from it so `SnlSyntaxTreeView` sees a single consistent DB.
@@ -357,11 +336,23 @@ export function EntryRender({
       // Hover a macro that resolves to an in-pool entry → spawn a preview
       // popover that follows the pointer, freezing after a 3s dwell.
       onHover: (event) => {
-        const entryId = resolveEntryId(event.name);
+        let entryId = resolveEntryId(event.name);
         if (!entryId) {
-          // Hovering a non-resolvable macro (e.g. fvar) — leave the current
-          // popover alone. Doc-level hit-test in HoverPopoverProvider governs
-          // dismissal, so we don't need to touch anything here.
+          // Cat 2026-07-10: fallback for cross-entry `x@foo` refs. The
+          // node is a bvar (post-context-lookup) whose *name* is `x`,
+          // not a macro name → resolveEntryId returns null. But the
+          // parser attached `mdata.src` and SnlSyntaxTreeView surfaced
+          // it as `data-src` on the KaTeX span. Read that and treat it
+          // as the popover target entry id, iff it exists in the pool.
+          const rawSrc = event.target.getAttribute('data-src') ?? '';
+          if (rawSrc && entries.some((e) => e.id === rawSrc)) {
+            entryId = rawSrc;
+          }
+        }
+        if (!entryId) {
+          // Hovering a non-resolvable macro (e.g. plain fvar) — leave the
+          // current popover alone. Doc-level hit-test in
+          // HoverPopoverProvider governs dismissal.
           return;
         }
         const originEl = event.target;

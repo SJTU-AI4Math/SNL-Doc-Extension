@@ -47,6 +47,7 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -532,24 +533,19 @@ export function CreateEntryApp(): React.ReactElement {
                     inputStyle={{ ...monoStyle, marginBottom: 0 }}
                   />
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="md"
                   onClick={() => setId(newUuid())}
                   title={
                     trimmedId
-                      ? 'Overwrite the ID with a fresh UUID v4'
-                      : 'Fill the ID with a fresh UUID v4'
+                      ? 'Overwrite the ID with a fresh UUID v4 (tolerated but not preferred — semantic ids are strongly preferred)'
+                      : 'Fill the ID with a fresh UUID v4 (only when no meaningful semantic id fits)'
                   }
-                  style={{
-                    ...primaryButton(true),
-                    padding: '0.35rem 0.7rem',
-                    whiteSpace: 'nowrap',
-                    background:
-                      'var(--vscode-button-secondaryBackground, #444)'
-                  }}
+                  style={{ whiteSpace: 'nowrap', opacity: 0.75 }}
                 >
-                  {trimmedId ? 'Regenerate UUID' : 'Generate UUID'}
-                </button>
+                  {trimmedId ? 'Regenerate UUID' : 'Use UUID instead'}
+                </Button>
               </div>
             )}
             <p
@@ -562,7 +558,10 @@ export function CreateEntryApp(): React.ReactElement {
             >
               {mode === 'edit'
                 ? 'IDs are stable references used by relationship links; they cannot be edited here.'
-                : "Manually enter a semantic id, or click Generate UUID. IDs must be unique in the shared entries pool and stable once created (they're used by future relationship links)."}
+                : "Prefer a semantic id like " +
+                  "'pythagorean-theorem' or 'context-linalg-vars' — human-readable ids " +
+                  "render better in cross-entry references (macro sources, library graph nodes, bvar `x@<id>` context refs). " +
+                  "The UUID button is a fallback for when no meaningful name fits. IDs are immutable once created."}
             </p>
           </div>
         </div>

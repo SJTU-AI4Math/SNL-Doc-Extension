@@ -557,6 +557,30 @@ export function EntryRender({
           'background-color 150ms ease, outline-color 150ms ease'
       }}
     >
+      {/* Cat 2026-07-09: cross-entry `x@foo` src postfix — parser attaches
+          mdata.src, SNL-Basics emits `data-src="foo"` on the KaTeX span.
+          We surface it as a small badge via ::after so hover / navigate
+          wiring can land later without changing the DOM shape. The badge
+          is scoped to `[data-src]` inside `.katex-html` so it never
+          collides with the section-frame layout. */}
+      <style>{`
+        .katex-html [data-src]::after {
+          content: "↗" attr(data-src);
+          display: inline-block;
+          margin-left: 0.15em;
+          padding: 0 0.28em;
+          font-size: 0.65em;
+          line-height: 1.4;
+          vertical-align: super;
+          border: 1px solid currentColor;
+          border-radius: 2px;
+          opacity: 0.65;
+          font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .katex-html [data-src]:hover::after {
+          opacity: 1;
+        }
+      `}</style>
       <header
         style={{
           // Header vertical padding halved (cat 2026-07-08): 0.55rem → 0.275rem

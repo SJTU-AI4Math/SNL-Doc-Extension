@@ -2252,6 +2252,20 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
         numbering: '.1',
         style: 'problem'
+      },
+      // Cat 2026-07-09: `context` = an entry whose top-level `@x` bvar
+      // decls are meant to be referenced from OTHER entries via the
+      // `x@<this-entry-id>` src postfix. Behaviorally identical to any
+      // other content kind — the UI does NOT branch on it; it's here
+      // just so the pattern has a name users can pick. Numbering ''
+      // (unnumbered) because a shared-variable block usually isn't a
+      // theorem-numbering peer.
+      {
+        id: 'context',
+        name: 'Context',
+        coloring: { stroke: '#8B5CF6', background: '#EDE9FE' },
+        numbering: '',
+        style: ''
       }
     ]
   },

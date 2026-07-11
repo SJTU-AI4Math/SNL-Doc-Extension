@@ -1993,27 +1993,125 @@ function StylesEditor({
         style button to rename it.
       </p>
 
-      {/* React renderer key row — only for `block` mode. Text mode goes
-          through the LaTeX pipeline (\text{...} + nested $...$) and has no
-          React renderer dispatch, so the key would be dead data. Rename
-          double-click lives on the style button itself. Dynamic-arity
-          delimiters live next to the template textarea. */}
+      {/* React renderer preset — only for `block` mode. Text mode goes
+          through the LaTeX pipeline (\text{...} + nested $...$) and has
+          no React renderer dispatch, so the key would be dead data.
+
+          Cat 2026-07-10: turned the raw text input into a preset
+          dropdown listing the four SNL-Basics built-in block renderers
+          (list / enumerate / table / centered). "Custom" reveals the
+          freeform input for consumer-registered keys. The point is to
+          make it trivial to build semantically-distinct macros —
+          `axioms`, `steps`, `proof-cases` — that all pick the same
+          `enumerate` render preset: same visual, different data. */}
       {current?.mode === 'block' ? (
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="m-rkey" style={labelStyle}>
-            React renderer key
-          </label>
-          <input
-            id="m-rkey"
-            type="text"
-            value={current?.react_renderer_key ?? ''}
-            placeholder="list | table | centered | (custom key)"
-            onChange={(e) => patchStyle({ react_renderer_key: e.target.value })}
-            style={{ ...inputStyle, width: '18rem' }}
-          />
-        </div>
+        <BlockRendererPresetControl
+          value={current?.react_renderer_key ?? ''}
+          onChange={(v) => patchStyle({ react_renderer_key: v })}
+        />
       ) : null}
     </>
+  );
+}
+
+/** Known built-in block renderers registered in SNL-Basics `defaultRenderers`. */
+const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
+  key: string;
+  label: string;
+  hint: string;
+}> = [
+  { key: 'list', label: 'list', hint: 'Unordered list — LaTeX \\begin{itemize} → <ul><li>…' },
+  { key: 'enumerate', label: 'enumerate', hint: 'Ordered list — LaTeX \\begin{enumerate} → <ol><li>…' },
+  { key: 'table', label: 'table', hint: 'Table — variadic children are rows; first child with kind="table-header" becomes <thead>.' },
+  { key: 'centered', label: 'centered', hint: 'Horizontally-centered block wrapper.' }
+];
+const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
+
+/**
+ * Compact select-with-escape-hatch for the block-mode `react_renderer_key`.
+ * Value states:
+ *   - '' (unset)       → nothing shipped in the JSON; renderer falls
+ *                        back to plain block layout.
+ *   - preset key       → dropdown showing that preset selected.
+ *   - unknown string   → "Custom" mode, freeform input pre-filled.
+ */
+function BlockRendererPresetControl({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}): React.ReactElement {
+  const [mode, setMode] = useState<'preset' | 'custom' | 'unset'>(() => {
+    if (!value) return 'unset';
+    return PRESET_KEYS.has(value) ? 'preset' : 'custom';
+  });
+
+  // If the parent's value changes out from under us (e.g. loading a
+  // different style), resync the mode.
+  useEffect(() => {
+    if (!value) setMode('unset');
+    else if (PRESET_KEYS.has(value)) setMode('preset');
+    else setMode('custom');
+  }, [value]);
+
+  const selectedPreset = mode === 'preset' ? value : '';
+  const hint =
+    mode === 'preset'
+      ? BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hint ?? ''
+      : mode === 'custom'
+        ? 'Custom render key — consumer must register a matching renderer. Empty key = no dispatch.'
+        : 'No render preset. The block will render with plain default layout.';
+
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      <label htmlFor="m-rkey-preset" style={labelStyle}>
+        Render preset
+      </label>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <select
+          id="m-rkey-preset"
+          value={mode === 'unset' ? '' : mode === 'custom' ? '__custom__' : selectedPreset}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '') {
+              setMode('unset');
+              onChange('');
+            } else if (v === '__custom__') {
+              setMode('custom');
+              // If the current value is a preset key, wipe it so the
+              // custom input starts empty; if it was already custom
+              // preserve it.
+              if (PRESET_KEYS.has(value) || !value) onChange('');
+            } else {
+              setMode('preset');
+              onChange(v);
+            }
+          }}
+          style={{ ...inputStyle, width: 'auto', minWidth: '10rem' }}
+        >
+          <option value="">— none —</option>
+          {BLOCK_RENDERER_PRESETS.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
+            </option>
+          ))}
+          <option value="__custom__">Custom key…</option>
+        </select>
+        {mode === 'custom' ? (
+          <input
+            type="text"
+            value={value}
+            placeholder="my-renderer-key"
+            onChange={(e) => onChange(e.target.value)}
+            style={{ ...inputStyle, width: '16rem' }}
+          />
+        ) : null}
+      </div>
+      <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', opacity: 0.65 }}>
+        {hint}
+      </p>
+    </div>
   );
 }
 

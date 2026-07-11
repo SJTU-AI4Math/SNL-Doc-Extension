@@ -180,14 +180,19 @@ function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
     mode: s.mode,
     template: s.template
   };
-  if (s.variadic_left) {
-    out.variadic_left = s.variadic_left;
-  }
-  if (s.variadic_join) {
-    out.variadic_join = s.variadic_join;
-  }
-  if (s.variadic_right) {
-    out.variadic_right = s.variadic_right;
+  // Cat 2026-07-10: block-mode macros ignore variadic delimiters
+  // (the block renderer walks children directly). Drop them on
+  // serialize so we don't leave dead data lying around in the JSON.
+  if (s.mode !== 'block') {
+    if (s.variadic_left) {
+      out.variadic_left = s.variadic_left;
+    }
+    if (s.variadic_join) {
+      out.variadic_join = s.variadic_join;
+    }
+    if (s.variadic_right) {
+      out.variadic_right = s.variadic_right;
+    }
   }
   if (s.mode === 'block' && s.react_renderer_key) {
     out.react_renderer_key = s.react_renderer_key;
@@ -534,14 +539,18 @@ export function CreateMacroApp(): React.ReactElement {
         mode: s.mode,
         template: s.template
       };
-      if (s.variadic_left) {
-        style.variadic_left = s.variadic_left;
-      }
-      if (s.variadic_join) {
-        style.variadic_join = s.variadic_join;
-      }
-      if (s.variadic_right) {
-        style.variadic_right = s.variadic_right;
+      // Cat 2026-07-10: block mode ignores variadic delimiters —
+      // skip serializing them so we don't persist dead data.
+      if (s.mode !== 'block') {
+        if (s.variadic_left) {
+          style.variadic_left = s.variadic_left;
+        }
+        if (s.variadic_join) {
+          style.variadic_join = s.variadic_join;
+        }
+        if (s.variadic_right) {
+          style.variadic_right = s.variadic_right;
+        }
       }
       if (s.mode === 'block' && s.react_renderer_key) {
         style.react_renderer_key = s.react_renderer_key;
@@ -883,8 +892,16 @@ export function CreateMacroApp(): React.ReactElement {
                 />
               </PreviewBoundary>
             </div>
-            <p style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
-              {dynamicArity ? (
+            <p style={{ margin: '0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
+              {current?.mode === 'block' ? (
+                <>
+                  Block mode — this macro renders through a React
+                  component picked by the <strong>Render preset</strong>
+                  below. Children are passed to the renderer as a flat
+                  variadic list; the LaTeX template and variadic
+                  delimiters are ignored, so they're hidden here.
+                </>
+              ) : dynamicArity ? (
                 <>
                   Dynamic arity — configure the left / separator / right
                   delimiters below. The macro renders as{' '}
@@ -901,7 +918,14 @@ export function CreateMacroApp(): React.ReactElement {
                 </>
               )}
             </p>
-            {dynamicArity ? (
+            {current?.mode === 'block' ? (
+              // Block mode: template + variadic delimiters are all dead
+              // data (block renderers walk node.children directly and
+              // ignore both `template` and `variadic_*`). Cat 2026-07-10:
+              // "delimiter 和 separator 在 block mode 下应该是没有用的,
+              // 那就给它删掉."
+              null
+            ) : dynamicArity ? (
               <DynamicArityTemplateRow
                 left={current?.variadic_left ?? ''}
                 sep={current?.variadic_join ?? ''}

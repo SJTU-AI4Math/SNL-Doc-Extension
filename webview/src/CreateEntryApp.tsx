@@ -1258,7 +1258,32 @@ function InductiveNode({
   const isCollapsed = collapsed.has(path);
   const effectiveKind = resolveRowKind(node, macroDb);
   const palette = paletteFor(effectiveKind);
-  const macroMatched = Boolean(macroDb[node.name]) || node.envMode !== undefined;
+  const macroEntry = macroDb[node.name];
+  const macroMatched = Boolean(macroEntry) || node.envMode !== undefined;
+
+  // Style-box state (cat 2026-07-12). Behaviour:
+  //   - Disabled entirely when no macro matches the current name (envMode
+  //     leaves don't carry `[style]` either — they're literal payloads).
+  //   - When node.style is set explicitly (user typed one, or parser
+  //     extracted `[foo]` from the name), show it at full opacity.
+  //   - When node.style is unset AND the macro has styles, prefill the
+  //     input with `styles[0].tag` at low opacity so the user sees which
+  //     style would be picked without polluting the serialized SNL. Typing
+  //     into it commits the value; clearing to empty (or typing the
+  //     default) drops back to the implicit-default form.
+  const defaultStyleTag = macroEntry?.styles?.[0]?.tag ?? '';
+  const styleAvailable = Boolean(macroEntry) && macroEntry.styles.length > 0;
+  const styleIsExplicit = node.style !== undefined && node.style !== '';
+  const styleDisplay = styleIsExplicit ? node.style! : defaultStyleTag;
+
+  const commitStyle = (nextValue: string): void => {
+    const trimmed = nextValue.trim();
+    // Empty or default → implicit (drop the field so serialization stays
+    // as `foo(…)` rather than `foo[default](…)`).
+    const nextStyle =
+      trimmed === '' || trimmed === defaultStyleTag ? undefined : trimmed;
+    onChange({ ...node, style: nextStyle });
+  };
 
   return (
     <div>
@@ -1340,6 +1365,43 @@ function InductiveNode({
               ? `kind: ${effectiveKind}${macroDb[node.name] ? '' : ' (from envMode)'}`
               : 'name does not match any macro in the current DB'
           }
+        />
+
+        {/* Style input (cat 2026-07-12). Sits to the right of the name.
+            - Disabled when no macro matches (no style semantics available).
+            - Full opacity when node.style is explicitly set.
+            - Low opacity + prefilled with styles[0].tag when the resolved
+              style is the implicit default — makes it visible which style
+              the parser will pick without polluting the SNL. */}
+        <input
+          type="text"
+          value={styleDisplay}
+          disabled={!styleAvailable}
+          onChange={(e) => commitStyle(e.target.value)}
+          placeholder="style"
+          spellCheck={false}
+          title={
+            !styleAvailable
+              ? 'style has no meaning here — name does not match a macro'
+              : styleIsExplicit
+                ? `explicit style: [${node.style}]`
+                : `default style (implicit): [${defaultStyleTag}]`
+          }
+          style={{
+            ...inputStyle,
+            width: '5.5rem',
+            flexShrink: 0,
+            padding: '0.25rem 0.4rem',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.8rem',
+            opacity: !styleAvailable ? 0.35 : styleIsExplicit ? 1 : 0.5,
+            fontStyle: styleIsExplicit ? 'normal' : 'italic',
+            background: 'var(--vscode-input-background, #2a2a2a)',
+            color: 'var(--vscode-input-foreground, #ddd)',
+            borderColor:
+              'var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            cursor: !styleAvailable ? 'not-allowed' : 'text'
+          }}
         />
 
         <div

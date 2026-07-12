@@ -1261,34 +1261,17 @@ function InductiveNode({
   const macroEntry = macroDb[node.name];
   const macroMatched = Boolean(macroEntry) || node.envMode !== undefined;
 
-  // Frame appearance (cat 2026-07-12 followup: "api.kw 还是红框了"). The
-  // three visual states here have to actually be distinguishable — the
-  // previous version reused DEFAULT_KIND_PALETTE for every matched macro,
-  // but the fvar entry is RED, which is exactly what an unresolved input
-  // looks like too. Semantically fvar = "I don't know what this is" — it's
-  // the annotate-bind fallback, not a claim about the macro. A macro that
-  // *exists in the pool* with kind=fvar is still resolved; it just hasn't
-  // been given a semantic kind. So:
-  //
-  //   - Unmatched name              → default input border (gray)
-  //   - Matched, kind=fvar or empty → resolved-but-neutral (subtle green)
-  //   - Matched, kind=rule/const/…  → full kind palette color
-  //
-  // The subtle-green "known" state uses vscode-testing-iconPassed so light
-  // and dark themes track together; falls back to a low-alpha green.
-  const kindClaimsColor =
-    effectiveKind !== '' && effectiveKind !== 'fvar';
-  const resolvedFrame = macroMatched && !kindClaimsColor;
-  const frameBorder = !macroMatched
-    ? 'var(--vscode-input-border, var(--vscode-contrastBorder, #555))'
-    : kindClaimsColor
-      ? palette.stroke
-      : 'var(--vscode-testing-iconPassed, #4caf50)';
-  const frameBackground = !macroMatched
-    ? 'var(--vscode-input-background, #2a2a2a)'
-    : kindClaimsColor
-      ? kindBackgroundTint(palette.background)
-      : 'var(--vscode-input-background, #2a2a2a)';
+  // Frame: kind palette when the row resolved to a pool macro (or an
+  // envMode leaf); default gray when the name doesn't match anything.
+  // fvar-kind macros DO get the palette's fvar color (red) — that's the
+  // author's declared kind, so it's what we surface. If a macro looks red
+  // and shouldn't, fix its `kind` in .SNL_Doc/term_macros/*.json.
+  const frameBorder = macroMatched
+    ? palette.stroke
+    : 'var(--vscode-input-border, var(--vscode-contrastBorder, #555))';
+  const frameBackground = macroMatched
+    ? kindBackgroundTint(palette.background)
+    : 'var(--vscode-input-background, #2a2a2a)';
 
   // Style-box state (cat 2026-07-12). Behaviour:
   //   - Disabled entirely when no macro matches the current name (envMode
@@ -1381,13 +1364,9 @@ function InductiveNode({
             color: 'var(--vscode-input-foreground, #ddd)'
           }}
           title={
-            !macroMatched
-              ? 'name does not match any macro in the current DB'
-              : resolvedFrame
-                ? `resolved: ${node.name} (no semantic kind declared${
-                    macroEntry ? '' : '; envMode leaf'
-                  })`
-                : `kind: ${effectiveKind}${macroEntry ? '' : ' (from envMode)'}`
+            macroMatched
+              ? `kind: ${effectiveKind}${macroEntry ? '' : ' (from envMode)'}`
+              : 'name does not match any macro in the current DB'
           }
         />
 

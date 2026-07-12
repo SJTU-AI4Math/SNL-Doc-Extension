@@ -1086,7 +1086,16 @@ function GuiInductiveEditor({
   const propagate = useCallback(
     (nextTree: SnlSyntaxTree): void => {
       setTree(nextTree);
-      const nextSnl = serializeSnlSyntaxTree(nextTree);
+      // Filter empty-name childless leaves before serializing. `+ child`
+      // creates a placeholder row with name='' so the user can type into
+      // it; if we serialized that verbatim, we'd get `foo(a,)` /
+      // `foo(,b)` — both fail the SNL parser and every downstream
+      // consumer (preview, save) trips on "Expected IDENT / macro name".
+      // Local tree state keeps the empty row so the UI keeps showing it;
+      // only the serialized-for-parent view is pruned. (Cat 2026-07-12:
+      // "删一个节点就容易不过编译了".)
+      const pruned = stripEmptyPlaceholders(nextTree);
+      const nextSnl = serializeSnlSyntaxTree(pruned);
       lastSerializedRef.current = nextSnl;
       setParseError(null);
       onChange(nextSnl);
@@ -1181,6 +1190,22 @@ function parseOrDefault(text: string): SnlSyntaxTree {
   }
   const parsed = tryParseSnlSyntaxTree(trimmed);
   return parsed.ok ? parsed.tree : createSnlSyntaxTreeNode('_snl_stub');
+}
+
+/**
+ * Drop empty placeholder rows before serializing. A row with name='' and no
+ * children is a `+ child` slot the user hasn't filled yet — keep it in local
+ * tree state so the UI shows the empty input, but never let it reach the
+ * serializer, which would produce `foo(a,)` / `foo(,b)` / bare empty
+ * identifiers that fail the parser at every downstream site (preview, save,
+ * lint). Root itself is exempt: an empty root name is the initial stub and
+ * we let the parser reject it downstream with a real error.
+ */
+function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
+  const kids = node.children
+    .map(stripEmptyPlaceholders)
+    .filter((c) => !(c.name.trim() === '' && c.children.length === 0));
+  return { ...node, children: kids };
 }
 
 /**

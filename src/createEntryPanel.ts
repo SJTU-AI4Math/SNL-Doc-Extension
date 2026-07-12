@@ -202,9 +202,20 @@ export class CreateEntryPanel {
     }
     if (msg.type === 'openMacroEditor') {
       const rawName = (msg as { name?: unknown }).name;
+      const rawEnv = (msg as { envMode?: unknown }).envMode;
+      const rawStyle = (msg as { style?: unknown }).style;
       const name = typeof rawName === 'string' ? rawName.trim() : '';
-      if (!name) return;
-      await this.openMacroEditor(name);
+      const envMode =
+        rawEnv === 'formula_inline' ||
+        rawEnv === 'formula_display' ||
+        rawEnv === 'text'
+          ? rawEnv
+          : undefined;
+      const style =
+        typeof rawStyle === 'string' && rawStyle.length > 0 ? rawStyle : undefined;
+      // Always allowed — even empty name / envMode leaves route to
+      // Create Macro with a matching prefill. Cat 2026-07-12.
+      await this.openMacroEditor({ name, envMode, style });
       return;
     }
     if (msg.type !== 'create' && msg.type !== 'update') {
@@ -359,11 +370,16 @@ export class CreateEntryPanel {
    * Open the Create/Edit Macro panel for a macro referenced from inside
    * the Entry GUI editor. If the name already exists in an active package
    * we go straight to edit; otherwise we pick a target package (single
-   * active → auto; multiple → quickpick) and open the create panel so
-   * the user can define the missing macro without leaving the workspace.
-   * Cat 2026-07-12: "在每一行边上加一个入口".
+   * active → auto; multiple → quickpick) and open the create panel with
+   * a prefill derived from the row (envMode → macro mode + template;
+   * plain identifier → prefilled name). Cat 2026-07-12: "在每一行边上
+   * 加一个入口" + "Edit 跳转应该任何情况下都允许".
    */
-  private async openMacroEditor(name: string): Promise<void> {
+  private async openMacroEditor(req: {
+    name: string;
+    envMode?: 'formula_inline' | 'formula_display' | 'text';
+    style?: string;
+  }): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
       vscode.window.showErrorMessage(
@@ -371,31 +387,36 @@ export class CreateEntryPanel {
       );
       return;
     }
-    // Edit path: is this name already declared somewhere active?
+    const { name, envMode } = req;
+    // Edit path only when the row IS a plain identifier that already
+    // exists in an active package. envMode leaves and empty names always
+    // fall through to Create.
     try {
-      const active = new Set(await resolveActiveMacroPackages(root));
-      const packages = await readMacroPackages(root);
-      for (const summary of packages) {
-        const bare = summary.file.replace(/\.json$/i, '');
-        if (!active.has(bare)) continue;
-        const read = await readMacroPackage(root, summary.file);
-        if (read.status !== 'ok') continue;
-        if (read.macros.some((m) => m.name === name)) {
-          await vscode.commands.executeCommand(
-            'snlDoc.editMacro',
-            bare,
-            name
-          );
-          return;
+      if (name && envMode === undefined) {
+        const active = new Set(await resolveActiveMacroPackages(root));
+        const packages = await readMacroPackages(root);
+        for (const summary of packages) {
+          const bare = summary.file.replace(/\.json$/i, '');
+          if (!active.has(bare)) continue;
+          const read = await readMacroPackage(root, summary.file);
+          if (read.status !== 'ok') continue;
+          if (read.macros.some((m) => m.name === name)) {
+            await vscode.commands.executeCommand(
+              'snlDoc.editMacro',
+              bare,
+              name
+            );
+            return;
+          }
         }
       }
       // Create path: pick a target package.
-      const activeList = Array.from(active).sort((a, b) =>
-        a.localeCompare(b)
-      );
+      const activeList = Array.from(
+        new Set(await resolveActiveMacroPackages(root))
+      ).sort((a, b) => a.localeCompare(b));
       if (activeList.length === 0) {
         vscode.window.showWarningMessage(
-          `No active macro package to hold "${name}". Create or activate one first via the SNL Dashboard.`
+          'No active macro package to hold this macro. Create or activate one first via the SNL Dashboard.'
         );
         return;
       }
@@ -404,15 +425,35 @@ export class CreateEntryPanel {
         target = activeList[0];
       } else {
         target = await vscode.window.showQuickPick(activeList, {
-          title: `Create macro "${name}" — choose target package`,
+          title: name
+            ? `Create macro "${name}" — choose target package`
+            : 'Create macro — choose target package',
           placeHolder: 'Select the .SNL_Doc/term_macros/*.json to add it to'
         });
       }
       if (!target) return;
-      await vscode.commands.executeCommand('snlDoc.createMacro', target);
+      // Prefill derivation (cat 2026-07-12): envMode leaves seed the
+      // template with the raw payload + the matching macro mode; plain
+      // identifiers seed the name field.
+      const prefill: {
+        name?: string;
+        template?: string;
+        mode?: 'formula_inline' | 'formula_display' | 'text';
+      } = {};
+      if (envMode !== undefined) {
+        prefill.mode = envMode;
+        prefill.template = name; // envMode leaves stash the payload in `name`
+      } else if (name) {
+        prefill.name = name;
+      }
+      await vscode.commands.executeCommand(
+        'snlDoc.createMacro',
+        target,
+        prefill
+      );
     } catch (err) {
       vscode.window.showErrorMessage(
-        `Failed to open Macro editor for "${name}": ${
+        `Failed to open Macro editor: ${
           err instanceof Error ? err.message : String(err)
         }`
       );

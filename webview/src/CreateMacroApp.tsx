@@ -296,6 +296,17 @@ interface ContextMsg {
    * lookup-only "No matching entry"). Cat 2026-07-09.
    */
   entries?: EntryOption[];
+  /**
+   * Optional prefill (cat 2026-07-12) for CREATE mode. When set, seeds
+   * the name / template / mode fields of the first style so the user
+   * lands on a form that already reflects the row they clicked from in
+   * the Entry GUI editor.
+   */
+  prefill?: {
+    name?: string;
+    template?: string;
+    mode?: 'formula_inline' | 'formula_display' | 'text';
+  } | null;
 }
 
 type Incoming =
@@ -475,6 +486,26 @@ export function CreateMacroApp(): React.ReactElement {
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'edit' && msg.existing) {
             hydrateFromExisting(msg.existing);
+          } else if (msg.mode === 'create' && msg.prefill) {
+            // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
+            // `$$…$$` / plain-id content so the user doesn't retype.
+            const p = msg.prefill;
+            if (typeof p.name === 'string' && p.name) setName(p.name);
+            setStyles((prev) => {
+              const first = prev[0] ?? newStyleDraft('default');
+              const patched: StyleDraft = { ...first };
+              if (typeof p.template === 'string' && p.template) {
+                patched.template = p.template;
+              }
+              if (
+                p.mode === 'formula_inline' ||
+                p.mode === 'formula_display' ||
+                p.mode === 'text'
+              ) {
+                patched.mode = p.mode;
+              }
+              return [patched, ...prev.slice(1)];
+            });
           }
           break;
         case 'created':

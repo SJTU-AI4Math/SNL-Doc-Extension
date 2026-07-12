@@ -22,6 +22,32 @@ import { firstWorkspaceFolder } from './panelUtil';
 const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+(\.json)?$/;
 
 /**
+ * Sanitize a command-arg prefill payload for the Create Macro panel.
+ * Command callers can hand us anything; we defensively narrow to the
+ * subset CreateMacroPanel understands. Returns `null` on nothing usable.
+ */
+function sanitizeCreateMacroPrefill(
+  value: unknown
+): { name?: string; template?: string; mode?: 'formula_inline' | 'formula_display' | 'text' } | null {
+  if (!value || typeof value !== 'object') return null;
+  const p = value as Record<string, unknown>;
+  const out: {
+    name?: string;
+    template?: string;
+    mode?: 'formula_inline' | 'formula_display' | 'text';
+  } = {};
+  if (typeof p.name === 'string' && p.name.length > 0) out.name = p.name;
+  if (typeof p.template === 'string' && p.template.length > 0) out.template = p.template;
+  if (p.mode === 'formula_inline' || p.mode === 'formula_display' || p.mode === 'text') {
+    out.mode = p.mode;
+  }
+  if (out.name === undefined && out.template === undefined && out.mode === undefined) {
+    return null;
+  }
+  return out;
+}
+
+/**
  * Run `SNL: Init` directly — no webview, no extra UI step.
  *
  * Init is a one-shot scaffold action with no parameters, so opening a panel
@@ -432,11 +458,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
-  // No palette entry: invoked via executeCommand('snlDoc.createMacro', file)
-  // from a PackagePanel's "+ Create Macro" bar.
+  // No palette entry: invoked via executeCommand('snlDoc.createMacro', file, prefill?)
+  // from a PackagePanel's "+ Create Macro" bar or the Entry GUI editor's
+  // per-row "↗ new" button (cat 2026-07-12; prefill carries envMode-→
+  // mode + template, or a bare name).
   const createMacro = vscode.commands.registerCommand(
     'snlDoc.createMacro',
-    (file?: unknown) => {
+    (file?: unknown, prefill?: unknown) => {
       if (typeof file !== 'string') {
         return;
       }
@@ -446,7 +474,11 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      CreateMacroPanel.createOrShow(context.extensionUri, file);
+      CreateMacroPanel.createOrShow(
+        context.extensionUri,
+        file,
+        sanitizeCreateMacroPrefill(prefill)
+      );
     }
   );
 

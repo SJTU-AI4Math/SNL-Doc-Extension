@@ -69,12 +69,33 @@ export class CreateMacroPanel {
   private readonly macroName: string;
   private disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: vscode.Uri, file: string): void {
+  /**
+   * Optional prefill (cat 2026-07-12) for CREATE mode only. Passed
+   * verbatim to the webview on `context` so the form seeds itself
+   * before the user types. `mode` seeds the primary style's mode
+   * picker; `template` seeds the KaTeX template field; `name` seeds
+   * the name field.
+   */
+  private readonly prefill: {
+    name?: string;
+    template?: string;
+    mode?: 'formula_inline' | 'formula_display' | 'text';
+  } | null;
+
+  public static createOrShow(
+    extensionUri: vscode.Uri,
+    file: string,
+    prefill?: {
+      name?: string;
+      template?: string;
+      mode?: 'formula_inline' | 'formula_display' | 'text';
+    } | null
+  ): void {
     const bare = stripJsonExt(file);
     if (!bare) {
       return;
     }
-    CreateMacroPanel.open(extensionUri, 'create', bare, '');
+    CreateMacroPanel.open(extensionUri, 'create', bare, '', prefill ?? null);
   }
 
   public static editOrShow(
@@ -86,14 +107,19 @@ export class CreateMacroPanel {
     if (!bare || !macroName) {
       return;
     }
-    CreateMacroPanel.open(extensionUri, 'edit', bare, macroName);
+    CreateMacroPanel.open(extensionUri, 'edit', bare, macroName, null);
   }
 
   private static open(
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
     file: string,
-    macroName: string
+    macroName: string,
+    prefill: {
+      name?: string;
+      template?: string;
+      mode?: 'formula_inline' | 'formula_display' | 'text';
+    } | null
   ): void {
     const column = vscode.ViewColumn.Active;
     const key = `${mode}:${file}:${macroName}`;
@@ -122,7 +148,7 @@ export class CreateMacroPanel {
 
     CreateMacroPanel.instances.set(
       key,
-      new CreateMacroPanel(panel, extensionUri, mode, file, macroName)
+      new CreateMacroPanel(panel, extensionUri, mode, file, macroName, prefill)
     );
   }
 
@@ -131,13 +157,19 @@ export class CreateMacroPanel {
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
     file: string,
-    macroName: string
+    macroName: string,
+    prefill: {
+      name?: string;
+      template?: string;
+      mode?: 'formula_inline' | 'formula_display' | 'text';
+    } | null
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.mode = mode;
     this.file = file;
     this.macroName = macroName;
+    this.prefill = prefill;
 
     const title =
       mode === 'edit'
@@ -170,7 +202,8 @@ export class CreateMacroPanel {
         existingNames: [],
         macroKinds: [],
         existing: null,
-        entries: []
+        entries: [],
+        prefill: this.mode === 'create' ? this.prefill : null
       });
       return;
     }
@@ -199,7 +232,8 @@ export class CreateMacroPanel {
         existingNames: read.macros.map((m) => m.name),
         macroKinds,
         existing,
-        entries
+        entries,
+        prefill: this.mode === 'create' ? this.prefill : null
       });
       return;
     }
@@ -212,7 +246,8 @@ export class CreateMacroPanel {
       existingNames: [],
       macroKinds,
       existing: null,
-      entries
+      entries,
+      prefill: this.mode === 'create' ? this.prefill : null
     });
   }
 

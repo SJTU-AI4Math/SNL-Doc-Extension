@@ -664,10 +664,10 @@ export function CreateEntryApp(): React.ReactElement {
               snl={content.snl}
               macroDb={macroDb}
               macroOrigin={macroOrigin}
-              onOpenMacroEditor={(name) =>
+              onOpenMacroEditor={(payload) =>
                 apiRef.current?.postMessage({
                   type: 'openMacroEditor',
-                  name
+                  ...payload
                 })
               }
               onChange={(next) =>
@@ -1070,6 +1070,17 @@ function paletteFor(kindId: string): KindColoring {
   return DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
 }
 
+/**
+ * Payload for opening the Macro editor from a row (cat 2026-07-12). Sent
+ * verbatim as a `openMacroEditor` message; the host picks edit vs create
+ * and, on create, uses envMode to prefill the mode + template.
+ */
+interface MacroOpenRequest {
+  name: string;
+  envMode?: 'formula_inline' | 'formula_display' | 'text';
+  style?: string;
+}
+
 function GuiInductiveEditor({
   snl,
   macroDb,
@@ -1080,7 +1091,7 @@ function GuiInductiveEditor({
   snl: string;
   macroDb: SnlMacroDb;
   macroOrigin: Record<string, string>;
-  onOpenMacroEditor: (name: string) => void;
+  onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
   const [tree, setTree] = useState<SnlSyntaxTree>(() => parseOrDefault(snl));
@@ -1280,7 +1291,7 @@ function InductiveNode({
   onDelete: (() => void) | undefined;
   macroDb: SnlMacroDb;
   macroOrigin: Record<string, string>;
-  onOpenMacroEditor: (name: string) => void;
+  onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (path: string) => void;
 }): React.ReactElement {
@@ -1486,28 +1497,38 @@ function InductiveNode({
         >
           {(() => {
             const trimmed = node.name.trim();
-            // The open-macro-editor button is only meaningful for
-            // identifier-form leaves (bare macro names / references).
-            // envMode leaves (`$…$` / `%…%`) are literal payloads with no
-            // macro to jump to; empty names have nothing to open.
-            const canOpen = trimmed !== '' && node.envMode === undefined;
-            const known = canOpen && Boolean(macroOrigin[trimmed]);
-            const title = !canOpen
-              ? 'no macro to open for this row'
-              : known
-                ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
-                : `Open Create Macro to define "${trimmed}"`;
+            const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
+            // "↗ new" is ALWAYS available (cat 2026-07-12): even for empty
+            // rows and delimited leaves, jumping into Create Macro seeded
+            // with the row's content is a useful shortcut. envMode/style
+            // are threaded through so the panel can prefill its template
+            // + mode picker without asking again.
+            const label = known ? '↗ edit' : '↗ new';
+            const title = known
+              ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
+              : node.envMode === 'text'
+                ? `Open Create Macro (text mode, prefill "${trimmed}")`
+                : node.envMode === 'formula_inline'
+                  ? `Open Create Macro (formula_inline, prefill "${trimmed}")`
+                  : node.envMode === 'formula_display'
+                    ? `Open Create Macro (formula_display, prefill "${trimmed}")`
+                    : trimmed === ''
+                      ? 'Open Create Macro (blank)'
+                      : `Open Create Macro (prefill id "${trimmed}")`;
             return (
               <button
                 type="button"
-                onClick={() => canOpen && onOpenMacroEditor(trimmed)}
-                disabled={!canOpen}
+                onClick={() =>
+                  onOpenMacroEditor({
+                    name: trimmed,
+                    envMode: node.envMode,
+                    style: node.style
+                  })
+                }
                 title={title}
                 aria-label={known ? 'Edit macro' : 'Create macro'}
                 style={{
                   ...inductiveMiniButton,
-                  opacity: canOpen ? 1 : 0.4,
-                  cursor: canOpen ? 'pointer' : 'not-allowed',
                   color: known
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
                     : 'var(--vscode-descriptionForeground, #999)',
@@ -1516,7 +1537,7 @@ function InductiveNode({
                     : 'var(--vscode-panel-border, var(--vscode-contrastBorder, #666))'
                 }}
               >
-                {known ? '↗ edit' : '↗ new'}
+                {label}
               </button>
             );
           })()}

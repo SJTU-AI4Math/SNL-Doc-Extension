@@ -27,18 +27,13 @@ import '@snl-basics/react/style.css';
 import {
   tryParseSnlSyntaxTree,
   serializeSnlSyntaxTree,
-  createMacroTemplateQueryFromDb,
-  defaultRenderHooks,
-  SnlSyntaxTreeView,
   SnlSyntaxTreeEditor,
   bundledMacroDb,
   createSnlSyntaxTreeNode,
   type SnlMacro,
   type SnlMacroDb,
   type SnlMacroStyle,
-  type SnlSyntaxTree,
-  type SnlMacroTemplateQuery,
-  type SnlRenderHooks
+  type SnlSyntaxTree
 } from '@snl-basics/react';
 import {
   getVsCodeApi,
@@ -52,7 +47,13 @@ import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
 } from './components/EntityIdSearchBox';
-import type { EntryOption } from './render/EntryRender';
+import {
+  EntryRender,
+  type EntryOption,
+  type EntryData,
+  type EntryKind as RenderEntryKind
+} from './render/EntryRender';
+import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -122,19 +123,9 @@ function wireMacroToLib(m: WirePackageMacro): SnlMacro {
   return lib;
 }
 
-// Preview render hooks: demonstrate consumer-side source resolution. The
-// CreateEntry panel has no Entry pool loaded, so we surface the raw first
-// entry id referenced by a macro's `source` (if any) as an entry ref.
-const PREVIEW_HOOKS: SnlRenderHooks = {
-  ...defaultRenderHooks,
-  resolveSource: (source) => {
-    if (source.entries.length === 0) {
-      return null;
-    }
-    const first = source.entries[0];
-    return { kind: 'entry', ref: first, displayName: `Entry: ${first}` };
-  }
-};
+// Preview now routes through <EntryRender>, which owns its own source
+// resolution against the entry pool. The bespoke PREVIEW_HOOKS constant
+// (used by the old SnlSyntaxTreeView-based preview) is no longer needed.
 
 interface EntryKind {
   id: string;
@@ -196,14 +187,9 @@ function newUuid(): string {
   });
 }
 
-/**
- * Render a mock number from a numbering DSL. The real counter engine is
- * deferred; for now we show the DSL pattern verbatim as a stand-in (e.g.
- * `"1.1.1"` → `"1.1.1"`, `""` → no number).
- */
-function mockNumber(numbering: string): string {
-  return (numbering ?? '').trim();
-}
+// Number rendering: the real counter engine is deferred; EntryRender is
+// fed `counterLabel={undefined}` so the header just shows "<KindName> --
+// <title>" without a mock digit.
 
 export function CreateEntryApp(): React.ReactElement {
   const [mode, setMode] = useState<Mode>('create');
@@ -218,18 +204,25 @@ export function CreateEntryApp(): React.ReactElement {
    */
   const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
 
-  const macroDb: SnlMacroDb = useMemo(() => {
+  // User-only DB (for EntryRender.userMacros, which merges over the core
+  // internally via mergeMacroDb) AND merged DB (for the GUI editor which
+  // wants a flat lookup).
+  const userMacroDb: SnlMacroDb = useMemo(() => {
     const userDb: SnlMacroDb = {};
     for (const [name, m] of Object.entries(wireMacros)) {
       userDb[name] = wireMacroToLib(m);
     }
-    return { ...bundledMacroDb, ...userDb };
+    return userDb;
   }, [wireMacros]);
 
-  const macroQuery: SnlMacroTemplateQuery = useMemo(
-    () => createMacroTemplateQueryFromDb(macroDb),
-    [macroDb],
+  const macroDb: SnlMacroDb = useMemo(
+    () => ({ ...bundledMacroDb, ...userMacroDb }),
+    [userMacroDb]
   );
+
+  // (`macroQuery` used to be threaded into the SnlSyntaxTreeView-based
+  // preview; the EntryRender path derives its own query internally so we
+  // no longer need one at this layer.)
 
   const [title, setTitle] = useState('');
   const [id, setId] = useState<string>('');
@@ -604,11 +597,11 @@ export function CreateEntryApp(): React.ReactElement {
           <Label>Live Preview</Label>
           <LivePreview
             kind={kind}
+            entryId={trimmedId || '(new-entry)'}
             title={trimmedTitle}
-            format={activeFormat}
-            body={content[activeFormat]}
-            macroDb={macroDb}
-            macroQuery={macroQuery}
+            content={content}
+            entries={existingIds}
+            userMacros={userMacroDb}
           />
         </div>
 
@@ -748,190 +741,88 @@ export function CreateEntryApp(): React.ReactElement {
   );
 }
 
+/**
+ * Live preview for the Entry editor. Routes through the SAME `<EntryRender>`
+ * that the Infoview / hover popovers use, so the WYSIWYG surface exactly
+ * matches what a reader will see. Body-surface dispatch (snl > markdown >
+ * latex > text) is owned by EntryRender itself — we just feed the full
+ * `content` bag.
+ *
+ * Wrapped in a local `<HoverPopoverProvider>` because EntryRender's hooks
+ * consume its context. `postMessage` is a no-op inside the preview —
+ * clicking an in-body reference shouldn't navigate away from the editor,
+ * and pointer resolution ("↗ source" button) only fires against a saved
+ * entry, which draft edits don't have.
+ */
 function LivePreview({
   kind,
+  entryId,
   title,
-  format,
-  body,
-  macroDb,
-  macroQuery
+  content,
+  entries,
+  userMacros
 }: {
   kind: EntryKind | undefined;
+  entryId: string;
   title: string;
-  format: ContentFormat;
-  body: string;
-  macroDb: SnlMacroDb;
-  macroQuery: SnlMacroTemplateQuery;
+  content: Record<ContentFormat, string>;
+  entries: EntryOption[];
+  userMacros: SnlMacroDb;
 }): React.ReactElement {
-  const stroke = kind?.coloring.stroke ?? '#888888';
-  const background = kind?.coloring.background ?? '#eeeeee';
-  const number = kind ? mockNumber(kind.numbering) : '';
-  const headerLabel = kind ? kind.name : 'Entry';
+  const entry: EntryData = useMemo(
+    () => ({
+      id: entryId,
+      kind: kind?.id ?? '',
+      title,
+      content: {
+        snl: content.snl,
+        typst: content.typst,
+        latex: content.latex,
+        markdown: content.markdown,
+        text: content.text
+      },
+      contribution_info: null,
+      pointer: null
+    }),
+    [entryId, kind?.id, title, content]
+  );
 
-  const isSnl = format === 'snl' && body.trim().length > 0;
+  // Adapt local EntryKind shape to EntryRender's (identical fields today
+  // but kept type-distinct so a future divergence is caught at the border).
+  const renderKind: RenderEntryKind | null = kind
+    ? {
+        id: kind.id,
+        name: kind.name,
+        coloring: kind.coloring,
+        numbering: kind.numbering,
+        style: kind.style
+      }
+    : null;
+
+  // No-op postMessage: preview isn't a navigation surface.
+  const noopPostMessage = React.useCallback((_msg: unknown): void => {
+    /* preview is inert */
+  }, []);
 
   return (
-    <div
-      style={{
-        border: `1px solid ${stroke}`,
-        background,
-        borderRadius: '4px',
-        padding: '0.75rem 0.9rem',
-        color: '#111'
-      }}
+    <HoverPopoverProvider
+      postMessage={noopPostMessage}
+      entries={entries}
+      userMacros={userMacros}
     >
-      <div
-        style={{
-          fontWeight: 700,
-          marginBottom: '0.4rem',
-          color: stroke
-        }}
-      >
-        {headerLabel}
-        {number ? ` ${number}` : ''}
-        {title ? ` — ${title}` : ''}
-      </div>
-      {isSnl ? (
-        <SnlPreview snl={body} macroDb={macroDb} macroQuery={macroQuery} />
-      ) : (
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.85rem',
-            color: '#222'
-          }}
-        >
-          {body ? body : '(no content)'}
-        </pre>
-      )}
-    </div>
+      <EntryRender
+        entry={entry}
+        kind={renderKind}
+        entries={entries}
+        postMessage={noopPostMessage}
+        userMacros={userMacros}
+        counterLabel={undefined}
+        disableTitleJump={true}
+      />
+    </HoverPopoverProvider>
   );
 }
 
-/**
- * Live SNL render for the Entry editor preview. Parses the SNL source and
- * hands the tree to `<SnlSyntaxTreeView>` from @snl-basics/react. Parse
- * failures degrade to a subtle banner + raw-text fallback; render-time throws
- * are caught by {@link SnlRenderErrorBoundary}.
- */
-function SnlPreview({
-  snl,
-  macroDb,
-  macroQuery
-}: {
-  snl: string;
-  macroDb: SnlMacroDb;
-  macroQuery: SnlMacroTemplateQuery;
-}): React.ReactElement {
-  const parsed = useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
-
-  if (!parsed.ok) {
-    return (
-      <div>
-        <ErrorBanner
-          text={`SNL parse error: ${parsed.error}${
-            parsed.position !== undefined ? ` (at ${parsed.position})` : ''
-          }`}
-        />
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.85rem',
-            color: '#222'
-          }}
-        >
-          {snl}
-        </pre>
-      </div>
-    );
-  }
-
-  return (
-    <SnlRenderErrorBoundary snl={snl}>
-      <div style={{ color: '#111', fontSize: '1rem' }}>
-        <SnlSyntaxTreeView
-          tree={parsed.tree}
-          macroDb={macroDb}
-          query={macroQuery}
-          hooks={PREVIEW_HOOKS}
-        />
-      </div>
-    </SnlRenderErrorBoundary>
-  );
-}
-
-function ErrorBanner({ text }: { text: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        margin: '0 0 0.5rem',
-        padding: '0.4rem 0.6rem',
-        borderRadius: '3px',
-        background: '#fdecea',
-        border: '1px solid #f5c2c0',
-        color: '#8a1f11',
-        fontSize: '0.8rem',
-        fontFamily: 'var(--vscode-editor-font-family, monospace)'
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-/**
- * Catches render-time throws from `<SnlSyntaxTreeView>` (e.g. a KaTeX failure
- * or an unexpected tree shape) and shows a red banner + raw-text fallback
- * instead of blanking the whole webview.
- */
-class SnlRenderErrorBoundary extends React.Component<
-  { snl: string; children: React.ReactNode },
-  { message: string | null }
-> {
-  constructor(props: { snl: string; children: React.ReactNode }) {
-    super(props);
-    this.state = { message: null };
-  }
-
-  static getDerivedStateFromError(error: unknown): { message: string } {
-    return { message: error instanceof Error ? error.message : String(error) };
-  }
-
-  override componentDidUpdate(prev: { snl: string }): void {
-    if (prev.snl !== this.props.snl && this.state.message !== null) {
-      this.setState({ message: null });
-    }
-  }
-
-  override render(): React.ReactNode {
-    if (this.state.message !== null) {
-      return (
-        <div>
-          <ErrorBanner text={`SNL render error: ${this.state.message}`} />
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              fontFamily: 'var(--vscode-editor-font-family, monospace)',
-              fontSize: '0.85rem',
-              color: '#222'
-            }}
-          >
-            {this.props.snl}
-          </pre>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function Label({
   htmlFor,

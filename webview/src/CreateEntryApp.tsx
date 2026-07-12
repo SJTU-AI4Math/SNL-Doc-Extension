@@ -26,7 +26,6 @@ import 'katex/dist/katex.min.css';
 import '@snl-basics/react/style.css';
 import {
   tryParseSnlSyntaxTree,
-  serializeSnlSyntaxTree,
   bundledMacroDb,
   createSnlSyntaxTreeNode,
   DEFAULT_KIND_PALETTE,
@@ -1089,7 +1088,7 @@ function GuiInductiveEditor({
   // Collapsed paths (dotted, root = ''; children = '0', '0.1', ...).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const lastSerializedRef = useRef<string>(serializeSnlSyntaxTree(tree));
+  const lastSerializedRef = useRef<string>(serializeTreePreserving(tree));
 
   useEffect(() => {
     if (snl === lastSerializedRef.current) return;
@@ -1097,7 +1096,7 @@ function GuiInductiveEditor({
     if (parsed.ok) {
       setTree(parsed.tree);
       setParseError(null);
-      lastSerializedRef.current = serializeSnlSyntaxTree(parsed.tree);
+      lastSerializedRef.current = serializeTreePreserving(parsed.tree);
     } else {
       setParseError(parsed.error);
     }
@@ -1115,7 +1114,7 @@ function GuiInductiveEditor({
       // only the serialized-for-parent view is pruned. (Cat 2026-07-12:
       // "删一个节点就容易不过编译了".)
       const pruned = stripEmptyPlaceholders(nextTree);
-      const nextSnl = serializeSnlSyntaxTree(pruned);
+      const nextSnl = serializeTreePreserving(pruned);
       lastSerializedRef.current = nextSnl;
       setParseError(null);
       onChange(nextSnl);
@@ -1212,6 +1211,29 @@ function parseOrDefault(text: string): SnlSyntaxTree {
   }
   const parsed = tryParseSnlSyntaxTree(trimmed);
   return parsed.ok ? parsed.tree : createSnlSyntaxTreeNode('_snl_stub');
+}
+
+/**
+ * Serialize a tree back to SNL source, preserving the surface syntax that
+ * `serializeSnlSyntaxTree` from @snl-basics/react drops on the floor.
+ *
+ * The library's serializer emits `name(children)` verbatim — it ignores
+ * `envMode`, `style`, and `kind='binder'`. That's fine when the tree came
+ * from a parser that stripped delimiters into the payload, but for us it's
+ * catastrophic: a leaf `{name:'foo', envMode:'text'}` (which the user typed
+ * as `%foo%`) round-trips as bare `foo`, and the parser rejects it on the
+ * next reparse. Cat 2026-07-12: "GUI Editor 改完会把 % 等语法元素吃掉".
+ *
+ * Fix: use `stringifyLeafSource` for the head at every level so `%…%` /
+ * `$…$` / `$$…$$` / `@` / `[style]` all survive. Children still recurse.
+ */
+function serializeTreePreserving(node: SnlSyntaxTree): string {
+  const head = stringifyLeafSource(node);
+  const childrenPart =
+    node.children.length > 0
+      ? `(${node.children.map(serializeTreePreserving).join(',')})`
+      : '';
+  return `${head}${childrenPart}`;
 }
 
 /**

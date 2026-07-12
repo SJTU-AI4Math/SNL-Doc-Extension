@@ -21,19 +21,20 @@
 // the SNL text via parse/serialize round-trips. 猫猫 spec 3: "把 SNL-Basics
 // 里的 Syntax Tree Editor 先给它搬过来，变成 GUI Editor (Inductive)".
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
 import '@snl-basics/react/style.css';
 import {
   tryParseSnlSyntaxTree,
   serializeSnlSyntaxTree,
-  SnlSyntaxTreeEditor,
   bundledMacroDb,
   createSnlSyntaxTreeNode,
+  DEFAULT_KIND_PALETTE,
   type SnlMacro,
   type SnlMacroDb,
   type SnlMacroStyle,
-  type SnlSyntaxTree
+  type SnlSyntaxTree,
+  type KindColoring
 } from '@snl-basics/react';
 import {
   getVsCodeApi,
@@ -933,25 +934,126 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// GUI Editor (Inductive)
+// GUI Editor (Inductive) — library-outline-styled tree editor
 // ---------------------------------------------------------------------------
 //
-// Recursive, node-per-row editor over an SnlSyntaxTree. Each row shows:
-//   [ node name input (with autocomplete over macroDb) ]  [+ child]  [− delete]
-// Children are indented under their parent. Editing propagates a serialized
-// SNL source string back to the parent via `onChange`.
+// Cat 2026-07-12 reset. The old row was `[input] [+child] [-delete]` with an
+// unconditional +child button and a light-mode inline input. This version
+// mimics the Library outline (see CreateLibraryApp.tsx `OutlineRow`):
 //
-// The tree state lives ONLY inside this component. When the parent's `snl`
-// text changes externally (e.g. the user typed something in Text Editor
-// mode and switched back), we re-parse; that's the ONLY sync direction that
-// works, because arbitrary edits in Text mode aren't representable as
-// incremental tree ops. When the user's GUI edits produce an invalid tree
-// (unlikely — the constructor guarantees a valid `SnlSyntaxTree`), we still
-// serialize and the resulting SNL text is deterministic.
+//   [chevron?] [#1.2.3] [ ─────── name input ─────── ] [+ child] [− delete]
+//                                                       (hover only)
 //
-// The name input on each row is powered by @snl-basics/react's built-in
-// SnlSyntaxTreeEditor for a single row (using its name-autocomplete UX);
-// wrapper adds + child / − self buttons.
+// Design notes:
+//   1. Input CSS unified to the dark-mode `inputStyle` used across the panel
+//      so it stops looking pasted-in.
+//   2. Number label sits on the SAME line as the input, and is a full path
+//      (`1.2.3`) that grows with depth. Indent + label length correlate so
+//      deeper rows look visually anchored.
+//   3. Rows with children render a chevron (▶/▼) on the far left; leaves
+//      render a same-width spacer so numbers align. Toggle is per-row, held
+//      in a `Set<path>` at the editor root.
+//   4. +child / −delete only appear on hover (CSS `.snl-tree-row:hover
+//      .snl-tree-row-toolbar`), same pattern as OutlineRow.
+//   5. When the input text (parsed as a single leaf) resolves to a macro in
+//      the merged DB with a `kind`, the input border+bg flip to that kind's
+//      palette color. Delimited leaves (`$…$`, `%…%`) also color per their
+//      inherent envMode → mapped kind.
+//   6. Syntax the parser understands stays in the text box verbatim: `$foo$`,
+//      `$$x + y$$`, `%my text%`, `@$x$`, `foo[style]`, `foo.bar.baz`. On
+//      serialize, each row's text is treated as a single leaf's source, then
+//      re-hydrated to preserve `envMode` / `kind='binder'` / `style`. This
+//      keeps the round-trip clean without demanding new UI knobs — the raw
+//      characters are the source of truth until we build proper inline
+//      editors.
+//
+// The `SnlSyntaxTreeEditor` from @snl-basics/react is no longer used here —
+// it renders its own recursion + a light-mode autocomplete dropdown that
+// clashed with the new row layout. Autocomplete can come back as a separate
+// enhancement later.
+
+/**
+ * Parse a single-node source string produced by the user (raw text they
+ * typed into the row input) into the leaf-level fields of an SnlSyntaxTree.
+ * Preserves envMode / kind='binder' / style tag from the surface syntax.
+ *
+ * Falls back to `{name: raw, ...}` if the input can't be interpreted as a
+ * single leaf — that way the user's typing is never destroyed mid-edit.
+ */
+function parseLeafSource(raw: string): {
+  name: string;
+  envMode?: 'formula_inline' | 'formula_display' | 'text';
+  kind: string;
+  style?: string;
+} {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { name: '', kind: '' };
+  }
+  // Parse the source in isolation to let the parser extract envMode /
+  // binder / style tag. We synthesize `foo()` if it contains parens
+  // already? No — the row input is only the leaf head. If the user typed
+  // parens, treat as invalid leaf: keep as raw name.
+  if (trimmed.includes('(') || trimmed.includes(',')) {
+    return { name: raw, kind: '' };
+  }
+  const parsed = tryParseSnlSyntaxTree(trimmed);
+  if (!parsed.ok) {
+    return { name: raw, kind: '' };
+  }
+  const t = parsed.tree;
+  if (t.children.length > 0) {
+    // Shouldn't happen given the paren guard above, but be defensive.
+    return { name: raw, kind: '' };
+  }
+  return {
+    name: t.name,
+    envMode: t.envMode,
+    kind: t.kind ?? '',
+    style: t.style
+  };
+}
+
+/**
+ * Render an SnlSyntaxTree leaf's identity back to the source text the user
+ * would have typed for it. Inverse of `parseLeafSource` (round-trippable for
+ * the surface forms the row input accepts).
+ */
+function stringifyLeafSource(node: SnlSyntaxTree): string {
+  const stylePart = node.style ? `[${node.style}]` : '';
+  const binderPrefix = node.kind === 'binder' ? '@' : '';
+  if (node.envMode === 'text') {
+    return `${binderPrefix}%${node.name}%${stylePart}`;
+  }
+  if (node.envMode === 'formula_inline') {
+    return `${binderPrefix}$${node.name}$${stylePart}`;
+  }
+  if (node.envMode === 'formula_display') {
+    return `${binderPrefix}$$${node.name}$$${stylePart}`;
+  }
+  return `${binderPrefix}${node.name}${stylePart}`;
+}
+
+/**
+ * Resolve the effective `kind` for a row so we can color its input frame.
+ * Priority: node.kind (set by parser for `@`-binder / annotate-bind) →
+ * macro's declared kind in the merged DB → envMode-driven default →
+ * 'fvar' fallback (mirrors DEFAULT_KIND_PALETTE fallback used elsewhere).
+ */
+function resolveRowKind(node: SnlSyntaxTree, macroDb: SnlMacroDb): string {
+  if (node.kind && node.kind !== '') return node.kind;
+  const macro = macroDb[node.name];
+  if (macro?.kind) return macro.kind;
+  if (node.envMode === 'text') return 'const';
+  if (node.envMode === 'formula_inline' || node.envMode === 'formula_display') {
+    return 'const';
+  }
+  return 'fvar';
+}
+
+function paletteFor(kindId: string): KindColoring {
+  return DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
+}
 
 function GuiInductiveEditor({
   snl,
@@ -962,20 +1064,15 @@ function GuiInductiveEditor({
   macroDb: SnlMacroDb;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
-  // Local editable tree. Bootstrapped from the incoming SNL text on mount
-  // and on external changes to that text (see effect below). All internal
-  // edits go through the tree, then get serialized back to `onChange`.
   const [tree, setTree] = useState<SnlSyntaxTree>(() => parseOrDefault(snl));
   const [parseError, setParseError] = useState<string | null>(null);
+  // Collapsed paths (dotted, root = ''; children = '0', '0.1', ...).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  // Ref to the last SNL text we ourselves produced. Guards against the
-  // ping-pong: onChange → parent state → snl prop → this effect → resetting
-  // tree to what we just serialized (which drops mid-edit selection state).
   const lastSerializedRef = useRef<string>(serializeSnlSyntaxTree(tree));
 
   useEffect(() => {
     if (snl === lastSerializedRef.current) return;
-    // Text arrived from outside (Text mode / hydrate). Re-parse.
     const parsed = tryParseSnlSyntaxTree(snl.trim() || '_snl_stub');
     if (parsed.ok) {
       setTree(parsed.tree);
@@ -983,17 +1080,28 @@ function GuiInductiveEditor({
       lastSerializedRef.current = serializeSnlSyntaxTree(parsed.tree);
     } else {
       setParseError(parsed.error);
-      // Keep the last valid tree — user can flip back to Text and fix.
     }
   }, [snl]);
 
-  const propagate = (nextTree: SnlSyntaxTree): void => {
-    setTree(nextTree);
-    const nextSnl = serializeSnlSyntaxTree(nextTree);
-    lastSerializedRef.current = nextSnl;
-    setParseError(null);
-    onChange(nextSnl);
-  };
+  const propagate = useCallback(
+    (nextTree: SnlSyntaxTree): void => {
+      setTree(nextTree);
+      const nextSnl = serializeSnlSyntaxTree(nextTree);
+      lastSerializedRef.current = nextSnl;
+      setParseError(null);
+      onChange(nextSnl);
+    },
+    [onChange]
+  );
+
+  const toggleCollapsed = useCallback((path: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
 
   return (
     <div
@@ -1001,20 +1109,35 @@ function GuiInductiveEditor({
         border:
           '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
         borderRadius: '3px',
-        padding: '0.6rem',
+        padding: '0.4rem 0.3rem',
         background: 'var(--vscode-editorWidget-background, #252526)'
       }}
     >
+      {/* Pure-CSS hover-reveal for the per-row toolbar. Same pattern as
+          CreateLibraryApp OutlineRow — opacity toggle keeps the buttons in
+          layout so hover doesn't shift columns, and browser-native `:hover`
+          never drops a leave event. */}
+      <style>{`
+        .snl-tree-row-toolbar {
+          opacity: 0;
+          transition: opacity 90ms ease-in;
+        }
+        .snl-tree-row:hover .snl-tree-row-toolbar,
+        .snl-tree-row:focus-within .snl-tree-row-toolbar {
+          opacity: 1;
+        }
+      `}</style>
+
       {parseError ? (
         <div
           style={{
-            marginBottom: '0.5rem',
-            padding: '0.35rem 0.55rem',
-            background: '#fdecea',
-            border: '1px solid #f5c2c0',
-            color: '#8a1f11',
+            margin: '0 0.3rem 0.4rem',
+            padding: '0.3rem 0.5rem',
+            background: 'rgba(220, 60, 60, 0.12)',
+            border: '1px solid rgba(220, 60, 60, 0.55)',
+            color: 'var(--vscode-errorForeground, #f48771)',
             borderRadius: '3px',
-            fontSize: '0.8rem'
+            fontSize: '0.78rem'
           }}
         >
           Text-mode SNL is not parseable ({parseError}). Tree shown reflects
@@ -1022,23 +1145,29 @@ function GuiInductiveEditor({
           content on next change.
         </div>
       ) : null}
+
       <InductiveNode
         node={tree}
+        path=""
+        numberPath=""
+        depth={0}
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDb={macroDb}
-        depth={0}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
       />
       <p
         style={{
-          margin: '0.5rem 0 0',
-          fontSize: '0.75rem',
-          opacity: 0.6,
+          margin: '0.4rem 0.3rem 0',
+          fontSize: '0.72rem',
+          opacity: 0.55,
           fontStyle: 'italic'
         }}
       >
-        Inductive editor — click a node's + to add a child; − to delete a
-        subtree. Name field autocompletes from your macro packages.
+        Inductive editor — hover a row for + child / − delete. Delimited
+        forms are recognized: <code>$foo$</code>, <code>$$x+y$$</code>,{' '}
+        <code>%text%</code>, <code>@$x$</code>, <code>foo[style]</code>.
       </p>
     </div>
   );
@@ -1055,25 +1184,61 @@ function parseOrDefault(text: string): SnlSyntaxTree {
 }
 
 /**
- * One row in the inductive editor. Renders name + [+ child, − delete] on
- * the same line, and its children indented below. Re-uses the library's
- * SnlSyntaxTreeEditor for the single-row name input + autocomplete.
+ * One row in the inductive editor. See the file-level block comment above
+ * `GuiInductiveEditor` for the layout / interaction contract.
  */
 function InductiveNode({
   node,
+  path,
+  numberPath,
+  depth,
   onChange,
   onDelete,
   macroDb,
-  depth
+  collapsed,
+  onToggleCollapsed
 }: {
   node: SnlSyntaxTree;
+  /** Dotted path from root; root = "", children = "0", "0.1", ... */
+  path: string;
+  /** Human-visible number, e.g. "1", "1.2", "1.2.3" (root = ""). */
+  numberPath: string;
+  depth: number;
   onChange: (next: SnlSyntaxTree) => void;
-  /** Undefined for the root row (root can't be deleted from the editor). */
+  /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
   macroDb: SnlMacroDb;
-  depth: number;
+  collapsed: Set<string>;
+  onToggleCollapsed: (path: string) => void;
 }): React.ReactElement {
+  const [rawInput, setRawInput] = React.useState<string>(() =>
+    stringifyLeafSource(node)
+  );
+
+  // Sync from external changes (e.g. text mode edit → re-parse → new tree).
+  // Only reset if the incoming node's stringified form differs from what we
+  // last showed, so mid-typing user edits aren't clobbered.
+  React.useEffect(() => {
+    const canonical = stringifyLeafSource(node);
+    setRawInput((prev) => (prev.trim() === canonical.trim() ? prev : canonical));
+  }, [node.name, node.envMode, node.kind, node.style]);
+
+  const commitRaw = (nextRaw: string): void => {
+    setRawInput(nextRaw);
+    const leaf = parseLeafSource(nextRaw);
+    onChange({
+      ...node,
+      name: leaf.name,
+      envMode: leaf.envMode,
+      kind: leaf.kind || node.kind || '',
+      style: leaf.style
+    });
+  };
+
   const addChild = (): void => {
+    // New child inherits nothing — empty leaf. Expand the parent so the new
+    // child is visible immediately.
+    if (collapsed.has(path)) onToggleCollapsed(path);
     onChange({
       ...node,
       children: [...node.children, createSnlSyntaxTreeNode('')]
@@ -1088,84 +1253,184 @@ function InductiveNode({
     const nextChildren = node.children.filter((_, idx) => idx !== i);
     onChange({ ...node, children: nextChildren });
   };
+
+  const hasKids = node.children.length > 0;
+  const isCollapsed = collapsed.has(path);
+  const effectiveKind = resolveRowKind(node, macroDb);
+  const palette = paletteFor(effectiveKind);
+  const macroMatched = Boolean(macroDb[node.name]) || node.envMode !== undefined;
+
   return (
-    <div style={{ marginLeft: depth > 0 ? '1.2rem' : 0 }}>
+    <div>
       <div
+        className="snl-tree-row"
         style={{
           display: 'flex',
-          gap: '0.35rem',
           alignItems: 'center',
-          marginBottom: '0.25rem'
+          gap: '0.35rem',
+          padding: '0.15rem 0.3rem',
+          paddingLeft: `${0.3 + depth * 1.1}rem`,
+          // Very subtle depth-tint so nested rows visually anchor.
+          background:
+            depth === 0
+              ? 'transparent'
+              : `rgba(255,255,255,${Math.min(0.015 * depth, 0.08)})`
         }}
       >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Library editor is recursive by default (renders children too).
-              We use it in "single row" mode by giving it a shim onChange
-              that ONLY promotes the {name, kind, mdata} patch and drops any
-              children the library might have handed back — we manage
-              children ourselves via the outer InductiveNode recursion. */}
-          <SnlSyntaxTreeEditor
-            value={{ ...node, children: [] }}
-            templateDb={macroDb}
-            nodeIndex={depth + 1}
-            onChange={(next) => {
-              onChange({
-                ...node,
-                name: next.name,
-                kind: next.kind ?? node.kind,
-                mdata: next.mdata ?? node.mdata
-              });
-            }}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={addChild}
-          title="Add a child under this node"
-          aria-label="Add child"
-          style={inductiveMiniButton}
-        >
-          + child
-        </button>
-        {onDelete ? (
+        {/* Chevron toggle OR spacer, so numbers/inputs line up regardless. */}
+        {hasKids ? (
           <button
             type="button"
-            onClick={onDelete}
-            title="Delete this subtree"
-            aria-label="Delete subtree"
-            style={{
-              ...inductiveMiniButton,
-              color: 'var(--vscode-errorForeground, #f48771)',
-              borderColor: 'var(--vscode-errorForeground, #f48771)'
-            }}
+            onClick={() => onToggleCollapsed(path)}
+            style={chevronButtonStyle}
+            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+            title={isCollapsed ? 'Expand' : 'Collapse'}
           >
-            − delete
+            {isCollapsed ? '▶' : '▼'}
           </button>
-        ) : null}
-      </div>
-      {node.children.length > 0 ? (
-        <div
+        ) : (
+          <span
+            style={{ width: '1.1rem', flexShrink: 0, display: 'inline-block' }}
+          />
+        )}
+
+        {/* Full number path (e.g. #1.2.3). Root shows nothing so the input
+            starts flush. Width scales with depth so indent visually
+            correlates with number length. */}
+        <span
           style={{
-            paddingLeft: '0.35rem',
-            borderLeft:
-              '1px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.75rem',
+            color: 'var(--vscode-descriptionForeground, #888)',
+            minWidth: numberPath ? `${Math.max(2, numberPath.length + 1)}ch` : 0,
+            flexShrink: 0
           }}
         >
-          {node.children.map((child, i) => (
-            <InductiveNode
-              key={i}
-              node={child}
-              onChange={(next) => updateChild(i, next)}
-              onDelete={() => deleteChild(i)}
-              macroDb={macroDb}
-              depth={depth + 1}
-            />
-          ))}
+          {numberPath ? `#${numberPath}` : ''}
+        </span>
+
+        {/* Name input — dark-mode uniform styling + kind-colored frame. */}
+        <input
+          type="text"
+          value={rawInput}
+          onChange={(e) => commitRaw(e.target.value)}
+          placeholder={depth === 0 ? 'root macro' : 'name / $expr$ / %text% / @…'}
+          spellCheck={false}
+          style={{
+            ...inputStyle,
+            flex: '1 1 auto',
+            padding: '0.25rem 0.5rem',
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.85rem',
+            // Kind-colored frame when the name matches a known macro or is a
+            // delimited leaf. Unmatched names keep the default dark input
+            // border so it's easy to see what's still unbound.
+            borderColor: macroMatched
+              ? palette.stroke
+              : 'var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            // Tint the input's background with the kind color at low alpha
+            // so the shape stays legible on dark themes.
+            background: macroMatched
+              ? kindBackgroundTint(palette.background)
+              : 'var(--vscode-input-background, #2a2a2a)',
+            color: 'var(--vscode-input-foreground, #ddd)'
+          }}
+          title={
+            macroMatched
+              ? `kind: ${effectiveKind}${macroDb[node.name] ? '' : ' (from envMode)'}`
+              : 'name does not match any macro in the current DB'
+          }
+        />
+
+        <div
+          className="snl-tree-row-toolbar"
+          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
+        >
+          <button
+            type="button"
+            onClick={addChild}
+            title="Add a child under this node"
+            aria-label="Add child"
+            style={inductiveMiniButton}
+          >
+            + child
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              title="Delete this subtree"
+              aria-label="Delete subtree"
+              style={{
+                ...inductiveMiniButton,
+                color: 'var(--vscode-errorForeground, #f48771)',
+                borderColor: 'var(--vscode-errorForeground, #f48771)'
+              }}
+            >
+              − delete
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {hasKids && !isCollapsed ? (
+        <div>
+          {node.children.map((child, i) => {
+            const childPath = path === '' ? String(i) : `${path}.${i}`;
+            const childNumber =
+              numberPath === '' ? String(i + 1) : `${numberPath}.${i + 1}`;
+            return (
+              <InductiveNode
+                key={i}
+                node={child}
+                path={childPath}
+                numberPath={childNumber}
+                depth={depth + 1}
+                onChange={(next) => updateChild(i, next)}
+                onDelete={() => deleteChild(i)}
+                macroDb={macroDb}
+                collapsed={collapsed}
+                onToggleCollapsed={onToggleCollapsed}
+              />
+            );
+          })}
         </div>
       ) : null}
     </div>
   );
 }
+
+/**
+ * Map a light-mode palette background (`#DAF0FF` etc.) to a dark-mode tint
+ * that's readable behind white text. We take the kind's stroke color at ~15%
+ * alpha over the panel bg — small enough to keep contrast, strong enough to
+ * signal "this matches kind X".
+ */
+function kindBackgroundTint(lightBg: string): string {
+  // Naive: use the light bg at 18% alpha over transparent. VS Code themes
+  // supply their own base; the tint reads as a subtle colored wash on dark.
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(lightBg.trim());
+  if (hex) {
+    const r = parseInt(hex[1].slice(0, 2), 16);
+    const g = parseInt(hex[1].slice(2, 4), 16);
+    const b = parseInt(hex[1].slice(4, 6), 16);
+    return `rgba(${r},${g},${b},0.18)`;
+  }
+  return 'var(--vscode-input-background, #2a2a2a)';
+}
+
+const chevronButtonStyle: React.CSSProperties = {
+  width: '1.1rem',
+  height: '1.1rem',
+  padding: 0,
+  fontSize: '0.65rem',
+  lineHeight: 1,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--vscode-descriptionForeground, #888)',
+  cursor: 'pointer',
+  flexShrink: 0
+};
 
 const inductiveMiniButton: React.CSSProperties = {
   padding: '0.15rem 0.5rem',

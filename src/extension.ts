@@ -12,6 +12,7 @@ import { PackagePanel } from './packagePanel';
 import { CreateMacroPanel } from './createMacroPanel';
 import { CreateRelationshipPanel } from './createRelationshipPanel';
 import { GraphPanel } from './graphPanel';
+import { SnoogLPanel } from './snooglPanel';
 import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
@@ -625,6 +626,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const openSnoogL = vscode.commands.registerCommand(
+    'snlDoc.openSnoogL',
+    () => {
+      SnoogLPanel.open(context.extensionUri);
+    }
+  );
+
   context.subscriptions.push(
     openInfoview,
     openEntryInfoview,
@@ -657,7 +665,8 @@ export function activate(context: vscode.ExtensionContext): void {
     deleteRelationship,
     openInfoviewGraph,
     openInfoviewGraphForLibrary,
-    regenerateDependencies
+    regenerateDependencies,
+    openSnoogL
   );
 }
 

@@ -227,6 +227,11 @@ export class DashboardPanel {
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;
+      case 'openSnoogL':
+        // Cat 2026-07-12: Dashboard's inline macro-search bar was replaced
+        // by a jump button that pops the SNoogL panel.
+        await vscode.commands.executeCommand('snlDoc.openSnoogL');
+        return;
       // Delete forwarders (cat 2026-07-09). Dashboard rows now carry a
       // trash-icon action per entity; each posts its type + identifier
       // here and we hand off to the shared `snlDoc.delete*` command,

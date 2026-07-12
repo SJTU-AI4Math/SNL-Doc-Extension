@@ -1,0 +1,324 @@
+import * as vscode from 'vscode';
+import {
+  readAllMacros,
+  readEntries,
+  readMacroPackage,
+  readMacroPackages,
+  resolveActiveMacroPackages,
+  type EntryData
+} from './snlDoc';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+
+/**
+ * SNoogL — SNL search panel (cat 2026-07-12).
+ *
+ * A single search surface for BOTH entries and macros. The mode toggle
+ * (`entry` / `macro`) is a first-class member of the query object; a
+ * filter payload sits alongside it and drives host-side rerank. The
+ * MVP has one filter slot (`kindId?`) — the shape is ready for more.
+ *
+ * Message protocol with the webview (`snoogl` bundle):
+ *   in : { type: 'ready' }                                (bootstrap)
+ *      | { type: 'query'; q: string; mode: 'entry'|'macro'; filters: SnoogLFilters }
+ *      | { type: 'openEntry'; id: string }
+ *      | { type: 'openMacro'; packageFile: string; name: string }
+ *      | (nav messages via handlePanelNavMessage)
+ *   out: { type: 'ready'; }                               (available soon)
+ *      | { type: 'results'; results: SnoogLHit[]; kindsByMode: {entry: string[]; macro: string[]} }
+ *      | { type: 'error'; message: string }
+ *
+ * Ranking is deliberately simple for now (prefix > substring position >
+ * alphabetical); we plan to swap in a real scorer once the filter set
+ * grows. Each hit carries a numeric `score` so the webview can show
+ * a bar / badge later without a shape change.
+ */
+
+interface SnoogLFilters {
+  /** Restrict to a single kind id (entry_kinds[].id / macro_kinds[].id). */
+  kindId?: string;
+}
+
+interface SnoogLHitEntry {
+  kind: 'entry';
+  id: string;
+  title: string;
+  entryKind: string | null;
+  score: number;
+}
+
+interface SnoogLHitMacro {
+  kind: 'macro';
+  id: string;
+  packageFile: string;
+  packageName: string;
+  macroKind: string | null;
+  score: number;
+}
+
+type SnoogLHit = SnoogLHitEntry | SnoogLHitMacro;
+
+export class SnoogLPanel {
+  private static instance: SnoogLPanel | null = null;
+  private static readonly viewType = 'snlSnoogL';
+
+  private readonly panel: vscode.WebviewPanel;
+  private readonly extensionUri: vscode.Uri;
+  private disposables: vscode.Disposable[] = [];
+
+  public static open(extensionUri: vscode.Uri): void {
+    const column = vscode.ViewColumn.Active;
+    if (SnoogLPanel.instance) {
+      SnoogLPanel.instance.panel.reveal(column);
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      SnoogLPanel.viewType,
+      'SNoogL — Search',
+      column,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+      }
+    );
+    SnoogLPanel.instance = new SnoogLPanel(panel, extensionUri);
+  }
+
+  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+    this.panel = panel;
+    this.extensionUri = extensionUri;
+
+    this.panel.webview.html = buildPanelHtml(
+      this.extensionUri,
+      this.panel.webview,
+      'snoogl',
+      'SNoogL — Search'
+    );
+
+    this.panel.webview.onDidReceiveMessage(
+      (m) => this.handleMessage(m),
+      null,
+      this.disposables
+    );
+
+    this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+  }
+
+  private async handleMessage(message: unknown): Promise<void> {
+    if (await handlePanelNavMessage(message)) return;
+    const msg = message as { type?: string } | undefined;
+    if (!msg || typeof msg.type !== 'string') return;
+
+    switch (msg.type) {
+      case 'ready':
+        void this.panel.webview.postMessage({ type: 'ready' });
+        // Kick a blank query so the webview can populate its kind
+        // dropdown from the returned `kindsByMode`.
+        await this.doQuery({ q: '', mode: 'entry', filters: {} });
+        return;
+      case 'query': {
+        const q = typeof (msg as { q?: unknown }).q === 'string' ? (msg as { q: string }).q : '';
+        const rawMode = (msg as { mode?: unknown }).mode;
+        const mode: 'entry' | 'macro' = rawMode === 'macro' ? 'macro' : 'entry';
+        const rawFilters = (msg as { filters?: unknown }).filters;
+        const filters: SnoogLFilters = {};
+        if (rawFilters && typeof rawFilters === 'object') {
+          const kindId = (rawFilters as { kindId?: unknown }).kindId;
+          if (typeof kindId === 'string' && kindId) filters.kindId = kindId;
+        }
+        await this.doQuery({ q, mode, filters });
+        return;
+      }
+      case 'openEntry': {
+        const id = (msg as { id?: unknown }).id;
+        if (typeof id === 'string' && id.trim()) {
+          void vscode.commands.executeCommand('snlDoc.editEntry', id.trim());
+        }
+        return;
+      }
+      case 'openMacro': {
+        const packageFile = (msg as { packageFile?: unknown }).packageFile;
+        const name = (msg as { name?: unknown }).name;
+        if (typeof packageFile === 'string' && typeof name === 'string' && packageFile && name) {
+          void vscode.commands.executeCommand('snlDoc.editMacro', packageFile, name);
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /**
+   * Run a query and push the results. Errors are swallowed into a single
+   * `error` message so the webview can show a banner without blowing up.
+   * Empty result sets are legitimate — they still send an empty results
+   * array so the "0 hits" banner can show.
+   */
+  private async doQuery(query: {
+    q: string;
+    mode: 'entry' | 'macro';
+    filters: SnoogLFilters;
+  }): Promise<void> {
+    try {
+      const root = firstWorkspaceFolder();
+      if (!root) {
+        void this.panel.webview.postMessage({
+          type: 'error',
+          message: 'Open a folder / workspace to search.'
+        });
+        return;
+      }
+      const entries = await safe(() => readEntries(root), []);
+      const macrosByName = await safe(() => readAllMacros(root), {});
+      // For macro origin (package file + display name), we need the
+      // per-package read. Same pattern as createEntryPanel — best-effort.
+      const macroPackages: SnoogLHitMacro[] = [];
+      try {
+        const active = new Set(await resolveActiveMacroPackages(root));
+        const packages = await readMacroPackages(root);
+        for (const summary of packages) {
+          const bare = summary.file.replace(/\.json$/i, '');
+          if (!active.has(bare)) continue;
+          const read = await readMacroPackage(root, summary.file);
+          if (read.status !== 'ok') continue;
+          for (const m of read.macros) {
+            if (typeof m.name !== 'string' || !m.name) continue;
+            macroPackages.push({
+              kind: 'macro',
+              id: m.name,
+              packageFile: bare,
+              packageName: read.pkg?.name ?? bare,
+              macroKind: typeof m.kind === 'string' && m.kind ? m.kind : null,
+              score: 0
+            });
+          }
+        }
+      } catch {
+        /* best-effort */
+      }
+      const kindsByMode = {
+        entry: uniqueSorted(entries.map((e) => e.kind).filter(Boolean) as string[]),
+        macro: uniqueSorted(
+          Object.values(macrosByName)
+            .map((m) => m.kind)
+            .filter((k): k is string => typeof k === 'string' && k.length > 0)
+        )
+      };
+
+      const q = query.q.trim().toLowerCase();
+      let results: SnoogLHit[];
+      if (query.mode === 'entry') {
+        results = rankEntries(entries, q, query.filters);
+      } else {
+        results = rankMacros(macroPackages, q, query.filters);
+      }
+      // Cap at 100 — the panel is not built to render more, and shipping
+      // huge payloads over postMessage on every keystroke is wasteful.
+      results = results.slice(0, 100);
+
+      void this.panel.webview.postMessage({
+        type: 'results',
+        query,
+        results,
+        kindsByMode
+      });
+    } catch (err) {
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Search failed: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
+  }
+
+  public dispose(): void {
+    SnoogLPanel.instance = null;
+    this.panel.dispose();
+    while (this.disposables.length) {
+      const d = this.disposables.pop();
+      try {
+        d?.dispose();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch {
+    return fallback;
+  }
+}
+
+function uniqueSorted(xs: string[]): string[] {
+  return Array.from(new Set(xs)).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Rank entries by q against `id` + `title`. Empty q returns every entry
+ * (still filtered) with score = 0 so the list acts as a browsable
+ * catalog when the user opens the panel with no query typed.
+ */
+function rankEntries(
+  entries: EntryData[],
+  q: string,
+  filters: SnoogLFilters
+): SnoogLHitEntry[] {
+  const out: SnoogLHitEntry[] = [];
+  for (const e of entries) {
+    if (filters.kindId && e.kind !== filters.kindId) continue;
+    const idLower = (e.id ?? '').toLowerCase();
+    const titleLower = (e.title ?? '').toLowerCase();
+    let score = 0;
+    if (q.length > 0) {
+      const idPos = idLower.indexOf(q);
+      const titlePos = titleLower.indexOf(q);
+      if (idPos < 0 && titlePos < 0) continue;
+      // Higher = better. Prefix on id wins hardest.
+      if (idPos === 0) score = 100;
+      else if (idPos > 0) score = 80 - Math.min(idPos, 40);
+      else if (titlePos === 0) score = 60;
+      else score = 40 - Math.min(titlePos, 40);
+    }
+    out.push({
+      kind: 'entry',
+      id: e.id ?? '',
+      title: e.title ?? '',
+      entryKind: e.kind ?? null,
+      score
+    });
+  }
+  out.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+  return out;
+}
+
+function rankMacros(
+  macros: SnoogLHitMacro[],
+  q: string,
+  filters: SnoogLFilters
+): SnoogLHitMacro[] {
+  const out: SnoogLHitMacro[] = [];
+  for (const m of macros) {
+    if (filters.kindId && m.macroKind !== filters.kindId) continue;
+    const idLower = m.id.toLowerCase();
+    let score = 0;
+    if (q.length > 0) {
+      const pos = idLower.indexOf(q);
+      if (pos < 0) continue;
+      if (pos === 0) score = 100;
+      else score = 80 - Math.min(pos, 40);
+    }
+    out.push({ ...m, score });
+  }
+  out.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    return a.id.localeCompare(b.id);
+  });
+  return out;
+}

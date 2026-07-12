@@ -356,11 +356,9 @@ function Initialized({
         expanded={openMacros}
         onToggle={() => setOpenMacros((v) => !v)}
       >
-        <SnoogLBar
-          allMacros={overview.allMacros}
-          onOpenPackage={(file) =>
-            api?.postMessage({ type: 'openMacroPackage', file })
-          }
+        <OpenSnoogLBar
+          onOpen={() => api?.postMessage({ type: 'openSnoogL' })}
+          macroCount={overview.allMacros.length}
         />
         {overview.macroPackages.length > 0 ? (
           <MacroPackagesTable
@@ -508,355 +506,57 @@ function CollapsibleSection({
 }
 
 /**
- * SNoogL — the workspace-wide Find Macro search box on the Dashboard
- * (Fulcrum 2026-07-04 spec 4).
- *
-  * "点进去以后是一个类似 Google 的搜索框" — starts as a compact button
-  * labeled "🔍 Find Macro"; on click / focus it expands to a full-width
-  * input that shows a filtered dropdown of matching macro ids beneath it.
-  *
-  * Matching: case-insensitive substring against `id`. Substring rank
-  * prefers prefix matches, then position ascending (earlier = better),
-  * then alphabetical.  Client-side only — the overview payload includes
-  * every macro's id + origin package. Empty query renders no dropdown
-  * (spec: no "top hits" surface until the user types).
-  *
-  * Selecting a result posts `openMacroPackage` for that macro's package
-  * (host opens the package panel). "Reveal the specific macro inside the
-  * package" is deferred until the package panel gains a scroll-into-view /
-  * highlight-macro API. When 0 packages, the search is disabled with a
-  * subtle placeholder.
-  */
- function SnoogLBar({
-   allMacros,
-   onOpenPackage
- }: {
-   allMacros: AllMacroIndexEntry[];
-   onOpenPackage: (packageFile: string) => void;
- }): React.ReactElement {
-   const [expanded, setExpanded] = useState(false);
-   const [query, setQuery] = useState('');
-   const [activeIdx, setActiveIdx] = useState(0);
-   const inputRef = useRef<HTMLInputElement | null>(null);
-   const wrapRef = useRef<HTMLDivElement | null>(null);
+ * SNoogL entry-point (cat 2026-07-12). Dashboard used to host the full
+ * "Find Macro" search UI inline; that surface moved into a dedicated
+ * SNoogL panel with an Entry/Macro toggle and a filter rail. What
+ * lives here now is just a jump button.
+ */
+function OpenSnoogLBar({
+  onOpen,
+  macroCount
+}: {
+  onOpen: () => void;
+  macroCount: number;
+}): React.ReactElement {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label="Open SNoogL search"
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      title="Open SNoogL — search entries and macros with filters"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.55rem 0.9rem',
+        marginBottom: '0.6rem',
+        borderRadius: '20px',
+        border:
+          '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+        background:
+          'var(--vscode-input-background, rgba(255,255,255,0.04))',
+        cursor: 'pointer',
+        userSelect: 'none'
+      }}
+    >
+      <span aria-hidden style={{ opacity: 0.75 }}>🔍</span>
+      <span style={{ fontWeight: 500 }}>Open SNoogL</span>
+      <span style={{ opacity: 0.6, fontSize: '0.8rem', marginLeft: 'auto' }}>
+        {macroCount === 0
+          ? '(no macros yet)'
+          : `${macroCount} macros · dedicated search page`}
+      </span>
+    </div>
+  );
+}
 
-   // Rank the matches. Prefix > substring position > alphabetical.
-  const matches = useMemo<AllMacroIndexEntry[]>(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length === 0) return [];
-    const scored: { entry: AllMacroIndexEntry; rank: number; pos: number }[] = [];
-    for (const entry of allMacros) {
-      const lower = entry.id.toLowerCase();
-      const pos = lower.indexOf(q);
-      if (pos < 0) continue;
-      const isPrefix = pos === 0;
-      const rank = isPrefix ? 0 : 1;
-      scored.push({ entry, rank, pos });
-    }
-    scored.sort((a, b) =>
-      a.rank !== b.rank
-        ? a.rank - b.rank
-        : a.pos !== b.pos
-          ? a.pos - b.pos
-          : a.entry.id.localeCompare(b.entry.id),
-    );
-    return scored.slice(0, 30).map((s) => s.entry);
-  }, [query, allMacros]);
-
-   // Reset the active-row index whenever the match set shrinks below it.
-   useEffect(() => {
-     if (activeIdx >= matches.length) setActiveIdx(0);
-   }, [matches, activeIdx]);
-
-   // Collapse when the user clicks outside the whole component (both the
-   // input and the dropdown).
-   useEffect(() => {
-     if (!expanded) return;
-     const handler = (e: MouseEvent): void => {
-       const wrap = wrapRef.current;
-       if (!wrap) return;
-       if (e.target instanceof Node && wrap.contains(e.target)) return;
-       setExpanded(false);
-     };
-     document.addEventListener('mousedown', handler);
-     return () => document.removeEventListener('mousedown', handler);
-   }, [expanded]);
-
-   const empty = allMacros.length === 0;
-
-   const openMatch = (i: number): void => {
-     const m = matches[i];
-     if (!m) return;
-     onOpenPackage(m.packageFile);
-     setQuery('');
-     setExpanded(false);
-   };
-
-   if (!expanded) {
-     return (
-       <div
-         role="button"
-         tabIndex={0}
-         aria-label="Find Macro (SNoogL)"
-         onClick={() => {
-           if (empty) return;
-           setExpanded(true);
-           requestAnimationFrame(() => inputRef.current?.focus());
-         }}
-         onKeyDown={(e) => {
-           if ((e.key === 'Enter' || e.key === ' ') && !empty) {
-             e.preventDefault();
-             setExpanded(true);
-             requestAnimationFrame(() => inputRef.current?.focus());
-           }
-         }}
-         title={
-           empty
-             ? 'No macros in workspace yet — add a package first'
-             : 'Search macros across every package (⌘/Ctrl-F equivalent)'
-         }
-         style={{
-           display: 'flex',
-           alignItems: 'center',
-           gap: '0.5rem',
-           padding: '0.55rem 0.9rem',
-           marginBottom: '0.6rem',
-           borderRadius: '20px',
-           border:
-             '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-           background:
-             'var(--vscode-input-background, rgba(255,255,255,0.04))',
-           color: empty
-             ? 'var(--vscode-descriptionForeground, #999)'
-             : 'inherit',
-           cursor: empty ? 'not-allowed' : 'text',
-           userSelect: 'none',
-           opacity: empty ? 0.6 : 1
-         }}
-       >
-         <span aria-hidden style={{ opacity: 0.75 }}>🔍</span>
-         <span style={{ fontWeight: 500 }}>Find Macro</span>
-         <span style={{ opacity: 0.6, fontSize: '0.8rem', marginLeft: 'auto' }}>
-           {empty ? '(no macros)' : `${allMacros.length} macros indexed`}
-         </span>
-       </div>
-     );
-   }
-
-   return (
-     <div ref={wrapRef} style={{ position: 'relative', marginBottom: '0.6rem' }}>
-       <div
-         style={{
-           display: 'flex',
-           alignItems: 'center',
-           gap: '0.5rem',
-           padding: '0.4rem 0.9rem',
-           borderRadius: matches.length > 0 ? '20px 20px 4px 4px' : '20px',
-           border:
-             '1px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))',
-           background: 'var(--vscode-input-background, #252526)'
-         }}
-       >
-         <span aria-hidden style={{ opacity: 0.75 }}>🔍</span>
-         <input
-           ref={inputRef}
-           type="text"
-           value={query}
-           placeholder="Search macro id — e.g. Set.union, add, Group…"
-           onChange={(e) => {
-             setQuery(e.target.value);
-             setActiveIdx(0);
-           }}
-           onKeyDown={(e) => {
-             if (e.key === 'Escape') {
-               e.preventDefault();
-               setExpanded(false);
-               setQuery('');
-               return;
-             }
-             if (matches.length === 0) return;
-             if (e.key === 'ArrowDown') {
-               e.preventDefault();
-               setActiveIdx((i) => (i + 1) % matches.length);
-             } else if (e.key === 'ArrowUp') {
-               e.preventDefault();
-               setActiveIdx((i) => (i - 1 + matches.length) % matches.length);
-             } else if (e.key === 'Enter') {
-               e.preventDefault();
-               openMatch(activeIdx);
-             }
-           }}
-           style={{
-             flex: 1,
-             minWidth: 0,
-             padding: '0.35rem 0.4rem',
-             border: 'none',
-             outline: 'none',
-             background: 'transparent',
-             color: 'var(--vscode-input-foreground, #ddd)',
-             fontFamily: 'inherit',
-             fontSize: '0.95rem'
-           }}
-         />
-         <span
-           style={{
-             opacity: 0.6,
-             fontSize: '0.75rem',
-             fontFamily: 'var(--vscode-editor-font-family, monospace)'
-           }}
-         >
-           {query.trim().length > 0
-             ? `${matches.length} hit${matches.length === 1 ? '' : 's'}`
-             : `${allMacros.length} indexed`}
-         </span>
-       </div>
-       {matches.length > 0 ? (
-         <ul
-           role="listbox"
-           aria-label="SNoogL matches"
-           style={{
-             listStyle: 'none',
-             margin: 0,
-             padding: '0.25rem 0',
-             position: 'absolute',
-             top: '100%',
-             left: 0,
-             right: 0,
-             maxHeight: '18rem',
-             overflowY: 'auto',
-             background: 'var(--vscode-dropdown-background, #252526)',
-             border:
-               '1px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))',
-             borderTop: 'none',
-             borderRadius: '0 0 4px 4px',
-             zIndex: 20,
-             boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-           }}
-         >
-           {matches.map((m, i) => (
-             <li
-               key={`${m.packageFile}::${m.id}`}
-               role="option"
-               aria-selected={i === activeIdx}
-               onMouseEnter={() => setActiveIdx(i)}
-               onMouseDown={(e) => {
-                 // mousedown (not click) so the input's onBlur doesn't cancel
-                 // us via the outside-click handler above.
-                 e.preventDefault();
-                 openMatch(i);
-               }}
-               style={{
-                 display: 'flex',
-                 alignItems: 'baseline',
-                 gap: '0.5rem',
-                 padding: '0.35rem 0.9rem',
-                 cursor: 'pointer',
-                 background:
-                   i === activeIdx
-                     ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.09))'
-                     : 'transparent',
-                 color:
-                   i === activeIdx
-                     ? 'var(--vscode-list-activeSelectionForeground, inherit)'
-                     : 'inherit'
-               }}
-             >
-               <span
-                 style={{
-                   fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                   fontSize: '0.9rem',
-                   flex: 1,
-                   minWidth: 0,
-                   overflow: 'hidden',
-                   textOverflow: 'ellipsis',
-                   whiteSpace: 'nowrap'
-                 }}
-               >
-                 <HighlightedMatch text={m.id} q={query.trim()} />
-               </span>
-               {m.kind ? (
-                 <span
-                   style={{
-                     fontSize: '0.7rem',
-                     padding: '0 0.4rem',
-                     borderRadius: '3px',
-                     opacity: 0.7,
-                     border:
-                       '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
-                   }}
-                 >
-                   {m.kind}
-                 </span>
-               ) : null}
-               <span
-                 style={{
-                   fontSize: '0.75rem',
-                   opacity: 0.6,
-                   fontFamily: 'var(--vscode-editor-font-family, monospace)'
-                 }}
-               >
-                 {m.packageName}
-               </span>
-             </li>
-           ))}
-         </ul>
-       ) : query.trim().length > 0 ? (
-         <div
-           style={{
-             position: 'absolute',
-             top: '100%',
-             left: 0,
-             right: 0,
-             padding: '0.55rem 0.9rem',
-             background: 'var(--vscode-dropdown-background, #252526)',
-             border:
-               '1px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))',
-             borderTop: 'none',
-             borderRadius: '0 0 4px 4px',
-             fontSize: '0.85rem',
-             opacity: 0.7,
-             zIndex: 20,
-             boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-           }}
-         >
-           No macros match "{query}".
-         </div>
-       ) : null}
-     </div>
-   );
- }
-
- /**
-  * Renders `text` with the leftmost case-insensitive occurrence of `q`
-  * highlighted (bold + accent color). Falls back to plain text when `q`
-  * is empty or absent.
-  */
- function HighlightedMatch({
-   text,
-   q
- }: {
-   text: string;
-   q: string;
- }): React.ReactElement {
-   if (q.length === 0) return <>{text}</>;
-   const lower = text.toLowerCase();
-   const i = lower.indexOf(q.toLowerCase());
-   if (i < 0) return <>{text}</>;
-   return (
-     <>
-       {text.slice(0, i)}
-       <span
-         style={{
-           fontWeight: 700,
-           color: 'var(--vscode-editorLightBulb-foreground, #dcdcaa)'
-         }}
-       >
-         {text.slice(i, i + q.length)}
-       </span>
-       {text.slice(i + q.length)}
-     </>
-   );
- }
 
  /**
   * Full-width primary "add" bar used as a section CTA. When a section's list

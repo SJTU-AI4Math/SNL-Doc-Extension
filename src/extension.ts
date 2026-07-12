@@ -96,6 +96,64 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // Reveal a pointer bound to an entry (cat 2026-07-11). Invoked from
+  // EntryRender's pointer-jump button via postMessage → the panel's
+  // handleMessage → executeCommand('snlDoc.revealEntryPointer', entryId).
+  // Resolves the pointer fresh each time (source-of-truth: fs + latest
+  // entries.json), so a fixed pointer picks up file edits without a
+  // panel reload. On failure, surfaces the diagnostic as an error toast.
+  const revealEntryPointer = vscode.commands.registerCommand(
+    'snlDoc.revealEntryPointer',
+    async (entryId?: unknown) => {
+      if (typeof entryId !== 'string' || !entryId.trim()) return;
+      const root = firstWorkspaceFolder();
+      if (!root) {
+        void vscode.window.showErrorMessage(
+          'Pointer cannot be resolved: no workspace folder is open.'
+        );
+        return;
+      }
+      const trimmed = entryId.trim();
+      let entries: snlDoc.EntryData[];
+      try {
+        entries = await snlDoc.readEntries(root);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Failed to load entries: ${err instanceof Error ? err.message : String(err)}`
+        );
+        return;
+      }
+      const entry = entries.find((e) => e.id === trimmed);
+      if (!entry) {
+        void vscode.window.showErrorMessage(
+          `Entry not found: ${trimmed}`
+        );
+        return;
+      }
+      const { normalizeEntryPointer, resolveEntryPointer, revealResolvedPointer, describeResolutionFailure } =
+        await import('./pointer');
+      const pointer = normalizeEntryPointer(entry.pointer);
+      if (!pointer) {
+        void vscode.window.showErrorMessage(
+          `Entry ${trimmed} has no valid pointer.`
+        );
+        return;
+      }
+      const resolved = await resolveEntryPointer(root, pointer);
+      if (resolved.status !== 'ok') {
+        void vscode.window.showErrorMessage(describeResolutionFailure(resolved));
+        return;
+      }
+      try {
+        await revealResolvedPointer(resolved);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Failed to open file: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+  );
+
   // Delete commands (cat 2026-07-09). Each one: confirm with the user
   // (with reference count from the backend), call the backend, close any
   // matching open editor panel so a re-open doesn't resurrect stale
@@ -539,6 +597,7 @@ export function activate(context: vscode.ExtensionContext): void {
     openInfoview,
     openEntryInfoview,
     refreshInfoview,
+    revealEntryPointer,
     deleteEntry,
     deleteEntryKind,
     deleteMacroKind,

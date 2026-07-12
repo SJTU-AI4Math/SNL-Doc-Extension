@@ -177,6 +177,63 @@ export interface EntryData {
   pointer: unknown;
 }
 
+/**
+ * Webview-side structural check for an entry pointer (cat 2026-07-11).
+ * Mirrors `isStructuralPointer` in src/pointer.ts — kept here as an
+ * independent copy because the webview bundle can't import from src/
+ * (that pulls in `vscode`).
+ *
+ * Used to decide whether to render the pointer-jump button. Actual
+ * filesystem resolution happens host-side at click time.
+ */
+function hasStructuralPointer(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as Record<string, unknown>;
+  if (typeof p.file !== 'string' || p.file.trim() === '') return false;
+  if (p.mode === 'lines') {
+    if (typeof p.line !== 'number' || !Number.isFinite(p.line) || p.line < 1) {
+      return false;
+    }
+    if (
+      p.endLine !== undefined &&
+      (typeof p.endLine !== 'number' ||
+        !Number.isFinite(p.endLine) ||
+        p.endLine < p.line)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  if (p.mode === 'regex') {
+    if (typeof p.pattern !== 'string' || p.pattern === '') return false;
+    if (p.flags !== undefined && typeof p.flags !== 'string') return false;
+    if (
+      p.occurrence !== undefined &&
+      (typeof p.occurrence !== 'number' ||
+        !Number.isInteger(p.occurrence) ||
+        p.occurrence < 1)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function summarizePointer(value: unknown): string {
+  if (!hasStructuralPointer(value)) return '';
+  const p = value as Record<string, unknown>;
+  if (p.mode === 'lines') {
+    const line = p.line as number;
+    const endLine = p.endLine as number | undefined;
+    const range = endLine && endLine !== line ? `${line}–${endLine}` : `${line}`;
+    return `${p.file}:${range}`;
+  }
+  const occ = (p.occurrence as number | undefined) ?? 1;
+  const occSuffix = occ > 1 ? ` (#${occ})` : '';
+  return `${p.file} /${p.pattern}/${occSuffix}`;
+}
+
 export interface EntryKind {
   id: string;
   name: string;
@@ -636,7 +693,10 @@ export function EntryRender({
         style={{
           // Header vertical padding halved (cat 2026-07-08): 0.55rem → 0.275rem
           // to tighten the title band. Horizontal padding preserved.
-          padding: '0.275rem 0.8rem'
+          padding: '0.275rem 0.8rem',
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: '0.5rem'
         }}
       >
         <strong
@@ -645,7 +705,9 @@ export function EntryRender({
             color: stroke,
             cursor: disableTitleJump ? 'default' : 'pointer',
             fontSize: '1.25rem',
-            lineHeight: 1.3
+            lineHeight: 1.3,
+            flex: '1 1 auto',
+            minWidth: 0
           }}
         >
           {/* Prefix = plain text "<KindName> <counter> -- ". */}
@@ -659,6 +721,37 @@ export function EntryRender({
             dangerouslySetInnerHTML={{ __html: titleHtml }}
           />
         </strong>
+        {hasStructuralPointer(entry.pointer) ? (
+          <button
+            type="button"
+            title={`Jump to source: ${summarizePointer(entry.pointer)}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              postMessage({ type: 'revealPointer', entryId: entry.id });
+            }}
+            style={{
+              flex: '0 0 auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25em',
+              padding: '0.05em 0.5em',
+              fontSize: '0.75rem',
+              lineHeight: 1.3,
+              color: stroke,
+              background: 'transparent',
+              border: `1px solid ${stroke}`,
+              borderRadius: 3,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              // Codicon-like arrow glyph; the extension's webviews don't
+              // bundle codicons, so use a Unicode symbol that reads as
+              // "jump / open in editor". `↗` fits with the outline aesthetic.
+              whiteSpace: 'nowrap'
+            }}
+          >
+            ↗ source
+          </button>
+        ) : null}
       </header>
       {hasContent ? (
         <>

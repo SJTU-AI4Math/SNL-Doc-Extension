@@ -1994,7 +1994,10 @@ export interface EntryData {
     text?: string;
   };
   contribution_info: unknown;
-  pointer: unknown;
+  // Optional structured pointer to a location in a source file (cat
+  // 2026-07-11). `null` when unset. See src/pointer.ts for the shape
+  // and resolver.
+  pointer: import('./pointer').EntryPointer | null | unknown;
 }
 
 export type AddEntryResult =

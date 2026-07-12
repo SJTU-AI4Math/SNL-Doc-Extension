@@ -399,6 +399,15 @@ export class InfoviewPanel {
           );
         }
         return;
+      case 'revealPointer':
+        // Cat 2026-07-11: entry pointer jump-to-source button.
+        if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
+          void vscode.commands.executeCommand(
+            'snlDoc.revealEntryPointer',
+            msg.entryId.trim()
+          );
+        }
+        return;
       case 'editEntry':
         // Cat 2026-07-10 §2: per-entry panel edit button.
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {

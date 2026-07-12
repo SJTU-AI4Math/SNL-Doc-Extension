@@ -52,6 +52,11 @@
         "title": "SNL: Open Entry Infoview"
       },
       {
+        "command": "snlDoc.revealEntryPointer",
+        "title": "SNL: Reveal Entry Pointer",
+        "enablement": "false"
+      },
+      {
         "command": "snlDoc.openDashboard",
         "title": "SNL: Open Dashboard"
       },

@@ -222,10 +222,14 @@
     "vscode:prepublish": "npm run compile && npm run build:webview"
   },
   "dependencies": {
+    "@snl-basics/react": "file:./external/SNL-Basics",
+    "katex": "^0.16.0",
     "react": "^19",
     "react-dom": "^19",
-    "katex": "^0.16.0",
-    "@snl-basics/react": "file:./external/SNL-Basics"
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^20",

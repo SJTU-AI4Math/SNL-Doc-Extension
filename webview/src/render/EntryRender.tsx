@@ -10,6 +10,8 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import '@snl-basics/react/style.css';
+import { MarkdownBody } from './MarkdownBody';
+import { LatexBody } from './LatexBody';
 import {
   parseSnlSyntaxTree,
   tryParseSnlSyntaxTree,
@@ -253,6 +255,25 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const snl = entry.content?.snl ?? '';
+  const markdown = entry.content?.markdown ?? '';
+  const latex = entry.content?.latex ?? '';
+  const text = entry.content?.text ?? '';
+
+  // Body-surface priority (cat 2026-07-11): snl > markdown > latex > text.
+  // Empty string is treated as "not present" — a whitespace-only field
+  // has no render value. TODO: allow config.json override of this
+  // priority (`config.body_surface_priority: ['markdown', 'snl', ...]`).
+  type BodySurface = 'snl' | 'markdown' | 'latex' | 'text' | 'none';
+  const bodySurface: BodySurface =
+    snl.trim().length > 0
+      ? 'snl'
+      : markdown.trim().length > 0
+        ? 'markdown'
+        : latex.trim().length > 0
+          ? 'latex'
+          : text.trim().length > 0
+            ? 'text'
+            : 'none';
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
 
@@ -572,7 +593,7 @@ export function EntryRender({
 
   // Empty SNL = don't render body at all (cat 2026-07-06: no error banner
   // just because there's no content).
-  const hasContent = snl.trim().length > 0;
+  const hasContent = bodySurface !== 'none';
   const isTransparent = background === TRANSPARENT_BACKGROUND;
 
   // Hover state for the "border thickens + bg goes white" affordance
@@ -660,36 +681,54 @@ export function EntryRender({
               fontSize: '1.05rem'
             }}
           >
-            {parsed.ok && tree ? (
-              <SnlSyntaxTreeView
-                tree={tree}
-                macroDb={macroDb}
-                query={macroQuery}
-                hooks={hooks}
-              />
-            ) : (
-              <div>
-                <ErrorBanner
-                  text={`SNL parse error: ${!parsed.ok ? parsed.error : ''}${
-                    !parsed.ok && parsed.position !== undefined
-                      ? ` (at ${parsed.position})`
-                      : ''
-                  }`}
+            {bodySurface === 'snl' ? (
+              parsed.ok && tree ? (
+                <SnlSyntaxTreeView
+                  tree={tree}
+                  macroDb={macroDb}
+                  query={macroQuery}
+                  hooks={hooks}
                 />
-                <pre
-                  style={{
-                    margin: 0,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                    fontSize: '0.85rem',
-                    color: isTransparent ? undefined : '#222'
-                  }}
-                >
-                  {snl}
-                </pre>
-              </div>
-            )}
+              ) : (
+                <div>
+                  <ErrorBanner
+                    text={`SNL parse error: ${!parsed.ok ? parsed.error : ''}${
+                      !parsed.ok && parsed.position !== undefined
+                        ? ` (at ${parsed.position})`
+                        : ''
+                    }`}
+                  />
+                  <pre
+                    style={{
+                      margin: 0,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                      fontSize: '0.85rem',
+                      color: isTransparent ? undefined : '#222'
+                    }}
+                  >
+                    {snl}
+                  </pre>
+                </div>
+              )
+            ) : bodySurface === 'markdown' ? (
+              <MarkdownBody source={markdown} />
+            ) : bodySurface === 'latex' ? (
+              <LatexBody source={latex} />
+            ) : bodySurface === 'text' ? (
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit'
+                }}
+              >
+                {text}
+              </pre>
+            ) : null}
           </div>
         </>
       ) : null}

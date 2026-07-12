@@ -311,6 +311,7 @@ interface ContextMsg {
 
 type Incoming =
   | ContextMsg
+  | { type: 'kindsRefresh'; macroKinds: MacroKind[] }
   | { type: 'created'; name: string }
   | { type: 'updated'; name: string }
   | { type: 'duplicate'; name: string; message: string }
@@ -508,6 +509,11 @@ export function CreateMacroApp(): React.ReactElement {
             });
           }
           break;
+        case 'kindsRefresh':
+          // Cat 2026-07-12: dropdown "+ New macro kind…" flow. Refresh
+          // the list without touching any other form state.
+          setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+          break;
         case 'created':
           setStatus({ kind: 'created', name: msg.name, at: Date.now() });
           break;
@@ -541,7 +547,19 @@ export function CreateMacroApp(): React.ReactElement {
     }
     window.addEventListener('message', onMessage);
     apiRef.current?.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', onMessage);
+    // Cat 2026-07-12: when the user comes back after using "+ New macro
+    // kind…" the child panel has (probably) added a new kind. Refresh
+    // the dropdown on regained visibility.
+    const onVis = (): void => {
+      if (document.visibilityState === 'visible') {
+        apiRef.current?.postMessage({ type: 'refreshKinds' });
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   // Auto-dismiss the "saved" toast after 5s (猫猫 req: doesn't linger).
@@ -805,7 +823,20 @@ export function CreateMacroApp(): React.ReactElement {
             <select
               id="m-kind"
               value={kind}
-              onChange={(e) => setKind(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '__new__') {
+                  // Cat 2026-07-12: "+ New macro kind…" sentinel opens
+                  // the CreateMacroKindPanel via a host round-trip; kind
+                  // stays whatever it was so the user's current form
+                  // state isn't affected. The dropdown will re-render
+                  // with the new entry on the next visibilitychange
+                  // (refreshKinds handler above).
+                  apiRef.current?.postMessage({ type: 'createMacroKind' });
+                  return;
+                }
+                setKind(v);
+              }}
               style={{ ...inputStyle, flex: 1 }}
             >
               <option value="">(unset)</option>
@@ -814,6 +845,7 @@ export function CreateMacroApp(): React.ReactElement {
                   {k.name} ({k.id})
                 </option>
               ))}
+              <option value="__new__">+ New macro kind…</option>
             </select>
             {kind
               ? (() => {

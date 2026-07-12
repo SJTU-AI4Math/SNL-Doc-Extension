@@ -270,6 +270,26 @@ export class CreateMacroPanel {
       await this.pushContext();
       return;
     }
+    if (msg.type === 'createMacroKind') {
+      // Cat 2026-07-12: the Kind dropdown grew a "+ New macro kind…" option.
+      // Fire the existing command; the user fills in the child panel; a
+      // subsequent `refreshKinds` from this webview (see visibilitychange
+      // handler) will pull the newly-added kind in.
+      await vscode.commands.executeCommand('snlDoc.createMacroKind');
+      return;
+    }
+    if (msg.type === 'refreshKinds') {
+      // Cheap targeted refresh (no full pushContext round-trip) so
+      // returning focus from the child MacroKind panel picks up new kinds
+      // without wiping the user's in-progress form.
+      const root = firstWorkspaceFolder();
+      const macroKinds = root ? await readMacroKinds(root) : [];
+      void this.panel.webview.postMessage({
+        type: 'kindsRefresh',
+        macroKinds
+      });
+      return;
+    }
     if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }

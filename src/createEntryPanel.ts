@@ -4,6 +4,9 @@ import {
   listEntryKinds,
   readAllMacros,
   readEntries,
+  readMacroPackage,
+  readMacroPackages,
+  resolveActiveMacroPackages,
   updateEntry,
   type EntryData
 } from './snlDoc';
@@ -116,6 +119,32 @@ export class CreateEntryPanel {
     // — not just the bundled fixture DB from @snl-basics. Merged into the
     // webview's macroDb over bundledMacroDb (user macros win on collision).
     const macros = root ? await readAllMacros(root) : {};
+    // Map macro name → owning package file (bare, no `.json`). Built here
+    // so the webview's per-row "open macro editor" button can dispatch to
+    // the right `snlDoc.editMacro(file, name)` without another round-trip.
+    // Cat 2026-07-12: "在每一行边上加一个入口，进入相应 Macro 的
+    // Create/Edit 页面." — used by GuiInductiveEditor's row-side link.
+    const macroOrigin: Record<string, string> = {};
+    if (root) {
+      try {
+        const active = new Set(await resolveActiveMacroPackages(root));
+        const packages = await readMacroPackages(root);
+        for (const summary of packages) {
+          const bare = summary.file.replace(/\.json$/i, '');
+          if (!active.has(bare)) continue;
+          const read = await readMacroPackage(root, summary.file);
+          if (read.status !== 'ok') continue;
+          for (const m of read.macros) {
+            if (typeof m.name === 'string' && m.name && !macroOrigin[m.name]) {
+              macroOrigin[m.name] = bare;
+            }
+          }
+        }
+      } catch {
+        // Best-effort — if the origin map fails, the row button will fall
+        // back to "no target package" and the user picks one via quickpick.
+      }
+    }
     let existing: EntryData | null = null;
     // Full entry pool (id + title) for the id picker's dedupe check in
     // create mode. Cat 2026-07-09: same widget, requireUnique rule. In
@@ -141,6 +170,7 @@ export class CreateEntryPanel {
       id: this.id || undefined,
       kinds,
       macros,
+      macroOrigin,
       existing,
       existingIds: allEntries.map((e) => ({
         id: e.id,
@@ -168,6 +198,13 @@ export class CreateEntryPanel {
 
     if (msg.type === 'ready') {
       await this.pushContext();
+      return;
+    }
+    if (msg.type === 'openMacroEditor') {
+      const rawName = (msg as { name?: unknown }).name;
+      const name = typeof rawName === 'string' ? rawName.trim() : '';
+      if (!name) return;
+      await this.openMacroEditor(name);
       return;
     }
     if (msg.type !== 'create' && msg.type !== 'update') {
@@ -315,6 +352,70 @@ export class CreateEntryPanel {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`SNL Entry editor failed: ${text}`);
       void this.panel.webview.postMessage({ type: 'error', message: text });
+    }
+  }
+
+  /**
+   * Open the Create/Edit Macro panel for a macro referenced from inside
+   * the Entry GUI editor. If the name already exists in an active package
+   * we go straight to edit; otherwise we pick a target package (single
+   * active → auto; multiple → quickpick) and open the create panel so
+   * the user can define the missing macro without leaving the workspace.
+   * Cat 2026-07-12: "在每一行边上加一个入口".
+   */
+  private async openMacroEditor(name: string): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      vscode.window.showErrorMessage(
+        'Cannot open the Macro editor: no workspace / folder is open.'
+      );
+      return;
+    }
+    // Edit path: is this name already declared somewhere active?
+    try {
+      const active = new Set(await resolveActiveMacroPackages(root));
+      const packages = await readMacroPackages(root);
+      for (const summary of packages) {
+        const bare = summary.file.replace(/\.json$/i, '');
+        if (!active.has(bare)) continue;
+        const read = await readMacroPackage(root, summary.file);
+        if (read.status !== 'ok') continue;
+        if (read.macros.some((m) => m.name === name)) {
+          await vscode.commands.executeCommand(
+            'snlDoc.editMacro',
+            bare,
+            name
+          );
+          return;
+        }
+      }
+      // Create path: pick a target package.
+      const activeList = Array.from(active).sort((a, b) =>
+        a.localeCompare(b)
+      );
+      if (activeList.length === 0) {
+        vscode.window.showWarningMessage(
+          `No active macro package to hold "${name}". Create or activate one first via the SNL Dashboard.`
+        );
+        return;
+      }
+      let target: string | undefined;
+      if (activeList.length === 1) {
+        target = activeList[0];
+      } else {
+        target = await vscode.window.showQuickPick(activeList, {
+          title: `Create macro "${name}" — choose target package`,
+          placeHolder: 'Select the .SNL_Doc/term_macros/*.json to add it to'
+        });
+      }
+      if (!target) return;
+      await vscode.commands.executeCommand('snlDoc.createMacro', target);
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Failed to open Macro editor for "${name}": ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
     }
   }
 

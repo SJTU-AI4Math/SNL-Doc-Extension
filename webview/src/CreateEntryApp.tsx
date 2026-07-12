@@ -204,6 +204,9 @@ export function CreateEntryApp(): React.ReactElement {
    * bundled fixture.
    */
   const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
+  // Name → owning package (bare filename) for the row-side "open Macro
+  // editor" button in the GUI editor. Pushed by the host on `context`.
+  const [macroOrigin, setMacroOrigin] = useState<Record<string, string>>({});
 
   // User-only DB (for EntryRender.userMacros, which merges over the core
   // internally via mergeMacroDb) AND merged DB (for the GUI editor which
@@ -259,6 +262,7 @@ export function CreateEntryApp(): React.ReactElement {
             id?: string;
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
+            macroOrigin?: Record<string, string>;
             existing?: ExistingEntry | null;
             existingIds?: EntryOption[];
           }
@@ -290,6 +294,11 @@ export function CreateEntryApp(): React.ReactElement {
           setKindsLoaded(true);
           setWireMacros(
             msg.macros && typeof msg.macros === 'object' ? msg.macros : {},
+          );
+          setMacroOrigin(
+            msg.macroOrigin && typeof msg.macroOrigin === 'object'
+              ? msg.macroOrigin
+              : {},
           );
           setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
@@ -655,6 +664,13 @@ export function CreateEntryApp(): React.ReactElement {
             <GuiInductiveEditor
               snl={content.snl}
               macroDb={macroDb}
+              macroOrigin={macroOrigin}
+              onOpenMacroEditor={(name) =>
+                apiRef.current?.postMessage({
+                  type: 'openMacroEditor',
+                  name
+                })
+              }
               onChange={(next) =>
                 setContent((prev) => ({ ...prev, snl: next }))
               }
@@ -1058,10 +1074,14 @@ function paletteFor(kindId: string): KindColoring {
 function GuiInductiveEditor({
   snl,
   macroDb,
+  macroOrigin,
+  onOpenMacroEditor,
   onChange
 }: {
   snl: string;
   macroDb: SnlMacroDb;
+  macroOrigin: Record<string, string>;
+  onOpenMacroEditor: (name: string) => void;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
   const [tree, setTree] = useState<SnlSyntaxTree>(() => parseOrDefault(snl));
@@ -1163,6 +1183,8 @@ function GuiInductiveEditor({
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDb={macroDb}
+        macroOrigin={macroOrigin}
+        onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
       />
@@ -1220,6 +1242,8 @@ function InductiveNode({
   onChange,
   onDelete,
   macroDb,
+  macroOrigin,
+  onOpenMacroEditor,
   collapsed,
   onToggleCollapsed
 }: {
@@ -1233,6 +1257,8 @@ function InductiveNode({
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
   macroDb: SnlMacroDb;
+  macroOrigin: Record<string, string>;
+  onOpenMacroEditor: (name: string) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (path: string) => void;
 }): React.ReactElement {
@@ -1436,6 +1462,42 @@ function InductiveNode({
           className="snl-tree-row-toolbar"
           style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
+          {(() => {
+            const trimmed = node.name.trim();
+            // The open-macro-editor button is only meaningful for
+            // identifier-form leaves (bare macro names / references).
+            // envMode leaves (`$…$` / `%…%`) are literal payloads with no
+            // macro to jump to; empty names have nothing to open.
+            const canOpen = trimmed !== '' && node.envMode === undefined;
+            const known = canOpen && Boolean(macroOrigin[trimmed]);
+            const title = !canOpen
+              ? 'no macro to open for this row'
+              : known
+                ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
+                : `Open Create Macro to define "${trimmed}"`;
+            return (
+              <button
+                type="button"
+                onClick={() => canOpen && onOpenMacroEditor(trimmed)}
+                disabled={!canOpen}
+                title={title}
+                aria-label={known ? 'Edit macro' : 'Create macro'}
+                style={{
+                  ...inductiveMiniButton,
+                  opacity: canOpen ? 1 : 0.4,
+                  cursor: canOpen ? 'pointer' : 'not-allowed',
+                  color: known
+                    ? 'var(--vscode-textLink-foreground, #4a9eff)'
+                    : 'var(--vscode-descriptionForeground, #999)',
+                  borderColor: known
+                    ? 'var(--vscode-textLink-foreground, #4a9eff)'
+                    : 'var(--vscode-panel-border, var(--vscode-contrastBorder, #666))'
+                }}
+              >
+                {known ? '↗ edit' : '↗ new'}
+              </button>
+            );
+          })()}
           <button
             type="button"
             onClick={addChild}
@@ -1479,6 +1541,8 @@ function InductiveNode({
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
                 macroDb={macroDb}
+                macroOrigin={macroOrigin}
+                onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
               />

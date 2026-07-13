@@ -382,6 +382,9 @@ export function CreateLibraryApp(): React.ReactElement {
           onOpenEntry={(entryId) =>
             apiRef.current?.postMessage({ type: 'openEditEntry', entryId })
           }
+          onOpenCreateEntry={() =>
+            apiRef.current?.postMessage({ type: 'openCreateEntry' })
+          }
         />
       ) : null}
     </main>
@@ -446,6 +449,15 @@ interface OutlineEditorProps {
   onGraphOp: (op: Record<string, unknown>) => void;
   /** Open the Edit Entry panel for a row's entry id (cat 2026-07-12). */
   onOpenEntry: (entryId: string) => void;
+  /**
+   * Open the Create Entry panel. Used by the outline's Add form when
+   * the user commits an empty or unresolved entry id — the row hasn't
+   * been created yet, they can come back and paste the new entry's id.
+   * Fixes a long-standing bug where `commitAdd` referenced an `apiRef`
+   * that only exists in `CreateLibraryApp`'s scope, so the button
+   * silently threw. Cat 2026-07-12.
+   */
+  onOpenCreateEntry: () => void;
 }
 
 /**
@@ -458,7 +470,8 @@ function OutlineEditor({
   graph,
   error,
   onGraphOp,
-  onOpenEntry
+  onOpenEntry,
+  onOpenCreateEntry
 }: OutlineEditorProps): React.ReactElement {
   // Local UI state: which node is expanded (default: all root children
   // expanded; drill deeper on click). Persists across host pushes.
@@ -559,10 +572,20 @@ function OutlineEditor({
   const commitAdd = (): void => {
     if (!addingUnder) return;
     const entryIdTrimmed = addingUnder.entryId.trim();
-    if (!entryIdTrimmed) {
-      // Empty id → route to Create Entry panel; DON'T close the popover
-      // so the user can paste the fresh id when they come back.
-      apiRef.current?.postMessage({ type: 'openCreateEntry' });
+    // Look up the typed id in the pool — the Add form's button reads
+    // "Reference" only when the id resolves to an existing entry; any
+    // other case (empty OR typed-but-unresolved) reads "Create" and
+    // MUST route to the Create Entry panel. Previously the empty case
+    // routed correctly but the typed-but-unresolved case fell through
+    // to `addNode` and the host bounced with "entryId not found". Cat
+    // 2026-07-12.
+    const exists =
+      entryIdTrimmed.length > 0 &&
+      graph?.entries.some((e) => e.id === entryIdTrimmed);
+    if (!exists) {
+      // DON'T close the popover so the user can paste the returned id
+      // when they come back — same UX as the pre-existing empty case.
+      onOpenCreateEntry();
       return;
     }
     onGraphOp({

@@ -262,6 +262,15 @@ export class CreateLibraryPanel {
       await vscode.commands.executeCommand('snlDoc.createEntry');
       return;
     }
+    if (msg.type === 'openEditEntry') {
+      // Cat 2026-07-12: outline row title is now a click target that
+      // opens the Edit Entry panel for the row's entry.
+      const id = (msg as { entryId?: unknown }).entryId;
+      if (typeof id === 'string' && id.trim()) {
+        await vscode.commands.executeCommand('snlDoc.editEntry', id.trim());
+      }
+      return;
+    }
     if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }

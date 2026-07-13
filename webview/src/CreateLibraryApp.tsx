@@ -379,6 +379,9 @@ export function CreateLibraryApp(): React.ReactElement {
           graph={graph}
           error={graphError}
           onGraphOp={postGraphOp}
+          onOpenEntry={(entryId) =>
+            apiRef.current?.postMessage({ type: 'openEditEntry', entryId })
+          }
         />
       ) : null}
     </main>
@@ -441,6 +444,8 @@ interface OutlineEditorProps {
   graph: GraphState | null;
   error: string | null;
   onGraphOp: (op: Record<string, unknown>) => void;
+  /** Open the Edit Entry panel for a row's entry id (cat 2026-07-12). */
+  onOpenEntry: (entryId: string) => void;
 }
 
 /**
@@ -452,7 +457,8 @@ interface OutlineEditorProps {
 function OutlineEditor({
   graph,
   error,
-  onGraphOp
+  onGraphOp,
+  onOpenEntry
 }: OutlineEditorProps): React.ReactElement {
   // Local UI state: which node is expanded (default: all root children
   // expanded; drill deeper on click). Persists across host pushes.
@@ -638,6 +644,7 @@ function OutlineEditor({
               onCommitAdd={commitAdd}
               onUpdateAdd={setAddingUnder}
               onGraphOp={onGraphOp}
+              onOpenEntry={onOpenEntry}
             />
           ))}
         </ol>
@@ -694,6 +701,7 @@ interface OutlineRowProps {
     } | null
   ) => void;
   onGraphOp: (op: Record<string, unknown>) => void;
+  onOpenEntry: (entryId: string) => void;
 }
 
 function OutlineRow(props: OutlineRowProps): React.ReactElement {
@@ -713,7 +721,8 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
     onCancelAdd,
     onCommitAdd,
     onUpdateAdd,
-    onGraphOp
+    onGraphOp,
+    onOpenEntry
   } = props;
 
   const node = graph.nodes.find((n) => n.id === nodeId);
@@ -832,22 +841,58 @@ function OutlineRow(props: OutlineRowProps): React.ReactElement {
 
         {kind ? <KindBadge kind={kind} /> : null}
 
-        <span
-          style={{
-            flex: '1 1 auto',
-            fontSize: '0.95rem',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-          title={
-            entry
-              ? `entryId: ${entry.id}\nkind: ${entry.kind}`
-              : `no entryId assigned (node ${nodeId})`
-          }
-        >
-          {displayTitle}
-        </span>
+        {/* Title = click target that opens Edit Entry for this row's entry.
+            Cat 2026-07-12: 'Edit Library Tree view 每一 entry 的行都应该
+            可以点击, 进入 entry 的编辑页面.' Only clickable when the row
+            actually resolves to an entry (nodes without entryId show a
+            greyed non-clickable label). The chevron / copy-id / toolbar
+            buttons live in siblings and their own onClick handlers still
+            win (React events bubble up from the button, but each of them
+            already stops propagation via not being nested inside this
+            span). */}
+        {entry ? (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenEntry(entry.id);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenEntry(entry.id);
+              }
+            }}
+            style={{
+              flex: '1 1 auto',
+              fontSize: '0.95rem',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              textDecoration: 'none'
+            }}
+            className="snl-outline-row-title"
+            title={`Open Edit Entry: ${entry.id}\nkind: ${entry.kind}`}
+          >
+            {displayTitle}
+          </span>
+        ) : (
+          <span
+            style={{
+              flex: '1 1 auto',
+              fontSize: '0.95rem',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              opacity: 0.7
+            }}
+            title={`no entryId assigned (node ${nodeId})`}
+          >
+            {displayTitle}
+          </span>
+        )}
 
         {/* Compact entryId badge — click to copy, so you can paste it into
             another library's Add form to reference this same entry. */}

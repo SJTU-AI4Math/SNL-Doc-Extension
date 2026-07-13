@@ -1066,6 +1066,28 @@ function resolveRowKind(node: SnlSyntaxTree, macroDb: SnlMacroDb): string {
   return 'fvar';
 }
 
+/**
+ * Fixed-arity a macro's default-style template implies. Returns the
+ * required child count (i.e. max #N + 1 across all styles, since child
+ * slots are numbered from 0). Returns 0 for dynamic-arity macros or
+ * templates with no `#N` placeholders. Ignores escaped `\#`. Mirrors
+ * `maxChildIndex` in CreateMacroApp.tsx — kept local to avoid a shared
+ * module just for one 8-line helper.
+ */
+function macroTemplateArity(macro: SnlMacro): number {
+  let max = -1;
+  for (const style of macro.styles ?? []) {
+    const tpl = style.template ?? '';
+    const re = /(?<!\\)#(\d+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(tpl)) !== null) {
+      const idx = Number(m[1]);
+      if (Number.isFinite(idx) && idx > max) max = idx;
+    }
+  }
+  return max + 1;
+}
+
 function paletteFor(kindId: string): KindColoring {
   return DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
 }
@@ -1310,12 +1332,37 @@ function InductiveNode({
   const commitRaw = (nextRaw: string): void => {
     setRawInput(nextRaw);
     const leaf = parseLeafSource(nextRaw);
+    // Auto-fill children when the newly-typed name resolves to a
+    // FIXED-arity macro whose required child count exceeds the row's
+    // current children. Cat 2026-07-13: "识别到 Macro 之后，在下方自动
+    // 补齐相应数量的 Children 编辑框". Never truncate — that would
+    // silently drop user-authored content when the name is edited into
+    // a lower-arity macro or a bare identifier. Skip dynamic-arity
+    // macros (no fixed count) and envMode leaves (payload, not
+    // structural).
+    const matched = leaf.name ? macroDb[leaf.name] : undefined;
+    let nextChildren = node.children;
+    if (matched && matched.dynamic_arity !== true && leaf.envMode === undefined) {
+      const requiredArity = macroTemplateArity(matched);
+      if (requiredArity > node.children.length) {
+        const padding = Array.from(
+          { length: requiredArity - node.children.length },
+          () => createSnlSyntaxTreeNode('')
+        );
+        nextChildren = [...node.children, ...padding];
+        // Expand the row so the newly-created child slots are visible
+        // immediately — otherwise the user just sees the frame border
+        // change color and has no cue that slots opened.
+        if (collapsed.has(path)) onToggleCollapsed(path);
+      }
+    }
     onChange({
       ...node,
       name: leaf.name,
       envMode: leaf.envMode,
       kind: leaf.kind || node.kind || '',
-      style: leaf.style
+      style: leaf.style,
+      children: nextChildren
     });
   };
 

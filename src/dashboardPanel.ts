@@ -227,10 +227,21 @@ export class DashboardPanel {
       case 'init':
         await vscode.commands.executeCommand('snlDoc.init');
         return;
-      case 'openSnoogL':
-        // Cat 2026-07-12: Dashboard's inline macro-search bar was replaced
-        // by a jump button that pops the SNoogL panel.
-        await vscode.commands.executeCommand('snlDoc.openSnoogL');
+      case 'openSnoogL': {
+        // Cat 2026-07-13: Dashboard headers now carry TWO SNoogL entry
+        // points — Entries row → entry search, SNL Macros row → macro
+        // search. The message payload's optional `mode` steers which
+        // tab the panel opens on.
+        const rawMode = (msg as { mode?: unknown }).mode;
+        const mode = rawMode === 'macro' || rawMode === 'entry' ? rawMode : undefined;
+        await vscode.commands.executeCommand('snlDoc.openSnoogL', mode);
+        return;
+      }
+      case 'createMacroPickPackage':
+        // Cat 2026-07-13: SNL Macros header "+ Create Macro" button.
+        // Delegates to a QuickPick-then-createMacro flow because
+        // createMacro requires a target package file.
+        await vscode.commands.executeCommand('snlDoc.createMacroPickPackage');
         return;
       // Delete forwarders (cat 2026-07-09). Dashboard rows now carry a
       // trash-icon action per entity; each posts its type + identifier

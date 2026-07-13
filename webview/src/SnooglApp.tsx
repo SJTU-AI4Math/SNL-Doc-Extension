@@ -50,6 +50,7 @@ interface ResultsMsg {
 
 type Incoming =
   | { type: 'ready' }
+  | { type: 'setMode'; mode: Mode }
   | ResultsMsg
   | { type: 'error'; message: string }
   | undefined;
@@ -73,6 +74,15 @@ export function SnooglApp(): React.ReactElement {
       switch (msg.type) {
         case 'ready':
           setError(null);
+          break;
+        case 'setMode':
+          // Cat 2026-07-13: host may push the tab selection when the
+          // panel is opened (or revealed) from a specific Dashboard
+          // header button — Entry Search vs Macro Search live on
+          // different rows now.
+          if (msg.mode === 'entry' || msg.mode === 'macro') {
+            setMode(msg.mode as Mode);
+          }
           break;
         case 'results':
           setError(null);

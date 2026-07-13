@@ -628,8 +628,66 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const openSnoogL = vscode.commands.registerCommand(
     'snlDoc.openSnoogL',
-    () => {
-      SnoogLPanel.open(context.extensionUri);
+    (initialMode?: unknown) => {
+      const mode =
+        initialMode === 'macro' || initialMode === 'entry'
+          ? (initialMode as 'entry' | 'macro')
+          : 'entry';
+      SnoogLPanel.open(context.extensionUri, mode);
+    }
+  );
+
+  // Cat 2026-07-13: Dashboard's SNL Macros header wants a "+ Create
+  // Macro" button in the collapsed-row header, but Create Macro requires
+  // a target package file. Show a QuickPick over the ACTIVE macro
+  // packages first, then delegate to snlDoc.createMacro with the pick.
+  const createMacroPickPackage = vscode.commands.registerCommand(
+    'snlDoc.createMacroPickPackage',
+    async () => {
+      const rootUri = (() => {
+        const folders = vscode.workspace.workspaceFolders;
+        return folders && folders.length > 0 ? folders[0].uri : undefined;
+      })();
+      if (!rootUri) {
+        void vscode.window.showErrorMessage(
+          'Open a folder / workspace before creating a macro.'
+        );
+        return;
+      }
+      let packages: { file: string }[];
+      try {
+        const { readMacroPackages, resolveActiveMacroPackages } = await import(
+          './snlDoc'
+        );
+        const active = new Set(await resolveActiveMacroPackages(rootUri));
+        const all = await readMacroPackages(rootUri);
+        packages = all
+          .filter((p) => active.has(p.file))
+          .map((p) => ({ file: p.file }));
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Failed to list macro packages: ${(err as Error).message}`
+        );
+        return;
+      }
+      if (packages.length === 0) {
+        void vscode.window.showInformationMessage(
+          'No active macro packages. Create one first from the Dashboard.'
+        );
+        return;
+      }
+      let file: string;
+      if (packages.length === 1) {
+        file = packages[0].file;
+      } else {
+        const pick = await vscode.window.showQuickPick(
+          packages.map((p) => ({ label: p.file, file: p.file })),
+          { placeHolder: 'Select package for the new macro' }
+        );
+        if (!pick) return;
+        file = pick.file;
+      }
+      await vscode.commands.executeCommand('snlDoc.createMacro', file);
     }
   );
 
@@ -666,7 +724,8 @@ export function activate(context: vscode.ExtensionContext): void {
     openInfoviewGraph,
     openInfoviewGraphForLibrary,
     regenerateDependencies,
-    openSnoogL
+    openSnoogL,
+    createMacroPickPackage
   );
 }
 

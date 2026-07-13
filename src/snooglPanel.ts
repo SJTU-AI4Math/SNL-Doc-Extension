@@ -65,10 +65,19 @@ export class SnoogLPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
 
-  public static open(extensionUri: vscode.Uri): void {
+  public static open(
+    extensionUri: vscode.Uri,
+    initialMode: 'entry' | 'macro' = 'entry'
+  ): void {
     const column = vscode.ViewColumn.Active;
     if (SnoogLPanel.instance) {
       SnoogLPanel.instance.panel.reveal(column);
+      // Push mode to already-open panel so header clicks always land on
+      // the requested tab regardless of previous state.
+      void SnoogLPanel.instance.panel.webview.postMessage({
+        type: 'setMode',
+        mode: initialMode
+      });
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -81,10 +90,14 @@ export class SnoogLPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
-    SnoogLPanel.instance = new SnoogLPanel(panel, extensionUri);
+    SnoogLPanel.instance = new SnoogLPanel(panel, extensionUri, initialMode);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    private readonly initialMode: 'entry' | 'macro' = 'entry'
+  ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
 
@@ -112,9 +125,15 @@ export class SnoogLPanel {
     switch (msg.type) {
       case 'ready':
         void this.panel.webview.postMessage({ type: 'ready' });
+        // Push the requested initial mode BEFORE first results so the
+        // webview's tab selection reflects the button that opened it.
+        void this.panel.webview.postMessage({
+          type: 'setMode',
+          mode: this.initialMode
+        });
         // Kick a blank query so the webview can populate its kind
         // dropdown from the returned `kindsByMode`.
-        await this.doQuery({ q: '', mode: 'entry', filters: {} });
+        await this.doQuery({ q: '', mode: this.initialMode, filters: {} });
         return;
       case 'query': {
         const q = typeof (msg as { q?: unknown }).q === 'string' ? (msg as { q: string }).q : '';

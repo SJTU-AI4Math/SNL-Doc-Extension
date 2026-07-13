@@ -295,6 +295,22 @@ function Initialized({
         subtitle={`${totalEntries} entries in shared pool`}
         expanded={openEntries}
         onToggle={() => setOpenEntries((v) => !v)}
+        headerActions={
+          <>
+            <HeaderActionButton
+              label="+ Create Entry"
+              title="Open the Create Entry panel"
+              onClick={() => api?.postMessage({ type: 'createEntry' })}
+            />
+            <HeaderActionButton
+              label="⌕ SNoogL: Entry Search"
+              title="Open SNoogL panel focused on entry search"
+              onClick={() =>
+                api?.postMessage({ type: 'openSnoogL', mode: 'entry' })
+              }
+            />
+          </>
+        }
       >
         {overview.entries.length > 0 ? (
           <EntriesTable
@@ -355,11 +371,25 @@ function Initialized({
         }`}
         expanded={openMacros}
         onToggle={() => setOpenMacros((v) => !v)}
+        headerActions={
+          <>
+            <HeaderActionButton
+              label="+ Create Macro"
+              title="Pick a package and open the Create Macro editor"
+              onClick={() =>
+                api?.postMessage({ type: 'createMacroPickPackage' })
+              }
+            />
+            <HeaderActionButton
+              label="⌕ SNoogL: Macro Search"
+              title="Open SNoogL panel focused on macro search"
+              onClick={() =>
+                api?.postMessage({ type: 'openSnoogL', mode: 'macro' })
+              }
+            />
+          </>
+        }
       >
-        <OpenSnoogLBar
-          onOpen={() => api?.postMessage({ type: 'openSnoogL' })}
-          macroCount={overview.allMacros.length}
-        />
         {overview.macroPackages.length > 0 ? (
           <MacroPackagesTable
             packages={overview.macroPackages}
@@ -463,99 +493,122 @@ function CollapsibleSection({
   subtitle,
   expanded,
   onToggle,
+  headerActions,
   children
 }: {
   title: string;
   subtitle: string;
   expanded: boolean;
   onToggle: () => void;
+  /**
+   * Optional inline actions rendered flush-right on the header row.
+   * Cat 2026-07-13: some sections (Entries, SNL Macros) want jump
+   * buttons — Create Entry / Create Macro / Open SNoogL — reachable
+   * WITHOUT expanding the section. Buttons must call
+   * `stopPropagation` on their own click handlers so the header
+   * toggle doesn't fire when the user only meant to hit the button.
+   */
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }): React.ReactElement {
   return (
     <section style={{ marginBottom: '1.5rem' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
+      <div
         style={{
           display: 'flex',
-          width: '100%',
-          alignItems: 'baseline',
-          gap: '0.6rem',
-          padding: '0.4rem 0',
-          background: 'transparent',
-          color: 'inherit',
-          border: 'none',
+          alignItems: 'center',
+          gap: '0.4rem',
           borderBottom:
-            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-          cursor: 'pointer',
-          textAlign: 'left',
-          fontFamily: 'inherit',
-          fontSize: '1.05rem'
+            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
         }}
       >
-        <span style={{ width: '0.9rem', opacity: 0.7 }}>
-          {expanded ? '▾' : '▸'}
-        </span>
-        <span style={{ fontWeight: 600 }}>{title}</span>
-        <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
-      </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          style={{
+            display: 'flex',
+            flex: 1,
+            alignItems: 'baseline',
+            gap: '0.6rem',
+            padding: '0.4rem 0',
+            background: 'transparent',
+            color: 'inherit',
+            border: 'none',
+            cursor: 'pointer',
+            textAlign: 'left',
+            fontFamily: 'inherit',
+            fontSize: '1.05rem'
+          }}
+        >
+          <span style={{ width: '0.9rem', opacity: 0.7 }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span style={{ fontWeight: 600 }}>{title}</span>
+          <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
+        </button>
+        {headerActions ? (
+          <div
+            style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {headerActions}
+          </div>
+        ) : null}
+      </div>
       {expanded ? <div style={{ marginTop: '0.5rem' }}>{children}</div> : null}
     </section>
   );
 }
 
 /**
- * SNoogL entry-point (cat 2026-07-12). Dashboard used to host the full
- * "Find Macro" search UI inline; that surface moved into a dedicated
- * SNoogL panel with an Entry/Macro toggle and a filter rail. What
- * lives here now is just a jump button.
+ * Compact action button sized for CollapsibleSection headers.
+ * Distinct from `AddBar` (full-width, section body). Neutral look so
+ * a row can carry 2-3 without dominating the header.
  */
-function OpenSnoogLBar({
-  onOpen,
-  macroCount
+function HeaderActionButton({
+  label,
+  title,
+  onClick
 }: {
-  onOpen: () => void;
-  macroCount: number;
+  label: string;
+  title: string;
+  onClick: () => void;
 }): React.ReactElement {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label="Open SNoogL search"
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen();
-        }
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
       }}
-      title="Open SNoogL — search entries and macros with filters"
+      title={title}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0.55rem 0.9rem',
-        marginBottom: '0.6rem',
-        borderRadius: '20px',
-        border:
-          '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-        background:
-          'var(--vscode-input-background, rgba(255,255,255,0.04))',
+        padding: '0.25rem 0.65rem',
+        fontSize: '0.82rem',
+        fontFamily: 'inherit',
         cursor: 'pointer',
-        userSelect: 'none'
+        border:
+          '1px solid var(--vscode-button-border, var(--vscode-contrastBorder, #555))',
+        background:
+          'var(--vscode-button-secondaryBackground, var(--vscode-input-background, #2a2a2a))',
+        color:
+          'var(--vscode-button-secondaryForeground, var(--vscode-foreground, inherit))',
+        borderRadius: '3px'
       }}
     >
-      <span aria-hidden style={{ opacity: 0.75 }}>🔍</span>
-      <span style={{ fontWeight: 500 }}>Open SNoogL</span>
-      <span style={{ opacity: 0.6, fontSize: '0.8rem', marginLeft: 'auto' }}>
-        {macroCount === 0
-          ? '(no macros yet)'
-          : `${macroCount} macros · dedicated search page`}
-      </span>
-    </div>
+      {label}
+    </button>
   );
 }
+
+/**
+ * (Removed 2026-07-13.) `OpenSnoogLBar` — a full-width jump button that
+ * used to sit inside the expanded SNL Macros section — was replaced by
+ * two per-section header buttons (Entries → SNoogL: Entry Search, SNL
+ * Macros → SNoogL: Macro Search) so the search entry point is reachable
+ * without expanding either section.
+ */
 
 
  /**

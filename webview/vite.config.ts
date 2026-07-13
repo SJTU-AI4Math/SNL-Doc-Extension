@@ -62,6 +62,26 @@ const inputFile = ENTRY_TO_INPUT[entry] ?? ENTRY_TO_INPUT.main;
 export default defineConfig({
   plugins: [react()],
   base: './',
+  // Dedupe react across the extension's own node_modules and the
+  // SNL-Basics submodule's nested node_modules. Without this, vite
+  // resolves `react` twice (once from each side of the file:… dep) and
+  // ships two copies of React in the same bundle. React's hooks
+  // dispatcher is a module-scoped singleton, so useMemo in a component
+  // rendered by SnlSyntaxTreeView (bound to lib React) crashes with
+  // "Cannot read properties of null (reading 'useMemo')" the instant
+  // it runs. Cat 2026-07-13 hit this after a submodule bump reinstalled
+  // external/SNL-Basics/node_modules/react.
+  resolve: {
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
+    alias: {
+      react: resolve(__dirname, '../node_modules/react'),
+      'react-dom': resolve(__dirname, '../node_modules/react-dom'),
+      'react/jsx-runtime': resolve(
+        __dirname,
+        '../node_modules/react/jsx-runtime.js'
+      )
+    }
+  },
   build: {
     outDir: resolve(__dirname, '../media/webview'),
     // Only the first pass clears the dir; subsequent passes append.

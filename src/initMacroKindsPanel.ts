@@ -98,7 +98,7 @@ export class InitMacroKindsPanel {
     // before any type-filter early-return below drops them silently.
     // Cat 2026-07-10 caught this on Edit Library; every save-oriented
     // panel had the same shape.
-    if (await handlePanelNavMessage(message)) {
+    if (await handlePanelNavMessage(message, () => this.pushInit())) {
       return;
     }
     const msg = message as

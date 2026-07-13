@@ -105,7 +105,7 @@ export class SnoogLPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (await handlePanelNavMessage(message)) return;
+    if (await handlePanelNavMessage(message, () => this.doQuery({ q: '', mode: 'entry', filters: {} }))) return;
     const msg = message as { type?: string } | undefined;
     if (!msg || typeof msg.type !== 'string') return;
 

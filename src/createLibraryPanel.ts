@@ -13,7 +13,9 @@ import {
   type GraphNodeDto,
   type GraphRelationshipDto
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
+  installSnlDocWatcher
+} from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -138,6 +140,8 @@ export class CreateLibraryPanel {
       this.disposables
     );
 
+    installSnlDocWatcher(this.disposables, () => this.pushContext());
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -234,7 +238,7 @@ export class CreateLibraryPanel {
     // don't carry a `title`/`op` and would otherwise fall through the
     // switch below without dispatching. Cat 2026-07-10: 'SNL Edit Library
     // 左上角返回 Dashboard 按钮不 work'.
-    if (await handlePanelNavMessage(message)) {
+    if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
     const msg = message as

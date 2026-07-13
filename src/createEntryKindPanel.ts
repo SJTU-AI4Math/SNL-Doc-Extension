@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { createEntryKind, readEntryKinds, updateEntryKind } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
+  installSnlDocWatcher
+} from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Entry Kind editor panel.
@@ -98,6 +100,8 @@ export class CreateEntryKindPanel {
       this.disposables
     );
 
+    installSnlDocWatcher(this.disposables, () => this.pushContext());
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -149,7 +153,7 @@ export class CreateEntryKindPanel {
     // before any type-filter early-return below drops them silently.
     // Cat 2026-07-10 caught this on Edit Library; every save-oriented
     // panel had the same shape.
-    if (await handlePanelNavMessage(message)) {
+    if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
     const msg = message as

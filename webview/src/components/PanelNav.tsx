@@ -76,18 +76,31 @@ export function PanelNav({
       >
         {`← ${back.label}`}
       </Button>
-      {viewInInfoview ? (
+      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+        {/* Cat 2026-07-13: universal manual refresh — data-file changes
+            SHOULD auto-sync via the FS watcher on the host, but this
+            gives the user an escape hatch when a rename / async delay
+            leaves a panel showing stale data. Every panel that mounts
+            PanelNav gets it for free. */}
         <Button
           variant="secondary"
           size="md"
-          title={viewInInfoview.title ?? viewInInfoview.label}
-          onClick={() => vsApi?.postMessage(viewInInfoview.message)}
+          title="Refresh this panel from disk"
+          onClick={() => vsApi?.postMessage({ type: 'nav.refresh' })}
         >
-          {`${viewInInfoview.label} →`}
+          {'↻'}
         </Button>
-      ) : (
-        <span />
-      )}
+        {viewInInfoview ? (
+          <Button
+            variant="secondary"
+            size="md"
+            title={viewInInfoview.title ?? viewInInfoview.label}
+            onClick={() => vsApi?.postMessage(viewInInfoview.message)}
+          >
+            {`${viewInInfoview.label} →`}
+          </Button>
+        ) : null}
+      </div>
     </nav>
   );
 }

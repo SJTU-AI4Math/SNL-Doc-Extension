@@ -77,6 +77,39 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
 }
 
 /**
+ * Install a shared `.SNL_Doc/**` file-system watcher that fires `refresh`
+ * on any create / change / delete beneath the workspace's `.SNL_Doc/`
+ * folder (config, entries, macros, kinds, libraries, relationships…).
+ *
+ * Every editor panel needs this so a sibling panel's save (or a
+ * hand-edit of a data file) shows up without a close-and-reopen. Cat
+ * 2026-07-13: '数据文件改完以后各个浏览和编辑界面的自动同步还是不
+ * 正常, 必须要关掉重开.' Panels that already had bespoke watchers
+ * (Dashboard, GraphPanel, Infoview) keep them for their narrower globs;
+ * this helper is for every OTHER panel that had no watcher at all.
+ *
+ * The single `.SNL_Doc/**` glob catches everything — writes are rare
+ * enough that overfiring is fine, and the panel's own `pushContext()`
+ * is idempotent.
+ */
+export function installSnlDocWatcher(
+  disposables: vscode.Disposable[],
+  refresh: () => void | Promise<void>
+): void {
+  const root = firstWorkspaceFolder();
+  if (!root) return;
+  const pattern = new vscode.RelativePattern(root, '.SNL_Doc/**');
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+  const fire = (): void => {
+    void refresh();
+  };
+  watcher.onDidCreate(fire, null, disposables);
+  watcher.onDidChange(fire, null, disposables);
+  watcher.onDidDelete(fire, null, disposables);
+  disposables.push(watcher);
+}
+
+/**
  * Shared handler for top-of-panel navigation messages posted by the
  * `PanelNav` webview component (cat 2026-07-09). Every editor / list
  * panel has a top-left back button and (where applicable) a right-side
@@ -88,14 +121,29 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
  * dispatched (so the caller should stop processing). Returns `false`
  * when it's not a nav message and the caller should continue its own
  * switch.
+ *
+ * A `refresh` callback can be passed to opt into the shared PanelNav
+ * refresh button (cat 2026-07-13 '手动刷新键也没有'). When the webview
+ * posts `{ type: 'nav.refresh' }` and a callback is supplied, we invoke
+ * it and swallow the message; otherwise we hand it back to the caller
+ * (false) so a panel that doesn't opt in stays unaffected.
  */
-export async function handlePanelNavMessage(message: unknown): Promise<boolean> {
+export async function handlePanelNavMessage(
+  message: unknown,
+  refresh?: () => void | Promise<void>
+): Promise<boolean> {
   const msg = message as { type?: unknown } | null | undefined;
   if (!msg || typeof msg.type !== 'string') return false;
   switch (msg.type) {
     case 'nav.openDashboard':
       await vscode.commands.executeCommand('snlDoc.openDashboard');
       return true;
+    case 'nav.refresh':
+      if (refresh) {
+        await refresh();
+        return true;
+      }
+      return false;
     case 'nav.openInfoview': {
       // Optional payload: `{ slug }` to open a specific library, `{ entryId }`
       // to open per-entry infoview. Either omit both for the browser root.

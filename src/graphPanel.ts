@@ -162,7 +162,7 @@ export class GraphPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (await handlePanelNavMessage(message)) return;
+    if (await handlePanelNavMessage(message, () => this.pushGraph())) return;
     const msg = message as { type?: string } | undefined;
     if (!msg || typeof msg.type !== 'string') return;
     switch (msg.type) {

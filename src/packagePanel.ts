@@ -220,7 +220,7 @@ export class PackagePanel {
     if (!msg || typeof msg.type !== 'string') {
       return;
     }
-    if (await handlePanelNavMessage(message)) {
+    if (await handlePanelNavMessage(message, () => this.pushPackage())) {
       return;
     }
         switch (msg.type) {

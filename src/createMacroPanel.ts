@@ -9,7 +9,9 @@ import {
   type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
+  installSnlDocWatcher
+} from './panelUtil';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -188,6 +190,8 @@ export class CreateMacroPanel {
       this.disposables
     );
 
+    installSnlDocWatcher(this.disposables, () => this.pushContext());
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -256,7 +260,7 @@ export class CreateMacroPanel {
     // before any type-filter early-return below drops them silently.
     // Cat 2026-07-10 caught this on Edit Library; every save-oriented
     // panel had the same shape.
-    if (await handlePanelNavMessage(message)) {
+    if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
     const msg = message as

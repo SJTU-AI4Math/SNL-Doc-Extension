@@ -9,7 +9,8 @@ import {
 import {
   buildPanelHtml,
   firstWorkspaceFolder,
-  handlePanelNavMessage
+  handlePanelNavMessage,
+  installSnlDocWatcher
 } from './panelUtil';
 
 /**
@@ -109,6 +110,8 @@ export class CreateRelationshipPanel {
       this.disposables
     );
 
+    installSnlDocWatcher(this.disposables, () => this.pushContext());
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -148,7 +151,7 @@ export class CreateRelationshipPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (await handlePanelNavMessage(message)) return;
+    if (await handlePanelNavMessage(message, () => this.pushContext())) return;
     const msg = message as
       | { type?: string; relationship?: RelationshipData }
       | undefined;

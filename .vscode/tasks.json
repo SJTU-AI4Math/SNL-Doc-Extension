@@ -10,10 +10,7 @@
         "reveal": "always",
         "panel": "shared"
       },
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
+      "group": "build"
     },
     {
       "label": "build",
@@ -22,7 +19,10 @@
         "build:webview"
       ],
       "dependsOrder": "sequence",
-      "group": "build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
       "problemMatcher": []
     },
     {

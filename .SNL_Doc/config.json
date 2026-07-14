@@ -1,0 +1,170 @@
+{
+  "version": "0.0.3",
+  "entry_kinds": [
+    {
+      "id": "panel",
+      "name": "Panel",
+      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "button",
+      "name": "Button",
+      "coloring": { "stroke": "#ea580c", "background": "#ffedd5" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "text-input",
+      "name": "TextInput",
+      "coloring": { "stroke": "#0891b2", "background": "#cffafe" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "textarea",
+      "name": "Textarea",
+      "coloring": { "stroke": "#0d9488", "background": "#ccfbf1" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "select",
+      "name": "Select",
+      "coloring": { "stroke": "#6366f1", "background": "#e0e7ff" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "checkbox",
+      "name": "Checkbox",
+      "coloring": { "stroke": "#65a30d", "background": "#ecfccb" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "radio",
+      "name": "Radio",
+      "coloring": { "stroke": "#84cc16", "background": "#f7fee7" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "tab",
+      "name": "Tab",
+      "coloring": { "stroke": "#8b5cf6", "background": "#ede9fe" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "list-item",
+      "name": "ListItem",
+      "coloring": { "stroke": "#ca8a04", "background": "#fef9c3" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "preview",
+      "name": "Preview",
+      "coloring": { "stroke": "#db2777", "background": "#fce7f3" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "modal",
+      "name": "Modal",
+      "coloring": { "stroke": "#e11d48", "background": "#ffe4e6" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "link",
+      "name": "Link",
+      "coloring": { "stroke": "#2563eb", "background": "#dbeafe" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "canvas",
+      "name": "Canvas",
+      "coloring": { "stroke": "#7c3aed", "background": "#f3e8ff" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "color-picker",
+      "name": "ColorPicker",
+      "coloring": { "stroke": "#c026d3", "background": "#fae8ff" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "drag-handle",
+      "name": "DragHandle",
+      "coloring": { "stroke": "#525252", "background": "#f5f5f5" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "text",
+      "name": "Text",
+      "coloring": { "stroke": "#404040", "background": "#fafafa" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "command",
+      "name": "Command",
+      "coloring": { "stroke": "#dc2626", "background": "#fee2e2" },
+      "numbering": "1",
+      "style": ""
+    },
+    {
+      "id": "message",
+      "name": "HostMessage",
+      "coloring": { "stroke": "#9333ea", "background": "#f3e8ff" },
+      "numbering": "1",
+      "style": ""
+    }
+  ],
+  "macro_kinds": [
+    {
+      "id": "Syntax",
+      "name": "Syntax",
+      "description": "SNL 语法/组合宏（非语义特化）。",
+      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" }
+    },
+    {
+      "id": "ui-widget",
+      "name": "UiWidget",
+      "description": "指涉 Extension 面板里的一个 UI widget。",
+      "coloring": { "stroke": "#ea580c", "background": "#ffedd5" }
+    },
+    {
+      "id": "ui-panel",
+      "name": "UiPanel",
+      "description": "指涉一个 webview 面板。",
+      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" }
+    },
+    {
+      "id": "command",
+      "name": "Command",
+      "description": "指涉一个 VS Code `snlDoc.*` command。",
+      "coloring": { "stroke": "#dc2626", "background": "#fee2e2" }
+    },
+    {
+      "id": "message",
+      "name": "HostMessage",
+      "description": "指涉一条 webview→host `postMessage` 消息类型。",
+      "coloring": { "stroke": "#9333ea", "background": "#f3e8ff" }
+    },
+    {
+      "id": "const",
+      "name": "Constant",
+      "description": "字面/常量。",
+      "coloring": { "stroke": "#888888", "background": "#eeeeee" }
+    }
+  ],
+  "active_macro_packages": []
+}

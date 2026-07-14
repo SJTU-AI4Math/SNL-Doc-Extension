@@ -49,6 +49,8 @@
 ## 2. Panel UI 单元表
 
 > 「（每行一个）」表示该控件在列表 / 树里每条目复制一次。「local state only」= 纯 webview 内 state 变化，无 host 消息。
+>
+> **核对状态**：所有 `message` 列已与 `src/*.ts` 里的 `case '...'` 分派对齐（`nav.openDashboard` / `nav.openInfoview` 走 `src/panelUtil.ts` 通用 back-nav 路由；其余走各面板自己的 `onDidReceiveMessage`）。EntryInfoview 里的 Related 链接实际用 `openEntryInfoview`，同 Infoview。
 
 ### 2.1 Infoview (`App.tsx`)
 

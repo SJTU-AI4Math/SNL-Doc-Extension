@@ -1180,6 +1180,19 @@ function GuiInductiveEditor({
     [onChange]
   );
 
+  // Path-based tree operations (cat 2026-07-15): '+ parent', indent,
+  // outdent. Implemented as single top-level transforms so cross-node
+  // rearrangements (indent/outdent) don't need to chain multiple
+  // stale-state onChange calls up the tree. Path is the same dotted
+  // form used by `collapsed` — '' for root, '0', '0.1', etc.
+  const treeOp = useCallback(
+    (op: 'wrapParent' | 'indent' | 'outdent', path: string): void => {
+      const next = applyTreeOp(tree, op, path);
+      if (next !== tree) propagate(next);
+    },
+    [tree, propagate]
+  );
+
   const toggleCollapsed = useCallback((path: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -1244,6 +1257,7 @@ function GuiInductiveEditor({
         onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        treeOp={treeOp}
       />
       <p
         style={{
@@ -1311,6 +1325,130 @@ function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
 }
 
 /**
+ * Structural tree operations invoked from row-side buttons (cat
+ * 2026-07-15). All three are pure — they return a new tree and never
+ * mutate. Path is the dotted form used elsewhere ('', '0', '0.1', ...).
+ *
+ *   - wrapParent: insert an empty parent above the row at `path`. The
+ *     original row becomes the sole child of the new parent. Root can
+ *     be wrapped (result: the whole tree becomes the new root's only
+ *     child).
+ *   - indent: turn the row at `path` into a child of its immediate
+ *     preceding sibling. No-op if the row has no preceding sibling
+ *     (first child) or if `path` is root.
+ *   - outdent: promote the row at `path` up one level, inserted right
+ *     after its former parent among the grandparent's children. No-op
+ *     for root or for direct children of root (nothing to outdent to).
+ *
+ * Returns the same object when the op is a no-op, so treeOp can bail
+ * without triggering a needless propagate.
+ */
+function applyTreeOp(
+  tree: SnlSyntaxTree,
+  op: 'wrapParent' | 'indent' | 'outdent',
+  path: string
+): SnlSyntaxTree {
+  if (op === 'wrapParent') {
+    if (path === '') {
+      // Wrap the whole root inside a new empty parent.
+      return { ...createSnlSyntaxTreeNode(''), children: [tree] };
+    }
+    return transformAtPath(tree, path, (row) => ({
+      ...createSnlSyntaxTreeNode(''),
+      children: [row]
+    }));
+  }
+  const parts = path.split('.').filter((s) => s.length > 0);
+  if (parts.length === 0) return tree;
+  const idx = Number(parts[parts.length - 1]);
+  const parentPath = parts.slice(0, -1).join('.');
+  if (op === 'indent') {
+    if (idx === 0) return tree; // no preceding sibling
+    return transformChildrenAtPath(tree, parentPath, (kids) => {
+      const moving = kids[idx];
+      const prev = kids[idx - 1];
+      const nextKids = kids.slice();
+      nextKids.splice(idx, 1);
+      nextKids[idx - 1] = { ...prev, children: [...prev.children, moving] };
+      return nextKids;
+    });
+  }
+  // outdent: needs a grandparent (parentPath must be non-root).
+  if (op === 'outdent') {
+    if (parentPath === '') return tree;
+    const parentParts = parentPath.split('.').filter((s) => s.length > 0);
+    const parentIdx = Number(parentParts[parentParts.length - 1]);
+    const grandpaPath = parentParts.slice(0, -1).join('.');
+    // Snapshot the moving row BEFORE mutating the parent's children,
+    // otherwise the closure reads a stale reference.
+    const parentNode = getNodeAtPath(tree, parentPath);
+    if (!parentNode) return tree;
+    const moving = parentNode.children[idx];
+    if (!moving) return tree;
+    // Two-step: (1) remove `moving` from parent; (2) insert it after
+    // parent in grandpa. Do both in a single transformChildrenAtPath on
+    // the grandpa — build a fresh parent shorn of `moving`, then insert
+    // `moving` right after it.
+    return transformChildrenAtPath(tree, grandpaPath, (kids) => {
+      const oldParent = kids[parentIdx];
+      const newParent = {
+        ...oldParent,
+        children: oldParent.children.filter((_, j) => j !== idx)
+      };
+      const nextKids = kids.slice();
+      nextKids[parentIdx] = newParent;
+      nextKids.splice(parentIdx + 1, 0, moving);
+      return nextKids;
+    });
+  }
+  return tree;
+}
+
+function transformAtPath(
+  tree: SnlSyntaxTree,
+  path: string,
+  fn: (n: SnlSyntaxTree) => SnlSyntaxTree
+): SnlSyntaxTree {
+  if (path === '') return fn(tree);
+  const parts = path.split('.').filter((s) => s.length > 0);
+  const [head, ...rest] = parts;
+  const idx = Number(head);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= tree.children.length) {
+    return tree;
+  }
+  const nextChild = transformAtPath(tree.children[idx], rest.join('.'), fn);
+  if (nextChild === tree.children[idx]) return tree;
+  const nextChildren = tree.children.slice();
+  nextChildren[idx] = nextChild;
+  return { ...tree, children: nextChildren };
+}
+
+function transformChildrenAtPath(
+  tree: SnlSyntaxTree,
+  path: string,
+  fn: (kids: SnlSyntaxTree[]) => SnlSyntaxTree[]
+): SnlSyntaxTree {
+  return transformAtPath(tree, path, (n) => ({ ...n, children: fn(n.children) }));
+}
+
+function getNodeAtPath(
+  tree: SnlSyntaxTree,
+  path: string
+): SnlSyntaxTree | undefined {
+  if (path === '') return tree;
+  const parts = path.split('.').filter((s) => s.length > 0);
+  let cur: SnlSyntaxTree | undefined = tree;
+  for (const p of parts) {
+    const i = Number(p);
+    if (!cur || !Number.isInteger(i) || i < 0 || i >= cur.children.length) {
+      return undefined;
+    }
+    cur = cur.children[i];
+  }
+  return cur;
+}
+
+/**
  * One row in the inductive editor. See the file-level block comment above
  * `GuiInductiveEditor` for the layout / interaction contract.
  */
@@ -1325,7 +1463,8 @@ function InductiveNode({
   macroOrigin,
   onOpenMacroEditor,
   collapsed,
-  onToggleCollapsed
+  onToggleCollapsed,
+  treeOp
 }: {
   node: SnlSyntaxTree;
   /** Dotted path from root; root = "", children = "0", "0.1", ... */
@@ -1341,6 +1480,13 @@ function InductiveNode({
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (path: string) => void;
+  /**
+   * Path-based structural ops routed to the top-level GuiInductiveEditor
+   * (cat 2026-07-15). Row-side buttons '+ parent', '⇥ indent', '⇤ outdent'
+   * all dispatch through here so cross-node rearrangements don't need
+   * multi-level onChange chaining.
+   */
+  treeOp: (op: 'wrapParent' | 'indent' | 'outdent', path: string) => void;
 }): React.ReactElement {
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
@@ -1625,6 +1771,66 @@ function InductiveNode({
           >
             + child
           </button>
+          {/* Structural ops (cat 2026-07-15). Enabled state depends on
+              position in the tree:
+              - '+ parent' is always available (root can be wrapped too).
+              - '⇥ indent' needs a preceding sibling (idx > 0).
+              - '⇤ outdent' needs a grandparent (depth ≥ 2). */}
+          {(() => {
+            const parts = path.split('.').filter((s) => s.length > 0);
+            const idx = parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
+            const canIndent = parts.length > 0 && idx > 0;
+            const canOutdent = parts.length >= 2;
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => treeOp('wrapParent', path)}
+                  title="Wrap this row in a new empty parent"
+                  aria-label="Add parent"
+                  style={inductiveMiniButton}
+                >
+                  + parent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => canOutdent && treeOp('outdent', path)}
+                  disabled={!canOutdent}
+                  title={
+                    canOutdent
+                      ? 'Outdent — move up one level (become sibling of parent)'
+                      : 'Cannot outdent — already at top-level'
+                  }
+                  aria-label="Outdent"
+                  style={{
+                    ...inductiveMiniButton,
+                    opacity: canOutdent ? 1 : 0.35,
+                    cursor: canOutdent ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  ⇤
+                </button>
+                <button
+                  type="button"
+                  onClick={() => canIndent && treeOp('indent', path)}
+                  disabled={!canIndent}
+                  title={
+                    canIndent
+                      ? 'Indent — become child of preceding sibling'
+                      : 'Cannot indent — no preceding sibling'
+                  }
+                  aria-label="Indent"
+                  style={{
+                    ...inductiveMiniButton,
+                    opacity: canIndent ? 1 : 0.35,
+                    cursor: canIndent ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  ⇥
+                </button>
+              </>
+            );
+          })()}
           {onDelete ? (
             <button
               type="button"
@@ -1663,6 +1869,7 @@ function InductiveNode({
                 onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
+                treeOp={treeOp}
               />
             );
           })}

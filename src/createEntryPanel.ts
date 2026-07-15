@@ -40,30 +40,48 @@ export class CreateEntryPanel {
   private readonly extensionUri: vscode.Uri;
   private readonly mode: 'create' | 'edit';
   private readonly id: string;
+  /**
+   * Optional seed id for `create` mode — piped through from callers that
+   * already know what the entry should be called (e.g. Library outline's
+   * Add form, cat 2026-07-15). Consumed once on first `context` push;
+   * the webview treats it as a hint that overrides the auto-minted UUID.
+   */
+  private seedId: string;
   private disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: vscode.Uri): void {
-    CreateEntryPanel.open(extensionUri, 'create', '');
+  public static createOrShow(
+    extensionUri: vscode.Uri,
+    seedId?: string
+  ): void {
+    CreateEntryPanel.open(extensionUri, 'create', '', seedId ?? '');
   }
 
   public static editOrShow(extensionUri: vscode.Uri, id: string): void {
     if (!id) {
       return;
     }
-    CreateEntryPanel.open(extensionUri, 'edit', id);
+    CreateEntryPanel.open(extensionUri, 'edit', id, '');
   }
 
   private static open(
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
-    id: string
+    id: string,
+    seedId: string
   ): void {
     const column = vscode.ViewColumn.Active;
+    // Key by mode+id only — a second `createEntry` invocation with a
+    // different seed should reveal the same panel (not spawn another).
+    // If the existing panel is already open, we still update its seed
+    // so the outline's typed id makes it into the id field.
     const key = `${mode}:${id}`;
 
     const existing = CreateEntryPanel.instances.get(key);
     if (existing) {
       existing.panel.reveal(column);
+      if (mode === 'create' && seedId) {
+        existing.applySeedId(seedId);
+      }
       return;
     }
 
@@ -82,7 +100,7 @@ export class CreateEntryPanel {
 
     CreateEntryPanel.instances.set(
       key,
-      new CreateEntryPanel(panel, extensionUri, mode, id)
+      new CreateEntryPanel(panel, extensionUri, mode, id, seedId)
     );
   }
 
@@ -90,12 +108,14 @@ export class CreateEntryPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
-    id: string
+    id: string,
+    seedId: string
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.mode = mode;
     this.id = id;
+    this.seedId = seedId;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -172,6 +192,7 @@ export class CreateEntryPanel {
       type: 'context',
       mode: this.mode,
       id: this.id || undefined,
+      seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
       kinds,
       macros,
       macroOrigin,
@@ -183,6 +204,19 @@ export class CreateEntryPanel {
           typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
       }))
     });
+  }
+
+  /**
+   * Push a new seed id into an already-open create panel. Called when
+   * `snlDoc.createEntry` is re-invoked with a seed while the panel is
+   * still visible from a prior invocation (cat 2026-07-15). Overwrites
+   * whatever seed the panel was carrying and re-broadcasts context so
+   * the webview picks up the new value without needing a full re-mount.
+   */
+  private applySeedId(seedId: string): void {
+    if (this.mode !== 'create') return;
+    this.seedId = seedId;
+    void this.pushContext();
   }
 
   private async handleMessage(message: unknown): Promise<void> {

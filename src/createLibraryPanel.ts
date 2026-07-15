@@ -263,7 +263,17 @@ export class CreateLibraryPanel {
       // Cat 2026-07-06: outline Add row's "Create" button routes to the
       // full CreateEntry panel — user fills out kind/title/content there
       // and comes back to paste the returned id.
-      await vscode.commands.executeCommand('snlDoc.createEntry');
+      // Cat 2026-07-15: forward the typed-but-unresolved id from the
+      // outline picker so the CreateEntry panel seeds its id field with
+      // exactly what the user just typed — otherwise they had to retype
+      // (or the panel would mint a fresh UUID and the outline id they
+      // typed disappeared silently).
+      const rawEntryId = (msg as { entryId?: unknown }).entryId;
+      const seedId =
+        typeof rawEntryId === 'string' && rawEntryId.trim()
+          ? rawEntryId.trim()
+          : undefined;
+      await vscode.commands.executeCommand('snlDoc.createEntry', seedId);
       return;
     }
     if (msg.type === 'openEditEntry') {

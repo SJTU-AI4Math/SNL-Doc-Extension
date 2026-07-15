@@ -259,6 +259,7 @@ export function CreateEntryApp(): React.ReactElement {
             type: 'context';
             mode: Mode;
             id?: string;
+            seedId?: string;
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
             macroOrigin?: Record<string, string>;
@@ -316,6 +317,14 @@ export function CreateEntryApp(): React.ReactElement {
               });
             }
           } else {
+            // Cat 2026-07-15: seed the id field with the caller-provided
+            // hint (e.g. the id the user typed into the Library outline's
+            // Add form that didn't resolve). Only overwrite an empty
+            // field — a user who already started typing in this panel
+            // shouldn't have their input clobbered by a late re-push.
+            if (typeof msg.seedId === 'string' && msg.seedId) {
+              setId((prev) => (prev ? prev : msg.seedId!));
+            }
             setSelectedKind((prev) => {
               if (prev) return prev;
               return msg.kinds && msg.kinds.length > 0 ? msg.kinds[0].id : '';

@@ -408,8 +408,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const createEntry = vscode.commands.registerCommand(
     'snlDoc.createEntry',
-    () => {
-      CreateEntryPanel.createOrShow(context.extensionUri);
+    (seedId?: unknown) => {
+      // Cat 2026-07-15: optional `seedId` from callers that already know
+      // the intended entry id (e.g. Library outline's Add form when the
+      // user typed an id that doesn't exist yet). CreateEntryPanel uses
+      // it to prefill the id field instead of minting a fresh UUID.
+      const seed =
+        typeof seedId === 'string' && seedId.trim() ? seedId.trim() : undefined;
+      CreateEntryPanel.createOrShow(context.extensionUri, seed);
     }
   );
 

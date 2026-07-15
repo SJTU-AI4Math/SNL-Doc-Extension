@@ -382,8 +382,8 @@ export function CreateLibraryApp(): React.ReactElement {
           onOpenEntry={(entryId) =>
             apiRef.current?.postMessage({ type: 'openEditEntry', entryId })
           }
-          onOpenCreateEntry={() =>
-            apiRef.current?.postMessage({ type: 'openCreateEntry' })
+          onOpenCreateEntry={(entryId) =>
+            apiRef.current?.postMessage({ type: 'openCreateEntry', entryId })
           }
         />
       ) : null}
@@ -457,7 +457,7 @@ interface OutlineEditorProps {
    * that only exists in `CreateLibraryApp`'s scope, so the button
    * silently threw. Cat 2026-07-12.
    */
-  onOpenCreateEntry: () => void;
+  onOpenCreateEntry: (entryId: string) => void;
 }
 
 /**
@@ -585,7 +585,7 @@ function OutlineEditor({
     if (!exists) {
       // DON'T close the popover so the user can paste the returned id
       // when they come back — same UX as the pre-existing empty case.
-      onOpenCreateEntry();
+      onOpenCreateEntry(entryIdTrimmed);
       return;
     }
     onGraphOp({

@@ -448,28 +448,62 @@ export class CreateEntryPanel {
           }
         }
       }
-      // Create path: pick a target package.
+      // Create path: pick a target package. Cat 2026-07-15: always
+      // include a "＋ Create new package…" sentinel so the user can spawn
+      // a fresh package from this flow without bouncing to the Dashboard
+      // and losing the "I was here to add a macro" context. When zero
+      // active packages exist we still show the picker with only the
+      // sentinel (rather than the old dead-end warning).
       const activeList = Array.from(
         new Set(await resolveActiveMacroPackages(root))
       ).sort((a, b) => a.localeCompare(b));
-      if (activeList.length === 0) {
-        vscode.window.showWarningMessage(
-          'No active macro package to hold this macro. Create or activate one first via the SNL Dashboard.'
-        );
-        return;
-      }
+      const CREATE_NEW_SENTINEL = '__snlDoc.createNewPackage__';
+      type PickItem = vscode.QuickPickItem & { pkg: string };
+      const items: PickItem[] = activeList.map((bare) => ({
+        label: bare,
+        description: '.SNL_Doc/term_macros/' + bare + '.json',
+        pkg: bare
+      }));
+      items.push({
+        label: '＋ Create new package…',
+        description: 'Open the Create Macro Package panel',
+        pkg: CREATE_NEW_SENTINEL
+      });
       let target: string | undefined;
       if (activeList.length === 1) {
-        target = activeList[0];
-      } else {
-        target = await vscode.window.showQuickPick(activeList, {
+        // One active package + create-new option — still show the picker
+        // so the user has the escape hatch (this is a two-item pick, not
+        // an auto-accept). Cat 2026-07-15.
+        const chosen = await vscode.window.showQuickPick(items, {
           title: name
             ? `Create macro "${name}" — choose target package`
             : 'Create macro — choose target package',
-          placeHolder: 'Select the .SNL_Doc/term_macros/*.json to add it to'
+          placeHolder: 'Select an existing package or create a new one'
         });
+        target = chosen?.pkg;
+      } else {
+        const chosen = await vscode.window.showQuickPick(items, {
+          title: name
+            ? `Create macro "${name}" — choose target package`
+            : 'Create macro — choose target package',
+          placeHolder:
+            activeList.length === 0
+              ? 'No active packages yet — create one to hold this macro'
+              : 'Select the .SNL_Doc/term_macros/*.json to add it to'
+        });
+        target = chosen?.pkg;
       }
       if (!target) return;
+      if (target === CREATE_NEW_SENTINEL) {
+        // Route to the Create Macro Package panel. Once the user saves,
+        // they can re-invoke the macro insertion from the Entry editor
+        // and their new package will appear in the pick list. We don't
+        // try to auto-continue because the two panels are independent
+        // singletons and threading a callback through would leak
+        // lifecycle across them. Cat 2026-07-15.
+        await vscode.commands.executeCommand('snlDoc.createMacroPackage');
+        return;
+      }
       // Prefill derivation (cat 2026-07-12): envMode leaves seed the
       // template with the raw payload + the matching macro mode; plain
       // identifiers seed the name field.

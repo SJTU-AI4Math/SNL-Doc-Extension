@@ -1186,7 +1186,7 @@ function GuiInductiveEditor({
   // stale-state onChange calls up the tree. Path is the same dotted
   // form used by `collapsed` — '' for root, '0', '0.1', etc.
   const treeOp = useCallback(
-    (op: 'wrapParent' | 'indent' | 'outdent', path: string): void => {
+    (op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown', path: string): void => {
       const next = applyTreeOp(tree, op, path);
       if (next !== tree) propagate(next);
     },
@@ -1250,6 +1250,7 @@ function GuiInductiveEditor({
         path=""
         numberPath=""
         depth={0}
+        siblingCount={1 /* root has no siblings; move-up/down guarded by path==='' */}
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDb={macroDb}
@@ -1345,7 +1346,7 @@ function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
  */
 function applyTreeOp(
   tree: SnlSyntaxTree,
-  op: 'wrapParent' | 'indent' | 'outdent',
+  op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
   path: string
 ): SnlSyntaxTree {
   if (op === 'wrapParent') {
@@ -1370,6 +1371,17 @@ function applyTreeOp(
       const nextKids = kids.slice();
       nextKids.splice(idx, 1);
       nextKids[idx - 1] = { ...prev, children: [...prev.children, moving] };
+      return nextKids;
+    });
+  }
+  if (op === 'moveUp' || op === 'moveDown') {
+    // Sibling reorder among the same parent's children (cat 2026-07-15).
+    // No-op at the edge (first row can't move up; last row can't move down).
+    return transformChildrenAtPath(tree, parentPath, (kids) => {
+      const swapWith = op === 'moveUp' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= kids.length) return kids;
+      const nextKids = kids.slice();
+      [nextKids[idx], nextKids[swapWith]] = [nextKids[swapWith], nextKids[idx]];
       return nextKids;
     });
   }
@@ -1457,6 +1469,7 @@ function InductiveNode({
   path,
   numberPath,
   depth,
+  siblingCount,
   onChange,
   onDelete,
   macroDb,
@@ -1472,6 +1485,12 @@ function InductiveNode({
   /** Human-visible number, e.g. "1", "1.2", "1.2.3" (root = ""). */
   numberPath: string;
   depth: number;
+  /**
+   * Number of children the parent has (i.e. this row's sibling group
+   * size, including self). Root is passed 1. Used to disable ↓ move-down
+   * at the last row without a second tree lookup. Cat 2026-07-15.
+   */
+  siblingCount: number;
   onChange: (next: SnlSyntaxTree) => void;
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
@@ -1482,11 +1501,14 @@ function InductiveNode({
   onToggleCollapsed: (path: string) => void;
   /**
    * Path-based structural ops routed to the top-level GuiInductiveEditor
-   * (cat 2026-07-15). Row-side buttons '+ parent', '⇥ indent', '⇤ outdent'
-   * all dispatch through here so cross-node rearrangements don't need
-   * multi-level onChange chaining.
+   * (cat 2026-07-15). Row-side buttons '+ parent', '⇥ indent', '⇤ outdent',
+   * '↑ move up', '↓ move down' all dispatch through here so cross-node
+   * rearrangements don't need multi-level onChange chaining.
    */
-  treeOp: (op: 'wrapParent' | 'indent' | 'outdent', path: string) => void;
+  treeOp: (
+    op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
+    path: string
+  ) => void;
 }): React.ReactElement {
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
@@ -1719,12 +1741,6 @@ function InductiveNode({
           {(() => {
             const trimmed = node.name.trim();
             const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
-            // "↗ new" is ALWAYS available (cat 2026-07-12): even for empty
-            // rows and delimited leaves, jumping into Create Macro seeded
-            // with the row's content is a useful shortcut. envMode/style
-            // are threaded through so the panel can prefill its template
-            // + mode picker without asking again.
-            const label = known ? '↗ edit' : '↗ new';
             const title = known
               ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
               : node.envMode === 'text'
@@ -1737,8 +1753,9 @@ function InductiveNode({
                       ? 'Open Create Macro (blank)'
                       : `Open Create Macro (prefill id "${trimmed}")`;
             return (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() =>
                   onOpenMacroEditor({
                     name: trimmed,
@@ -1749,51 +1766,46 @@ function InductiveNode({
                 title={title}
                 aria-label={known ? 'Edit macro' : 'Create macro'}
                 style={{
-                  ...inductiveMiniButton,
                   color: known
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
-                    : 'var(--vscode-descriptionForeground, #999)',
-                  borderColor: known
-                    ? 'var(--vscode-textLink-foreground, #4a9eff)'
-                    : 'var(--vscode-panel-border, var(--vscode-contrastBorder, #666))'
+                    : 'var(--vscode-descriptionForeground, #999)'
                 }}
               >
-                {label}
-              </button>
+                ↗
+              </Button>
             );
           })()}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={addChild}
             title="Add a child under this node"
             aria-label="Add child"
-            style={inductiveMiniButton}
           >
             + child
-          </button>
-          {/* Structural ops (cat 2026-07-15). Enabled state depends on
-              position in the tree:
-              - '+ parent' is always available (root can be wrapped too).
-              - '⇥ indent' needs a preceding sibling (idx > 0).
-              - '⇤ outdent' needs a grandparent (depth ≥ 2). */}
+          </Button>
           {(() => {
             const parts = path.split('.').filter((s) => s.length > 0);
-            const idx = parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
+            const idx =
+              parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
             const canIndent = parts.length > 0 && idx > 0;
             const canOutdent = parts.length >= 2;
+            const canMoveUp = parts.length > 0 && idx > 0;
+            const canMoveDown = parts.length > 0 && idx < siblingCount - 1;
             return (
               <>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => treeOp('wrapParent', path)}
                   title="Wrap this row in a new empty parent"
                   aria-label="Add parent"
-                  style={inductiveMiniButton}
                 >
                   + parent
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => canOutdent && treeOp('outdent', path)}
                   disabled={!canOutdent}
                   title={
@@ -1802,16 +1814,12 @@ function InductiveNode({
                       : 'Cannot outdent — already at top-level'
                   }
                   aria-label="Outdent"
-                  style={{
-                    ...inductiveMiniButton,
-                    opacity: canOutdent ? 1 : 0.35,
-                    cursor: canOutdent ? 'pointer' : 'not-allowed'
-                  }}
                 >
                   ⇤
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => canIndent && treeOp('indent', path)}
                   disabled={!canIndent}
                   title={
@@ -1820,31 +1828,53 @@ function InductiveNode({
                       : 'Cannot indent — no preceding sibling'
                   }
                   aria-label="Indent"
-                  style={{
-                    ...inductiveMiniButton,
-                    opacity: canIndent ? 1 : 0.35,
-                    cursor: canIndent ? 'pointer' : 'not-allowed'
-                  }}
                 >
                   ⇥
-                </button>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => canMoveUp && treeOp('moveUp', path)}
+                  disabled={!canMoveUp}
+                  title={
+                    canMoveUp
+                      ? 'Move up — swap with preceding sibling'
+                      : 'Cannot move up — already first'
+                  }
+                  aria-label="Move up"
+                >
+                  ↑
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => canMoveDown && treeOp('moveDown', path)}
+                  disabled={!canMoveDown}
+                  title={
+                    canMoveDown
+                      ? 'Move down — swap with following sibling'
+                      : 'Cannot move down — already last'
+                  }
+                  aria-label="Move down"
+                >
+                  ↓
+                </Button>
               </>
             );
           })()}
           {onDelete ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onDelete}
               title="Delete this subtree"
               aria-label="Delete subtree"
               style={{
-                ...inductiveMiniButton,
-                color: 'var(--vscode-errorForeground, #f48771)',
-                borderColor: 'var(--vscode-errorForeground, #f48771)'
+                color: 'var(--vscode-errorForeground, #f48771)'
               }}
             >
-              − delete
-            </button>
+              ✕
+            </Button>
           ) : null}
         </div>
       </div>
@@ -1862,6 +1892,7 @@ function InductiveNode({
                 path={childPath}
                 numberPath={childNumber}
                 depth={depth + 1}
+                siblingCount={node.children.length}
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
                 macroDb={macroDb}
@@ -1909,18 +1940,6 @@ const chevronButtonStyle: React.CSSProperties = {
   color: 'var(--vscode-descriptionForeground, #888)',
   cursor: 'pointer',
   flexShrink: 0
-};
-
-const inductiveMiniButton: React.CSSProperties = {
-  padding: '0.15rem 0.5rem',
-  border:
-    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #666))',
-  background: 'transparent',
-  color: 'inherit',
-  cursor: 'pointer',
-  borderRadius: '3px',
-  fontFamily: 'inherit',
-  fontSize: '0.75rem'
 };
 
 function StatusLine({

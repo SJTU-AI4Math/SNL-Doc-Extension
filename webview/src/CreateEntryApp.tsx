@@ -1045,17 +1045,32 @@ function parseLeafSource(raw: string): {
  */
 function stringifyLeafSource(node: SnlSyntaxTree): string {
   const stylePart = node.style ? `[${node.style}]` : '';
+  return `${stringifyLeafHead(node)}${stylePart}`;
+}
+
+/**
+ * Same as `stringifyLeafSource` but omits the `[style]` suffix. Used for
+ * the InductiveNode name-box `rawInput`, which is paired with a separate
+ * dedicated style box — including `[style]` in both would leak the style
+ * back into the name field every time `commitStyle` fires an onChange
+ * (the useEffect that re-syncs rawInput would pick up the change and
+ * rewrite the name box). Cat 2026-07-15: user reports "改 style 时方括号
+ * 及 style 内容会跑进左侧的 macro name 框里". Parsing still handles
+ * `[style]` if the user types it directly into the name box —
+ * `parseLeafSource` will move it into `node.style` on the next commit.
+ */
+function stringifyLeafHead(node: SnlSyntaxTree): string {
   const binderPrefix = node.kind === 'binder' ? '@' : '';
   if (node.envMode === 'text') {
-    return `${binderPrefix}%${node.name}%${stylePart}`;
+    return `${binderPrefix}%${node.name}%`;
   }
   if (node.envMode === 'formula_inline') {
-    return `${binderPrefix}$${node.name}$${stylePart}`;
+    return `${binderPrefix}$${node.name}$`;
   }
   if (node.envMode === 'formula_display') {
-    return `${binderPrefix}$$${node.name}$$${stylePart}`;
+    return `${binderPrefix}$${'$'}${node.name}$${'$'}`;
   }
-  return `${binderPrefix}${node.name}${stylePart}`;
+  return `${binderPrefix}${node.name}`;
 }
 
 /**
@@ -1327,14 +1342,14 @@ function InductiveNode({
   onToggleCollapsed: (path: string) => void;
 }): React.ReactElement {
   const [rawInput, setRawInput] = React.useState<string>(() =>
-    stringifyLeafSource(node)
+    stringifyLeafHead(node)
   );
 
   // Sync from external changes (e.g. text mode edit → re-parse → new tree).
   // Only reset if the incoming node's stringified form differs from what we
   // last showed, so mid-typing user edits aren't clobbered.
   React.useEffect(() => {
-    const canonical = stringifyLeafSource(node);
+    const canonical = stringifyLeafHead(node);
     setRawInput((prev) => (prev.trim() === canonical.trim() ? prev : canonical));
   }, [node.name, node.envMode, node.kind, node.style]);
 
@@ -1370,7 +1385,11 @@ function InductiveNode({
       name: leaf.name,
       envMode: leaf.envMode,
       kind: leaf.kind || node.kind || '',
-      style: leaf.style,
+      // Cat 2026-07-15: the name box no longer renders `[style]` (it has
+      // its own dedicated style box). If the user does type a bracket
+      // suffix here we honor it (leaf.style is set); otherwise we keep
+      // the existing style so name edits don't silently drop it.
+      style: leaf.style !== undefined ? leaf.style : node.style,
       children: nextChildren
     });
   };

@@ -1006,36 +1006,32 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
  */
 function parseLeafSource(raw: string): {
   name: string;
-  envMode?: 'formula_inline' | 'formula_display' | 'text';
-  kind: string;
   style?: string;
 } {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return { name: '', kind: '' };
+    return { name: '' };
   }
-  // Parse the source in isolation to let the parser extract envMode /
-  // binder / style tag. We synthesize `foo()` if it contains parens
-  // already? No — the row input is only the leaf head. If the user typed
-  // parens, treat as invalid leaf: keep as raw name.
+  // Cat 2026-07-15: the GUI editor is deliberately dumb about sigils —
+  // `@`, `%`, `$` and friends are just literal characters that belong in
+  // `name` verbatim. Only `()` and `[]` carry structural meaning:
+  //   - `(` / `,` are handled at the row boundary (children), so if they
+  //     show up inside the head we treat the whole raw string as an
+  //     opaque name (defensive; the paren guard on the caller side
+  //     usually keeps them out).
+  //   - A trailing `[style]` is peeled into `node.style` so the dedicated
+  //     style box on the right can drive it independently.
   if (trimmed.includes('(') || trimmed.includes(',')) {
-    return { name: raw, kind: '' };
+    return { name: raw };
   }
-  const parsed = tryParseSnlSyntaxTree(trimmed);
-  if (!parsed.ok) {
-    return { name: raw, kind: '' };
+  const styleMatch = trimmed.match(/^(.*)\[([^\[\]]*)\]$/);
+  if (styleMatch) {
+    return {
+      name: styleMatch[1],
+      style: styleMatch[2].length > 0 ? styleMatch[2] : undefined
+    };
   }
-  const t = parsed.tree;
-  if (t.children.length > 0) {
-    // Shouldn't happen given the paren guard above, but be defensive.
-    return { name: raw, kind: '' };
-  }
-  return {
-    name: t.name,
-    envMode: t.envMode,
-    kind: t.kind ?? '',
-    style: t.style
-  };
+  return { name: trimmed };
 }
 
 /**
@@ -1050,14 +1046,19 @@ function stringifyLeafSource(node: SnlSyntaxTree): string {
 
 /**
  * Same as `stringifyLeafSource` but omits the `[style]` suffix. Used for
- * the InductiveNode name-box `rawInput`, which is paired with a separate
- * dedicated style box — including `[style]` in both would leak the style
- * back into the name field every time `commitStyle` fires an onChange
- * (the useEffect that re-syncs rawInput would pick up the change and
- * rewrite the name box). Cat 2026-07-15: user reports "改 style 时方括号
- * 及 style 内容会跑进左侧的 macro name 框里". Parsing still handles
- * `[style]` if the user types it directly into the name box —
- * `parseLeafSource` will move it into `node.style` on the next commit.
+ * the InductiveNode name-box `rawInput`, paired with a separate style
+ * box on the right.
+ *
+ * Cat 2026-07-15 (v2): the name box shows literal characters — the
+ * editor no longer reconstructs sigils (`@`, `%…%`, `$…$`, `$${'$'}…$${'$'}`)
+ * from `node.envMode` / `node.kind`. Those fields are meaningful for
+ * trees that came from an external SNL parse; for those, the name still
+ * carries the identifier without the sigils and we prepend/wrap them so
+ * the first render truthfully mirrors the source. But on ANY user edit,
+ * `commitRaw` clears envMode + kind and stores whatever the user typed
+ * verbatim into `name` — so if you backspace the `@` off `@foo` it
+ * actually goes away instead of the useEffect re-adding it. See
+ * "GUI Editor 应该只管圆括号和方括号" for the design directive.
  */
 function stringifyLeafHead(node: SnlSyntaxTree): string {
   const binderPrefix = node.kind === 'binder' ? '@' : '';
@@ -1356,17 +1357,13 @@ function InductiveNode({
   const commitRaw = (nextRaw: string): void => {
     setRawInput(nextRaw);
     const leaf = parseLeafSource(nextRaw);
-    // Auto-fill children when the newly-typed name resolves to a
-    // FIXED-arity macro whose required child count exceeds the row's
-    // current children. Cat 2026-07-13: "识别到 Macro 之后，在下方自动
-    // 补齐相应数量的 Children 编辑框". Never truncate — that would
-    // silently drop user-authored content when the name is edited into
-    // a lower-arity macro or a bare identifier. Skip dynamic-arity
-    // macros (no fixed count) and envMode leaves (payload, not
-    // structural).
+    // Macro auto-fill lookup: use the literal typed name. If the user
+    // has typed sigil chars (e.g. `%foo%`) into the name box, this
+    // lookup will (correctly) miss — the row is now a raw literal, not
+    // a macro reference. Cat 2026-07-15.
     const matched = leaf.name ? macroDb[leaf.name] : undefined;
     let nextChildren = node.children;
-    if (matched && matched.dynamic_arity !== true && leaf.envMode === undefined) {
+    if (matched && matched.dynamic_arity !== true) {
       const requiredArity = macroTemplateArity(matched);
       if (requiredArity > node.children.length) {
         const padding = Array.from(
@@ -1383,12 +1380,15 @@ function InductiveNode({
     onChange({
       ...node,
       name: leaf.name,
-      envMode: leaf.envMode,
-      kind: leaf.kind || node.kind || '',
-      // Cat 2026-07-15: the name box no longer renders `[style]` (it has
-      // its own dedicated style box). If the user does type a bracket
-      // suffix here we honor it (leaf.style is set); otherwise we keep
-      // the existing style so name edits don't silently drop it.
+      // Cat 2026-07-15: the GUI editor no longer manages sigils. Any
+      // user edit collapses the node's parsed envMode/kind meta into
+      // whatever literal chars are now in `name`, so backspacing a
+      // sigil actually deletes it (previously `kind: leaf.kind ||
+      // node.kind` re-latched the old `binder` and the `@` came back).
+      envMode: undefined,
+      kind: '',
+      // Style still has its own dedicated box — only overwrite when the
+      // typed source explicitly carried a bracket suffix.
       style: leaf.style !== undefined ? leaf.style : node.style,
       children: nextChildren
     });

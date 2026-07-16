@@ -1145,6 +1145,31 @@ async function main() {
     `dangling entryId surfaces as warning (got ${JSON.stringify(read3.result.warnings)})`
   );
 
+  // Stub-path (2026-07-16): the outline Add form's dual-action inserts a node
+  // referencing an id that isn't in the pool yet (isStub). At the data layer
+  // that's simply a graph node whose entryId dangles — it must PERSIST (not be
+  // rejected) and read back as a real node carrying a dangling-id warning, so
+  // the ⚠ pending tag can render until the entry lands. Emulate the host's
+  // isStub addNode by writing the node directly and re-reading.
+  const writeStub = await writeLibraryGraph(root4, 'graphtest', {
+    nodes: [
+      { id: 'real-node', label: 'Entry', props: { entryId: 'real-entry' } },
+      { id: 'stub-node', label: 'Entry', props: { entryId: 'not-in-pool' } }
+    ],
+    relationships: [{ from: 'real-node', to: 'stub-node', label: 'branch' }]
+  });
+  assert(writeStub.status === 'ok', 'stub node persists via writeLibraryGraph -> ok');
+  const readStub = await readLibraryGraph(root4, 'graphtest');
+  assert(readStub.status === 'ok', 'readLibraryGraph -> ok with a stub node present');
+  assert(
+    readStub.result.graph.nodes.some((n) => n.id === 'stub-node'),
+    'stub node round-trips into the graph (not dropped)'
+  );
+  assert(
+    readStub.result.warnings.some((w) => w.includes('not-in-pool')),
+    `stub node's dangling entryId surfaces as a warning (got ${JSON.stringify(readStub.result.warnings)})`
+  );
+
   // No graph.json in a non-existent library slug -> noFile.
   const read4 = await readLibraryGraph(root4, 'nonexistent-slug');
   assert(read4.status === 'noFile', 'readLibraryGraph on missing lib -> noFile');

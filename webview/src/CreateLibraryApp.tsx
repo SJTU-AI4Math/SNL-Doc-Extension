@@ -950,20 +950,40 @@ function OutlineEditor({
   const commitAdd = (): void => {
     if (!addingUnder) return;
     const entryIdTrimmed = addingUnder.entryId.trim();
-    // Look up the typed id in the pool — the Add form's button reads
-    // "Reference" only when the id resolves to an existing entry; any
-    // other case (empty OR typed-but-unresolved) reads "Create" and
-    // MUST route to the Create Entry panel. Previously the empty case
-    // routed correctly but the typed-but-unresolved case fell through
-    // to `addNode` and the host bounced with "entryId not found". Cat
-    // 2026-07-12.
+    // Three cases, distinguished by whether the typed id resolves in the pool:
+    //   - empty            → open the Create Entry panel (no node inserted;
+    //                        there's no id to stub yet).
+    //   - typed-unresolved → dual action: insert a STUB node referencing the
+    //                        typed id AND open the Create Entry panel seeded
+    //                        with the same id. The stub resolves automatically
+    //                        once the entry lands in the pool (the .SNL_Doc/**
+    //                        watcher re-pushes the graph and the ⚠ tag clears).
+    //                        Fulcrum 2026-07-16.
+    //   - typed-resolved   → REFERENCE mode: insert a node pointing at the
+    //                        existing pooled entry.
     const exists =
       entryIdTrimmed.length > 0 &&
       graph?.entries.some((e) => e.id === entryIdTrimmed);
-    if (!exists) {
-      // DON'T close the popover so the user can paste the returned id
-      // when they come back — same UX as the pre-existing empty case.
+    if (entryIdTrimmed.length === 0) {
+      // No id to stub — keep the popover open so the user can paste the id
+      // returned by the Create Entry panel when they come back.
       onOpenCreateEntry(entryIdTrimmed);
+      return;
+    }
+    if (!exists) {
+      // Insert the stub AND jump to Create Entry seeded with the same id. We
+      // CAN close the popover now because the outline already carries the
+      // stub node and the id is preserved as the Create Entry panel's seed.
+      onGraphOp({
+        op: 'addNode',
+        parentId: addingUnder.parentId,
+        insertAfter: addingUnder.insertAfter,
+        entryId: entryIdTrimmed,
+        counterId: addingUnder.counterId ?? '',
+        isStub: true
+      });
+      onOpenCreateEntry(entryIdTrimmed);
+      setAddingUnder(null);
       return;
     }
     onGraphOp({
@@ -1164,6 +1184,13 @@ function OutlineRowContent({
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
+  // A stub is a node that references an entryId which isn't in the pool yet
+  // (typically minted by the Add form's dual-action path — the entry is being
+  // created in the Create Entry panel and will resolve on the next graph read).
+  const isStub =
+    typeof node.props.entryId === 'string' &&
+    node.props.entryId.length > 0 &&
+    !entry;
   const kind = entry?.kind ? kindsById.get(entry.kind) : undefined;
   const num = numbersById.get(node.id);
   const flatCounters = flattenCounters(counters);
@@ -1227,11 +1254,36 @@ function OutlineRowContent({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            opacity: 0.7
+            opacity: 0.7,
+            fontStyle: isStub ? 'italic' : 'normal'
           }}
-          title={`no entryId assigned (node ${node.id})`}
+          title={
+            isStub
+              ? `pending entry — "${node.props.entryId}" not in the pool yet (finish it in the Create Entry panel)`
+              : `no entryId assigned (node ${node.id})`
+          }
         >
-          {displayTitle}
+          {isStub ? (
+            <>
+              <span
+                style={{
+                  marginRight: '0.4rem',
+                  padding: '0.05rem 0.35rem',
+                  borderRadius: '3px',
+                  fontSize: '0.7rem',
+                  fontStyle: 'normal',
+                  color: 'var(--vscode-editorWarning-foreground, #cca700)',
+                  border:
+                    '1px solid var(--vscode-inputValidation-warningBorder, #b89500)'
+                }}
+              >
+                ⚠ pending
+              </span>
+              <code style={{ fontSize: '0.8rem' }}>{node.props.entryId}</code>
+            </>
+          ) : (
+            displayTitle
+          )}
         </span>
       )}
 

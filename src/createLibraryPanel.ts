@@ -409,14 +409,16 @@ export class CreateLibraryPanel {
    * the webview should never send malformed ones, but be defensive.
    *
    * Supported ops (all in edit mode only):
-   *   - addNode: { op: 'addNode', parentId | null, entryId?, kind?, title?, insertAfter? }
+   *   - addNode: { op: 'addNode', parentId | null, entryId?, kind?, title?, insertAfter?, counterId?, isStub? }
    *       Two modes decided by `entryId`:
    *       (a) entryId non-empty  → REFERENCE mode. Validates that this
    *           entryId exists in the shared pool, then creates a graph node
    *           pointing at it. `kind` and `title` are ignored — the entry
    *           already carries them. Enables one entry being outlined in
    *           multiple libraries (cat 2026-07-06: "一个 entry 能属多个
-   *           library").
+   *           library"). When `isStub` (or `allowUnresolved`) is set, the
+   *           pool-existence check is skipped so a dangling ref can be
+   *           inserted and resolve later once the entry lands (2026-07-16).
    *       (b) entryId empty/omitted → CREATE mode. Creates a fresh
    *           EntryData in the shared pool with a new uuid using the
    *           supplied `kind` (required) + `title`, then links a graph
@@ -493,6 +495,11 @@ export class CreateLibraryPanel {
             typeof op.insertAfter === 'string' ? op.insertAfter : null;
           const counterId =
             typeof op.counterId === 'string' ? op.counterId.trim() : '';
+          // Stub mode (2026-07-16): the outline Add form dispatches a stub
+          // node when the typed id doesn't resolve to a pooled entry yet, so
+          // the node lands in the outline immediately and resolves organically
+          // once the Create Entry panel saves that id into the pool.
+          const isStub = op.isStub === true || op.allowUnresolved === true;
           // Validate parent exists in the graph (or is null for a root).
           if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
             void this.panel.webview.postMessage({
@@ -504,14 +511,18 @@ export class CreateLibraryPanel {
 
           let entryUuid: string;
           if (rawEntryId) {
-            // REFERENCE mode: entryId must exist in the shared pool.
-            const pool = await readEntries(root);
-            if (!pool.some((e) => e && e.id === rawEntryId)) {
-              void this.panel.webview.postMessage({
-                type: 'graphError',
-                message: `addNode: entry "${rawEntryId}" not found in shared pool. Leave the id field empty to create a new entry.`
-              });
-              return;
+            // REFERENCE mode: entryId must exist in the shared pool — UNLESS
+            // this is a stub, in which case we skip the pool-existence check
+            // and let the dangling ref resolve when the entry lands later.
+            if (!isStub) {
+              const pool = await readEntries(root);
+              if (!pool.some((e) => e && e.id === rawEntryId)) {
+                void this.panel.webview.postMessage({
+                  type: 'graphError',
+                  message: `addNode: entry "${rawEntryId}" not found in shared pool. Leave the id field empty to create a new entry.`
+                });
+                return;
+              }
             }
             entryUuid = rawEntryId;
           } else {

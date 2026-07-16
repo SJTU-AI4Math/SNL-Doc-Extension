@@ -135,6 +135,7 @@ async function main() {
     updateLibrary,
     readLibraryGraph,
     writeLibraryGraph,
+    readLibraryCounters,
     listLibraries,
     readLibraryMeta,
     writeLibraryMeta
@@ -151,7 +152,7 @@ async function main() {
   console.log('\n[2] applyEntryKindsPreset(fulcrum-math-notes)');
   const applied = await applyEntryKindsPreset(root, 'fulcrum-math-notes');
   assert(applied.status === 'applied', 'applyEntryKindsPreset -> applied');
-  assert(applied.count === 15, `preset applied 15 kinds (got ${applied.count})`);
+  assert(applied.count === 16, `preset applied 16 kinds (got ${applied.count})`);
 
   const cfg = await readConfig(tmpRoot);
   assert(
@@ -159,8 +160,8 @@ async function main() {
     `config.version === "0.0.3" (got ${cfg.version})`
   );
   assert(
-    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 15,
-    `config has 15 entry_kinds (got ${cfg.entry_kinds?.length})`
+    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
+    `config has 16 entry_kinds (got ${cfg.entry_kinds?.length})`
   );
   const defn = cfg.entry_kinds.find((k) => k.id === 'definition');
   assert(!!defn, 'definition kind present');
@@ -170,9 +171,22 @@ async function main() {
       defn.coloring.background === '#D6FEE0',
     'definition coloring matches Fulcrum preset'
   );
-  // v2 semantic change: numbering is a per-level magic string, not a
-  // multi-level '1.1.1' pattern (cat 2026-07-06).
-  assert(defn.numbering === '.1', 'definition numbering === ".1" (v2 single-level)');
+  // 2026-07-16: EntryKind.numbering renamed to defaultCounterName (a plain
+  // counter NAME, not a DSL). The Fulcrum preset seeds the slug of the kind.
+  assert(
+    defn.defaultCounterName === 'definition',
+    'definition defaultCounterName === "definition"'
+  );
+  assert(
+    typeof cfg.entry_kinds[0].defaultCounterName === 'string',
+    'entry_kinds[0].defaultCounterName is defined + a string'
+  );
+  // writeConfig (via applyEntryKindsPreset) must NOT emit the legacy
+  // `numbering` field on any kind.
+  assert(
+    cfg.entry_kinds.every((k) => !('numbering' in k)),
+    'no entry_kinds[i].numbering field written by writeConfig'
+  );
 
   console.log('\n[3] addEntryKind (createEntryKind) fresh id');
   const created = await createEntryKind(root, {
@@ -180,12 +194,12 @@ async function main() {
     name: 'Scratch Note',
     stroke: '#123456',
     background: '#abcdef',
-    numbering: '1',
+    defaultCounterName: 'scratch',
     style: ''
   });
   assert(created.status === 'created', 'createEntryKind -> created');
   const cfg2 = await readConfig(tmpRoot);
-  assert(cfg2.entry_kinds.length === 16, 'entry_kinds now 16 after append');
+  assert(cfg2.entry_kinds.length === 17, 'entry_kinds now 17 after append');
 
   console.log('\n[4] addEntryKind duplicate id');
   const dupKind = await createEntryKind(root, {
@@ -193,7 +207,7 @@ async function main() {
     name: 'Scratch Note Again',
     stroke: '#000000',
     background: '#ffffff',
-    numbering: '',
+    defaultCounterName: '',
     style: ''
   });
   assert(dupKind.status === 'duplicate', 'createEntryKind dup -> duplicate');
@@ -968,6 +982,29 @@ async function main() {
   assert(
     Array.isArray(graphRaw.relationships) && graphRaw.relationships.length === 0,
     'createLibrary writes graph.json with empty relationships (not "edges")'
+  );
+  // 2026-07-16: createLibrary also seeds an empty counters.json.
+  const countersPath = nodePath.join(
+    tmpRoot4,
+    '.SNL_Doc',
+    'libraries',
+    'graphtest',
+    'counters.json'
+  );
+  const countersRaw = JSON.parse(await fs.readFile(countersPath, 'utf8'));
+  assert(
+    Array.isArray(countersRaw.counters) && countersRaw.counters.length === 0,
+    'createLibrary writes counters.json with { counters: [] }'
+  );
+  const freshCounters = await readLibraryCounters(root4, 'graphtest');
+  assert(
+    Array.isArray(freshCounters) && freshCounters.length === 0,
+    'readLibraryCounters on a fresh library returns []'
+  );
+  const missingCounters = await readLibraryCounters(root4, 'nonexistent-slug');
+  assert(
+    Array.isArray(missingCounters) && missingCounters.length === 0,
+    'readLibraryCounters on a missing library returns [] (tolerant)'
   );
   // Old relationships.json must NOT exist.
   const oldPath = nodePath.join(

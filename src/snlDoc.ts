@@ -125,6 +125,16 @@ export function libraryMetaUri(
   );
 }
 
+export function libraryCountersUri(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): vscode.Uri {
+  return vscode.Uri.joinPath(
+    libraryDirUri(workspaceRoot, slug),
+    'counters.json'
+  );
+}
+
 /**
  * Entry-kind metadata. One element per *category* of Entry the user defines
  * (e.g. "Definition", "Theorem", "Example"). Schema (v0.0.3):
@@ -133,10 +143,11 @@ export function libraryMetaUri(
  *  - `name`: display name (any language).
  *  - `coloring.stroke` / `coloring.background`: any CSS colour value; the
  *    Dashboard uses these to render both the swatch and the frame preview.
- *  - `numbering`: a small Typst-inspired DSL string. Dots in the pattern
- *    denote hierarchical levels (e.g. `"1.1"` = two-level counter starting
- *    at 1.1). The Dashboard currently just displays the pattern verbatim;
- *    the actual counter engine will land with the Entry editor.
+ *  - `defaultCounterName`: name of a Library-scoped counter (matched by
+ *    `counter.name`). Empty string = no default counter (entry contributes
+ *    no numbering unless the outline ref pins one). Renamed 2026-07-16 from
+ *    the former `numbering` DSL field — see {@link normalizeEntryKind} for
+ *    the on-read migration (legacy DSL values do NOT carry over as names).
  *  - `style`: free-form tag (e.g. `"remark"`, `"proof"`, `"problem"`) the
  *    renderer maps to a visual variant. Empty string = default box.
  *
@@ -148,8 +159,36 @@ export interface EntryKind {
   id: string;
   name: string;
   coloring: { stroke: string; background: string };
-  numbering: string;
+  defaultCounterName: string;
   style: string;
+}
+
+/**
+ * A single node in a Library-scoped counter tree
+ * (`libraries/<slug>/counters.json`). Counters are tree entities managed in
+ * the Library Edit panel with the same tree UI as the entry outline.
+ *
+ *  - `id`: `crypto.randomUUID()` at creation. Stable across renames.
+ *  - `name`: human-facing label; also the name that
+ *    {@link EntryKind.defaultCounterName} matches on. Uniqueness within a
+ *    library is NOT enforced by the schema — name-lookup (see
+ *    `findCounterByName` in `src/libraryGraph.ts`) picks the FIRST
+ *    depth-first match, so the UI SHOULD warn on duplicate names.
+ *  - `numbering`: a Typst-inspired DSL string (e.g. `"1.1.1"`, `"Ex. A"`,
+ *    `"§I."`) — the same magic-string format the numbering engine formats.
+ *  - `children`: ordered sub-counters.
+ */
+export interface CounterNode {
+  id: string;
+  name: string;
+  numbering: string;
+  children: CounterNode[];
+}
+
+/** On-disk shape of `libraries/<slug>/counters.json`. Empty / missing /
+ *  malformed → treat as `{ counters: [] }`. */
+export interface LibraryCountersFile {
+  counters: CounterNode[];
 }
 
 /**
@@ -251,6 +290,22 @@ function normalizeConfig(raw: unknown): SnlConfig {
   };
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
+  // Migration note (2026-07-16): flag legacy `entry_kinds[i].numbering`
+  // fields (the pre-rename DSL) exactly once per read. The value is NOT
+  // carried into `defaultCounterName` (a DSL is not a counter name); it is
+  // left on disk untouched and dropped the next time `writeConfig` runs.
+  const legacyNumbering = rawKinds.some((k) => {
+    const o = k as unknown as Record<string, unknown>;
+    return !!o && typeof o === 'object' &&
+      'numbering' in o && !('defaultCounterName' in o);
+  });
+  if (legacyNumbering) {
+    console.warn(
+      '[snlDoc] config.json has legacy entry_kinds[].numbering fields; ' +
+        'coercing defaultCounterName="" on read (legacy DSL ignored, ' +
+        'dropped on next write).'
+    );
+  }
   const rawActive = cfg.active_macro_packages;
   const activeMacroPackages =
     Array.isArray(rawActive) && rawActive.every((v) => typeof v === 'string')
@@ -316,9 +371,11 @@ function normalizeMacroKind(raw: unknown): MacroKind {
  *    defaults to the same value at 20% alpha via a light overlay heuristic;
  *    we intentionally reuse `stroke` for background too when we can't
  *    guess, keeping the migration lossless-ish and visible.
- *  - v0.0.2 `numbering: { pattern, start? }` → `numbering: pattern`
- *    (start is dropped; the Typst-DSL pattern already carries the initial
- *    counter value).
+ *  - 2026-07-16 rename: `numbering` (a DSL string) → `defaultCounterName`
+ *    (a counter NAME). These are semantically different, so a legacy
+ *    `numbering` value is NOT copied into `defaultCounterName` — the field
+ *    coerces to `''` (no default counter). A pre-existing string
+ *    `defaultCounterName` on disk is preferred and passed through verbatim.
  *  - Missing `style` → `""` (default box).
  */
 function normalizeEntryKind(raw: unknown): EntryKind {
@@ -342,16 +399,11 @@ function normalizeEntryKind(raw: unknown): EntryKind {
     background = obj.color;
   }
 
-  // numbering: prefer the new plain-string DSL, fall back to the v0.0.2
-  // `{ pattern, start? }` object (drop `start`, it's now encoded in the
-  // DSL itself).
-  let numbering = '';
-  if (typeof obj.numbering === 'string') {
-    numbering = obj.numbering;
-  } else if (obj.numbering && typeof obj.numbering === 'object') {
-    const n = obj.numbering as Record<string, unknown>;
-    if (typeof n.pattern === 'string') numbering = n.pattern;
-  }
+  // defaultCounterName: prefer the new plain-string name. A legacy
+  // `numbering` (string or v0.0.2 `{pattern}` object) is deliberately NOT
+  // reinterpreted as a name — it coerces to '' (see block comment above).
+  const defaultCounterName =
+    typeof obj.defaultCounterName === 'string' ? obj.defaultCounterName : '';
 
   const style = typeof obj.style === 'string' ? obj.style : '';
 
@@ -359,7 +411,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
     id,
     name,
     coloring: { stroke, background },
-    numbering,
+    defaultCounterName,
     style
   };
 }
@@ -467,6 +519,10 @@ export async function createLibrary(
   await fsApi.writeFile(
     libraryGraphUri(workspaceRoot, slug),
     jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile)
+  );
+  await fsApi.writeFile(
+    libraryCountersUri(workspaceRoot, slug),
+    jsonBytes({ counters: [] } satisfies LibraryCountersFile)
   );
 
   const gitkeep = ENCODER.encode('');
@@ -1761,7 +1817,7 @@ export async function applyEntryKindsPreset(
     id: k.id,
     name: k.name,
     coloring: { stroke: k.coloring.stroke, background: k.coloring.background },
-    numbering: k.numbering,
+    defaultCounterName: k.defaultCounterName,
     style: k.style
   }));
   await writeEntryKinds(workspaceRoot, kinds);
@@ -1776,8 +1832,8 @@ export type CreateEntryKindResult =
 
 /**
  * Append a single new entry kind. Rejects duplicates by id and empty ids.
- * All other fields (colours, numbering DSL, style) are stored verbatim —
- * validation of the numbering DSL will land with the Entry editor.
+ * All other fields (colours, default counter name, style) are stored
+ * verbatim.
  */
 export async function createEntryKind(
   workspaceRoot: vscode.Uri,
@@ -1786,7 +1842,7 @@ export async function createEntryKind(
     name: string;
     stroke: string;
     background: string;
-    numbering: string;
+    defaultCounterName: string;
     style: string;
   }
 ): Promise<CreateEntryKindResult> {
@@ -1812,7 +1868,7 @@ export async function createEntryKind(
       stroke: (input.stroke ?? '').trim() || '#888888',
       background: (input.background ?? '').trim() || '#eeeeee'
     },
-    numbering: (input.numbering ?? '').trim(),
+    defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
   await writeEntryKinds(workspaceRoot, [...existing, kind]);
@@ -2147,45 +2203,39 @@ export interface EntryKindPreset {
  * placeholders — their concrete kind lists will be filled in as each
  * ecosystem's writing conventions get formalized.
  *
- * Numbering DSL — Typst-inspired, dot-separated hierarchy:
- *  - `"1"`       → single flat counter starting at 1.
- *  - `"1.1"`     → two-level counter (parent.local), each part starts at 1.
- *  - `"1.1.1"`   → three-level counter.
- *  - `""` (empty)→ unnumbered entry.
- *
- * The FulcrumCN mapping used here:
- *  - `main` counter (定义/引理/定理/例/反例) → `"1.1.1"` (章.节.K)
- *  - `sub`  counter (推论/性质)             → `"1.1.1.1"` (章.节.K.j)
- *  - `single` counter (公理/题目)           → `"1"` (flat)
- *  - `none` (注/构造/证明)                  → `""`
+ * `defaultCounterName` — 2026-07-16: each kind seeds the NAME of a
+ * Library-scoped counter (a plain string matched by `counter.name`), not a
+ * DSL. The slug of the English kind name is used (`Definition` →
+ * `"definition"`). No counter is auto-created; if a library has no counter
+ * with that name, the kind simply contributes no numbering.
  */
 export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
   {
     id: 'fulcrum-math-notes',
     label: "Fulcrum's Math Notes",
     description:
-      'Chapter/Section/Subsection scaffolding + 12 Fulcrum-Notes-Typst content kinds (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem). Numbering values are per-level magic strings (see docs/library-graph-spec.md §5).',
+      'Chapter/Section/Subsection scaffolding + 12 Fulcrum-Notes-Typst content kinds (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem). Each kind seeds a defaultCounterName (slug of its English name).',
     kinds: [
       // Structural kinds — parents that decide the numbering of their level.
       {
         id: 'chapter',
         name: 'Chapter',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
-        numbering: '1',
+        defaultCounterName: 'chapter',
         style: 'section'
       },
       {
         id: 'section',
         name: 'Section',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
-        numbering: '.1',
+        defaultCounterName: 'section',
         style: 'section'
       },
       {
         id: 'subsection',
         name: 'Subsection',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
-        numbering: '.1',
+        defaultCounterName: 'subsection',
         style: 'section'
       },
       // Content kinds.
@@ -2193,84 +2243,84 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
         id: 'definition',
         name: 'Definition',
         coloring: { stroke: '#009C27', background: '#D6FEE0' },
-        numbering: '.1',
+        defaultCounterName: 'definition',
         style: ''
       },
       {
         id: 'axiom',
         name: 'Axiom',
         coloring: { stroke: '#C1C103', background: '#FFFFAC' },
-        numbering: '.1',
+        defaultCounterName: 'axiom',
         style: ''
       },
       {
         id: 'lemma',
         name: 'Lemma',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '.1',
+        defaultCounterName: 'lemma',
         style: ''
       },
       {
         id: 'theorem',
         name: 'Theorem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '.1',
+        defaultCounterName: 'theorem',
         style: ''
       },
       {
         id: 'corollary',
         name: 'Corollary',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '.1',
+        defaultCounterName: 'corollary',
         style: ''
       },
       {
         id: 'property',
         name: 'Property',
         coloring: { stroke: '#AC00AF', background: '#FFEDFF' },
-        numbering: '.1',
+        defaultCounterName: 'property',
         style: ''
       },
       {
         id: 'remark',
         name: 'Remark',
         coloring: { stroke: '#E07B00', background: '#FFEBD2' },
-        numbering: '',
+        defaultCounterName: 'remark',
         style: 'remark'
       },
       {
         id: 'example',
         name: 'Example',
         coloring: { stroke: '#7700E4', background: '#EFDFFF' },
-        numbering: '.1',
+        defaultCounterName: 'example',
         style: ''
       },
       {
         id: 'counterexample',
         name: 'Counterexample',
         coloring: { stroke: '#D20022', background: '#FFD6DC' },
-        numbering: '.1',
+        defaultCounterName: 'counterexample',
         style: ''
       },
       {
         id: 'construction',
         name: 'Construction',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
-        numbering: '',
+        defaultCounterName: 'construction',
         style: 'proof'
       },
       {
         id: 'proof',
         name: 'Proof',
         coloring: { stroke: '#787878', background: '#F0F0F0' },
-        numbering: '',
+        defaultCounterName: 'proof',
         style: 'proof'
       },
       {
         id: 'problem',
         name: 'Problem',
         coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        numbering: '.1',
+        defaultCounterName: 'problem',
         style: 'problem'
       },
       // Cat 2026-07-09: `context` = an entry whose top-level `@x` bvar
@@ -2284,7 +2334,7 @@ export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
         id: 'context',
         name: 'Context',
         coloring: { stroke: '#8B5CF6', background: '#EDE9FE' },
-        numbering: '',
+        defaultCounterName: 'context',
         style: ''
       }
     ]
@@ -2418,7 +2468,7 @@ export async function updateEntryKind(
     name: string;
     stroke: string;
     background: string;
-    numbering: string;
+    defaultCounterName: string;
     style: string;
   }
 ): Promise<UpdateEntryKindResult> {
@@ -2445,7 +2495,7 @@ export async function updateEntryKind(
       stroke: (input.stroke ?? '').trim() || '#888888',
       background: (input.background ?? '').trim() || '#eeeeee'
     },
-    numbering: (input.numbering ?? '').trim(),
+    defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
   const kinds = existing.slice();
@@ -3484,6 +3534,74 @@ export async function writeLibraryGraph(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Library counters: read / write (2026-07-16)
+// ---------------------------------------------------------------------------
+
+/**
+ * Coerce a persisted counter record into the current {@link CounterNode}
+ * shape. Never throws — bad fields fall back to safe defaults and malformed
+ * children are dropped, so a hand-mangled counters.json can't take the
+ * whole tree down.
+ */
+function normalizeCounterNode(raw: unknown): CounterNode | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const id = typeof obj.id === 'string' && obj.id ? obj.id : '';
+  if (!id) return null;
+  const name = typeof obj.name === 'string' ? obj.name : '';
+  const numbering = typeof obj.numbering === 'string' ? obj.numbering : '';
+  const children: CounterNode[] = [];
+  if (Array.isArray(obj.children)) {
+    for (const c of obj.children) {
+      const child = normalizeCounterNode(c);
+      if (child) children.push(child);
+    }
+  }
+  return { id, name, numbering, children };
+}
+
+/**
+ * Read `libraries/<slug>/counters.json` and return its counter roots.
+ * Missing file / malformed JSON / wrong shape all degrade to `[]` (never
+ * throws) — counters are an optional sidecar.
+ */
+export async function readLibraryCounters(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<CounterNode[]> {
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(libraryCountersUri(workspaceRoot, slug));
+  } catch {
+    return [];
+  }
+  if (!raw || typeof raw !== 'object') return [];
+  const rawCounters = (raw as Record<string, unknown>).counters;
+  if (!Array.isArray(rawCounters)) return [];
+  const out: CounterNode[] = [];
+  for (const c of rawCounters) {
+    const node = normalizeCounterNode(c);
+    if (node) out.push(node);
+  }
+  return out;
+}
+
+/**
+ * Persist a counter tree to `libraries/<slug>/counters.json`. The caller
+ * owns the tree shape; we serialize verbatim as `{ counters: roots }`.
+ */
+export async function writeLibraryCounters(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  roots: CounterNode[]
+): Promise<void> {
+  await vscode.workspace.fs.writeFile(
+    libraryCountersUri(workspaceRoot, slug),
+    jsonBytes({ counters: roots } satisfies LibraryCountersFile)
+  );
 }
 
 // ---------------------------------------------------------------------------

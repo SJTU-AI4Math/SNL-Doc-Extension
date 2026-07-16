@@ -13,8 +13,8 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
  *
  * Message protocol with the webview (`createEntryKind.js`):
  *  - in  : `{ type: 'ready' }` (asks for context)
- *        | `{ type: 'create', payload: { id, name, stroke, background, numbering, style } }`
- *        | `{ type: 'update', payload: { name, stroke, background, numbering, style } }`
+ *        | `{ type: 'create', payload: { id, name, stroke, background, defaultCounterName, style } }`
+ *        | `{ type: 'update', payload: { name, stroke, background, defaultCounterName, style } }`
  *  - out : `{ type: 'context', mode, existing? }`
  *        | `{ type: 'created' | 'updated' | 'duplicate' | 'notFound'
  *            | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error', ... }`
@@ -164,6 +164,11 @@ export class CreateEntryKindPanel {
             name?: string;
             stroke?: string;
             background?: string;
+            defaultCounterName?: string;
+            /** Back-compat: an in-flight old webview build may still send
+             *  `numbering`. It is a DSL, not a counter name, so it is NOT
+             *  reinterpreted — see the coercion in the create/update paths
+             *  below (2026-07-16). */
             numbering?: string;
             style?: string;
           };
@@ -198,7 +203,8 @@ export class CreateEntryKindPanel {
           name: p.name ?? '',
           stroke: p.stroke ?? '',
           background: p.background ?? '',
-          numbering: p.numbering ?? '',
+          defaultCounterName:
+            typeof p.defaultCounterName === 'string' ? p.defaultCounterName : '',
           style: p.style ?? ''
         });
                 switch (result.status) {
@@ -251,7 +257,8 @@ export class CreateEntryKindPanel {
         name: p.name ?? '',
         stroke: p.stroke ?? '',
         background: p.background ?? '',
-        numbering: p.numbering ?? '',
+        defaultCounterName:
+          typeof p.defaultCounterName === 'string' ? p.defaultCounterName : '',
         style: p.style ?? ''
       });
       switch (result.status) {

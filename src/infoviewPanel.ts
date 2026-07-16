@@ -555,8 +555,14 @@ export class InfoviewPanel {
         entryKindRefById.set(id, { kind: e.kind });
       }
       const kindNumberingById = new Map<string, { numbering: string }>();
-      for (const [id, k] of kindsById) {
-        kindNumberingById.set(id, { numbering: k.numbering });
+      for (const [id] of kindsById) {
+        // 2026-07-16: EntryKind.numbering was renamed to defaultCounterName
+        // (a counter NAME, not a DSL). The numbering engine still takes a
+        // per-kind DSL view here; it is rewired to consume the library's
+        // counter tree in a follow-up (Commit 3). Until then, no per-kind
+        // DSL source exists, so the template falls back to the engine
+        // default ('.1').
+        kindNumberingById.set(id, { numbering: '' });
       }
       const outline = buildOutline(
         graph,

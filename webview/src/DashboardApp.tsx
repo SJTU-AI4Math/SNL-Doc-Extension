@@ -62,7 +62,7 @@ interface EntryKind {
   id: string;
   name: string;
   coloring: { stroke: string; background: string };
-  numbering: string;
+  defaultCounterName: string;
   style: string;
 }
 
@@ -910,7 +910,7 @@ function EntryKindsTable({
           <th style={{ ...HEAD, width: '5.5rem' }}>Preview</th>
           <th style={HEAD}>Name</th>
           <th style={HEAD}>ID</th>
-          <th style={HEAD}>Numbering</th>
+          <th style={HEAD}>Default Counter</th>
           <th style={HEAD}>Style</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
@@ -931,7 +931,7 @@ function EntryKindsTable({
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
             <td style={{ ...CELL, ...MONO }}>
-              {kind.numbering ? kind.numbering : '—'}
+              {kind.defaultCounterName ? kind.defaultCounterName : '—'}
             </td>
             <td style={{ ...CELL, ...MONO }}>
               {kind.style ? kind.style : '—'}

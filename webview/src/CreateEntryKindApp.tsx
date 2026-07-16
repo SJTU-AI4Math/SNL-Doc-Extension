@@ -1,6 +1,6 @@
 // SNL Create/Edit Entry Kind webview: one-shot form. Fields are stored
-// verbatim; the numbering DSL isn't validated here — the Entry editor (not
-// built yet) owns that.
+// verbatim. `defaultCounterName` is a plain string naming a Library-scoped
+// counter (matched by counter.name); it is not validated here.
 //
 // In edit mode the id is readonly (it's a cross-reference key inside
 // entries.json). All other fields are freely editable.
@@ -25,7 +25,7 @@ interface ExistingEntryKind {
   id: string;
   name: string;
   coloring: { stroke: string; background: string };
-  numbering: string;
+  defaultCounterName: string;
   style: string;
 }
 
@@ -53,7 +53,7 @@ export function CreateEntryKindApp(): React.ReactElement {
   const [name, setName] = useState('');
   const [stroke, setStroke] = useState(DEFAULT_STROKE);
   const [background, setBackground] = useState(DEFAULT_BACKGROUND);
-  const [numbering, setNumbering] = useState('');
+  const [defaultCounterName, setDefaultCounterName] = useState('');
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
@@ -92,7 +92,7 @@ export function CreateEntryKindApp(): React.ReactElement {
               setBackground(
                 msg.existing.coloring?.background || DEFAULT_BACKGROUND
               );
-              setNumbering(msg.existing.numbering || '');
+              setDefaultCounterName(msg.existing.defaultCounterName || '');
               setStyle(msg.existing.style || '');
             }
           }
@@ -105,7 +105,7 @@ export function CreateEntryKindApp(): React.ReactElement {
           });
           setId('');
           setName('');
-          setNumbering('');
+          setDefaultCounterName('');
           return;
         case 'updated':
           setStatus({
@@ -157,7 +157,7 @@ export function CreateEntryKindApp(): React.ReactElement {
         name: trimmedName,
         stroke: stroke.trim() || DEFAULT_STROKE,
         background: background.trim() || DEFAULT_BACKGROUND,
-        numbering: numbering.trim(),
+        defaultCounterName: defaultCounterName.trim(),
         style: style.trim()
       }
     });
@@ -234,12 +234,16 @@ export function CreateEntryKindApp(): React.ReactElement {
       />
 
       <TextField
-        label="Numbering DSL"
-        value={numbering}
-        placeholder='e.g. "1.1.1" (three-level), "1" (flat), "" (unnumbered)'
-        onChange={setNumbering}
+        label="Default counter name"
+        value={defaultCounterName}
+        placeholder='e.g. "definition"'
+        onChange={setDefaultCounterName}
         mono
       />
+      <p style={{ margin: '0.1rem 0 0.6rem', opacity: 0.7, fontSize: '0.8rem' }}>
+        Library counters with this name will be used to number entries of this
+        kind. Empty = no default.
+      </p>
       <TextField
         label="Style tag"
         value={style}

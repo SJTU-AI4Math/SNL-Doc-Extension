@@ -285,15 +285,21 @@ function kindForNode(
  * consulted). `kindsById` maps kind.id -> EntryKind (only `.defaultCounterName`
  * is consulted). `counters` is the library's counter tree.
  *
- * Numbering rules (2026-07-16):
+ * Numbering rules (2026-07-16, updated 2026-07-16 for per-counter isolation):
  *   - Each node's "active counter" is resolved via {@link resolveActiveCounter}.
  *     If the TARGET node resolves to no counter, this returns `null` (the entry
  *     contributes no numbering).
- *   - The template for a level is `counter.numbering` of the FIRST resolved
- *     counter among the siblings at that level. If no sibling resolves, the
- *     level yields no fragment (it is skipped).
- *   - Sibling position (1-indexed) is by outline order, counting ALL siblings
- *     regardless of whether they individually resolve to a counter.
+ *   - For each level in the branch chain, we identify the ACTIVE counter for
+ *     the chain-node at that level (target node → its own counter; ancestors →
+ *     their own counter). The template for that level is that counter's
+ *     `numbering` DSL.
+ *   - Sibling position (1-indexed) counts ONLY same-level siblings that share
+ *     the SAME active counter as the chain-node, in outline order, up to and
+ *     including the chain-node itself. Siblings with a different counter (or
+ *     none) are skipped — a/b/a/b under one parent thus yields 1/1/2/2 within
+ *     each counter's own sequence.
+ *   - If a chain-node ancestor resolves to no counter, its level yields no
+ *     fragment (skipped).
  *
  * TODO(counter-tree reset semantics): the counter tree's parent/child
  * relationship is stored + shown in the UI but the numbering engine uses ONLY
@@ -335,41 +341,39 @@ export function numberFor(
   const segments: string[] = [];
   for (let i = 0; i < chain.length; i++) {
     const curId = chain[i];
+    const curNode = idx.nodesById.get(curId);
+    if (!curNode) return null;
     const parent = i === 0 ? null : chain[i - 1];
     const siblings = parent === null ? idx.roots : idx.childrenOf.get(parent) ?? [];
-    const position = siblings.indexOf(curId);
-    if (position < 0) return null;
 
-    const template = levelTemplate(siblings, idx, entriesById, kindsById, counters);
-    if (template === null) {
-      // No sibling at this level resolves to any counter → skip the level.
-      continue;
+    // Per-counter isolation: use the chain-node's OWN active counter for both
+    // template and position. Position counts only siblings that resolve to the
+    // same counter (by id), up to and including this node itself. If the
+    // chain-node has no counter, the level is skipped entirely.
+    const curKind = kindForNode(curNode, entriesById, kindsById);
+    const curCounter = resolveActiveCounter(curNode, curKind, counters);
+    if (!curCounter) continue;
+
+    let position = 0;
+    let found = false;
+    for (const sibId of siblings) {
+      const sibNode = idx.nodesById.get(sibId);
+      if (!sibNode) continue;
+      const sibKind = kindForNode(sibNode, entriesById, kindsById);
+      const sibCounter = resolveActiveCounter(sibNode, sibKind, counters);
+      if (sibCounter && sibCounter.id === curCounter.id) {
+        position += 1;
+        if (sibId === curId) {
+          found = true;
+          break;
+        }
+      }
     }
-    segments.push(formatNumbering(template, position + 1));
+    if (!found) return null;
+
+    segments.push(formatNumbering(curCounter.numbering, position));
   }
   return segments.join('');
-}
-
-/**
- * Resolve the numbering template for a level: `counter.numbering` of the FIRST
- * sibling at that level that resolves to a counter. Returns `null` when no
- * sibling resolves (the caller skips the level).
- */
-function levelTemplate(
-  siblings: string[],
-  idx: GraphIndex,
-  entriesById: Map<string, EntryKindRef>,
-  kindsById: Map<string, KindCounterRef>,
-  counters: CounterNode[]
-): string | null {
-  for (const sibId of siblings) {
-    const node = idx.nodesById.get(sibId);
-    if (!node) continue;
-    const kind = kindForNode(node, entriesById, kindsById);
-    const counter = resolveActiveCounter(node, kind, counters);
-    if (counter) return counter.numbering;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------

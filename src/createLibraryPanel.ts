@@ -4,10 +4,13 @@ import {
   createLibrary,
   readEntries,
   readEntryKinds,
+  readLibraryCounters,
   readLibraryGraph,
   readLibraryMeta,
   updateLibrary,
+  writeLibraryCounters,
   writeLibraryGraph,
+  type CounterNode,
   type EntryData,
   type EntryKind,
   type GraphNodeDto,
@@ -176,6 +179,11 @@ export class CreateLibraryPanel {
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
       await this.pushGraph();
+      // Counters live in a separate file (libraries/<slug>/counters.json);
+      // push them alongside the graph so the Counters section renders in the
+      // same paint. The .SNL_Doc/** watcher re-invokes pushContext on any
+      // external counters.json edit, keeping the tree fresh.
+      await this.pushCounters('countersLoaded');
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
@@ -257,6 +265,10 @@ export class CreateLibraryPanel {
     }
     if (msg.type === 'graphOp') {
       await this.handleGraphOp(msg.op);
+      return;
+    }
+    if (msg.type === 'counterOp') {
+      await this.handleCounterOp(msg.op);
       return;
     }
     if (msg.type === 'openCreateEntry') {
@@ -833,6 +845,147 @@ export class CreateLibraryPanel {
     }
   }
 
+  /**
+   * Read the library's counter tree and push it to the webview. `type`
+   * distinguishes the initial load (`countersLoaded`) from a post-mutation
+   * refresh (`countersPushed`); the webview treats both the same (replace its
+   * local tree), but the split keeps the protocol self-documenting.
+   */
+  private async pushCounters(
+    type: 'countersLoaded' | 'countersPushed'
+  ): Promise<void> {
+    if (this.mode !== 'edit') return;
+    const root = firstWorkspaceFolder();
+    if (!root) return;
+    try {
+      const counters = await readLibraryCounters(root, this.slug);
+      void this.panel.webview.postMessage({ type, counters });
+    } catch {
+      // readLibraryCounters already tolerates missing/malformed files by
+      // returning []; a throw here would be an unexpected fs error — swallow
+      // so a transient read failure doesn't wedge the panel.
+    }
+  }
+
+  /**
+   * Apply a counter-tree operation, then push the fresh tree back. Mirrors
+   * {@link handleGraphOp}'s read → mutate → write → push flow but over the
+   * nested `CounterNode[]` in libraries/<slug>/counters.json.
+   *
+   * Ops mirror the entry outline's op vocabulary:
+   *   - addRoot     { insertAfter: string | null, seed: { name, numbering } }
+   *   - addChild    { parentId, insertAfter: string | null, seed }
+   *   - updateFields{ id, patch: Partial<{ name, numbering }> }
+   *   - move        { id, direction: 'up' | 'down' }
+   *   - indent      { id }   become last child of previous sibling
+   *   - outdent     { id }   promote to sibling-of-parent (root when the
+   *                          parent is a root); no-op on a root node
+   *   - delete      { id }   removes the subtree
+   */
+  private async handleCounterOp(rawOp: unknown): Promise<void> {
+    if (this.mode !== 'edit') return;
+    const root = firstWorkspaceFolder();
+    if (!root) return;
+    const op = rawOp as { op?: string; [k: string]: unknown } | undefined;
+    if (!op || typeof op.op !== 'string') return;
+
+    try {
+      const roots = await readLibraryCounters(root, this.slug);
+      switch (op.op) {
+        case 'addRoot': {
+          const node = makeCounterNode(readCounterSeed(op.seed));
+          insertIntoList(
+            roots,
+            node,
+            typeof op.insertAfter === 'string' ? op.insertAfter : null
+          );
+          break;
+        }
+        case 'addChild': {
+          const parentId = typeof op.parentId === 'string' ? op.parentId : '';
+          const loc = locateCounter(roots, parentId);
+          if (!loc) return;
+          const parentNode = loc.list[loc.index];
+          const node = makeCounterNode(readCounterSeed(op.seed));
+          insertIntoList(
+            parentNode.children,
+            node,
+            typeof op.insertAfter === 'string' ? op.insertAfter : null
+          );
+          break;
+        }
+        case 'updateFields': {
+          const id = typeof op.id === 'string' ? op.id : '';
+          const loc = locateCounter(roots, id);
+          if (!loc) return;
+          const node = loc.list[loc.index];
+          const patch = op.patch as
+            | { name?: unknown; numbering?: unknown }
+            | undefined;
+          if (patch && typeof patch.name === 'string') node.name = patch.name;
+          if (patch && typeof patch.numbering === 'string') {
+            node.numbering = patch.numbering;
+          }
+          break;
+        }
+        case 'move': {
+          const id = typeof op.id === 'string' ? op.id : '';
+          const direction =
+            op.direction === 'up' ? 'up' : op.direction === 'down' ? 'down' : null;
+          if (!direction) return;
+          const loc = locateCounter(roots, id);
+          if (!loc) return;
+          const j = direction === 'up' ? loc.index - 1 : loc.index + 1;
+          if (j < 0 || j >= loc.list.length) return;
+          const tmp = loc.list[loc.index];
+          loc.list[loc.index] = loc.list[j];
+          loc.list[j] = tmp;
+          break;
+        }
+        case 'indent': {
+          const id = typeof op.id === 'string' ? op.id : '';
+          const loc = locateCounter(roots, id);
+          if (!loc || loc.index <= 0) return; // no previous sibling → no-op
+          const prev = loc.list[loc.index - 1];
+          const [node] = loc.list.splice(loc.index, 1);
+          prev.children.push(node);
+          break;
+        }
+        case 'outdent': {
+          const id = typeof op.id === 'string' ? op.id : '';
+          const loc = locateCounter(roots, id);
+          if (!loc || !loc.parent) return; // root node → no parent to escape
+          const parentLoc = locateCounter(roots, loc.parent.id);
+          const [node] = loc.list.splice(loc.index, 1);
+          if (!parentLoc) {
+            roots.push(node);
+          } else {
+            parentLoc.list.splice(parentLoc.index + 1, 0, node);
+          }
+          break;
+        }
+        case 'delete': {
+          const id = typeof op.id === 'string' ? op.id : '';
+          const loc = locateCounter(roots, id);
+          if (!loc) return;
+          loc.list.splice(loc.index, 1);
+          break;
+        }
+        default:
+          return;
+      }
+
+      await writeLibraryCounters(root, this.slug, roots);
+      await this.pushCounters('countersPushed');
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      void this.panel.webview.postMessage({
+        type: 'countersError',
+        message: text
+      });
+    }
+  }
+
   public dispose(): void {
     const key = `${this.mode}:${this.slug}`;
     CreateLibraryPanel.instances.delete(key);
@@ -874,4 +1027,69 @@ function generateLocalId(nodes: GraphNodeDto[]): string {
   let i = 1;
   while (taken.has(`n_${i}`)) i += 1;
   return `n_${i}`;
+}
+
+// ---------------------------------------------------------------------------
+// Counter-tree helpers (libraries/<slug>/counters.json)
+// ---------------------------------------------------------------------------
+
+interface CounterLoc {
+  /** The array that directly contains the located node. */
+  list: CounterNode[];
+  /** Index of the node within `list`. */
+  index: number;
+  /** The node's parent, or null when the node is at the root level. */
+  parent: CounterNode | null;
+}
+
+/** Depth-first locate a counter node by id, returning its containing array +
+ *  index + parent so callers can splice/swap in place. */
+function locateCounter(
+  roots: CounterNode[],
+  id: string,
+  parent: CounterNode | null = null
+): CounterLoc | null {
+  for (let i = 0; i < roots.length; i++) {
+    if (roots[i].id === id) return { list: roots, index: i, parent };
+    const found = locateCounter(roots[i].children, id, roots[i]);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Insert `node` into `list` right after the node with id `insertAfter`; when
+ *  `insertAfter` is null or not found, append to the end. */
+function insertIntoList(
+  list: CounterNode[],
+  node: CounterNode,
+  insertAfter: string | null
+): void {
+  if (insertAfter) {
+    const idx = list.findIndex((n) => n.id === insertAfter);
+    if (idx >= 0) {
+      list.splice(idx + 1, 0, node);
+      return;
+    }
+  }
+  list.push(node);
+}
+
+/** Coerce an untrusted seed payload into a `{ name, numbering }` pair with
+ *  sensible defaults (matches the empty-state "+ Add first counter" seed). */
+function readCounterSeed(raw: unknown): { name: string; numbering: string } {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    name: typeof o.name === 'string' ? o.name : 'counter',
+    numbering: typeof o.numbering === 'string' ? o.numbering : '1'
+  };
+}
+
+/** Mint a fresh counter node with a stable uuid and no children. */
+function makeCounterNode(seed: { name: string; numbering: string }): CounterNode {
+  return {
+    id: generateUuid(),
+    name: seed.name,
+    numbering: seed.numbering,
+    children: []
+  };
 }

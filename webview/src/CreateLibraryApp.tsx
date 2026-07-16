@@ -21,6 +21,7 @@ import {
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
+import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
 import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
@@ -80,6 +81,19 @@ interface GraphState {
   warnings: string[];
 }
 
+/**
+ * A library-scoped counter tree node (mirrors `CounterNode` in src/snlDoc.ts).
+ * `name` is what `EntryKind.defaultCounterName` matches on; name-lookup picks
+ * the first depth-first match, so duplicate names are ambiguous — the UI warns
+ * on collisions (case-insensitive).
+ */
+interface CounterNode {
+  id: string;
+  name: string;
+  numbering: string;
+  children: CounterNode[];
+}
+
 export function CreateLibraryApp(): React.ReactElement {
   const [mode, setMode] = useState<Mode>('create');
   const [slug, setSlug] = useState('');
@@ -87,6 +101,7 @@ export function CreateLibraryApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [graph, setGraph] = useState<GraphState | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
+  const [counters, setCounters] = useState<CounterNode[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -117,6 +132,9 @@ export function CreateLibraryApp(): React.ReactElement {
             warnings: string[];
           }
         | { type: 'graphError'; message: string }
+        | { type: 'countersLoaded'; counters: CounterNode[] }
+        | { type: 'countersPushed'; counters: CounterNode[] }
+        | { type: 'countersError'; message: string }
         | undefined;
       if (!msg || typeof msg.type !== 'string') {
         return;
@@ -177,6 +195,14 @@ export function CreateLibraryApp(): React.ReactElement {
         case 'graphError':
           setGraphError(msg.message);
           break;
+        case 'countersLoaded':
+        case 'countersPushed':
+          setCounters(Array.isArray(msg.counters) ? msg.counters : []);
+          break;
+        case 'countersError':
+          // Non-fatal: keep the last-known tree on screen. Log for triage.
+          console.warn('[snl] counter op failed:', msg.message);
+          break;
         default:
           break;
       }
@@ -205,6 +231,10 @@ export function CreateLibraryApp(): React.ReactElement {
 
   const postGraphOp = (op: Record<string, unknown>): void => {
     apiRef.current?.postMessage({ type: 'graphOp', op });
+  };
+
+  const postCounterOp = (op: Record<string, unknown>): void => {
+    apiRef.current?.postMessage({ type: 'counterOp', op });
   };
 
   return (
@@ -375,6 +405,10 @@ export function CreateLibraryApp(): React.ReactElement {
       <StatusLine status={status} />
 
       {mode === 'edit' ? (
+        <CountersSection counters={counters} onCounterOp={postCounterOp} />
+      ) : null}
+
+      {mode === 'edit' ? (
         <OutlineEditor
           graph={graph}
           error={graphError}
@@ -388,6 +422,340 @@ export function CreateLibraryApp(): React.ReactElement {
         />
       ) : null}
     </main>
+  );
+}
+
+// ===========================================================================
+// Counters section (edit mode only) — library-scoped counter tree
+// ===========================================================================
+
+/** Total node count across the whole counter tree. */
+function countCounterTree(nodes: CounterNode[]): number {
+  let n = 0;
+  for (const node of nodes) n += 1 + countCounterTree(node.children);
+  return n;
+}
+
+/**
+ * Collapsible "Counters (N)" section rendered between the meta header and the
+ * Outline section. Uses the shared {@link TreeOutlineEditor} — the SAME tree
+ * toolbar the entry outline uses — so counters get add-child / add-sibling /
+ * indent / outdent / move / delete for free. Row content is two inline inputs
+ * (name + numbering) with a duplicate-name warning tag.
+ */
+function CountersSection({
+  counters,
+  onCounterOp
+}: {
+  counters: CounterNode[];
+  onCounterOp: (op: Record<string, unknown>) => void;
+}): React.ReactElement {
+  const [collapsed, setCollapsed] = useState(false);
+  const total = useMemo(() => countCounterTree(counters), [counters]);
+
+  // Parent lookup so "add sibling" can resolve the containing list, and the
+  // case-insensitive duplicate-name set for the warning tag.
+  const { parentOf, duplicateNames } = useMemo(() => {
+    const parentOf = new Map<string, string | null>();
+    const nameCounts = new Map<string, number>();
+    const walk = (nodes: CounterNode[], parent: string | null): void => {
+      for (const n of nodes) {
+        parentOf.set(n.id, parent);
+        const key = n.name.trim().toLowerCase();
+        if (key) nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+        walk(n.children, n.id);
+      }
+    };
+    walk(counters, null);
+    const duplicateNames = new Set<string>();
+    for (const [key, count] of nameCounts) {
+      if (count > 1) duplicateNames.add(key);
+    }
+    return { parentOf, duplicateNames };
+  }, [counters]);
+
+  const DEFAULT_SEED = { name: 'counter', numbering: '1' };
+
+  const handleTreeOp = (op: TreeOp): void => {
+    switch (op.kind) {
+      case 'addChild':
+        onCounterOp({
+          op: 'addChild',
+          parentId: op.id,
+          insertAfter: null,
+          seed: DEFAULT_SEED
+        });
+        break;
+      case 'addSibling': {
+        const parent = parentOf.get(op.id) ?? null;
+        if (parent) {
+          onCounterOp({
+            op: 'addChild',
+            parentId: parent,
+            insertAfter: op.id,
+            seed: DEFAULT_SEED
+          });
+        } else {
+          onCounterOp({ op: 'addRoot', insertAfter: op.id, seed: DEFAULT_SEED });
+        }
+        break;
+      }
+      case 'move':
+        onCounterOp({ op: 'move', id: op.id, direction: op.direction });
+        break;
+      case 'indent':
+        onCounterOp({ op: 'indent', id: op.id });
+        break;
+      case 'outdent':
+        onCounterOp({ op: 'outdent', id: op.id });
+        break;
+      case 'delete':
+        onCounterOp({ op: 'delete', id: op.id });
+        break;
+      default:
+        break;
+    }
+  };
+
+  const renderRow = (node: CounterNode): React.ReactNode => (
+    <CounterRowContent
+      node={node}
+      isDuplicate={duplicateNames.has(node.name.trim().toLowerCase())}
+      onUpdateFields={(patch) =>
+        onCounterOp({ op: 'updateFields', id: node.id, patch })
+      }
+    />
+  );
+
+  return (
+    <section style={{ marginTop: '2rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginBottom: '0.5rem'
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? 'Expand counters' : 'Collapse counters'}
+          title={collapsed ? 'Expand' : 'Collapse'}
+          style={{
+            width: '1.2rem',
+            height: '1.2rem',
+            padding: 0,
+            fontSize: '0.7rem',
+            lineHeight: 1,
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            flexShrink: 0
+          }}
+        >
+          {collapsed ? '▶' : '▼'}
+        </button>
+        <h2 style={{ ...SECTION_HEADING_STYLE, margin: 0 }}>
+          Counters ({total})
+        </h2>
+      </div>
+
+      {collapsed ? null : (
+        <>
+          <TreeOutlineEditor<CounterNode>
+            roots={counters}
+            getId={(n) => n.id}
+            getChildren={(n) => n.children}
+            renderRow={renderRow}
+            onOp={handleTreeOp}
+            emptyState={
+              <AddBar
+                label="+ Add first counter"
+                onActivate={() =>
+                  onCounterOp({
+                    op: 'addRoot',
+                    insertAfter: null,
+                    seed: DEFAULT_SEED
+                  })
+                }
+              />
+            }
+          />
+          {counters.length > 0 ? (
+            <button
+              type="button"
+              onClick={() =>
+                onCounterOp({
+                  op: 'addRoot',
+                  insertAfter: null,
+                  seed: DEFAULT_SEED
+                })
+              }
+              style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
+            >
+              + Add root counter
+            </button>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Non-toolbar row content for a counter: inline `name` + `numbering` inputs
+ * (committed on blur / Enter) plus a duplicate-name warning tag. Rendered
+ * between the disclosure toggle and the shared toolbar owned by
+ * {@link TreeOutlineEditor}.
+ */
+function CounterRowContent({
+  node,
+  isDuplicate,
+  onUpdateFields
+}: {
+  node: CounterNode;
+  isDuplicate: boolean;
+  onUpdateFields: (patch: { name?: string; numbering?: string }) => void;
+}): React.ReactElement {
+  const [name, setName] = useState(node.name);
+  const [numbering, setNumbering] = useState(node.numbering);
+
+  // Re-sync local input state when the host pushes a fresh tree (e.g. after a
+  // move/indent) so we don't show stale edits.
+  useEffect(() => setName(node.name), [node.name]);
+  useEffect(() => setNumbering(node.numbering), [node.numbering]);
+
+  const commitName = (): void => {
+    if (name !== node.name) onUpdateFields({ name });
+  };
+  const commitNumbering = (): void => {
+    if (numbering !== node.numbering) onUpdateFields({ numbering });
+  };
+
+  const fieldStyle: React.CSSProperties = {
+    boxSizing: 'border-box',
+    padding: '0.2rem 0.4rem',
+    color: 'var(--vscode-input-foreground, #ddd)',
+    background: 'var(--vscode-input-background, #2a2a2a)',
+    border:
+      '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+    borderRadius: '2px',
+    fontSize: '0.85rem'
+  };
+
+  return (
+    <span
+      style={{
+        flex: '1 1 auto',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+        minWidth: 0
+      }}
+    >
+      <input
+        type="text"
+        value={name}
+        aria-label="Counter name"
+        placeholder="name"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        style={{ ...fieldStyle, flex: '1 1 10rem', minWidth: '5rem' }}
+      />
+      <span style={{ opacity: 0.5 }}>—</span>
+      <input
+        type="text"
+        value={numbering}
+        aria-label="Counter numbering DSL"
+        placeholder="numbering"
+        onChange={(e) => setNumbering(e.target.value)}
+        onBlur={commitNumbering}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        style={{
+          ...fieldStyle,
+          flex: '0 1 8rem',
+          minWidth: '4rem',
+          fontFamily: 'var(--vscode-editor-font-family, monospace)'
+        }}
+      />
+      {isDuplicate ? (
+        <span
+          title="Another counter in this library shares this name; name-lookup picks the first depth-first match."
+          style={{
+            flexShrink: 0,
+            fontSize: '0.72rem',
+            padding: '0.1rem 0.4rem',
+            borderRadius: '3px',
+            border:
+              '1px solid var(--vscode-inputValidation-warningBorder, #b89500)',
+            color: 'var(--vscode-editorWarning-foreground, #cca700)',
+            fontWeight: 600
+          }}
+        >
+          (duplicate name)
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Dashed "+" bar used as the counters empty state (mirrors DashboardApp). */
+function AddBar({
+  label,
+  onActivate
+}: {
+  label: string;
+  onActivate: () => void;
+}): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.4rem',
+        width: '100%',
+        boxSizing: 'border-box',
+        height: '3rem',
+        marginTop: '0.5rem',
+        borderRadius: '6px',
+        border: hover
+          ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
+          : '2px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+        background: hover
+          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
+          : 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        fontWeight: 600,
+        userSelect: 'none'
+      }}
+    >
+      <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -473,9 +841,6 @@ function OutlineEditor({
   onOpenEntry,
   onOpenCreateEntry
 }: OutlineEditorProps): React.ReactElement {
-  // Local UI state: which node is expanded (default: all root children
-  // expanded; drill deeper on click). Persists across host pushes.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Optional "adding" mode: which parent is currently being extended, and
   // just the entryId the user is typing (cat 2026-07-06: reference-only,
   // create-mode is routed to the CreateEntry panel instead).
@@ -486,11 +851,12 @@ function OutlineEditor({
   } | null>(null);
 
   // Precompute indices for the current graph.
-  const { childrenOf, roots, entriesById, kindsById } = useMemo(() => {
+  const { childrenOf, roots, nodeById, entriesById, kindsById } = useMemo(() => {
     if (!graph) {
       return {
         childrenOf: new Map<string, string[]>(),
         roots: [] as string[],
+        nodeById: new Map<string, GraphNode>(),
         entriesById: new Map<string, EntryPoolItem>(),
         kindsById: new Map<string, KindItem>()
       };
@@ -505,14 +871,16 @@ function OutlineEditor({
       hasParent.add(r.to);
     }
     const roots: string[] = [];
+    const nodeById = new Map<string, GraphNode>();
     for (const n of graph.nodes) {
+      nodeById.set(n.id, n);
       if (!hasParent.has(n.id)) roots.push(n.id);
     }
     const entriesById = new Map<string, EntryPoolItem>();
     for (const e of graph.entries) entriesById.set(e.id, e);
     const kindsById = new Map<string, KindItem>();
     for (const k of graph.kinds) kindsById.set(k.id, k);
-    return { childrenOf, roots, entriesById, kindsById };
+    return { childrenOf, roots, nodeById, entriesById, kindsById };
   }, [graph]);
 
   // Projection for the EntityIdSearchBox in AddNodeForm. Kept separate from
@@ -550,15 +918,6 @@ function OutlineEditor({
     }
     return out;
   }, [graph, entriesById, kindsById]);
-
-  const toggleCollapsed = (nodeId: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) next.delete(nodeId);
-      else next.add(nodeId);
-      return next;
-    });
-  };
 
   const startAdd = (
     parentId: string | null,
@@ -606,23 +965,93 @@ function OutlineEditor({
     );
   }
 
+  const rootNodes = roots
+    .map((id) => nodeById.get(id))
+    .filter((n): n is GraphNode => !!n);
+
+  const getChildren = (n: GraphNode): GraphNode[] =>
+    (childrenOf.get(n.id) ?? [])
+      .map((id) => nodeById.get(id))
+      .filter((c): c is GraphNode => !!c);
+
+  // Map the generic TreeOutlineEditor toolbar ops onto the entry outline's
+  // existing graphOp / add-form behavior. This is a strict move of the old
+  // per-row toolbar handlers — no behavior change.
+  const handleTreeOp = (op: TreeOp): void => {
+    switch (op.kind) {
+      case 'addChild':
+        startAdd(op.id, null);
+        break;
+      case 'addSibling': {
+        // Add a sibling after this node. If it has a parent, insert under the
+        // parent right after this node; otherwise it's a root — add another
+        // root at the tail (insertAfter isn't meaningful for roots yet).
+        const parentRel = graph.relationships.find(
+          (r) => r.label === 'branch' && r.to === op.id
+        );
+        if (parentRel) startAdd(parentRel.from, op.id);
+        else startAdd(null, null);
+        break;
+      }
+      case 'move':
+        onGraphOp({ op: 'moveSibling', nodeId: op.id, direction: op.direction });
+        break;
+      case 'indent':
+        onGraphOp({ op: 'indent', nodeId: op.id });
+        break;
+      case 'outdent':
+        onGraphOp({ op: 'outdent', nodeId: op.id });
+        break;
+      case 'delete':
+        // Cat 2026-07-09: window.confirm() is blocked in VS Code webviews, so
+        // we cannot gate here. The host-side deleteNode handler owns the modal
+        // confirmation + the child-count guard; we just post the op.
+        onGraphOp({ op: 'deleteNode', nodeId: op.id });
+        break;
+      default:
+        break;
+    }
+  };
+
+  const renderRow = (node: GraphNode): React.ReactNode => (
+    <OutlineRowContent
+      node={node}
+      entriesById={entriesById}
+      kindsById={kindsById}
+      numbersById={numbersById}
+      onOpenEntry={onOpenEntry}
+    />
+  );
+
+  const renderAfterRow = (node: GraphNode, depth: number): React.ReactNode => {
+    // "add child" or "add sibling" popover attached below this row.
+    //   + child   : parentId=here,  insertAfter=null   → attach under HERE
+    //   + sibling : parentId=parent, insertAfter=here  → attach under HERE
+    // so a child popover MUST also require insertAfter===null to avoid
+    // poaching the parent row on a sibling insert (cat 2026-07-08 bug).
+    // Root-sibling (both null) is handled by the top-level <AddNodeForm/>.
+    const show =
+      !!addingUnder &&
+      ((addingUnder.parentId === node.id && addingUnder.insertAfter === null) ||
+        addingUnder.insertAfter === node.id);
+    if (!show || !addingUnder) return null;
+    return (
+      <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}>
+        <AddNodeForm
+          kinds={graph.kinds}
+          entriesById={entriesById}
+          entryOptions={entryOptions}
+          state={addingUnder}
+          onCancel={cancelAdd}
+          onCommit={commitAdd}
+          onUpdate={setAddingUnder}
+        />
+      </div>
+    );
+  };
+
   return (
     <section style={{ marginTop: '2rem' }}>
-      {/* Cat 2026-07-09: pure-CSS hover reveal for the per-row toolbar.
-          See OutlineRow's block comment for why this replaced the earlier
-          useState + pointerEvents approach. `opacity` (not visibility) lets
-          the button remain tab-focusable and hit-testable — the surrounding
-          row can still be hovered while a button is under the cursor. */}
-      <style>{`
-        .snl-outline-row-toolbar {
-          opacity: 0;
-          transition: opacity 90ms ease-in;
-        }
-        .snl-outline-row:hover .snl-outline-row-toolbar,
-        .snl-outline-row:focus-within .snl-outline-row-toolbar {
-          opacity: 1;
-        }
-      `}</style>
       <div
         style={{
           display: 'flex',
@@ -642,36 +1071,19 @@ function OutlineEditor({
       {error ? <ErrorBanner message={error} /> : null}
       {graph.warnings.length > 0 ? <WarningBanner warnings={graph.warnings} /> : null}
 
-      {roots.length === 0 ? (
-        <div style={{ opacity: 0.75, fontStyle: 'italic', marginBottom: '0.75rem' }}>
-          No entries yet — click "Add root entry" below.
-        </div>
-      ) : (
-        <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {roots.map((rootId) => (
-            <OutlineRow
-              key={rootId}
-              nodeId={rootId}
-              depth={0}
-              graph={graph}
-              childrenOf={childrenOf}
-              entriesById={entriesById}
-              entryOptions={entryOptions}
-              kindsById={kindsById}
-              numbersById={numbersById}
-              collapsed={collapsed}
-              onToggleCollapsed={toggleCollapsed}
-              addingUnder={addingUnder}
-              onStartAdd={startAdd}
-              onCancelAdd={cancelAdd}
-              onCommitAdd={commitAdd}
-              onUpdateAdd={setAddingUnder}
-              onGraphOp={onGraphOp}
-              onOpenEntry={onOpenEntry}
-            />
-          ))}
-        </ol>
-      )}
+      <TreeOutlineEditor<GraphNode>
+        roots={rootNodes}
+        getId={(n) => n.id}
+        getChildren={getChildren}
+        renderRow={renderRow}
+        renderAfterRow={renderAfterRow}
+        onOp={handleTreeOp}
+        emptyState={
+          <div style={{ opacity: 0.75, fontStyle: 'italic', marginBottom: '0.75rem' }}>
+            No entries yet — click "Add root entry" below.
+          </div>
+        }
+      />
 
       {/* Root-level add: no parent. */}
       {addingUnder && addingUnder.parentId === null && addingUnder.insertAfter === null ? (
@@ -697,409 +1109,143 @@ function OutlineEditor({
   );
 }
 
-interface OutlineRowProps {
-  nodeId: string;
-  depth: number;
-  graph: GraphState;
-  childrenOf: Map<string, string[]>;
+interface OutlineRowContentProps {
+  node: GraphNode;
   entriesById: Map<string, EntryPoolItem>;
-  entryOptions: EntryOption[];
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
-  collapsed: Set<string>;
-  onToggleCollapsed: (id: string) => void;
-  addingUnder: {
-    parentId: string | null;
-    insertAfter: string | null;
-    entryId: string;
-  } | null;
-  onStartAdd: (parentId: string | null, insertAfter: string | null) => void;
-  onCancelAdd: () => void;
-  onCommitAdd: () => void;
-  onUpdateAdd: (
-    s: {
-      parentId: string | null;
-      insertAfter: string | null;
-      entryId: string;
-    } | null
-  ) => void;
-  onGraphOp: (op: Record<string, unknown>) => void;
   onOpenEntry: (entryId: string) => void;
 }
 
-function OutlineRow(props: OutlineRowProps): React.ReactElement {
-  const {
-    nodeId,
-    depth,
-    graph,
-    childrenOf,
-    entriesById,
-    entryOptions,
-    kindsById,
-    numbersById,
-    collapsed,
-    onToggleCollapsed,
-    addingUnder,
-    onStartAdd,
-    onCancelAdd,
-    onCommitAdd,
-    onUpdateAdd,
-    onGraphOp,
-    onOpenEntry
-  } = props;
-
-  const node = graph.nodes.find((n) => n.id === nodeId);
-  if (!node) return <li>{null}</li>;
-
+/**
+ * Non-toolbar row content for a library entry outline row: computed number,
+ * kind badge, clickable title, and the copy-id badge. Rendered between the
+ * disclosure toggle and the shared toolbar owned by {@link TreeOutlineEditor}.
+ */
+function OutlineRowContent({
+  node,
+  entriesById,
+  kindsById,
+  numbersById,
+  onOpenEntry
+}: OutlineRowContentProps): React.ReactElement {
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
   const kind = entry?.kind ? kindsById.get(entry.kind) : undefined;
-  const kids = childrenOf.get(nodeId) ?? [];
-  const isCollapsed = collapsed.has(nodeId);
-  const hasKids = kids.length > 0;
-  const num = numbersById.get(nodeId);
-
-  // Cat 2026-07-09: indent/outdent enablement. Mirrors the host-side
-  // guards so the button reflects reality and the user isn't left
-  // wondering why a click did nothing.
-  const parentRel = graph.relationships.find(
-    (r) => r.label === 'branch' && r.to === nodeId
-  );
-  const canOutdent = !!parentRel; // roots have no parent to escape
-  let canIndent: boolean;
-  if (parentRel) {
-    // Non-root: enabled iff a previous sibling under the same parent exists.
-    const siblings = graph.relationships.filter(
-      (r) => r.label === 'branch' && r.from === parentRel.from
-    );
-    const myPos = siblings.findIndex((r) => r.to === nodeId);
-    canIndent = myPos > 0;
-  } else {
-    // Root: enabled iff a previous root exists in nodes[] order.
-    const isRoot = (nid: string): boolean =>
-      !graph.relationships.some(
-        (r) => r.label === 'branch' && r.to === nid
-      );
-    const myIdx = graph.nodes.findIndex((n) => n.id === nodeId);
-    canIndent = false;
-    for (let j = myIdx - 1; j >= 0; j--) {
-      if (isRoot(graph.nodes[j].id)) {
-        canIndent = true;
-        break;
-      }
-    }
-  }
+  const num = numbersById.get(node.id);
 
   const title = entry?.title ?? '';
   const displayTitle =
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>(untitled)</em>;
 
-  // Cat 2026-07-09: "现在右边一排按钮太繁冗，改成鼠标悬浮在哪一条上显示哪
-  // 一条的按钮". Second pass 2026-07-09 (bug report: "多个条目同时显示按钮"
-  // + "删条目还是删不掉"). Root cause of both:
-  //   The first implementation used `useState + onPointerEnter/Leave` and
-  //   `pointerEvents: none` when not hovered. React's pointer events can
-  //   drop a `leave` firing when the mouse moves fast between rows, which
-  //   left multiple rows stuck in the `hovered=true` state. Worse, if the
-  //   hover state ever flipped for a frame while the user was mid-click
-  //   on Delete, `pointerEvents: none` swallowed the click, giving the
-  //   "delete doesn't work" symptom.
-  //
-  //   Fix: use pure CSS `:hover` + `:focus-within` — browser-native pointer
-  //   tracking never loses a leave event, and there's no `pointerEvents`
-  //   toggle to intercept clicks. We keep the toolbar in the DOM (opacity
-  //   0 by default) so layout stays stable when it becomes visible. No
-  //   useState needed. Global CSS injected once at the App root; see
-  //   `<style>` below.
   return (
-    <li style={{ marginBottom: '0.15rem' }}>
-      <div
-        className="snl-outline-row"
+    <>
+      <span
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.4rem',
-          paddingLeft: `${depth * 1.5}rem`,
-          padding: '0.3rem 0',
-          borderBottom:
-            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-          // Cat 2026-07-09: depth-tinted background matching the macro-
-          // style pattern in PackagePanel (extra style rows get a subtle
-          // white wash to visually anchor them as members of a collapsible
-          // group). Library outlines nest deeper than the 2-level macro
-          // rows, so we scale the alpha per depth with a small cap so
-          // deeply-nested rows don't blow out. depth=0 stays transparent.
-          background:
-            depth === 0
-              ? 'transparent'
-              : `rgba(255,255,255,${Math.min(0.02 * depth, 0.12)})`
+          fontFamily: 'var(--vscode-editor-font-family, monospace)',
+          fontSize: '0.8rem',
+          color: 'var(--vscode-descriptionForeground, #999)',
+          minWidth: '3rem'
         }}
       >
-        {/* Expand / collapse toggle (or spacer when leaf). */}
-        {hasKids ? (
-          <button
-            type="button"
-            onClick={() => onToggleCollapsed(nodeId)}
-            style={disclosureButtonStyle()}
-            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
-            title={isCollapsed ? 'Expand' : 'Collapse'}
-          >
-            {isCollapsed ? '▶' : '▼'}
-          </button>
-        ) : (
-          <span style={{ width: '1.2rem', display: 'inline-block' }} />
-        )}
+        {num ?? '—'}
+      </span>
 
+      {kind ? <KindBadge kind={kind} /> : null}
+
+      {/* Title = click target that opens Edit Entry for this row's entry.
+          Cat 2026-07-12. Only clickable when the row resolves to an entry. */}
+      {entry ? (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenEntry(entry.id);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onOpenEntry(entry.id);
+            }
+          }}
+          style={{
+            flex: '1 1 auto',
+            fontSize: '0.95rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+            textDecoration: 'none'
+          }}
+          className="snl-outline-row-title"
+          title={`Open Edit Entry: ${entry.id}\nkind: ${entry.kind}`}
+        >
+          {displayTitle}
+        </span>
+      ) : (
         <span
           style={{
-            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.8rem',
-            color: 'var(--vscode-descriptionForeground, #999)',
-            minWidth: '3rem'
+            flex: '1 1 auto',
+            fontSize: '0.95rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            opacity: 0.7
           }}
+          title={`no entryId assigned (node ${node.id})`}
         >
-          {num ?? '—'}
+          {displayTitle}
         </span>
+      )}
 
-        {kind ? <KindBadge kind={kind} /> : null}
-
-        {/* Title = click target that opens Edit Entry for this row's entry.
-            Cat 2026-07-12: 'Edit Library Tree view 每一 entry 的行都应该
-            可以点击, 进入 entry 的编辑页面.' Only clickable when the row
-            actually resolves to an entry (nodes without entryId show a
-            greyed non-clickable label). The chevron / copy-id / toolbar
-            buttons live in siblings and their own onClick handlers still
-            win (React events bubble up from the button, but each of them
-            already stops propagation via not being nested inside this
-            span). */}
-        {entry ? (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenEntry(entry.id);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onOpenEntry(entry.id);
-              }
-            }}
-            style={{
-              flex: '1 1 auto',
-              fontSize: '0.95rem',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              textDecoration: 'none'
-            }}
-            className="snl-outline-row-title"
-            title={`Open Edit Entry: ${entry.id}\nkind: ${entry.kind}`}
-          >
-            {displayTitle}
-          </span>
-        ) : (
-          <span
-            style={{
-              flex: '1 1 auto',
-              fontSize: '0.95rem',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              opacity: 0.7
-            }}
-            title={`no entryId assigned (node ${nodeId})`}
-          >
-            {displayTitle}
-          </span>
-        )}
-
-        {/* Compact entryId badge — click to copy, so you can paste it into
-            another library's Add form to reference this same entry. */}
-        {entry ? (
-          <button
-            type="button"
-            title={`Click to copy entry id\n${entry.id}`}
-            onClick={() => {
-              const id = entry.id;
-              void (async () => {
+      {/* Compact entryId badge — click to copy, so you can paste it into
+          another library's Add form to reference this same entry. */}
+      {entry ? (
+        <button
+          type="button"
+          title={`Click to copy entry id\n${entry.id}`}
+          onClick={() => {
+            const id = entry.id;
+            void (async () => {
+              try {
+                await navigator.clipboard.writeText(id);
+              } catch {
+                const ta = document.createElement('textarea');
+                ta.value = id;
+                document.body.appendChild(ta);
+                ta.select();
                 try {
-                  await navigator.clipboard.writeText(id);
+                  document.execCommand('copy');
                 } catch {
-                  // Some webview contexts disable clipboard API. Fall back
-                  // to a text-selection trick.
-                  const ta = document.createElement('textarea');
-                  ta.value = id;
-                  document.body.appendChild(ta);
-                  ta.select();
-                  try {
-                    document.execCommand('copy');
-                  } catch {
-                    // give up silently
-                  }
-                  document.body.removeChild(ta);
+                  // give up silently
                 }
-              })();
-            }}
-            style={{
-              fontFamily: 'var(--vscode-editor-font-family, monospace)',
-              fontSize: '0.7rem',
-              padding: '0.15rem 0.35rem',
-              border:
-                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-              borderRadius: '2px',
-              background: 'transparent',
-              color: 'var(--vscode-descriptionForeground, #999)',
-              cursor: 'pointer',
-              flexShrink: 0,
-              maxWidth: '9rem',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            {entry.id.slice(0, 8)}…
-          </button>
-        ) : null}
-
-        <div
-          className="snl-outline-row-toolbar"
+                document.body.removeChild(ta);
+              }
+            })();
+          }}
           style={{
-            display: 'flex',
-            gap: '0.25rem',
-            flexShrink: 0
-            // Visibility handled entirely by CSS `:hover` / `:focus-within`
-            // on `.snl-outline-row` — see the <style> block in the App
-            // component. NO inline conditional on visibility/pointerEvents
-            // here; React state was losing `pointerleave` events which
-            // stuck multiple rows in the "shown" state and (worse) ate
-            // Delete clicks via `pointerEvents: none`. Cat 2026-07-09.
+            fontFamily: 'var(--vscode-editor-font-family, monospace)',
+            fontSize: '0.7rem',
+            padding: '0.15rem 0.35rem',
+            border:
+              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+            borderRadius: '2px',
+            background: 'transparent',
+            color: 'var(--vscode-descriptionForeground, #999)',
+            cursor: 'pointer',
+            flexShrink: 0,
+            maxWidth: '9rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
           }}
         >
-          <IconButton
-            label="+ child"
-            title="Add a child entry"
-            onClick={() => onStartAdd(nodeId, null)}
-          />
-          <IconButton
-            label="+ sibling"
-            title="Add a sibling after this entry"
-            onClick={() => {
-              // If this node is a root, "add sibling" = add another root
-              // right after it. We pass parentId=null + insertAfter=nodeId;
-              // the host handles the root case by appending to nodes[].
-              // TODO: root-sibling insertion post-position is not perfect
-              // (host currently only re-orders roots via moveSibling), but
-              // for v1 the "add sibling" just tacks onto the end of the
-              // parent's chain if we're not at root.
-              const parentRel = graph.relationships.find(
-                (r) => r.label === 'branch' && r.to === nodeId
-              );
-              if (parentRel) {
-                onStartAdd(parentRel.from, nodeId);
-              } else {
-                // Root: add another root at the tail. insertAfter isn't
-                // meaningful for roots yet.
-                onStartAdd(null, null);
-              }
-            }}
-          />
-          {/* Cat 2026-07-09: indent / outdent pair. Disabled when it
-              would be a no-op (indent needs a previous sibling, outdent
-              needs a parent) so users can see reachability at a glance. */}
-          <IconButton
-            label="←|"
-            title={
-              canOutdent
-                ? 'Outdent — promote to sibling of parent'
-                : 'Outdent unavailable — already at the top level'
-            }
-            disabled={!canOutdent}
-            onClick={() => onGraphOp({ op: 'outdent', nodeId })}
-          />
-          <IconButton
-            label="→|"
-            title={
-              canIndent
-                ? 'Indent — make this entry a child of its previous sibling'
-                : 'Indent unavailable — no previous sibling to nest under'
-            }
-            disabled={!canIndent}
-            onClick={() => onGraphOp({ op: 'indent', nodeId })}
-          />
-          <IconButton
-            label="↑"
-            title="Move up (swap with previous sibling)"
-            onClick={() => onGraphOp({ op: 'moveSibling', nodeId, direction: 'up' })}
-          />
-          <IconButton
-            label="↓"
-            title="Move down (swap with next sibling)"
-            onClick={() => onGraphOp({ op: 'moveSibling', nodeId, direction: 'down' })}
-          />
-          <IconButton
-            label="✕"
-            title="Delete this entry from the outline (does not delete the shared-pool entry)"
-            destructive
-            onClick={() => {
-              // Cat 2026-07-09: window.confirm() is blocked in VS Code
-              // webviews (returns undefined), so we cannot gate here.
-              // The host-side deleteNode handler now owns the modal
-              // confirmation; we just post the op and let it prompt.
-              // The child-count guard also lives host-side.
-              onGraphOp({ op: 'deleteNode', nodeId });
-            }}
-          />
-        </div>
-      </div>
-
-      {/* "add child" or "add sibling" popover attached below this row.
-       *
-       * Bug (cat 2026-07-08): earlier this used a plain OR
-       * `parentId === nodeId || insertAfter === nodeId`. In the
-       * "+ sibling on non-root Y (parent P)" case both branches
-       * fired — Row P matched on `parentId===P` AND Row Y matched
-       * on `insertAfter===Y` — producing two AddNodeForm inputs.
-       *
-       * The two operations are distinguishable by `insertAfter`:
-       *   + child   : parentId=here,  insertAfter=null   → attach under HERE
-       *   + sibling : parentId=parent, insertAfter=here  → attach under HERE
-       * so a child popover MUST also require `insertAfter===null`
-       * to avoid poaching the parent row on a sibling insert.
-       * Root-sibling (both null) is handled by the top-level
-       * <AddNodeForm/> in the outer render, not here. */}
-      {addingUnder &&
-      ((addingUnder.parentId === nodeId && addingUnder.insertAfter === null) ||
-        addingUnder.insertAfter === nodeId) ? (
-        <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}>
-          <AddNodeForm
-            kinds={graph.kinds}
-            entriesById={entriesById}
-            entryOptions={entryOptions}
-            state={addingUnder}
-            onCancel={onCancelAdd}
-            onCommit={onCommitAdd}
-            onUpdate={onUpdateAdd}
-          />
-        </div>
+          {entry.id.slice(0, 8)}…
+        </button>
       ) : null}
-
-      {!isCollapsed && hasKids ? (
-        <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {kids.map((kid) => (
-            <OutlineRow
-              key={kid}
-              {...props}
-              nodeId={kid}
-              depth={depth + 1}
-            />
-          ))}
-        </ol>
-      ) : null}
-    </li>
+    </>
   );
 }
 
@@ -1352,35 +1498,6 @@ function WarningBanner({
   );
 }
 
-function IconButton({
-  label,
-  title,
-  onClick,
-  destructive,
-  disabled
-}: {
-  label: string;
-  title: string;
-  onClick: () => void;
-  destructive?: boolean;
-  disabled?: boolean;
-}): React.ReactElement {
-  // Cat 2026-07-09: all buttons now go through the shared Button
-  // component so hover / active / focus feedback is consistent. IconButton
-  // becomes a thin size='sm' wrapper.
-  return (
-    <Button
-      variant={destructive ? 'destructive' : 'secondary'}
-      size="sm"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      {label}
-    </Button>
-  );
-}
-
 function toolbarButtonStyle(active: boolean): React.CSSProperties {
   return {
     padding: '0.35rem 0.75rem',
@@ -1396,21 +1513,6 @@ function toolbarButtonStyle(active: boolean): React.CSSProperties {
       ? 'var(--vscode-button-foreground, #fff)'
       : 'inherit',
     cursor: 'pointer'
-  };
-}
-
-function disclosureButtonStyle(): React.CSSProperties {
-  return {
-    width: '1.2rem',
-    height: '1.2rem',
-    padding: 0,
-    fontSize: '0.7rem',
-    lineHeight: 1,
-    border: 'none',
-    background: 'transparent',
-    color: 'inherit',
-    cursor: 'pointer',
-    flexShrink: 0
   };
 }
 

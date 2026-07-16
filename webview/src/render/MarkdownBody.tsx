@@ -39,6 +39,9 @@ export function MarkdownBody({ source }: MarkdownBodyProps): React.ReactElement 
 .snl-markdown-body li { margin: 0.15em 0; }
 .snl-markdown-body pre { margin: 0.5em 0; padding: 0.5em 0.7em;
   background: rgba(127,127,127,0.1); border-radius: 3px; overflow-x: auto; }
+/* Entry backgrounds are intentionally light, so fenced-code text must not
+   inherit a light VS Code foreground (or the EntryKind stroke color). */
+.snl-markdown-body pre, .snl-markdown-body pre code { color: #24292f; }
 .snl-markdown-body code { font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.92em; }
 .snl-markdown-body :not(pre) > code { padding: 0.1em 0.3em;

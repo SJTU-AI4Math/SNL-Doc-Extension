@@ -881,23 +881,24 @@ async function main() {
   // Missing node → null.
   assert(numberFor(graph1, 'nope', entriesById, kindsById, counters1) === null, 'numberFor(missing) → null');
 
-  // "First-sibling resolved counter decides this level" invariant: change
-  // s1_1's kind to 'theorem' (counter 'theorem' numbering 'A') and s1_3
-  // becomes '1C'.
+  // Per-counter isolation invariant: changing s1_1 to the theorem counter
+  // removes it from the section counter's sequence. s1_3 is now the second
+  // section sibling (s1_2, s1_3), so its label becomes "1.2"; the theorem
+  // sibling does not reshape the section template.
   const entriesTweak = new Map(entriesById);
   entriesTweak.set('uuid-1_1', { kind: 'theorem' });
   assert(
-    numberFor(graph1, 's1_3', entriesTweak, kindsById, counters1) === '1C',
-    'first-sibling counter change re-shapes the level (s1_3 → "1C" when first sibling resolves theorem)'
+    numberFor(graph1, 's1_3', entriesTweak, kindsById, counters1) === '1.2',
+    'different-counter sibling is excluded from this counter sequence (s1_3 → "1.2")'
   );
 
-  // First sibling doesn't resolve (missing entry) → template falls to the
-  // next resolved sibling (s1_2, section '.1'); s1_3 still "1.3".
+  // An unresolved sibling is likewise excluded from the section sequence;
+  // s1_2 + s1_3 remain, making s1_3 the second section sibling.
   const entriesGap = new Map(entriesById);
   entriesGap.delete('uuid-1_1');
   assert(
-    numberFor(graph1, 's1_3', entriesGap, kindsById, counters1) === '1.3',
-    'template falls through to the next resolved sibling when the first is unresolved'
+    numberFor(graph1, 's1_3', entriesGap, kindsById, counters1) === '1.2',
+    'unresolved sibling is excluded from this counter sequence (s1_3 → "1.2")'
   );
   // If the target's own kind resolves to no counter → numberFor returns null.
   const kindsMissing = new Map(kindsById);

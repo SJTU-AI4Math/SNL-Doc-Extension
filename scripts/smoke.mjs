@@ -808,18 +808,25 @@ async function main() {
   assert(formatNumbering('Foo', 3) === 'Foo', 'formatNumbering("Foo", 3) → "Foo" (no slot)');
   assert(formatNumbering('1.1', 3) === '3.1', 'formatNumbering("1.1", 3) → "3.1" (second slot literal)');
 
-  // §6 numberFor — cat's 1.3B.5 example, v2 shape (no Counter nodes, no
-  // count/next relationships; kind numbering decides each level).
+  // §6 numberFor — cat's 1.3B.5 example, 2026-07-16 counter-tree shape.
+  // Kinds now name a Library-scoped counter (defaultCounterName) instead of
+  // carrying a numbering DSL; the counter tree supplies the DSL by name.
   //
-  //   chapter kind: numbering '1'
-  //   section kind: numbering '.1'
-  //   theorem kind: numbering 'A'
-  //   remark  kind: numbering '.1'
+  //   chapter kind → counter 'chapter' numbering '1'
+  //   section kind → counter 'section' numbering '.1'
+  //   theorem kind → counter 'theorem' numbering 'A'
+  //   remark  kind → counter 'remark'  numbering '.1'
+  const counters1 = [
+    { id: 'c-chapter', name: 'chapter', numbering: '1', children: [] },
+    { id: 'c-section', name: 'section', numbering: '.1', children: [] },
+    { id: 'c-theorem', name: 'theorem', numbering: 'A', children: [] },
+    { id: 'c-remark', name: 'remark', numbering: '.1', children: [] }
+  ];
   const kindsById = new Map([
-    ['chapter', { numbering: '1' }],
-    ['section', { numbering: '.1' }],
-    ['theorem', { numbering: 'A' }],
-    ['remark', { numbering: '.1' }]
+    ['chapter', { defaultCounterName: 'chapter' }],
+    ['section', { defaultCounterName: 'section' }],
+    ['theorem', { defaultCounterName: 'theorem' }],
+    ['remark', { defaultCounterName: 'remark' }]
   ]);
   const entriesById = new Map([
     ['uuid-chap1', { kind: 'chapter' }],
@@ -863,39 +870,46 @@ async function main() {
   };
 
   // The full cat example.
-  const n_r_5 = numberFor(graph1, 'r_5', entriesById, kindsById);
+  const n_r_5 = numberFor(graph1, 'r_5', entriesById, kindsById, counters1);
   assert(n_r_5 === '1.3B.5', `numberFor(r_5) → "1.3B.5" (got ${JSON.stringify(n_r_5)})`);
   // Intermediate numbers per spec §6.
-  assert(numberFor(graph1, 'chap1', entriesById, kindsById) === '1', 'numberFor(chap1) → "1"');
-  assert(numberFor(graph1, 's1_3', entriesById, kindsById) === '1.3', 'numberFor(s1_3) → "1.3"');
-  assert(numberFor(graph1, 't_B', entriesById, kindsById) === '1.3B', 'numberFor(t_B) → "1.3B"');
-  assert(numberFor(graph1, 't_A', entriesById, kindsById) === '1.3A', 'numberFor(t_A) → "1.3A"');
-  assert(numberFor(graph1, 'r_1', entriesById, kindsById) === '1.3B.1', 'numberFor(r_1) → "1.3B.1"');
+  assert(numberFor(graph1, 'chap1', entriesById, kindsById, counters1) === '1', 'numberFor(chap1) → "1"');
+  assert(numberFor(graph1, 's1_3', entriesById, kindsById, counters1) === '1.3', 'numberFor(s1_3) → "1.3"');
+  assert(numberFor(graph1, 't_B', entriesById, kindsById, counters1) === '1.3B', 'numberFor(t_B) → "1.3B"');
+  assert(numberFor(graph1, 't_A', entriesById, kindsById, counters1) === '1.3A', 'numberFor(t_A) → "1.3A"');
+  assert(numberFor(graph1, 'r_1', entriesById, kindsById, counters1) === '1.3B.1', 'numberFor(r_1) → "1.3B.1"');
   // Missing node → null.
-  assert(numberFor(graph1, 'nope', entriesById, kindsById) === null, 'numberFor(missing) → null');
+  assert(numberFor(graph1, 'nope', entriesById, kindsById, counters1) === null, 'numberFor(missing) → null');
 
-  // "First-child kind decides this level" invariant: change s1_1's kind to
-  // 'theorem' (numbering 'A') and s1_3 becomes '1C'.
+  // "First-sibling resolved counter decides this level" invariant: change
+  // s1_1's kind to 'theorem' (counter 'theorem' numbering 'A') and s1_3
+  // becomes '1C'.
   const entriesTweak = new Map(entriesById);
   entriesTweak.set('uuid-1_1', { kind: 'theorem' });
   assert(
-    numberFor(graph1, 's1_3', entriesTweak, kindsById) === '1C',
-    'first-child kind change re-shapes the level (s1_3 → "1C" when first sibling is theorem-kinded)'
+    numberFor(graph1, 's1_3', entriesTweak, kindsById, counters1) === '1C',
+    'first-sibling counter change re-shapes the level (s1_3 → "1C" when first sibling resolves theorem)'
   );
 
-  // Fallback: first child's kind is missing → level uses ".1".
+  // First sibling doesn't resolve (missing entry) → template falls to the
+  // next resolved sibling (s1_2, section '.1'); s1_3 still "1.3".
   const entriesGap = new Map(entriesById);
   entriesGap.delete('uuid-1_1');
   assert(
-    numberFor(graph1, 's1_3', entriesGap, kindsById) === '1.3',
-    'fallback kicks in when first child\'s entryId is missing (level uses ".1")'
+    numberFor(graph1, 's1_3', entriesGap, kindsById, counters1) === '1.3',
+    'template falls through to the next resolved sibling when the first is unresolved'
   );
-  // Same fallback if the kind itself is unknown:
+  // If the target's own kind resolves to no counter → numberFor returns null.
   const kindsMissing = new Map(kindsById);
   kindsMissing.delete('section');
   assert(
-    numberFor(graph1, 's1_3', entriesById, kindsMissing) === '1.3',
-    'fallback also kicks in when the kind is not in kindsById'
+    numberFor(graph1, 's1_3', entriesById, kindsMissing, counters1) === null,
+    'target that resolves to no counter → numberFor returns null'
+  );
+  // No counters at all → every node is unnumbered.
+  assert(
+    numberFor(graph1, 'r_5', entriesById, kindsById, []) === null,
+    'empty counter tree → numberFor returns null (no counter resolves)'
   );
 
   // §4 reading order = DFS of branch in declaration order.
@@ -924,18 +938,16 @@ async function main() {
     'readingOrder handles multiple roots (declaration order + DFS each)'
   );
 
-  // Root-level numbering: cat's example has chap1 as the only root. First
-  // root's kind = chapter (numbering '1'), so chap1 = '1'. Verify with two
-  // roots that the second gets '2'.
+  // Root-level numbering: two chapter roots → '1' and '2'.
   const entriesById2 = new Map([
     ['x1', { kind: 'chapter' }],
     ['x2', { kind: 'chapter' }],
     ['x3', { kind: 'section' }],
     ['x4', { kind: 'section' }]
   ]);
-  assert(numberFor(graph2, 'A', entriesById2, kindsById) === '1', 'root A → "1"');
-  assert(numberFor(graph2, 'B', entriesById2, kindsById) === '2', 'root B → "2"');
-  assert(numberFor(graph2, 'A1', entriesById2, kindsById) === '1.1', 'A1 → "1.1"');
+  assert(numberFor(graph2, 'A', entriesById2, kindsById, counters1) === '1', 'root A → "1"');
+  assert(numberFor(graph2, 'B', entriesById2, kindsById, counters1) === '2', 'root B → "2"');
+  assert(numberFor(graph2, 'A1', entriesById2, kindsById, counters1) === '1.1', 'A1 → "1.1"');
 
   // Empty graph & orphan corner cases.
   assert(
@@ -943,7 +955,7 @@ async function main() {
     'readingOrder(empty) → []'
   );
   assert(
-    numberFor({ nodes: [], relationships: [] }, 'anything', entriesById, kindsById) === null,
+    numberFor({ nodes: [], relationships: [] }, 'anything', entriesById, kindsById, counters1) === null,
     'numberFor(empty, anything) → null'
   );
   const orphanGraph = {
@@ -951,10 +963,47 @@ async function main() {
     relationships: []
   };
   // Lone Entry node with no siblings is itself a root — root position 1,
-  // first-root's kind chapter → numbering '1' → returns "1".
+  // chapter counter → numbering '1' → returns "1".
   assert(
-    numberFor(orphanGraph, 'e1', entriesById, kindsById) === '1',
-    'lone root entry → "1" (numbered by its own kind at root level)'
+    numberFor(orphanGraph, 'e1', entriesById, kindsById, counters1) === '1',
+    'lone root entry → "1" (numbered by its resolved counter at root level)'
+  );
+
+  // --- [24b] per-entry counterId override (2026-07-16) --------------------
+  console.log('\n[24b] per-entry counterId override + name lookup');
+  // Spec Commit 3 scenario: counter 'theorem' numbering '1.' + kind Theorem
+  // with defaultCounterName 'theorem' + one entry → numberFor === '1.'.
+  const countersOverride = [
+    { id: 'ct-theorem', name: 'theorem', numbering: '1.', children: [] },
+    { id: 'ct-roman', name: 'section', numbering: '§I', children: [] }
+  ];
+  const kindsOverride = new Map([['Theorem', { defaultCounterName: 'theorem' }]]);
+  const entriesOverride = new Map([['e-thm', { kind: 'Theorem' }]]);
+  const graphOverride = {
+    nodes: [{ id: 'n-thm', label: 'Entry', props: { entryId: 'e-thm' } }],
+    relationships: []
+  };
+  assert(
+    numberFor(graphOverride, 'n-thm', entriesOverride, kindsOverride, countersOverride) === '1.',
+    'name lookup: defaultCounterName "theorem" → counter numbering "1." → "1."'
+  );
+  // Now pin an explicit counterId to a different counter (§I) — override wins.
+  const graphOverride2 = {
+    nodes: [{ id: 'n-thm', label: 'Entry', props: { entryId: 'e-thm', counterId: 'ct-roman' } }],
+    relationships: []
+  };
+  assert(
+    numberFor(graphOverride2, 'n-thm', entriesOverride, kindsOverride, countersOverride) === '§I',
+    'explicit counterId override → counter numbering "§I" → "§I"'
+  );
+  // Dangling counterId (not in the tree) → falls back to name lookup.
+  const graphOverride3 = {
+    nodes: [{ id: 'n-thm', label: 'Entry', props: { entryId: 'e-thm', counterId: 'does-not-exist' } }],
+    relationships: []
+  };
+  assert(
+    numberFor(graphOverride3, 'n-thm', entriesOverride, kindsOverride, countersOverride) === '1.',
+    'dangling counterId → treated as unset → falls back to name lookup ("1.")'
   );
 
   // --- [25] readLibraryGraph / writeLibraryGraph host API ------------------

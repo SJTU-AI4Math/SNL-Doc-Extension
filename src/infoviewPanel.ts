@@ -4,6 +4,7 @@ import {
   readAllMacros,
   readEntries,
   readEntryKinds,
+  readLibraryCounters,
   readLibraryGraph,
   readRelationships,
   type EntryData,
@@ -14,6 +15,7 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import {
   numberFor,
+  type CounterNode,
   type LibraryGraph,
   type GraphNode
 } from './libraryGraph';
@@ -514,6 +516,7 @@ export class InfoviewPanel {
       // Shared pool + kinds for entry / kind / counter resolution.
       const entryPool = await readEntries(root);
       const kinds = await readEntryKinds(root);
+      const counters = await readLibraryCounters(root, slug);
       const entriesById = new Map<string, EntryData>();
       for (const e of entryPool) {
         entriesById.set(e.id, e);
@@ -521,6 +524,27 @@ export class InfoviewPanel {
       const kindsById = new Map<string, EntryKind>();
       for (const k of kinds) {
         kindsById.set(k.id, k);
+      }
+
+      // 2026-07-16: warn on dangling per-node counterId overrides. A counterId
+      // that isn't in the tree is treated as unset by the numbering engine
+      // (falls back to the kind's defaultCounterName), so surface it as a
+      // graph warning rather than failing silently.
+      const counterIdSet = new Set<string>();
+      const collectCounterIds = (list: CounterNode[]): void => {
+        for (const c of list) {
+          counterIdSet.add(c.id);
+          collectCounterIds(c.children);
+        }
+      };
+      collectCounterIds(counters);
+      for (const node of graph.nodes) {
+        const cid = node.props?.counterId;
+        if (typeof cid === 'string' && cid && !counterIdSet.has(cid)) {
+          warnings.push(
+            `Entry node "${node.id}" pins counterId "${cid}" which is not in the counter tree; falling back to the kind's default counter`
+          );
+        }
       }
 
       // Legacy flat pool (order = graph declaration order for Entry nodes).
@@ -554,22 +578,24 @@ export class InfoviewPanel {
       for (const [id, e] of entriesById) {
         entryKindRefById.set(id, { kind: e.kind });
       }
-      const kindNumberingById = new Map<string, { numbering: string }>();
-      for (const [id] of kindsById) {
-        // 2026-07-16: EntryKind.numbering was renamed to defaultCounterName
-        // (a counter NAME, not a DSL). The numbering engine still takes a
-        // per-kind DSL view here; it is rewired to consume the library's
-        // counter tree in a follow-up (Commit 3). Until then, no per-kind
-        // DSL source exists, so the template falls back to the engine
-        // default ('.1').
-        kindNumberingById.set(id, { numbering: '' });
+      // 2026-07-16: the numbering engine now resolves each node's active
+      // counter from the library counter tree via kind.defaultCounterName
+      // (name lookup) or an explicit per-node counterId. Project each kind to
+      // its defaultCounterName view.
+      const kindCounterById = new Map<string, { defaultCounterName: string }>();
+      for (const [id, k] of kindsById) {
+        kindCounterById.set(id, {
+          defaultCounterName:
+            typeof k.defaultCounterName === 'string' ? k.defaultCounterName : ''
+        });
       }
       const outline = buildOutline(
         graph,
         entriesById,
         kindsById,
         entryKindRefById,
-        kindNumberingById,
+        kindCounterById,
+        counters,
         warnings
       );
 
@@ -872,7 +898,8 @@ function buildOutline(
   entriesById: Map<string, EntryData>,
   kindsById: Map<string, EntryKind>,
   entryKindRefById: Map<string, { kind?: string }>,
-  kindNumberingById: Map<string, { numbering: string }>,
+  kindCounterById: Map<string, { defaultCounterName: string }>,
+  counters: CounterNode[],
   warnings: string[]
 ): OutlineNode[] {
   const nodesById = new Map<string, GraphNode>();
@@ -921,7 +948,8 @@ function buildOutline(
       graph,
       nodeId,
       entryKindRefById,
-      kindNumberingById
+      kindCounterById,
+      counters
     );
 
     const childIds = childrenOf.get(nodeId) ?? [];

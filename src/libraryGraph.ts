@@ -41,14 +41,29 @@ export interface LibraryGraph {
   relationships: GraphRelationship[];
 }
 
-/** Kind lookup shape needed by numberFor — a thin view of EntryKind. */
-export interface KindNumbering {
-  numbering: string;
+/** Kind lookup shape needed by numberFor — a thin view of EntryKind. Since
+ *  the 2026-07-16 rename, a kind names a Library-scoped counter (by
+ *  `counter.name`) rather than carrying a numbering DSL directly. */
+export interface KindCounterRef {
+  defaultCounterName: string;
 }
 
 /** Entry lookup shape needed by numberFor — a thin view of EntryData. */
 export interface EntryKindRef {
   kind?: string;
+}
+
+/**
+ * A library-scoped counter tree node (mirrors `CounterNode` in src/snlDoc.ts;
+ * duplicated here so this pure engine stays free of the vscode-importing
+ * snlDoc module). Name-lookup picks the first depth-first match — duplicate
+ * names are therefore ambiguous (the UI warns on collisions).
+ */
+export interface CounterNode {
+  id: string;
+  name: string;
+  numbering: string;
+  children: CounterNode[];
 }
 
 // ---------------------------------------------------------------------------
@@ -191,29 +206,119 @@ function indexGraph(graph: LibraryGraph): GraphIndex {
 // §3 Numbering
 // ---------------------------------------------------------------------------
 
-/** Fallback template for a level whose first child has no resolvable kind. */
-const FALLBACK_LEVEL_NUMBERING = '.1';
+/**
+ * Depth-first find a counter by exact `name` (first match wins). Duplicate
+ * names in the tree are ambiguous — this returns the first one encountered in
+ * a pre-order walk. The UI warns on duplicate names so authors can
+ * disambiguate.
+ */
+export function findCounterByName(
+  counters: CounterNode[],
+  name: string
+): CounterNode | null {
+  const target = name.trim();
+  if (!target) return null;
+  for (const c of counters) {
+    if (c.name === target) return c;
+    const found = findCounterByName(c.children, target);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Depth-first find a counter by id. */
+function findCounterById(
+  counters: CounterNode[],
+  id: string
+): CounterNode | null {
+  for (const c of counters) {
+    if (c.id === id) return c;
+    const found = findCounterById(c.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Resolve a node's "active counter" via the three-tier fallback:
+ *   1. an explicit `node.props.counterId` that exists in the tree, else
+ *   2. name-lookup of `kind.defaultCounterName` (depth-first, first match), else
+ *   3. `null` — the node contributes no numbering.
+ *
+ * A dangling `counterId` (present but not in the tree) is treated as unset and
+ * falls through to the name lookup.
+ */
+export function resolveActiveCounter(
+  node: GraphNode,
+  kind: KindCounterRef | undefined,
+  counters: CounterNode[]
+): CounterNode | null {
+  const counterId = node.props?.counterId;
+  if (typeof counterId === 'string' && counterId) {
+    const byId = findCounterById(counters, counterId);
+    if (byId) return byId;
+  }
+  const name = kind?.defaultCounterName;
+  if (typeof name === 'string' && name.trim()) {
+    return findCounterByName(counters, name);
+  }
+  return null;
+}
+
+/** Resolve the EntryKind view for a node (via its entry's kind), or undefined. */
+function kindForNode(
+  node: GraphNode,
+  entriesById: Map<string, EntryKindRef>,
+  kindsById: Map<string, KindCounterRef>
+): KindCounterRef | undefined {
+  const entryId = node.props?.entryId;
+  if (typeof entryId !== 'string' || !entryId) return undefined;
+  const entry = entriesById.get(entryId);
+  if (!entry || typeof entry.kind !== 'string' || !entry.kind) return undefined;
+  return kindsById.get(entry.kind);
+}
 
 /**
  * Compute the full number of a node (e.g. `"1.3B.5"`).
  *
  * `entriesById` maps shared-pool entryId -> EntryData (only `.kind` is
- * consulted). `kindsById` maps kind.id -> EntryKind (only `.numbering` is
- * consulted). Both are typically Maps built from readEntries/readEntryKinds.
+ * consulted). `kindsById` maps kind.id -> EntryKind (only `.defaultCounterName`
+ * is consulted). `counters` is the library's counter tree.
  *
- * Returns `null` if the node doesn't exist or its branch chain is broken
- * (cycle, missing parent). Returns "" for a lone root node (roots ARE
- * numbered via §6, using the first-root kind at the root level — see
- * numberRootLevel below).
+ * Numbering rules (2026-07-16):
+ *   - Each node's "active counter" is resolved via {@link resolveActiveCounter}.
+ *     If the TARGET node resolves to no counter, this returns `null` (the entry
+ *     contributes no numbering).
+ *   - The template for a level is `counter.numbering` of the FIRST resolved
+ *     counter among the siblings at that level. If no sibling resolves, the
+ *     level yields no fragment (it is skipped).
+ *   - Sibling position (1-indexed) is by outline order, counting ALL siblings
+ *     regardless of whether they individually resolve to a counter.
+ *
+ * TODO(counter-tree reset semantics): the counter tree's parent/child
+ * relationship is stored + shown in the UI but the numbering engine uses ONLY
+ * each counter's own `numbering` DSL today. Cross-counter reset semantics
+ * (sub-counters numerically nesting/resetting under their parent counter) land
+ * in a follow-up once Fulcrum specs the reset rules; today the tree is
+ * display-only for management purposes.
+ *
+ * Returns `null` if the node doesn't exist, its branch chain is broken (cycle,
+ * missing parent), or the target node resolves to no counter.
  */
 export function numberFor(
   graph: LibraryGraph,
   nodeId: string,
   entriesById: Map<string, EntryKindRef>,
-  kindsById: Map<string, KindNumbering>
+  kindsById: Map<string, KindCounterRef>,
+  counters: CounterNode[]
 ): string | null {
   const idx = indexGraph(graph);
-  if (!idx.nodesById.has(nodeId)) return null;
+  const targetNode = idx.nodesById.get(nodeId);
+  if (!targetNode) return null;
+
+  // The target must resolve to a counter, else it gets no numbering label.
+  const targetKind = kindForNode(targetNode, entriesById, kindsById);
+  if (!resolveActiveCounter(targetNode, targetKind, counters)) return null;
 
   // Walk branch parents back to a root. Chain = [root, ..., parent, node].
   const chain: string[] = [];
@@ -227,55 +332,44 @@ export function numberFor(
   }
   if (chain.length === 0) return null;
 
-  // For each non-root node in the chain, compute its per-level segment
-  // using its parent's first child's kind. Roots use the "root level"
-  // kind — enumerated across ALL roots in nodes[] declaration order.
   const segments: string[] = [];
   for (let i = 0; i < chain.length; i++) {
-    const cur = chain[i];
+    const curId = chain[i];
     const parent = i === 0 ? null : chain[i - 1];
     const siblings = parent === null ? idx.roots : idx.childrenOf.get(parent) ?? [];
-    const position = siblings.indexOf(cur);
+    const position = siblings.indexOf(curId);
     if (position < 0) return null;
 
-    const firstSibling = siblings[0];
-    const template = numberingTemplateFor(
-      firstSibling,
-      idx,
-      entriesById,
-      kindsById
-    );
+    const template = levelTemplate(siblings, idx, entriesById, kindsById, counters);
+    if (template === null) {
+      // No sibling at this level resolves to any counter → skip the level.
+      continue;
+    }
     segments.push(formatNumbering(template, position + 1));
   }
   return segments.join('');
 }
 
 /**
- * Resolve the numbering template for a level, given the FIRST child at
- * that level (whose kind decides). Falls back to `.1` when the kind is
- * unresolvable at any step.
+ * Resolve the numbering template for a level: `counter.numbering` of the FIRST
+ * sibling at that level that resolves to a counter. Returns `null` when no
+ * sibling resolves (the caller skips the level).
  */
-function numberingTemplateFor(
-  firstChildId: string,
+function levelTemplate(
+  siblings: string[],
   idx: GraphIndex,
   entriesById: Map<string, EntryKindRef>,
-  kindsById: Map<string, KindNumbering>
-): string {
-  const node = idx.nodesById.get(firstChildId);
-  if (!node) return FALLBACK_LEVEL_NUMBERING;
-  const entryId = node.props?.entryId;
-  if (typeof entryId !== 'string' || !entryId) {
-    return FALLBACK_LEVEL_NUMBERING;
+  kindsById: Map<string, KindCounterRef>,
+  counters: CounterNode[]
+): string | null {
+  for (const sibId of siblings) {
+    const node = idx.nodesById.get(sibId);
+    if (!node) continue;
+    const kind = kindForNode(node, entriesById, kindsById);
+    const counter = resolveActiveCounter(node, kind, counters);
+    if (counter) return counter.numbering;
   }
-  const entry = entriesById.get(entryId);
-  if (!entry || typeof entry.kind !== 'string' || !entry.kind) {
-    return FALLBACK_LEVEL_NUMBERING;
-  }
-  const kind = kindsById.get(entry.kind);
-  if (!kind || typeof kind.numbering !== 'string' || !kind.numbering) {
-    return FALLBACK_LEVEL_NUMBERING;
-  }
-  return kind.numbering;
+  return null;
 }
 
 // ---------------------------------------------------------------------------

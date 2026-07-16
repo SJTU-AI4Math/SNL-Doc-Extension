@@ -69,7 +69,7 @@ interface EntryPoolItem {
 interface KindItem {
   id: string;
   name: string;
-  numbering: string;
+  defaultCounterName: string;
   coloring?: { stroke: string; background: string };
 }
 
@@ -92,6 +92,19 @@ interface CounterNode {
   name: string;
   numbering: string;
   children: CounterNode[];
+}
+
+/** Depth-first flatten of a counter tree into a single ordered list. */
+function flattenCounters(roots: CounterNode[]): CounterNode[] {
+  const out: CounterNode[] = [];
+  const walk = (nodes: CounterNode[]): void => {
+    for (const n of nodes) {
+      out.push(n);
+      walk(n.children);
+    }
+  };
+  walk(roots);
+  return out;
 }
 
 export function CreateLibraryApp(): React.ReactElement {
@@ -419,6 +432,7 @@ export function CreateLibraryApp(): React.ReactElement {
           onOpenCreateEntry={(entryId) =>
             apiRef.current?.postMessage({ type: 'openCreateEntry', entryId })
           }
+          counters={counters}
         />
       ) : null}
     </main>
@@ -826,6 +840,8 @@ interface OutlineEditorProps {
    * silently threw. Cat 2026-07-12.
    */
   onOpenCreateEntry: (entryId: string) => void;
+  /** The library's counter tree — feeds the numbering engine (2026-07-16). */
+  counters: CounterNode[];
 }
 
 /**
@@ -839,7 +855,8 @@ function OutlineEditor({
   error,
   onGraphOp,
   onOpenEntry,
-  onOpenCreateEntry
+  onOpenCreateEntry,
+  counters
 }: OutlineEditorProps): React.ReactElement {
   // Optional "adding" mode: which parent is currently being extended, and
   // just the entryId the user is typing (cat 2026-07-06: reference-only,
@@ -848,6 +865,7 @@ function OutlineEditor({
     parentId: string | null;
     insertAfter: string | null;
     entryId: string;
+    counterId?: string;
   } | null>(null);
 
   // Precompute indices for the current graph.
@@ -912,18 +930,19 @@ function OutlineEditor({
           { nodes: graph.nodes, relationships: graph.relationships },
           id,
           entriesById as unknown as Map<string, { kind?: string }>,
-          kindsById as unknown as Map<string, { numbering: string }>
+          kindsById as unknown as Map<string, { defaultCounterName: string }>,
+          counters
         )
       );
     }
     return out;
-  }, [graph, entriesById, kindsById]);
+  }, [graph, entriesById, kindsById, counters]);
 
   const startAdd = (
     parentId: string | null,
     insertAfter: string | null
   ): void => {
-    setAddingUnder({ parentId, insertAfter, entryId: '' });
+    setAddingUnder({ parentId, insertAfter, entryId: '', counterId: '' });
   };
 
   const cancelAdd = (): void => setAddingUnder(null);
@@ -951,7 +970,8 @@ function OutlineEditor({
       op: 'addNode',
       parentId: addingUnder.parentId,
       insertAfter: addingUnder.insertAfter,
-      entryId: entryIdTrimmed
+      entryId: entryIdTrimmed,
+      counterId: addingUnder.counterId ?? ''
     });
     setAddingUnder(null);
   };
@@ -1013,13 +1033,19 @@ function OutlineEditor({
     }
   };
 
+  const updateNodeCounter = (nodeId: string, counterId: string): void => {
+    onGraphOp({ op: 'updateNodeProps', nodeId, counterId });
+  };
+
   const renderRow = (node: GraphNode): React.ReactNode => (
     <OutlineRowContent
       node={node}
       entriesById={entriesById}
       kindsById={kindsById}
       numbersById={numbersById}
+      counters={counters}
       onOpenEntry={onOpenEntry}
+      onUpdateNodeCounter={updateNodeCounter}
     />
   );
 
@@ -1041,6 +1067,7 @@ function OutlineEditor({
           kinds={graph.kinds}
           entriesById={entriesById}
           entryOptions={entryOptions}
+          counters={counters}
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
@@ -1091,6 +1118,7 @@ function OutlineEditor({
           kinds={graph.kinds}
           entriesById={entriesById}
           entryOptions={entryOptions}
+          counters={counters}
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
@@ -1114,7 +1142,9 @@ interface OutlineRowContentProps {
   entriesById: Map<string, EntryPoolItem>;
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
+  counters: CounterNode[];
   onOpenEntry: (entryId: string) => void;
+  onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
 }
 
 /**
@@ -1127,13 +1157,18 @@ function OutlineRowContent({
   entriesById,
   kindsById,
   numbersById,
-  onOpenEntry
+  counters,
+  onOpenEntry,
+  onUpdateNodeCounter
 }: OutlineRowContentProps): React.ReactElement {
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
   const kind = entry?.kind ? kindsById.get(entry.kind) : undefined;
   const num = numbersById.get(node.id);
+  const flatCounters = flattenCounters(counters);
+  const currentCounterId =
+    typeof node.props.counterId === 'string' ? node.props.counterId : '';
 
   const title = entry?.title ?? '';
   const displayTitle =
@@ -1199,6 +1234,37 @@ function OutlineRowContent({
           {displayTitle}
         </span>
       )}
+
+      {/* Per-entry counter override. Only meaningful when the row resolves
+          to an entry; <default> falls back to kind.defaultCounterName. */}
+      {entry ? (
+        <select
+          value={currentCounterId}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            onUpdateNodeCounter(node.id, e.target.value);
+          }}
+          title="Counter override for this entry (default = kind's default counter name)"
+          style={{
+            flexShrink: 0,
+            fontSize: '0.7rem',
+            maxWidth: '9rem',
+            background: 'var(--vscode-input-background, transparent)',
+            color: 'var(--vscode-input-foreground, inherit)',
+            border:
+              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+            borderRadius: '2px'
+          }}
+        >
+          <option value="">&lt;default&gt;</option>
+          {flatCounters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
 
       {/* Compact entryId badge — click to copy, so you can paste it into
           another library's Add form to reference this same entry. */}
@@ -1273,6 +1339,7 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
 function AddNodeForm({
   entriesById,
   entryOptions,
+  counters,
   state,
   onCancel,
   onCommit,
@@ -1289,10 +1356,12 @@ function AddNodeForm({
    * Cat 2026-07-09.
    */
   entryOptions: EntryOption[];
+  counters: CounterNode[];
   state: {
     parentId: string | null;
     insertAfter: string | null;
     entryId: string;
+    counterId?: string;
   };
   onCancel: () => void;
   onCommit: () => void;
@@ -1301,12 +1370,14 @@ function AddNodeForm({
       parentId: string | null;
       insertAfter: string | null;
       entryId: string;
+      counterId?: string;
     } | null
   ) => void;
 }): React.ReactElement {
   const entryIdTrimmed = state.entryId.trim();
   const isEmpty = entryIdTrimmed.length === 0;
   const referencedEntry = !isEmpty ? entriesById.get(entryIdTrimmed) : undefined;
+  const flatCounters = flattenCounters(counters);
 
   // Three states drive the visual language (cat 2026-07-06):
   //   1. empty        → "Create" button opens the CreateEntry panel
@@ -1383,7 +1454,8 @@ function AddNodeForm({
               onUpdate({
                 parentId: state.parentId,
                 insertAfter: state.insertAfter,
-                entryId: next
+                entryId: next,
+                counterId: state.counterId
               })
             }
             inputStyle={{
@@ -1411,6 +1483,46 @@ function AddNodeForm({
           </span>
         ) : null}
       </div>
+
+      {/* Optional counter override — only offered once the id resolves to a
+          real entry (a stub/create path has no counter to pin yet). */}
+      {mode === 'matched' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <label
+            htmlFor="snl-outline-counter"
+            style={{ fontSize: '0.8rem', opacity: 0.75 }}
+          >
+            Counter
+          </label>
+          <select
+            id="snl-outline-counter"
+            value={state.counterId ?? ''}
+            onChange={(e) =>
+              onUpdate({
+                parentId: state.parentId,
+                insertAfter: state.insertAfter,
+                entryId: state.entryId,
+                counterId: e.target.value
+              })
+            }
+            style={{
+              fontSize: '0.8rem',
+              background: 'var(--vscode-input-background, transparent)',
+              color: 'var(--vscode-input-foreground, inherit)',
+              border:
+                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+              borderRadius: '2px'
+            }}
+          >
+            <option value="">&lt;default&gt;</option>
+            {flatCounters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       <div
         style={{

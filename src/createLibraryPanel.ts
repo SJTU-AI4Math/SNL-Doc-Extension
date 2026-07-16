@@ -491,6 +491,8 @@ export class CreateLibraryPanel {
           const title = typeof op.title === 'string' ? op.title : '';
           const insertAfter =
             typeof op.insertAfter === 'string' ? op.insertAfter : null;
+          const counterId =
+            typeof op.counterId === 'string' ? op.counterId.trim() : '';
           // Validate parent exists in the graph (or is null for a root).
           if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
             void this.panel.webview.postMessage({
@@ -550,10 +552,14 @@ export class CreateLibraryPanel {
           }
           // Insert the graph node + branch edge.
           const nodeLocalId = generateLocalId(nodes);
+          const nodeProps: Record<string, unknown> = { entryId: entryUuid };
+          // Optional per-node counter override (2026-07-16). Empty = unset,
+          // falling back to the kind's defaultCounterName at numbering time.
+          if (counterId) nodeProps.counterId = counterId;
           nodes.push({
             id: nodeLocalId,
             label: 'Entry',
-            props: { entryId: entryUuid }
+            props: nodeProps
           });
           if (parentId !== null) {
             const newRel: GraphRelationshipDto = {
@@ -813,6 +819,35 @@ export class CreateLibraryPanel {
               from: grandparentId
             };
           }
+          break;
+        }
+        case 'updateNodeProps': {
+          // Per-node property patch (2026-07-16). Currently only `counterId`
+          // is patchable — an explicit counter override for this outline node.
+          // An empty/absent counterId clears the override (falls back to the
+          // kind's defaultCounterName at numbering time).
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          if (!nodeId) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: 'updateNodeProps: nodeId is required'
+            });
+            return;
+          }
+          const nodeIdx = nodes.findIndex((n) => n.id === nodeId);
+          if (nodeIdx < 0) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: `updateNodeProps: node "${nodeId}" not found`
+            });
+            return;
+          }
+          const counterId =
+            typeof op.counterId === 'string' ? op.counterId.trim() : '';
+          const nextProps: Record<string, unknown> = { ...nodes[nodeIdx].props };
+          if (counterId) nextProps.counterId = counterId;
+          else delete nextProps.counterId;
+          nodes[nodeIdx] = { ...nodes[nodeIdx], props: nextProps };
           break;
         }
         default:

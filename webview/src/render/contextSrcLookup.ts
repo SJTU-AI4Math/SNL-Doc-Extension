@@ -77,9 +77,10 @@ export function buildContextIndex(
   const idx = new Map<string, Set<string>>();
   for (const e of pool) {
     const snl = e.content?.snl ?? '';
-    if (!snl) continue;
-    const decls = extractExportedBinders(snl);
-    if (decls.size > 0) idx.set(e.id, decls);
+    const decls = snl ? extractExportedBinders(snl) : new Set<string>();
+    // Preserve empty declarations too: an existing entry that exports no
+    // matching binder is `srcResolvedNoDecl`, not `dangling`.
+    idx.set(e.id, decls);
   }
   return idx;
 }

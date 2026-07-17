@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { parseSnlSyntaxTree } from '@snl-basics/react';
 import {
   buildEntryMetricContext,
   computeEntryMetrics,
   type SnlMacroSourceLookup
 } from './EntryMetrics';
+import { applyContextSrcLookup } from '../render/contextSrcLookup';
 
 const macros: SnlMacroSourceLookup = {};
 
@@ -25,7 +27,7 @@ describe('computeEntryMetrics context sources', () => {
     });
 
     const noDeclaration = buildEntryMetricContext([
-      { id: 'ctx', content: { snl: 'context(@y)' } }
+      { id: 'ctx', content: { snl: 'context(y)' } }
     ]);
     expect(okMetrics(computeEntryMetrics('x@ctx', macros, noDeclaration))).toMatchObject({
       sourcedNodes: 0,
@@ -47,6 +49,21 @@ describe('computeEntryMetrics context sources', () => {
       totalNodes: 3,
       sourcedNodes: 1,
       semanticFreedom: 2
+    });
+  });
+
+  it('distinguishes dangling src from an entry with no matching declaration', () => {
+    const dangling = parseSnlSyntaxTree('x@missing');
+    applyContextSrcLookup(dangling, buildEntryMetricContext([]).contextIndex);
+    expect(dangling.mdata).toMatchObject({ srcStatus: 'dangling' });
+
+    const noDeclaration = parseSnlSyntaxTree('x@ctx');
+    const context = buildEntryMetricContext([
+      { id: 'ctx', content: { snl: 'context(y)' } }
+    ]);
+    applyContextSrcLookup(noDeclaration, context.contextIndex);
+    expect(noDeclaration.mdata).toMatchObject({
+      srcStatus: 'srcResolvedNoDecl'
     });
   });
 });

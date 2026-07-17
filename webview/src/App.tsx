@@ -15,11 +15,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { Button } from './components/Button';
 import {
-  EntryRender,
+  EntrySurface,
   type EntryOption,
   type EntryData,
   type EntryKind
-} from './render/EntryRender';
+} from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { SnlMacroDb } from '@snl-basics/react';
 
@@ -439,7 +439,7 @@ function OutlineTreeNode({
           />
         ) : null}
         {node.entry ? (
-          <EntryRender
+          <EntrySurface
             entry={node.entry}
             kind={node.kind}
             entries={ctx.entryPool}

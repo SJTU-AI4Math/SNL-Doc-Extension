@@ -23,11 +23,11 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  EntryRender,
+  EntrySurface,
   type EntryOption,
   type EntryData,
   type EntryKind
-} from './EntryRender';
+} from './EntrySurface';
 import type { SnlMacroDb } from '@snl-basics/react';
 import { popoverFrameStyle } from './popoverFrame';
 
@@ -513,7 +513,7 @@ export function HoverPopoverProvider({
                       Entry <code>{p.entryId}</code> not found in the shared pool.
                     </div>
                   ) : (
-                    <EntryRender
+                    <EntrySurface
                       entry={details[p.entryId].entry!}
                       kind={details[p.entryId].kind}
                       entries={entries}

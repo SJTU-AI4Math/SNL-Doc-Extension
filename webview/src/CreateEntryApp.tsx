@@ -49,11 +49,11 @@ import {
   ENTRY_VALIDATE_RULES
 } from './components/EntityIdSearchBox';
 import {
-  EntryRender,
+  EntrySurface,
   type EntryOption,
   type EntryData,
   type EntryKind as RenderEntryKind
-} from './render/EntryRender';
+} from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ function wireMacroToLib(m: WirePackageMacro): SnlMacro {
   return lib;
 }
 
-// Preview now routes through <EntryRender>, which owns its own source
+// Preview now routes through <EntrySurface>, which owns its own source
 // resolution against the entry pool. The bespoke PREVIEW_HOOKS constant
 // (used by the old SnlSyntaxTreeView-based preview) is no longer needed.
 
@@ -764,7 +764,7 @@ export function CreateEntryApp(): React.ReactElement {
 }
 
 /**
- * Live preview for the Entry editor. Routes through the SAME `<EntryRender>`
+ * Live preview for the Entry editor. Routes through the SAME `<EntrySurface>`
  * that the Infoview / hover popovers use, so the WYSIWYG surface exactly
  * matches what a reader will see. Body-surface dispatch (snl > markdown >
  * latex > text) is owned by EntryRender itself — we just feed the full
@@ -832,7 +832,7 @@ function LivePreview({
       entries={entries}
       userMacros={userMacros}
     >
-      <EntryRender
+      <EntrySurface
         entry={entry}
         kind={renderKind}
         entries={entries}

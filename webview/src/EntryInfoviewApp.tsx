@@ -5,13 +5,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import {
-  EntryRender,
+  EntrySurface,
   type EntryOption,
   type EntryData,
   type EntryKind
-} from './render/EntryRender';
+} from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { SnlMacroDb } from '@snl-basics/react';
+import { Disclosure } from './components/Disclosure';
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 interface RelatedRow {
@@ -125,7 +126,7 @@ export function EntryInfoviewApp(): React.ReactElement {
             >
               ✎ Edit
             </button>
-            <EntryRender
+            <EntrySurface
               entry={state.entry}
               kind={state.kind}
               entries={state.entries}
@@ -179,6 +180,7 @@ function RelatedSection({
 }): React.ReactElement {
   const [open, setOpen] = useState<boolean>(true);
   const count = rows.length;
+  const panelId = `related-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <section
       style={{
@@ -188,21 +190,32 @@ function RelatedSection({
         paddingTop: '0.4rem'
       }}
     >
-      <header
-        onClick={() => setOpen((v) => !v)}
+      <Disclosure
+        expanded={open}
+        controls={panelId}
+        onToggle={() => setOpen((v) => !v)}
         style={{
           cursor: 'pointer',
           display: 'flex',
+          width: '100%',
           alignItems: 'baseline',
           gap: '0.6rem',
-          userSelect: 'none'
+          userSelect: 'none',
+          padding: 0,
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          font: 'inherit',
+          textAlign: 'left'
         }}
         title={description}
       >
         <span style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
           {open ? '▾' : '▸'}
         </span>
-        <h2
+        <span
+          role="heading"
+          aria-level={2}
           style={{
             margin: 0,
             fontSize: '1rem',
@@ -210,11 +223,11 @@ function RelatedSection({
           }}
         >
           {title}
-        </h2>
+        </span>
         <span style={{ opacity: 0.55, fontSize: '0.8rem' }}>({count})</span>
-      </header>
+      </Disclosure>
       {open ? (
-        <div style={{ padding: '0.35rem 0 0.4rem 1.6em' }}>
+        <div id={panelId} style={{ padding: '0.35rem 0 0.4rem 1.6em' }}>
           {count === 0 ? (
             <p style={{ opacity: 0.55, fontSize: '0.85rem', margin: 0, fontStyle: 'italic' }}>
               {emptyHint}

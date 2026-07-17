@@ -31,6 +31,7 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -89,6 +90,7 @@ type Incoming =
       entryPoolIds?: string[];
     }
   | { type: 'noFile'; file: string }
+  | { type: 'batchCancelled' }
   | { type: 'error'; message: string }
   | undefined;
 
@@ -268,6 +270,9 @@ export function PackagePanelApp(): React.ReactElement {
         case 'noFile':
           setModel({ kind: 'noFile', file: msg.file });
           break;
+        case 'batchCancelled':
+          pendingActionRef.current = null;
+          break;
         case 'error':
           // A batch failure keeps the panel intact — surface a toast and let
           // the user retry. Only a load-time error (no package yet) is fatal.
@@ -339,6 +344,11 @@ export function PackagePanelApp(): React.ReactElement {
     // via the batchDelete message and prompts before mutating.
     pendingActionRef.current = `Deleted ${names.length} macro${names.length === 1 ? '' : 's'}.`;
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
+  };
+
+  const deleteMacro = (name: string): void => {
+    pendingActionRef.current = 'Deleted 1 macro.';
+    apiRef.current?.postMessage({ type: 'batchDelete', macroNames: [name] });
   };
 
   const submitBatchTransfer = (params: {
@@ -502,6 +512,7 @@ export function PackagePanelApp(): React.ReactElement {
           macroKinds={macroKinds}
           entryPoolIds={entryPoolIds}
           onEdit={editMacro}
+          onDelete={deleteMacro}
           selectMode={selectMode}
           selectedNames={selectedNames}
           onToggleSelect={toggleSelect}
@@ -632,6 +643,7 @@ function MacroTable({
   macroKinds,
   entryPoolIds,
   onEdit,
+  onDelete,
   selectMode,
   selectedNames,
   onToggleSelect
@@ -640,6 +652,7 @@ function MacroTable({
   macroKinds: MacroKind[];
   entryPoolIds: Set<string>;
   onEdit: (name: string) => void;
+  onDelete: (name: string) => void;
   selectMode: boolean;
   selectedNames: Set<string>;
   onToggleSelect: (name: string) => void;
@@ -705,8 +718,9 @@ function MacroTable({
           <th style={{ ...HEAD, width: '11rem' }}>Style</th>
           <th style={{ ...HEAD, width: '13rem' }}>Macro Tags</th>
           <th style={{ ...HEAD, width: '13rem' }}>Style Tags</th>
-          {/* Description last: it can be long and wrapping is fine here. */}
+          {/* Description can be long and wrapping is fine here. */}
           <th style={HEAD}>Description</th>
+          <th style={{ ...HEAD, width: '3rem', textAlign: 'center' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -720,6 +734,7 @@ function MacroTable({
             previewQuery={previewQuery}
             previewHooks={previewHooks}
             onEdit={onEdit}
+            onDelete={onDelete}
             selectMode={selectMode}
             selected={selectedNames.has(m.name)}
             onToggleSelect={onToggleSelect}
@@ -748,6 +763,7 @@ function MacroRowGroup({
   previewQuery,
   previewHooks,
   onEdit,
+  onDelete,
   selectMode,
   selected,
   onToggleSelect
@@ -759,6 +775,7 @@ function MacroRowGroup({
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: (name: string) => void;
@@ -789,6 +806,7 @@ function MacroRowGroup({
         previewQuery={previewQuery}
         previewHooks={previewHooks}
         onEdit={onEdit}
+        onDelete={onDelete}
         selectMode={selectMode}
         selected={selected}
         onToggleSelect={onToggleSelect}
@@ -811,6 +829,7 @@ function MacroRowGroup({
               previewQuery={previewQuery}
               previewHooks={previewHooks}
               onEdit={onEdit}
+              onDelete={onDelete}
               selectMode={false}
               selected={false}
               onToggleSelect={onToggleSelect}
@@ -846,6 +865,7 @@ function MacroStyleRow({
   previewQuery,
   previewHooks,
   onEdit,
+  onDelete,
   selectMode,
   selected,
   onToggleSelect
@@ -865,6 +885,7 @@ function MacroStyleRow({
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: (name: string) => void;
@@ -1051,6 +1072,25 @@ function MacroStyleRow({
       {/* Description: macro-level. */}
       <td style={{ ...CELL, opacity: 0.85 }}>
         {showMacroLevel ? (macro.description ?? '') : <Dash />}
+      </td>
+      <td style={{ ...CELL, textAlign: 'center' }}>
+        {showMacroLevel && !selectMode ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            title={`Delete macro ${macro.name}`}
+            aria-label={`Delete macro ${macro.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(macro.name);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            🗑
+          </Button>
+        ) : (
+          <Dash />
+        )}
       </td>
     </tr>
   );

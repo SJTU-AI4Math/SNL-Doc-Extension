@@ -265,7 +265,10 @@ export class PackagePanel {
           },
           'Delete'
         );
-        if (confirmed !== 'Delete') return;
+        if (confirmed !== 'Delete') {
+          void this.panel.webview.postMessage({ type: 'batchCancelled' });
+          return;
+        }
         await this.runBatch(async (root) => {
           const res = await batchDeleteMacros(root, this.file, names);
           if (res.status === 'ok') return null;

@@ -43,6 +43,7 @@ import {
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { isEntityIdUnique } from './components/formValidation';
+import { ensureTreeIdentity, treeIdentity } from './components/treeIdentity';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -1137,9 +1138,13 @@ function GuiInductiveEditor({
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
-  const [tree, setTree] = useState<SnlSyntaxTree>(() => parseOrDefault(snl));
+  const [tree, setTree] = useState<SnlSyntaxTree>(() => {
+    const initial = parseOrDefault(snl);
+    ensureTreeIdentity(initial);
+    return initial;
+  });
   const [parseError, setParseError] = useState<string | null>(null);
-  // Collapsed paths (dotted, root = ''; children = '0', '0.1', ...).
+  // Collapse follows stable UI node identity, not a dotted array-index path.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const lastSerializedRef = useRef<string>(serializeTreePreserving(tree));
@@ -1148,6 +1153,7 @@ function GuiInductiveEditor({
     if (snl === lastSerializedRef.current) return;
     const parsed = tryParseSnlSyntaxTree(snl.trim() || '_snl_stub');
     if (parsed.ok) {
+      ensureTreeIdentity(parsed.tree);
       setTree(parsed.tree);
       setParseError(null);
       lastSerializedRef.current = serializeTreePreserving(parsed.tree);
@@ -1158,6 +1164,7 @@ function GuiInductiveEditor({
 
   const propagate = useCallback(
     (nextTree: SnlSyntaxTree): void => {
+      ensureTreeIdentity(nextTree);
       setTree(nextTree);
       // Filter empty-name childless leaves before serializing. `+ child`
       // creates a placeholder row with name='' so the user can type into
@@ -1189,11 +1196,11 @@ function GuiInductiveEditor({
     [tree, propagate]
   );
 
-  const toggleCollapsed = useCallback((path: string): void => {
+  const toggleCollapsed = useCallback((nodeId: string): void => {
     setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
       return next;
     });
   }, []);
@@ -1494,7 +1501,7 @@ function InductiveNode({
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
-  onToggleCollapsed: (path: string) => void;
+  onToggleCollapsed: (nodeId: string) => void;
   /**
    * Path-based structural ops routed to the top-level GuiInductiveEditor
    * (cat 2026-07-15). Row-side buttons '+ parent', '⇥ indent', '⇤ outdent',
@@ -1506,6 +1513,7 @@ function InductiveNode({
     path: string
   ) => void;
 }): React.ReactElement {
+  const nodeId = treeIdentity(node);
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
   );
@@ -1538,7 +1546,7 @@ function InductiveNode({
         // Expand the row so the newly-created child slots are visible
         // immediately — otherwise the user just sees the frame border
         // change color and has no cue that slots opened.
-        if (collapsed.has(path)) onToggleCollapsed(path);
+        if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
       }
     }
     onChange({
@@ -1561,7 +1569,7 @@ function InductiveNode({
   const addChild = (): void => {
     // New child inherits nothing — empty leaf. Expand the parent so the new
     // child is visible immediately.
-    if (collapsed.has(path)) onToggleCollapsed(path);
+    if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
     onChange({
       ...node,
       children: [...node.children, createSnlSyntaxTreeNode('')]
@@ -1578,7 +1586,7 @@ function InductiveNode({
   };
 
   const hasKids = node.children.length > 0;
-  const isCollapsed = collapsed.has(path);
+  const isCollapsed = collapsed.has(nodeId);
   const effectiveKind = resolveRowKind(node, macroDb);
   const palette = paletteFor(effectiveKind);
   const macroEntry = macroDb[node.name];
@@ -1641,7 +1649,7 @@ function InductiveNode({
         {hasKids ? (
           <button
             type="button"
-            onClick={() => onToggleCollapsed(path)}
+            onClick={() => onToggleCollapsed(nodeId)}
             style={chevronButtonStyle}
             aria-label={isCollapsed ? 'Expand' : 'Collapse'}
             title={isCollapsed ? 'Expand' : 'Collapse'}
@@ -1883,7 +1891,7 @@ function InductiveNode({
               numberPath === '' ? String(i + 1) : `${numberPath}.${i + 1}`;
             return (
               <InductiveNode
-                key={i}
+                key={treeIdentity(child)}
                 node={child}
                 path={childPath}
                 numberPath={childNumber}

@@ -75,7 +75,7 @@ export class PackagePanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

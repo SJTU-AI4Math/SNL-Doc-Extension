@@ -63,7 +63,7 @@ export class CreateMacroKindPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

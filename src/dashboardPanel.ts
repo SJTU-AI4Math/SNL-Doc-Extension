@@ -59,7 +59,7 @@ export class DashboardPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

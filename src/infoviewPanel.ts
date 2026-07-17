@@ -128,7 +128,7 @@ export class InfoviewPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
@@ -171,7 +171,7 @@ export class InfoviewPanel {
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

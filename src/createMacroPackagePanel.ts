@@ -73,7 +73,7 @@ export class CreateMacroPackagePanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: true,
+        retainContextWhenHidden: false,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

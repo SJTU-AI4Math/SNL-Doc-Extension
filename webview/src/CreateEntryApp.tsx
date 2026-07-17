@@ -38,7 +38,6 @@ import {
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
@@ -740,26 +739,21 @@ export function CreateEntryApp(): React.ReactElement {
 
         {/* 7. Submit / Cancel ========================================= */}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={handleSubmit}
             disabled={!canCreate}
-            style={primaryButton(canCreate)}
           >
             {status.kind === 'creating'
               ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
               : mode === 'edit' ? 'Update Entry' : 'Create Entry'}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={handleCancel}
-            style={{
-              ...primaryButton(true),
-              background: 'var(--vscode-button-secondaryBackground, #444)'
-            }}
           >
             {mode === 'edit' ? 'Reset banner' : 'Cancel'}
-          </button>
+          </Button>
         </div>
 
         <StatusLine status={status} />

@@ -53,10 +53,10 @@ import {
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
@@ -1239,16 +1239,15 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Submit --------------------------------------------------------- */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-        <button
-          type="button"
+        <Button
+          variant="primary"
           onClick={handleSubmit}
           disabled={!canCreate}
-          style={primaryButton(canCreate)}
         >
           {status.kind === 'creating'
             ? panelMode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
             : panelMode === 'edit' ? 'Update Macro' : 'Create Macro'}
-        </button>
+        </Button>
         {/* 猫猫: 保存成功提示应放在按钮右侧 + 时间戳 + 5s 自动消失 */}
         <SavedInline status={status} />
         <span style={{ opacity: 0.6, fontSize: '0.85rem', marginLeft: 'auto' }}>

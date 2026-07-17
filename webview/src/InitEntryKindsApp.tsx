@@ -6,10 +6,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 
 interface PresetOption {
   id: string;
@@ -209,14 +209,13 @@ export function InitEntryKindsApp(): React.ReactElement {
         </p>
       ) : null}
 
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={handleApply}
         disabled={!canApply}
-        style={primaryButton(canApply)}
       >
         {status.kind === 'applying' ? 'Applying…' : 'Apply Preset'}
-      </button>
+      </Button>
 
       <StatusLine status={status} presets={presets} />
     </main>

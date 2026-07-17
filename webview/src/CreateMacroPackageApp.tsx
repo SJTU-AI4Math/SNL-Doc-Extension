@@ -10,10 +10,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 
 type Mode = 'create' | 'edit';
 
@@ -265,16 +265,15 @@ export function CreateMacroPackageApp(): React.ReactElement {
         style={{ ...inputStyle, marginBottom: '1rem', resize: 'vertical' }}
       />
 
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={handleSubmit}
         disabled={!canSubmit}
-        style={primaryButton(canSubmit)}
       >
         {status.kind === 'creating'
           ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
           : mode === 'edit' ? 'Update Package' : 'Create Package'}
-      </button>
+      </Button>
 
       <StatusLine status={status} />
     </main>

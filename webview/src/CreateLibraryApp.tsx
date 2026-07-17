@@ -15,10 +15,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import { Button } from './components/Button';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
@@ -420,16 +420,15 @@ export function CreateLibraryApp(): React.ReactElement {
         </>
       )}
 
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={handleSubmit}
         disabled={!canSubmit}
-        style={primaryButton(canSubmit)}
       >
         {status.kind === 'creating'
           ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
           : mode === 'edit' ? 'Update Title' : 'Create Library'}
-      </button>
+      </Button>
 
       <StatusLine status={status} />
 

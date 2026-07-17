@@ -9,10 +9,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -254,16 +254,16 @@ export function CreateEntryKindApp(): React.ReactElement {
         mono
       />
 
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={handleSubmit}
         disabled={!canSubmit}
-        style={{ ...primaryButton(canSubmit), marginTop: '0.5rem' }}
+        style={{ marginTop: '0.5rem' }}
       >
         {status.kind === 'creating'
           ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
           : mode === 'edit' ? 'Update Entry Kind' : 'Create Entry Kind'}
-      </button>
+      </Button>
 
       <StatusLine status={status} />
     </main>

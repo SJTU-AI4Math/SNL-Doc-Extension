@@ -18,6 +18,7 @@ import {
   ENTRY_VALIDATE_RULES
 } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
+import { isEntityIdUnique } from './components/formValidation';
 
 type Mode = 'create' | 'edit';
 
@@ -145,6 +146,7 @@ export function CreateEntryKindApp(): React.ReactElement {
   const canSubmit =
     trimmedId.length > 0 &&
     trimmedName.length > 0 &&
+    isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     status.kind !== 'creating';
 
   function handleSubmit(): void {

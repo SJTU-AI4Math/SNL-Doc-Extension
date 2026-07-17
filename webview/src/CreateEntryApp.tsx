@@ -43,6 +43,7 @@ import {
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
+import { isEntityIdUnique } from './components/formValidation';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -383,6 +384,7 @@ export function CreateEntryApp(): React.ReactElement {
     kinds.length > 0 &&
     trimmedTitle.length > 0 &&
     trimmedId.length > 0 &&
+    isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
     status.kind !== 'creating';
 

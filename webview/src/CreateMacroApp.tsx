@@ -59,6 +59,7 @@ import {
 import { PanelNav } from './components/PanelNav';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
+import { areEntityReferencesResolved } from './components/formValidation';
 
 // ---------------------------------------------------------------------------
 // Preview constants
@@ -729,6 +730,7 @@ export function CreateMacroApp(): React.ReactElement {
     !templateEmpty &&
     !hasEmptyTag &&
     !hasDupTag &&
+    areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
   function setArg(i: number, value: string): void {

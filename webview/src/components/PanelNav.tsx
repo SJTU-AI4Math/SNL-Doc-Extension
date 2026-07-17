@@ -24,6 +24,7 @@
 import React from 'react';
 import type { VsCodeApi } from '../vscodeApi';
 import { Button } from './Button';
+import { formatDirectionalLabel } from './interactionModel';
 
 export interface PanelNavAction {
   /** Text on the button. Kept terse. */
@@ -74,7 +75,7 @@ export function PanelNav({
         title={back.title ?? back.label}
         onClick={() => vsApi?.postMessage(back.message)}
       >
-        {`← ${back.label}`}
+        {formatDirectionalLabel('back', back.label)}
       </Button>
       <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
         {/* Cat 2026-07-13: universal manual refresh — data-file changes
@@ -97,7 +98,7 @@ export function PanelNav({
             title={viewInInfoview.title ?? viewInInfoview.label}
             onClick={() => vsApi?.postMessage(viewInInfoview.message)}
           >
-            {`${viewInInfoview.label} →`}
+            {formatDirectionalLabel('forward', viewInInfoview.label)}
           </Button>
         ) : null}
       </div>

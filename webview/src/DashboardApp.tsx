@@ -25,6 +25,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './components/Button';
+import { RowPrimaryButton } from './components/RowPrimaryButton';
+import { shouldStopRowActivation } from './components/interactionModel';
 import {
   buildEntryMetricContext,
   computeEntryMetrics,
@@ -733,6 +735,7 @@ function LibrariesTable({
             key={lib.slug}
             label={`Edit library ${lib.slug}`}
             onActivate={() => onOpen(lib.slug)}
+            primaryCellIndex={0}
           >
             <td style={CELL}>{lib.title}</td>
             <td style={{ ...CELL, ...MONO }}>{lib.slug}</td>
@@ -787,6 +790,7 @@ function MacroPackagesTable({
             key={pkg.file}
             label={`Open macro package ${pkg.file}`}
             onActivate={() => onOpen(pkg.file)}
+            primaryCellIndex={1}
           >
             <td style={{ ...CELL, textAlign: 'center' }}>
               <input
@@ -799,6 +803,9 @@ function MacroPackagesTable({
                     : 'Inactive — excluded from readAllMacros'
                 }
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (shouldStopRowActivation(e.key)) e.stopPropagation();
+                }}
                 onChange={(e) => onSetActive(pkg.file, e.target.checked)}
                 style={{ cursor: 'pointer' }}
               />
@@ -872,25 +879,31 @@ function RowDeleteCell({
 function ClickableRow({
   label,
   onActivate,
+  primaryCellIndex,
   children
 }: {
   label: string;
   onActivate: () => void;
+  primaryCellIndex: number;
   children: React.ReactNode;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
+  const cells = React.Children.toArray(children) as React.ReactElement<{
+    children?: React.ReactNode;
+  }>[];
+  const primaryCell = cells[primaryCellIndex];
+  if (primaryCell) {
+    cells[primaryCellIndex] = React.cloneElement(
+      primaryCell,
+      {},
+      <RowPrimaryButton label={label} onActivate={onActivate}>
+        {primaryCell.props.children}
+      </RowPrimaryButton>
+    );
+  }
   return (
     <tr
-      role="button"
-      tabIndex={0}
-      aria-label={label}
       onClick={onActivate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onActivate();
-        }
-      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onFocus={() => setHover(true)}
@@ -902,7 +915,7 @@ function ClickableRow({
           : 'transparent'
       }}
     >
-      {children}
+      {cells}
     </tr>
   );
 }
@@ -941,6 +954,7 @@ function EntryKindsTable({
             key={kind.id}
             label={`Edit entry kind ${kind.id}`}
             onActivate={() => onOpen(kind.id)}
+            primaryCellIndex={1}
           >
             <td style={CELL}>
               <KindPreview
@@ -1001,6 +1015,7 @@ function MacroKindsTable({
             key={kind.id}
             label={`Edit macro kind ${kind.id}`}
             onActivate={() => onOpen(kind.id)}
+            primaryCellIndex={1}
           >
             <td style={CELL}>
               <KindPreview
@@ -1117,6 +1132,7 @@ function EntriesTable({
               key={entry.id}
               label={`Edit entry ${entry.title}`}
               onActivate={() => onOpen(entry.id)}
+              primaryCellIndex={1}
             >
               <td style={CELL}>
                 <KindPreview
@@ -1217,6 +1233,7 @@ function RelationshipsTable({
             key={r.id}
             label={`Edit relationship ${r.id}`}
             onActivate={() => onOpen(r.id)}
+            primaryCellIndex={0}
           >
             <td style={{ ...CELL, ...MONO }}>{r.id}</td>
             <td style={CELL}>

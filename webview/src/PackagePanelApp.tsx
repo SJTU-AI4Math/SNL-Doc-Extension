@@ -32,6 +32,8 @@ import {
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
+import { RowPrimaryButton } from './components/RowPrimaryButton';
+import { shouldStopRowActivation } from './components/interactionModel';
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -909,23 +911,7 @@ function MacroStyleRow({
           : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.02))';
   return (
     <tr
-      role="button"
-      tabIndex={0}
-      aria-label={
-        selectMode
-          ? `${selected ? 'Deselect' : 'Select'} macro ${macro.name}`
-          : isDefault
-            ? `Edit macro ${macro.name}`
-            : `Edit macro ${macro.name} — style ${styleTag}`
-      }
-      aria-pressed={selectMode ? selected : undefined}
       onClick={activate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          activate();
-        }
-      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onFocus={() => setHover(true)}
@@ -955,6 +941,9 @@ function MacroStyleRow({
             checked={selected}
             aria-label={`Select macro ${macro.name}`}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (shouldStopRowActivation(e.key)) e.stopPropagation();
+            }}
             onChange={() => onToggleSelect(macro.name)}
             style={{ cursor: 'pointer' }}
           />
@@ -1018,7 +1007,18 @@ function MacroStyleRow({
       </td>
       {/* Name: macro-level. */}
       <td style={{ ...CELL, ...MONO }}>
-        {showMacroLevel ? macro.name : <Dash />}
+        <RowPrimaryButton
+          label={
+            selectMode
+              ? `${selected ? 'Deselect' : 'Select'} macro ${macro.name}`
+              : isDefault
+                ? `Edit macro ${macro.name}`
+                : `Edit macro ${macro.name} — style ${styleTag}`
+          }
+          onActivate={activate}
+        >
+          {showMacroLevel ? macro.name : <Dash />}
+        </RowPrimaryButton>
       </td>
       {/* Arity: macro-level. */}
       <td style={CELL}>{showMacroLevel ? arityLabel(macro) : <Dash />}</td>

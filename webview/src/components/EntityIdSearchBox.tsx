@@ -49,6 +49,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntryOption } from '../render/EntryRender';
+import { entitySearchKeyAction } from './interactionModel';
 
 /**
  * Verdict returned by a {@link EntityValidateFn}.
@@ -210,6 +211,7 @@ export function EntityIdSearchBox(
     `entityid-search-${Math.random().toString(36).slice(2, 10)}`
   );
   const inputId = idPrefix ?? generatedIdRef.current;
+  const listboxId = `${inputId}-results`;
 
   const trimmed = value.trim();
   const results = useMemo(() => {
@@ -264,16 +266,20 @@ export function EntityIdSearchBox(
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    const navigation = entitySearchKeyAction(
+      e.key,
+      highlightIdx,
+      results.length,
+      open
+    );
+    if (navigation) {
+      e.preventDefault();
+      setHighlightIdx(navigation.index);
+      setOpen(navigation.open);
+      if (navigation.blur) inputRef.current?.blur();
+      return;
+    }
     switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        if (!open) setOpen(true);
-        setHighlightIdx((i) => Math.min(i + 1, results.length - 1));
-        return;
-      case 'ArrowUp':
-        e.preventDefault();
-        setHighlightIdx((i) => Math.max(i - 1, 0));
-        return;
       case 'Enter':
         e.preventDefault();
         if (open && results[highlightIdx]) {
@@ -284,10 +290,6 @@ export function EntityIdSearchBox(
           // itself never eats the keystroke.
           setOpen(false);
         }
-        return;
-      case 'Escape':
-        e.preventDefault();
-        setOpen(false);
         return;
       default:
         return;
@@ -349,6 +351,15 @@ export function EntityIdSearchBox(
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open && results.length > 0}
+        aria-controls={listboxId}
+        aria-activedescendant={
+          open && results[highlightIdx]
+            ? `${listboxId}-option-${highlightIdx}`
+            : undefined
+        }
         aria-invalid={verdict?.status === 'error'}
         style={{
           width: '100%',
@@ -423,6 +434,7 @@ export function EntityIdSearchBox(
 
       {open && results.length > 0 ? (
         <ul
+          id={listboxId}
           role="listbox"
           style={{
             position: 'absolute',
@@ -447,6 +459,7 @@ export function EntityIdSearchBox(
             const isHighlight = i === highlightIdx;
             return (
               <li
+                id={`${listboxId}-option-${i}`}
                 key={e.id}
                 role="option"
                 aria-selected={isHighlight}

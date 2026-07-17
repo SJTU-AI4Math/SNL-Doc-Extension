@@ -21,6 +21,12 @@
 
 import React, { useState } from 'react';
 import { Button } from './Button';
+import {
+  TREE_OUTLINE_TOOLBAR_CSS,
+  treeDisclosureA11y,
+  treeRowCapabilities,
+  treeRowStyle
+} from './interactionModel';
 
 /**
  * Structural mutation surfaced by the row toolbar. Generic over the node id;
@@ -59,21 +65,9 @@ function ensureHoverStyle(): void {
   if (document.getElementById(HOVER_STYLE_TAG_ID)) return;
   const tag = document.createElement('style');
   tag.id = HOVER_STYLE_TAG_ID;
-  // Cat 2026-07-09 (carried over from OutlineRow): pure-CSS hover reveal for
-  // the per-row toolbar. `opacity` (not visibility) keeps buttons
-  // tab-focusable + hit-testable while hidden; `:focus-within` keeps them
-  // visible during keyboard use. See the OutlineRow bug note for why
-  // React-state hover tracking is unsafe here.
-  tag.textContent = `
-    .snl-outline-row-toolbar {
-      opacity: 0;
-      transition: opacity 90ms ease-in;
-    }
-    .snl-outline-row:hover .snl-outline-row-toolbar,
-    .snl-outline-row:focus-within .snl-outline-row-toolbar {
-      opacity: 1;
-    }
-  `;
+  // Keep hidden controls keyboard-focusable, but not mouse-hit-testable.
+  // :focus-within reveals the toolbar before a focused control is operated.
+  tag.textContent = TREE_OUTLINE_TOOLBAR_CSS;
   document.head.appendChild(tag);
 }
 
@@ -111,7 +105,8 @@ export function TreeOutlineEditor<T>({
           key={getId(node)}
           node={node}
           depth={0}
-          hasPrevSibling={index > 0}
+          siblingIndex={index}
+          siblingCount={roots.length}
           hasParent={false}
           getId={getId}
           getChildren={getChildren}
@@ -129,7 +124,8 @@ export function TreeOutlineEditor<T>({
 interface TreeRowProps<T> {
   node: T;
   depth: number;
-  hasPrevSibling: boolean;
+  siblingIndex: number;
+  siblingCount: number;
   hasParent: boolean;
   getId: (node: T) => string;
   getChildren: (node: T) => T[];
@@ -143,7 +139,8 @@ interface TreeRowProps<T> {
 function TreeRow<T>({
   node,
   depth,
-  hasPrevSibling,
+  siblingIndex,
+  siblingCount,
   hasParent,
   getId,
   getChildren,
@@ -161,8 +158,9 @@ function TreeRow<T>({
   // Indent needs a previous sibling to nest under; outdent needs a parent to
   // escape to. Roots have no parent (outdent disabled) and indent iff a
   // previous root exists.
-  const canIndent = hasPrevSibling;
-  const canOutdent = hasParent;
+  const { canIndent, canOutdent, canMoveUp, canMoveDown } =
+    treeRowCapabilities(siblingIndex, siblingCount, hasParent);
+  const childrenId = `tree-children-${encodeURIComponent(id)}`;
 
   return (
     <li style={{ marginBottom: '0.15rem' }}>
@@ -172,8 +170,7 @@ function TreeRow<T>({
           display: 'flex',
           alignItems: 'center',
           gap: '0.4rem',
-          paddingLeft: `${depth * 1.5}rem`,
-          padding: '0.3rem 0',
+          ...treeRowStyle(depth),
           borderBottom:
             '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
           // Depth-tinted background (matches the macro-style pattern): deeper
@@ -191,6 +188,7 @@ function TreeRow<T>({
             onClick={() => onToggleCollapsed(id)}
             style={disclosureButtonStyle()}
             aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+            {...treeDisclosureA11y(!isCollapsed, childrenId)}
             title={isCollapsed ? 'Expand' : 'Collapse'}
           >
             {isCollapsed ? '▶' : '▼'}
@@ -237,12 +235,14 @@ function TreeRow<T>({
           />
           <ToolbarButton
             label="↑"
-            title="Move up (swap with previous sibling)"
+            title={canMoveUp ? 'Move up (swap with previous sibling)' : 'Move up unavailable — already first among siblings'}
+            disabled={!canMoveUp}
             onClick={() => onOp({ kind: 'move', id, direction: 'up' })}
           />
           <ToolbarButton
             label="↓"
-            title="Move down (swap with next sibling)"
+            title={canMoveDown ? 'Move down (swap with next sibling)' : 'Move down unavailable — already last among siblings'}
+            disabled={!canMoveDown}
             onClick={() => onOp({ kind: 'move', id, direction: 'down' })}
           />
           <ToolbarButton
@@ -256,14 +256,19 @@ function TreeRow<T>({
 
       {renderAfterRow ? renderAfterRow(node, depth) : null}
 
-      {!isCollapsed && hasKids ? (
-        <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+      {hasKids ? (
+        <ol
+          id={childrenId}
+          hidden={isCollapsed}
+          style={{ listStyle: 'none', padding: 0, margin: 0 }}
+        >
           {kids.map((kid, kidIndex) => (
             <TreeRow
               key={getId(kid)}
               node={kid}
               depth={depth + 1}
-              hasPrevSibling={kidIndex > 0}
+              siblingIndex={kidIndex}
+              siblingCount={kids.length}
               hasParent
               getId={getId}
               getChildren={getChildren}

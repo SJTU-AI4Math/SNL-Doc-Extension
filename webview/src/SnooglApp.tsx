@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import {
+  listboxKeyAction,
+  matchesPendingQuery,
+  queryKey
+} from './components/interactionModel';
 
 /**
  * SNoogL — the SNL search page (cat 2026-07-12).
@@ -63,6 +68,20 @@ export function SnooglApp(): React.ReactElement {
   const [results, setResults] = useState<Hit[]>([]);
   const [kindsByMode, setKindsByMode] = useState<KindsByMode>({ entry: [], macro: [] });
   const [error, setError] = useState<string | null>(null);
+  const queryTimerRef = useRef<number | null>(null);
+  const pendingQueryKeyRef = useRef<string | null>(null);
+
+  const dispatchQuery = (
+    query: { q: string; mode: Mode; filters: Filters },
+    cancelMatchingDebounce = false
+  ): void => {
+    if (cancelMatchingDebounce && matchesPendingQuery(pendingQueryKeyRef.current, query)) {
+      if (queryTimerRef.current !== null) window.clearTimeout(queryTimerRef.current);
+      queryTimerRef.current = null;
+      pendingQueryKeyRef.current = null;
+    }
+    apiRef.current?.postMessage({ type: 'query', ...query });
+  };
 
   // Send `query` messages on every change. Trivially debounced via a
   // 120ms timer so a burst of typing doesn't spam postMessage.
@@ -108,15 +127,23 @@ export function SnooglApp(): React.ReactElement {
   // over time; keep the shape stable now so future filter fields drop
   // straight into `filters`.
   useEffect(() => {
+    const query = { q, mode, filters };
+    const key = queryKey(query);
+    pendingQueryKeyRef.current = key;
     const handle = window.setTimeout(() => {
-      apiRef.current?.postMessage({
-        type: 'query',
-        q,
-        mode,
-        filters
-      });
+      if (pendingQueryKeyRef.current !== key) return;
+      pendingQueryKeyRef.current = null;
+      queryTimerRef.current = null;
+      dispatchQuery(query);
     }, 120);
-    return () => window.clearTimeout(handle);
+    queryTimerRef.current = handle;
+    return () => {
+      window.clearTimeout(handle);
+      if (pendingQueryKeyRef.current === key) pendingQueryKeyRef.current = null;
+      if (queryTimerRef.current === handle) queryTimerRef.current = null;
+    };
+    // dispatchQuery intentionally closes over this effect's q/mode/filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, mode, filters]);
 
   // Kind dropdown options track the active mode. When you flip modes, a
@@ -163,9 +190,9 @@ export function SnooglApp(): React.ReactElement {
         mode={mode}
         setMode={setMode}
         onSubmit={() => {
-          // Enter triggers an immediate, undebounced push so the user
-          // can commit mid-typing without waiting on the 120ms window.
-          apiRef.current?.postMessage({ type: 'query', q, mode, filters });
+          // Send immediately after cancelling the matching pending debounce,
+          // so one Enter press produces exactly one host query.
+          dispatchQuery({ q, mode, filters }, true);
         }}
       />
 
@@ -371,6 +398,7 @@ function ResultList({
   onOpen: (h: Hit) => void;
 }): React.ReactElement {
   const [activeIdx, setActiveIdx] = useState(0);
+  const listboxId = `snoogl-${mode}-results`;
 
   // Reset selection when the result set shifts.
   useEffect(() => {
@@ -403,7 +431,18 @@ function ResultList({
   return (
     <ul
       role="listbox"
+      id={listboxId}
+      tabIndex={0}
       aria-label={`${mode} results`}
+      aria-activedescendant={`${listboxId}-option-${activeIdx}`}
+      onKeyDown={(event) => {
+        const action = listboxKeyAction(event.key, activeIdx, results.length);
+        if (!action) return;
+        event.preventDefault();
+        setActiveIdx(action.index);
+        if (action.activate) onOpen(results[action.index]);
+        if (action.blur) event.currentTarget.blur();
+      }}
       style={{
         flex: 1,
         listStyle: 'none',
@@ -419,6 +458,7 @@ function ResultList({
         const active = i === activeIdx;
         return (
           <li
+            id={`${listboxId}-option-${i}`}
             key={
               r.kind === 'entry'
                 ? `e:${r.id}`

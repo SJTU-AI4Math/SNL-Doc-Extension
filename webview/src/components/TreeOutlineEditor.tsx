@@ -183,7 +183,7 @@ function TreeRow<T>({
         }}
       >
         {hasKids ? (
-          <button
+          <Button
             type="button"
             onClick={() => onToggleCollapsed(id)}
             style={disclosureButtonStyle()}
@@ -192,7 +192,7 @@ function TreeRow<T>({
             title={isCollapsed ? 'Expand' : 'Collapse'}
           >
             {isCollapsed ? '▶' : '▼'}
-          </button>
+          </Button>
         ) : (
           <span style={{ width: '1.2rem', display: 'inline-block' }} />
         )}

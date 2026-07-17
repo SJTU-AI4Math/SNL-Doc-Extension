@@ -18,10 +18,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES,
@@ -383,18 +383,18 @@ export function CreateRelationshipApp(): React.ReactElement {
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-        <button
+        <Button
           type="button"
           onClick={onSubmit}
           disabled={!canSubmit}
-          style={primaryButton(canSubmit)}
+          variant="primary"
         >
           {busy
             ? 'Saving…'
             : mode === 'edit'
               ? 'Save Changes'
               : 'Create Relationship'}
-        </button>
+        </Button>
         {banner ? (
           <span
             style={{

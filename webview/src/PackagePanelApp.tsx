@@ -9,7 +9,7 @@
 // pass it to every row. Each row constructs a syntax tree `{ macro.name,
 // [placeholder_0, placeholder_1, ...] }` sized by max #N in the default
 // style's template (fixed arity) or a fixed count (variadic). Row-level
-// try/catch keeps a bad macro from crashing the whole table.
+<Button
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -33,7 +33,7 @@ import {
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
-import { shouldStopRowActivation } from './components/interactionModel';
+<Button
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -54,7 +54,7 @@ interface MacroPackageStyle {
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   markdown?: string;
   text?: string;
-}
+<Button
 
 interface MacroPackageEntry {
   name: string;
@@ -64,21 +64,21 @@ interface MacroPackageEntry {
   dynamic_arity: boolean;
   styles: MacroPackageStyle[];
   tags?: string[];
-}
+<Button
 
 interface MacroKind {
   id: string;
   name: string;
   description: string;
   coloring: { stroke: string; background: string };
-}
+<Button
 
 interface MacroPackageFile {
   version: string;
   name: string;
   description?: string;
   macros: Record<string, Omit<MacroPackageEntry, 'name'>>;
-}
+<Button
 
 type Incoming =
   | {
@@ -94,7 +94,7 @@ type Incoming =
   | { type: 'noFile'; file: string }
   | { type: 'batchCancelled' }
   | { type: 'error'; message: string }
-  | undefined;
+  <Button
 
 type Model =
   | { kind: 'loading' }
@@ -109,27 +109,27 @@ type Model =
       entryPoolIds: Set<string>;
     }
   | { kind: 'noFile'; file: string }
-  | { kind: 'error'; message: string };
+  <Button
 
 /** Bare-filename rule shared with the host (`MACRO_FILE_RE`). */
-const BARE_FILE_RE = /^[a-zA-Z0-9_-]+$/;
+<Button
 
 /** A transient toast surfaced after a batch action completes. */
 interface Toast {
   kind: 'success' | 'error';
   message: string;
-}
+<Button
 
 /** Which batch modal is currently open (null = none). */
-type ActiveModal = 'transfer' | null;
+<Button
 
 // ---------------------------------------------------------------------------
 // Preview constants — mirror the CreateMacro Live Preview so a package row's
 // preview matches what the user sees while editing that macro.
-// ---------------------------------------------------------------------------
+<Button
 
 const MAX_ARGS = 8;
-const VARIADIC_PREVIEW_ARGS = 3;
+<Button
 
 /** One placeholder macro per index — a rounded translucent numbered box.
  *  Uses the same `\mathord{\htmlClass{...}}` shape as CreateMacroApp so
@@ -150,11 +150,11 @@ for (let i = 0; i < MAX_ARGS; i++) {
       }
     ]
   };
-}
+<Button
 
 function placeholderNode(i: number): SnlSyntaxTree {
   return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
-}
+<Button
 
 /** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
 function maxChildIndex(template: string): number {
@@ -168,7 +168,7 @@ function maxChildIndex(template: string): number {
     }
   }
   return max;
-}
+<Button
 
 /**
  * Convert an on-disk v6 {@link MacroPackageEntry} to the render-only lib shape
@@ -211,7 +211,7 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
     lib.kind = m.kind;
   }
   return lib;
-}
+<Button
 
 export function PackagePanelApp(): React.ReactElement {
   const [model, setModel] = useState<Model>({ kind: 'loading' });
@@ -223,7 +223,7 @@ export function PackagePanelApp(): React.ReactElement {
   // A pending batch action awaits either a fresh 'package' push (success) or
   // an 'error' message (failure) from the host so we can toast the outcome.
   const pendingActionRef = useRef<string | null>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  <Button
 
   const showToast = (t: Toast): void => {
     setToast(t);
@@ -231,10 +231,10 @@ export function PackagePanelApp(): React.ReactElement {
       clearTimeout(toastTimerRef.current);
     }
     toastTimerRef.current = setTimeout(() => setToast(null), 4500);
-  };
+  <Button
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
+    <Button
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as Incoming;
@@ -293,7 +293,7 @@ export function PackagePanelApp(): React.ReactElement {
         default:
           break;
       }
-    }
+    <Button
 
     window.addEventListener('message', onMessage);
     apiRef.current?.postMessage({ type: 'ready' });
@@ -304,7 +304,7 @@ export function PackagePanelApp(): React.ReactElement {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  <Button
 
   const createMacro = (): void =>
     apiRef.current?.postMessage({ type: 'createMacro' });
@@ -313,7 +313,7 @@ export function PackagePanelApp(): React.ReactElement {
   const editMacro = (name: string): void =>
     apiRef.current?.postMessage({ type: 'editMacro', name });
   const setPackageActive = (active: boolean): void =>
-    apiRef.current?.postMessage({ type: 'setPackageActive', active });
+    <Button
 
   const enterSelect = (): void => {
     setMode('multiselect');
@@ -335,7 +335,7 @@ export function PackagePanelApp(): React.ReactElement {
       }
       return next;
     });
-  };
+  <Button
 
   const submitBatchDelete = (): void => {
     const names = Array.from(selectedNames);
@@ -346,12 +346,12 @@ export function PackagePanelApp(): React.ReactElement {
     // via the batchDelete message and prompts before mutating.
     pendingActionRef.current = `Deleted ${names.length} macro${names.length === 1 ? '' : 's'}.`;
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
-  };
+  <Button
 
   const deleteMacro = (name: string): void => {
     pendingActionRef.current = 'Deleted 1 macro.';
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: [name] });
-  };
+  <Button
 
   const submitBatchTransfer = (params: {
     mode: 'copy' | 'move';
@@ -390,7 +390,7 @@ export function PackagePanelApp(): React.ReactElement {
       newDisplayName: params.newDisplayName || undefined,
       newDescription: params.newDescription || undefined
     });
-  };
+  <Button
 
   if (model.kind === 'loading') {
     return (
@@ -405,7 +405,7 @@ export function PackagePanelApp(): React.ReactElement {
         <p style={{ opacity: 0.7 }}>Loading package…</p>
       </main>
     );
-  }
+  <Button
 
   if (model.kind === 'noFile') {
     return (
@@ -422,7 +422,7 @@ export function PackagePanelApp(): React.ReactElement {
         </p>
       </main>
     );
-  }
+  <Button
 
   if (model.kind === 'error') {
     return (
@@ -439,10 +439,10 @@ export function PackagePanelApp(): React.ReactElement {
         </p>
       </main>
     );
-  }
+  <Button
 
   const { pkg, file, macros, macroKinds, otherPackages, active, entryPoolIds } = model;
-  const selectMode = mode === 'multiselect';
+  <Button
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '58rem' }}>
@@ -485,8 +485,8 @@ export function PackagePanelApp(): React.ReactElement {
         </div>
         <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <ActiveIndicator active={active} onToggle={() => setPackageActive(!active)} />
-          <button
-            type="button"
+          <Button
+
             onClick={selectMode ? cancelSelect : enterSelect}
             title={
               selectMode
@@ -496,17 +496,17 @@ export function PackagePanelApp(): React.ReactElement {
             style={HEADER_BUTTON_STYLE}
           >
             {selectMode ? 'Cancel' : 'Select'}
-          </button>
-          <button
-            type="button"
+          <Button
+
+
             onClick={editMacroPackage}
             title="Edit package name / description"
             style={HEADER_BUTTON_STYLE}
           >
             Edit package
-          </button>
-        </div>
-      </div>
+          <Button
+
+      <Button
 
       {macros.length > 0 ? (
         <MacroTable
@@ -523,7 +523,7 @@ export function PackagePanelApp(): React.ReactElement {
         <p style={{ opacity: 0.7, fontStyle: 'italic', margin: '0.5rem 0' }}>
           No macros yet — use the bar below to create the first one.
         </p>
-      )}
+      <Button
 
       {selectMode ? (
         <MultiSelectBar
@@ -533,7 +533,7 @@ export function PackagePanelApp(): React.ReactElement {
         />
       ) : (
         <AddBar label="Create Macro" onActivate={createMacro} />
-      )}
+      <Button
 
       {activeModal === 'transfer' ? (
         <TransferModal
@@ -545,7 +545,7 @@ export function PackagePanelApp(): React.ReactElement {
       ) : null}
     </main>
   );
-}
+<Button
 
 const HEADER_BUTTON_STYLE: React.CSSProperties = {
   flex: '0 0 auto',
@@ -559,7 +559,7 @@ const HEADER_BUTTON_STYLE: React.CSSProperties = {
     'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
   color: 'inherit',
   cursor: 'pointer'
-};
+<Button
 
 /**
  * Header active-state indicator: a colored dot + label plus a Toggle button.
@@ -597,8 +597,8 @@ function ActiveIndicator({
       <span style={{ fontSize: '0.85rem', opacity: 0.85 }}>
         {active ? 'Active' : 'Inactive'}
       </span>
-      <button
-        type="button"
+      <Button
+
         onClick={onToggle}
         title={
           active
@@ -608,10 +608,10 @@ function ActiveIndicator({
         style={HEADER_BUTTON_STYLE}
       >
         Toggle
-      </button>
-    </span>
+      <Button
+
   );
-}
+<Button
 
 const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',
@@ -623,7 +623,7 @@ const CELL: React.CSSProperties = {
 const HEAD: React.CSSProperties = { ...CELL, fontWeight: 600, opacity: 0.85 };
 const MONO: React.CSSProperties = {
   fontFamily: 'var(--vscode-editor-font-family, monospace)'
-};
+<Button
 
 /**
  * Human-readable arity label for a macro row (bug 2 fix).
@@ -638,7 +638,7 @@ function arityLabel(macro: MacroPackageEntry): string {
   const defaultStyle = macro.styles?.[0];
   const count = Math.max(0, maxChildIndex(defaultStyle?.template ?? '') + 1);
   return String(count);
-}
+<Button
 
 function MacroTable({
   macros,
@@ -665,7 +665,7 @@ function MacroTable({
       m.set(k.id, k);
     }
     return m;
-  }, [macroKinds]);
+  <Button
 
   // Build ONE preview macro DB for the whole table: bundledMacroDb (background
   // math) + argument placeholders + all macros in THIS package (so a macro
@@ -678,19 +678,19 @@ function MacroTable({
       pkgDb[m.name] = macroToLibShape(m);
     }
     return { ...bundledMacroDb, ...ARG_PLACEHOLDER_MACROS, ...pkgDb };
-  }, [macros]);
+  <Button
 
   const previewQuery = useMemo(
     () => createMacroTemplateQueryFromDb(previewMacroDb),
     [previewMacroDb]
-  );
+  <Button
 
   // Tooltip / hover pipeline is pointless in a compact row preview and only
   // adds jitter. Suppress via renderTooltip → null.
   const previewHooks: SnlRenderHooks = useMemo(
     () => ({ ...defaultRenderHooks, renderTooltip: () => null }),
     []
-  );
+  <Button
 
   return (
     <table
@@ -745,7 +745,7 @@ function MacroTable({
       </tbody>
     </table>
   );
-}
+<Button
 
 /**
  * One macro renders as N rows — a "default style" summary row (always shown)
@@ -840,7 +840,7 @@ function MacroRowGroup({
         : null}
     </>
   );
-}
+<Button
 
 /**
  * A single clickable macro/style row. Clicking (or Enter/Space) on any cell
@@ -948,8 +948,8 @@ function MacroStyleRow({
             style={{ cursor: 'pointer' }}
           />
         ) : isDefault && canExpand ? (
-          <button
-            type="button"
+          <Button
+
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand?.();
@@ -979,8 +979,8 @@ function MacroStyleRow({
             }}
           >
             {expanded ? '▼' : '▶'}
-          </button>
-        ) : null}
+          <Button
+
       </td>
       {/* Preview: always per-style. */}
       <td style={{ ...CELL, textAlign: 'center' }}>
@@ -1076,7 +1076,7 @@ function MacroStyleRow({
       <td style={{ ...CELL, textAlign: 'center' }}>
         {showMacroLevel && !selectMode ? (
           <Button
-            variant="destructive"
+
             size="sm"
             title={`Delete macro ${macro.name}`}
             aria-label={`Delete macro ${macro.name}`}
@@ -1087,14 +1087,14 @@ function MacroStyleRow({
             onKeyDown={(e) => e.stopPropagation()}
           >
             🗑
-          </Button>
-        ) : (
+          <Button
+
           <Dash />
         )}
       </td>
     </tr>
   );
-}
+<Button
 
 /** Placeholder cell used to signal "same as macro's default row". */
 function Dash(): React.ReactElement {
@@ -1103,10 +1103,10 @@ function Dash(): React.ReactElement {
       —
     </span>
   );
-}
+<Button
 
 /** How many tag chips to render before collapsing the tail into a `+N`. */
-const TAG_CHIP_VISIBLE = 3;
+<Button
 
 /**
  * Render a compact row of tag chips with an overflow `+N` chip. Empty tag
@@ -1140,7 +1140,7 @@ function TagChipList({ tags }: { tags: string[] }): React.ReactElement {
       ) : null}
     </span>
   );
-}
+<Button
 
 function TagChip({
   label,
@@ -1178,7 +1178,7 @@ function TagChip({
       {label}
     </span>
   );
-}
+<Button
 
 /** Renders a macro's kind: swatch + name when known, raw id when the kind
  *  isn't in the catalog, or "—" when unset. */
@@ -1218,7 +1218,7 @@ function KindCell({
       {kind.name}
     </span>
   );
-}
+<Button
 
 /**
  * Real KaTeX preview of a macro applied to numbered argument placeholders.
@@ -1254,7 +1254,7 @@ function MacroPreview({
       return undefined;
     if (styleTag == null) return macro.styles[0];
     return macro.styles.find((s) => s.tag === styleTag) ?? macro.styles[0];
-  }, [macro.styles, styleTag]);
+  <Button
 
   const argCount = useMemo(() => {
     if (macro.dynamic_arity) {
@@ -1262,7 +1262,7 @@ function MacroPreview({
     }
     const derived = maxChildIndex(style?.template ?? '') + 1;
     return Math.min(Math.max(derived, 0), MAX_ARGS);
-  }, [macro.dynamic_arity, style?.template]);
+  <Button
 
   const tree: SnlSyntaxTree = useMemo(() => {
     const children: SnlSyntaxTree[] = [];
@@ -1279,14 +1279,14 @@ function MacroPreview({
     // omitting the field lets the render pipeline pick styles[0] cleanly.
     if (styleTag != null) node.style = styleTag;
     return node;
-  }, [macro.name, argCount, styleTag]);
+  <Button
 
   // A style with an empty template renders as nothing useful — bail to
   // a soft "—" so the row doesn't show a phantom empty preview.
   const template = (style?.template ?? '').trim();
   if (!template) {
     return <span style={{ opacity: 0.5 }}>—</span>;
-  }
+  <Button
 
   // No wrapper background / border: the SNL preview should be the outermost
   // block. SnlSyntaxTreeView emits its own `.katex-panel > .katex-html` divs
@@ -1301,7 +1301,7 @@ function MacroPreview({
       hooks={hooks}
     />
   );
-}
+<Button
 
 /**
  * Full-width dashed "+" bar (mirrors the Dashboard's AddBar). Clicking (or
@@ -1357,11 +1357,11 @@ function AddBar({
       <span>{label}</span>
     </div>
   );
-}
+<Button
 
 // ---------------------------------------------------------------------------
 // Multi-select batch UI
-// ---------------------------------------------------------------------------
+<Button
 
 /**
  * Sticky bottom action bar shown in multi-select mode. The primary batch
@@ -1399,26 +1399,26 @@ function MultiSelectBar({
       <span style={{ fontWeight: 600, marginRight: 'auto' }}>
         {count} selected
       </span>
-      <button
-        type="button"
+      <Button
+
         disabled={none}
         onClick={onTransfer}
         title="Copy or move the selected macros to another package"
         style={batchButtonStyle(none, false)}
       >
         Copy / Move…
-      </button>
-      <button
-        type="button"
+      <Button
+
+
         disabled={none}
         onClick={onDelete}
         style={batchButtonStyle(none, true)}
       >
         Delete
-      </button>
-    </div>
+      <Button
+
   );
-}
+<Button
 
 function batchButtonStyle(
   disabled: boolean,
@@ -1441,7 +1441,7 @@ function batchButtonStyle(
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1
   };
-}
+<Button
 
 /** A transient success/error toast banner pinned to the top of the panel. */
 function ToastBanner({
@@ -1478,8 +1478,8 @@ function ToastBanner({
       <span style={{ marginRight: 'auto' }}>
         {isError ? '❌' : '✓'} {toast.message}
       </span>
-      <button
-        type="button"
+      <Button
+
         onClick={onDismiss}
         aria-label="Dismiss"
         style={{
@@ -1492,10 +1492,10 @@ function ToastBanner({
         }}
       >
         ×
-      </button>
-    </div>
+      <Button
+
   );
-}
+<Button
 
 /** Shared modal shell — dim backdrop + centered card. */
 function ModalShell({
@@ -1538,10 +1538,10 @@ function ModalShell({
       </div>
     </div>
   );
-}
+<Button
 
 const MODAL_INPUT_BORDER =
-  '1px solid var(--vscode-input-border, var(--vscode-panel-border, #555))';
+  <Button
 
 const MODAL_INPUT_STYLE: React.CSSProperties = {
   width: '100%',
@@ -1553,7 +1553,7 @@ const MODAL_INPUT_STYLE: React.CSSProperties = {
   border: MODAL_INPUT_BORDER,
   background: 'var(--vscode-input-background, rgba(255,255,255,0.04))',
   color: 'var(--vscode-input-foreground, inherit)'
-};
+<Button
 
 /**
  * Unified "Copy / Move macros" modal (2026-07-06 merge).
@@ -1574,7 +1574,7 @@ const MODAL_INPUT_STYLE: React.CSSProperties = {
  * there are no other active packages) is the safest choice — it never
  * mutates the source package until the user explicitly flips to Move.
  */
-const CREATE_NEW_VALUE = '__create_new__';
+<Button
 
 function TransferModal({
   count,
@@ -1601,15 +1601,15 @@ function TransferModal({
   );
   const [newFile, setNewFile] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
-  const [newDescription, setNewDescription] = useState('');
+  <Button
 
   const isNew = destValue === CREATE_NEW_VALUE;
   const bare = newFile.trim();
-  const fileValid = BARE_FILE_RE.test(bare);
+  <Button
 
   const canSubmit =
     count > 0 &&
-    (isNew ? fileValid : destValue.length > 0 && destValue !== CREATE_NEW_VALUE);
+    <Button
 
   const submit = (): void => {
     if (!canSubmit) return;
@@ -1624,10 +1624,10 @@ function TransferModal({
     } else {
       onSubmit({ mode, target: 'existing', destFile: destValue });
     }
-  };
+  <Button
 
   const verb = mode === 'move' ? 'Move' : 'Copy';
-  const plural = count === 1 ? '' : 's';
+  <Button
 
   return (
     <ModalShell title="Copy / Move macros" onCancel={onCancel}>
@@ -1655,7 +1655,7 @@ function TransferModal({
           onClick={() => setMode('move')}
           title="Move selected macros — removed from source package"
         />
-      </div>
+      <Button
 
       <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
         {verb} the {count} selected macro{plural}
@@ -1665,7 +1665,7 @@ function TransferModal({
         {mode === 'move'
           ? ' They will be removed from this package.'
           : ' The source package is left unchanged.'}
-      </p>
+      <Button
 
       <label style={{ display: 'block', marginBottom: '0.6rem' }}>
         <span
@@ -1689,7 +1689,7 @@ function TransferModal({
             </option>
           ))}
         </select>
-      </label>
+      <Button
 
       {isNew ? (
         <>
@@ -1766,7 +1766,7 @@ function TransferModal({
             />
           </label>
         </>
-      ) : null}
+      <Button
 
       <ModalButtons
         onCancel={onCancel}
@@ -1776,7 +1776,7 @@ function TransferModal({
       />
     </ModalShell>
   );
-}
+<Button
 
 /** One segment of the Copy/Move toggle. */
 function TransferModeButton({
@@ -1791,8 +1791,8 @@ function TransferModeButton({
   title: string;
 }): React.ReactElement {
   return (
-    <button
-      type="button"
+    <Button
+
       role="radio"
       aria-checked={active}
       onClick={onClick}
@@ -1813,9 +1813,9 @@ function TransferModeButton({
       }}
     >
       {label}
-    </button>
-  );
-}
+    <Button
+
+<Button
 
 /** Cancel / submit button pair used by the batch modals. */
 function ModalButtons({
@@ -1831,11 +1831,11 @@ function ModalButtons({
 }): React.ReactElement {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-      <button type="button" onClick={onCancel} style={HEADER_BUTTON_STYLE}>
+      <Button type="button" onClick={onCancel} style={HEADER_BUTTON_STYLE}>
         Cancel
-      </button>
-      <button
-        type="button"
+      <Button
+
+
         disabled={!canSubmit}
         onClick={onSubmit}
         style={{
@@ -1848,10 +1848,10 @@ function ModalButtons({
         }}
       >
         {submitLabel}
-      </button>
-    </div>
+      <Button
+
   );
-}
+<Button
 
 /**
  * Traffic-light indicator for a macro's `source` binding
@@ -1871,7 +1871,7 @@ function SrcStatusLight({
   const entries = Array.isArray(source?.entries) ? source!.entries : [];
   const urls = Array.isArray(source?.urls) ? source!.urls : [];
   const resolved = entries.filter((id) => entryPoolIds.has(id));
-  const unresolved = entries.filter((id) => !entryPoolIds.has(id));
+  <Button
 
   let color: 'green' | 'yellow' | 'red';
   let title: string;
@@ -1906,7 +1906,7 @@ function SrcStatusLight({
   } else {
     color = 'red';
     title = 'No src declared (neither entry nor url).';
-  }
+  <Button
 
   const dotColor =
     color === 'green'
@@ -1929,4 +1929,4 @@ function SrcStatusLight({
       }}
     />
   );
-}
+<Button

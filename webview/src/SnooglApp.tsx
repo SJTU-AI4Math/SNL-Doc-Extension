@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import {
   listboxKeyAction,
   matchesPendingQuery,
@@ -259,7 +260,7 @@ function SearchBar({
         {(['entry', 'macro'] as Mode[]).map((m) => {
           const active = mode === m;
           return (
-            <button
+            <Button
               key={m}
               role="tab"
               aria-selected={active}
@@ -281,7 +282,7 @@ function SearchBar({
               }}
             >
               {m === 'entry' ? 'Entry' : 'Macro'}
-            </button>
+            </Button>
           );
         })}
       </div>

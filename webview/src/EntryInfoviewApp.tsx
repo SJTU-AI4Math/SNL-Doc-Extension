@@ -13,6 +13,7 @@ import {
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { SnlMacroDb } from '@snl-basics/react';
 import { Disclosure } from './components/Disclosure';
+import { Button } from './components/Button';
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 interface RelatedRow {
@@ -101,7 +102,7 @@ export function EntryInfoviewApp(): React.ReactElement {
             {/* Cat 2026-07-10 §2: right-aligned Edit button. Positioned
                 absolute so it hovers over the top of the entry block
                 without stealing horizontal space from the render. */}
-            <button
+            <Button
               type="button"
               onClick={() =>
                 postMessage({ type: 'editEntry', entryId: state.entry.id })
@@ -125,7 +126,7 @@ export function EntryInfoviewApp(): React.ReactElement {
               }}
             >
               ✎ Edit
-            </button>
+            </Button>
             <EntrySurface
               entry={state.entry}
               kind={state.kind}
@@ -245,7 +246,7 @@ function RelatedSection({
             >
               {rows.map((r) => (
                 <li key={r.id}>
-                  <button
+                  <Button
                     type="button"
                     onClick={() =>
                       postMessage({
@@ -302,7 +303,7 @@ function RelatedSection({
                         {r.isAtomic ? 'atomic' : 'composite'}
                       </span>
                     ) : null}
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>

@@ -38,7 +38,6 @@ import {
 import {
   getVsCodeApi,
   PANEL_STYLE,
-  primaryButton,
   type VsCodeApi
 } from './vscodeApi';
 
@@ -197,13 +196,13 @@ function NotInitialized({
         This workspace does not have an <code>.SNL_Doc/</code> folder yet.
         Run <code>SNL: Init</code> to create the skeleton first.
       </p>
-      <button
+      <Button
         type="button"
         onClick={() => api?.postMessage({ type: 'init' })}
-        style={primaryButton(true)}
+        variant="primary"
       >
         Run SNL: Init
-      </button>
+      </Button>
     </main>
   );
 }
@@ -242,7 +241,7 @@ function Initialized({
       >
         <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNL Dashboard</h1>
         <div style={{ display: 'flex', gap: '0.5rem', flex: '0 0 auto' }}>
-          <button
+          <Button
             type="button"
             onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
             title="Open the pool-wide relationship graph"
@@ -260,8 +259,8 @@ function Initialized({
             }}
           >
             View Graph
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => api?.postMessage({ type: 'openInfoview' })}
             title="Open the Infoview (reading surface)"
@@ -279,7 +278,7 @@ function Initialized({
             }}
           >
             Open Infoview →
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -544,7 +543,7 @@ function CollapsibleSection({
             '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
         }}
       >
-        <button
+        <Button
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
@@ -568,7 +567,7 @@ function CollapsibleSection({
           </span>
           <span style={{ fontWeight: 600 }}>{title}</span>
           <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
-        </button>
+        </Button>
         {headerActions ? (
           <div
             style={{ display: 'flex', gap: '0.35rem', flexShrink: 0 }}
@@ -598,7 +597,7 @@ function HeaderActionButton({
   onClick: () => void;
 }): React.ReactElement {
   return (
-    <button
+    <Button
       type="button"
       onClick={(e) => {
         e.stopPropagation();
@@ -620,7 +619,7 @@ function HeaderActionButton({
       }}
     >
       {label}
-    </button>
+    </Button>
   );
 }
 

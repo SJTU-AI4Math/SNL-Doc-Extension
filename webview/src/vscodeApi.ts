@@ -30,19 +30,3 @@ export const PANEL_STYLE: React.CSSProperties = {
   padding: '1.5rem',
   lineHeight: 1.5
 };
-
-export function primaryButton(enabled: boolean): React.CSSProperties {
-  return {
-    padding: '0.45rem 1rem',
-    color: 'var(--vscode-button-foreground, #fff)',
-    background: enabled
-      ? 'var(--vscode-button-background, #0e639c)'
-      : 'var(--vscode-button-secondaryBackground, #444)',
-    border: 'none',
-    borderRadius: '2px',
-    cursor: enabled ? 'pointer' : 'default',
-    fontFamily: 'inherit',
-    fontSize: '0.95rem',
-    opacity: enabled ? 1 : 0.6
-  };
-}

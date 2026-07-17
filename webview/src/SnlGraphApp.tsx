@@ -18,6 +18,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
+import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
 import type { EntryOption } from './render/EntryRender';
 import type { SnlMacroDb } from '@snl-basics/react';
@@ -1079,7 +1080,7 @@ function FiltersSidebar({
       }}
     >
       {/* Tab handle — always visible so the sidebar can be found. */}
-      <button
+      <Button
         type="button"
         onClick={onToggle}
         title={open ? 'Collapse filters' : 'Expand filters'}
@@ -1102,7 +1103,7 @@ function FiltersSidebar({
         }}
       >
         {open ? '▶ Filters' : '◀ Filters'}
-      </button>
+      </Button>
       {open ? (
         <div
           style={{
@@ -1176,22 +1177,22 @@ function FiltersSidebar({
               marginBottom: '0.4rem'
             }}
           >
-            <button
+            <Button
               type="button"
               onClick={() => onKindFilterChange(null)}
               style={smallLinkBtn}
               title="Show every entry kind (reset kind filter)"
             >
               all
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => onKindFilterChange(new Set())}
               style={smallLinkBtn}
               title="Hide every entry kind"
             >
               none
-            </button>
+            </Button>
           </div>
           {totalKindCount === 0 ? (
             <p style={{ opacity: 0.55, fontSize: '0.8rem', margin: 0 }}>

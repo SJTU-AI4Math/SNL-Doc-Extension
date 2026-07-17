@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import React, { useState } from 'react';
+import { PANEL_STYLE } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { Alert, FormField, Select } from './components/FormControls';
+import { useVsCodeBridge } from './components/useVsCodeBridge';
 
 export type KindDomain = 'entry' | 'macro';
 export interface PresetOption { id: string; label: string; description: string; count: number; }
@@ -29,38 +30,28 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
   const [selected, setSelected] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const apiRef = useRef<VsCodeApi>();
-
-  useEffect(() => {
-    apiRef.current = getVsCodeApi();
-    function onMessage(event: MessageEvent): void {
-      const msg = event.data as
-        | { type: 'init'; presets: PresetOption[]; existing: number }
-        | { type: 'applied'; presetId: string; count: number }
-        | { type: 'nonEmpty'; existing: number; message: string }
-        | { type: 'noSnlDoc' | 'noWorkspace' | 'unknownPreset' | 'error'; message: string }
-        | undefined;
-      if (!msg || typeof msg.type !== 'string') return;
-      if (msg.type === 'init') {
-        const nextPresets = Array.isArray(msg.presets) ? msg.presets : [];
-        setPresets(nextPresets);
-        setExisting(msg.existing);
-        setSelected((previous) => previous || nextPresets[0]?.id || '');
-        setLoaded(true);
-      } else if (msg.type === 'applied') {
-        setStatus({ kind: 'applied', presetId: msg.presetId, count: msg.count });
-        setExisting(msg.count);
-      } else if (msg.type === 'nonEmpty') {
-        setStatus({ kind: 'nonEmpty', existing: msg.existing, message: msg.message });
-        setExisting(msg.existing);
-      } else {
-        setStatus({ kind: msg.type, message: msg.message });
-      }
+  const { apiRef, post } = useVsCodeBridge<
+    | { type: 'init'; presets: PresetOption[]; existing: number }
+    | { type: 'applied'; presetId: string; count: number }
+    | { type: 'nonEmpty'; existing: number; message: string }
+    | { type: 'noSnlDoc' | 'noWorkspace' | 'unknownPreset' | 'error'; message: string }
+  >((msg) => {
+    if (msg.type === 'init') {
+      const nextPresets = Array.isArray(msg.presets) ? msg.presets : [];
+      setPresets(nextPresets);
+      setExisting(msg.existing);
+      setSelected((previous) => previous || nextPresets[0]?.id || '');
+      setLoaded(true);
+    } else if (msg.type === 'applied') {
+      setStatus({ kind: 'applied', presetId: msg.presetId, count: msg.count });
+      setExisting(msg.count);
+    } else if (msg.type === 'nonEmpty') {
+      setStatus({ kind: 'nonEmpty', existing: msg.existing, message: msg.message });
+      setExisting(msg.existing);
+    } else {
+      setStatus({ kind: msg.type, message: msg.message });
     }
-    window.addEventListener('message', onMessage);
-    apiRef.current?.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+  });
 
   const catalogBusy = existing > 0;
   const canApply = loaded && !catalogBusy && !!selected && status.kind !== 'applying';
@@ -68,7 +59,7 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
   const apply = (): void => {
     if (!canApply) return;
     setStatus({ kind: 'applying' });
-    apiRef.current?.postMessage({ type: 'apply', presetId: selected });
+    post({ type: 'apply', presetId: selected });
   };
 
   return <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>

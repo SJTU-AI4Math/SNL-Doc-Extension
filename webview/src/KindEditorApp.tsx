@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import React, { useState } from 'react';
+import { PANEL_STYLE } from './vscodeApi';
 import { Button } from './components/Button';
 import { Alert } from './components/FormControls';
 import { ColorField, ColorPreview, KindTextField } from './components/KindFormFields';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { isEntityIdUnique } from './components/formValidation';
 import { PanelNav } from './components/PanelNav';
+import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
 
 export type KindEditorDomain = 'entry' | 'macro';
@@ -37,46 +38,37 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const [defaultCounterName, setDefaultCounterName] = useState('');
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const apiRef = useRef<VsCodeApi>();
-
-  useEffect(() => {
-    apiRef.current = getVsCodeApi();
-    function onMessage(event: MessageEvent): void {
-      const msg = event.data as {
-        type?: string;
-        mode?: Mode;
-        id?: string;
-        existing?: Record<string, unknown> | null;
-        existingIds?: EntryOption[];
-        kind?: { id: string; name: string };
-        message?: string;
-      } | undefined;
-      if (!msg || typeof msg.type !== 'string') return;
-      if (msg.type === 'context') {
-        const nextMode = msg.mode === 'edit' ? 'edit' : 'create';
-        setMode(nextMode);
-        setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
-        if (nextMode === 'edit') {
-          setId(msg.id ?? '');
-          const existing = msg.existing ?? {};
-          setName(typeof existing.name === 'string' ? existing.name : '');
-          setDescription(typeof existing.description === 'string' ? existing.description : '');
-          const coloring = typeof existing.coloring === 'object' && existing.coloring ? existing.coloring as Record<string, unknown> : {};
-          setStroke(typeof coloring.stroke === 'string' ? coloring.stroke : '#888888');
-          setBackground(typeof coloring.background === 'string' ? coloring.background : '#eeeeee');
-          setDefaultCounterName(typeof existing.defaultCounterName === 'string' ? existing.defaultCounterName : '');
-          setStyle(typeof existing.style === 'string' ? existing.style : '');
-        }
-      } else if ((msg.type === 'created' || msg.type === 'updated') && msg.kind) {
-        setStatus({ kind: msg.type, id: msg.kind.id, name: msg.kind.name });
-      } else if (['duplicate', 'notFound', 'invalid', 'noSnlDoc', 'noWorkspace', 'error'].includes(msg.type)) {
-        setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? 'Unknown error' });
+  const { apiRef, post } = useVsCodeBridge<{
+    type?: string;
+    mode?: Mode;
+    id?: string;
+    existing?: Record<string, unknown> | null;
+    existingIds?: EntryOption[];
+    kind?: { id: string; name: string };
+    message?: string;
+  }>((msg) => {
+    if (!msg || typeof msg.type !== 'string') return;
+    if (msg.type === 'context') {
+      const nextMode = msg.mode === 'edit' ? 'edit' : 'create';
+      setMode(nextMode);
+      setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
+      if (nextMode === 'edit') {
+        setId(msg.id ?? '');
+        const existing = msg.existing ?? {};
+        setName(typeof existing.name === 'string' ? existing.name : '');
+        setDescription(typeof existing.description === 'string' ? existing.description : '');
+        const coloring = typeof existing.coloring === 'object' && existing.coloring ? existing.coloring as Record<string, unknown> : {};
+        setStroke(typeof coloring.stroke === 'string' ? coloring.stroke : '#888888');
+        setBackground(typeof coloring.background === 'string' ? coloring.background : '#eeeeee');
+        setDefaultCounterName(typeof existing.defaultCounterName === 'string' ? existing.defaultCounterName : '');
+        setStyle(typeof existing.style === 'string' ? existing.style : '');
       }
+    } else if ((msg.type === 'created' || msg.type === 'updated') && msg.kind) {
+      setStatus({ kind: msg.type, id: msg.kind.id, name: msg.kind.name });
+    } else if (['duplicate', 'notFound', 'invalid', 'noSnlDoc', 'noWorkspace', 'error'].includes(msg.type)) {
+      setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? 'Unknown error' });
     }
-    window.addEventListener('message', onMessage);
-    apiRef.current?.postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+  });
 
   const trimmedId = id.trim();
   const trimmedName = name.trim();
@@ -96,7 +88,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     } else {
       payload.description = description.trim();
     }
-    apiRef.current?.postMessage({ type: mode === 'edit' ? 'update' : 'create', payload });
+    post({ type: mode === 'edit' ? 'update' : 'create', payload });
   };
 
   return <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { toEntryOption } from './entryPoolOption';
 import {
   addEntry,
   listEntryKinds,
@@ -197,12 +198,7 @@ export class CreateEntryPanel {
       macros,
       macroOrigin,
       existing,
-      existingIds: allEntries.map((e) => ({
-        id: e.id,
-        title: e.title ?? '',
-        hasContent:
-          typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
-      }))
+      existingIds: allEntries.map(toEntryOption)
     });
   }
 

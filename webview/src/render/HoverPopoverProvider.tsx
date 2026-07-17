@@ -29,6 +29,7 @@ import {
   type EntryKind
 } from './EntryRender';
 import type { SnlMacroDb } from '@snl-basics/react';
+import { popoverFrameStyle } from './popoverFrame';
 
 /** Life-cycle phase of a popover — used to drive fade-in/out. */
 export type PopoverPhase = 'opening' | 'visible' | 'closing';
@@ -579,6 +580,7 @@ function PopoverView({
     <div
       ref={ref}
       style={{
+        ...popoverFrameStyle(),
         position: 'fixed',
         left: pos.left,
         top: pos.top,

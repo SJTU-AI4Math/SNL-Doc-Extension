@@ -31,7 +31,6 @@ import {
   DEFAULT_KIND_PALETTE,
   type SnlMacro,
   type SnlMacroDb,
-  type SnlMacroStyle,
   type SnlSyntaxTree,
   type KindColoring
 } from '@snl-basics/react';
@@ -55,6 +54,7 @@ import {
   type EntryKind as RenderEntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
+import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -66,63 +66,7 @@ import { HoverPopoverProvider } from './render/HoverPopoverProvider';
  * additionally carries the consumer-owned output backends per style.
  * We only mirror the fields the view layer needs.
  */
-interface WirePackageStyle {
-  tag: string;
-  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
-  template: string;
-  variadic_left?: string;
-  variadic_join?: string;
-  variadic_right?: string;
-  react_renderer_key?: string;
-}
-interface WirePackageMacro {
-  name: string;
-  description?: string;
-  source?: { entries?: string[]; urls?: string[] };
-  kind?: string;
-  dynamic_arity: boolean;
-  styles: WirePackageStyle[];
-}
-
-/**
- * Convert a wire-shape macro (extended v6 on-disk) to the render-only lib
- * SnlMacro (drops output backends the preview doesn't consume). Mirrors the
- * same shape reduction PackagePanelApp.macroToLibShape does.
- */
-function wireMacroToLib(m: WirePackageMacro): SnlMacro {
-  const styles: SnlMacroStyle[] = Array.isArray(m.styles)
-    ? m.styles.map((s) => {
-        const out: SnlMacroStyle = {
-          tag: s.tag,
-          mode: s.mode,
-          template: s.template
-        };
-        if (s.variadic_left) out.variadic_left = s.variadic_left;
-        if (s.variadic_join) out.variadic_join = s.variadic_join;
-        if (s.variadic_right) out.variadic_right = s.variadic_right;
-        if (s.mode === 'block' && s.react_renderer_key) {
-          out.react_renderer_key = s.react_renderer_key;
-        }
-        return out;
-      })
-    : [];
-  const lib: SnlMacro = {
-    name: m.name,
-    description: m.description ?? '',
-    source: m.source
-      ? {
-          entries: Array.isArray(m.source.entries) ? m.source.entries : [],
-          urls: Array.isArray(m.source.urls) ? m.source.urls : []
-        }
-      : { entries: [], urls: [] },
-    dynamic_arity: !!m.dynamic_arity,
-    styles: styles.length > 0
-      ? styles
-      : [{ tag: 'default', mode: 'formula_inline', template: '' }]
-  };
-  if (m.kind) lib.kind = m.kind;
-  return lib;
-}
+type WirePackageMacro = WireMacro;
 
 // Preview now routes through <EntrySurface>, which owns its own source
 // resolution against the entry pool. The bespoke PREVIEW_HOOKS constant
@@ -214,7 +158,7 @@ export function CreateEntryApp(): React.ReactElement {
   const userMacroDb: SnlMacroDb = useMemo(() => {
     const userDb: SnlMacroDb = {};
     for (const [name, m] of Object.entries(wireMacros)) {
-      userDb[name] = wireMacroToLib(m);
+      userDb[name] = wireMacroToRenderable(m);
     }
     return userDb;
   }, [wireMacros]);

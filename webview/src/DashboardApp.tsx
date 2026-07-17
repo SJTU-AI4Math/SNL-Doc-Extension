@@ -26,6 +26,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './components/Button';
 import {
+  buildEntryMetricContext,
   computeEntryMetrics,
   DEFAULT_ENTRY_METRIC_THRESHOLDS,
   EntryMetricValue,
@@ -1078,7 +1079,10 @@ function EntriesTable({
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
-  const entryIds = new Set(entries.map((entry) => entry.id));
+  const metricContext = useMemo(
+    () => buildEntryMetricContext(entries),
+    [entries]
+  );
   return (
     <table
       style={{
@@ -1106,7 +1110,7 @@ function EntriesTable({
           const metrics = computeEntryMetrics(
             entry.content?.snl,
             macroSources,
-            entryIds
+            metricContext
           );
           return (
             <ClickableRow

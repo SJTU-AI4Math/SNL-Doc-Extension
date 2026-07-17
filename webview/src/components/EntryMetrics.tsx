@@ -5,6 +5,11 @@ import {
   type SnlMacroSourceLookup,
   type SnlSourceMetrics
 } from '@snl-basics/react';
+import {
+  applyContextSrcLookup,
+  buildContextIndex,
+  type EntryPoolItemForLookup
+} from '../render/contextSrcLookup';
 
 export interface EntryMetricThresholds {
   semanticFreedomGreenBelow: number;
@@ -24,10 +29,24 @@ export type EntryMetricResult =
   | { kind: 'ok'; metrics: SnlSourceMetrics }
   | { kind: 'unavailable'; reason: string };
 
+export interface EntryMetricContext {
+  accessibleEntryIds: ReadonlySet<string>;
+  contextIndex: Map<string, Set<string>>;
+}
+
+export function buildEntryMetricContext(
+  entries: EntryPoolItemForLookup[]
+): EntryMetricContext {
+  return {
+    accessibleEntryIds: new Set(entries.map((entry) => entry.id)),
+    contextIndex: buildContextIndex(entries)
+  };
+}
+
 export function computeEntryMetrics(
   snl: string | undefined,
   macroSources: SnlMacroSourceLookup,
-  entryIds: ReadonlySet<string>
+  context: EntryMetricContext
 ): EntryMetricResult {
   if (typeof snl !== 'string' || snl.trim().length === 0) {
     return { kind: 'unavailable', reason: 'This entry has no SNL content.' };
@@ -39,9 +58,14 @@ export function computeEntryMetrics(
       reason: `Cannot compute metrics because the SNL tree does not parse: ${parsed.error}`
     };
   }
+  applyContextSrcLookup(parsed.tree, context.contextIndex);
   return {
     kind: 'ok',
-    metrics: analyzeSnlTreeSources(parsed.tree, macroSources, entryIds)
+    metrics: analyzeSnlTreeSources(
+      parsed.tree,
+      macroSources,
+      context.accessibleEntryIds
+    )
   };
 }
 

@@ -23,9 +23,11 @@ import { Button } from './components/Button';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
 import {
+  buildEntryMetricContext,
   computeEntryMetrics,
   DEFAULT_ENTRY_METRIC_THRESHOLDS,
   EntryMetricValue,
+  type EntryMetricContext,
   type EntryMetricThresholds,
   type SnlMacroSourceLookup
 } from './components/EntryMetrics';
@@ -919,9 +921,9 @@ function OutlineEditor({
   // entriesById so keystroke-driven filter re-renders don't re-project the
   // whole pool. `hasContent` is derived from `content.snl` presence — same
   // rule the render layer uses to decide "stub or real". Cat 2026-07-09.
-  const accessibleEntryIds = useMemo(
-    () => new Set(entriesById.keys()),
-    [entriesById]
+  const metricContext = useMemo(
+    () => buildEntryMetricContext(graph?.entries ?? []),
+    [graph?.entries]
   );
 
   const entryOptions = useMemo<EntryOption[]>(() => {
@@ -1085,7 +1087,7 @@ function OutlineEditor({
       counters={counters}
       macroSources={graph.metricMacroSources}
       metricThresholds={graph.metricThresholds}
-      accessibleEntryIds={accessibleEntryIds}
+      metricContext={metricContext}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
     />
@@ -1187,7 +1189,7 @@ interface OutlineRowContentProps {
   counters: CounterNode[];
   macroSources: SnlMacroSourceLookup;
   metricThresholds: EntryMetricThresholds;
-  accessibleEntryIds: ReadonlySet<string>;
+  metricContext: EntryMetricContext;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
 }
@@ -1205,7 +1207,7 @@ function OutlineRowContent({
   counters,
   macroSources,
   metricThresholds,
-  accessibleEntryIds,
+  metricContext,
   onOpenEntry,
   onUpdateNodeCounter
 }: OutlineRowContentProps): React.ReactElement {
@@ -1227,7 +1229,7 @@ function OutlineRowContent({
   const metrics = computeEntryMetrics(
     entry?.content?.snl,
     macroSources,
-    accessibleEntryIds
+    metricContext
   );
 
   const title = entry?.title ?? '';

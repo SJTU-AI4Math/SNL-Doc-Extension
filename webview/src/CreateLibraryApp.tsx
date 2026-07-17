@@ -19,7 +19,7 @@ import {
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
-import { Button } from './components/Button';
+import { EmptyAction } from './components/EmptyAction';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
 import {
@@ -735,57 +735,9 @@ function CounterRowContent({
   );
 }
 
-/** Dashed "+" bar used as the counters empty state (mirrors DashboardApp). */
-function AddBar({
-  label,
-  onActivate
-}: {
-  label: string;
-  onActivate: () => void;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      onClick={onActivate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onActivate();
-        }
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.4rem',
-        width: '100%',
-        boxSizing: 'border-box',
-        height: '3rem',
-        marginTop: '0.5rem',
-        borderRadius: '6px',
-        border: hover
-          ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
-          : '2px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-          : 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        fontWeight: 600,
-        userSelect: 'none'
-      }}
-    >
-      <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
-      <span>{label}</span>
-    </div>
-  );
+/** Shared dashed add action for empty counter/outline states. */
+function AddBar({ label, onActivate }: { label: string; onActivate: () => void }): React.ReactElement {
+  return <EmptyAction label={label} onClick={onActivate} />;
 }
 
 function StatusLine({

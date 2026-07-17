@@ -17,6 +17,9 @@
 .snl-btn--ghost:hover:not(:disabled) { background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,.08)); }
 .snl-btn--ghost:active:not(:disabled) { background:var(--vscode-toolbar-activeBackground,rgba(255,255,255,.14)); }
 
+.snl-empty-action { width:100%; display:flex; justify-content:center; align-items:center; gap:.45rem; margin-top:.75rem; padding:.65rem; border:1px dashed var(--vscode-focusBorder,#007fd4); color:var(--vscode-textLink-foreground,#4a9eff); }
+.snl-empty-action__icon { font-size:1.1em; font-weight:700; }
+
 .snl-field { margin-bottom: .75rem; }
 .snl-field__label { display:block; margin-bottom:.3rem; font-weight:600; }
 .snl-field__hint { margin-top:.2rem; color:var(--vscode-descriptionForeground,#999); font-size:.8rem; }

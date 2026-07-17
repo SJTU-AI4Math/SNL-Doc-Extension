@@ -5,6 +5,7 @@ import {
   setActiveMacroPackages
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { readEntryMetricThresholds } from './entryMetricSettings';
 
 /**
  * Singleton manager for the `SNL: Open Dashboard` webview panel.
@@ -85,6 +86,14 @@ export class DashboardPanel {
 
     this.installWatcher();
 
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('snlDoc.metrics')) {
+          void this.pushOverview();
+        }
+      })
+    );
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -145,7 +154,10 @@ export class DashboardPanel {
     }
     try {
       const overview = await readOverview(root);
-      void this.panel.webview.postMessage({ type: 'overview', overview });
+      void this.panel.webview.postMessage({
+        type: 'overview',
+        overview: { ...overview, metricThresholds: readEntryMetricThresholds() }
+      });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`SNL Dashboard refresh failed: ${text}`);

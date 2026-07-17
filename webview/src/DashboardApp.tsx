@@ -26,6 +26,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './components/Button';
 import {
+  computeEntryMetrics,
+  DEFAULT_ENTRY_METRIC_THRESHOLDS,
+  EntryMetricValue,
+  type EntryMetricThresholds,
+  type SnlMacroSourceLookup
+} from './components/EntryMetrics';
+import {
   getVsCodeApi,
   PANEL_STYLE,
   primaryButton,
@@ -104,6 +111,8 @@ interface SnlOverview {
   macroPackages: MacroPackageSummary[];
   /** SNoogL search index — see AllMacroIndexEntry. */
   allMacros: AllMacroIndexEntry[];
+  metricMacroSources: SnlMacroSourceLookup;
+  metricThresholds: EntryMetricThresholds;
   entryKinds: EntryKind[];
   macroKinds: MacroKind[];
   relationships: RelationshipData[];
@@ -116,6 +125,8 @@ const EMPTY: SnlOverview = {
   libraries: [],
   macroPackages: [],
   allMacros: [],
+  metricMacroSources: {},
+  metricThresholds: DEFAULT_ENTRY_METRIC_THRESHOLDS,
   entryKinds: [],
   macroKinds: [],
   relationships: []
@@ -136,7 +147,13 @@ export function DashboardApp(): React.ReactElement {
       if (!msg || msg.type !== 'overview') {
         return;
       }
-      setOverview(msg.overview);
+      setOverview({
+        ...EMPTY,
+        ...msg.overview,
+        metricMacroSources: msg.overview.metricMacroSources ?? {},
+        metricThresholds:
+          msg.overview.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS
+      });
       setLoaded(true);
     }
     window.addEventListener('message', onMessage);
@@ -316,6 +333,8 @@ function Initialized({
           <EntriesTable
             entries={overview.entries}
             kinds={overview.entryKinds}
+            macroSources={overview.metricMacroSources}
+            metricThresholds={overview.metricThresholds}
             onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
             onDelete={(id) =>
               api?.postMessage({ type: 'deleteEntry', id })
@@ -1047,14 +1066,19 @@ function populatedFormats(entry: EntryData): string {
 function EntriesTable({
   entries,
   kinds,
+  macroSources,
+  metricThresholds,
   onOpen,
   onDelete
 }: {
   entries: EntryData[];
   kinds: EntryKind[];
+  macroSources: SnlMacroSourceLookup;
+  metricThresholds: EntryMetricThresholds;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
+  const entryIds = new Set(entries.map((entry) => entry.id));
   return (
     <table
       style={{
@@ -1071,12 +1095,19 @@ function EntriesTable({
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Kind</th>
           <th style={HEAD}>Formats</th>
+          <th style={{ ...HEAD, textAlign: 'center' }}>Semantic freedom</th>
+          <th style={{ ...HEAD, textAlign: 'center' }}>Structured</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
       <tbody>
         {entries.map((entry) => {
           const kind = kinds.find((k) => k.id === entry.kind);
+          const metrics = computeEntryMetrics(
+            entry.content?.snl,
+            macroSources,
+            entryIds
+          );
           return (
             <ClickableRow
               key={entry.id}
@@ -1113,6 +1144,20 @@ function EntriesTable({
                 )}
               </td>
               <td style={{ ...CELL, ...MONO }}>{populatedFormats(entry)}</td>
+              <td style={{ ...CELL, textAlign: 'center' }}>
+                <EntryMetricValue
+                  result={metrics}
+                  metric="semanticFreedom"
+                  thresholds={metricThresholds}
+                />
+              </td>
+              <td style={{ ...CELL, textAlign: 'center' }}>
+                <EntryMetricValue
+                  result={metrics}
+                  metric="structuredRatio"
+                  thresholds={metricThresholds}
+                />
+              </td>
               <RowDeleteCell
                 label={`Delete entry ${entry.id}`}
                 onDelete={() => onDelete(entry.id)}

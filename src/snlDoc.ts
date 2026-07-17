@@ -1583,6 +1583,8 @@ export interface SnlOverview {
    * "jump to package". Ordered by package then macro name.
    */
   allMacros: AllMacroIndexEntry[];
+  /** Active macro names and their source declarations for entry metrics. */
+  metricMacroSources: Record<string, { source: { entries: string[]; urls: string[] } }>;
   /** Entry-kind catalog from `config.json#entry_kinds`. */
   entryKinds: EntryKind[];
   /** Macro-kind catalog from `config.json#macro_kinds`. */
@@ -1634,6 +1636,7 @@ export async function readOverview(
       libraries: [],
       macroPackages: [],
       allMacros: [],
+      metricMacroSources: {},
       entryKinds: [],
       macroKinds: [],
       relationships: []
@@ -1703,6 +1706,10 @@ export async function readOverview(
   // structure-detection and count-inference, we now need actual macro
   // rows. Cheap for our expected package counts.
   const allMacros: AllMacroIndexEntry[] = [];
+  const metricMacroSources: Record<
+    string,
+    { source: { entries: string[]; urls: string[] } }
+  > = {};
   for (const summary of macroPackages) {
     const read = await readMacroPackage(workspaceRoot, summary.file);
     if (read.status !== 'ok') continue;
@@ -1714,6 +1721,14 @@ export async function readOverview(
         packageName: read.pkg?.name ?? summary.file.replace(/\.json$/i, ''),
         ...(typeof macro.kind === 'string' && macro.kind ? { kind: macro.kind } : {})
       });
+      if (summary.active !== false) {
+        metricMacroSources[macro.name] = {
+          source: {
+            entries: Array.isArray(macro.source?.entries) ? macro.source.entries : [],
+            urls: Array.isArray(macro.source?.urls) ? macro.source.urls : []
+          }
+        };
+      }
     }
   }
   allMacros.sort((a, b) =>
@@ -1729,6 +1744,7 @@ export async function readOverview(
     libraries,
     macroPackages,
     allMacros,
+    metricMacroSources,
     entryKinds,
     macroKinds,
     relationships: await readRelationships(workspaceRoot)

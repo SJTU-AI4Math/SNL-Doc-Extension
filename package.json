@@ -201,6 +201,37 @@
           "when": "false"
         }
       ]
+    },
+    "configuration": {
+      "title": "SNL Doc",
+      "properties": {
+        "snlDoc.metrics.semanticFreedomGreenBelow": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Semantic freedom values below this threshold are shown in green."
+        },
+        "snlDoc.metrics.semanticFreedomRedAbove": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "Semantic freedom values above this threshold are shown in red; values between the two thresholds are orange."
+        },
+        "snlDoc.metrics.structuredRatioRedBelow": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Structured percentages below this threshold are shown in red."
+        },
+        "snlDoc.metrics.structuredRatioGreenAtLeast": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Structured percentages at or above this threshold are shown in green; values between the two thresholds are orange."
+        }
+      }
     }
   },
   "scripts": {

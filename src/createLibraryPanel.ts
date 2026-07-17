@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   addEntry,
   createLibrary,
+  readAllMacros,
   readEntries,
   readEntryKinds,
   readLibraryCounters,
@@ -19,6 +20,7 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
+import { readEntryMetricThresholds } from './entryMetricSettings';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -144,6 +146,13 @@ export class CreateLibraryPanel {
     );
 
     installSnlDocWatcher(this.disposables, () => this.pushContext());
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (this.mode === 'edit' && event.affectsConfiguration('snlDoc.metrics')) {
+          void this.pushGraph();
+        }
+      })
+    );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
@@ -224,12 +233,18 @@ export class CreateLibraryPanel {
       }
       const entries: EntryData[] = await readEntries(root);
       const kinds: EntryKind[] = await readEntryKinds(root);
+      const macros = await readAllMacros(root);
+      const metricMacroSources = Object.fromEntries(
+        Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
+      );
       void this.panel.webview.postMessage({
         type: 'graph',
         nodes,
         relationships,
         entries,
         kinds,
+        metricMacroSources,
+        metricThresholds: readEntryMetricThresholds(),
         warnings
       });
     } catch (err) {

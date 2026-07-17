@@ -22,6 +22,13 @@ import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
+import {
+  computeEntryMetrics,
+  DEFAULT_ENTRY_METRIC_THRESHOLDS,
+  EntryMetricValue,
+  type EntryMetricThresholds,
+  type SnlMacroSourceLookup
+} from './components/EntryMetrics';
 import type { EntryOption } from './render/EntryRender';
 
 type Mode = 'create' | 'edit';
@@ -78,6 +85,8 @@ interface GraphState {
   relationships: GraphRelationship[];
   entries: EntryPoolItem[];
   kinds: KindItem[];
+  metricMacroSources: SnlMacroSourceLookup;
+  metricThresholds: EntryMetricThresholds;
   warnings: string[];
 }
 
@@ -142,6 +151,8 @@ export function CreateLibraryApp(): React.ReactElement {
             relationships: GraphRelationship[];
             entries: EntryPoolItem[];
             kinds: KindItem[];
+            metricMacroSources: SnlMacroSourceLookup;
+            metricThresholds: EntryMetricThresholds;
             warnings: string[];
           }
         | { type: 'graphError'; message: string }
@@ -201,6 +212,9 @@ export function CreateLibraryApp(): React.ReactElement {
             relationships: msg.relationships,
             entries: msg.entries,
             kinds: msg.kinds,
+            metricMacroSources: msg.metricMacroSources ?? {},
+            metricThresholds:
+              msg.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS,
             warnings: msg.warnings
           });
           setGraphError(null);
@@ -905,6 +919,11 @@ function OutlineEditor({
   // entriesById so keystroke-driven filter re-renders don't re-project the
   // whole pool. `hasContent` is derived from `content.snl` presence — same
   // rule the render layer uses to decide "stub or real". Cat 2026-07-09.
+  const accessibleEntryIds = useMemo(
+    () => new Set(entriesById.keys()),
+    [entriesById]
+  );
+
   const entryOptions = useMemo<EntryOption[]>(() => {
     if (!graph) return [];
     return graph.entries.map((e) => ({
@@ -1064,6 +1083,9 @@ function OutlineEditor({
       kindsById={kindsById}
       numbersById={numbersById}
       counters={counters}
+      macroSources={graph.metricMacroSources}
+      metricThresholds={graph.metricThresholds}
+      accessibleEntryIds={accessibleEntryIds}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
     />
@@ -1163,6 +1185,9 @@ interface OutlineRowContentProps {
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
   counters: CounterNode[];
+  macroSources: SnlMacroSourceLookup;
+  metricThresholds: EntryMetricThresholds;
+  accessibleEntryIds: ReadonlySet<string>;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
 }
@@ -1178,6 +1203,9 @@ function OutlineRowContent({
   kindsById,
   numbersById,
   counters,
+  macroSources,
+  metricThresholds,
+  accessibleEntryIds,
   onOpenEntry,
   onUpdateNodeCounter
 }: OutlineRowContentProps): React.ReactElement {
@@ -1196,6 +1224,11 @@ function OutlineRowContent({
   const flatCounters = flattenCounters(counters);
   const currentCounterId =
     typeof node.props.counterId === 'string' ? node.props.counterId : '';
+  const metrics = computeEntryMetrics(
+    entry?.content?.snl,
+    macroSources,
+    accessibleEntryIds
+  );
 
   const title = entry?.title ?? '';
   const displayTitle =
@@ -1286,6 +1319,23 @@ function OutlineRowContent({
           )}
         </span>
       )}
+
+      {entry ? (
+        <>
+          <EntryMetricValue
+            result={metrics}
+            metric="semanticFreedom"
+            thresholds={metricThresholds}
+            compact
+          />
+          <EntryMetricValue
+            result={metrics}
+            metric="structuredRatio"
+            thresholds={metricThresholds}
+            compact
+          />
+        </>
+      ) : null}
 
       {/* Per-entry counter override. Only meaningful when the row resolves
           to an entry; <default> falls back to kind.defaultCounterName. */}

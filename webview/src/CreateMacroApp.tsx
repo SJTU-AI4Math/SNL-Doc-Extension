@@ -916,7 +916,7 @@ export function CreateMacroApp(): React.ReactElement {
             (current?.template ?? '').trim().length === 0
               ? ' *'
               : ''}
-          </TabButton>
+          </Button>
         ))}
       </div>
 
@@ -1577,7 +1577,7 @@ function MultiNameEditor({
             edits where clicking chip-by-chip is awkward. 猫猫 spec 1
             (2026-07-04). */}
         {onEditWholeId ? (
-          <button
+          <Button
             type="button"
             onClick={onEditWholeId}
             title="Collapse back to a single ID input (Edit whole ID)"
@@ -1598,7 +1598,7 @@ function MultiNameEditor({
             }}
           >
             ✎ whole
-          </button>
+          </Button>
         ) : null}
       </div>
       {errIdx !== null ? (
@@ -1765,7 +1765,7 @@ function ModeButton({
     '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))';
   const accentBorder = '2px solid var(--vscode-focusBorder, #0e639c)';
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
@@ -1791,7 +1791,7 @@ function ModeButton({
       }}
     >
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -2287,7 +2287,7 @@ function StyleSwitch({
     >
       {tag.trim() || '(empty)'}
       {isDefault ? ' ★' : ''}
-    </TabButton>
+    </Button>
   );
 }
 
@@ -2504,7 +2504,7 @@ function TabButton({
     ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.09))'
     : 'var(--vscode-tab-activeBackground, #1e1e1e)';
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
@@ -2530,7 +2530,7 @@ function TabButton({
       }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -2545,7 +2545,7 @@ function SmallButton({
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
@@ -2567,7 +2567,7 @@ function SmallButton({
       }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

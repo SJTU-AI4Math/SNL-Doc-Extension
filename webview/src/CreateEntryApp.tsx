@@ -878,7 +878,7 @@ function TabButton({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       style={{
@@ -900,7 +900,7 @@ function TabButton({
       }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -914,7 +914,7 @@ function SubTabButton({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       style={{
@@ -932,7 +932,7 @@ function SubTabButton({
       }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -1647,7 +1647,7 @@ function InductiveNode({
       >
         {/* Chevron toggle OR spacer, so numbers/inputs line up regardless. */}
         {hasKids ? (
-          <button
+          <Button
             type="button"
             onClick={() => onToggleCollapsed(nodeId)}
             style={chevronButtonStyle}
@@ -1655,7 +1655,7 @@ function InductiveNode({
             title={isCollapsed ? 'Expand' : 'Collapse'}
           >
             {isCollapsed ? '▶' : '▼'}
-          </button>
+          </Button>
         ) : (
           <span
             style={{ width: '1.1rem', flexShrink: 0, display: 'inline-block' }}

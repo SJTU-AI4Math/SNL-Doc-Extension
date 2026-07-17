@@ -12,6 +12,7 @@ import katex from 'katex';
 import '@snl-basics/react/style.css';
 import { MarkdownBody } from './MarkdownBody';
 import { LatexBody } from './LatexBody';
+import { Button } from '../components/Button';
 import {
   parseSnlSyntaxTree,
   tryParseSnlSyntaxTree,
@@ -722,8 +723,9 @@ export function EntryRender({
           />
         </strong>
         {hasStructuralPointer(entry.pointer) ? (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             title={`Jump to source: ${summarizePointer(entry.pointer)}`}
             onClick={(e) => {
               e.stopPropagation();
@@ -738,10 +740,6 @@ export function EntryRender({
               fontSize: '0.75rem',
               lineHeight: 1.3,
               color: stroke,
-              background: 'transparent',
-              border: `1px solid ${stroke}`,
-              borderRadius: 3,
-              cursor: 'pointer',
               fontFamily: 'inherit',
               // Codicon-like arrow glyph; the extension's webviews don't
               // bundle codicons, so use a Unicode symbol that reads as
@@ -750,7 +748,7 @@ export function EntryRender({
             }}
           >
             ↗ source
-          </button>
+          </Button>
         ) : null}
       </header>
       {hasContent ? (

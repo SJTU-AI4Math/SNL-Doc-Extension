@@ -240,7 +240,7 @@ function LibrariesLayer({
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {libraries.map((lib) => (
               <li key={lib.slug} style={{ marginBottom: '0.5rem' }}>
-                <button
+                <Button
                   type="button"
                   className="snl-library-card"
                   onClick={() =>
@@ -272,7 +272,7 @@ function LibrariesLayer({
                       {lib.description}
                     </div>
                   ) : null}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -492,7 +492,7 @@ function CollapseToggle({
   childCount: number;
 }): React.ReactElement {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       title={
@@ -522,7 +522,7 @@ function CollapseToggle({
       }}
     >
       {collapsed ? '▶' : '▼'}
-    </button>
+    </Button>
   );
 }
 

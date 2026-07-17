@@ -566,7 +566,7 @@ function CountersSection({
           marginBottom: '0.5rem'
         }}
       >
-        <button
+        <Button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? 'Expand counters' : 'Collapse counters'}
@@ -585,7 +585,7 @@ function CountersSection({
           }}
         >
           {collapsed ? '▶' : '▼'}
-        </button>
+        </Button>
         <h2 style={{ ...SECTION_HEADING_STYLE, margin: 0 }}>
           Counters ({total})
         </h2>
@@ -613,7 +613,7 @@ function CountersSection({
             }
           />
           {counters.length > 0 ? (
-            <button
+            <Button
               type="button"
               onClick={() =>
                 onCounterOp({
@@ -625,7 +625,7 @@ function CountersSection({
               style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
             >
               + Add root counter
-            </button>
+            </Button>
           ) : null}
         </>
       )}
@@ -1168,13 +1168,13 @@ function OutlineEditor({
           onUpdate={setAddingUnder}
         />
       ) : (
-        <button
+        <Button
           type="button"
           onClick={() => startAdd(null, null)}
           style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
         >
           + Add root entry
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -1372,7 +1372,7 @@ function OutlineRowContent({
       {/* Compact entryId badge — click to copy, so you can paste it into
           another library's Add form to reference this same entry. */}
       {entry ? (
-        <button
+        <Button
           type="button"
           title={`Click to copy entry id\n${entry.id}`}
           onClick={() => {
@@ -1412,7 +1412,7 @@ function OutlineRowContent({
           }}
         >
           {entry.id.slice(0, 8)}…
-        </button>
+        </Button>
       ) : null}
     </>
   );
@@ -1647,12 +1647,12 @@ function AddNodeForm({
               ? `No entry with id "${entryIdTrimmed}" — Create will add a new one`
               : 'Empty — Create will open the Create Entry panel'}
         </span>
-        <button type="button" onClick={onCommit} style={toolbarButtonStyle(true)}>
+        <Button onClick={onCommit} style={toolbarButtonStyle(true)}>
           {buttonLabel}
-        </button>
-        <button type="button" onClick={onCancel} style={toolbarButtonStyle(false)}>
+        </Button>
+        <Button onClick={onCancel} style={toolbarButtonStyle(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

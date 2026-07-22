@@ -22,6 +22,43 @@ export interface MarkdownBodyProps {
   source: string;
 }
 
+const FENCED_CODE_COLOR = '#24292f';
+const FENCED_CODE_BACKGROUND = '#f6f8fa';
+
+/**
+ * Keep fenced code readable on Entry cards from the very first paint.
+ *
+ * These styles deliberately live on the rendered nodes instead of relying
+ * only on the stylesheet installed by useEffect: a VS Code webview can paint
+ * the Markdown tree before that effect runs, briefly (or in a retained view,
+ * persistently) exposing the host theme's light foreground on a light card.
+ */
+type MarkdownElementProps<Tag extends 'pre' | 'code'> =
+  React.ComponentPropsWithoutRef<Tag> & { node?: unknown };
+
+export const markdownComponents = {
+  pre: ({ children, node: _node, ...props }: MarkdownElementProps<'pre'>) => (
+    <pre
+      {...props}
+      style={{
+        ...props.style,
+        color: FENCED_CODE_COLOR,
+        background: FENCED_CODE_BACKGROUND
+      }}
+    >
+      {children}
+    </pre>
+  ),
+  code: ({ children, node: _node, ...props }: MarkdownElementProps<'code'>) => (
+    <code
+      {...props}
+      style={{ ...props.style, color: FENCED_CODE_COLOR }}
+    >
+      {children}
+    </code>
+  )
+};
+
 export function MarkdownBody({ source }: MarkdownBodyProps): React.ReactElement {
   React.useEffect(() => {
     if (document.getElementById('snl-markdown-body-style')) return;
@@ -58,6 +95,7 @@ export function MarkdownBody({ source }: MarkdownBodyProps): React.ReactElement 
   return (
     <div className="snl-markdown-body">
       <ReactMarkdown
+        components={markdownComponents}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
       >

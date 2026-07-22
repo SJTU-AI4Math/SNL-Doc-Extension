@@ -16,15 +16,17 @@ import { Button } from '../components/Button';
 import {
   parseSnlSyntaxTree,
   tryParseSnlSyntaxTree,
-  createMacroTemplateQueryFromDb,
   defaultRenderHooks,
   SnlSyntaxTreeView,
-  bundledMacroDb,
   type KindPalette,
-  type SnlMacroDb,
-  type SnlMacroTemplateQuery,
   type SnlRenderHooks
 } from '@snl-basics/react';
+import {
+  bundledMacros,
+  createMacroDataDriver,
+  lookupMacro,
+  type MacroRecord
+} from './macroData';
 import { useHoverPopovers, useCurrentPopoverId } from './HoverPopoverProvider';
 import { buildContextIndex, applyContextSrcLookup } from './contextSrcLookup';
 
@@ -33,11 +35,11 @@ import { buildContextIndex, applyContextSrcLookup } from './contextSrcLookup';
 // `macros` field on incoming host messages. `mergeMacroDb` layers the user
 // pool over the core so unknown names fall back to the core (matches the
 // Entry editor's precedence).
-export function mergeMacroDb(userMacros: SnlMacroDb | undefined | null): SnlMacroDb {
+export function mergeMacroDb(userMacros: MacroRecord | undefined | null): MacroRecord {
   if (!userMacros) {
-    return bundledMacroDb;
+    return bundledMacros;
   }
-  return { ...bundledMacroDb, ...userMacros };
+  return { ...bundledMacros, ...userMacros };
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +292,7 @@ export interface EntryRenderProps {
    * `popoverEntryDetails`; wire it here so per-entry, picker, AND popover
    * surfaces all see the same macro universe.
    */
-  userMacros?: SnlMacroDb;
+  userMacros?: MacroRecord;
   /** Workspace Macro Kind colors forwarded to SnlSyntaxTreeView. */
   kindPalette?: KindPalette;
   /**
@@ -348,10 +350,9 @@ export function EntryRender({
 
   // Merged DB: user macros layered over the bundled core. `MACRO_QUERY`
   // derives from it so `SnlSyntaxTreeView` sees a single consistent DB.
-  const macroDb = useMemo<SnlMacroDb>(() => mergeMacroDb(userMacros), [userMacros]);
-  const macroQuery = useMemo<SnlMacroTemplateQuery>(
-    () => createMacroTemplateQueryFromDb(macroDb),
-    [macroDb]
+  const macroDataDriver = useMemo(
+    () => createMacroDataDriver(bundledMacros, userMacros),
+    [userMacros]
   );
 
   // Per-macro hover continuity: which macro element currently owns a popover,
@@ -376,7 +377,7 @@ export function EntryRender({
   // preferInPool=false so cross-library works.
   const resolveEntryId = useCallback(
     (name: string, preferInPool = false): string | null => {
-      const macro = macroDb[name];
+      const macro = lookupMacro(name, bundledMacros, userMacros);
       if (!macro) return null;
       if (preferInPool) {
         for (const ref of macro.source.entries) {
@@ -387,7 +388,7 @@ export function EntryRender({
       // Cross-library-friendly: first declared source, in-pool or not.
       return macro.source.entries[0] ?? null;
     },
-    [entries, macroDb]
+    [entries, userMacros]
   );
 
   // Dismiss this container's active (unfrozen) popover and cancel any pending
@@ -767,8 +768,7 @@ export function EntryRender({
               parsed.ok && tree ? (
                 <SnlSyntaxTreeView
                   tree={tree}
-                  macroDb={macroDb}
-                  query={macroQuery}
+                  macro_data_driver={macroDataDriver}
                   kindPalette={kindPalette}
                   hooks={hooks}
                 />

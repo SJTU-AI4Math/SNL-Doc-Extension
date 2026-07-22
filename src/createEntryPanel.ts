@@ -143,7 +143,7 @@ export class CreateEntryPanel {
     // Snapshot every macro from every package in the workspace so the
     // Entry editor's SNL parser/renderer can dispatch on real user macros
     // — not just the bundled fixture DB from @snl-basics. Merged into the
-    // webview's macroDb over bundledMacroDb (user macros win on collision).
+    // webview's queried macro record (user macros win on collision).
     const macros = root ? await readAllMacros(root) : {};
     const macroKinds = root ? await readMacroKinds(root) : [];
     // Map macro name → owning package file (bare, no `.json`). Built here
@@ -239,20 +239,20 @@ export class CreateEntryPanel {
     }
     if (msg.type === 'openMacroEditor') {
       const rawName = (msg as { name?: unknown }).name;
-      const rawEnv = (msg as { envMode?: unknown }).envMode;
-      const rawStyle = (msg as { style?: unknown }).style;
+      const rawEnv = (msg as { env_mode?: unknown }).env_mode;
+      const rawStyle = (msg as { style_name?: unknown }).style_name;
       const name = typeof rawName === 'string' ? rawName.trim() : '';
-      const envMode =
+      const env_mode =
         rawEnv === 'formula_inline' ||
         rawEnv === 'formula_display' ||
         rawEnv === 'text'
           ? rawEnv
           : undefined;
-      const style =
+      const style_name =
         typeof rawStyle === 'string' && rawStyle.length > 0 ? rawStyle : undefined;
-      // Always allowed — even empty name / envMode leaves route to
+      // Always allowed — even empty name / env_mode leaves route to
       // Create Macro with a matching prefill. Cat 2026-07-12.
-      await this.openMacroEditor({ name, envMode, style });
+      await this.openMacroEditor({ name, env_mode, style_name });
       return;
     }
     if (msg.type !== 'create' && msg.type !== 'update') {
@@ -408,14 +408,14 @@ export class CreateEntryPanel {
    * the Entry GUI editor. If the name already exists in an active package
    * we go straight to edit; otherwise we pick a target package (single
    * active → auto; multiple → quickpick) and open the create panel with
-   * a prefill derived from the row (envMode → macro mode + template;
+   * a prefill derived from the row (env_mode → macro mode + template;
    * plain identifier → prefilled name). Cat 2026-07-12: "在每一行边上
    * 加一个入口" + "Edit 跳转应该任何情况下都允许".
    */
   private async openMacroEditor(req: {
     name: string;
-    envMode?: 'formula_inline' | 'formula_display' | 'text';
-    style?: string;
+    env_mode?: 'formula_inline' | 'formula_display' | 'text';
+    style_name?: string;
   }): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -424,12 +424,12 @@ export class CreateEntryPanel {
       );
       return;
     }
-    const { name, envMode } = req;
+    const { name, env_mode } = req;
     // Edit path only when the row IS a plain identifier that already
-    // exists in an active package. envMode leaves and empty names always
+    // exists in an active package. env_mode leaves and empty names always
     // fall through to Create.
     try {
-      if (name && envMode === undefined) {
+      if (name && env_mode === undefined) {
         const active = new Set(await resolveActiveMacroPackages(root));
         const packages = await readMacroPackages(root);
         for (const summary of packages) {
@@ -503,7 +503,7 @@ export class CreateEntryPanel {
         await vscode.commands.executeCommand('snlDoc.createMacroPackage');
         return;
       }
-      // Prefill derivation (cat 2026-07-12): envMode leaves seed the
+      // Prefill derivation (cat 2026-07-12): env_mode leaves seed the
       // template with the raw payload + the matching macro mode; plain
       // identifiers seed the name field.
       const prefill: {
@@ -511,9 +511,9 @@ export class CreateEntryPanel {
         template?: string;
         mode?: 'formula_inline' | 'formula_display' | 'text';
       } = {};
-      if (envMode !== undefined) {
-        prefill.mode = envMode;
-        prefill.template = name; // envMode leaves stash the payload in `name`
+      if (env_mode !== undefined) {
+        prefill.mode = env_mode;
+        prefill.template = name; // env_mode leaves stash the payload in `name`
       } else if (name) {
         prefill.name = name;
       }

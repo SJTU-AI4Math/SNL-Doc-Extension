@@ -467,7 +467,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // No palette entry: invoked via executeCommand('snlDoc.createMacro', file, prefill?)
   // from a PackagePanel's "+ Create Macro" bar or the Entry GUI editor's
-  // per-row "↗ new" button (cat 2026-07-12; prefill carries envMode-→
+  // per-row "↗ new" button (cat 2026-07-12; prefill carries env_mode-→
   // mode + template, or a bare name).
   const createMacro = vscode.commands.registerCommand(
     'snlDoc.createMacro',

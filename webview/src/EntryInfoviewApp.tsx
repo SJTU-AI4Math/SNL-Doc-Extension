@@ -11,7 +11,8 @@ import {
   type EntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import type { KindPalette, SnlMacroDb } from '@snl-basics/react';
+import type { KindPalette } from '@snl-basics/react';
+import type { MacroRecord } from './render/macroData';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -39,7 +40,7 @@ type Incoming =
       entry: EntryData | null;
       kind: EntryKind | null;
       entries: EntryOption[];
-      macros?: SnlMacroDb;
+      macros?: MacroRecord;
       macroKinds?: MacroKindPaletteSource[];
       relatedEntries?: RelatedEntries | null;
     }
@@ -53,7 +54,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     entries: EntryOption[];
     related: RelatedEntries;
   } | null>(null);
-  const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
+  const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 

@@ -5,17 +5,23 @@ describe('wireMacroToRenderable', () => {
   it('normalizes one wire shape for editor previews and package rows', () => {
     expect(wireMacroToRenderable({
       name: 'm',
+      description: '',
       kind: 'operator',
       dynamic_arity: false,
       source: { entries: ['src'], urls: [] },
-      styles: [{ tag: 'default', mode: 'formula_inline', template: '#0' }]
+      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
+      tags: []
     })).toMatchObject({
       name: 'm', kind: 'operator', source: { entries: ['src'], urls: [] },
-      styles: [{ tag: 'default', mode: 'formula_inline', template: '#0' }]
+      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
+      tags: []
     });
   });
 
   it('supplies a renderable default style for malformed empty style arrays', () => {
-    expect(wireMacroToRenderable({ name: 'm', dynamic_arity: false, styles: [] }).styles).toHaveLength(1);
+    expect(wireMacroToRenderable({
+      name: 'm', description: '', source: { entries: [], urls: [] },
+      dynamic_arity: false, styles: [], tags: []
+    }).styles).toHaveLength(1);
   });
 });

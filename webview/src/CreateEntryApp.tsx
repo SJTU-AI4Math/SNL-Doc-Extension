@@ -10,7 +10,7 @@
 //   6. Pointer     — deferred placeholder
 //   7. Submit/Cancel + result banner
 //
-// SNL rendering uses a MERGED macroDb: bundledMacroDb (fixture) overridden
+// SNL rendering uses one merged MacroDataDriver: bundled macros overridden
 // by every macro in every package in the current workspace, shipped via the
 // `context` message from createEntryPanel. See 猫猫 2026-07-04 spec 2:
 // "Entry 编辑器的 SNL parser 几乎等于没实装 ... 先把它做成能正常根据项目
@@ -26,11 +26,10 @@ import 'katex/dist/katex.min.css';
 import '@snl-basics/react/style.css';
 import {
   tryParseSnlSyntaxTree,
-  bundledMacroDb,
   createSnlSyntaxTreeNode,
   DEFAULT_KIND_PALETTE,
+  type MacroDataDriver,
   type SnlMacro,
-  type SnlMacroDb,
   type SnlSyntaxTree,
   type KindColoring,
   type KindPalette
@@ -56,6 +55,11 @@ import {
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
+import {
+  bundledMacros,
+  createMacroDataDriver,
+  type MacroRecord
+} from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 import {
   macroKindsToPalette,
@@ -148,8 +152,8 @@ export function CreateEntryApp(): React.ReactElement {
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
   /**
-   * User-authored macros indexed by name (v6 wire shape from the host).
-   * Merged over bundledMacroDb via `macroDb` below. Empty until the first
+   * User-authored macros indexed by name (strict v7 wire shape from the host).
+   * Merged over the bundled record via `macroDataDriver` below. Empty until the first
    * `context` message arrives — parse/render before that only sees the
    * bundled fixture.
    */
@@ -162,17 +166,17 @@ export function CreateEntryApp(): React.ReactElement {
   // User-only DB (for EntryRender.userMacros, which merges over the core
   // internally via mergeMacroDb) AND merged DB (for the GUI editor which
   // wants a flat lookup).
-  const userMacroDb: SnlMacroDb = useMemo(() => {
-    const userDb: SnlMacroDb = {};
+  const userMacros: MacroRecord = useMemo(() => {
+    const userDb: MacroRecord = {};
     for (const [name, m] of Object.entries(wireMacros)) {
       userDb[name] = wireMacroToRenderable(m);
     }
     return userDb;
   }, [wireMacros]);
 
-  const macroDb: SnlMacroDb = useMemo(
-    () => ({ ...bundledMacroDb, ...userMacroDb }),
-    [userMacroDb]
+  const macroDataDriver = useMemo(
+    () => createMacroDataDriver(bundledMacros, userMacros),
+    [userMacros]
   );
 
   // (`macroQuery` used to be threaded into the SnlSyntaxTreeView-based
@@ -574,7 +578,7 @@ export function CreateEntryApp(): React.ReactElement {
             title={trimmedTitle}
             content={content}
             entries={existingIds}
-            userMacros={userMacroDb}
+            userMacros={userMacros}
             kindPalette={kindPalette}
             postMessage={(message) => apiRef.current?.postMessage(message)}
           />
@@ -628,7 +632,7 @@ export function CreateEntryApp(): React.ReactElement {
           {activeFormat === 'snl' && snlMode === 'gui' ? (
             <GuiInductiveEditor
               snl={content.snl}
-              macroDb={macroDb}
+              macroDataDriver={macroDataDriver}
               macroOrigin={macroOrigin}
               onOpenMacroEditor={(payload) =>
                 apiRef.current?.postMessage({
@@ -746,7 +750,7 @@ function LivePreview({
   title: string;
   content: Record<ContentFormat, string>;
   entries: EntryOption[];
-  userMacros: SnlMacroDb;
+  userMacros: MacroRecord;
   kindPalette: KindPalette | undefined;
   postMessage: (message: unknown) => void;
 }): React.ReactElement {
@@ -949,11 +953,11 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 //   5. When the input text (parsed as a single leaf) resolves to a macro in
 //      the merged DB with a `kind`, the input border+bg flip to that kind's
 //      palette color. Delimited leaves (`$…$`, `%…%`) also color per their
-//      inherent envMode → mapped kind.
+//      inherent env_mode → mapped kind.
 //   6. Syntax the parser understands stays in the text box verbatim: `$foo$`,
 //      `$$x + y$$`, `%my text%`, `@$x$`, `foo[style]`, `foo.bar.baz`. On
 //      serialize, each row's text is treated as a single leaf's source, then
-//      re-hydrated to preserve `envMode` / `kind='binder'` / `style`. This
+//      re-hydrated to preserve `env_mode` / `kind='binder'` / `style`. This
 //      keeps the round-trip clean without demanding new UI knobs — the raw
 //      characters are the source of truth until we build proper inline
 //      editors.
@@ -966,18 +970,18 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 /**
  * Parse a single-node source string produced by the user (raw text they
  * typed into the row input) into the leaf-level fields of an SnlSyntaxTree.
- * Preserves envMode / kind='binder' / style tag from the surface syntax.
+ * Preserves env_mode / kind='binder' / style tag from the surface syntax.
  *
  * Falls back to `{name: raw, ...}` if the input can't be interpreted as a
  * single leaf — that way the user's typing is never destroyed mid-edit.
  */
 function parseLeafSource(raw: string): {
-  name: string;
-  style?: string;
+  macro_name: string;
+  style_name?: string;
 } {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return { name: '' };
+    return { macro_name: '' };
   }
   // Cat 2026-07-15: the GUI editor is deliberately dumb about sigils —
   // `@`, `%`, `$` and friends are just literal characters that belong in
@@ -986,19 +990,19 @@ function parseLeafSource(raw: string): {
   //     show up inside the head we treat the whole raw string as an
   //     opaque name (defensive; the paren guard on the caller side
   //     usually keeps them out).
-  //   - A trailing `[style]` is peeled into `node.style` so the dedicated
+  //   - A trailing `[style]` is peeled into `node.style_name` so the dedicated
   //     style box on the right can drive it independently.
   if (trimmed.includes('(') || trimmed.includes(',')) {
-    return { name: raw };
+    return { macro_name: raw };
   }
   const styleMatch = trimmed.match(/^(.*)\[([^\[\]]*)\]$/);
   if (styleMatch) {
     return {
-      name: styleMatch[1],
-      style: styleMatch[2].length > 0 ? styleMatch[2] : undefined
+      macro_name: styleMatch[1],
+      style_name: styleMatch[2].length > 0 ? styleMatch[2] : undefined
     };
   }
-  return { name: trimmed };
+  return { macro_name: trimmed };
 }
 
 /**
@@ -1007,7 +1011,7 @@ function parseLeafSource(raw: string): {
  * the surface forms the row input accepts).
  */
 function stringifyLeafSource(node: SnlSyntaxTree): string {
-  const stylePart = node.style ? `[${node.style}]` : '';
+  const stylePart = node.style_name ? `[${node.style_name}]` : '';
   return `${stringifyLeafHead(node)}${stylePart}`;
 }
 
@@ -1018,44 +1022,63 @@ function stringifyLeafSource(node: SnlSyntaxTree): string {
  *
  * Cat 2026-07-15 (v2): the name box shows literal characters — the
  * editor no longer reconstructs sigils (`@`, `%…%`, `$…$`, `$${'$'}…$${'$'}`)
- * from `node.envMode` / `node.kind`. Those fields are meaningful for
+ * from `node.env_mode` / `node.kind`. Those fields are meaningful for
  * trees that came from an external SNL parse; for those, the name still
  * carries the identifier without the sigils and we prepend/wrap them so
  * the first render truthfully mirrors the source. But on ANY user edit,
- * `commitRaw` clears envMode + kind and stores whatever the user typed
+ * `commitRaw` clears env_mode + kind and stores whatever the user typed
  * verbatim into `name` — so if you backspace the `@` off `@foo` it
  * actually goes away instead of the useEffect re-adding it. See
  * "GUI Editor 应该只管圆括号和方括号" for the design directive.
  */
 function stringifyLeafHead(node: SnlSyntaxTree): string {
   const binderPrefix = node.kind === 'binder' ? '@' : '';
-  if (node.envMode === 'text') {
-    return `${binderPrefix}%${node.name}%`;
+  if (node.env_mode === 'text') {
+    return `${binderPrefix}%${node.macro_name}%`;
   }
-  if (node.envMode === 'formula_inline') {
-    return `${binderPrefix}$${node.name}$`;
+  if (node.env_mode === 'formula_inline') {
+    return `${binderPrefix}$${node.macro_name}$`;
   }
-  if (node.envMode === 'formula_display') {
-    return `${binderPrefix}$${'$'}${node.name}$${'$'}`;
+  if (node.env_mode === 'formula_display') {
+    return `${binderPrefix}$${'$'}${node.macro_name}$${'$'}`;
   }
-  return `${binderPrefix}${node.name}`;
+  return `${binderPrefix}${node.macro_name}`;
 }
 
 /**
  * Resolve the effective `kind` for a row so we can color its input frame.
  * Priority: node.kind (set by parser for `@`-binder / annotate-bind) →
- * macro's declared kind in the merged DB → envMode-driven default →
+ * macro's declared kind in the merged DB → env_mode-driven default →
  * 'fvar' fallback (mirrors DEFAULT_KIND_PALETTE fallback used elsewhere).
  */
-function resolveRowKind(node: SnlSyntaxTree, macroDb: SnlMacroDb): string {
+function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): string {
   if (node.kind && node.kind !== '') return node.kind;
-  const macro = macroDb[node.name];
   if (macro?.kind) return macro.kind;
-  if (node.envMode === 'text') return 'const';
-  if (node.envMode === 'formula_inline' || node.envMode === 'formula_display') {
+  if (node.env_mode === 'text') return 'const';
+  if (node.env_mode === 'formula_inline' || node.env_mode === 'formula_display') {
     return 'const';
   }
   return 'fvar';
+}
+
+function useQueriedMacro(
+  driver: MacroDataDriver,
+  macroName: string
+): SnlMacro | undefined {
+  const [macro, setMacro] = useState<SnlMacro | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    setMacro(undefined);
+    void driver.query_macro({ macro_name: macroName, signal: controller.signal })
+      .then((value) => setMacro(value ?? undefined))
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setMacro(undefined);
+        }
+      });
+    return () => controller.abort();
+  }, [driver, macroName]);
+  return macro;
 }
 
 /**
@@ -1087,23 +1110,23 @@ function paletteFor(kindId: string): KindColoring {
 /**
  * Payload for opening the Macro editor from a row (cat 2026-07-12). Sent
  * verbatim as a `openMacroEditor` message; the host picks edit vs create
- * and, on create, uses envMode to prefill the mode + template.
+ * and, on create, uses env_mode to prefill the mode + template.
  */
 interface MacroOpenRequest {
   name: string;
-  envMode?: 'formula_inline' | 'formula_display' | 'text';
-  style?: string;
+  env_mode?: 'formula_inline' | 'formula_display' | 'text';
+  style_name?: string;
 }
 
 function GuiInductiveEditor({
   snl,
-  macroDb,
+  macroDataDriver,
   macroOrigin,
   onOpenMacroEditor,
   onChange
 }: {
   snl: string;
-  macroDb: SnlMacroDb;
+  macroDataDriver: MacroDataDriver;
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
@@ -1226,7 +1249,7 @@ function GuiInductiveEditor({
         siblingCount={1 /* root has no siblings; move-up/down guarded by path==='' */}
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
-        macroDb={macroDb}
+        macroDataDriver={macroDataDriver}
         macroOrigin={macroOrigin}
         onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
@@ -1264,9 +1287,9 @@ function parseOrDefault(text: string): SnlSyntaxTree {
  * `serializeSnlSyntaxTree` from @snl-basics/react drops on the floor.
  *
  * The library's serializer emits `name(children)` verbatim — it ignores
- * `envMode`, `style`, and `kind='binder'`. That's fine when the tree came
+ * `env_mode`, `style`, and `kind='binder'`. That's fine when the tree came
  * from a parser that stripped delimiters into the payload, but for us it's
- * catastrophic: a leaf `{name:'foo', envMode:'text'}` (which the user typed
+ * catastrophic: a leaf `{name:'foo', env_mode:'text'}` (which the user typed
  * as `%foo%`) round-trips as bare `foo`, and the parser rejects it on the
  * next reparse. Cat 2026-07-12: "GUI Editor 改完会把 % 等语法元素吃掉".
  *
@@ -1294,7 +1317,7 @@ function serializeTreePreserving(node: SnlSyntaxTree): string {
 function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
   const kids = node.children
     .map(stripEmptyPlaceholders)
-    .filter((c) => !(c.name.trim() === '' && c.children.length === 0));
+    .filter((c) => !(c.macro_name.trim() === '' && c.children.length === 0));
   return { ...node, children: kids };
 }
 
@@ -1445,7 +1468,7 @@ function InductiveNode({
   siblingCount,
   onChange,
   onDelete,
-  macroDb,
+  macroDataDriver,
   macroOrigin,
   onOpenMacroEditor,
   collapsed,
@@ -1467,7 +1490,7 @@ function InductiveNode({
   onChange: (next: SnlSyntaxTree) => void;
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
-  macroDb: SnlMacroDb;
+  macroDataDriver: MacroDataDriver;
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
@@ -1494,7 +1517,7 @@ function InductiveNode({
   React.useEffect(() => {
     const canonical = stringifyLeafHead(node);
     setRawInput((prev) => (prev.trim() === canonical.trim() ? prev : canonical));
-  }, [node.name, node.envMode, node.kind, node.style]);
+  }, [node.macro_name, node.env_mode, node.kind, node.style_name]);
 
   const commitRaw = (nextRaw: string): void => {
     setRawInput(nextRaw);
@@ -1503,7 +1526,7 @@ function InductiveNode({
     // has typed sigil chars (e.g. `%foo%`) into the name box, this
     // lookup will (correctly) miss — the row is now a raw literal, not
     // a macro reference. Cat 2026-07-15.
-    const matched = leaf.name ? macroDb[leaf.name] : undefined;
+    const matched = leaf.macro_name === node.macro_name ? macroEntry : undefined;
     let nextChildren = node.children;
     if (matched && matched.dynamic_arity !== true) {
       const requiredArity = macroTemplateArity(matched);
@@ -1521,17 +1544,17 @@ function InductiveNode({
     }
     onChange({
       ...node,
-      name: leaf.name,
+      macro_name: leaf.macro_name,
       // Cat 2026-07-15: the GUI editor no longer manages sigils. Any
-      // user edit collapses the node's parsed envMode/kind meta into
+      // user edit collapses the node's parsed env_mode/kind meta into
       // whatever literal chars are now in `name`, so backspacing a
       // sigil actually deletes it (previously `kind: leaf.kind ||
       // node.kind` re-latched the old `binder` and the `@` came back).
-      envMode: undefined,
+      env_mode: undefined,
       kind: '',
       // Style still has its own dedicated box — only overwrite when the
       // typed source explicitly carried a bracket suffix.
-      style: leaf.style !== undefined ? leaf.style : node.style,
+      style_name: leaf.style_name !== undefined ? leaf.style_name : node.style_name,
       children: nextChildren
     });
   };
@@ -1557,13 +1580,13 @@ function InductiveNode({
 
   const hasKids = node.children.length > 0;
   const isCollapsed = collapsed.has(nodeId);
-  const effectiveKind = resolveRowKind(node, macroDb);
+  const macroEntry = useQueriedMacro(macroDataDriver, node.macro_name);
+  const effectiveKind = resolveRowKind(node, macroEntry);
   const palette = paletteFor(effectiveKind);
-  const macroEntry = macroDb[node.name];
-  const macroMatched = Boolean(macroEntry) || node.envMode !== undefined;
+  const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
 
   // Frame: kind palette when the row resolved to a pool macro (or an
-  // envMode leaf); default gray when the name doesn't match anything.
+  // env_mode leaf); default gray when the name doesn't match anything.
   // fvar-kind macros DO get the palette's fvar color (red) — that's the
   // author's declared kind, so it's what we surface. If a macro looks red
   // and shouldn't, fix its `kind` in .SNL_Doc/term_macros/*.json.
@@ -1575,19 +1598,19 @@ function InductiveNode({
     : 'var(--vscode-input-background, #2a2a2a)';
 
   // Style-box state (cat 2026-07-12). Behaviour:
-  //   - Disabled entirely when no macro matches the current name (envMode
+  //   - Disabled entirely when no macro matches the current name (env_mode
   //     leaves don't carry `[style]` either — they're literal payloads).
-  //   - When node.style is set explicitly (user typed one, or parser
+  //   - When node.style_name is set explicitly (user typed one, or parser
   //     extracted `[foo]` from the name), show it at full opacity.
-  //   - When node.style is unset AND the macro has styles, prefill the
-  //     input with `styles[0].tag` at low opacity so the user sees which
+  //   - When node.style_name is unset AND the macro has styles, prefill the
+  //     input with `style_name` at low opacity so the user sees which
   //     style would be picked without polluting the serialized SNL. Typing
   //     into it commits the value; clearing to empty (or typing the
   //     default) drops back to the implicit-default form.
-  const defaultStyleTag = macroEntry?.styles?.[0]?.tag ?? '';
-  const styleAvailable = Boolean(macroEntry) && macroEntry.styles.length > 0;
-  const styleIsExplicit = node.style !== undefined && node.style !== '';
-  const styleDisplay = styleIsExplicit ? node.style! : defaultStyleTag;
+  const defaultStyleTag = macroEntry?.styles?.[0]?.style_name ?? '';
+  const styleAvailable = (macroEntry?.styles.length ?? 0) > 0;
+  const styleIsExplicit = node.style_name !== undefined && node.style_name !== '';
+  const styleDisplay = styleIsExplicit ? node.style_name! : defaultStyleTag;
 
   const commitStyle = (nextValue: string): void => {
     const trimmed = nextValue.trim();
@@ -1595,7 +1618,7 @@ function InductiveNode({
     // as `foo(…)` rather than `foo[default](…)`).
     const nextStyle =
       trimmed === '' || trimmed === defaultStyleTag ? undefined : trimmed;
-    onChange({ ...node, style: nextStyle });
+    onChange({ ...node, style_name: nextStyle });
   };
 
   return (
@@ -1666,15 +1689,15 @@ function InductiveNode({
           }}
           title={
             macroMatched
-              ? `kind: ${effectiveKind}${macroEntry ? '' : ' (from envMode)'}`
+              ? `kind: ${effectiveKind}${macroEntry ? '' : ' (from env_mode)'}`
               : 'name does not match any macro in the current DB'
           }
         />
 
         {/* Style input (cat 2026-07-12). Sits to the right of the name.
             - Disabled when no macro matches (no style semantics available).
-            - Full opacity when node.style is explicitly set.
-            - Low opacity + prefilled with styles[0].tag when the resolved
+            - Full opacity when node.style_name is explicitly set.
+            - Low opacity + prefilled with style_name when the resolved
               style is the implicit default — makes it visible which style
               the parser will pick without polluting the SNL. */}
         <input
@@ -1688,7 +1711,7 @@ function InductiveNode({
             !styleAvailable
               ? 'style has no meaning here — name does not match a macro'
               : styleIsExplicit
-                ? `explicit style: [${node.style}]`
+                ? `explicit style: [${node.style_name}]`
                 : `default style (implicit): [${defaultStyleTag}]`
           }
           style={{
@@ -1713,15 +1736,15 @@ function InductiveNode({
           style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
           {(() => {
-            const trimmed = node.name.trim();
+            const trimmed = node.macro_name.trim();
             const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
             const title = known
               ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
-              : node.envMode === 'text'
+              : node.env_mode === 'text'
                 ? `Open Create Macro (text mode, prefill "${trimmed}")`
-                : node.envMode === 'formula_inline'
+                : node.env_mode === 'formula_inline'
                   ? `Open Create Macro (formula_inline, prefill "${trimmed}")`
-                  : node.envMode === 'formula_display'
+                  : node.env_mode === 'formula_display'
                     ? `Open Create Macro (formula_display, prefill "${trimmed}")`
                     : trimmed === ''
                       ? 'Open Create Macro (blank)'
@@ -1733,8 +1756,8 @@ function InductiveNode({
                 onClick={() =>
                   onOpenMacroEditor({
                     name: trimmed,
-                    envMode: node.envMode,
-                    style: node.style
+                    env_mode: node.env_mode === 'block' ? undefined : node.env_mode,
+                    style_name: node.style_name
                   })
                 }
                 title={title}
@@ -1869,7 +1892,7 @@ function InductiveNode({
                 siblingCount={node.children.length}
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
-                macroDb={macroDb}
+                macroDataDriver={macroDataDriver}
                 macroOrigin={macroOrigin}
                 onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}

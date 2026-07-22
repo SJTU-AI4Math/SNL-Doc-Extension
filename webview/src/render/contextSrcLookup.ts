@@ -53,7 +53,7 @@ export function extractExportedBinders(snl: string): Set<string> {
   function visit(node: SnlSyntaxTree): void {
     if (!node) return;
     if (node.kind === 'binder') {
-      out.add(node.name);
+      out.add(node.macro_name);
       // Do not descend — binder scope owns its children.
       return;
     }
@@ -115,7 +115,7 @@ export function applyContextSrcLookup(
       const decls = contextIndex.get(src);
       if (!decls) {
         node.mdata = { ...(mdata ?? {}), srcStatus: 'dangling' };
-      } else if (!decls.has(node.name)) {
+      } else if (!decls.has(node.macro_name)) {
         node.mdata = { ...(mdata ?? {}), srcStatus: 'srcResolvedNoDecl' };
       } else {
         // Resolved. Upgrade kind so palette / DOM tagging matches a bvar.

@@ -89,5 +89,7 @@ function InitStatus({ status, presets, singular }: { status: Status; presets: Pr
     return <Alert severity="success">Applied “{label}” — {status.count} {status.count === 1 ? singular : `${singular}s`} added.</Alert>;
   }
   if (status.kind === 'nonEmpty') return <Alert severity="warning">{status.message}</Alert>;
-  return <Alert severity="error">{status.message}</Alert>;
+  return 'message' in status
+    ? <Alert severity="error">{status.message}</Alert>
+    : null;
 }

@@ -21,7 +21,8 @@ import {
   type EntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import type { KindPalette, SnlMacroDb } from '@snl-basics/react';
+import type { KindPalette } from '@snl-basics/react';
+import type { MacroRecord } from './render/macroData';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -57,7 +58,7 @@ type Incoming =
       description?: string;
       entries: EntryOption[];
       outline: OutlineNode[];
-      macros?: SnlMacroDb;
+      macros?: MacroRecord;
       macroKinds?: MacroKindPaletteSource[];
       warnings?: string[];
     }
@@ -78,7 +79,7 @@ type View =
 
 export function App(): React.ReactElement {
   const [view, setView] = useState<View>({ kind: 'loading' });
-  const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
+  const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
@@ -160,7 +161,7 @@ interface RenderCtx {
   postMessage: (m: unknown) => void;
   goBack: () => void;
   entryPool: EntryOption[];
-  userMacros: SnlMacroDb | undefined;
+  userMacros: MacroRecord | undefined;
   kindPalette: KindPalette | undefined;
 }
 

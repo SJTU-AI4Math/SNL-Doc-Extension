@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SnlSyntaxTree } from '@snl-basics/react';
 import { ensureTreeIdentity, treeIdentity } from './treeIdentity';
 
-const node = (name: string, children: SnlSyntaxTree[] = []): SnlSyntaxTree => ({ name, kind: '', mdata: null, children });
+const node = (macro_name: string, children: SnlSyntaxTree[] = []): SnlSyntaxTree => ({ macro_name, kind: '', mdata: null, children });
 
 describe('GUI tree identity', () => {
   it('survives immutable clones and sibling reorder', () => {

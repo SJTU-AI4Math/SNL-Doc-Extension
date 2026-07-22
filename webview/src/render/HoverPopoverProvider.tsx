@@ -19,7 +19,7 @@ import {
   type EntryData,
   type EntryKind
 } from './EntrySurface';
-import type { SnlMacroDb } from '@snl-basics/react';
+import type { MacroRecord } from './macroData';
 import { popoverFrameStyle } from './popoverFrame';
 
 export type PopoverInstance = HoverPopover<string>;
@@ -41,7 +41,7 @@ interface HoverPopoverProviderProps {
   /** Entry pool forwarded to popover EntrySurfaces for source resolution. */
   entries: EntryOption[];
   /** User macro DB forwarded to nested EntrySurfaces. */
-  userMacros?: SnlMacroDb;
+  userMacros?: MacroRecord;
   /** Workspace Macro Kind colors shared by every nested EntrySurface. */
   kindPalette?: KindPalette;
   /** Unsaved/local entries that win over lazy host details. */
@@ -66,7 +66,7 @@ function EntryPopoverContent({
   requestDetails: (entryId: string) => void;
   entries: EntryOption[];
   postMessage: (msg: unknown) => void;
-  userMacros?: SnlMacroDb;
+  userMacros?: MacroRecord;
   kindPalette?: KindPalette;
 }): React.ReactElement {
   useEffect(() => {

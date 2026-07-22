@@ -13,8 +13,7 @@ library.
 ```bash
 npm install              # see Development setup for first-time submodule steps
 npm run compile          # type-check + emit the extension (tsc -> ./out)
-npm run build:webview    # build all 6 webview bundles (main, createLibrary,
-                         # dashboard, initEntryKinds, createEntryKind, createEntry)
+npm run build:webview    # build every webview bundle
 ```
 
 Then launch the extension from VS Code (F5 / Run Extension). See
@@ -115,6 +114,15 @@ npm run snl:rebuild   # rebuilds dist-lib/ unconditionally (--force)
 
 then run **Developer: Reload Window** in VS Code so the webview reloads the
 freshly built library.
+
+## Macro package schema
+
+The extension reads historical macro packages through an explicit migration
+boundary and exposes only Macro v7 values at runtime. In v7, styles use
+`style_name`, dynamic templates contain `#*` with optional `separator`, block
+renderers use `block_template_name`, and macro/style `tags` are required arrays.
+Any package write emits version `7`; v6 input is upgraded without discarding
+consumer output backends or unknown extension fields.
 
 ## Macro naming rule (enforced by SNL-Basics parser)
 

@@ -21,7 +21,7 @@ import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
 import type { EntryOption } from './render/EntryRender';
-import type { SnlMacroDb } from '@snl-basics/react';
+import type { MacroRecord } from './render/macroData';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -57,7 +57,7 @@ interface GraphMessage {
   /** Full pool for popover render (cross-entry macro source resolution). */
   entryOptions?: EntryOption[];
   /** Workspace-wide macros for popover EntryRender. */
-  macros?: SnlMacroDb;
+  macros?: MacroRecord;
   macroKinds?: MacroKindPaletteSource[];
 }
 

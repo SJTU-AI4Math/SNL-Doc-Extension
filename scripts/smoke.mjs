@@ -129,6 +129,7 @@ async function main() {
     readMacroPackage,
     readMacroPackages,
     addMacro,
+    updateMacro,
     readAllMacros,
     setActiveMacroPackages,
     createLibrary,
@@ -304,8 +305,8 @@ async function main() {
     'readMacroPackage macros is empty array'
   );
   assert(
-    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '1',
-    'readMacroPackage pkg metadata round-trips'
+    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '7',
+    'readMacroPackage pkg metadata round-trips at canonical version 7'
   );
 
   const validMacro = {
@@ -313,11 +314,13 @@ async function main() {
     description: 'addition (infix)',
     source: { entries: [], urls: [] },
     dynamic_arity: false,
+    tags: [],
     styles: [
       {
-        tag: 'infix',
+        style_name: 'infix',
         mode: 'formula_inline',
         template: '#0 + #1',
+        tags: [],
         typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
         latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
         markdown: '',
@@ -339,7 +342,7 @@ async function main() {
   const badMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.macro',
-    styles: [{ tag: 'default', mode: 'formula_inline', template: '   ' }]
+    styles: [{ style_name: 'default', mode: 'formula_inline', template: '   ', tags: [] }]
   });
   assert(badMacro.status === 'invalid', 'addMacro empty template -> invalid');
 
@@ -347,7 +350,7 @@ async function main() {
   const legacyModeMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Legacy.mode',
-    styles: [{ tag: 'default', mode: 'math', template: '#0' }]
+    styles: [{ style_name: 'default', mode: 'math', template: '#0', tags: [] }]
   });
   assert(
     legacyModeMacro.status === 'invalid',
@@ -366,21 +369,21 @@ async function main() {
     assert(r.name === okName, `addMacro accepts non-ASCII / backslash / hyphen / dotted name: ${okName}`);
   }
 
-  console.log('\n[17c] addMacro missing style.tag -> invalid');
+  console.log('\n[17c] addMacro missing style_name -> invalid');
   const noTagMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'NoTag.macro',
-    styles: [{ mode: 'formula_inline', template: '#0' }]
+    styles: [{ mode: 'formula_inline', template: '#0', tags: [] }]
   });
-  assert(noTagMacro.status === 'invalid', 'addMacro missing style.tag -> invalid');
+  assert(noTagMacro.status === 'invalid', 'addMacro missing style_name -> invalid');
 
   console.log('\n[17d] addMacro with duplicate style tags -> invalid');
   const dupTagMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'DupTag.macro',
     styles: [
-      { tag: 'x', mode: 'formula_inline', template: '#0' },
-      { tag: 'x', mode: 'text', template: '#0 (text)' }
+      { style_name: 'x', mode: 'formula_inline', template: '#0', tags: [] },
+      { style_name: 'x', mode: 'text', template: '#0 (text)', tags: [] }
     ]
   });
   assert(dupTagMacro.status === 'invalid', 'addMacro duplicate tags -> invalid');
@@ -407,9 +410,8 @@ async function main() {
   // Write an OLD-shape package straight to disk: two macros sharing a base name
   // (Mul.mul.infix + Mul.mul.implicit), each with katex_react.mode === 'math'
   // and typst/latex.synthesis.output_type (pre-0.4.0). readMacroPackage must
-  // normalize them in-memory all the way to the v5 shape: a single `Mul.mul`
-  // macro with a styles ARRAY (styles[0].tag === 'infix'), per-style mode
-  // 'formula', and per-style synthesis.output_type moved to synthesis.mode.
+  // normalize them in-memory all the way to strict Macro v7: a single
+  // `Mul.mul` macro with a styles array and canonical style_name/tags.
   const legacyPkgUri = Uri.joinPath(
     root,
     '.SNL_Doc',
@@ -444,30 +446,32 @@ async function main() {
     !('katex_react' in oldMacro),
     'katex_react dropped from normalized macro'
   );
-  assert(oldMacro.dynamic_arity === false, 'v6: dynamic_arity=false (was arity=fixed)');
-  assert(!('arity' in oldMacro), 'legacy arity field dropped in v6');
+  assert(oldMacro.dynamic_arity === false, 'v7: dynamic_arity=false (was arity=fixed)');
+  assert(!('arity' in oldMacro), 'legacy arity field dropped in v7');
   assert(oldMacro.kind === 'const', 'kind lifted to top-level');
-  assert(Array.isArray(oldMacro.styles), 'styles is a v6 array');
+  assert(Array.isArray(oldMacro.styles), 'styles is a v7 array');
   assert(
     oldMacro.styles.length === 2,
     `both dotted suffixes became styles (got ${oldMacro.styles.length})`
   );
-  const infixStyle = oldMacro.styles.find((s) => s.tag === 'infix');
-  const implicitStyle = oldMacro.styles.find((s) => s.tag === 'implicit');
+  const infixStyle = oldMacro.styles.find((s) => s.style_name === 'infix');
+  const implicitStyle = oldMacro.styles.find((s) => s.style_name === 'implicit');
   assert(!!infixStyle && !!implicitStyle, 'infix and implicit styles present');
   assert(
-    oldMacro.styles[0].tag === 'infix',
-    `styles[0] (default) is the first legacy sibling (got ${oldMacro.styles[0].tag})`
+    oldMacro.styles[0].style_name === 'infix',
+    `styles[0] (default) is the first legacy sibling (got ${oldMacro.styles[0].style_name})`
   );
   assert(
     infixStyle.mode === 'formula_inline',
-    "v6: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
+    "v7: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
   );
   assert(!('display' in infixStyle), 'v6: display axis folded into mode');
   assert(
     infixStyle.template === '#0 \\cdot #1',
     'style template preserved'
   );
+  assert(Array.isArray(oldMacro.tags) && oldMacro.tags.length === 0, 'v7 macro tags default to []');
+  assert(oldMacro.styles.every((style) => Array.isArray(style.tags)), 'v7 style tags default to []');
   assert(
     infixStyle.typst.synthesis.mode === 'text' &&
       !('output_type' in infixStyle.typst.synthesis),
@@ -604,7 +608,7 @@ async function main() {
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
 
-  console.log('\n[21] SNL-Basics submodule DB uses the v6 styles-array shape');
+  console.log('\n[21] SNL-Basics submodule DB uses the v7 styles-array shape');
   const macroDb = JSON.parse(
     await fs.readFile(
       nodePath.resolve(
@@ -617,27 +621,27 @@ async function main() {
   assert(macroDb['FOL.implies'], 'FOL.implies macro should exist');
   assert(
     Array.isArray(macroDb['FOL.implies'].styles),
-    'FOL.implies styles is a v6 array'
+    'FOL.implies styles is a v7 array'
   );
   assert(
     macroDb['FOL.implies'].dynamic_arity === false,
-    'FOL.implies v6: dynamic_arity boolean present'
+    'FOL.implies v7: dynamic_arity boolean present'
   );
   assert(
-    macroDb['FOL.implies'].styles.some((s) => s.tag === 'double'),
+    macroDb['FOL.implies'].styles.some((s) => s.style_name === 'double'),
     'FOL.implies has a double (⇒) style'
   );
   assert(
-    macroDb['FOL.implies'].styles[0].tag === 'infix',
+    macroDb['FOL.implies'].styles[0].style_name === 'infix',
     'FOL.implies default (styles[0]) is infix'
   );
   assert(
     macroDb['FOL.implies'].styles[0].mode === 'formula_inline',
-    'FOL.implies infix style v6: mode is formula_inline'
+    'FOL.implies infix style v7: mode is formula_inline'
   );
   assert(
     !('display' in macroDb['FOL.implies'].styles[0]),
-    'v6: display axis absent from bundled DB'
+    'v7: display axis absent from bundled DB'
   );
   // The typed binders stay separate macros (different arity).
   assert(macroDb['FOL.forall.typed'], 'forall.typed macro should exist');
@@ -656,9 +660,9 @@ async function main() {
   assert(!macroDb['DivRing.div.inlineDiv'], 'old DivRing.div.inlineDiv should not exist');
   assert(!macroDb['FOL.forall.binderTyped'], 'old forall.binderTyped should not exist');
 
-  console.log('\n[22] v5-shape package on disk auto-migrates to v6 on read');
+  console.log('\n[22] v5/v6 package input auto-migrates to strict v7 on read');
   // A fresh temp workspace so we can drop a v5-shape file straight to disk
-  // and confirm readMacroPackage rewrites it in memory to v6. This is the
+  // and confirm readMacroPackage rewrites it in memory to v7. This is the
   // "Edit panel should map old data to new schema" story (猫猫 req).
   const tmpRoot2 = nodePath.join(os.tmpdir(), `snl-smoke-v5-${Date.now()}`);
   await fs.mkdir(nodePath.join(tmpRoot2, '.SNL_Doc', 'term_macros'), {
@@ -714,26 +718,28 @@ async function main() {
   assert(!!migAdd && !!migMatrix, 'both v5 macros visible after migration');
   assert(
     migAdd.dynamic_arity === false && !('arity' in migAdd),
-    'v5→v6: arity=fixed → dynamic_arity=false, arity removed'
+    'v5→v7: arity=fixed → dynamic_arity=false, arity removed'
   );
   assert(
     migMatrix.dynamic_arity === true && !('arity' in migMatrix),
-    'v5→v6: arity=variadic → dynamic_arity=true'
+    'v5→v7: arity=variadic → dynamic_arity=true'
   );
   assert(
     migAdd.styles[0].mode === 'formula_inline' &&
       !('display' in migAdd.styles[0]),
-    'v5→v6: formula+display=inline → formula_inline, display axis removed'
+    'v5→v7: formula+display=inline → formula_inline, display axis removed'
   );
   assert(
     migMatrix.styles[0].mode === 'formula_display' &&
       !('display' in migMatrix.styles[0]),
-    'v5→v6: formula+display=block → formula_display, display axis removed'
+    'v5→v7: formula+display=block → formula_display, display axis removed'
   );
   assert(
-    migMatrix.styles[0].variadic_join === ' \\\\ ',
-    'v5→v6: variadic_join preserved (delimiters left/right default empty)'
+    migMatrix.styles[0].separator === ' \\\\ ' &&
+      migMatrix.styles[0].template === '#*',
+    'v5→v7: variadic_join becomes separator and legacy dynamic fields compose #*'
   );
+  assert(readV5.pkg.version === '7', 'readMacroPackage exposes canonical package version 7');
 
   // Regression: Dashboard's per-package macroCount used to always report 1
   // for v6 packages because inferMacroCount only recognized v5's array shape
@@ -748,7 +754,17 @@ async function main() {
     name: 'v6-count',
     description: 'v6 shape count test',
     macros: {
-      a: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'a' }] },
+      a: {
+        description: '', source: { entries: [], urls: [] }, dynamic_arity: true,
+        tags: ['macro-tag'], extension_data: { keep: true },
+        styles: [{
+          tag: 'default', mode: 'block', template: 'ignored',
+          variadic_left: '[', variadic_join: '', variadic_right: ']',
+          react_renderer_key: 'list', tags: ['style-tag'],
+          typst: { built_in: 'legacy', synthesis: { mode: 'formula', macro: '#0' } },
+          extension_style_data: 42
+        }]
+      },
       b: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'b' }] },
       c: { description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ tag: 'default', mode: 'formula_inline', template: 'c' }] }
     }
@@ -777,6 +793,36 @@ async function main() {
   assert(
     summaryByFile['v5_count.json']?.macroCount === 2,
     `v5 macroCount should be 2, got ${summaryByFile['v5_count.json']?.macroCount}`
+  );
+  const readV6 = await readMacroPackage(root3, 'v6_count');
+  assert(readV6.status === 'ok', 'explicit v6 package input reads successfully');
+  const migratedV6 = readV6.macros.find((macro) => macro.name === 'a');
+  assert(
+    migratedV6.styles[0].style_name === 'default' &&
+      migratedV6.styles[0].template === '[#*]' &&
+      migratedV6.styles[0].separator === '' &&
+      migratedV6.styles[0].block_template_name === 'list',
+    'v6→v7 maps style/dynamic/block fields and preserves empty separator'
+  );
+  assert(
+    migratedV6.extension_data.keep === true &&
+      migratedV6.styles[0].extension_style_data === 42 &&
+      migratedV6.styles[0].typst.built_in === 'legacy',
+    'v6→v7 preserves macro/style extension fields and output backends'
+  );
+  const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6);
+  assert(rewriteV7.status === 'updated', 'updating migrated macro writes strict v7');
+  const writtenV7 = JSON.parse(await fs.readFile(
+    nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
+  ));
+  const writtenStyle = writtenV7.macros.a.styles[0];
+  assert(writtenV7.version === '7', 'all package writes stamp version 7');
+  assert(
+    writtenStyle.style_name === 'default' &&
+      !('tag' in writtenStyle) && !('variadic_left' in writtenStyle) &&
+      !('variadic_join' in writtenStyle) && !('variadic_right' in writtenStyle) &&
+      !('react_renderer_key' in writtenStyle),
+    'strict v7 writes contain no legacy runtime aliases'
   );
   await fs.rm(tmpRoot3, { recursive: true, force: true });
   await fs.rm(tmpRoot2, { recursive: true, force: true });

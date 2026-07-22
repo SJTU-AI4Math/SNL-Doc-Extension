@@ -112,5 +112,7 @@ function KindStatus({ status }: { status: Status }): React.ReactElement | null {
   if (status.kind === 'idle' || status.kind === 'creating') return null;
   if (status.kind === 'created' || status.kind === 'updated') return <Alert severity="success">{status.kind === 'created' ? 'Created' : 'Updated'} “{status.name}” ({status.id}).</Alert>;
   const warning = status.kind === 'duplicate' || status.kind === 'notFound' || status.kind === 'invalid';
-  return <Alert severity={warning ? 'warning' : 'error'}>{status.message}</Alert>;
+  return 'message' in status
+    ? <Alert severity={warning ? 'warning' : 'error'}>{status.message}</Alert>
+    : null;
 }

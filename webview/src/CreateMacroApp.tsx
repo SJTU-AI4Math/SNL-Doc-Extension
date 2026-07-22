@@ -12,8 +12,8 @@
 //   - `dynamic_arity: boolean` replaces `arity: 'fixed' | 'variadic'`.
 //     UI: single checkbox "☐ Dynamic Arity". When ticked, the KaTeX
 //     template textarea shrinks to leave room for three delimiter fields
-//     (Left / Separator / Right) that populate `variadic_left` /
-//     `variadic_join` / `variadic_right` on the style.
+//     (Left / Separator / Right) that populate `template_left` /
+//     `separator` / `template_right` on the style.
 //   - Free-text `tags?: string[]` at both macro and style level.
 //     Backslashes forbidden.
 //
@@ -39,17 +39,19 @@ import '@snl-basics/react/style.css';
 import './create-macro.css';
 import {
   tryParseSnlSyntaxTree,
-  createMacroTemplateQueryFromDb,
   defaultRenderHooks,
   SnlSyntaxTreeView,
-  bundledMacroDb,
   type SnlMacro,
-  type SnlMacroDb,
   type SnlMacroStyle,
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type KindPalette
 } from '@snl-basics/react';
+import {
+  bundledMacros,
+  createMacroDataDriver,
+  type MacroRecord
+} from './render/macroData';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -85,11 +87,13 @@ for (let i = 0; i < MAX_ARGS; i++) {
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
     dynamic_arity: false,
+    tags: [],
     styles: [
       {
-        tag: 'default',
+        style_name: 'default',
         mode: 'formula_inline',
-        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`
+        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`,
+        tags: []
       }
     ]
   };
@@ -105,17 +109,19 @@ const PREVIEW_PLACEHOLDER_MACRO: SnlMacro = {
   description: 'SNL preview placeholder',
   source: { entries: [], urls: [] },
   dynamic_arity: false,
+  tags: [],
   styles: [
     {
-      tag: 'default',
+      style_name: 'default',
       mode: 'text',
-      template: 'SNL Macro Preview'
+      template: 'SNL Macro Preview',
+      tags: []
     }
   ]
 };
 
 function placeholderNode(i: number): SnlSyntaxTree {
-  return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
+  return { macro_name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -133,15 +139,15 @@ const MODE_LABELS: Record<Mode, string> = {
 };
 const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'];
 
-/** Editable per-style draft — flat mirror of {@link ExtendedSnlMacroStyle}. */
+/** Editable current-schema style plus split controls for authoring `#*`. */
 interface StyleDraft {
-  tag: string;
+  style_name: string;
   mode: Mode;
   template: string;
-  variadic_left: string;
-  variadic_join: string;
-  variadic_right: string;
-  react_renderer_key: string;
+  template_left: string;
+  separator: string;
+  template_right: string;
+  block_template_name: string;
   tags: string[];
   typst_built_in: string;
   typst_synthesis: string;
@@ -153,15 +159,15 @@ interface StyleDraft {
   text: string;
 }
 
-function newStyleDraft(tag: string): StyleDraft {
+function newStyleDraft(styleName: string): StyleDraft {
   return {
-    tag,
+    style_name: styleName,
     mode: 'formula_inline',
     template: '',
-    variadic_left: '',
-    variadic_join: '',
-    variadic_right: '',
-    react_renderer_key: '',
+    template_left: '',
+    separator: '',
+    template_right: '',
+    block_template_name: '',
     tags: [],
     typst_built_in: '',
     typst_synthesis: '',
@@ -174,33 +180,22 @@ function newStyleDraft(tag: string): StyleDraft {
   };
 }
 
-/** Serialize a {@link StyleDraft} into the on-disk per-style shape. */
-function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
+/** Serialize a draft to strict Macro v7 storage. */
+function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
   const out: ExtendedSnlMacroStyle = {
-    tag: s.tag.trim(),
+    style_name: s.style_name.trim(),
     mode: s.mode,
-    template: s.template
+    template: dynamicArity
+      ? `${s.template_left}#*${s.template_right}`
+      : (s.template || (s.mode === 'block' ? '#*' : '')),
+    tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0)
   };
-  // Cat 2026-07-10: block-mode macros ignore variadic delimiters
-  // (the block renderer walks children directly). Drop them on
-  // serialize so we don't leave dead data lying around in the JSON.
-  if (s.mode !== 'block') {
-    if (s.variadic_left) {
-      out.variadic_left = s.variadic_left;
-    }
-    if (s.variadic_join) {
-      out.variadic_join = s.variadic_join;
-    }
-    if (s.variadic_right) {
-      out.variadic_right = s.variadic_right;
-    }
+  if (dynamicArity) {
+    // Property presence matters: an explicitly empty separator is canonical.
+    out.separator = s.separator;
   }
-  if (s.mode === 'block' && s.react_renderer_key) {
-    out.react_renderer_key = s.react_renderer_key;
-  }
-  const trimmedTags = s.tags.map((t) => t.trim()).filter((t) => t.length > 0);
-  if (trimmedTags.length > 0) {
-    out.tags = trimmedTags;
+  if (s.mode === 'block' && s.block_template_name) {
+    out.block_template_name = s.block_template_name;
   }
   out.typst = {
     built_in: s.typst_built_in,
@@ -229,14 +224,12 @@ interface MacroKind {
  * output backends (typst / latex / markdown / text) per style.
  */
 interface ExtendedSnlMacroStyle {
-  tag: string;
+  style_name: string;
   mode: Mode;
   template: string;
-  variadic_left?: string;
-  variadic_join?: string;
-  variadic_right?: string;
-  react_renderer_key?: string;
-  tags?: string[];
+  separator?: string;
+  block_template_name?: string;
+  tags: string[];
   typst?: {
     built_in: string;
     synthesis: { mode: SynthesisMode; macro: string };
@@ -262,7 +255,7 @@ interface ExtendedSnlMacro {
   kind?: string;
   dynamic_arity: boolean;
   styles: ExtendedSnlMacroStyle[];
-  tags?: string[];
+  tags: string[];
 }
 
 type Status =
@@ -447,24 +440,27 @@ export function CreateMacroApp(): React.ReactElement {
     setKind(existing.kind ?? '');
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
-      ? existing.styles.map((s) => ({
-          tag: s.tag ?? 'default',
-          mode: (s.mode as Mode) ?? 'formula_inline',
-          template: s.template ?? '',
-          variadic_left: s.variadic_left ?? '',
-          variadic_join: s.variadic_join ?? '',
-          variadic_right: s.variadic_right ?? '',
-          react_renderer_key: s.react_renderer_key ?? '',
-          tags: Array.isArray(s.tags) ? s.tags.slice() : [],
-          typst_built_in: s.typst?.built_in ?? '',
-          typst_synthesis: s.typst?.synthesis?.macro ?? '',
-          typst_synthesis_mode: (s.typst?.synthesis?.mode as SynthesisMode) ?? 'formula',
-          latex_built_in: s.latex?.built_in ?? '',
-          latex_synthesis: s.latex?.synthesis?.macro ?? '',
-          latex_synthesis_mode: (s.latex?.synthesis?.mode as SynthesisMode) ?? 'formula',
-          markdown: s.markdown ?? '',
-          text: s.text ?? ''
-        }))
+      ? existing.styles.map((s) => {
+          const marker = s.template.indexOf('#*');
+          return {
+        style_name: s.style_name || 'default',
+        mode: s.mode,
+        template: s.template,
+        template_left: marker >= 0 ? s.template.slice(0, marker) : '',
+        separator: s.separator ?? '',
+        template_right: marker >= 0 ? s.template.slice(marker + 2) : '',
+        block_template_name: s.block_template_name ?? '',
+        tags: s.tags.slice(),
+        typst_built_in: s.typst?.built_in ?? '',
+        typst_synthesis: s.typst?.synthesis?.macro ?? '',
+        typst_synthesis_mode: (s.typst?.synthesis?.mode as SynthesisMode) ?? 'formula',
+        latex_built_in: s.latex?.built_in ?? '',
+        latex_synthesis: s.latex?.synthesis?.macro ?? '',
+        latex_synthesis_mode: (s.latex?.synthesis?.mode as SynthesisMode) ?? 'formula',
+        markdown: s.markdown ?? '',
+        text: s.text ?? ''
+      };
+      })
       : [newStyleDraft('default')];
     setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
     setActiveStyle(0);
@@ -584,28 +580,17 @@ export function CreateMacroApp(): React.ReactElement {
 
   const draftMacro: SnlMacro = useMemo(() => {
     const styleList: SnlMacroStyle[] = styles.map((s) => {
-      const style: SnlMacroStyle = {
-        tag: s.tag.trim() || 'default',
-        mode: s.mode,
-        template: s.template
+      const extended = styleDraftToExtended(s, dynamicArity);
+      return {
+        style_name: extended.style_name,
+        mode: extended.mode,
+        template: extended.template,
+        ...(extended.separator !== undefined ? { separator: extended.separator } : {}),
+        ...(extended.block_template_name
+          ? { block_template_name: extended.block_template_name }
+          : {}),
+        tags: extended.tags
       };
-      // Cat 2026-07-10: block mode ignores variadic delimiters —
-      // skip serializing them so we don't persist dead data.
-      if (s.mode !== 'block') {
-        if (s.variadic_left) {
-          style.variadic_left = s.variadic_left;
-        }
-        if (s.variadic_join) {
-          style.variadic_join = s.variadic_join;
-        }
-        if (s.variadic_right) {
-          style.variadic_right = s.variadic_right;
-        }
-      }
-      if (s.mode === 'block' && s.react_renderer_key) {
-        style.react_renderer_key = s.react_renderer_key;
-      }
-      return style;
     });
     // Move the active style to index 0 so the preview always uses it as the
     // implicit default (no `[style]` in the injected draft tree).
@@ -619,10 +604,11 @@ export function CreateMacroApp(): React.ReactElement {
       source: { entries: [], urls: [] },
       dynamic_arity: dynamicArity,
       kind: kind || undefined,
+      tags: [],
       styles:
         styleList.length > 0
           ? styleList
-          : [{ tag: 'default', mode: 'formula_inline', template: '' }]
+          : [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }]
     };
   }, [dynamicArity, kind, styles, activeStyle]);
 
@@ -646,9 +632,9 @@ export function CreateMacroApp(): React.ReactElement {
     return palette;
   }, [macroKinds]);
 
-  const previewMacroDb: SnlMacroDb = useMemo(
+  const previewMacroRecord: MacroRecord = useMemo(
     () => ({
-      ...bundledMacroDb,
+      ...bundledMacros,
       ...ARG_PLACEHOLDER_MACROS,
       [PREVIEW_PLACEHOLDER_KEY]: PREVIEW_PLACEHOLDER_MACRO,
       [DRAFT_KEY]: draftMacro
@@ -656,9 +642,9 @@ export function CreateMacroApp(): React.ReactElement {
     [draftMacro]
   );
 
-  const previewQuery = useMemo(
-    () => createMacroTemplateQueryFromDb(previewMacroDb),
-    [previewMacroDb]
+  const previewMacroDataDriver = useMemo(
+    () => createMacroDataDriver(previewMacroRecord),
+    [previewMacroRecord]
   );
 
   const hooks: SnlRenderHooks = useMemo(() => ({ ...defaultRenderHooks }), []);
@@ -692,7 +678,7 @@ export function CreateMacroApp(): React.ReactElement {
     // don't see the raw internal `_snl_draft` name (猫猫 req).
     if ((current?.template ?? '').trim().length === 0) {
       return {
-        name: PREVIEW_PLACEHOLDER_KEY,
+        macro_name: PREVIEW_PLACEHOLDER_KEY,
         kind: '',
         mdata: null,
         children: []
@@ -708,7 +694,7 @@ export function CreateMacroApp(): React.ReactElement {
         children.push(placeholderNode(i));
       }
     }
-    return { name: DRAFT_KEY, kind: '', mdata: null, children };
+    return { macro_name: DRAFT_KEY, kind: '', mdata: null, children };
   }, [argCount, previewArgs, current?.template]);
 
   // --- Validation ----------------------------------------------------------
@@ -721,7 +707,7 @@ export function CreateMacroApp(): React.ReactElement {
     panelMode === 'edit' ? false : existingNames.includes(trimmedName);
   const defaultStyleDraft = styles[0];
   const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
-  const tagList = styles.map((s) => s.tag.trim());
+  const tagList = styles.map((s) => s.style_name.trim());
   const hasEmptyTag = tagList.some((t) => t.length === 0);
   const hasDupTag = new Set(tagList).size !== tagList.length;
   const canCreate =
@@ -753,8 +739,8 @@ export function CreateMacroApp(): React.ReactElement {
       return;
     }
     const styleList: ExtendedSnlMacroStyle[] = styles
-      .filter((s) => s.tag.trim().length > 0)
-      .map(styleDraftToExtended);
+      .filter((s) => s.style_name.trim().length > 0)
+      .map((style) => styleDraftToExtended(style, dynamicArity));
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
@@ -767,11 +753,9 @@ export function CreateMacroApp(): React.ReactElement {
       },
       kind: kind || undefined,
       dynamic_arity: dynamicArity,
-      styles: styleList
+      styles: styleList,
+      tags: trimmedMacroTags
     };
-    if (trimmedMacroTags.length > 0) {
-      macro.tags = trimmedMacroTags;
-    }
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
       type: panelMode === 'edit' ? 'update' : 'create',
@@ -896,7 +880,7 @@ export function CreateMacroApp(): React.ReactElement {
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
-      <SectionHeader title={`Content — style "${current?.tag || 'default'}"`} />
+      <SectionHeader title={`Content — style "${current?.style_name || 'default'}"`} />
       <div
         style={{
           display: 'flex',
@@ -945,13 +929,12 @@ export function CreateMacroApp(): React.ReactElement {
                   (current?.template ?? '') +
                   dynamicArity +
                   (current?.mode ?? '') +
-                  (current?.tag ?? '')
+                  (current?.style_name ?? '')
                 }
               >
                 <SnlSyntaxTreeView
                   tree={draftTree}
-                  macroDb={previewMacroDb}
-                  query={previewQuery}
+                  macro_data_driver={previewMacroDataDriver}
                   hooks={hooks}
                   kindPalette={kindPalette}
                 />
@@ -992,12 +975,12 @@ export function CreateMacroApp(): React.ReactElement {
               null
             ) : dynamicArity ? (
               <DynamicArityTemplateRow
-                left={current?.variadic_left ?? ''}
-                sep={current?.variadic_join ?? ''}
-                right={current?.variadic_right ?? ''}
-                onLeft={(v) => patchStyle({ variadic_left: v })}
-                onSep={(v) => patchStyle({ variadic_join: v })}
-                onRight={(v) => patchStyle({ variadic_right: v })}
+                left={current?.template_left ?? ''}
+                sep={current?.separator ?? ''}
+                right={current?.template_right ?? ''}
+                onLeft={(v) => patchStyle({ template_left: v })}
+                onSep={(v) => patchStyle({ separator: v })}
+                onRight={(v) => patchStyle({ template_right: v })}
               />
             ) : (
               <textarea
@@ -1050,7 +1033,7 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Style-level Tags (collapsible, follows active style) ---------- */}
       <TagsEditor
-        legend={`Style tags — "${current?.tag || 'default'}"`}
+        legend={`Style tags — "${current?.style_name || 'default'}"`}
         values={current?.tags ?? []}
         onChange={(next) => patchStyle({ tags: next })}
       />
@@ -1316,7 +1299,7 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
 /**
  * ASCII characters forbidden in a macro name / namespace segment. Reserved
  * by the SNL parser:
- *   @ # $ %                — envMode / binder delimiters
+ *   @ # $ %                — env_mode / binder delimiters
  *   whitespace             — token separator
  *   ( ) [ ]                — application / style bracket
  *   { }                    — reserved for future SNL syntax; also breaks the
@@ -1804,11 +1787,11 @@ function ModeButton({
  * So we render only the three delimiter inputs side-by-side, and the caller
  * is responsible for making sure `style.template = '#*'` on save. Combined
  * with the library's dynamic-arity render path
- * (`variadic_left + join(children) + variadic_right`), this produces the
+ * (`template_left + join(children) + template_right`), this produces the
  * expected output for common shapes:
  *
- *   list :  variadic_left='['   sep=', '   variadic_right=']'
- *   pmatrix: variadic_left='\\begin{pmatrix}' sep=' \\\\ ' right='\\end{pmatrix}'
+ *   list :  template_left='['   sep=', '   template_right=']'
+ *   pmatrix: template_left='\\begin{pmatrix}' sep=' \\\\ ' right='\\end{pmatrix}'
  */
 function DynamicArityTemplateRow({
   left,
@@ -2000,7 +1983,7 @@ function StylesEditor({
   const current = styles[activeStyle] ?? styles[0];
 
   const addStyle = (): void => {
-    const existing = new Set(styles.map((s) => s.tag));
+    const existing = new Set(styles.map((s) => s.style_name));
     let n = styles.length;
     let tag = `style${n}`;
     while (existing.has(tag)) {
@@ -2034,7 +2017,7 @@ function StylesEditor({
 
   /** Commit a rename issued from a StyleSwitch's inline editor. */
   const renameStyleAt = (i: number, next: string): void => {
-    setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, tag: next } : s)));
+    setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, style_name: next } : s)));
   };
 
   return (
@@ -2044,7 +2027,7 @@ function StylesEditor({
         {styles.map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
             <StyleSwitch
-              tag={s.tag}
+              tag={s.style_name}
               active={i === activeStyle}
               isDefault={i === 0}
               onSelect={() => setActiveStyle(i)}
@@ -2094,8 +2077,8 @@ function StylesEditor({
           `enumerate` render preset: same visual, different data. */}
       {current?.mode === 'block' ? (
         <BlockRendererPresetControl
-          value={current?.react_renderer_key ?? ''}
-          onChange={(v) => patchStyle({ react_renderer_key: v })}
+          value={current?.block_template_name ?? ''}
+          onChange={(v) => patchStyle({ block_template_name: v })}
         />
       ) : null}
     </>
@@ -2116,7 +2099,7 @@ const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 
 /**
- * Compact select-with-escape-hatch for the block-mode `react_renderer_key`.
+ * Compact select-with-escape-hatch for the block-mode `block_template_name`.
  * Value states:
  *   - '' (unset)       → nothing shipped in the JSON; renderer falls
  *                        back to plain block layout.

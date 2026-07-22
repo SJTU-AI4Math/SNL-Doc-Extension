@@ -647,30 +647,21 @@ export async function readMacroPackages(
  * `@snl-basics/react` for previews and keep their own extended copy for saves.
  */
 /**
- * One render style of a macro (v3, v6 on-disk) — mirrors
- * `@snl-basics/react`'s `SnlMacroStyle`, extended with the consumer-owned
- * output backends (typst / latex / markdown / text) which live *per style*.
- *
- * v3: `mode` is now 4 flat values (formula_inline / formula_display / text /
- * block); the `display?: inline|block` axis is folded in. `variadic_join`
- * is split into three optional delimiter/separator strings. Free-text
- * `tags` may be attached per style.
+ * One strict Macro v7 render style, extended with consumer-owned output
+ * backends (typst / latex / markdown / text) which live per style.
  */
 export interface MacroPackageStyle {
-  /** Style tag — the token used in `foo[tag](…)`. Must be unique per macro. */
-  tag: string;
-  /** Semantic render mode — 4 flat values (v3). */
+  /** Style token used in `foo[style](…)`. Must be unique per macro. */
+  style_name: string;
   mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
+  /** Dynamic styles contain a literal `#*` in this template. */
   template: string;
-  /** Left delimiter for `#*` — ignored when the macro isn't dynamic_arity. */
-  variadic_left?: string;
-  /** Separator between `#*` children. Default: ', ' (formula), '' (text). */
-  variadic_join?: string;
-  /** Right delimiter for `#*` — ignored when the macro isn't dynamic_arity. */
-  variadic_right?: string;
-  react_renderer_key?: string;
+  /** Separator between children substituted at `#*`. */
+  separator?: string;
+  /** Named block renderer; valid only for block mode. */
+  block_template_name?: string;
   /** Free-text labels attached to this style (backslash forbidden). */
-  tags?: string[];
+  tags: string[];
   // Extended (consumer-owned) output backends per style:
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
@@ -684,19 +675,11 @@ export interface MacroPackageEntry {
   source: { entries: string[]; urls: string[] };
   /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
   kind?: string;
-  /**
-   * True when the macro's child count is not fixed by its template (default
-   * template must contain `#*`). Replaces the v2 `arity: 'fixed'|'variadic'`.
-   */
   dynamic_arity: boolean;
-  /**
-   * Ordered list of render styles. `styles[0]` is the implicit default used
-   * when the SNL source omits `[style]`. Every macro has at least one style
-   * and tags must be unique.
-   */
+  /** Ordered styles; styles[0] is the implicit default. */
   styles: MacroPackageStyle[];
   /** Free-text labels attached to the macro itself (backslash forbidden). */
-  tags?: string[];
+  tags: string[];
 }
 
 /** MacroPackageEntry without redundant `name` (the name is the package-map key). */
@@ -713,6 +696,7 @@ export interface MacroPackageFile {
 
 /** Bare filename regex for a macro package (no path, no extension). */
 const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+$/;
+const MACRO_PACKAGE_VERSION = '7';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -898,64 +882,107 @@ function v4MacroToV5(macro: Record<string, unknown>): Record<string, unknown> {
   return { ...rest, styles };
 }
 
-/**
- * v5 → v6 (this-version) migration for a single macro. Called AFTER
- * {@link groupMacrosToStyles} has produced a v5-shape entry, so we know the
- * `styles` array exists and each style has `mode` / (optionally) `display`.
- *
- * Two orthogonal changes:
- *   1. `arity: 'fixed'|'variadic'` → `dynamic_arity: boolean`
- *   2. Each style's `mode: 'formula' | 'text' | 'block'` + optional
- *      `display: 'inline' | 'block'` → new flat `mode` in
- *      `'formula_inline' | 'formula_display' | 'text' | 'block'`.
- *
- * Idempotent: an already-v6 macro (has `dynamic_arity` and flat mode) passes
- * through untouched.
- */
-function v5MacroToV6(entry: MacroPackageEntry): MacroPackageEntry {
-  const raw = entry as unknown as Record<string, unknown>;
-  const out: MacroPackageEntry = { ...entry };
-
-  // Field 1: arity → dynamic_arity (idempotent).
+/** v5 → v6 intermediate migration. */
+function v5MacroToV6(entry: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...entry };
   if (typeof out.dynamic_arity !== 'boolean') {
-    const legacyArity = (raw.arity as string | undefined) ?? 'fixed';
-    out.dynamic_arity = legacyArity === 'variadic';
-    delete (out as unknown as Record<string, unknown>).arity;
+    out.dynamic_arity = (out.arity as string | undefined) === 'variadic';
+    delete out.arity;
   }
-
-  // Field 2: each style's mode + display → flat mode.
   if (Array.isArray(out.styles)) {
-    out.styles = out.styles.map((s) => {
-      const rawS = s as unknown as Record<string, unknown>;
-      const legacyMode = rawS.mode as string | undefined;
-      const legacyDisplay = rawS.display as string | undefined;
-      // Already-v6 modes pass through untouched.
-      if (
-        legacyMode === 'formula_inline' ||
-        legacyMode === 'formula_display' ||
-        legacyMode === 'text' ||
-        legacyMode === 'block'
-      ) {
-        const next = { ...s };
-        delete (next as unknown as Record<string, unknown>).display;
-        return next;
-      }
-      let newMode: MacroPackageStyle['mode'];
+    out.styles = out.styles.map((value) => {
+      const style = { ...(value as Record<string, unknown>) };
+      const legacyMode = style.mode as string | undefined;
+      const legacyDisplay = style.display as string | undefined;
       if (legacyMode === 'formula' || legacyMode === undefined) {
-        newMode = legacyDisplay === 'block' ? 'formula_display' : 'formula_inline';
-      } else if (legacyMode === 'text' || legacyMode === 'block') {
-        newMode = legacyMode as MacroPackageStyle['mode'];
-      } else {
-        // Unknown mode string — default to formula_inline (best-effort).
-        newMode = 'formula_inline';
+        style.mode = legacyDisplay === 'block' ? 'formula_display' : 'formula_inline';
+      } else if (
+        legacyMode !== 'formula_inline' && legacyMode !== 'formula_display' &&
+        legacyMode !== 'text' && legacyMode !== 'block'
+      ) {
+        style.mode = 'formula_inline';
       }
-      const next: MacroPackageStyle = { ...s, mode: newMode };
-      delete (next as unknown as Record<string, unknown>).display;
-      return next;
+      delete style.display;
+      return style;
     });
   }
-
   return out;
+}
+
+/**
+ * Explicit Macro v6 → v7 input migration. Legacy names are confined to this
+ * boundary; every caller receives a strict v7 value. Unknown extension fields
+ * and consumer-owned output backends survive the shallow copies.
+ */
+function v6MacroToV7(input: Record<string, unknown>): MacroPackageEntry {
+  const rawStyles = Array.isArray(input.styles) ? input.styles : [];
+  const styles = rawStyles.map((value, index): MacroPackageStyle => {
+    const raw = { ...(value as Record<string, unknown>) };
+    const legacyTag = raw.tag;
+    const legacyLeft = raw.variadic_left;
+    const legacyJoin = raw.variadic_join;
+    const legacyRight = raw.variadic_right;
+    const legacyRenderer = raw.react_renderer_key;
+    const hasLegacyDynamic =
+      'variadic_left' in raw || 'variadic_join' in raw || 'variadic_right' in raw;
+    delete raw.tag;
+    delete raw.variadic_left;
+    delete raw.variadic_join;
+    delete raw.variadic_right;
+    delete raw.react_renderer_key;
+
+    const mode =
+      raw.mode === 'formula_inline' || raw.mode === 'formula_display' ||
+      raw.mode === 'text' || raw.mode === 'block'
+        ? raw.mode
+        : 'formula_inline';
+    const style: MacroPackageStyle = {
+      ...raw,
+      style_name:
+        typeof raw.style_name === 'string'
+          ? raw.style_name
+          : typeof legacyTag === 'string' ? legacyTag : `style${index}`,
+      mode,
+      template: hasLegacyDynamic
+        ? `${typeof legacyLeft === 'string' ? legacyLeft : ''}#*${typeof legacyRight === 'string' ? legacyRight : ''}`
+        : typeof raw.template === 'string' ? raw.template : '',
+      tags: Array.isArray(raw.tags) && raw.tags.every((tag) => typeof tag === 'string')
+        ? raw.tags as string[]
+        : []
+    };
+    if (hasLegacyDynamic && typeof legacyJoin === 'string') {
+      style.separator = legacyJoin;
+    }
+    const blockTemplateName =
+      typeof raw.block_template_name === 'string'
+        ? raw.block_template_name
+        : typeof legacyRenderer === 'string' ? legacyRenderer : undefined;
+    if (mode === 'block' && blockTemplateName) {
+      style.block_template_name = blockTemplateName;
+    } else if (mode !== 'block') {
+      delete style.block_template_name;
+    }
+    return style;
+  });
+
+  return {
+    ...input,
+    name: typeof input.name === 'string' ? input.name : '',
+    description: typeof input.description === 'string' ? input.description : '',
+    source: {
+      entries: Array.isArray((input.source as { entries?: unknown } | undefined)?.entries)
+        ? (input.source as { entries: string[] }).entries
+        : [],
+      urls: Array.isArray((input.source as { urls?: unknown } | undefined)?.urls)
+        ? (input.source as { urls: string[] }).urls
+        : []
+    },
+    dynamic_arity: input.dynamic_arity === true,
+    styles,
+    tags: Array.isArray(input.tags) && input.tags.every((tag) => typeof tag === 'string')
+      ? input.tags as string[]
+      : []
+  };
 }
 
 /**
@@ -1040,19 +1067,18 @@ function groupMacrosToStyles(
         legacyMacroToStyle(raw, style, legacyMode, legacyDisplay)
       );
     }
-    // Final v5→v6 collapse for every group. Cast to MacroPackageEntry at
-    // this boundary is safe because v5MacroToV6 guarantees v6 shape.
+    // Finish both explicit boundaries before exposing runtime values.
     return order.map((n) => {
       const g = groups.get(n) as Record<string, unknown>;
-      return v5MacroToV6(g as unknown as MacroPackageEntry);
+      return v6MacroToV7(v5MacroToV6(g));
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
       `[snlDoc] normalizeMacros: could not migrate legacy macros to the ` +
-        `v6 styles array (${reason}); returning original entries`
+        `v7 styles array (${reason}); normalizing entries independently`
     );
-    return collected as unknown as MacroPackageEntry[];
+    return collected.map((entry) => v6MacroToV7(v5MacroToV6(entry)));
   }
 }
 
@@ -1159,7 +1185,7 @@ export async function createMacroPackage(
   }
 
   const pkg: MacroPackageFile = {
-    version: '1',
+    version: MACRO_PACKAGE_VERSION,
     name,
     macros: {}
   };
@@ -1224,16 +1250,13 @@ export async function readMacroPackage(
 
   // Recover the package metadata (name/description/version) best-effort.
   let pkgName = bare;
-  let pkgVersion = '1';
   let pkgDescription: string | undefined;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     if (typeof obj.name === 'string' && obj.name.trim()) {
       pkgName = obj.name;
     }
-    if (typeof obj.version === 'string' && obj.version.trim()) {
-      pkgVersion = obj.version;
-    }
+
     if (typeof obj.description === 'string' && obj.description.trim()) {
       pkgDescription = obj.description;
     }
@@ -1246,7 +1269,7 @@ export async function readMacroPackage(
   }
 
   const pkg: MacroPackageFile = {
-    version: pkgVersion,
+    version: MACRO_PACKAGE_VERSION,
     name: pkgName,
     macros: macrosMap
   };
@@ -1263,9 +1286,8 @@ export async function readMacroPackage(
  * matches how consumers merge multiple package files into a single lookup
  * for parsing / rendering).
  *
- * Result rows use the extended v6 on-disk shape (typst / latex / markdown /
- * text backends included). Callers that need the lib-shape `SnlMacroDb`
- * should map via `extendedToLibShape` on the receiver side.
+ * Result rows use the extended v7 on-disk shape (typst / latex / markdown /
+ * text backends included). Webviews adapt these rows behind MacroDataDriver.
  *
  * Best-effort: individual packages that fail to load (missing file, JSON
  * parse error) are silently skipped so a single broken package can't
@@ -1439,14 +1461,15 @@ function validateMacro(macro: MacroPackageEntry): string | null {
     if (!style || typeof style !== 'object') {
       return `styles[${i}] must be an object`;
     }
-    const tag = typeof style.tag === 'string' ? style.tag.trim() : '';
-    if (!tag) {
-      return `styles[${i}].tag is required`;
+    const styleName =
+      typeof style.style_name === 'string' ? style.style_name.trim() : '';
+    if (!styleName) {
+      return `styles[${i}].style_name is required`;
     }
-    if (seen.has(tag)) {
-      return `styles[${i}].tag "${tag}" is duplicated`;
+    if (seen.has(styleName)) {
+      return `styles[${i}].style_name "${styleName}" is duplicated`;
     }
-    seen.add(tag);
+    seen.add(styleName);
     if (
       style.mode !== 'formula_inline' &&
       style.mode !== 'formula_display' &&
@@ -1458,34 +1481,42 @@ function validateMacro(macro: MacroPackageEntry): string | null {
     if (typeof style.template !== 'string' || style.template.trim().length === 0) {
       return `styles[${i}].template is required`;
     }
-    // v6: no `display` field on a style. Reject if lingering (should have
-    // been stripped by v5MacroToV6 during read).
+    if (macro.dynamic_arity && !style.template.includes('#*')) {
+      return `styles[${i}].template must contain #* for a dynamic macro`;
+    }
+    if (style.separator !== undefined && typeof style.separator !== 'string') {
+      return `styles[${i}].separator must be a string`;
+    }
+    if (style.mode !== 'block' && style.block_template_name !== undefined) {
+      return `styles[${i}].block_template_name is valid only in block mode`;
+    }
     const raw = style as unknown as Record<string, unknown>;
-    if (raw.display !== undefined) {
-      return `styles[${i}].display is a v5 field — should have been folded into mode`;
+    for (const legacyKey of [
+      'tag', 'variadic_left', 'variadic_join', 'variadic_right',
+      'react_renderer_key', 'display'
+    ]) {
+      if (legacyKey in raw) {
+        return `styles[${i}].${legacyKey} is not valid in Macro v7`;
+      }
     }
   }
-  // Tags: strings, no backslashes.
-  const macroTags = (macro as MacroPackageEntry).tags;
-  if (macroTags !== undefined) {
-    if (!Array.isArray(macroTags)) {
-      return 'tags must be an array of strings';
-    }
-    for (const t of macroTags) {
-      if (typeof t !== 'string') return 'tags entries must be strings';
-      if (t.includes('\\')) return 'tags may not contain backslashes';
-    }
+  // Tags are required string arrays in v7; backslashes remain forbidden.
+  const macroTags = macro.tags;
+  if (!Array.isArray(macroTags)) {
+    return 'tags must be an array of strings';
+  }
+  for (const t of macroTags) {
+    if (typeof t !== 'string') return 'tags entries must be strings';
+    if (t.includes('\\')) return 'tags may not contain backslashes';
   }
   for (let i = 0; i < styles.length; i++) {
-    const styleTags = (styles[i] as MacroPackageStyle).tags;
-    if (styleTags !== undefined) {
-      if (!Array.isArray(styleTags)) {
-        return `styles[${i}].tags must be an array of strings`;
-      }
-      for (const t of styleTags) {
-        if (typeof t !== 'string') return `styles[${i}].tags entries must be strings`;
-        if (t.includes('\\')) return `styles[${i}].tags may not contain backslashes`;
-      }
+    const styleTags = styles[i].tags;
+    if (!Array.isArray(styleTags)) {
+      return `styles[${i}].tags must be an array of strings`;
+    }
+    for (const t of styleTags) {
+      if (typeof t !== 'string') return `styles[${i}].tags entries must be strings`;
+      if (t.includes('\\')) return `styles[${i}].tags may not contain backslashes`;
     }
   }
   const src = macro?.source;

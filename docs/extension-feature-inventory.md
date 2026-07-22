@@ -161,7 +161,7 @@
 | CreateEntry | Inductive 行 name 输入 | text-input | （每行一个）编辑树节点头，识别 `$…$` / `%…%` / `@` / `[style]` 并按 kind 上色 | local state only；识别到定 arity Macro 时自动补齐子节点 | 空占位行序列化前被剥除 |
 | CreateEntry | Inductive 行 style 输入 | text-input | （每行一个）指定 macro 的 style tag | local state only | 无匹配 macro 时 disabled |
 | CreateEntry | ▶ / ▼ chevron | button | （每行一个）折叠 / 展开子树 | local state only | 仅当有子节点 |
-| CreateEntry | ↗ new / ↗ edit | button | （每行一个）跳到 Create/Edit Macro，预填 name/envMode/style | `openMacroEditor` | — |
+| CreateEntry | ↗ new / ↗ edit | button | （每行一个）跳到 Create/Edit Macro，预填 macro_name/env_mode/style_name | `openMacroEditor` | — |
 | CreateEntry | + child | button | （每行一个）在当前节点下追加空子节点 | local state only | hover 显示 |
 | CreateEntry | − delete | button | （每行一个）删除该子树 | local state only | 根节点不显示 |
 | CreateEntry | Contributor / Pointer | preview | 占位区，尚未实现 | — | — |
@@ -283,7 +283,7 @@
 | CreateMacro | + Add Arg / − Remove Arg | button | 预览时增/减 variadic 参数槽位 | local state only | 仅 dynamicArity 时；上限 MAX_ARGS |
 | CreateMacro | Reset all args | button | 清空所有 preview 参数 | local state only | — |
 | CreateMacro | arg N | textarea | 预览时替换 `#N` 的 SNL 源码 | local state only | 解析错时显示 parse error |
-| CreateMacro | Render preset | select | block-mode React 渲染器 preset（list/enumerate/table/centered/Custom） | `patchStyle {react_renderer_key}` | 仅 block mode 显示 |
+| CreateMacro | Render preset | select | block-mode React 渲染器 preset（list/enumerate/table/centered/Custom） | `patchStyle {block_template_name}` | 仅 block mode 显示 |
 | CreateMacro | my-renderer-key | text-input | 自定义 renderer key | local state only | 仅 Custom 时显示 |
 | CreateMacro | Entries (source) 搜索框 | text-input (autocomplete) | 从 entry pool 选择来源 entry（每行一个） | local state only | 需解析到已存在 entry |
 | CreateMacro | − (entry/url) | button | 删除该行 | local state only | — |

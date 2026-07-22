@@ -23,7 +23,8 @@ import {
   type SnlMacro,
   type SnlMacroDb,
   type SnlSyntaxTree,
-  type SnlRenderHooks
+  type SnlRenderHooks,
+  type KindPalette
 } from '@snl-basics/react';
 import {
   getVsCodeApi,
@@ -34,6 +35,7 @@ import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
+import { macroKindsToPalette } from './render/macroKindPalette';
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -666,6 +668,10 @@ function MacroTable({
     }
     return m;
   }, [macroKinds]);
+  const kindPalette = useMemo(
+    () => macroKindsToPalette(macroKinds),
+    [macroKinds]
+  );
 
   // Build ONE preview macro DB for the whole table: bundledMacroDb (background
   // math) + argument placeholders + all macros in THIS package (so a macro
@@ -731,6 +737,7 @@ function MacroTable({
             key={m.name}
             macro={m}
             kindById={kindById}
+            kindPalette={kindPalette}
             entryPoolIds={entryPoolIds}
             previewMacroDb={previewMacroDb}
             previewQuery={previewQuery}
@@ -760,6 +767,7 @@ function MacroTable({
 function MacroRowGroup({
   macro,
   kindById,
+  kindPalette,
   entryPoolIds,
   previewMacroDb,
   previewQuery,
@@ -772,6 +780,7 @@ function MacroRowGroup({
 }: {
   macro: MacroPackageEntry;
   kindById: Map<string, MacroKind>;
+  kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
   previewMacroDb: SnlMacroDb;
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
@@ -803,6 +812,7 @@ function MacroRowGroup({
           canExpand ? () => setExpanded((v) => !v) : undefined
         }
         kindById={kindById}
+        kindPalette={kindPalette}
         entryPoolIds={entryPoolIds}
         previewMacroDb={previewMacroDb}
         previewQuery={previewQuery}
@@ -826,6 +836,7 @@ function MacroRowGroup({
               canExpand={false}
               onToggleExpand={undefined}
               kindById={kindById}
+              kindPalette={kindPalette}
               entryPoolIds={entryPoolIds}
               previewMacroDb={previewMacroDb}
               previewQuery={previewQuery}
@@ -862,6 +873,7 @@ function MacroStyleRow({
   canExpand,
   onToggleExpand,
   kindById,
+  kindPalette,
   entryPoolIds,
   previewMacroDb,
   previewQuery,
@@ -882,6 +894,7 @@ function MacroStyleRow({
   canExpand: boolean;
   onToggleExpand: (() => void) | undefined;
   kindById: Map<string, MacroKind>;
+  kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
   previewMacroDb: SnlMacroDb;
   previewQuery: ReturnType<typeof createMacroTemplateQueryFromDb>;
@@ -999,6 +1012,7 @@ function MacroStyleRow({
               macroDb={previewMacroDb}
               query={previewQuery}
               hooks={previewHooks}
+              kindPalette={kindPalette}
             />
           ) : (
             <span style={{ opacity: 0.5 }}>—</span>
@@ -1239,7 +1253,8 @@ function MacroPreview({
   styleTag,
   macroDb,
   query,
-  hooks
+  hooks,
+  kindPalette
 }: {
   macro: MacroPackageEntry;
   /** Non-default style tag to preview. Undefined → use the default (styles[0]). */
@@ -1247,6 +1262,7 @@ function MacroPreview({
   macroDb: SnlMacroDb;
   query: ReturnType<typeof createMacroTemplateQueryFromDb>;
   hooks: SnlRenderHooks;
+  kindPalette: KindPalette | undefined;
 }): React.ReactElement {
   // Locate the specific style being previewed (fall back to styles[0]).
   const style = useMemo<MacroPackageStyle | undefined>(() => {
@@ -1299,6 +1315,7 @@ function MacroPreview({
       query={query}
       macroDb={macroDb}
       hooks={hooks}
+      kindPalette={kindPalette}
     />
   );
 }

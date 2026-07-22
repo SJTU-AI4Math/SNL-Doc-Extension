@@ -22,7 +22,8 @@ describe('Macro Kind palette plumbing', () => {
       'webview/src/App.tsx',
       'webview/src/EntryInfoviewApp.tsx',
       'webview/src/CreateEntryApp.tsx',
-      'webview/src/SnlGraphApp.tsx'
+      'webview/src/SnlGraphApp.tsx',
+      'webview/src/PackagePanelApp.tsx'
     ]) {
       const text = source(webview);
       expect(text, webview).toContain('macroKindsToPalette');

@@ -28,6 +28,10 @@ import {
   tryParseSnlSyntaxTree,
   createSnlSyntaxTreeNode,
   DEFAULT_KIND_PALETTE,
+  read_localized,
+  resolve_style_template,
+  type I18n,
+  type Localized,
   type MacroDataDriver,
   type SnlMacro,
   type SnlSyntaxTree,
@@ -61,6 +65,11 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
+import { merge_localized_projection } from './runtime/localizedDraft';
+import {
+  use_preferences_revision,
+  webview_language_runtime
+} from './runtime/preferencesRuntime';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -91,6 +100,7 @@ interface EntryKind {
 }
 
 type ContentFormat = 'snl' | 'typst' | 'latex' | 'markdown' | 'text';
+type LocalizableContentFormat = Exclude<ContentFormat, 'snl'>;
 
 type Mode = 'create' | 'edit';
 
@@ -100,10 +110,10 @@ interface ExistingEntry {
   title: string;
   content: {
     snl?: string;
-    typst?: string;
-    latex?: string;
-    markdown?: string;
-    text?: string;
+    typst?: Localized<string, string>;
+    latex?: Localized<string, string>;
+    markdown?: Localized<string, string>;
+    text?: Localized<string, string>;
   };
   contribution_info?: unknown;
   pointer?: unknown;
@@ -130,6 +140,19 @@ type Status =
   | { kind: 'noWorkspace'; message: string }
   | { kind: 'error'; message: string };
 
+function projectLocalizedContent(
+  value: Localized<string, string> | undefined
+): { text: string; i18n?: I18n<string, string> } {
+  if (value === undefined) return { text: '' };
+  if (typeof value === 'string') return { text: value };
+  return {
+    text: webview_language_runtime.run_reader(
+      read_localized<string, string>(value)
+    ),
+    i18n: value
+  };
+}
+
 function newUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -147,6 +170,8 @@ function newUuid(): string {
 // <title>" without a mock digit.
 
 export function CreateEntryApp(): React.ReactElement {
+  const preferencesRevision = use_preferences_revision();
+  const languageRef = useRef(webview_language_runtime.query_environment().language);
   const [mode, setMode] = useState<Mode>('create');
   const [kinds, setKinds] = useState<EntryKind[]>([]);
   const [kindsLoaded, setKindsLoaded] = useState(false);
@@ -201,9 +226,45 @@ export function CreateEntryApp(): React.ReactElement {
     markdown: '',
     text: ''
   });
+  const [contentI18n, setContentI18n] = useState<
+    Partial<Record<LocalizableContentFormat, I18n<string, string>>>
+  >({});
 
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const formDirtyRef = useRef(false);
+  const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
+  const editingIdRef = useRef('');
+  const existingMetadataRef = useRef<{
+    contribution_info: unknown;
+    pointer: unknown;
+  }>({ contribution_info: null, pointer: null });
+
+  useEffect(() => {
+    const nextLanguage = webview_language_runtime.query_environment().language;
+    const previousLanguage = languageRef.current;
+    if (nextLanguage === previousLanguage) return;
+    const nextMaps = { ...contentI18n };
+    const nextContent = { ...content };
+    for (const format of ['typst', 'latex', 'markdown', 'text'] as const) {
+      const original = contentI18n[format];
+      if (!original) continue;
+      const updated = merge_localized_projection(
+        original,
+        content[format],
+        previousLanguage,
+        contentDirtyRef.current.has(format)
+      );
+      nextMaps[format] = updated;
+      nextContent[format] = webview_language_runtime.run_reader(
+        read_localized<string, string>(updated)
+      );
+    }
+    setContentI18n(nextMaps);
+    setContent(nextContent);
+    contentDirtyRef.current.clear();
+    languageRef.current = nextLanguage;
+  }, [preferencesRevision]);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -260,19 +321,40 @@ export function CreateEntryApp(): React.ReactElement {
           );
           setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
+            const incomingId = msg.id ?? msg.existing?.id ?? '';
+            const preserveDraft = !!msg.existing &&
+              formDirtyRef.current &&
+              editingIdRef.current === incomingId;
             if (msg.id) {
               setId(msg.id);
             }
-            if (msg.existing) {
+            if (msg.existing && !preserveDraft) {
+              editingIdRef.current = incomingId;
               setTitle(msg.existing.title || '');
               setSelectedKind(msg.existing.kind || '');
+              const typst = projectLocalizedContent(msg.existing.content?.typst);
+              const latex = projectLocalizedContent(msg.existing.content?.latex);
+              const markdown = projectLocalizedContent(msg.existing.content?.markdown);
+              const text = projectLocalizedContent(msg.existing.content?.text);
               setContent({
                 snl: msg.existing.content?.snl ?? '',
-                typst: msg.existing.content?.typst ?? '',
-                latex: msg.existing.content?.latex ?? '',
-                markdown: msg.existing.content?.markdown ?? '',
-                text: msg.existing.content?.text ?? ''
+                typst: typst.text,
+                latex: latex.text,
+                markdown: markdown.text,
+                text: text.text
               });
+              setContentI18n({
+                ...(typst.i18n ? { typst: typst.i18n } : {}),
+                ...(latex.i18n ? { latex: latex.i18n } : {}),
+                ...(markdown.i18n ? { markdown: markdown.i18n } : {}),
+                ...(text.i18n ? { text: text.i18n } : {})
+              });
+              existingMetadataRef.current = {
+                contribution_info: msg.existing.contribution_info ?? null,
+                pointer: msg.existing.pointer ?? null
+              };
+              contentDirtyRef.current.clear();
+              formDirtyRef.current = false;
             }
           } else {
             // Cat 2026-07-15: seed the id field with the caller-provided
@@ -293,6 +375,8 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'created', id: msg.id });
           break;
         case 'updated':
+          formDirtyRef.current = false;
+          contentDirtyRef.current.clear();
           setStatus({ kind: 'updated', id: msg.id });
           break;
         case 'duplicate':
@@ -350,19 +434,45 @@ export function CreateEntryApp(): React.ReactElement {
       return;
     }
     setStatus({ kind: 'creating' });
+    const persist = (
+      format: LocalizableContentFormat
+    ): Localized<string, string> | undefined => {
+      const value = content[format];
+      const original = contentI18n[format];
+      if (!original) return value || undefined;
+      if (!contentDirtyRef.current.has(format)) return original;
+      return merge_localized_projection(
+        original,
+        value,
+        webview_language_runtime.query_environment().language,
+        true
+      );
+    };
+    const persistedContent = {
+      typst: persist('typst'),
+      latex: persist('latex'),
+      markdown: persist('markdown'),
+      text: persist('text')
+    };
+    setContentI18n((previous) => {
+      const next = { ...previous };
+      for (const format of ['typst', 'latex', 'markdown', 'text'] as const) {
+        const value = persistedContent[format];
+        if (value && typeof value === 'object') next[format] = value;
+      }
+      return next;
+    });
     const entry = {
       id: trimmedId,
       kind: selectedKind,
       title: trimmedTitle,
       content: {
         snl: content.snl || undefined,
-        typst: content.typst || undefined,
-        latex: content.latex || undefined,
-        markdown: content.markdown || undefined,
-        text: content.text || undefined
+        ...persistedContent
       },
-      contribution_info: null,
-      pointer: null
+      contribution_info:
+        mode === 'edit' ? existingMetadataRef.current.contribution_info : null,
+      pointer: mode === 'edit' ? existingMetadataRef.current.pointer : null
     };
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
@@ -380,6 +490,9 @@ export function CreateEntryApp(): React.ReactElement {
     setTitle('');
     setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
+    setContentI18n({});
+    contentDirtyRef.current.clear();
+    formDirtyRef.current = false;
     setActiveFormat('snl');
     setSnlMode('text');
     setStatus({ kind: 'idle' });
@@ -389,7 +502,11 @@ export function CreateEntryApp(): React.ReactElement {
   const noKinds = kindsLoaded && kinds.length === 0;
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '48rem' }}>
+    <main
+      style={{ ...PANEL_STYLE, maxWidth: '48rem' }}
+      onInputCapture={() => { formDirtyRef.current = true; }}
+      onClickCapture={() => { formDirtyRef.current = true; }}
+    >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
       <PanelNav
@@ -640,20 +757,25 @@ export function CreateEntryApp(): React.ReactElement {
                   ...payload
                 })
               }
-              onChange={(next) =>
-                setContent((prev) => ({ ...prev, snl: next }))
-              }
+              onChange={(next) => {
+                formDirtyRef.current = true;
+                setContent((prev) => ({ ...prev, snl: next }));
+              }}
             />
           ) : (
             <>
               <textarea
                 value={content[activeFormat]}
-                onChange={(e) =>
+                onChange={(e) => {
+                  formDirtyRef.current = true;
+                  if (activeFormat !== 'snl') {
+                    contentDirtyRef.current.add(activeFormat);
+                  }
                   setContent((prev) => ({
                     ...prev,
                     [activeFormat]: e.target.value
-                  }))
-                }
+                  }));
+                }}
                 rows={8}
                 placeholder={`${activeFormat.toUpperCase()} source…`}
                 style={{
@@ -1092,7 +1214,7 @@ function useQueriedMacro(
 function macroTemplateArity(macro: SnlMacro): number {
   let max = -1;
   for (const style of macro.styles ?? []) {
-    const tpl = style.template ?? '';
+    const tpl = resolve_style_template(style, webview_language_runtime);
     const re = /(?<!\\)#(\d+)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(tpl)) !== null) {

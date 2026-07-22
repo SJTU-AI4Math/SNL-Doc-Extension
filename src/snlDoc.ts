@@ -1,4 +1,11 @@
 import * as vscode from 'vscode';
+import type { Localized } from '@snl-basics/react';
+import {
+  macro_template_variants,
+  normalize_entry_content,
+  normalize_macro_template,
+  template_placeholder_signature
+} from './localizedContent';
 import { slugify } from './slug';
 
 /**
@@ -650,16 +657,11 @@ export async function readMacroPackages(
  * One strict Macro v7 render style, extended with consumer-owned output
  * backends (typst / latex / markdown / text) which live per style.
  */
-export interface MacroPackageStyle {
+interface MacroPackageStyleBase {
   /** Style token used in `foo[style](…)`. Must be unique per macro. */
   style_name: string;
-  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
-  /** Dynamic styles contain a literal `#*` in this template. */
-  template: string;
   /** Separator between children substituted at `#*`. */
   separator?: string;
-  /** Named block renderer; valid only for block mode. */
-  block_template_name?: string;
   /** Free-text labels attached to this style (backslash forbidden). */
   tags: string[];
   // Extended (consumer-owned) output backends per style:
@@ -668,6 +670,21 @@ export interface MacroPackageStyle {
   markdown?: string;
   text?: string;
 }
+
+export interface InvariantMacroPackageStyle extends MacroPackageStyleBase {
+  mode: 'formula_inline' | 'formula_display' | 'block';
+  template: string;
+  /** Named block renderer; valid only for block mode. */
+  block_template_name?: string;
+}
+
+export interface TextMacroPackageStyle extends MacroPackageStyleBase {
+  mode: 'text';
+  template: Localized<string, string>;
+  block_template_name?: never;
+}
+
+export type MacroPackageStyle = InvariantMacroPackageStyle | TextMacroPackageStyle;
 
 export interface MacroPackageEntry {
   name: string;
@@ -936,20 +953,33 @@ function v6MacroToV7(input: Record<string, unknown>): MacroPackageEntry {
       raw.mode === 'text' || raw.mode === 'block'
         ? raw.mode
         : 'formula_inline';
-    const style: MacroPackageStyle = {
+    const styleBase = {
       ...raw,
       style_name:
         typeof raw.style_name === 'string'
           ? raw.style_name
           : typeof legacyTag === 'string' ? legacyTag : `style${index}`,
-      mode,
-      template: hasLegacyDynamic
-        ? `${typeof legacyLeft === 'string' ? legacyLeft : ''}#*${typeof legacyRight === 'string' ? legacyRight : ''}`
-        : typeof raw.template === 'string' ? raw.template : '',
       tags: Array.isArray(raw.tags) && raw.tags.every((tag) => typeof tag === 'string')
         ? raw.tags as string[]
         : []
     };
+    const dynamicTemplate = hasLegacyDynamic
+      ? `${typeof legacyLeft === 'string' ? legacyLeft : ''}#*${typeof legacyRight === 'string' ? legacyRight : ''}`
+      : undefined;
+    const style: MacroPackageStyle = mode === 'text'
+      ? {
+          ...styleBase,
+          mode,
+          template: dynamicTemplate ?? normalize_macro_template('text', raw.template)
+        }
+      : {
+          ...styleBase,
+          mode,
+          template: dynamicTemplate ?? normalize_macro_template(
+            mode as 'formula_inline' | 'formula_display' | 'block',
+            raw.template
+          )
+        };
     if (hasLegacyDynamic && typeof legacyJoin === 'string') {
       style.separator = legacyJoin;
     }
@@ -1246,7 +1276,15 @@ export async function readMacroPackage(
     };
   }
 
-  const macros = normalizeMacros(raw);
+  let macros: MacroPackageEntry[];
+  try {
+    macros = normalizeMacros(raw);
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
 
   // Recover the package metadata (name/description/version) best-effort.
   let pkgName = bare;
@@ -1478,11 +1516,21 @@ function validateMacro(macro: MacroPackageEntry): string | null {
     ) {
       return `styles[${i}].mode must be one of 'formula_inline', 'formula_display', 'text', 'block'`;
     }
-    if (typeof style.template !== 'string' || style.template.trim().length === 0) {
-      return `styles[${i}].template is required`;
+    let templates: string[];
+    try {
+      templates = macro_template_variants(style.mode, style.template);
+    } catch (error) {
+      return `styles[${i}].template is invalid: ${error instanceof Error ? error.message : String(error)}`;
     }
-    if (macro.dynamic_arity && !style.template.includes('#*')) {
-      return `styles[${i}].template must contain #* for a dynamic macro`;
+    if (templates.length === 0 || templates.some((template) => template.trim().length === 0)) {
+      return `styles[${i}].template is required in every language`;
+    }
+    const signatures = new Set(templates.map(template_placeholder_signature));
+    if (signatures.size > 1) {
+      return `styles[${i}].template must use the same placeholders in every language`;
+    }
+    if (macro.dynamic_arity && templates.some((template) => !template.includes('#*'))) {
+      return `styles[${i}].template must contain #* in every language for a dynamic macro`;
     }
     if (style.separator !== undefined && typeof style.separator !== 'string') {
       return `styles[${i}].separator must be a string`;
@@ -2091,10 +2139,10 @@ export interface EntryData {
   title: string;
   content: {
     snl?: string;
-    typst?: string;
-    latex?: string;
-    markdown?: string;
-    text?: string;
+    typst?: Localized<string, string>;
+    latex?: Localized<string, string>;
+    markdown?: Localized<string, string>;
+    text?: Localized<string, string>;
   };
   contribution_info: unknown;
   // Optional structured pointer to a location in a source file (cat
@@ -2150,33 +2198,44 @@ export async function addEntry(
     return { status: 'unknownKind', kind };
   }
 
-  // Read the existing pool (tolerate missing/corrupt → empty).
+  // Refuse to write over a malformed existing pool. Missing is a valid empty
+  // workspace state; corrupt/non-array JSON is not.
   let pool: EntryData[] = [];
-  try {
-    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
-    if (Array.isArray(raw)) {
-      pool = raw as EntryData[];
+  const poolUri = entriesUri(workspaceRoot);
+  if (await exists(poolUri)) {
+    let raw: unknown;
+    try {
+      raw = await readJson<unknown>(poolUri);
+    } catch (error) {
+      return {
+        status: 'invalid',
+        reason: `entries.json is malformed: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
-  } catch {
-    pool = [];
+    if (!Array.isArray(raw)) {
+      return { status: 'invalid', reason: 'entries.json must contain an array' };
+    }
+    pool = raw as EntryData[];
   }
 
   if (pool.some((e) => e && typeof e === 'object' && e.id === id)) {
     return { status: 'duplicate', id };
   }
 
-  const content = (entry.content ?? {}) as EntryData['content'];
+  let normalizedContent: EntryData['content'];
+  try {
+    normalizedContent = normalize_entry_content(entry.content);
+  } catch (error) {
+    return {
+      status: 'invalid',
+      reason: error instanceof Error ? error.message : String(error)
+    };
+  }
   const record: EntryData = {
     id,
     kind,
     title,
-    content: {
-      snl: strOrUndef(content.snl),
-      typst: strOrUndef(content.typst),
-      latex: strOrUndef(content.latex),
-      markdown: strOrUndef(content.markdown),
-      text: strOrUndef(content.text)
-    },
+    content: normalizedContent,
     contribution_info: entry.contribution_info ?? null,
     pointer: entry.pointer ?? null
   };
@@ -2198,14 +2257,6 @@ export async function addEntry(
     };
   }
   return { status: 'ok', id };
-}
-
-/** Coerce a value to a trimmed non-empty string, or `undefined`. */
-function strOrUndef(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  return value.length > 0 ? value : undefined;
 }
 
 /**
@@ -2700,18 +2751,20 @@ export async function updateEntry(
     return { status: 'notFound', id: targetId };
   }
 
-  const content = (entry.content ?? {}) as EntryData['content'];
+  let normalizedContent: EntryData['content'];
+  try {
+    normalizedContent = normalize_entry_content(entry.content);
+  } catch (error) {
+    return {
+      status: 'invalid',
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
   const record: EntryData = {
     id: targetId,
     kind,
     title,
-    content: {
-      snl: strOrUndef(content.snl),
-      typst: strOrUndef(content.typst),
-      latex: strOrUndef(content.latex),
-      markdown: strOrUndef(content.markdown),
-      text: strOrUndef(content.text)
-    },
+    content: normalizedContent,
     contribution_info: entry.contribution_info ?? null,
     pointer: entry.pointer ?? null
   };

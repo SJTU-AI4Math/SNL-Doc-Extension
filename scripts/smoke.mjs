@@ -123,6 +123,7 @@ async function main() {
     applyMacroKindsPreset,
     createMacroKind,
     addEntry,
+    updateEntry,
     readEntries: readEntriesApi,
     readOverview,
     createMacroPackage,
@@ -256,7 +257,13 @@ async function main() {
     id: 'a1b2c3d4-0000-4000-8000-000000000003',
     kind: 'definition',
     title: '   ',
-    content: {},
+    content: {
+      markdown: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: 'Definition', 'zh-CN': '定义' }
+      }
+    },
     contribution_info: null,
     pointer: null
   });
@@ -275,6 +282,29 @@ async function main() {
       firstEntry.kind === entry.kind &&
       firstEntry.title === entry.title,
     'readEntries record matches what was written'
+  );
+  const localizedEntry = readBack.find(
+    (e) => e.id === 'a1b2c3d4-0000-4000-8000-000000000003'
+  );
+  assert(
+    localizedEntry?.content?.markdown?.values?.['zh-CN'] === '定义',
+    'addEntry preserves I18n content without projecting it'
+  );
+  const updateLocalized = await updateEntry(root, localizedEntry.id, {
+    ...localizedEntry,
+    content: {
+      text: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: 'Axiom', 'zh-CN': '公理' }
+      }
+    }
+  });
+  assert(updateLocalized.status === 'updated', 'updateEntry accepts I18n content');
+  const afterLocalizedUpdate = await readEntriesApi(root);
+  assert(
+    afterLocalizedUpdate.find((e) => e.id === localizedEntry.id)?.content?.text?.values?.['zh-CN'] === '公理',
+    'updateEntry round-trips I18n content without deleting it'
   );
   const overview = await readOverview(root);
   assert(
@@ -334,6 +364,29 @@ async function main() {
   assert(addOkMacro.status === 'ok', 'addMacro valid -> ok');
   assert(addOkMacro.name === 'Add.add.infix', 'addMacro returns name');
 
+  console.log('\n[15b] addMacro localized text template');
+  const localizedMacro = {
+    ...validMacro,
+    name: 'Group.prose',
+    styles: [{
+      style_name: 'default',
+      mode: 'text',
+      template: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: '#0 is a group', 'zh-CN': '#0 是群' }
+      },
+      tags: []
+    }]
+  };
+  const addLocalizedMacro = await addMacro(root, 'test_pkg', localizedMacro);
+  assert(addLocalizedMacro.status === 'ok', 'addMacro accepts localized text template');
+  const localizedMacroRead = await readMacroPackage(root, 'test_pkg');
+  assert(
+    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[0]?.template?.values?.['zh-CN'] === '#0 是群',
+    'localized text Macro template round-trips without projection'
+  );
+
   console.log('\n[16] addMacro duplicate');
   const dupMacro = await addMacro(root, 'test_pkg', validMacro);
   assert(dupMacro.status === 'duplicate', 'addMacro dup -> duplicate');
@@ -388,6 +441,60 @@ async function main() {
   });
   assert(dupTagMacro.status === 'invalid', 'addMacro duplicate tags -> invalid');
 
+  console.log('\n[17e] localized Macro invariants');
+  const localizedFormula = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'Bad.localizedFormula',
+    styles: [{
+      style_name: 'default',
+      mode: 'formula_inline',
+      template: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: '#0', 'zh-CN': '#0' }
+      },
+      tags: []
+    }]
+  });
+  assert(localizedFormula.status === 'invalid', 'formula Macro rejects I18n template');
+  const mismatchedLocalized = await addMacro(root, 'test_pkg', {
+    ...localizedMacro,
+    name: 'Bad.mismatchedLocalized',
+    styles: [{
+      style_name: 'default',
+      mode: 'text',
+      template: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: '#0 is a group', 'zh-CN': '#1 是群' }
+      },
+      tags: []
+    }]
+  });
+  assert(
+    mismatchedLocalized.status === 'invalid',
+    'localized Macro requires identical placeholders in every language'
+  );
+  const incompleteDynamic = await addMacro(root, 'test_pkg', {
+    ...localizedMacro,
+    name: 'Bad.dynamicLocalized',
+    dynamic_arity: true,
+    styles: [{
+      style_name: 'default',
+      mode: 'text',
+      template: {
+        type: 'i18n',
+        default_language: 'en',
+        values: { en: 'all: #*', 'zh-CN': '全部' }
+      },
+      tags: []
+    }]
+  });
+  assert(
+    incompleteDynamic.status === 'invalid',
+    'dynamic localized Macro requires #* in every language'
+  );
+
   console.log('\n[18] addMacro to missing package -> noFile');
   const noFileMacro = await addMacro(root, 'no_such_pkg', validMacro);
   assert(noFileMacro.status === 'noFile', 'addMacro missing pkg -> noFile');
@@ -396,10 +503,11 @@ async function main() {
   const readOne = await readMacroPackage(root, 'test_pkg.json');
   assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
   assert(
-    // Adjusted expected count: 1 initial (Add.add.infix) + 5 new allowed
-    // (backslash, dotted, hyphen, greek, CJK) from [17c].
-    readOne.macros.length === 6 && readOne.macros.some((m) => m.name === 'Add.add.infix'),
-    'readMacroPackage returns the 6 appended macros (Add.add.infix + 5 unicode/backslash/hyphen/dotted names)'
+    // 1 initial + 1 localized text Macro + 5 allowed names.
+    readOne.macros.length === 7 &&
+      readOne.macros.some((m) => m.name === 'Add.add.infix') &&
+      readOne.macros.some((m) => m.name === 'Group.prose'),
+    'readMacroPackage returns all 7 appended macros including localized text Macro'
   );
 
   console.log('\n[20] readMacroPackage missing -> noFile');
@@ -1373,6 +1481,28 @@ async function main() {
   assert(p2 && p2.title === 'Just a section title', 'section-style entry (title-only) persists');
 
   await fs.rm(tmpRoot6, { recursive: true, force: true });
+
+  // --- [28] Corrupt Entry pool must never be overwritten ------------------
+  console.log('\n[28] addEntry refuses to overwrite a corrupt pool');
+  const tmpRoot7 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-entry-corrupt-'));
+  const root7 = Uri.file(tmpRoot7);
+  await initSnlDoc(root7);
+  await applyEntryKindsPreset(root7, 'fulcrum-math-notes');
+  const corruptPath = nodePath.join(tmpRoot7, '.SNL_Doc', 'entries.json');
+  const corruptBytes = '{ this is not valid JSON';
+  await fs.writeFile(corruptPath, corruptBytes);
+  const corruptWrite = await addEntry(root7, {
+    id: 'must-not-write',
+    kind: 'definition',
+    title: 'Should fail',
+    content: {}
+  });
+  assert(corruptWrite.status === 'invalid', 'addEntry reports corrupt entries.json');
+  assert(
+    (await fs.readFile(corruptPath, 'utf8')) === corruptBytes,
+    'addEntry leaves corrupt entries.json byte-for-byte untouched'
+  );
+  await fs.rm(tmpRoot7, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

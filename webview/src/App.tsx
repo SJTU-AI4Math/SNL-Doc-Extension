@@ -27,6 +27,15 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
+import { use_localized, type LocalizedString } from './runtime/useLocalized';
+
+function ui(en: string, zhCN: string): LocalizedString {
+  return {
+    type: 'i18n',
+    default_language: 'en',
+    values: { en, 'zh-CN': zhCN }
+  };
+}
 
 interface LibraryEntry {
   slug: string;
@@ -190,10 +199,12 @@ function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function LoadingLayer(): React.ReactElement {
+  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
+  const loading = use_localized(ui('Loading libraries…', '正在加载文档库……'));
   return (
     <>
-      <TopBar title="SNL Infoview" />
-      <p style={{ opacity: 0.7 }}>Loading libraries…</p>
+      <TopBar title={title} />
+      <p style={{ opacity: 0.7 }}>{loading}</p>
     </>
   );
 }
@@ -205,23 +216,43 @@ function LibrariesLayer({
   libraries: LibraryEntry[];
   ctx: RenderCtx;
 }): React.ReactElement {
+  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
+  const viewGraph = use_localized(ui('View Graph', '查看关系图'));
+  const viewGraphTitle = use_localized(ui(
+    'Open the pool-wide relationship graph',
+    '打开整个条目池的关系图'
+  ));
+  const editDashboard = use_localized(ui('Edit in Dashboard', '在仪表板中编辑'));
+  const editDashboardTitle = use_localized(ui(
+    'Open the Dashboard (management surface)',
+    '打开仪表板管理界面'
+  ));
+  const noLibraries = use_localized(ui(
+    'No libraries yet. Create one via',
+    '尚无文档库。请通过'
+  ));
+  const noLibrariesSuffix = use_localized(ui(
+    'in the Dashboard, or paste an existing',
+    '在仪表板中创建，或粘贴已有的'
+  ));
+  const folderSuffix = use_localized(ui('folder in.', '目录。'));
   return (
     <>
       <TopBar
-        title="SNL Infoview"
+        title={title}
         subtitle={`${libraries.length} librar${libraries.length === 1 ? 'y' : 'ies'}`}
         actions={
           <>
             <ToolbarButton
-              label="View Graph"
-              title="Open the pool-wide relationship graph"
+              label={viewGraph}
+              title={viewGraphTitle}
               onClick={() =>
                 ctx.postMessage({ type: 'openInfoviewGraph' })
               }
             />
             <ToolbarButton
-              label="Edit in Dashboard"
-              title="Open the Dashboard (management surface)"
+              label={editDashboard}
+              title={editDashboardTitle}
               onClick={() => ctx.postMessage({ type: 'openDashboard' })}
             />
           </>
@@ -229,9 +260,9 @@ function LibrariesLayer({
       />
       {libraries.length === 0 ? (
         <p style={{ opacity: 0.8 }}>
-          No libraries yet. Create one via <code>SNL: Create Library</code>{' '}
-          in the Dashboard, or paste an existing{' '}
-          <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> folder in.
+          {noLibraries} <code>SNL: Create Library</code>{' '}
+          {noLibrariesSuffix}{' '}
+          <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> {folderSuffix}
         </p>
       ) : (
         <>

@@ -124,6 +124,14 @@ renderers use `block_template_name`, and macro/style `tags` are required arrays.
 Any package write emits version `7`; v6 input is upgraded without discarding
 consumer output backends or unknown extension fields.
 
+## I18n and user preferences
+
+Locale, theme, and motion preferences are VS Code Extension Settings and are
+adapted to SNL-Basics through query-initialized `ReaderRuntime` instances.
+Text-mode Macro templates and non-SNL Entry content may be invariant strings or
+serialized language maps. See [docs/i18n-preferences.md](docs/i18n-preferences.md)
+for the ownership boundary, schema, hot-update protocol, and verification rules.
+
 ## Macro naming rule (enforced by SNL-Basics parser)
 
 Macro names must match `[A-Za-z0-9_.]+`. No hyphens, no other punctuation.

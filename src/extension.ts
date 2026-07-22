@@ -16,6 +16,7 @@ import { SnoogLPanel } from './snooglPanel';
 import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
+import { initialize_preferences_host } from './preferencesHost';
 
 // TODO: import SNL_render from snl-script lib
 
@@ -87,6 +88,7 @@ async function runInit(): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  initialize_preferences_host(context);
   const openInfoview = vscode.commands.registerCommand(
     'snlDoc.openInfoview',
     (initialLibrarySlug?: unknown) => {

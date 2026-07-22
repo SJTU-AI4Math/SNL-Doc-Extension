@@ -10,6 +10,15 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 import katex from 'katex';
 import '@snl-basics/react/style.css';
+import {
+  use_preferences_revision,
+  webview_language_runtime
+} from '../runtime/preferencesRuntime';
+import {
+  resolve_entry_content,
+  type EntryContent as BasicsEntryContent,
+  type ResolvedEntryContent
+} from '@snl-basics/react/entry';
 import { MarkdownBody } from './MarkdownBody';
 import { LatexBody } from './LatexBody';
 import { Button } from '../components/Button';
@@ -164,13 +173,7 @@ export interface EntryOption {
   snl?: string;
 }
 
-export interface EntryContent {
-  snl?: string;
-  typst?: string;
-  latex?: string;
-  markdown?: string;
-  text?: string;
-}
+export type EntryContent = BasicsEntryContent;
 
 export interface EntryData {
   id: string;
@@ -318,26 +321,39 @@ export function EntryRender({
   disableTitleJump,
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
-  const snl = entry.content?.snl ?? '';
-  const markdown = entry.content?.markdown ?? '';
-  const latex = entry.content?.latex ?? '';
-  const text = entry.content?.text ?? '';
+  const preferencesRevision = use_preferences_revision();
+  let contentError: string | null = null;
+  let resolvedContent: ResolvedEntryContent = {};
+  try {
+    resolvedContent = resolve_entry_content(
+      entry.content ?? {},
+      webview_language_runtime
+    );
+  } catch (error) {
+    contentError = error instanceof Error ? error.message : String(error);
+  }
+  const snl = resolvedContent.snl ?? '';
+  const markdown = resolvedContent.markdown ?? '';
+  const typst = resolvedContent.typst ?? '';
+  const latex = resolvedContent.latex ?? '';
+  const text = resolvedContent.text ?? '';
 
-  // Body-surface priority (cat 2026-07-11): snl > markdown > latex > text.
-  // Empty string is treated as "not present" — a whitespace-only field
-  // has no render value. TODO: allow config.json override of this
-  // priority (`config.body_surface_priority: ['markdown', 'snl', ...]`).
-  type BodySurface = 'snl' | 'markdown' | 'latex' | 'text' | 'none';
+  // Body-surface priority: snl > markdown > typst > latex > text.
+  type BodySurface = 'error' | 'snl' | 'markdown' | 'typst' | 'latex' | 'text' | 'none';
   const bodySurface: BodySurface =
-    snl.trim().length > 0
+    contentError
+      ? 'error'
+      : snl.trim().length > 0
       ? 'snl'
       : markdown.trim().length > 0
         ? 'markdown'
-        : latex.trim().length > 0
-          ? 'latex'
-          : text.trim().length > 0
-            ? 'text'
-            : 'none';
+        : typst.trim().length > 0
+          ? 'typst'
+          : latex.trim().length > 0
+            ? 'latex'
+            : text.trim().length > 0
+              ? 'text'
+              : 'none';
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
 
@@ -764,11 +780,15 @@ export function EntryRender({
               fontSize: '1.05rem'
             }}
           >
-            {bodySurface === 'snl' ? (
+            {bodySurface === 'error' ? (
+              <ErrorBanner text={`Entry content localization error: ${contentError ?? ''}`} />
+            ) : bodySurface === 'snl' ? (
               parsed.ok && tree ? (
                 <SnlSyntaxTreeView
+                  key={`preferences-${preferencesRevision}`}
                   tree={tree}
                   macro_data_driver={macroDataDriver}
+                  reader_runtime={webview_language_runtime}
                   kindPalette={kindPalette}
                   hooks={hooks}
                 />
@@ -797,6 +817,17 @@ export function EntryRender({
               )
             ) : bodySurface === 'markdown' ? (
               <MarkdownBody source={markdown} />
+            ) : bodySurface === 'typst' ? (
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontFamily: 'var(--vscode-editor-font-family, monospace)'
+                }}
+              >
+                {typst}
+              </pre>
             ) : bodySurface === 'latex' ? (
               <LatexBody source={latex} />
             ) : bodySurface === 'text' ? (

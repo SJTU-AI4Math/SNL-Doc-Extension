@@ -25,12 +25,16 @@ import React from 'react';
 import type { VsCodeApi } from '../vscodeApi';
 import { Button } from './Button';
 import { formatDirectionalLabel } from './interactionModel';
+import {
+  use_localized,
+  type LocalizedString
+} from '../runtime/useLocalized';
 
 export interface PanelNavAction {
   /** Text on the button. Kept terse. */
-  label: string;
+  label: LocalizedString;
   /** Tooltip. Full sentence explaining what happens. */
-  title?: string;
+  title?: LocalizedString;
   /** Message payload posted to the host. Host dispatches via command. */
   message: Record<string, unknown>;
 }
@@ -50,9 +54,25 @@ export function PanelNav({
   back,
   viewInInfoview
 }: PanelNavProps): React.ReactElement {
+  const backLabel = use_localized(back.label);
+  const backTitle = use_localized(back.title ?? back.label);
+  const viewLabel = use_localized(viewInInfoview?.label ?? '');
+  const viewTitle = use_localized(
+    viewInInfoview?.title ?? viewInInfoview?.label ?? ''
+  );
+  const navigationLabel = use_localized({
+    type: 'i18n',
+    default_language: 'en',
+    values: { en: 'Panel navigation', 'zh-CN': '面板导航' }
+  });
+  const refreshTitle = use_localized({
+    type: 'i18n',
+    default_language: 'en',
+    values: { en: 'Refresh this panel from disk', 'zh-CN': '从磁盘刷新此面板' }
+  });
   return (
     <nav
-      aria-label="Panel navigation"
+      aria-label={navigationLabel}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -72,10 +92,10 @@ export function PanelNav({
       <Button
         variant="secondary"
         size="md"
-        title={back.title ?? back.label}
+        title={backTitle}
         onClick={() => vsApi?.postMessage(back.message)}
       >
-        {formatDirectionalLabel('back', back.label)}
+        {formatDirectionalLabel('back', backLabel)}
       </Button>
       <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
         {/* Cat 2026-07-13: universal manual refresh — data-file changes
@@ -86,7 +106,7 @@ export function PanelNav({
         <Button
           variant="secondary"
           size="md"
-          title="Refresh this panel from disk"
+          title={refreshTitle}
           onClick={() => vsApi?.postMessage({ type: 'nav.refresh' })}
         >
           {'↻'}
@@ -95,10 +115,10 @@ export function PanelNav({
           <Button
             variant="secondary"
             size="md"
-            title={viewInInfoview.title ?? viewInInfoview.label}
+            title={viewTitle}
             onClick={() => vsApi?.postMessage(viewInInfoview.message)}
           >
-            {formatDirectionalLabel('forward', viewInInfoview.label)}
+            {formatDirectionalLabel('forward', viewLabel)}
           </Button>
         ) : null}
       </div>

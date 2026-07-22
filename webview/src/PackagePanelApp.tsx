@@ -18,7 +18,9 @@ import './create-macro.css';
 import {
   defaultRenderHooks,
   SnlSyntaxTreeView,
+  resolve_style_template,
   type SnlMacro,
+  type SnlMacroStyle,
   type MacroDataDriver,
   type SnlSyntaxTree,
   type SnlRenderHooks,
@@ -39,6 +41,10 @@ import { Button } from './components/Button';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import { macroKindsToPalette } from './render/macroKindPalette';
+import {
+  use_preferences_revision,
+  webview_language_runtime
+} from './runtime/preferencesRuntime';
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -46,18 +52,15 @@ import { macroKindsToPalette } from './render/macroKindPalette';
 // v6: `mode` is 4 flat values (formula_inline/formula_display/text/block),
 // no `display` axis; `dynamic_arity: boolean` replaces `arity`; variadic
 // delimiters are 3 optional strings; per-macro + per-style `tags`.
-interface MacroPackageStyle {
-  style_name: string;
-  mode: 'formula_inline' | 'formula_display' | 'text' | 'block';
-  template: string;
-  separator?: string;
-  block_template_name?: string;
-  tags: string[];
+interface MacroStyleBackends {
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   markdown?: string;
   text?: string;
 }
+type MacroPackageStyle =
+  | (Extract<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends)
+  | (Exclude<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends);
 
 interface MacroPackageEntry {
   name: string;
@@ -181,17 +184,25 @@ function maxChildIndex(template: string): number {
  * backends; keep name/description/source/kind/dynamic_arity/styles).
  */
 function macroToLibShape(m: MacroPackageEntry): SnlMacro {
-  const styles = Array.isArray(m.styles)
-    ? m.styles.map((s) => ({
-        style_name: s.style_name,
-        mode: s.mode,
-        template: s.template,
-        ...(s.separator !== undefined ? { separator: s.separator } : {}),
-        ...(s.mode === 'block' && s.block_template_name
-          ? { block_template_name: s.block_template_name }
-          : {}),
-        tags: s.tags
-      }))
+  const styles: SnlMacroStyle[] = Array.isArray(m.styles)
+    ? m.styles.map((s): SnlMacroStyle => {
+        const base = {
+          style_name: s.style_name,
+          ...(s.separator !== undefined ? { separator: s.separator } : {}),
+          tags: s.tags
+        };
+        if (s.mode === 'text') {
+          return { ...base, mode: 'text', template: s.template };
+        }
+        return {
+          ...base,
+          mode: s.mode,
+          template: s.template,
+          ...(s.mode === 'block' && s.block_template_name
+            ? { block_template_name: s.block_template_name }
+            : {})
+        };
+      })
     : [];
   const lib: SnlMacro = {
     name: m.name,
@@ -210,6 +221,7 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
 }
 
 export function PackagePanelApp(): React.ReactElement {
+  use_preferences_revision();
   const [model, setModel] = useState<Model>({ kind: 'loading' });
   const [mode, setMode] = useState<'normal' | 'multiselect'>('normal');
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
@@ -632,7 +644,10 @@ function arityLabel(macro: MacroPackageEntry): string {
     return 'dynamic';
   }
   const defaultStyle = macro.styles?.[0];
-  const count = Math.max(0, maxChildIndex(defaultStyle?.template ?? '') + 1);
+  const template = defaultStyle
+    ? resolve_style_template(defaultStyle, webview_language_runtime)
+    : '';
+  const count = Math.max(0, maxChildIndex(template) + 1);
   return String(count);
 }
 
@@ -1255,6 +1270,7 @@ function MacroPreview({
   hooks: SnlRenderHooks;
   kindPalette: KindPalette | undefined;
 }): React.ReactElement {
+  const preferencesRevision = use_preferences_revision();
   // Locate the specific style being previewed (fall back to styles[0]).
   const style = useMemo<MacroPackageStyle | undefined>(() => {
     if (!Array.isArray(macro.styles) || macro.styles.length === 0)
@@ -1262,14 +1278,18 @@ function MacroPreview({
     if (styleTag == null) return macro.styles[0];
     return macro.styles.find((s) => s.style_name === styleTag) ?? macro.styles[0];
   }, [macro.styles, styleTag]);
+  const resolvedTemplate = useMemo(
+    () => style ? resolve_style_template(style, webview_language_runtime) : '',
+    [style, preferencesRevision]
+  );
 
   const argCount = useMemo(() => {
     if (macro.dynamic_arity) {
       return Math.min(VARIADIC_PREVIEW_ARGS, MAX_ARGS);
     }
-    const derived = maxChildIndex(style?.template ?? '') + 1;
+    const derived = maxChildIndex(resolvedTemplate) + 1;
     return Math.min(Math.max(derived, 0), MAX_ARGS);
-  }, [macro.dynamic_arity, style?.template]);
+  }, [macro.dynamic_arity, resolvedTemplate]);
 
   const tree: SnlSyntaxTree = useMemo(() => {
     const children: SnlSyntaxTree[] = [];
@@ -1290,7 +1310,7 @@ function MacroPreview({
 
   // A style with an empty template renders as nothing useful — bail to
   // a soft "—" so the row doesn't show a phantom empty preview.
-  const template = (style?.template ?? '').trim();
+  const template = resolvedTemplate.trim();
   if (!template) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
@@ -1302,8 +1322,10 @@ function MacroPreview({
   // 猫猫 called out.
   return (
     <SnlSyntaxTreeView
+      key={`preferences-${preferencesRevision}`}
       tree={tree}
       macro_data_driver={macroDataDriver}
+      reader_runtime={webview_language_runtime}
       hooks={hooks}
       kindPalette={kindPalette}
     />

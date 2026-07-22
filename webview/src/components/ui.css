@@ -39,3 +39,23 @@
 .snl-empty-state--compact { align-items:flex-start; padding:.5rem 0; text-align:left; }
 .snl-empty-state__title { color:var(--vscode-foreground,#ddd); }
 .snl-empty-state__action { margin-top:.25rem; }
+
+/* User-selected semantic appearance. VS Code variables remain available to
+   controls, while the page surface follows the explicit preference. */
+html[data-snl-color-scheme='light'] { color-scheme:light; }
+html[data-snl-color-scheme='light'] body { background:#ffffff !important; color:#1f2328 !important; }
+html[data-snl-color-scheme='dark'] { color-scheme:dark; }
+html[data-snl-color-scheme='dark'] body { background:#1e1e1e !important; color:#dddddd !important; }
+html[data-snl-color-scheme='high-contrast'] { color-scheme:dark; }
+html[data-snl-color-scheme='high-contrast'] body { background:#000000 !important; color:#ffffff !important; }
+html[data-snl-motion='reduced'] *,
+html[data-snl-motion='reduced'] *::before,
+html[data-snl-motion='reduced'] *::after {
+  animation-duration:.01ms !important;
+  animation-iteration-count:1 !important;
+  scroll-behavior:auto !important;
+  transition-duration:.01ms !important;
+}
+html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disabled='true']) {
+  transform:none;
+}

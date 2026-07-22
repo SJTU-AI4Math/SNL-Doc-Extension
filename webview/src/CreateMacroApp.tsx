@@ -41,6 +41,9 @@ import {
   tryParseSnlSyntaxTree,
   defaultRenderHooks,
   SnlSyntaxTreeView,
+  read_localized,
+  type I18n,
+  type Localized,
   type SnlMacro,
   type SnlMacroStyle,
   type SnlSyntaxTree,
@@ -62,6 +65,11 @@ import { Button } from './components/Button';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
+import { merge_localized_projection } from './runtime/localizedDraft';
+import {
+  use_preferences_revision,
+  webview_language_runtime
+} from './runtime/preferencesRuntime';
 
 // ---------------------------------------------------------------------------
 // Preview constants
@@ -144,6 +152,10 @@ interface StyleDraft {
   style_name: string;
   mode: Mode;
   template: string;
+  /** Original multilingual map; `template` edits the current language projection. */
+  template_i18n?: I18n<string, string>;
+  /** Whether the current language projection was edited. */
+  template_dirty?: boolean;
   template_left: string;
   separator: string;
   template_right: string;
@@ -182,32 +194,43 @@ function newStyleDraft(styleName: string): StyleDraft {
 
 /** Serialize a draft to strict Macro v7 storage. */
 function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
-  const out: ExtendedSnlMacroStyle = {
+  const templateString = dynamicArity
+    ? `${s.template_left}#*${s.template_right}`
+    : (s.template || (s.mode === 'block' ? '#*' : ''));
+  const common = {
     style_name: s.style_name.trim(),
+    ...(dynamicArity ? { separator: s.separator } : {}),
+    tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0),
+    typst: {
+      built_in: s.typst_built_in,
+      synthesis: { mode: s.typst_synthesis_mode, macro: s.typst_synthesis }
+    },
+    latex: {
+      built_in: s.latex_built_in,
+      synthesis: { mode: s.latex_synthesis_mode, macro: s.latex_synthesis }
+    },
+    markdown: s.markdown,
+    text: s.text
+  };
+  if (s.mode === 'text') {
+    const template: Localized<string, string> = s.template_i18n
+      ? merge_localized_projection(
+          s.template_i18n,
+          templateString,
+          webview_language_runtime.query_environment().language,
+          !!s.template_dirty
+        )
+      : templateString;
+    return { ...common, mode: 'text', template };
+  }
+  return {
+    ...common,
     mode: s.mode,
-    template: dynamicArity
-      ? `${s.template_left}#*${s.template_right}`
-      : (s.template || (s.mode === 'block' ? '#*' : '')),
-    tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0)
+    template: templateString,
+    ...(s.mode === 'block' && s.block_template_name
+      ? { block_template_name: s.block_template_name }
+      : {})
   };
-  if (dynamicArity) {
-    // Property presence matters: an explicitly empty separator is canonical.
-    out.separator = s.separator;
-  }
-  if (s.mode === 'block' && s.block_template_name) {
-    out.block_template_name = s.block_template_name;
-  }
-  out.typst = {
-    built_in: s.typst_built_in,
-    synthesis: { mode: s.typst_synthesis_mode, macro: s.typst_synthesis }
-  };
-  out.latex = {
-    built_in: s.latex_built_in,
-    synthesis: { mode: s.latex_synthesis_mode, macro: s.latex_synthesis }
-  };
-  out.markdown = s.markdown;
-  out.text = s.text;
-  return out;
 }
 
 /** A user-defined macro kind, sent from the extension host with `context`. */
@@ -223,13 +246,7 @@ interface MacroKind {
  * the library's `SnlMacroStyle`: additionally carries the consumer-owned
  * output backends (typst / latex / markdown / text) per style.
  */
-interface ExtendedSnlMacroStyle {
-  style_name: string;
-  mode: Mode;
-  template: string;
-  separator?: string;
-  block_template_name?: string;
-  tags: string[];
+interface ExtendedStyleBackends {
   typst?: {
     built_in: string;
     synthesis: { mode: SynthesisMode; macro: string };
@@ -241,6 +258,9 @@ interface ExtendedSnlMacroStyle {
   markdown?: string;
   text?: string;
 }
+type ExtendedSnlMacroStyle =
+  | (Extract<SnlMacroStyle, { mode: 'text' }> & ExtendedStyleBackends)
+  | (Exclude<SnlMacroStyle, { mode: 'text' }> & ExtendedStyleBackends);
 
 /**
  * The extended, on-disk macro shape written to a package file (v6). Superset
@@ -377,7 +397,11 @@ function maxChildIndex(template: string): number {
 // ---------------------------------------------------------------------------
 
 export function CreateMacroApp(): React.ReactElement {
+  const preferencesRevision = use_preferences_revision();
+  const languageRef = useRef(webview_language_runtime.query_environment().language);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const formDirtyRef = useRef(false);
+  const editingNameRef = useRef('');
 
   const [panelMode, setPanelMode] = useState<PanelMode>('create');
   const [file, setFile] = useState('');
@@ -414,10 +438,69 @@ export function CreateMacroApp(): React.ReactElement {
 
   /** Patch a field on the currently-active style. */
   function patchStyle(patch: Partial<StyleDraft>): void {
+    formDirtyRef.current = true;
+    const editsTemplate =
+      patch.template !== undefined ||
+      patch.template_left !== undefined ||
+      patch.template_right !== undefined;
     setStyles((prev) =>
-      prev.map((s, i) => (i === activeStyle ? { ...s, ...patch } : s))
+      prev.map((s, i) =>
+        i === activeStyle
+          ? { ...s, ...patch, ...(editsTemplate ? { template_dirty: true } : {}) }
+          : s
+      )
     );
   }
+
+  function changeStyleMode(mode: Mode): void {
+    if (current?.mode === 'text' && current.template_i18n && mode !== 'text') {
+      const confirmed = window.confirm(
+        webview_language_runtime.run_reader(read_localized<string, string>({
+          type: 'i18n',
+          default_language: 'en',
+          values: {
+            en: 'Changing this localized Text style to Formula/Block will discard its other language templates. Continue?',
+            'zh-CN': '将这个多语言文本样式改为公式/块样式会丢弃其他语言模板。是否继续？'
+          }
+        }))
+      );
+      if (!confirmed) return;
+      patchStyle({ mode, template_i18n: undefined, template_dirty: true });
+      return;
+    }
+    patchStyle({ mode });
+  }
+
+  useEffect(() => {
+    const nextLanguage = webview_language_runtime.query_environment().language;
+    const previousLanguage = languageRef.current;
+    if (nextLanguage === previousLanguage) return;
+    setStyles((previous) => previous.map((style) => {
+      if (!style.template_i18n) return style;
+      const currentTemplate = dynamicArity
+        ? `${style.template_left}#*${style.template_right}`
+        : style.template;
+      const template_i18n = merge_localized_projection(
+        style.template_i18n,
+        currentTemplate,
+        previousLanguage,
+        !!style.template_dirty
+      );
+      const template = webview_language_runtime.run_reader(
+        read_localized<string, string>(template_i18n)
+      );
+      const marker = template.indexOf('#*');
+      return {
+        ...style,
+        template_i18n,
+        template_dirty: false,
+        template,
+        template_left: marker >= 0 ? template.slice(0, marker) : '',
+        template_right: marker >= 0 ? template.slice(marker + 2) : ''
+      };
+    }));
+    languageRef.current = nextLanguage;
+  }, [preferencesRevision, dynamicArity]);
 
   /**
    * Load an existing extended macro (from the host, edit mode) into the form
@@ -441,14 +524,24 @@ export function CreateMacroApp(): React.ReactElement {
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => {
-          const marker = s.template.indexOf('#*');
+          const persistedTemplate = s.template;
+          const template = typeof persistedTemplate === 'string'
+            ? persistedTemplate
+            : webview_language_runtime.run_reader(
+                read_localized<string, string>(persistedTemplate)
+              );
+          const marker = template.indexOf('#*');
           return {
         style_name: s.style_name || 'default',
         mode: s.mode,
-        template: s.template,
-        template_left: marker >= 0 ? s.template.slice(0, marker) : '',
+        template,
+        template_dirty: false,
+        ...(typeof persistedTemplate === 'string'
+          ? {}
+          : { template_i18n: persistedTemplate }),
+        template_left: marker >= 0 ? template.slice(0, marker) : '',
         separator: s.separator ?? '',
-        template_right: marker >= 0 ? s.template.slice(marker + 2) : '',
+        template_right: marker >= 0 ? template.slice(marker + 2) : '',
         block_template_name: s.block_template_name ?? '',
         tags: s.tags.slice(),
         typst_built_in: s.typst?.built_in ?? '',
@@ -465,6 +558,8 @@ export function CreateMacroApp(): React.ReactElement {
     setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
     setActiveStyle(0);
     setActiveTab('katex_template');
+    editingNameRef.current = existing.name ?? '';
+    formDirtyRef.current = false;
   }
 
   useEffect(() => {
@@ -483,8 +578,10 @@ export function CreateMacroApp(): React.ReactElement {
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'edit' && msg.existing) {
-            hydrateFromExisting(msg.existing);
-          } else if (msg.mode === 'create' && msg.prefill) {
+            const sameDirtyDraft =
+              formDirtyRef.current && editingNameRef.current === msg.existing.name;
+            if (!sameDirtyDraft) hydrateFromExisting(msg.existing);
+          } else if (msg.mode === 'create' && msg.prefill && !formDirtyRef.current) {
             // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
             // `$$…$$` / plain-id content so the user doesn't retype.
             const p = msg.prefill;
@@ -512,9 +609,19 @@ export function CreateMacroApp(): React.ReactElement {
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           break;
         case 'created':
+          formDirtyRef.current = false;
+          setStyles((currentStyles) => currentStyles.map((style) => ({
+            ...style,
+            template_dirty: false
+          })));
           setStatus({ kind: 'created', name: msg.name, at: Date.now() });
           break;
         case 'updated':
+          formDirtyRef.current = false;
+          setStyles((currentStyles) => currentStyles.map((style) => ({
+            ...style,
+            template_dirty: false
+          })));
           setStatus({ kind: 'updated', name: msg.name, at: Date.now() });
           break;
         case 'duplicate':
@@ -581,15 +688,21 @@ export function CreateMacroApp(): React.ReactElement {
   const draftMacro: SnlMacro = useMemo(() => {
     const styleList: SnlMacroStyle[] = styles.map((s) => {
       const extended = styleDraftToExtended(s, dynamicArity);
-      return {
+      const base = {
         style_name: extended.style_name,
+        ...(extended.separator !== undefined ? { separator: extended.separator } : {}),
+        tags: extended.tags
+      };
+      if (extended.mode === 'text') {
+        return { ...base, mode: 'text', template: extended.template };
+      }
+      return {
+        ...base,
         mode: extended.mode,
         template: extended.template,
-        ...(extended.separator !== undefined ? { separator: extended.separator } : {}),
-        ...(extended.block_template_name
+        ...(extended.mode === 'block' && extended.block_template_name
           ? { block_template_name: extended.block_template_name }
-          : {}),
-        tags: extended.tags
+          : {})
       };
     });
     // Move the active style to index 0 so the preview always uses it as the
@@ -744,6 +857,12 @@ export function CreateMacroApp(): React.ReactElement {
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
+    setStyles((previous) => previous.map((style, index) => {
+      const persisted = styleList[index];
+      return persisted?.mode === 'text' && typeof persisted.template === 'object'
+        ? { ...style, template_i18n: persisted.template }
+        : style;
+    }));
     const macro: ExtendedSnlMacro = {
       name: trimmedName,
       description: description.trim(),
@@ -767,7 +886,11 @@ export function CreateMacroApp(): React.ReactElement {
   const titlePackage = packageName || file || '\u2026';
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '64rem' }}>
+    <main
+      style={{ ...PANEL_STYLE, maxWidth: '64rem' }}
+      onInputCapture={() => { formDirtyRef.current = true; }}
+      onClickCapture={() => { formDirtyRef.current = true; }}
+    >
       <PanelNav
         vsApi={apiRef.current}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
@@ -919,7 +1042,7 @@ export function CreateMacroApp(): React.ReactElement {
           {/* Left column: Mode switcher (vertical, matches Styles buttons). */}
           <ModeSwitcher
             value={current?.mode ?? 'formula_inline'}
-            onChange={(v) => patchStyle({ mode: v })}
+            onChange={changeStyleMode}
           />
           {/* Right column: Preview + template body (grows). */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -929,12 +1052,14 @@ export function CreateMacroApp(): React.ReactElement {
                   (current?.template ?? '') +
                   dynamicArity +
                   (current?.mode ?? '') +
-                  (current?.style_name ?? '')
+                  (current?.style_name ?? '') +
+                  preferencesRevision
                 }
               >
                 <SnlSyntaxTreeView
                   tree={draftTree}
                   macro_data_driver={previewMacroDataDriver}
+                  reader_runtime={webview_language_runtime}
                   hooks={hooks}
                   kindPalette={kindPalette}
                 />

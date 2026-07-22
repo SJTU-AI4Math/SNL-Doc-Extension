@@ -1,7 +1,7 @@
 {
   "name": "snl-doc-extension",
-  "displayName": "SNL Doc",
-  "description": "VS Code extension for SNL documentation with an Infoview webview panel.",
+  "displayName": "%snlDoc.displayName%",
+  "description": "%snlDoc.description%",
   "publisher": "sjtu-ai4math",
   "version": "0.0.1",
   "engines": {
@@ -16,142 +16,142 @@
     "commands": [
       {
         "command": "snlDoc.openInfoview",
-        "title": "SNL: Open Infoview"
+        "title": "%snlDoc.command.openInfoview%"
       },
       {
         "command": "snlDoc.refreshInfoview",
-        "title": "SNL: Refresh Infoview"
+        "title": "%snlDoc.command.refreshInfoview%"
       },
       {
         "command": "snlDoc.deleteEntry",
-        "title": "SNL: Delete Entry",
+        "title": "%snlDoc.command.deleteEntry%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.deleteEntryKind",
-        "title": "SNL: Delete Entry Kind",
+        "title": "%snlDoc.command.deleteEntryKind%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.deleteMacroKind",
-        "title": "SNL: Delete Macro Kind",
+        "title": "%snlDoc.command.deleteMacroKind%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.deleteLibrary",
-        "title": "SNL: Delete Library",
+        "title": "%snlDoc.command.deleteLibrary%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.deleteMacroPackage",
-        "title": "SNL: Delete Macro Package",
+        "title": "%snlDoc.command.deleteMacroPackage%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.openEntryInfoview",
-        "title": "SNL: Open Entry Infoview"
+        "title": "%snlDoc.command.openEntryInfoview%"
       },
       {
         "command": "snlDoc.revealEntryPointer",
-        "title": "SNL: Reveal Entry Pointer",
+        "title": "%snlDoc.command.revealEntryPointer%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.openDashboard",
-        "title": "SNL: Open Dashboard"
+        "title": "%snlDoc.command.openDashboard%"
       },
       {
         "command": "snlDoc.init",
-        "title": "SNL: Init"
+        "title": "%snlDoc.command.init%"
       },
       {
         "command": "snlDoc.createLibrary",
-        "title": "SNL: Create Library"
+        "title": "%snlDoc.command.createLibrary%"
       },
       {
         "command": "snlDoc.initEntryKinds",
-        "title": "SNL: Initialize Entry Kinds"
+        "title": "%snlDoc.command.initEntryKinds%"
       },
       {
         "command": "snlDoc.createEntryKind",
-        "title": "SNL: Create Entry Kind"
+        "title": "%snlDoc.command.createEntryKind%"
       },
       {
         "command": "snlDoc.initMacroKinds",
-        "title": "SNL: Initialize Macro Kinds"
+        "title": "%snlDoc.command.initMacroKinds%"
       },
       {
         "command": "snlDoc.createMacroKind",
-        "title": "SNL: Create Macro Kind"
+        "title": "%snlDoc.command.createMacroKind%"
       },
       {
         "command": "snlDoc.createEntry",
-        "title": "SNL: Create Entry"
+        "title": "%snlDoc.command.createEntry%"
       },
       {
         "command": "snlDoc.createMacroPackage",
-        "title": "SNL: Create Macro Package"
+        "title": "%snlDoc.command.createMacroPackage%"
       },
       {
         "command": "snlDoc.openMacroPackage",
-        "title": "SNL: Open Macro Package…"
+        "title": "%snlDoc.command.openMacroPackage%"
       },
       {
         "command": "snlDoc.createMacro",
-        "title": "SNL: Create Macro"
+        "title": "%snlDoc.command.createMacro%"
       },
       {
         "command": "snlDoc.editLibrary",
-        "title": "SNL: Edit Library"
+        "title": "%snlDoc.command.editLibrary%"
       },
       {
         "command": "snlDoc.editEntryKind",
-        "title": "SNL: Edit Entry Kind"
+        "title": "%snlDoc.command.editEntryKind%"
       },
       {
         "command": "snlDoc.editMacroKind",
-        "title": "SNL: Edit Macro Kind"
+        "title": "%snlDoc.command.editMacroKind%"
       },
       {
         "command": "snlDoc.editEntry",
-        "title": "SNL: Edit Entry"
+        "title": "%snlDoc.command.editEntry%"
       },
       {
         "command": "snlDoc.editMacroPackage",
-        "title": "SNL: Edit Macro Package"
+        "title": "%snlDoc.command.editMacroPackage%"
       },
       {
         "command": "snlDoc.editMacro",
-        "title": "SNL: Edit Macro"
+        "title": "%snlDoc.command.editMacro%"
       },
       {
         "command": "snlDoc.createRelationship",
-        "title": "SNL: Create Relationship"
+        "title": "%snlDoc.command.createRelationship%"
       },
       {
         "command": "snlDoc.editRelationship",
-        "title": "SNL: Edit Relationship"
+        "title": "%snlDoc.command.editRelationship%"
       },
       {
         "command": "snlDoc.deleteRelationship",
-        "title": "SNL: Delete Relationship",
+        "title": "%snlDoc.command.deleteRelationship%",
         "enablement": "false"
       },
       {
         "command": "snlDoc.openInfoviewGraph",
-        "title": "SNL: Open Relationship Graph"
+        "title": "%snlDoc.command.openInfoviewGraph%"
       },
       {
         "command": "snlDoc.openInfoviewGraphForLibrary",
-        "title": "SNL: Open Relationship Graph (Library)"
+        "title": "%snlDoc.command.openInfoviewGraphForLibrary%"
       },
       {
         "command": "snlDoc.regenerateDependencies",
-        "title": "SNL: Regenerate Dependency Relationships"
+        "title": "%snlDoc.command.regenerateDependencies%"
       },
       {
         "command": "snlDoc.openSnoogL",
-        "title": "SNL: Open SNoogL (Search)"
+        "title": "%snlDoc.command.openSnoogL%"
       }
     ],
     "menus": {
@@ -203,8 +203,42 @@
       ]
     },
     "configuration": {
-      "title": "SNL Doc",
+      "title": "%snlDoc.settings.title%",
       "properties": {
+        "snlDoc.locale": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "en",
+            "zh-CN"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "description": "%snlDoc.settings.locale.description%"
+        },
+        "snlDoc.appearance.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "light",
+            "dark",
+            "high-contrast"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "description": "%snlDoc.settings.theme.description%"
+        },
+        "snlDoc.appearance.motion": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "full",
+            "reduced"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "description": "%snlDoc.settings.motion.description%"
+        },
         "snlDoc.metrics.semanticFreedomGreenBelow": {
           "type": "number",
           "default": 3,
@@ -258,10 +292,11 @@
     "build:webview:snoogl": "cross-env SNL_WEBVIEW_ENTRY=snoogl vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
-    "test:metrics": "external/SNL-Basics/node_modules/.bin/vitest run webview/src/components/EntryMetrics.test.ts --environment node",
+    "test": "vitest run",
+    "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
     "setup-snl": "node scripts/setup-submodule.mjs",
     "rebuild-snl": "cd external/SNL-Basics && npm run build:lib",
-    "vscode:prepublish": "npm run compile && npm run build:webview"
+    "vscode:prepublish": "npm test && npm run compile && npm run build:webview"
   },
   "dependencies": {
     "@snl-basics/react": "file:./external/SNL-Basics",
@@ -274,13 +309,16 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/vscode": "^1.90.0",
     "@vitejs/plugin-react": "^5",
     "cross-env": "^10.1.0",
+    "jsdom": "^29.1.1",
     "typescript": "~5.9.3",
-    "vite": "^8"
+    "vite": "^8",
+    "vitest": "^3.2.6"
   }
 }

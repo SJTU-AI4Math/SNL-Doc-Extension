@@ -40,6 +40,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
+import { use_preferences_revision } from './runtime/preferencesRuntime';
 
 interface LibrarySummary {
   slug: string;
@@ -135,6 +136,7 @@ const EMPTY: SnlOverview = {
 };
 
 export function DashboardApp(): React.ReactElement {
+  use_preferences_revision();
   const [overview, setOverview] = useState<SnlOverview>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);

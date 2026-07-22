@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { extension_preferences_runtime } from './preferences';
+import { register_preferences_webview } from './preferencesHost';
+import {
+  escape_html_attribute,
+  preference_html_attributes
+} from './panelHtml';
 
 /**
  * Random nonce for the webview CSP `script-src` allowlist.
@@ -55,14 +61,19 @@ export function buildPanelHtml(
     `font-src ${webview.cspSource}`
   ].join('; ');
 
+  register_preferences_webview(webview);
+  const preferences = extension_preferences_runtime.query_environment();
+  const htmlAttributes = preference_html_attributes(preferences);
+  const safeTitle = escape_html_attribute(title);
+
   return `<!DOCTYPE html>
-<html lang="en">
+<html ${htmlAttributes}>
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   ${styleTag}
-  <title>${title}</title>
+  <title>${safeTitle}</title>
 </head>
 <body>
   <div id="root"></div>

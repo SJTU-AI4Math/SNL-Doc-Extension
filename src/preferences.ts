@@ -1,0 +1,61 @@
+import * as vscode from 'vscode';
+import { ReaderRuntime } from '@snl-basics/react';
+import {
+  resolve_color_scheme,
+  resolve_language,
+  resolve_motion,
+  type ColorScheme,
+  type ColorSchemePreference,
+  type ExtensionPreferences,
+  type LanguagePreference,
+  type MotionPreference
+} from './preferences-core';
+
+function language_preference(value: unknown): LanguagePreference {
+  return value === 'en' || value === 'zh-CN' ? value : 'auto';
+}
+
+function color_scheme_preference(value: unknown): ColorSchemePreference {
+  return value === 'light' || value === 'dark' || value === 'high-contrast'
+    ? value
+    : 'auto';
+}
+
+function motion_preference(value: unknown): MotionPreference {
+  return value === 'full' || value === 'reduced' ? value : 'auto';
+}
+
+function active_color_scheme(): ColorScheme {
+  switch (vscode.window.activeColorTheme.kind) {
+    case vscode.ColorThemeKind.Light:
+      return 'light';
+    case vscode.ColorThemeKind.HighContrast:
+    case vscode.ColorThemeKind.HighContrastLight:
+      return 'high-contrast';
+    default:
+      return 'dark';
+  }
+}
+
+/** Read effective preferences from VS Code without exposing that backend to Basics. */
+export function read_extension_preferences(): ExtensionPreferences {
+  const config = vscode.workspace.getConfiguration('snlDoc');
+  return {
+    language: resolve_language(
+      language_preference(config.get('locale')),
+      vscode.env.language
+    ),
+    color_scheme: resolve_color_scheme(
+      color_scheme_preference(config.get('appearance.theme')),
+      active_color_scheme()
+    ),
+    motion: resolve_motion(motion_preference(config.get('appearance.motion')))
+  };
+}
+
+/** Query-backed Basics runtime; every run re-reads Extension Settings. */
+export const extension_preferences_runtime = new ReaderRuntime<ExtensionPreferences>({
+  queries: {
+    query_environment: read_extension_preferences
+  }
+});

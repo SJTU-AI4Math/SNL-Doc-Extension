@@ -6,6 +6,7 @@ import {
   readEntryKinds,
   readLibraryCounters,
   readLibraryGraph,
+  readMacroKinds,
   readRelationships,
   type EntryData,
   type EntryKind,
@@ -599,7 +600,10 @@ export class InfoviewPanel {
         warnings
       );
 
-      const macros = await this.readMacroDb();
+      const [macros, macroKinds] = await Promise.all([
+        this.readMacroDb(),
+        readMacroKinds(root)
+      ]);
 
       void this.panel.webview.postMessage({
         type: 'libraryEntries',
@@ -609,6 +613,7 @@ export class InfoviewPanel {
         entries: flatEntries,
         outline,
         macros,
+        macroKinds,
         warnings
       });
     } catch (err) {
@@ -676,13 +681,17 @@ export class InfoviewPanel {
           // buildContextIndex can flip `x@foo` fvars to bvar.
           snl: e.content?.snl
         }));
-      const macros = await this.readMacroDb();
+      const [macros, macroKinds] = await Promise.all([
+        this.readMacroDb(),
+        readMacroKinds(root)
+      ]);
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         entry,
         kind,
         entries: options,
-        macros
+        macros,
+        macroKinds
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
@@ -725,7 +734,10 @@ export class InfoviewPanel {
           // buildContextIndex can flip `x@foo` fvars to bvar.
           snl: e.content?.snl
         }));
-      const macros = await this.readMacroDb();
+      const [macros, macroKinds] = await Promise.all([
+        this.readMacroDb(),
+        readMacroKinds(root)
+      ]);
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         void this.panel.webview.postMessage({
@@ -734,6 +746,7 @@ export class InfoviewPanel {
           kind: null,
           entries: options,
           macros,
+          macroKinds,
           relatedEntries: null
         });
         return;
@@ -803,6 +816,7 @@ export class InfoviewPanel {
         kind,
         entries: options,
         macros,
+        macroKinds,
         relatedEntries
       });
     } catch (err) {

@@ -20,6 +20,7 @@ import {
   defaultRenderHooks,
   SnlSyntaxTreeView,
   bundledMacroDb,
+  type KindPalette,
   type SnlMacroDb,
   type SnlMacroTemplateQuery,
   type SnlRenderHooks
@@ -290,6 +291,8 @@ export interface EntryRenderProps {
    * surfaces all see the same macro universe.
    */
   userMacros?: SnlMacroDb;
+  /** Workspace Macro Kind colors forwarded to SnlSyntaxTreeView. */
+  kindPalette?: KindPalette;
   /**
    * Caller-injected hooks merged OVER the defaults + resolveSource (so a caller
    * can override onHover / renderTooltip while keeping source resolution).
@@ -308,6 +311,7 @@ export function EntryRender({
   postMessage,
   counterLabel,
   userMacros,
+  kindPalette,
   hooksOverride,
   disableTitleJump,
   onTitleCtrlClick
@@ -765,6 +769,7 @@ export function EntryRender({
                   tree={tree}
                   macroDb={macroDb}
                   query={macroQuery}
+                  kindPalette={kindPalette}
                   hooks={hooks}
                 />
               ) : (

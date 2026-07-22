@@ -22,6 +22,10 @@ import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
 import type { EntryOption } from './render/EntryRender';
 import type { SnlMacroDb } from '@snl-basics/react';
+import {
+  macroKindsToPalette,
+  type MacroKindPaletteSource
+} from './render/macroKindPalette';
 
 interface GraphNode {
   id: string;
@@ -54,6 +58,7 @@ interface GraphMessage {
   entryOptions?: EntryOption[];
   /** Workspace-wide macros for popover EntryRender. */
   macros?: SnlMacroDb;
+  macroKinds?: MacroKindPaletteSource[];
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +534,10 @@ export function SnlGraphApp(): React.ReactElement {
     () => (m: unknown): void => apiRef.current?.postMessage(m),
     []
   );
+  const kindPalette = useMemo(
+    () => macroKindsToPalette(msg?.macroKinds),
+    [msg?.macroKinds]
+  );
 
   // Popover provider needs the pool + macros; both come from the host.
   return (
@@ -536,6 +545,7 @@ export function SnlGraphApp(): React.ReactElement {
       postMessage={post}
       entries={msg?.entryOptions ?? []}
       userMacros={msg?.macros ?? {}}
+      kindPalette={kindPalette}
     >
       <SnlGraphInner msg={msg} post={post} apiRef={apiRef} />
     </HoverPopoverProvider>

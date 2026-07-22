@@ -5,6 +5,7 @@ import {
   readEntries,
   readEntryKinds,
   readLibraryGraph,
+  readMacroKinds,
   readRelationships,
   type EntryData,
   type EntryKind,
@@ -353,6 +354,7 @@ export class GraphPanel {
     } catch {
       allMacros = {};
     }
+    const macroKinds = await readMacroKinds(root);
 
     void this.panel.webview.postMessage({
       type: 'graph',
@@ -362,7 +364,8 @@ export class GraphPanel {
       edges,
       warnings,
       entryOptions,
-      macros: allMacros
+      macros: allMacros,
+      macroKinds
     });
   }
 

@@ -10,6 +10,7 @@ import {
   useHoverPopovers as useSharedHoverPopovers,
   type HoverPopover,
   type HoverPopoverApi,
+  type KindPalette,
   type PopoverPhase
 } from '@snl-basics/react';
 import {
@@ -41,6 +42,8 @@ interface HoverPopoverProviderProps {
   entries: EntryOption[];
   /** User macro DB forwarded to nested EntrySurfaces. */
   userMacros?: SnlMacroDb;
+  /** Workspace Macro Kind colors shared by every nested EntrySurface. */
+  kindPalette?: KindPalette;
   /** Unsaved/local entries that win over lazy host details. */
   localDetails?: Record<string, { entry: EntryData; kind: EntryKind | null }>;
 }
@@ -55,7 +58,8 @@ function EntryPopoverContent({
   requestDetails,
   entries,
   postMessage,
-  userMacros
+  userMacros,
+  kindPalette
 }: {
   entryId: string;
   detail: { entry: EntryData | null; kind: EntryKind | null } | undefined;
@@ -63,6 +67,7 @@ function EntryPopoverContent({
   entries: EntryOption[];
   postMessage: (msg: unknown) => void;
   userMacros?: SnlMacroDb;
+  kindPalette?: KindPalette;
 }): React.ReactElement {
   useEffect(() => {
     if (detail === undefined) requestDetails(entryId);
@@ -85,6 +90,7 @@ function EntryPopoverContent({
       entries={entries}
       postMessage={postMessage}
       userMacros={userMacros}
+      kindPalette={kindPalette}
       counterLabel={undefined}
       disableTitleJump={false}
       onTitleCtrlClick={(id) => postMessage({ type: 'openEntryInfoview', entryId: id })}
@@ -97,6 +103,7 @@ export function HoverPopoverProvider({
   postMessage,
   entries,
   userMacros,
+  kindPalette,
   localDetails
 }: HoverPopoverProviderProps): React.ReactElement {
   const [details, setDetails] = useState<
@@ -152,9 +159,10 @@ export function HoverPopoverProvider({
         entries={entries}
         postMessage={postMessage}
         userMacros={userMacros}
+        kindPalette={kindPalette}
       />
     ),
-    [details, entries, postMessage, requestDetails, userMacros]
+    [details, entries, postMessage, requestDetails, userMacros, kindPalette]
   );
 
   const style = useMemo(

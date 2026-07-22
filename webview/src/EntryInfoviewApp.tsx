@@ -11,7 +11,11 @@ import {
   type EntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import type { SnlMacroDb } from '@snl-basics/react';
+import type { KindPalette, SnlMacroDb } from '@snl-basics/react';
+import {
+  macroKindsToPalette,
+  type MacroKindPaletteSource
+} from './render/macroKindPalette';
 import { Disclosure } from './components/Disclosure';
 import { Button } from './components/Button';
 
@@ -36,6 +40,7 @@ type Incoming =
       kind: EntryKind | null;
       entries: EntryOption[];
       macros?: SnlMacroDb;
+      macroKinds?: MacroKindPaletteSource[];
       relatedEntries?: RelatedEntries | null;
     }
   | undefined;
@@ -49,6 +54,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     related: RelatedEntries;
   } | null>(null);
   const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
+  const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -64,6 +70,7 @@ export function EntryInfoviewApp(): React.ReactElement {
         if (msg.macros && typeof msg.macros === 'object') {
           setUserMacros(msg.macros);
         }
+        setKindPalette(macroKindsToPalette(msg.macroKinds));
         if (!msg.entry) {
           setState(null);
           return;
@@ -91,6 +98,7 @@ export function EntryInfoviewApp(): React.ReactElement {
       postMessage={postMessage}
       entries={state?.entries ?? []}
       userMacros={userMacros}
+      kindPalette={kindPalette}
     >
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
         {!loaded ? (
@@ -133,6 +141,7 @@ export function EntryInfoviewApp(): React.ReactElement {
               entries={state.entries}
               postMessage={postMessage}
               userMacros={userMacros}
+              kindPalette={kindPalette}
               counterLabel={undefined}
               disableTitleJump={true}
             />

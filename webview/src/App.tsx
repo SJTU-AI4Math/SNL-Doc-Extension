@@ -21,7 +21,11 @@ import {
   type EntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import type { SnlMacroDb } from '@snl-basics/react';
+import type { KindPalette, SnlMacroDb } from '@snl-basics/react';
+import {
+  macroKindsToPalette,
+  type MacroKindPaletteSource
+} from './render/macroKindPalette';
 
 interface LibraryEntry {
   slug: string;
@@ -54,6 +58,7 @@ type Incoming =
       entries: EntryOption[];
       outline: OutlineNode[];
       macros?: SnlMacroDb;
+      macroKinds?: MacroKindPaletteSource[];
       warnings?: string[];
     }
   | undefined;
@@ -74,6 +79,7 @@ type View =
 export function App(): React.ReactElement {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [userMacros, setUserMacros] = useState<SnlMacroDb | undefined>(undefined);
+  const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
@@ -96,6 +102,7 @@ export function App(): React.ReactElement {
           if (msg.macros && typeof msg.macros === 'object') {
             setUserMacros(msg.macros);
           }
+          setKindPalette(macroKindsToPalette(msg.macroKinds));
           if (Array.isArray(msg.entries)) {
             setEntryPool(msg.entries);
           }
@@ -134,13 +141,15 @@ export function App(): React.ReactElement {
       postMessage={postMessage}
       entries={entryPool}
       userMacros={userMacros}
+      kindPalette={kindPalette}
     >
       <main style={PANEL_STYLE}>
         {renderCurrentView(view, {
           postMessage,
           goBack,
           entryPool,
-          userMacros
+          userMacros,
+          kindPalette
         })}
       </main>
     </HoverPopoverProvider>
@@ -152,6 +161,7 @@ interface RenderCtx {
   goBack: () => void;
   entryPool: EntryOption[];
   userMacros: SnlMacroDb | undefined;
+  kindPalette: KindPalette | undefined;
 }
 
 function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
@@ -445,6 +455,7 @@ function OutlineTreeNode({
             entries={ctx.entryPool}
             postMessage={ctx.postMessage}
             userMacros={ctx.userMacros}
+            kindPalette={ctx.kindPalette}
             counterLabel={node.counterLabel ?? undefined}
             disableTitleJump={false}
             onTitleCtrlClick={(entryId) =>

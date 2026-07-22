@@ -32,7 +32,8 @@ import {
   type SnlMacro,
   type SnlMacroDb,
   type SnlSyntaxTree,
-  type KindColoring
+  type KindColoring,
+  type KindPalette
 } from '@snl-basics/react';
 import {
   getVsCodeApi,
@@ -56,6 +57,10 @@ import {
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
+import {
+  macroKindsToPalette,
+  type MacroKindPaletteSource
+} from './render/macroKindPalette';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -149,6 +154,7 @@ export function CreateEntryApp(): React.ReactElement {
    * bundled fixture.
    */
   const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
+  const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   // Name → owning package (bare filename) for the row-side "open Macro
   // editor" button in the GUI editor. Pushed by the host on `context`.
   const [macroOrigin, setMacroOrigin] = useState<Record<string, string>>({});
@@ -208,6 +214,7 @@ export function CreateEntryApp(): React.ReactElement {
             seedId?: string;
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
+            macroKinds?: MacroKindPaletteSource[];
             macroOrigin?: Record<string, string>;
             existing?: ExistingEntry | null;
             existingIds?: EntryOption[];
@@ -241,6 +248,7 @@ export function CreateEntryApp(): React.ReactElement {
           setWireMacros(
             msg.macros && typeof msg.macros === 'object' ? msg.macros : {},
           );
+          setKindPalette(macroKindsToPalette(msg.macroKinds));
           setMacroOrigin(
             msg.macroOrigin && typeof msg.macroOrigin === 'object'
               ? msg.macroOrigin
@@ -567,6 +575,7 @@ export function CreateEntryApp(): React.ReactElement {
             content={content}
             entries={existingIds}
             userMacros={userMacroDb}
+            kindPalette={kindPalette}
             postMessage={(message) => apiRef.current?.postMessage(message)}
           />
         </div>
@@ -729,6 +738,7 @@ function LivePreview({
   content,
   entries,
   userMacros,
+  kindPalette,
   postMessage
 }: {
   kind: EntryKind | undefined;
@@ -737,6 +747,7 @@ function LivePreview({
   content: Record<ContentFormat, string>;
   entries: EntryOption[];
   userMacros: SnlMacroDb;
+  kindPalette: KindPalette | undefined;
   postMessage: (message: unknown) => void;
 }): React.ReactElement {
   const entry: EntryData = useMemo(
@@ -787,6 +798,7 @@ function LivePreview({
       postMessage={postMessage}
       entries={previewEntries}
       userMacros={userMacros}
+      kindPalette={kindPalette}
       localDetails={localDetails}
     >
       <EntrySurface
@@ -795,6 +807,7 @@ function LivePreview({
         entries={previewEntries}
         postMessage={postMessage}
         userMacros={userMacros}
+        kindPalette={kindPalette}
         counterLabel={undefined}
         disableTitleJump={true}
       />

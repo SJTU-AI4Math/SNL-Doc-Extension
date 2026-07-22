@@ -7,6 +7,7 @@ import {
   readEntries,
   readMacroPackage,
   readMacroPackages,
+  readMacroKinds,
   resolveActiveMacroPackages,
   updateEntry,
   type EntryData
@@ -144,6 +145,7 @@ export class CreateEntryPanel {
     // — not just the bundled fixture DB from @snl-basics. Merged into the
     // webview's macroDb over bundledMacroDb (user macros win on collision).
     const macros = root ? await readAllMacros(root) : {};
+    const macroKinds = root ? await readMacroKinds(root) : [];
     // Map macro name → owning package file (bare, no `.json`). Built here
     // so the webview's per-row "open macro editor" button can dispatch to
     // the right `snlDoc.editMacro(file, name)` without another round-trip.
@@ -196,6 +198,7 @@ export class CreateEntryPanel {
       seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
       kinds,
       macros,
+      macroKinds,
       macroOrigin,
       existing,
       existingIds: allEntries.map(toEntryOption)

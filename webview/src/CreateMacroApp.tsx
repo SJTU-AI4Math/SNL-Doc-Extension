@@ -31,7 +31,7 @@
 //   * Tags: collapsible list editors appended at the end of the Style panel
 //     (per-style) and at the end of the whole Panel (per-macro).
 //   * Empty-template preview shows `\text{SNL Macro Preview}` instead of
-<Button
+//     the raw internal `_snl_draft` name.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -59,15 +59,15 @@ import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
-<Button
+import { areEntityReferencesResolved } from './components/formValidation';
 
 // ---------------------------------------------------------------------------
 // Preview constants
-<Button
+// ---------------------------------------------------------------------------
 
 const DRAFT_KEY = '_snl_draft';
 const PREVIEW_PLACEHOLDER_KEY = '_snl_preview_placeholder';
-<Button
+const MAX_ARGS = 8;
 
 /** One placeholder macro per index — a rounded translucent numbered box.
  *
@@ -93,7 +93,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
       }
     ]
   };
-<Button
+}
 
 /**
  * Empty-state preview macro. Used when the current style's template is empty
@@ -112,18 +112,18 @@ const PREVIEW_PLACEHOLDER_MACRO: SnlMacro = {
       template: 'SNL Macro Preview'
     }
   ]
-<Button
+};
 
 function placeholderNode(i: number): SnlSyntaxTree {
   return { name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
-<Button
+}
 
 // ---------------------------------------------------------------------------
 // Types / helpers
-<Button
+// ---------------------------------------------------------------------------
 
 type Mode = 'formula_inline' | 'formula_display' | 'text' | 'block';
-<Button
+type SynthesisMode = 'formula' | 'text';
 
 const MODE_LABELS: Record<Mode, string> = {
   formula_inline: 'Formula (inline)',
@@ -131,7 +131,7 @@ const MODE_LABELS: Record<Mode, string> = {
   text: 'Text',
   block: 'Block'
 };
-<Button
+const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'];
 
 /** Editable per-style draft — flat mirror of {@link ExtendedSnlMacroStyle}. */
 interface StyleDraft {
@@ -151,7 +151,7 @@ interface StyleDraft {
   latex_synthesis_mode: SynthesisMode;
   markdown: string;
   text: string;
-<Button
+}
 
 function newStyleDraft(tag: string): StyleDraft {
   return {
@@ -172,7 +172,7 @@ function newStyleDraft(tag: string): StyleDraft {
     markdown: '',
     text: ''
   };
-<Button
+}
 
 /** Serialize a {@link StyleDraft} into the on-disk per-style shape. */
 function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
@@ -213,7 +213,7 @@ function styleDraftToExtended(s: StyleDraft): ExtendedSnlMacroStyle {
   out.markdown = s.markdown;
   out.text = s.text;
   return out;
-<Button
+}
 
 /** A user-defined macro kind, sent from the extension host with `context`. */
 interface MacroKind {
@@ -221,7 +221,7 @@ interface MacroKind {
   name: string;
   description: string;
   coloring: { stroke: string; background: string };
-<Button
+}
 
 /**
  * One render style of the extended, on-disk macro shape (v6). A superset of
@@ -247,7 +247,7 @@ interface ExtendedSnlMacroStyle {
   };
   markdown?: string;
   text?: string;
-<Button
+}
 
 /**
  * The extended, on-disk macro shape written to a package file (v6). Superset
@@ -263,7 +263,7 @@ interface ExtendedSnlMacro {
   dynamic_arity: boolean;
   styles: ExtendedSnlMacroStyle[];
   tags?: string[];
-<Button
+}
 
 type Status =
   | { kind: 'idle' }
@@ -276,10 +276,10 @@ type Status =
   | { kind: 'noFile'; message: string }
   | { kind: 'noWorkspace'; message: string }
   | { kind: 'noSnlDoc'; message: string }
-  <Button
+  | { kind: 'error'; message: string };
 
 /** Panel mode — separate from Mode (macro render mode) to avoid name clash. */
-<Button
+type PanelMode = 'create' | 'edit';
 
 interface ContextMsg {
   type: 'context';
@@ -308,7 +308,7 @@ interface ContextMsg {
     template?: string;
     mode?: 'formula_inline' | 'formula_display' | 'text';
   } | null;
-<Button
+}
 
 type Incoming =
   | ContextMsg
@@ -322,7 +322,7 @@ type Incoming =
   | { type: 'noWorkspace'; message: string }
   | { type: 'noSnlDoc'; message: string }
   | { type: 'error'; message: string }
-  <Button
+  | undefined;
 
 const TABS = [
   { id: 'katex_template', label: 'KaTeX template' },
@@ -332,9 +332,9 @@ const TABS = [
   { id: 'latex_synthesis', label: 'LaTeX synthesis' },
   { id: 'markdown', label: 'Markdown' },
   { id: 'text', label: 'Text' }
-<Button
+] as const;
 
-<Button
+type TabId = (typeof TABS)[number]['id'];
 
 /** Which {@link StyleDraft} field each content tab edits. */
 const TAB_FIELD: Record<TabId, keyof StyleDraft> = {
@@ -345,7 +345,7 @@ const TAB_FIELD: Record<TabId, keyof StyleDraft> = {
   latex_synthesis: 'latex_synthesis',
   markdown: 'markdown',
   text: 'text'
-<Button
+};
 
 const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
@@ -357,13 +357,13 @@ const inputStyle: React.CSSProperties = {
   borderRadius: '2px',
   fontFamily: 'inherit',
   fontSize: '0.95rem'
-<Button
+};
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
   marginBottom: '0.3rem',
   fontWeight: 600
-<Button
+};
 
 /** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
 function maxChildIndex(template: string): number {
@@ -377,14 +377,14 @@ function maxChildIndex(template: string): number {
     }
   }
   return max;
-<Button
+}
 
 // ---------------------------------------------------------------------------
 // Component
-<Button
+// ---------------------------------------------------------------------------
 
 export function CreateMacroApp(): React.ReactElement {
-  <Button
+  const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   const [panelMode, setPanelMode] = useState<PanelMode>('create');
   const [file, setFile] = useState('');
@@ -393,38 +393,38 @@ export function CreateMacroApp(): React.ReactElement {
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
-  <Button
+  const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sourceEntries, setSourceEntries] = useState<string[]>(['']);
-  <Button
+  const [sourceUrls, setSourceUrls] = useState<string[]>(['']);
 
   const [dynamicArity, setDynamicArity] = useState(false);
   const [macroTags, setMacroTags] = useState<string[]>([]);
-  <Button
+  const [kind, setKind] = useState<string>('');
 
   // Ordered styles array. At least one style always exists; `styles[0]` is the
   // implicit default (marked ★). `activeStyle` is the style currently being
   // edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
-  <Button
+  const [activeStyle, setActiveStyle] = useState(0);
 
-  <Button
+  const [activeTab, setActiveTab] = useState<TabId>('katex_template');
 
   const [previewArgs, setPreviewArgs] = useState<string[]>(['', '', '', '']);
-  <Button
+  const [variadicArgCount, setVariadicArgCount] = useState(3);
 
-  <Button
+  const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
-  <Button
+  const current = styles[activeStyle] ?? styles[0];
 
   /** Patch a field on the currently-active style. */
   function patchStyle(patch: Partial<StyleDraft>): void {
     setStyles((prev) =>
       prev.map((s, i) => (i === activeStyle ? { ...s, ...patch } : s))
     );
-  <Button
+  }
 
   /**
    * Load an existing extended macro (from the host, edit mode) into the form
@@ -469,7 +469,7 @@ export function CreateMacroApp(): React.ReactElement {
     setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
     setActiveStyle(0);
     setActiveTab('katex_template');
-  <Button
+  }
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -561,7 +561,7 @@ export function CreateMacroApp(): React.ReactElement {
       window.removeEventListener('message', onMessage);
       document.removeEventListener('visibilitychange', onVis);
     };
-  <Button
+  }, []);
 
   // Auto-dismiss the "saved" toast after 5s (猫猫 req: doesn't linger).
   useEffect(() => {
@@ -578,9 +578,9 @@ export function CreateMacroApp(): React.ReactElement {
       );
     }, 5000);
     return () => clearTimeout(t);
-  <Button
+  }, [status]);
 
-  <Button
+  // --- Draft macro + preview DB -------------------------------------------
 
   const draftMacro: SnlMacro = useMemo(() => {
     const styleList: SnlMacroStyle[] = styles.map((s) => {
@@ -624,7 +624,7 @@ export function CreateMacroApp(): React.ReactElement {
           ? styleList
           : [{ tag: 'default', mode: 'formula_inline', template: '' }]
     };
-  <Button
+  }, [dynamicArity, kind, styles, activeStyle]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
@@ -644,7 +644,7 @@ export function CreateMacroApp(): React.ReactElement {
       }
     }
     return palette;
-  <Button
+  }, [macroKinds]);
 
   const previewMacroDb: SnlMacroDb = useMemo(
     () => ({
@@ -654,16 +654,16 @@ export function CreateMacroApp(): React.ReactElement {
       [DRAFT_KEY]: draftMacro
     }),
     [draftMacro]
-  <Button
+  );
 
   const previewQuery = useMemo(
     () => createMacroTemplateQueryFromDb(previewMacroDb),
     [previewMacroDb]
-  <Button
+  );
 
-  <Button
+  const hooks: SnlRenderHooks = useMemo(() => ({ ...defaultRenderHooks }), []);
 
-  <Button
+  // --- Arg slots -----------------------------------------------------------
 
   const argCount = useMemo(() => {
     if (dynamicArity) {
@@ -671,7 +671,7 @@ export function CreateMacroApp(): React.ReactElement {
     }
     const derived = maxChildIndex(current?.template ?? '') + 1;
     return Math.min(Math.max(derived, 0), MAX_ARGS);
-  <Button
+  }, [dynamicArity, variadicArgCount, current]);
 
   const parseErrors = useMemo(() => {
     const errs: (string | null)[] = [];
@@ -685,7 +685,7 @@ export function CreateMacroApp(): React.ReactElement {
       errs.push(parsed.ok ? null : parsed.error);
     }
     return errs;
-  <Button
+  }, [argCount, previewArgs]);
 
   const draftTree: SnlSyntaxTree = useMemo(() => {
     // Empty template → show the "SNL Macro Preview" placeholder root so users
@@ -709,9 +709,9 @@ export function CreateMacroApp(): React.ReactElement {
       }
     }
     return { name: DRAFT_KEY, kind: '', mdata: null, children };
-  <Button
+  }, [argCount, previewArgs, current?.template]);
 
-  <Button
+  // --- Validation ----------------------------------------------------------
 
   const trimmedName = name.trim();
   // In edit mode, `trimmedName` is the identity of the macro being edited, so
@@ -731,7 +731,7 @@ export function CreateMacroApp(): React.ReactElement {
     !hasEmptyTag &&
     !hasDupTag &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
-    <Button
+    status.kind !== 'creating';
 
   function setArg(i: number, value: string): void {
     setPreviewArgs((prev) => {
@@ -742,11 +742,11 @@ export function CreateMacroApp(): React.ReactElement {
       next[i] = value;
       return next;
     });
-  <Button
+  }
 
   function resetArgs(): void {
     setPreviewArgs(['', '', '', '']);
-  <Button
+  }
 
   function handleSubmit(): void {
     if (!canCreate) {
@@ -777,10 +777,10 @@ export function CreateMacroApp(): React.ReactElement {
       type: panelMode === 'edit' ? 'update' : 'create',
       macro
     });
-  <Button
+  }
 
   const showPreview = activeTab === 'katex_template';
-  <Button
+  const titlePackage = packageName || file || '\u2026';
 
   return (
     <main style={{ ...PANEL_STYLE, maxWidth: '64rem' }}>
@@ -791,7 +791,7 @@ export function CreateMacroApp(): React.ReactElement {
       <h1 style={{ margin: '0 0 1rem', fontSize: '1.35rem' }}>
         {panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in{' '}
         <code>{titlePackage}</code>
-      <Button
+      </h1>
 
       {/* --- Row 1: Name (1/4) | Kind (1/4) | Description (1/2) ------------- */}
       <div
@@ -883,7 +883,7 @@ export function CreateMacroApp(): React.ReactElement {
             style={{ ...inputStyle, width: '100%' }}
           />
         </div>
-      <Button
+      </div>
 
       {/* --- Styles bar + style editor ------------------------------------- */}
       <StylesEditor
@@ -893,7 +893,7 @@ export function CreateMacroApp(): React.ReactElement {
         setActiveStyle={setActiveStyle}
         patchStyle={patchStyle}
         hasDupTag={hasDupTag}
-      <Button
+      />
 
       {/* --- Content tabs --------------------------------------------------- */}
       <SectionHeader title={`Content — style "${current?.tag || 'default'}"`} />
@@ -906,8 +906,8 @@ export function CreateMacroApp(): React.ReactElement {
         }}
       >
         {TABS.map((tab) => (
-          <Button
-
+          <TabButton
+            key={tab.id}
             active={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
           >
@@ -918,7 +918,7 @@ export function CreateMacroApp(): React.ReactElement {
               : ''}
           </TabButton>
         ))}
-      <Button
+      </div>
 
       {/* --- Mode + Preview + template textarea ----------------------------
            Layout: [ Mode switcher (left, vertical) | Preview + Template (right) ]
@@ -1046,14 +1046,14 @@ export function CreateMacroApp(): React.ReactElement {
             }}
           />
         </>
-      <Button
+      )}
 
       {/* --- Style-level Tags (collapsible, follows active style) ---------- */}
       <TagsEditor
         legend={`Style tags — "${current?.tag || 'default'}"`}
         values={current?.tags ?? []}
         onChange={(next) => patchStyle({ tags: next })}
-      <Button
+      />
 
       {/* --- Dynamic arity + Argument overrides ---------------------------- */}
       <div
@@ -1107,7 +1107,7 @@ export function CreateMacroApp(): React.ReactElement {
           renders as{' '}
           <code>left + children.join(sep) + right</code>
         </span>
-      <Button
+      </div>
 
       {/* --- Argument overrides during preview ----------------------------- */}
       <div
@@ -1151,7 +1151,7 @@ export function CreateMacroApp(): React.ReactElement {
             ) : null}
             <SmallButton onClick={resetArgs}>Reset all args</SmallButton>
           </div>
-        <Button
+        </div>
 
         {argCount === 0 ? (
           <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
@@ -1203,7 +1203,7 @@ export function CreateMacroApp(): React.ReactElement {
             </div>
           ))
         )}
-      <Button
+      </div>
 
       {/* --- Sources (moved to the bottom, above Submit) ------------------- */}
       <SectionHeader title="Sources" />
@@ -1228,42 +1228,42 @@ export function CreateMacroApp(): React.ReactElement {
           onChange={setSourceUrls}
           warnNonHttp
         />
-      <Button
+      </div>
 
       {/* --- Macro-level Tags (collapsible, always shown) ------------------ */}
       <TagsEditor
         legend="Macro tags"
         values={macroTags}
         onChange={setMacroTags}
-      <Button
+      />
 
       {/* --- Submit --------------------------------------------------------- */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <Button
-
+          variant="primary"
           onClick={handleSubmit}
           disabled={!canCreate}
         >
           {status.kind === 'creating'
             ? panelMode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
             : panelMode === 'edit' ? 'Update Macro' : 'Create Macro'}
-        <Button
-
+        </Button>
+        {/* 猫猫: 保存成功提示应放在按钮右侧 + 时间戳 + 5s 自动消失 */}
         <SavedInline status={status} />
         <span style={{ opacity: 0.6, fontSize: '0.85rem', marginLeft: 'auto' }}>
           {templateEmpty ? 'KaTeX template is required.' : ''}
         </span>
-      <Button
+      </div>
 
       {/* Persistent errors stay visible until dismissed (only successes auto-dismiss). */}
       <StatusLine status={status} />
     </main>
   );
-<Button
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
-<Button
+// ---------------------------------------------------------------------------
 
 function SectionHeader({ title }: { title: string }): React.ReactElement {
   return (
@@ -1279,7 +1279,7 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
       {title}
     </h2>
   );
-<Button
+}
 
 // ---------------------------------------------------------------------------
 // Name editor — see 猫猫 2026-07-04 spec.
@@ -1304,7 +1304,7 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
 //     (upstream validators will trip).
 //
 // Rendered as a single input when the name has no `.` at all (spec: "如果
-<Button
+// name 里没有 `.`，那么效果等同于这个功能不存在").
 
 /**
  * Character rules for a name/namespace segment. Backslash / space / and the
@@ -1328,22 +1328,22 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
  * 希望它能广泛支持 Unicode 命名". Kept in sync with snlDoc.ts's
  * validateMacro().
  */
-<Button
+const NAME_FORBIDDEN_CHARS = /[@#$%\s(){}\[\]]/;
 
 /** True if a single name/namespace segment is legal. Empty is NOT legal here. */
 function isValidNameSegment(seg: string): boolean {
   if (seg.length === 0) return false;
   return !NAME_FORBIDDEN_CHARS.test(seg);
-<Button
+}
 
 /** Split a dotted name string into segments. Empty string → `['']` (one empty chip). */
 function splitDotted(s: string): string[] {
   return s.length === 0 ? [''] : s.split('.');
-<Button
+}
 
 function joinDotted(segments: string[]): string {
   return segments.join('.');
-<Button
+}
 
 interface NameEditorProps {
   value: string;
@@ -1351,7 +1351,7 @@ interface NameEditorProps {
   readOnly?: boolean;
   invalid?: boolean;
   readOnlyTitle?: string;
-<Button
+}
 
 function NameEditor({
   value,
@@ -1369,7 +1369,7 @@ function NameEditor({
   // We stay in flat mode across a value-round-trip that adds a `.` in the
   // middle of editing, so the user's caret survives typing `Set.union`
   // without React remounting the input into a two-chip row.
-  <Button
+  const [forceFlat, setForceFlat] = useState(!value.includes('.'));
 
   // When the parent value goes empty (e.g. hydrateFromExisting on a new
   // macro), reset the "user typed a dot recently" latch so the next dot
@@ -1388,9 +1388,9 @@ function NameEditor({
     // — that would flip back to flat every render, which is fine but
     // redundant since the flat branch is entered on the next render anyway
     // via the `!value.includes('.')` guard below.
-  <Button
+  }, [value]);
 
-  <Button
+  const isFlat = forceFlat || !value.includes('.');
 
   if (isFlat) {
     return (
@@ -1411,7 +1411,7 @@ function NameEditor({
         title={readOnly ? readOnlyTitle : undefined}
       />
     );
-  <Button
+  }
 
   const segments = splitDotted(value);
   return (
@@ -1428,7 +1428,7 @@ function NameEditor({
       readOnlyTitle={readOnlyTitle}
     />
   );
-<Button
+}
 
 /**
  * Plain input, used while the user is editing an ID as a single string.
@@ -1491,7 +1491,7 @@ function SingleNameInput({
       }}
     />
   );
-<Button
+}
 
 function MultiNameEditor({
   segments,
@@ -1578,7 +1578,7 @@ function MultiNameEditor({
             (2026-07-04). */}
         {onEditWholeId ? (
           <Button
-
+            type="button"
             onClick={onEditWholeId}
             title="Collapse back to a single ID input (Edit whole ID)"
             aria-label="Edit whole ID"
@@ -1598,8 +1598,8 @@ function MultiNameEditor({
             }}
           >
             ✎ whole
-          <Button
-
+          </Button>
+        ) : null}
       </div>
       {errIdx !== null ? (
         <p
@@ -1615,7 +1615,7 @@ function MultiNameEditor({
       ) : null}
     </div>
   );
-<Button
+}
 
 function NameSegmentInput({
   value,
@@ -1637,7 +1637,7 @@ function NameSegmentInput({
   onFocus?: () => void;
 }): React.ReactElement {
   const [local, setLocal] = useState(value);
-  <Button
+  useEffect(() => setLocal(value), [value]);
 
   const commit = () => {
     if (local !== value) onCommit(local);
@@ -1645,7 +1645,7 @@ function NameSegmentInput({
   // Auto-size to content, but respect a floor so an empty chip is still
   // clickable. Approximates `<input size>` in CSS ch units so styling
   // matches the outer input frame.
-  <Button
+  const chWidth = Math.max((local.length || 4) + 2, isLast ? 12 : 4);
 
   return (
     <input
@@ -1684,7 +1684,7 @@ function NameSegmentInput({
       }}
     />
   );
-<Button
+}
 
 /**
  * Vertical Mode switcher — a stack of 4 buttons matching the horizontal
@@ -1732,7 +1732,7 @@ function ModeSwitcher({
       ))}
     </div>
   );
-<Button
+}
 
 /**
  * A single Mode row — a self-contained vertical-tab button with the active
@@ -1766,7 +1766,7 @@ function ModeButton({
   const accentBorder = '2px solid var(--vscode-focusBorder, #0e639c)';
   return (
     <Button
-
+      type="button"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -1791,9 +1791,9 @@ function ModeButton({
       }}
     >
       {label}
-    <Button
-
-<Button
+    </Button>
+  );
+}
 
 /**
  * Dynamic-arity template row. The template itself is fixed to `#*` — see
@@ -1877,7 +1877,7 @@ function DynamicArityTemplateRow({
       </div>
     </div>
   );
-<Button
+}
 
 /**
  * Reusable collapsible tags editor. Backslash-forbidden strings only —
@@ -1980,7 +1980,7 @@ function TagsEditor({
       ) : null}
     </div>
   );
-<Button
+}
 
 function StylesEditor({
   styles,
@@ -1997,7 +1997,7 @@ function StylesEditor({
   patchStyle: (patch: Partial<StyleDraft>) => void;
   hasDupTag: boolean;
 }): React.ReactElement {
-  <Button
+  const current = styles[activeStyle] ?? styles[0];
 
   const addStyle = (): void => {
     const existing = new Set(styles.map((s) => s.tag));
@@ -2009,7 +2009,7 @@ function StylesEditor({
     }
     setStyles([...styles, newStyleDraft(tag)]);
     setActiveStyle(styles.length);
-  <Button
+  };
 
   const removeStyle = (i: number): void => {
     if (styles.length <= 1) {
@@ -2019,7 +2019,7 @@ function StylesEditor({
     setStyles(next);
     const newActive = Math.min(activeStyle, next.length - 1);
     setActiveStyle(Math.max(newActive, 0));
-  <Button
+  };
 
   /** Move style at index i one slot toward index 0 (the default position). */
   const moveUp = (i: number): void => {
@@ -2030,12 +2030,12 @@ function StylesEditor({
     // Keep the active-tab pointing at the SAME style after the swap.
     if (activeStyle === i) setActiveStyle(i - 1);
     else if (activeStyle === i - 1) setActiveStyle(i);
-  <Button
+  };
 
   /** Commit a rename issued from a StyleSwitch's inline editor. */
   const renameStyleAt = (i: number, next: string): void => {
     setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, tag: next } : s)));
-  <Button
+  };
 
   return (
     <>
@@ -2061,7 +2061,7 @@ function StylesEditor({
           </div>
         ))}
         <SmallButton onClick={addStyle}>+ Add style</SmallButton>
-      <Button
+      </div>
 
       {hasDupTag ? (
         <p
@@ -2073,17 +2073,17 @@ function StylesEditor({
         >
           Duplicate style tags — each style tag must be unique.
         </p>
-      <Button
+      ) : null}
 
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
         ★ = default style (used when SNL source omits <code>[style]</code>). Use{' '}
         <strong>↑</strong> to make another style the default. Double-click a
         style button to rename it.
-      <Button
+      </p>
 
       {/* React renderer preset — only for `block` mode. Text mode goes
           through the LaTeX pipeline (\text{...} + nested $...$) and has
-          <Button
+          no React renderer dispatch, so the key would be dead data.
 
           Cat 2026-07-10: turned the raw text input into a preset
           dropdown listing the four SNL-Basics built-in block renderers
@@ -2100,7 +2100,7 @@ function StylesEditor({
       ) : null}
     </>
   );
-<Button
+}
 
 /** Known built-in block renderers registered in SNL-Basics `defaultRenderers`. */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
@@ -2113,7 +2113,7 @@ const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   { key: 'table', label: 'table', hint: 'Table — variadic children are rows; first child with kind="table-header" becomes <thead>.' },
   { key: 'centered', label: 'centered', hint: 'Horizontally-centered block wrapper.' }
 ];
-<Button
+const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 
 /**
  * Compact select-with-escape-hatch for the block-mode `react_renderer_key`.
@@ -2133,7 +2133,7 @@ function BlockRendererPresetControl({
   const [mode, setMode] = useState<'preset' | 'custom' | 'unset'>(() => {
     if (!value) return 'unset';
     return PRESET_KEYS.has(value) ? 'preset' : 'custom';
-  <Button
+  });
 
   // If the parent's value changes out from under us (e.g. loading a
   // different style), resync the mode.
@@ -2141,7 +2141,7 @@ function BlockRendererPresetControl({
     if (!value) setMode('unset');
     else if (PRESET_KEYS.has(value)) setMode('preset');
     else setMode('custom');
-  <Button
+  }, [value]);
 
   const selectedPreset = mode === 'preset' ? value : '';
   const hint =
@@ -2149,7 +2149,7 @@ function BlockRendererPresetControl({
       ? BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hint ?? ''
       : mode === 'custom'
         ? 'Custom render key — consumer must register a matching renderer. Empty key = no dispatch.'
-        <Button
+        : 'No render preset. The block will render with plain default layout.';
 
   return (
     <div style={{ marginBottom: '1rem' }}>
@@ -2201,7 +2201,7 @@ function BlockRendererPresetControl({
       </p>
     </div>
   );
-<Button
+}
 
 /**
  * A single style-bar button. Single click → select. Double click → inline
@@ -2222,7 +2222,7 @@ function StyleSwitch({
 }): React.ReactElement {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(tag);
-  <Button
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (editing) {
@@ -2232,7 +2232,7 @@ function StyleSwitch({
         inputRef.current?.select();
       });
     }
-  <Button
+  }, [editing, tag]);
 
   const commit = (): void => {
     const next = draft.trim();
@@ -2244,7 +2244,7 @@ function StyleSwitch({
   const cancel = (): void => {
     setDraft(tag);
     setEditing(false);
-  <Button
+  };
 
   if (editing) {
     return (
@@ -2276,11 +2276,11 @@ function StyleSwitch({
         }}
       />
     );
-  <Button
+  }
 
   return (
-    <Button
-
+    <TabButton
+      active={active}
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
       title="Double-click to rename"
@@ -2289,7 +2289,7 @@ function StyleSwitch({
       {isDefault ? ' ★' : ''}
     </TabButton>
   );
-<Button
+}
 
 /**
  * Same "list of strings with +Add / − Remove" affordance as {@link ListEditor},
@@ -2346,7 +2346,7 @@ function EntryListEditor({
       <SmallButton onClick={add}>+ Add</SmallButton>
     </div>
   );
-<Button
+}
 
 function ListEditor({
   label,
@@ -2406,7 +2406,7 @@ function ListEditor({
       <SmallButton onClick={add}>+ Add</SmallButton>
     </div>
   );
-<Button
+}
 
 function RadioGroup({
   legend,
@@ -2454,7 +2454,7 @@ function RadioGroup({
       </div>
     </fieldset>
   );
-<Button
+}
 
 function SynthesisModeRow({
   name,
@@ -2476,7 +2476,7 @@ function SynthesisModeRow({
       />
     </div>
   );
-<Button
+}
 
 /**
  * Themed button used both as content-tab and as styles-bar tab. Hovering flips
@@ -2505,7 +2505,7 @@ function TabButton({
     : 'var(--vscode-tab-activeBackground, #1e1e1e)';
   return (
     <Button
-
+      type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHover(true)}
@@ -2530,9 +2530,9 @@ function TabButton({
       }}
     >
       {children}
-    <Button
-
-<Button
+    </Button>
+  );
+}
 
 function SmallButton({
   onClick,
@@ -2546,7 +2546,7 @@ function SmallButton({
   const [hover, setHover] = useState(false);
   return (
     <Button
-
+      type="button"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -2567,9 +2567,9 @@ function SmallButton({
       }}
     >
       {children}
-    <Button
-
-<Button
+    </Button>
+  );
+}
 
 /** Catches render-time throws from the preview (e.g. a KaTeX failure). */
 class PreviewBoundary extends React.Component<
@@ -2599,16 +2599,16 @@ class PreviewBoundary extends React.Component<
     }
     return this.props.children;
   }
-<Button
+}
 
 function twoDigit(n: number): string {
   return n < 10 ? `0${n}` : String(n);
-<Button
+}
 
 function formatSavedAt(ts: number): string {
   const d = new Date(ts);
   return `${twoDigit(d.getHours())}:${twoDigit(d.getMinutes())}:${twoDigit(d.getSeconds())}`;
-<Button
+}
 
 /**
  * Inline "saved" banner shown to the right of the submit button (猫猫 req).
@@ -2638,7 +2638,7 @@ function SavedInline({ status }: { status: Status }): React.ReactElement | null 
       </span>
     </span>
   );
-<Button
+}
 
 /**
  * Persistent status banner — only rendered for ERROR-shaped statuses
@@ -2685,4 +2685,4 @@ function StatusLine({
       {text}
     </p>
   );
-<Button
+}

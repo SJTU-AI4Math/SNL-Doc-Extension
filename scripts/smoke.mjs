@@ -614,36 +614,15 @@ async function main() {
       'utf8'
     )
   );
-  // DivRing.div collapsed frac + inlineDiv into a single macro with two styles.
-  assert(macroDb['DivRing.div'], 'DivRing.div macro should exist');
+  assert(macroDb['FOL.implies'], 'FOL.implies macro should exist');
   assert(
-    Array.isArray(macroDb['DivRing.div'].styles),
-    'DivRing.div styles is a v6 array'
+    Array.isArray(macroDb['FOL.implies'].styles),
+    'FOL.implies styles is a v6 array'
   );
   assert(
-    macroDb['DivRing.div'].dynamic_arity === false,
-    'DivRing.div v6: dynamic_arity boolean present'
+    macroDb['FOL.implies'].dynamic_arity === false,
+    'FOL.implies v6: dynamic_arity boolean present'
   );
-  assert(
-    macroDb['DivRing.div'].styles.some((s) => s.tag === 'inlineDiv'),
-    'DivRing.div has an inlineDiv style'
-  );
-  assert(
-    macroDb['DivRing.div'].styles[0].tag === 'frac',
-    'DivRing.div default (styles[0]) is frac'
-  );
-  assert(
-    macroDb['DivRing.div'].styles[0].mode === 'formula_inline',
-    'DivRing.div frac style v6: mode is formula_inline'
-  );
-  assert(
-    !('display' in macroDb['DivRing.div'].styles[0]),
-    'v6: display axis absent from bundled DB'
-  );
-  // The typed binders stay separate macros (different arity).
-  assert(macroDb['FOL.forall.typed'], 'forall.typed macro should exist');
-  assert(macroDb['FOL.exists.typed'], 'exists.typed macro should exist');
-  // FOL.implies gained a `double` (⇒) style alongside the default `infix` (→).
   assert(
     macroDb['FOL.implies'].styles.some((s) => s.tag === 'double'),
     'FOL.implies has a double (⇒) style'
@@ -652,10 +631,25 @@ async function main() {
     macroDb['FOL.implies'].styles[0].tag === 'infix',
     'FOL.implies default (styles[0]) is infix'
   );
+  assert(
+    macroDb['FOL.implies'].styles[0].mode === 'formula_inline',
+    'FOL.implies infix style v6: mode is formula_inline'
+  );
+  assert(
+    !('display' in macroDb['FOL.implies'].styles[0]),
+    'v6: display axis absent from bundled DB'
+  );
+  // The typed binders stay separate macros (different arity).
+  assert(macroDb['FOL.forall.typed'], 'forall.typed macro should exist');
+  assert(macroDb['FOL.exists.typed'], 'exists.typed macro should exist');
+  // Ordinary arithmetic operators belong to downstream macro packages.
+  for (const name of ['Add.add', 'Sub.sub', 'Mul.mul', 'DivRing.div']) {
+    assert(!macroDb[name], `${name} should not be bundled`);
+  }
   // Legacy top-level macro shape must be fully gone.
   assert(
-    macroDb['Add.add'].mode === undefined &&
-      macroDb['Add.add'].defaultStyle === undefined,
+    macroDb['FOL.implies'].mode === undefined &&
+      macroDb['FOL.implies'].defaultStyle === undefined,
     'v5 macros drop top-level mode / defaultStyle'
   );
   // Old dotted-style macro names no longer exist as top-level entries.

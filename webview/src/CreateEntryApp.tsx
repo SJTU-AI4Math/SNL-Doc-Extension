@@ -55,6 +55,7 @@ import {
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
+import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -566,6 +567,7 @@ export function CreateEntryApp(): React.ReactElement {
             content={content}
             entries={existingIds}
             userMacros={userMacroDb}
+            postMessage={(message) => apiRef.current?.postMessage(message)}
           />
         </div>
 
@@ -726,7 +728,8 @@ function LivePreview({
   title,
   content,
   entries,
-  userMacros
+  userMacros,
+  postMessage
 }: {
   kind: EntryKind | undefined;
   entryId: string;
@@ -734,6 +737,7 @@ function LivePreview({
   content: Record<ContentFormat, string>;
   entries: EntryOption[];
   userMacros: SnlMacroDb;
+  postMessage: (message: unknown) => void;
 }): React.ReactElement {
   const entry: EntryData = useMemo(
     () => ({
@@ -765,22 +769,31 @@ function LivePreview({
       }
     : null;
 
-  // No-op postMessage: preview isn't a navigation surface.
-  const noopPostMessage = React.useCallback((_msg: unknown): void => {
-    /* preview is inert */
-  }, []);
+  const previewEntries = useMemo(
+    () => mergeDraftIntoEntryPool(entries, {
+      id: entryId,
+      title,
+      snl: content.snl
+    }),
+    [entries, entryId, title, content.snl]
+  );
+  const localDetails = useMemo(
+    () => ({ [entryId]: { entry, kind: renderKind } }),
+    [entryId, entry, renderKind]
+  );
 
   return (
     <HoverPopoverProvider
-      postMessage={noopPostMessage}
-      entries={entries}
+      postMessage={postMessage}
+      entries={previewEntries}
       userMacros={userMacros}
+      localDetails={localDetails}
     >
       <EntrySurface
         entry={entry}
         kind={renderKind}
-        entries={entries}
-        postMessage={noopPostMessage}
+        entries={previewEntries}
+        postMessage={postMessage}
         userMacros={userMacros}
         counterLabel={undefined}
         disableTitleJump={true}

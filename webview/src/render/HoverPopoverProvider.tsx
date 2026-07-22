@@ -112,6 +112,8 @@ interface HoverPopoverProviderProps {
   entries: EntryOption[];
   /** User macro DB forwarded to popover EntryRenders (so popovers render user macros too). */
   userMacros?: SnlMacroDb;
+  /** Unsaved/local entries that should win over lazy host details. */
+  localDetails?: Record<string, { entry: EntryData; kind: EntryKind | null }>;
 }
 
 let popoverCounter = 0;
@@ -128,7 +130,8 @@ export function HoverPopoverProvider({
   children,
   postMessage,
   entries,
-  userMacros
+  userMacros,
+  localDetails
 }: HoverPopoverProviderProps): React.ReactElement {
   const [popovers, setPopovers] = useState<PopoverInstance[]>([]);
   // Live mirror for stable callbacks / document listeners (avoids stale reads).
@@ -185,13 +188,18 @@ export function HoverPopoverProvider({
 
   const requestDetails = useCallback(
     (entryId: string): void => {
+      const local = localDetails?.[entryId];
+      if (local) {
+        setDetails((previous) => ({ ...previous, [entryId]: local }));
+        return;
+      }
       if (requestedRef.current.has(entryId)) {
         return;
       }
       requestedRef.current.add(entryId);
       postMessage({ type: 'requestEntryDetails', entryId });
     },
-    [postMessage]
+    [postMessage, localDetails]
   );
 
   // Per-popover timers: delay-open timer + fade-out unmount timer.

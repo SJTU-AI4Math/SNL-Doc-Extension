@@ -670,9 +670,11 @@ export function EntryRender({
         borderLeft: `5px solid ${stroke}`,
         borderRadius: 0,
         width: '100%',
-        background,
+        // Hover keeps the established white-background feedback, while the
+        // solid inset edge stays entirely inside the fixed outer boundary.
+        background: isHovered ? '#ffffff' : background,
         boxShadow: isHovered ? `inset 0 0 0 5px ${stroke}` : 'none',
-        transition: 'box-shadow 150ms ease'
+        transition: 'background-color 150ms ease, box-shadow 150ms ease'
       }}
     >
       <header

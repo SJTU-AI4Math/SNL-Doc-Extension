@@ -654,11 +654,9 @@ export function EntryRender({
   const hasContent = bodySurface !== 'none';
   const isTransparent = background === TRANSPARENT_BACKGROUND;
 
-  // Hover state for the "border thickens + bg goes white" affordance
-  // (cat 2026-07-08). Using pointer events + React state so the animation
-  // can be a plain CSS transition on border-color / background-color /
-  // outline-color, and NO layout box changes (uses `outline`, not extra
-  // border, so surrounding blocks don't shift).
+  // Hover state for the inset glow affordance. The glow is drawn entirely
+  // inside the Entry box so neither the panel layout nor the visible outer
+  // boundary changes, and popover Entries never acquire a white rim.
   const [isHovered, setIsHovered] = React.useState(false);
 
   return (
@@ -674,20 +672,11 @@ export function EntryRender({
         borderLeft: `5px solid ${stroke}`,
         borderRadius: 0,
         width: '100%',
-        // Background flips to white on hover (cat 2026-07-08). Preserve
-        // the original `background` on the CSS variable used for the
-        // body region so its dark-on-color contrast stays correct.
-        background: isHovered ? '#ffffff' : background,
-        // Hover outline: +5px on all sides (left effectively 5+5=10 as
-        // requested; other sides go 0→5). `outline` is drawn OUTSIDE the
-        // border box and NOT counted in layout, so no reflow.
-        outline: isHovered ? `5px solid ${stroke}` : `5px solid transparent`,
-        outlineOffset: '0px',
-        // Smooth transition on the two properties that change on hover.
-        // `outline-color` alone (not `outline-width`) is enough because
-        // width stays constant at 5px — we only reveal/hide via color.
-        transition:
-          'background-color 150ms ease, outline-color 150ms ease'
+        // Keep the authored Entry background stable on hover. The feedback is
+        // an inset glow, so the outer edge and popover framing never change.
+        background,
+        boxShadow: isHovered ? `inset 0 0 10px 2px ${stroke}` : 'none',
+        transition: 'box-shadow 150ms ease'
       }}
     >
       <header

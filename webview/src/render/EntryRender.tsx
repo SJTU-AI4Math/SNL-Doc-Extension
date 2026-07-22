@@ -665,17 +665,13 @@ export function EntryRender({
       onPointerEnter={() => setIsHovered(true)}
       onPointerLeave={() => setIsHovered(false)}
       style={{
-        // Left border always visible (kind stroke, 5px). Layout is FIXED
-        // by leaving room for the hover outline via `outline-offset: 0`
-        // — `outline` doesn't participate in layout, so `outline-width:
-        // 5px` on hover thickens the frame without shifting anything.
+        // Left border is always visible. Hover feedback is a solid 5px inset
+        // edge, so it never changes layout or the Entry's outer boundary.
         borderLeft: `5px solid ${stroke}`,
         borderRadius: 0,
         width: '100%',
-        // Keep the authored Entry background stable on hover. The feedback is
-        // an inset glow, so the outer edge and popover framing never change.
         background,
-        boxShadow: isHovered ? `inset 0 0 10px 2px ${stroke}` : 'none',
+        boxShadow: isHovered ? `inset 0 0 0 5px ${stroke}` : 'none',
         transition: 'box-shadow 150ms ease'
       }}
     >

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { POPOVER_ENTRY_FRAME_INSET_PX, popoverFrameStyle } from './popoverFrame';
+import { POPOVER_OUTER_GUTTER_PX, popoverFrameStyle } from './popoverFrame';
 
 describe('popoverFrameStyle', () => {
-  it('reserves room inside the scrolling popover for EntryRender hover stroke', () => {
+  it('does not draw a white shell gutter around an inset-framed Entry', () => {
     const style = popoverFrameStyle();
-    expect(POPOVER_ENTRY_FRAME_INSET_PX).toBe(5);
-    expect(style.padding).toBe(`${POPOVER_ENTRY_FRAME_INSET_PX}px`);
+    expect(POPOVER_OUTER_GUTTER_PX).toBe(0);
+    expect(style.padding).toBe(0);
     expect(style.boxSizing).toBe('border-box');
   });
 });

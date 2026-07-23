@@ -68,6 +68,14 @@ export interface EntryRenderProps {
   onTitleCtrlClick?: (entryId: string) => void;
 }
 
+/** Identity for the context query backend; presentation-only edits are ignored. */
+export function entryContextRevision(entry: EntryData, entries: EntryOption[]): string {
+  const sources = entries
+    .map((option) => [option.id, option.snl ?? ''] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify([entry.id, entry.content?.snl ?? '', sources]);
+}
+
 function hasStructuralPointer(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const pointer = value as Record<string, unknown>;
@@ -154,9 +162,13 @@ export function EntryRender({
     }),
     [userMacros]
   );
+  const contextRevision = entryContextRevision(entry, entries);
   const entryDataDriver = useMemo(
     () => createEntryDataDriver(entry, entries),
-    [entry, entries]
+    // The adapter only queries ids and SNL. Title/pointer/contribution edits
+    // must not restart context resolution or flash the loading placeholder.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contextRevision]
   );
 
   const hoverStateRef = useRef<{

@@ -34,7 +34,7 @@ describe('Macro Kind palette plumbing', () => {
       'kindPalette={kindPalette}'
     );
     expect(source('webview/src/render/EntryRender.tsx')).toContain(
-      'kindPalette={kindPalette}'
+      'kind_palette={kindPalette}'
     );
   });
 });

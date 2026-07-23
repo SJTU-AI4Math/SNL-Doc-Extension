@@ -32,6 +32,9 @@ describe('preference plumbing architecture', () => {
     expect(source('src/preferences.ts')).toContain('new ReaderRuntime<ExtensionPreferences>');
     expect(source('webview/src/runtime/preferencesRuntime.ts')).toContain('new ReaderRuntime');
     expect(source('webview/src/runtime/useLocalized.ts')).toContain('read_localized');
-    expect(source('webview/src/render/EntryRender.tsx')).toContain('resolve_entry_content');
+    expect(source('webview/src/render/EntryRender.tsx')).toContain('<BasicsEntrySurface');
+    expect(source('webview/src/render/EntryRender.tsx')).toContain(
+      'reader_runtime={webview_language_runtime}'
+    );
   });
 });

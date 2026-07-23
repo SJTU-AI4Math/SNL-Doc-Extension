@@ -18,4 +18,12 @@ describe('Entry rendering architecture', () => {
       expect(source, file).not.toMatch(/<EntryRender\b/);
     }
   });
+
+  it('delegates Entry presentation to SNL-Basics and keeps only adapter interactions locally', () => {
+    const source = readFileSync(resolve(root, 'render/EntryRender.tsx'), 'utf8');
+    expect(source).toContain('EntrySurface as BasicsEntrySurface');
+    expect(source).toContain('<BasicsEntrySurface');
+    expect(source).not.toContain('<SnlSyntaxTreeView');
+    expect(source).not.toContain('dangerouslySetInnerHTML');
+  });
 });

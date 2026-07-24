@@ -43,6 +43,15 @@ interface OutlineNode {
   children: OutlineNode[];
 }
 
+function infoviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[] {
+  const roots = [vscode.Uri.joinPath(extensionUri, 'media')];
+  const workspace = firstWorkspaceFolder();
+  if (workspace) {
+    roots.push(vscode.Uri.joinPath(workspace, '.SNL_Doc', 'assets'));
+  }
+  return roots;
+}
+
 /**
  * Manager for the SNL Infoview webview panels.
  *
@@ -134,7 +143,7 @@ export class InfoviewPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: false,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
 
@@ -177,7 +186,7 @@ export class InfoviewPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: false,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
 
@@ -650,6 +659,7 @@ export class InfoviewPanel {
         outline,
         macros,
         macroKinds,
+        assetBaseUri: this.assetBaseUri(root),
         warnings
       });
     } catch (err) {
@@ -667,6 +677,12 @@ export class InfoviewPanel {
         warnings: [text]
       });
     }
+  }
+
+  private assetBaseUri(root: vscode.Uri): string {
+    return this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(root, '.SNL_Doc', 'assets')
+    ).toString();
   }
 
   /**
@@ -727,7 +743,8 @@ export class InfoviewPanel {
         kind,
         entries: options,
         macros,
-        macroKinds
+        macroKinds,
+        assetBaseUri: this.assetBaseUri(root)
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
@@ -853,6 +870,7 @@ export class InfoviewPanel {
         entries: options,
         macros,
         macroKinds,
+        assetBaseUri: this.assetBaseUri(root),
         relatedEntries
       });
     } catch (err) {

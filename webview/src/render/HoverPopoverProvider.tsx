@@ -44,6 +44,8 @@ interface HoverPopoverProviderProps {
   userMacros?: MacroRecord;
   /** Workspace Macro Kind colors shared by every nested EntrySurface. */
   kindPalette?: KindPalette;
+  /** Workspace asset resolver shared by every nested Markdown Entry. */
+  markdownImageUrlTransform?: (source: string) => string;
   /** Unsaved/local entries that win over lazy host details. */
   localDetails?: Record<string, { entry: EntryData; kind: EntryKind | null }>;
 }
@@ -59,7 +61,8 @@ function EntryPopoverContent({
   entries,
   postMessage,
   userMacros,
-  kindPalette
+  kindPalette,
+  markdownImageUrlTransform
 }: {
   entryId: string;
   detail: { entry: EntryData | null; kind: EntryKind | null } | undefined;
@@ -68,6 +71,7 @@ function EntryPopoverContent({
   postMessage: (msg: unknown) => void;
   userMacros?: MacroRecord;
   kindPalette?: KindPalette;
+  markdownImageUrlTransform?: (source: string) => string;
 }): React.ReactElement {
   useEffect(() => {
     if (detail === undefined) requestDetails(entryId);
@@ -91,6 +95,7 @@ function EntryPopoverContent({
       postMessage={postMessage}
       userMacros={userMacros}
       kindPalette={kindPalette}
+      markdownImageUrlTransform={markdownImageUrlTransform}
       counterLabel={undefined}
       disableTitleJump={false}
       onTitleCtrlClick={(id) => postMessage({ type: 'openEntryInfoview', entryId: id })}
@@ -104,6 +109,7 @@ export function HoverPopoverProvider({
   entries,
   userMacros,
   kindPalette,
+  markdownImageUrlTransform,
   localDetails
 }: HoverPopoverProviderProps): React.ReactElement {
   const [details, setDetails] = useState<
@@ -160,9 +166,10 @@ export function HoverPopoverProvider({
         postMessage={postMessage}
         userMacros={userMacros}
         kindPalette={kindPalette}
+        markdownImageUrlTransform={markdownImageUrlTransform}
       />
     ),
-    [details, entries, postMessage, requestDetails, userMacros, kindPalette]
+    [details, entries, postMessage, requestDetails, userMacros, kindPalette, markdownImageUrlTransform]
   );
 
   const style = useMemo(

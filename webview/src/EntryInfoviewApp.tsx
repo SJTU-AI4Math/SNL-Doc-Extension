@@ -20,6 +20,7 @@ import { Disclosure } from './components/Disclosure';
 import { Button } from './components/Button';
 import { EntryMacroSection } from './components/EntryMacroSection';
 import type { MacroKind, MacroPackageEntry } from './PackagePanelApp';
+import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 interface RelatedRow {
@@ -44,6 +45,7 @@ type Incoming =
       macros?: MacroRecord;
       macroKinds?: MacroKind[];
       relatedEntries?: RelatedEntries | null;
+      assetBaseUri?: string;
     }
   | undefined;
 
@@ -58,6 +60,7 @@ export function EntryInfoviewApp(): React.ReactElement {
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
+  const [assetBaseUri, setAssetBaseUri] = useState('');
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -75,6 +78,7 @@ export function EntryInfoviewApp(): React.ReactElement {
         }
         setKindPalette(macroKindsToPalette(msg.macroKinds));
         setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+        setAssetBaseUri(typeof msg.assetBaseUri === 'string' ? msg.assetBaseUri : '');
         if (!msg.entry) {
           setState(null);
           return;
@@ -96,6 +100,12 @@ export function EntryInfoviewApp(): React.ReactElement {
   const postMessage = (message: unknown): void => {
     apiRef.current?.postMessage(message);
   };
+  const markdownImageUrlTransform = React.useMemo(
+    () => assetBaseUri
+      ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
+      : undefined,
+    [assetBaseUri]
+  );
 
   return (
     <HoverPopoverProvider
@@ -103,6 +113,7 @@ export function EntryInfoviewApp(): React.ReactElement {
       entries={state?.entries ?? []}
       userMacros={userMacros}
       kindPalette={kindPalette}
+      markdownImageUrlTransform={markdownImageUrlTransform}
     >
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
         {!loaded ? (
@@ -146,6 +157,7 @@ export function EntryInfoviewApp(): React.ReactElement {
               postMessage={postMessage}
               userMacros={userMacros}
               kindPalette={kindPalette}
+              markdownImageUrlTransform={markdownImageUrlTransform}
               counterLabel={undefined}
               disableTitleJump={true}
             />

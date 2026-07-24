@@ -28,6 +28,7 @@ import {
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
+import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 
 function ui(en: string, zhCN: string): LocalizedString {
   return {
@@ -69,6 +70,7 @@ type Incoming =
       outline: OutlineNode[];
       macros?: MacroRecord;
       macroKinds?: MacroKindPaletteSource[];
+      assetBaseUri?: string;
       warnings?: string[];
     }
   | undefined;
@@ -91,6 +93,7 @@ export function App(): React.ReactElement {
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
+  const [assetBaseUri, setAssetBaseUri] = useState('');
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -113,6 +116,7 @@ export function App(): React.ReactElement {
             setUserMacros(msg.macros);
           }
           setKindPalette(macroKindsToPalette(msg.macroKinds));
+          setAssetBaseUri(typeof msg.assetBaseUri === 'string' ? msg.assetBaseUri : '');
           if (Array.isArray(msg.entries)) {
             setEntryPool(msg.entries);
           }
@@ -138,6 +142,12 @@ export function App(): React.ReactElement {
   const postMessage = (message: unknown): void => {
     apiRef.current?.postMessage(message);
   };
+  const markdownImageUrlTransform = React.useMemo(
+    () => assetBaseUri
+      ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
+      : undefined,
+    [assetBaseUri]
+  );
 
   const goBack = (): void => {
     if (view.kind === 'library') {
@@ -152,6 +162,7 @@ export function App(): React.ReactElement {
       entries={entryPool}
       userMacros={userMacros}
       kindPalette={kindPalette}
+      markdownImageUrlTransform={markdownImageUrlTransform}
     >
       <main style={PANEL_STYLE}>
         {renderCurrentView(view, {
@@ -159,7 +170,8 @@ export function App(): React.ReactElement {
           goBack,
           entryPool,
           userMacros,
-          kindPalette
+          kindPalette,
+          markdownImageUrlTransform
         })}
       </main>
     </HoverPopoverProvider>
@@ -172,6 +184,7 @@ interface RenderCtx {
   entryPool: EntryOption[];
   userMacros: MacroRecord | undefined;
   kindPalette: KindPalette | undefined;
+  markdownImageUrlTransform?: (source: string) => string;
 }
 
 function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
@@ -488,6 +501,7 @@ function OutlineTreeNode({
             postMessage={ctx.postMessage}
             userMacros={ctx.userMacros}
             kindPalette={ctx.kindPalette}
+            markdownImageUrlTransform={ctx.markdownImageUrlTransform}
             counterLabel={node.counterLabel ?? undefined}
             disableTitleJump={false}
             onTitleCtrlClick={(entryId) =>

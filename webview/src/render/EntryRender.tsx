@@ -63,6 +63,7 @@ export interface EntryRenderProps {
   counterLabel?: string;
   userMacros?: MacroRecord;
   kindPalette?: KindPalette;
+  markdownImageUrlTransform?: (source: string) => string;
   hooksOverride?: Partial<SnlRenderHooks>;
   disableTitleJump?: boolean;
   onTitleCtrlClick?: (entryId: string) => void;
@@ -142,6 +143,7 @@ export function EntryRender({
   counterLabel,
   userMacros,
   kindPalette,
+  markdownImageUrlTransform,
   hooksOverride,
   disableTitleJump,
   onTitleCtrlClick
@@ -269,6 +271,7 @@ export function EntryRender({
       interaction_ports={interactionPorts}
       hooks={hooks}
       kind_palette={kindPalette}
+      markdown_image_url_transform={markdownImageUrlTransform}
       counter_label={counterLabel}
       show_source_action={hasStructuralPointer(entry.pointer)}
     />

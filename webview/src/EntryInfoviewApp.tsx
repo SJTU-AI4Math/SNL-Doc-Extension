@@ -14,11 +14,12 @@ import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@snl-basics/react';
 import type { MacroRecord } from './render/macroData';
 import {
-  macroKindsToPalette,
-  type MacroKindPaletteSource
+  macroKindsToPalette
 } from './render/macroKindPalette';
 import { Disclosure } from './components/Disclosure';
 import { Button } from './components/Button';
+import { EntryMacroSection } from './components/EntryMacroSection';
+import type { MacroKind, MacroPackageEntry } from './PackagePanelApp';
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 interface RelatedRow {
@@ -41,7 +42,7 @@ type Incoming =
       kind: EntryKind | null;
       entries: EntryOption[];
       macros?: MacroRecord;
-      macroKinds?: MacroKindPaletteSource[];
+      macroKinds?: MacroKind[];
       relatedEntries?: RelatedEntries | null;
     }
   | undefined;
@@ -56,6 +57,7 @@ export function EntryInfoviewApp(): React.ReactElement {
   } | null>(null);
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
+  const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
   useEffect(() => {
@@ -72,6 +74,7 @@ export function EntryInfoviewApp(): React.ReactElement {
           setUserMacros(msg.macros);
         }
         setKindPalette(macroKindsToPalette(msg.macroKinds));
+        setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
         if (!msg.entry) {
           setState(null);
           return;
@@ -145,6 +148,13 @@ export function EntryInfoviewApp(): React.ReactElement {
               kindPalette={kindPalette}
               counterLabel={undefined}
               disableTitleJump={true}
+            />
+            <EntryMacroSection
+              snl={state.entry.content?.snl ?? ''}
+              macros={(userMacros ?? {}) as Record<string, MacroPackageEntry>}
+              macroKinds={macroKinds}
+              entryPoolIds={new Set(state.entries.map((entry) => entry.id))}
+              postMessage={postMessage}
             />
             <RelatedSection
               title="Context"

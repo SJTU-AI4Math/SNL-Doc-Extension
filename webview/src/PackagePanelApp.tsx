@@ -62,7 +62,7 @@ type MacroPackageStyle =
   | (Extract<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends)
   | (Exclude<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends);
 
-interface MacroPackageEntry {
+export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
@@ -72,7 +72,7 @@ interface MacroPackageEntry {
   tags: string[];
 }
 
-interface MacroKind {
+export interface MacroKind {
   id: string;
   name: string;
   description: string;
@@ -651,7 +651,7 @@ function arityLabel(macro: MacroPackageEntry): string {
   return String(count);
 }
 
-function MacroTable({
+export function MacroTable({
   macros,
   macroKinds,
   entryPoolIds,

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import {
+  batchDeleteMacros,
   listLibraries,
   readAllMacros,
   readEntries,
@@ -7,7 +8,10 @@ import {
   readLibraryCounters,
   readLibraryGraph,
   readMacroKinds,
+  readMacroPackage,
+  readMacroPackages,
   readRelationships,
+  resolveActiveMacroPackages,
   type EntryData,
   type EntryKind,
   type LibraryEntry,
@@ -420,6 +424,38 @@ export class InfoviewPanel {
           );
         }
         return;
+      case 'editMacro': {
+        const name = (message as { name?: unknown }).name;
+        if (typeof name !== 'string' || !name) return;
+        const file = await this.findActiveMacroPackage(name);
+        if (file) {
+          await vscode.commands.executeCommand('snlDoc.editMacro', file, name);
+        }
+        return;
+      }
+      case 'deleteMacro': {
+        const name = (message as { name?: unknown }).name;
+        if (typeof name !== 'string' || !name) return;
+        const file = await this.findActiveMacroPackage(name);
+        if (!file) return;
+        const confirmed = await vscode.window.showWarningMessage(
+          `Delete macro "${name}" from package "${file}"?`,
+          { modal: true, detail: 'This cannot be undone.' },
+          'Delete'
+        );
+        if (confirmed !== 'Delete') return;
+        const root = firstWorkspaceFolder();
+        if (!root) return;
+        const result = await batchDeleteMacros(root, file, [name]);
+        if (result.status !== 'ok') {
+          vscode.window.showErrorMessage(
+            `Delete macro failed: ${'message' in result ? result.message : result.status}`
+          );
+          return;
+        }
+        await this.refresh();
+        return;
+      }
       case 'openInfoviewGraph':
         void vscode.commands.executeCommand('snlDoc.openInfoviewGraph');
         return;
@@ -868,6 +904,28 @@ export class InfoviewPanel {
         `SNL Infoview: failed to load popover entry: ${text}`
       );
     }
+  }
+
+  /** Resolve the active package that wins for a macro name using the same
+   * last-writer collision rule as readAllMacros. */
+  private async findActiveMacroPackage(name: string): Promise<string | null> {
+    const root = firstWorkspaceFolder();
+    if (!root) return null;
+    const active = new Set(await resolveActiveMacroPackages(root));
+    const packages = await readMacroPackages(root);
+    let winner: string | null = null;
+    for (const summary of packages) {
+      const bare = summary.file.replace(/\.json$/i, '');
+      if (!active.has(bare)) continue;
+      const result = await readMacroPackage(root, bare);
+      if (
+        result.status === 'ok' &&
+        result.macros.some((macro) => macro.name === name)
+      ) {
+        winner = bare;
+      }
+    }
+    return winner;
   }
 
   public dispose(): void {

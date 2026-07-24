@@ -24,10 +24,11 @@ import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@snl-basics/react';
 import type { MacroRecord } from './render/macroData';
 import {
-  macroKindsToPalette,
-  type MacroKindPaletteSource
+  macroKindsToPalette
 } from './render/macroKindPalette';
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
+import { EntryMacroSection } from './components/EntryMacroSection';
+import type { MacroKind, MacroPackageEntry } from './PackagePanelApp';
 
 function ui(en: string, zhCN: string): LocalizedString {
   return {
@@ -68,7 +69,7 @@ type Incoming =
       entries: EntryOption[];
       outline: OutlineNode[];
       macros?: MacroRecord;
-      macroKinds?: MacroKindPaletteSource[];
+      macroKinds?: MacroKind[];
       warnings?: string[];
     }
   | undefined;
@@ -90,6 +91,7 @@ export function App(): React.ReactElement {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
+  const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
@@ -113,6 +115,7 @@ export function App(): React.ReactElement {
             setUserMacros(msg.macros);
           }
           setKindPalette(macroKindsToPalette(msg.macroKinds));
+          setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           if (Array.isArray(msg.entries)) {
             setEntryPool(msg.entries);
           }
@@ -159,7 +162,8 @@ export function App(): React.ReactElement {
           goBack,
           entryPool,
           userMacros,
-          kindPalette
+          kindPalette,
+          macroKinds
         })}
       </main>
     </HoverPopoverProvider>
@@ -172,6 +176,7 @@ interface RenderCtx {
   entryPool: EntryOption[];
   userMacros: MacroRecord | undefined;
   kindPalette: KindPalette | undefined;
+  macroKinds: MacroKind[];
 }
 
 function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
@@ -481,19 +486,28 @@ function OutlineTreeNode({
           />
         ) : null}
         {node.entry ? (
-          <EntrySurface
-            entry={node.entry}
-            kind={node.kind}
-            entries={ctx.entryPool}
-            postMessage={ctx.postMessage}
-            userMacros={ctx.userMacros}
-            kindPalette={ctx.kindPalette}
-            counterLabel={node.counterLabel ?? undefined}
-            disableTitleJump={false}
-            onTitleCtrlClick={(entryId) =>
-              ctx.postMessage({ type: 'openEntryInfoview', entryId })
-            }
-          />
+          <>
+            <EntrySurface
+              entry={node.entry}
+              kind={node.kind}
+              entries={ctx.entryPool}
+              postMessage={ctx.postMessage}
+              userMacros={ctx.userMacros}
+              kindPalette={ctx.kindPalette}
+              counterLabel={node.counterLabel ?? undefined}
+              disableTitleJump={false}
+              onTitleCtrlClick={(entryId) =>
+                ctx.postMessage({ type: 'openEntryInfoview', entryId })
+              }
+            />
+            <EntryMacroSection
+              snl={node.entry.content?.snl ?? ''}
+              macros={(ctx.userMacros ?? {}) as Record<string, MacroPackageEntry>}
+              macroKinds={ctx.macroKinds}
+              entryPoolIds={new Set(ctx.entryPool.map((entry) => entry.id))}
+              postMessage={ctx.postMessage}
+            />
+          </>
         ) : (
           <PlaceholderCard
             nodeId={node.nodeId}

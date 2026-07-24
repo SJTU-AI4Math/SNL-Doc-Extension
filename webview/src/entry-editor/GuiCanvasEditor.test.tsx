@@ -64,6 +64,39 @@ describe('GuiCanvasEditor', () => {
     expect(cellTarget?.path).toEqual([0, 0]);
   });
 
+  it('moves the whole block from blank card space with grab cursor', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<Harness />);
+    const block = await waitFor(() => {
+      const found = view.container.querySelector<HTMLElement>('[data-canvas-root]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(block.style.cursor).toBe('grab');
+
+    fireEvent.pointerDown(block, { pointerId: 2, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(block, { pointerId: 2, clientX: 30, clientY: 40 });
+    await waitFor(() => expect(block.style.cursor).toBe('grabbing'));
+    expect(block.style.left).toBe('44px');
+    expect(block.style.top).toBe('54px');
+
+    fireEvent.pointerUp(block, { pointerId: 2, clientX: 30, clientY: 40 });
+    await waitFor(() => expect(block.style.cursor).toBe('grab'));
+    expect(view.container.querySelectorAll('[data-canvas-root]')).toHaveLength(1);
+  });
+
   it('detaches a dragged nested macro into a second root block', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('root', [node('child')])]);

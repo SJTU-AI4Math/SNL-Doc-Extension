@@ -12,6 +12,8 @@ describe('GUI Editor (Canvas) placement', () => {
     expect(entryEditor).toContain("setSnlMode('canvas')");
     expect(entryEditor).toContain('canPersistCanvasForest(canvasForest)');
     expect(entryEditor).toContain('multiple Canvas roots');
+    expect(entryEditor).not.toContain('root {rootIndex + 1}:');
+    expect(entryEditor).toContain("? 'grabbing' : 'grab'");
   });
 
   it('is not exposed as a global Dashboard or command-palette panel', () => {

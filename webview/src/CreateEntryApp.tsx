@@ -66,7 +66,12 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
-import { canPersistCanvasForest, detachCanvasSubtree } from './entry-editor/canvasForest';
+import {
+  canPersistCanvasForest,
+  createCanvasHole,
+  detachCanvasSubtree,
+  isCanvasHole
+} from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   use_preferences_revision,
@@ -1169,13 +1174,19 @@ export function resolveCanvasPointerTarget(
     const union = unionRects(descendantRects);
     if (!union) continue;
     const padding = 18;
+    const hitRect = new DOMRect(
+      union.left - padding,
+      union.top - padding,
+      union.width + padding * 2,
+      union.height + padding * 2
+    );
     if (
-      clientX >= union.left - padding &&
-      clientX <= union.right + padding &&
-      clientY >= union.top - padding &&
-      clientY <= union.bottom + padding
+      clientX >= hitRect.left &&
+      clientX <= hitRect.right &&
+      clientY >= hitRect.top &&
+      clientY <= hitRect.bottom
     ) {
-      resolved = { path, rect: union };
+      resolved = { path, rect: hitRect };
     }
   }
   return resolved;
@@ -1189,6 +1200,7 @@ interface CanvasPendingDrag {
   startClientX: number;
   startClientY: number;
   startPosition: CanvasBlockPosition;
+  hole: SnlSyntaxTree;
   active: boolean;
 }
 
@@ -1206,6 +1218,7 @@ export function GuiCanvasEditor({
   onResetFromSnl: () => void;
 }): React.ReactElement {
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
+  const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
 
   React.useEffect(() => {
@@ -1228,14 +1241,20 @@ export function GuiCanvasEditor({
     blockId: string
   ): void => {
     if (event.button !== 0) return;
-    const resolved = resolveCanvasPointerTarget(
-      event.target as HTMLElement,
-      event.currentTarget,
-      forest[rootIndex],
-      event.clientX,
-      event.clientY
-    );
-    if (!resolved) return;
+    const resolved =
+      resolveCanvasPointerTarget(
+        event.target as HTMLElement,
+        event.currentTarget,
+        forest[rootIndex],
+        event.clientX,
+        event.clientY
+      ) ?? {
+        path: [],
+        rect: event.currentTarget.getBoundingClientRect()
+      };
+    if (isCanvasHole(getNodeAtPath(forest[rootIndex], resolved.path.join('.')))) {
+      return;
+    }
     const canvas = event.currentTarget.closest<HTMLElement>('[data-entry-gui-canvas]');
     const canvasRect = canvas?.getBoundingClientRect();
     const startPosition =
@@ -1253,6 +1272,7 @@ export function GuiCanvasEditor({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition,
+      hole: createCanvasHole(resolved.rect.width, resolved.rect.height),
       active: false
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1268,7 +1288,12 @@ export function GuiCanvasEditor({
     if (!drag.active) {
       drag.active = true;
       if (drag.path.length > 0) {
-        const nextForest = detachCanvasSubtree(forest, drag.rootIndex, drag.path);
+        const nextForest = detachCanvasSubtree(
+          forest,
+          drag.rootIndex,
+          drag.path,
+          drag.hole
+        );
         if (nextForest === forest) {
           dragRef.current = null;
           return;
@@ -1279,6 +1304,7 @@ export function GuiCanvasEditor({
         drag.blockId = detachedId;
         onForestChange(nextForest);
       }
+      setDraggingBlockId(drag.blockId);
     }
 
     event.preventDefault();
@@ -1294,6 +1320,7 @@ export function GuiCanvasEditor({
   const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (dragRef.current?.pointerId !== event.pointerId) return;
     dragRef.current = null;
+    setDraggingBlockId(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -1301,24 +1328,6 @@ export function GuiCanvasEditor({
 
   return (
     <section>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '0.75rem',
-          marginBottom: '0.45rem'
-        }}
-      >
-        <span style={{ opacity: 0.72, fontSize: '0.82rem' }}>
-          {forest.length} root{forest.length === 1 ? '' : 's'} · drag a nested macro to detach it
-        </span>
-        {forest.length > 1 ? (
-          <Button variant="secondary" size="sm" onClick={onResetFromSnl}>
-            Reset Canvas from SNL
-          </Button>
-        ) : null}
-      </div>
       <div
         data-entry-gui-canvas
         aria-label="GUI Editor canvas"
@@ -1366,19 +1375,10 @@ export function GuiCanvasEditor({
                 background: 'var(--vscode-editorWidget-background, #252526)',
                 boxShadow: '0 3px 12px rgba(0,0,0,0.28)',
                 touchAction: 'none',
-                userSelect: dragRef.current?.active ? 'none' : undefined
+                cursor: draggingBlockId === blockId ? 'grabbing' : 'grab',
+                userSelect: draggingBlockId === blockId ? 'none' : undefined
               }}
             >
-              <div
-                style={{
-                  marginBottom: '0.45rem',
-                  fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                  fontSize: '0.75rem',
-                  opacity: 0.65
-                }}
-              >
-                root {rootIndex + 1}: {root.macro_name || '(empty)'}
-              </div>
               <SnlSyntaxTreeView
                 tree={root}
                 macro_data_driver={macroDataDriver}
@@ -1390,6 +1390,13 @@ export function GuiCanvasEditor({
           );
         })}
       </div>
+      {forest.length > 1 ? (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.45rem' }}>
+          <Button variant="secondary" size="sm" onClick={onResetFromSnl}>
+            Reset Canvas from SNL
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

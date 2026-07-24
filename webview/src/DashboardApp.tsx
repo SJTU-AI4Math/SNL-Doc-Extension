@@ -245,6 +245,14 @@ function Initialized({
         <div style={{ display: 'flex', gap: '0.5rem', flex: '0 0 auto' }}>
           <Button
             type="button"
+            variant="secondary"
+            onClick={() => api?.postMessage({ type: 'openGuiEditor' })}
+            title="Open the Entry GUI Editor canvas"
+          >
+            GUI Editor (Canvas)
+          </Button>
+          <Button
+            type="button"
             onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
             title="Open the pool-wide relationship graph"
             style={{

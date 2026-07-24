@@ -36,7 +36,8 @@ type Entry =
   | 'createMacro'
   | 'createRelationship'
   | 'snlGraph'
-  | 'snoogl';
+  | 'snoogl'
+  | 'guiEditor';
 
 const ENTRY_TO_INPUT: Record<Entry, string> = {
   main: 'src/main.tsx',
@@ -53,7 +54,8 @@ const ENTRY_TO_INPUT: Record<Entry, string> = {
   createMacro: 'src/createMacro.tsx',
   createRelationship: 'src/createRelationship.tsx',
   snlGraph: 'src/snlGraph.tsx',
-  snoogl: 'src/snoogl.tsx'
+  snoogl: 'src/snoogl.tsx',
+  guiEditor: 'src/guiEditor.tsx'
 };
 
 const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';

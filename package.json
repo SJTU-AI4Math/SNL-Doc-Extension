@@ -61,6 +61,10 @@
         "title": "%snlDoc.command.openDashboard%"
       },
       {
+        "command": "snlDoc.openGuiEditor",
+        "title": "%snlDoc.command.openGuiEditor%"
+      },
+      {
         "command": "snlDoc.init",
         "title": "%snlDoc.command.init%"
       },
@@ -274,7 +278,7 @@
     "snl:rebuild": "node scripts/rebuild-snl-basics.mjs --force",
     "compile": "node scripts/rebuild-snl-basics.mjs && tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl",
+    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl && npm run build:webview:guiEditor",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:entryInfoview": "cross-env SNL_WEBVIEW_ENTRY=entryInfoview vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
@@ -290,6 +294,7 @@
     "build:webview:createRelationship": "cross-env SNL_WEBVIEW_ENTRY=createRelationship vite build --config webview/vite.config.ts",
     "build:webview:snlGraph": "cross-env SNL_WEBVIEW_ENTRY=snlGraph vite build --config webview/vite.config.ts",
     "build:webview:snoogl": "cross-env SNL_WEBVIEW_ENTRY=snoogl vite build --config webview/vite.config.ts",
+    "build:webview:guiEditor": "cross-env SNL_WEBVIEW_ENTRY=guiEditor vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "vitest run",

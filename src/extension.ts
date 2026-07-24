@@ -13,7 +13,6 @@ import { CreateMacroPanel } from './createMacroPanel';
 import { CreateRelationshipPanel } from './createRelationshipPanel';
 import { GraphPanel } from './graphPanel';
 import { SnoogLPanel } from './snooglPanel';
-import { GuiEditorPanel } from './guiEditorPanel';
 import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
@@ -358,13 +357,6 @@ export function activate(context: vscode.ExtensionContext): void {
     'snlDoc.openDashboard',
     () => {
       DashboardPanel.createOrShow(context.extensionUri);
-    }
-  );
-
-  const openGuiEditor = vscode.commands.registerCommand(
-    'snlDoc.openGuiEditor',
-    () => {
-      GuiEditorPanel.createOrShow(context.extensionUri);
     }
   );
 
@@ -721,7 +713,6 @@ export function activate(context: vscode.ExtensionContext): void {
     createLibrary,
     editLibrary,
     openDashboard,
-    openGuiEditor,
     initEntryKinds,
     createEntryKind,
     editEntryKind,

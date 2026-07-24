@@ -37,6 +37,5 @@
   "snlDoc.command.openInfoviewGraph": "SNL: Open Relationship Graph",
   "snlDoc.command.openInfoviewGraphForLibrary": "SNL: Open Relationship Graph (Library)",
   "snlDoc.command.regenerateDependencies": "SNL: Regenerate Dependency Relationships",
-  "snlDoc.command.openSnoogL": "SNL: Open SNoogL (Search)",
-  "snlDoc.command.openGuiEditor": "SNL: Open GUI Editor (Canvas)"
+  "snlDoc.command.openSnoogL": "SNL: Open SNoogL (Search)"
 }

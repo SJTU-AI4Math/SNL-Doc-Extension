@@ -218,7 +218,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
-  const [snlMode, setSnlMode] = useState<'text' | 'gui'>('text');
+  const [snlMode, setSnlMode] = useState<'text' | 'gui' | 'canvas'>('text');
   const [content, setContent] = useState<Record<ContentFormat, string>>({
     snl: '',
     typst: '',
@@ -743,6 +743,12 @@ export function CreateEntryApp(): React.ReactElement {
               >
                 GUI Editor (Inductive)
               </SubTabButton>
+              <SubTabButton
+                active={snlMode === 'canvas'}
+                onClick={() => setSnlMode('canvas')}
+              >
+                GUI Editor (Canvas)
+              </SubTabButton>
             </div>
           ) : null}
 
@@ -762,6 +768,8 @@ export function CreateEntryApp(): React.ReactElement {
                 setContent((prev) => ({ ...prev, snl: next }));
               }}
             />
+          ) : activeFormat === 'snl' && snlMode === 'canvas' ? (
+            <GuiCanvasEditor snl={content.snl} />
           ) : (
             <>
               <textarea
@@ -1047,6 +1055,52 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
     >
       {text}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GUI Editor (Canvas) — DOM/SVG canvas shell
+// ---------------------------------------------------------------------------
+
+function GuiCanvasEditor({ snl }: { snl: string }): React.ReactElement {
+  const parsed = React.useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
+  return (
+    <section
+      data-entry-gui-canvas
+      aria-label="GUI Editor canvas"
+      style={{
+        position: 'relative',
+        minHeight: '24rem',
+        overflow: 'hidden',
+        border: '1px solid var(--vscode-panel-border, #444)',
+        borderRadius: '6px',
+        backgroundColor: 'var(--vscode-editor-background)',
+        backgroundImage:
+          'radial-gradient(circle, var(--vscode-editorWidget-border, #555) 1px, transparent 1px)',
+        backgroundSize: '20px 20px'
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'grid',
+          placeItems: 'center',
+          padding: '1rem',
+          color: 'var(--vscode-descriptionForeground, #999)',
+          textAlign: 'center'
+        }}
+      >
+        <div>
+          <strong style={{ color: 'var(--vscode-foreground, #ddd)' }}>
+            GUI Editor (Canvas)
+          </strong>
+          <div style={{ marginTop: '0.35rem', fontSize: '0.85rem' }}>
+            DOM canvas shell ready · {parsed.ok ? 'SNL parsed' : 'waiting for valid SNL'}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

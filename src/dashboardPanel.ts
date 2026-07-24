@@ -173,9 +173,6 @@ export class DashboardPanel {
       case 'ready':
         await this.pushOverview();
         return;
-      case 'openGuiEditor':
-        await vscode.commands.executeCommand('snlDoc.openGuiEditor');
-        return;
       case 'createLibrary':
         await vscode.commands.executeCommand('snlDoc.createLibrary');
         return;

@@ -37,6 +37,5 @@
   "snlDoc.command.openInfoviewGraph": "SNL：打开关系图",
   "snlDoc.command.openInfoviewGraphForLibrary": "SNL：打开关系图（文档库）",
   "snlDoc.command.regenerateDependencies": "SNL：重新生成依赖关系",
-  "snlDoc.command.openSnoogL": "SNL：打开 SNoogL（搜索）",
-  "snlDoc.command.openGuiEditor": "SNL：打开 GUI 编辑器（画布）"
+  "snlDoc.command.openSnoogL": "SNL：打开 SNoogL（搜索）"
 }

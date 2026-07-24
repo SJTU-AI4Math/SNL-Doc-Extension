@@ -21,7 +21,7 @@ import {
   type EntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import type { KindPalette } from '@snl-basics/react';
+import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import type { MacroRecord } from './render/macroData';
 import {
   macroKindsToPalette,

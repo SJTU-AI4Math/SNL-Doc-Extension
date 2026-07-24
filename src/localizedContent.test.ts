@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { I18n } from '@snl-basics/react';
+import type { I18n } from '@sjtu-ai4math/snl-basics';
 import {
   localized_string_or_undefined,
   macro_template_variants,

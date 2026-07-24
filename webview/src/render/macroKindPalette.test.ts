@@ -1,4 +1,4 @@
-import { paletteToCss } from '@snl-basics/react';
+import { paletteToCss } from '@sjtu-ai4math/snl-basics';
 import { describe, expect, it } from 'vitest';
 import { macroKindsToPalette } from './macroKindPalette';
 

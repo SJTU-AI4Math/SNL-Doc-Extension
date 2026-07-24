@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Ensures the SNL-Basics submodule is initialized and built so
-// `@snl-basics/react` resolves. Run after `git clone` on any new machine.
+// `@sjtu-ai4math/snl-basics` resolves. Run after `git clone` on any new machine.
 
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'

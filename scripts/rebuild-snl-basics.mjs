@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Rebuilds the SNL-Basics submodule's `dist-lib/` when it's missing or stale.
 //
-// Why this exists: `@snl-basics/react` is consumed as a `file:` dependency
+// Why this exists: `@sjtu-ai4math/snl-basics` is consumed as a `file:` dependency
 // pointing at `external/SNL-Basics`. The artifact actually loaded is
 // `external/SNL-Basics/dist-lib/index.js`, a BUILD ARTIFACT produced by the
 // submodule's own `npm run build:lib` and `.gitignore`'d there. Pulling a new

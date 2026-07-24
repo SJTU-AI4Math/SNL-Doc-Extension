@@ -1,4 +1,4 @@
-import type { Localized, SnlMacro, SnlMacroStyle } from '@snl-basics/react';
+import type { Localized, SnlMacro, SnlMacroStyle } from '@sjtu-ai4math/snl-basics';
 
 /** Strict Macro v7 shape received from the host. */
 interface WireMacroStyleBase {

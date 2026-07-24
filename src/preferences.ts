@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ReaderRuntime } from '@snl-basics/react';
+import { ReaderRuntime } from '@sjtu-ai4math/snl-basics';
 import {
   resolve_color_scheme,
   resolve_language,

@@ -1,4 +1,4 @@
-import type { KindPalette } from '@snl-basics/react';
+import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 
 export interface MacroKindPaletteSource {
   id: string;

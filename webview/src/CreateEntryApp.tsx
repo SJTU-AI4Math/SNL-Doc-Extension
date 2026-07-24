@@ -16,14 +16,14 @@
 // "Entry 编辑器的 SNL parser 几乎等于没实装 ... 先把它做成能正常根据项目
 // 中已有的 Macro 来进行 Parse 和渲染的模式."
 //
-// GUI Editor (Inductive) wraps @snl-basics/react's SnlSyntaxTreeEditor with
+// GUI Editor (Inductive) wraps @sjtu-ai4math/snl-basics's SnlSyntaxTreeEditor with
 // a Add-child / Remove-node control layer, and syncs bidirectionally with
 // the SNL text via parse/serialize round-trips. 猫猫 spec 3: "把 SNL-Basics
 // 里的 Syntax Tree Editor 先给它搬过来，变成 GUI Editor (Inductive)".
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
-import '@snl-basics/react/style.css';
+import '@sjtu-ai4math/snl-basics/style.css';
 import {
   tryParseSnlSyntaxTree,
   createSnlSyntaxTreeNode,
@@ -37,7 +37,7 @@ import {
   type SnlSyntaxTree,
   type KindColoring,
   type KindPalette
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -1084,7 +1084,7 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 //      characters are the source of truth until we build proper inline
 //      editors.
 //
-// The `SnlSyntaxTreeEditor` from @snl-basics/react is no longer used here —
+// The `SnlSyntaxTreeEditor` from @sjtu-ai4math/snl-basics is no longer used here —
 // it renders its own recursion + a light-mode autocomplete dropdown that
 // clashed with the new row layout. Autocomplete can come back as a separate
 // enhancement later.
@@ -1406,7 +1406,7 @@ function parseOrDefault(text: string): SnlSyntaxTree {
 
 /**
  * Serialize a tree back to SNL source, preserving the surface syntax that
- * `serializeSnlSyntaxTree` from @snl-basics/react drops on the floor.
+ * `serializeSnlSyntaxTree` from @sjtu-ai4math/snl-basics drops on the floor.
  *
  * The library's serializer emits `name(children)` verbatim — it ignores
  * `env_mode`, `style`, and `kind='binder'`. That's fine when the tree came

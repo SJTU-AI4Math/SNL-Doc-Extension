@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSnlSyntaxTree } from '@snl-basics/react';
+import { parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import {
   buildEntryMetricContext,
   computeEntryMetrics,

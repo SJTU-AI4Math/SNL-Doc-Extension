@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { I18n } from '@snl-basics/react';
+import type { I18n } from '@sjtu-ai4math/snl-basics';
 import { merge_localized_projection } from './localizedDraft';
 
 const original: I18n<string, string> = {

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Localized } from '@snl-basics/react';
+import type { Localized } from '@sjtu-ai4math/snl-basics';
 import {
   macro_template_variants,
   normalize_entry_content,
@@ -643,7 +643,7 @@ export async function readMacroPackages(
 // ---------------------------------------------------------------------------
 
 /**
- * Extended, on-disk macro shape — a superset of `@snl-basics/react`'s
+ * Extended, on-disk macro shape — a superset of `@sjtu-ai4math/snl-basics`'s
  * render-only `SnlMacro` (0.4.0). It additionally carries the consumer-owned
  * output backends (typst / latex / markdown / text) that this extension writes
  * to disk. Renamed from `SnlMacro` to signal it is NOT the library type.
@@ -651,7 +651,7 @@ export async function readMacroPackages(
  * We keep a local copy so the extension host (which cannot import the React/ESM
  * package cleanly in a CommonJS `out/` build) and the smoke test share one
  * canonical shape. The webviews import the real render type from
- * `@snl-basics/react` for previews and keep their own extended copy for saves.
+ * `@sjtu-ai4math/snl-basics` for previews and keep their own extended copy for saves.
  */
 /**
  * One strict Macro v7 render style, extended with consumer-owned output
@@ -4286,7 +4286,7 @@ export async function deleteRelationship(
 // current depends-graph — a A→B edge is NOT atomic iff there is an
 // alternative path A→x1→…→xk→B of length ≥ 2 using only depends edges.
 //
-// SNL macro-name extraction: the parser lives in @snl-basics/react
+// SNL macro-name extraction: the parser lives in @sjtu-ai4math/snl-basics
 // (browser bundle, React-linked). Host code can't load it, so we run a
 // lightweight tokenizer that mirrors the parser's macro-identifier
 // recognition:

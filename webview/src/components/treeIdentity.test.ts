@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SnlSyntaxTree } from '@snl-basics/react';
+import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { ensureTreeIdentity, treeIdentity } from './treeIdentity';
 
 const node = (macro_name: string, children: SnlSyntaxTree[] = []): SnlSyntaxTree => ({ macro_name, kind: '', mdata: null, children });

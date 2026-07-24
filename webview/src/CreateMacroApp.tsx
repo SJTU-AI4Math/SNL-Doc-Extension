@@ -5,7 +5,7 @@
 // numbered placeholder boxes (via injected `_snl_arg_N` macros); non-empty
 // slots are parsed as SNL source and substituted as real subtrees.
 //
-// v6 schema (see snlDoc.ts / @snl-basics/react):
+// v6 schema (see snlDoc.ts / @sjtu-ai4math/snl-basics):
 //   - `mode` is 4 flat parallel values:
 //     formula_inline / formula_display / text / block
 //     (old `display` axis is folded into mode itself).
@@ -35,7 +35,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
-import '@snl-basics/react/style.css';
+import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
 import {
   tryParseSnlSyntaxTree,
@@ -49,7 +49,7 @@ import {
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type KindPalette
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 import {
   bundledMacros,
   createMacroDataDriver,

@@ -1,7 +1,7 @@
 import {
   read_localized,
   type Localized
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 import {
   use_preferences_revision,
   webview_language_runtime

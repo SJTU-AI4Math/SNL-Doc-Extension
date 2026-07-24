@@ -3,7 +3,7 @@ import { getVsCodeApi } from '../vscodeApi';
 import {
   ReaderRuntime,
   type LanguageEnvironment
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 
 interface WebviewPreferences {
   language: string;

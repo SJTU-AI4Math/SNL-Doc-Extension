@@ -13,7 +13,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
-import '@snl-basics/react/style.css';
+import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
 import {
   defaultRenderHooks,
@@ -25,7 +25,7 @@ import {
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type KindPalette
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 import {
   bundledMacros,
   createMacroDataDriver,

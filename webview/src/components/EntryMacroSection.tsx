@@ -1,5 +1,5 @@
 import React, { useId, useMemo, useState } from 'react';
-import { tryParseSnlSyntaxTree, type SnlSyntaxTree } from '@snl-basics/react';
+import { tryParseSnlSyntaxTree, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { Disclosure } from './Disclosure';
 import {
   MacroTable,

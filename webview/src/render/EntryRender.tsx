@@ -1,12 +1,12 @@
 // Thin VS Code adapter over SNL-Basics's canonical Entry renderer.
 // Presentation, content dispatch, title rendering, context-source resolution,
-// and SNL subtree behavior live in @snl-basics/react/entry. This module owns
+// and SNL subtree behavior live in @sjtu-ai4math/snl-basics/entry. This module owns
 // only host messages and the Extension's recursive-popover interaction policy.
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
-import '@snl-basics/react/style.css';
-import '@snl-basics/react/entry/style.css';
+import '@sjtu-ai4math/snl-basics/style.css';
+import '@sjtu-ai4math/snl-basics/entry/style.css';
 import {
   EntryDataDriver,
   EntrySurface as BasicsEntrySurface,
@@ -16,7 +16,7 @@ import {
   type KindPalette,
   type SnlInteractionContext,
   type SnlRenderHooks
-} from '@snl-basics/react/entry';
+} from '@sjtu-ai4math/snl-basics/entry';
 import {
   use_preferences_revision,
   webview_language_runtime

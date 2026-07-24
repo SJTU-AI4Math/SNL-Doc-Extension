@@ -12,7 +12,7 @@ import {
   type HoverPopoverApi,
   type KindPalette,
   type PopoverPhase
-} from '@snl-basics/react';
+} from '@sjtu-ai4math/snl-basics';
 import {
   EntrySurface,
   type EntryOption,

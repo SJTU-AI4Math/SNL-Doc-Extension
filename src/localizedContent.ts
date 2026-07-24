@@ -1,4 +1,4 @@
-import type { I18n, Localized } from '@snl-basics/react';
+import type { I18n, Localized } from '@sjtu-ai4math/snl-basics';
 
 function is_valid_i18n_string(value: unknown): value is I18n<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

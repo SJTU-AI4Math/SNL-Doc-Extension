@@ -721,7 +721,7 @@ async function main() {
     await fs.readFile(
       nodePath.resolve(
         process.cwd(),
-        'node_modules/@snl-basics/react/dist-lib/snl-macro-db.json'
+        'node_modules/@sjtu-ai4math/snl-basics/dist-lib/snl-macro-db.json'
       ),
       'utf8'
     )

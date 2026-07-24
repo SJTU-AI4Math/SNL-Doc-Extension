@@ -3,7 +3,7 @@
 A VS Code extension for SNL documentation with an Infoview webview panel.
 It provides commands to initialize SNL projects, create libraries, entry
 kinds and entries, and renders SNL content in React-based webview panels
-(Infoview / Dashboard) using the shared `@snl-basics/react` rendering
+(Infoview / Dashboard) using the shared `@sjtu-ai4math/snl-basics` rendering
 library.
 
 > _Screenshot placeholder — add an Infoview screenshot here._
@@ -24,7 +24,7 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 - [`react`](https://react.dev/) / `react-dom` (v19), [`katex`](https://katex.org/)
   for math rendering.
 - **[SNL-Basics](https://github.com/SJTU-AI4Math/SNL-Basics)** — the shared
-  SNL rendering library, consumed as `@snl-basics/react`. It is **vendored
+  SNL rendering library, consumed as `@sjtu-ai4math/snl-basics`. It is **vendored
   as a git submodule** at `external/SNL-Basics` and wired via
   `file:./external/SNL-Basics`, so a clone of this repo is self-contained and
   does not depend on a sibling checkout.
@@ -41,7 +41,7 @@ cd external/SNL-Basics && git checkout main && git pull && cd ../.. \
 
 This repo depends on [SNL-Basics](https://github.com/SJTU-AI4Math/SNL-Basics)
 (vendored as a git submodule at `external/SNL-Basics`). The
-`@snl-basics/react` dependency resolves via `file:./external/SNL-Basics`,
+`@sjtu-ai4math/snl-basics` dependency resolves via `file:./external/SNL-Basics`,
 which consumes the submodule's built `dist-lib/`.
 
 ### First-time clone
@@ -50,7 +50,7 @@ which consumes the submodule's built `dist-lib/`.
 git clone --recurse-submodules git@github-snl-doc:SJTU-AI4Math/SNL-Doc-Extension.git
 cd SNL-Doc-Extension
 npm run setup-snl    # installs deps + builds dist-lib for the submodule
-npm install          # now resolves @snl-basics/react correctly
+npm install          # now resolves @sjtu-ai4math/snl-basics correctly
 ```
 
 ### Or, if you cloned without --recurse-submodules
@@ -82,7 +82,7 @@ git commit -m "chore: bump SNL-Basics submodule to <new-commit>"
 
 ### The webview shows a stale library (macros look un-migrated)
 
-The `@snl-basics/react` dependency is a **`file:` dependency** pointing at the
+The `@sjtu-ai4math/snl-basics` dependency is a **`file:` dependency** pointing at the
 `external/SNL-Basics` submodule. The artifact actually loaded by the webview is
 `external/SNL-Basics/dist-lib/index.js` — a **build artifact** produced by the
 submodule's own `npm run build:lib`, and `.gitignore`'d inside the submodule.

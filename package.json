@@ -299,7 +299,7 @@
     "vscode:prepublish": "npm test && npm run compile && npm run build:webview"
   },
   "dependencies": {
-    "@snl-basics/react": "file:./external/SNL-Basics",
+    "@sjtu-ai4math/snl-basics": "file:./external/SNL-Basics",
     "katex": "^0.16.0",
     "react": "^19",
     "react-dom": "^19",

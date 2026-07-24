@@ -8,8 +8,15 @@ import { createCanvasHole } from './canvasForest';
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sjtu-ai4math/snl-basics')>();
   const ReactModule = await import('react');
-  const renderNode = (tree: SnlSyntaxTree, path: number[] = []): React.ReactElement =>
-    ReactModule.createElement(
+  const renderNode = (tree: SnlSyntaxTree, path: number[] = []): React.ReactElement => {
+    if (tree.macro_name === 'matrix') {
+      return ReactModule.createElement(
+        'section',
+        { key: path.join('.') || 'matrix-root', className: 'dynamic-shell' },
+        tree.children.map((child, index) => renderNode(child, [...path, index]))
+      );
+    }
+    return ReactModule.createElement(
       'div',
       {
         key: path.join('.') || 'root',
@@ -20,6 +27,7 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
       tree.macro_name,
       tree.children.map((child, index) => renderNode(child, [...path, index]))
     );
+  };
   return {
     ...actual,
     SnlSyntaxTreeView: ({ tree }: { tree: SnlSyntaxTree }) => renderNode(tree)
@@ -73,6 +81,24 @@ describe('GuiCanvasEditor', () => {
 
     const cellTarget = resolveCanvasPointerTarget(cell, block, tree, 110, 110);
     expect(cellTarget?.path).toEqual([0, 0]);
+  });
+
+  it('shows Tab selection feedback for a dynamic macro without its own wrapper', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('matrix', [node('cell')])])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'Tab' });
+    fireEvent.keyDown(canvas, { key: 'Tab' });
+    const shell = view.container.querySelector<HTMLElement>('.dynamic-shell')!;
+    await waitFor(() => expect(shell.classList.contains('snl-canvas-selected')).toBe(true));
   });
 
   it('moves the whole block from blank card space with grab cursor', async () => {
@@ -155,17 +181,56 @@ describe('GuiCanvasEditor', () => {
     const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
     Object.defineProperty(document, 'elementsFromPoint', {
       configurable: true,
-      value: () => [hole]
+      value: (x: number) => x >= 300 ? [hole] : []
     });
 
     fireEvent.pointerDown(blocks[1], { pointerId: 3, button: 0, clientX: 300, clientY: 200 });
     fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
     await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(true));
-    fireEvent.pointerUp(blocks[1], { pointerId: 3, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
 
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('detached');
     Reflect.deleteProperty(document, 'elementsFromPoint');
+  });
+
+  it('does not absorb from a stale hover target or pointercancel', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('root', [createCanvasHole(0)]),
+        node('detached')
+      ]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    let blocks = await waitFor(() => view.container.querySelectorAll<HTMLElement>('[data-canvas-root]'));
+    const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: (x: number) => x >= 300 ? [hole] : []
+    });
+
+    fireEvent.pointerDown(blocks[1], { pointerId: 4, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(blocks[1], { pointerId: 4, clientX: 320, clientY: 220 });
+    fireEvent.pointerUp(blocks[1], { pointerId: 4, clientX: 100, clientY: 100 });
+    expect(view.getByTestId('root-count').textContent).toBe('2');
+
+    blocks = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+    fireEvent.pointerDown(blocks[1], { pointerId: 5, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(blocks[1], { pointerId: 5, clientX: 320, clientY: 220 });
+    fireEvent.pointerCancel(blocks[1], { pointerId: 5, clientX: 320, clientY: 220 });
+    expect(view.getByTestId('root-count').textContent).toBe('2');
   });
 
   it('selects targets with Tab and edits a selected placeholder with F2/Enter', async () => {
@@ -188,6 +253,12 @@ describe('GuiCanvasEditor', () => {
     const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
     fireEvent.click(hole);
     const clickedInput = await waitFor(() => view.getByRole('textbox', { name: 'Edit SNL placeholder' }));
+    const editingBlock = view.container.querySelector<HTMLElement>('[data-canvas-root]')!;
+    const leftBeforeEditDrag = editingBlock.style.left;
+    fireEvent.pointerDown(editingBlock, { pointerId: 6, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(editingBlock, { pointerId: 6, clientX: 40, clientY: 40 });
+    fireEvent.pointerUp(editingBlock, { pointerId: 6, clientX: 40, clientY: 40 });
+    expect(editingBlock.style.left).toBe(leftBeforeEditDrag);
     fireEvent.keyDown(clickedInput, { key: 'Escape' });
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit SNL placeholder' })).toBeNull());
 
@@ -233,6 +304,8 @@ describe('GuiCanvasEditor', () => {
     child.getBoundingClientRect = () => new DOMRect(120, 80, 30, 20);
     const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
     canvas.getBoundingClientRect = () => new DOMRect(10, 10, 800, 500);
+    fireEvent.click(child);
+    await waitFor(() => expect(child.classList.contains('snl-canvas-selected')).toBe(true));
 
     fireEvent.pointerDown(child, {
       pointerId: 1,
@@ -252,5 +325,7 @@ describe('GuiCanvasEditor', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[1].style.left).toBe('130px');
     expect(blocks[1].style.top).toBe('90px');
+    const detachedRoot = blocks[1].querySelector<HTMLElement>('[data-tree-path=""]')!;
+    await waitFor(() => expect(detachedRoot.classList.contains('snl-canvas-selected')).toBe(true));
   });
 });

@@ -1262,7 +1262,6 @@ export function GuiCanvasEditor({
   const [dropTarget, setDropTarget] = React.useState<CanvasSelection | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const forestRef = React.useRef(forest);
-  const dropTargetRef = React.useRef<CanvasSelection | null>(null);
   const suppressClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
   forestRef.current = forest;
@@ -1282,7 +1281,6 @@ export function GuiCanvasEditor({
   }, [forest]);
 
   const updateDropTarget = (next: CanvasSelection | null): void => {
-    dropTargetRef.current = next;
     setDropTarget((previous) => sameCanvasTarget(previous, next) ? previous : next);
   };
 
@@ -1315,7 +1313,7 @@ export function GuiCanvasEditor({
     rootIndex: number,
     blockId: string
   ): void => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || editingHole) return;
     const resolved =
       resolveCanvasPointerTarget(
         event.target as HTMLElement,
@@ -1362,6 +1360,8 @@ export function GuiCanvasEditor({
     if (!drag.active) {
       drag.active = true;
       if (drag.path.length > 0) {
+        const sourceRootIndex = drag.rootIndex;
+        const sourcePath = [...drag.path];
         const nextForest = detachCanvasSubtree(
           forestRef.current,
           drag.rootIndex,
@@ -1376,6 +1376,15 @@ export function GuiCanvasEditor({
         const detachedId = treeIdentity(detached);
         drag.blockId = detachedId;
         drag.rootIndex = nextForest.length - 1;
+        if (
+          selected?.rootIndex === sourceRootIndex &&
+          sourcePath.every((part, index) => selected.path[index] === part)
+        ) {
+          setSelected({
+            rootIndex: drag.rootIndex,
+            path: selected.path.slice(sourcePath.length)
+          });
+        }
         forestRef.current = nextForest;
         onForestChange(nextForest);
       }
@@ -1397,7 +1406,9 @@ export function GuiCanvasEditor({
   const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const target = dropTargetRef.current;
+    const target = drag.active
+      ? findDropTarget(event.clientX, event.clientY, drag.rootIndex)
+      : null;
     if (drag.active && target) {
       const attached = attachCanvasRoot(
         forestRef.current,
@@ -1423,6 +1434,18 @@ export function GuiCanvasEditor({
     }
   };
 
+  const cancelPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    setDraggingBlockId(null);
+    updateDropTarget(null);
+    suppressClickRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   const elementForTarget = (target: CanvasSelection): HTMLElement | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -1431,9 +1454,29 @@ export function GuiCanvasEditor({
     );
     if (!block) return null;
     const encoded = target.path.join('.');
-    return Array.from(block.querySelectorAll<HTMLElement>('[data-tree-path]'))
-      .find((element) => (element.getAttribute('data-tree-path') ?? '') === encoded) ??
-      (target.path.length === 0 ? block : null);
+    const pathElements = Array.from(
+      block.querySelectorAll<HTMLElement>('[data-tree-path]')
+    );
+    const exact = pathElements.find(
+      (element) => (element.getAttribute('data-tree-path') ?? '') === encoded
+    );
+    if (exact) return exact;
+    if (target.path.length === 0) return block;
+
+    const prefix = `${encoded}.`;
+    const descendants = pathElements.filter((element) =>
+      (element.getAttribute('data-tree-path') ?? '').startsWith(prefix)
+    );
+    if (descendants.length === 0) return null;
+    let common = descendants[0].parentElement;
+    while (
+      common &&
+      common !== block &&
+      !descendants.every((element) => common!.contains(element))
+    ) {
+      common = common.parentElement;
+    }
+    return common && block.contains(common) ? common : null;
   };
 
   const startEditingHole = (target: CanvasSelection): void => {
@@ -1582,7 +1625,7 @@ export function GuiCanvasEditor({
               onPointerDownCapture={(event) => beginPointer(event, rootIndex, blockId)}
               onPointerMoveCapture={movePointer}
               onPointerUpCapture={endPointer}
-              onPointerCancelCapture={endPointer}
+              onPointerCancelCapture={cancelPointer}
               style={{
                 position: 'absolute',
                 left: position.x,

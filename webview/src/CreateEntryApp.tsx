@@ -24,6 +24,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
+import './entry-editor/canvas.css';
 import {
   tryParseSnlSyntaxTree,
   createSnlSyntaxTreeNode,
@@ -67,10 +68,12 @@ import {
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 import {
+  attachCanvasRoot,
   canPersistCanvasForest,
-  createCanvasHole,
   detachCanvasSubtree,
-  isCanvasHole
+  fillCanvasHole,
+  isCanvasHole,
+  listCanvasTargets
 } from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
@@ -791,7 +794,18 @@ export function CreateEntryApp(): React.ReactElement {
               forest={canvasForest}
               macroDataDriver={macroDataDriver}
               kindPalette={kindPalette}
-              onForestChange={setCanvasForest}
+              onForestChange={(nextForest) => {
+                setCanvasForest(nextForest);
+                if (canPersistCanvasForest(nextForest)) {
+                  const nextSnl = serializeTreePreserving(nextForest[0]);
+                  formDirtyRef.current = true;
+                  setContent((previous) =>
+                    previous.snl === nextSnl
+                      ? previous
+                      : { ...previous, snl: nextSnl }
+                  );
+                }
+              }}
               onResetFromSnl={() => {
                 const root = parseOrDefault(content.snl);
                 ensureTreeIdentity(root);
@@ -856,7 +870,7 @@ export function CreateEntryApp(): React.ReactElement {
         </div>
 
         {/* 7. Submit / Cancel ========================================= */}
-        {canvasForest.length > 1 ? (
+        {!canPersistCanvasForest(canvasForest) ? (
           <p
             role="alert"
             style={{
@@ -865,8 +879,8 @@ export function CreateEntryApp(): React.ReactElement {
               fontWeight: 600
             }}
           >
-            Save is disabled while the Canvas syntax tree has multiple Canvas roots.
-            Reset the Canvas or continue editing until one root remains.
+            Save is disabled while the Canvas syntax forest has multiple roots or
+            unresolved placeholders. Attach/fill them or reset the Canvas.
           </p>
         ) : null}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
@@ -1200,8 +1214,31 @@ interface CanvasPendingDrag {
   startClientX: number;
   startClientY: number;
   startPosition: CanvasBlockPosition;
-  hole: SnlSyntaxTree;
   active: boolean;
+}
+
+interface CanvasSelection {
+  rootIndex: number;
+  path: readonly number[];
+}
+
+interface CanvasHoleEditor extends CanvasSelection {
+  left: number;
+  top: number;
+  value: string;
+  error: string | null;
+}
+
+function sameCanvasTarget(
+  left: CanvasSelection | null,
+  right: CanvasSelection | null
+): boolean {
+  return Boolean(
+    left &&
+    right &&
+    left.rootIndex === right.rootIndex &&
+    left.path.join('.') === right.path.join('.')
+  );
 }
 
 export function GuiCanvasEditor({
@@ -1214,12 +1251,21 @@ export function GuiCanvasEditor({
   forest: SnlSyntaxTree[];
   macroDataDriver: MacroDataDriver;
   kindPalette: KindPalette | undefined;
-  onForestChange: React.Dispatch<React.SetStateAction<SnlSyntaxTree[]>>;
+  onForestChange: (next: SnlSyntaxTree[]) => void;
   onResetFromSnl: () => void;
 }): React.ReactElement {
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
+  const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<CanvasSelection | null>(null);
+  const [editingHole, setEditingHole] = React.useState<CanvasHoleEditor | null>(null);
+  const [dropTarget, setDropTarget] = React.useState<CanvasSelection | null>(null);
+  const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  const forestRef = React.useRef(forest);
+  const dropTargetRef = React.useRef<CanvasSelection | null>(null);
+  const suppressClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
+  forestRef.current = forest;
 
   React.useEffect(() => {
     setPositions((previous) => {
@@ -1234,6 +1280,35 @@ export function GuiCanvasEditor({
       return next;
     });
   }, [forest]);
+
+  const updateDropTarget = (next: CanvasSelection | null): void => {
+    dropTargetRef.current = next;
+    setDropTarget((previous) => sameCanvasTarget(previous, next) ? previous : next);
+  };
+
+  const findDropTarget = (
+    clientX: number,
+    clientY: number,
+    draggedRootIndex: number
+  ): CanvasSelection | null => {
+    if (typeof document.elementsFromPoint !== 'function') return null;
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const holeElement = (element as HTMLElement).closest<HTMLElement>(
+        '[data-kind="argPlaceholder"], .snlArgPlaceholder'
+      );
+      if (!holeElement) continue;
+      const pathElement = holeElement.closest<HTMLElement>('[data-tree-path]');
+      const block = holeElement.closest<HTMLElement>('[data-canvas-root-index]');
+      if (!pathElement || !block) continue;
+      const rootIndex = Number(block.dataset.canvasRootIndex);
+      if (!Number.isInteger(rootIndex) || rootIndex === draggedRootIndex) continue;
+      const encoded = pathElement.getAttribute('data-tree-path') ?? '';
+      const path = encoded ? encoded.split('.').map(Number) : [];
+      if (!isCanvasHole(getNodeAtPath(forestRef.current[rootIndex], encoded))) continue;
+      return { rootIndex, path };
+    }
+    return null;
+  };
 
   const beginPointer = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -1272,7 +1347,6 @@ export function GuiCanvasEditor({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition,
-      hole: createCanvasHole(resolved.rect.width, resolved.rect.height),
       active: false
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1289,12 +1363,11 @@ export function GuiCanvasEditor({
       drag.active = true;
       if (drag.path.length > 0) {
         const nextForest = detachCanvasSubtree(
-          forest,
+          forestRef.current,
           drag.rootIndex,
-          drag.path,
-          drag.hole
+          drag.path
         );
-        if (nextForest === forest) {
+        if (nextForest === forestRef.current) {
           dragRef.current = null;
           return;
         }
@@ -1302,8 +1375,11 @@ export function GuiCanvasEditor({
         ensureTreeIdentity(detached);
         const detachedId = treeIdentity(detached);
         drag.blockId = detachedId;
+        drag.rootIndex = nextForest.length - 1;
+        forestRef.current = nextForest;
         onForestChange(nextForest);
       }
+      suppressClickRef.current = true;
       setDraggingBlockId(drag.blockId);
     }
 
@@ -1315,22 +1391,163 @@ export function GuiCanvasEditor({
         y: drag.startPosition.y + dy
       }
     }));
+    updateDropTarget(findDropTarget(event.clientX, event.clientY, drag.rootIndex));
   };
 
   const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const target = dropTargetRef.current;
+    if (drag.active && target) {
+      const attached = attachCanvasRoot(
+        forestRef.current,
+        drag.rootIndex,
+        target.rootIndex,
+        target.path
+      );
+      if (attached !== forestRef.current) {
+        forestRef.current = attached;
+        onForestChange(attached);
+        setSelected(null);
+        setEditingHole(null);
+      }
+    }
     dragRef.current = null;
     setDraggingBlockId(null);
+    updateDropTarget(null);
+    if (drag.active) {
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
 
+  const elementForTarget = (target: CanvasSelection): HTMLElement | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const block = canvas.querySelector<HTMLElement>(
+      `[data-canvas-root-index="${target.rootIndex}"]`
+    );
+    if (!block) return null;
+    const encoded = target.path.join('.');
+    return Array.from(block.querySelectorAll<HTMLElement>('[data-tree-path]'))
+      .find((element) => (element.getAttribute('data-tree-path') ?? '') === encoded) ??
+      (target.path.length === 0 ? block : null);
+  };
+
+  const startEditingHole = (target: CanvasSelection): void => {
+    const node = getNodeAtPath(forestRef.current[target.rootIndex], target.path.join('.'));
+    if (!isCanvasHole(node)) return;
+    const element = elementForTarget(target);
+    const canvas = canvasRef.current;
+    if (!element || !canvas) return;
+    const rect = element.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    setSelected(target);
+    setEditingHole({
+      ...target,
+      left: rect.left - canvasRect.left + canvas.scrollLeft,
+      top: rect.top - canvasRect.top + canvas.scrollTop,
+      value: '',
+      error: null
+    });
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    const block = (event.target as HTMLElement).closest<HTMLElement>(
+      '[data-canvas-root-index]'
+    );
+    if (!block) return;
+    const rootIndex = Number(block.dataset.canvasRootIndex);
+    if (!Number.isInteger(rootIndex) || !forestRef.current[rootIndex]) return;
+    const resolved = resolveCanvasPointerTarget(
+      event.target as HTMLElement,
+      block,
+      forestRef.current[rootIndex],
+      event.clientX,
+      event.clientY
+    ) ?? { path: [], rect: block.getBoundingClientRect() };
+    const target = { rootIndex, path: resolved.path };
+    setSelected(target);
+    const node = getNodeAtPath(forestRef.current[rootIndex], resolved.path.join('.'));
+    if (isCanvasHole(node)) startEditingHole(target);
+  };
+
+  const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (editingHole) return;
+    if (event.key === 'Tab') {
+      const targets = listCanvasTargets(forestRef.current);
+      if (targets.length === 0) return;
+      event.preventDefault();
+      const currentIndex = targets.findIndex((target) => sameCanvasTarget(selected, target));
+      const delta = event.shiftKey ? -1 : 1;
+      const nextIndex = currentIndex < 0
+        ? (event.shiftKey ? targets.length - 1 : 0)
+        : (currentIndex + delta + targets.length) % targets.length;
+      const next = targets[nextIndex];
+      setSelected({ rootIndex: next.rootIndex, path: next.path });
+      return;
+    }
+    if (event.key === 'F2' && selected) {
+      event.preventDefault();
+      startEditingHole(selected);
+    }
+  };
+
+  const commitHoleEdit = (): void => {
+    if (!editingHole) return;
+    const parsed = tryParseSnlSyntaxTree(editingHole.value.trim());
+    if (!parsed.ok) {
+      setEditingHole((previous) => previous ? { ...previous, error: parsed.error } : null);
+      return;
+    }
+    ensureTreeIdentity(parsed.tree);
+    const next = fillCanvasHole(
+      forestRef.current,
+      editingHole.rootIndex,
+      editingHole.path,
+      parsed.tree
+    );
+    if (next === forestRef.current) return;
+    forestRef.current = next;
+    onForestChange(next);
+    setEditingHole(null);
+    window.setTimeout(() => canvasRef.current?.focus(), 0);
+  };
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const decorate = (): void => {
+      canvas.querySelectorAll('.snl-canvas-selected').forEach((element) =>
+        element.classList.remove('snl-canvas-selected')
+      );
+      canvas.querySelectorAll('.snl-canvas-drop-target').forEach((element) =>
+        element.classList.remove('snl-canvas-drop-target')
+      );
+      if (selected) elementForTarget(selected)?.classList.add('snl-canvas-selected');
+      if (dropTarget) elementForTarget(dropTarget)?.classList.add('snl-canvas-drop-target');
+    };
+    decorate();
+    const observer = new MutationObserver(decorate);
+    observer.observe(canvas, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [forest, selected, dropTarget]);
+
   return (
     <section>
       <div
+        ref={canvasRef}
         data-entry-gui-canvas
         aria-label="GUI Editor canvas"
+        tabIndex={0}
+        onClickCapture={handleCanvasClick}
+        onKeyDown={handleCanvasKeyDown}
         style={{
           position: 'relative',
           minHeight: '32rem',
@@ -1359,6 +1576,9 @@ export function GuiCanvasEditor({
             <div
               key={blockId}
               data-canvas-root={blockId}
+              data-canvas-root-index={rootIndex}
+              onPointerEnter={() => setHoveredBlockId(blockId)}
+              onPointerLeave={() => setHoveredBlockId((current) => current === blockId ? null : current)}
               onPointerDownCapture={(event) => beginPointer(event, rootIndex, blockId)}
               onPointerMoveCapture={movePointer}
               onPointerUpCapture={endPointer}
@@ -1367,12 +1587,15 @@ export function GuiCanvasEditor({
                 position: 'absolute',
                 left: position.x,
                 top: position.y,
-                minWidth: '15rem',
-                maxWidth: '34rem',
-                padding: '0.65rem',
+                display: 'inline-block',
+                width: 'max-content',
+                maxWidth: 'none',
+                padding: '0.3rem',
                 border: '1px solid var(--vscode-focusBorder, #007fd4)',
                 borderRadius: '5px',
-                background: 'var(--vscode-editorWidget-background, #252526)',
+                background: hoveredBlockId === blockId
+                  ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.08))'
+                  : 'var(--vscode-editorWidget-background, #252526)',
                 boxShadow: '0 3px 12px rgba(0,0,0,0.28)',
                 touchAction: 'none',
                 cursor: draggingBlockId === blockId ? 'grabbing' : 'grab',
@@ -1389,10 +1612,53 @@ export function GuiCanvasEditor({
             </div>
           );
         })}
+        {editingHole ? (
+          <input
+            autoFocus
+            className="snl-canvas-hole-input"
+            aria-label="Edit SNL placeholder"
+            value={editingHole.value}
+            onChange={(event) => setEditingHole({
+              ...editingHole,
+              value: event.target.value,
+              error: null
+            })}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitHoleEdit();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                setEditingHole(null);
+                window.setTimeout(() => canvasRef.current?.focus(), 0);
+              }
+            }}
+            title={editingHole.error ?? 'Enter SNL DSL and press Enter'}
+            style={{
+              position: 'absolute',
+              left: editingHole.left,
+              top: editingHole.top,
+              zIndex: 20,
+              borderColor: editingHole.error
+                ? 'var(--vscode-errorForeground, #f48771)'
+                : undefined
+            }}
+          />
+        ) : null}
       </div>
-      {forest.length > 1 ? (
+      {!canPersistCanvasForest(forest) ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.45rem' }}>
-          <Button variant="secondary" size="sm" onClick={onResetFromSnl}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setSelected(null);
+              setEditingHole(null);
+              updateDropTarget(null);
+              onResetFromSnl();
+            }}
+          >
             Reset Canvas from SNL
           </Button>
         </div>

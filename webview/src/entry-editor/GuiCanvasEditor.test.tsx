@@ -1,8 +1,9 @@
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { GuiCanvasEditor, resolveCanvasPointerTarget } from '../CreateEntryApp';
+import { createCanvasHole } from './canvasForest';
 
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sjtu-ai4math/snl-basics')>();
@@ -10,7 +11,12 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const renderNode = (tree: SnlSyntaxTree, path: number[] = []): React.ReactElement =>
     ReactModule.createElement(
       'div',
-      { key: path.join('.') || 'root', 'data-tree-path': path.join('.') },
+      {
+        key: path.join('.') || 'root',
+        'data-tree-path': path.join('.'),
+        'data-kind': tree.kind,
+        className: tree.kind === 'argPlaceholder' ? 'snlArgPlaceholder' : undefined
+      },
       tree.macro_name,
       tree.children.map((child, index) => renderNode(child, [...path, index]))
     );
@@ -37,6 +43,11 @@ beforeAll(() => {
     releasePointerCapture: { configurable: true, value: () => undefined },
     hasPointerCapture: { configurable: true, value: () => true }
   });
+});
+
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(document, 'elementsFromPoint');
 });
 
 afterAll(() => {
@@ -95,6 +106,105 @@ describe('GuiCanvasEditor', () => {
     fireEvent.pointerUp(block, { pointerId: 2, clientX: 30, clientY: 40 });
     await waitFor(() => expect(block.style.cursor).toBe('grab'));
     expect(view.container.querySelectorAll('[data-canvas-root]')).toHaveLength(1);
+  });
+
+  it('uses adaptive compact blocks and lightens them on hover', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    expect(block.style.width).toBe('max-content');
+    expect(block.style.minWidth).toBe('');
+    expect(block.style.padding).toBe('0.3rem');
+    const resting = block.style.background;
+    fireEvent.pointerEnter(block);
+    await waitFor(() => expect(block.style.background).not.toBe(resting));
+  });
+
+  it('absorbs a dragged root into a numbered placeholder', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('root', [createCanvasHole(0)]),
+        node('detached')
+      ]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const blocks = await waitFor(() => {
+      const found = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [hole]
+    });
+
+    fireEvent.pointerDown(blocks[1], { pointerId: 3, button: 0, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
+    await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(true));
+    fireEvent.pointerUp(blocks[1], { pointerId: 3, clientX: 100, clientY: 100 });
+
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('detached');
+    Reflect.deleteProperty(document, 'elementsFromPoint');
+  });
+
+  it('selects targets with Tab and edits a selected placeholder with F2/Enter', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('root', [createCanvasHole(0), node('tail')])
+      ]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
+    fireEvent.click(hole);
+    const clickedInput = await waitFor(() => view.getByRole('textbox', { name: 'Edit SNL placeholder' }));
+    fireEvent.keyDown(clickedInput, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit SNL placeholder' })).toBeNull());
+
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'Tab' });
+    const tail = view.container.querySelector<HTMLElement>('[data-tree-path="1"]')!;
+    await waitFor(() => expect(tail.classList.contains('snl-canvas-selected')).toBe(true));
+    fireEvent.keyDown(canvas, { key: 'Tab', shiftKey: true });
+    await waitFor(() => expect(hole.classList.contains('snl-canvas-selected')).toBe(true));
+
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit SNL placeholder' }));
+    fireEvent.change(input, { target: { value: 'foo(bar)' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit SNL placeholder' })).toBeNull());
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('foo');
   });
 
   it('detaches a dragged nested macro into a second root block', async () => {

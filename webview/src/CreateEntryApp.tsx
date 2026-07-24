@@ -27,6 +27,7 @@ import '@sjtu-ai4math/snl-basics/style.css';
 import {
   tryParseSnlSyntaxTree,
   createSnlSyntaxTreeNode,
+  SnlSyntaxTreeView,
   DEFAULT_KIND_PALETTE,
   read_localized,
   resolve_style_template,
@@ -65,6 +66,7 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
+import { canPersistCanvasForest, detachCanvasSubtree } from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   use_preferences_revision,
@@ -226,6 +228,16 @@ export function CreateEntryApp(): React.ReactElement {
     markdown: '',
     text: ''
   });
+  const [canvasForest, setCanvasForest] = useState<SnlSyntaxTree[]>(() => {
+    const root = createSnlSyntaxTreeNode('_snl_stub');
+    ensureTreeIdentity(root);
+    return [root];
+  });
+  useEffect(() => {
+    const root = parseOrDefault(content.snl);
+    ensureTreeIdentity(root);
+    setCanvasForest([root]);
+  }, [content.snl]);
   const [contentI18n, setContentI18n] = useState<
     Partial<Record<LocalizableContentFormat, I18n<string, string>>>
   >({});
@@ -427,6 +439,7 @@ export function CreateEntryApp(): React.ReactElement {
     trimmedId.length > 0 &&
     isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
+    canPersistCanvasForest(canvasForest) &&
     status.kind !== 'creating';
 
   function handleSubmit(): void {
@@ -769,7 +782,17 @@ export function CreateEntryApp(): React.ReactElement {
               }}
             />
           ) : activeFormat === 'snl' && snlMode === 'canvas' ? (
-            <GuiCanvasEditor snl={content.snl} />
+            <GuiCanvasEditor
+              forest={canvasForest}
+              macroDataDriver={macroDataDriver}
+              kindPalette={kindPalette}
+              onForestChange={setCanvasForest}
+              onResetFromSnl={() => {
+                const root = parseOrDefault(content.snl);
+                ensureTreeIdentity(root);
+                setCanvasForest([root]);
+              }}
+            />
           ) : (
             <>
               <textarea
@@ -828,6 +851,19 @@ export function CreateEntryApp(): React.ReactElement {
         </div>
 
         {/* 7. Submit / Cancel ========================================= */}
+        {canvasForest.length > 1 ? (
+          <p
+            role="alert"
+            style={{
+              margin: '0 0 0.65rem',
+              color: 'var(--vscode-editorWarning-foreground, #cca700)',
+              fontWeight: 600
+            }}
+          >
+            Update is disabled while the Canvas syntax tree has multiple Canvas roots.
+            Reset the Canvas or continue editing until one root remains.
+          </p>
+        ) : null}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
           <Button
             variant="primary"
@@ -1062,43 +1098,213 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 // GUI Editor (Canvas) — DOM/SVG canvas shell
 // ---------------------------------------------------------------------------
 
-function GuiCanvasEditor({ snl }: { snl: string }): React.ReactElement {
-  const parsed = React.useMemo(() => tryParseSnlSyntaxTree(snl), [snl]);
+interface CanvasBlockPosition {
+  x: number;
+  y: number;
+}
+
+interface CanvasPendingDrag {
+  pointerId: number;
+  rootIndex: number;
+  path: readonly number[];
+  blockId: string;
+  startClientX: number;
+  startClientY: number;
+  startPosition: CanvasBlockPosition;
+  active: boolean;
+}
+
+export function GuiCanvasEditor({
+  forest,
+  macroDataDriver,
+  kindPalette,
+  onForestChange,
+  onResetFromSnl
+}: {
+  forest: SnlSyntaxTree[];
+  macroDataDriver: MacroDataDriver;
+  kindPalette: KindPalette | undefined;
+  onForestChange: React.Dispatch<React.SetStateAction<SnlSyntaxTree[]>>;
+  onResetFromSnl: () => void;
+}): React.ReactElement {
+  const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
+  const dragRef = React.useRef<CanvasPendingDrag | null>(null);
+
+  React.useEffect(() => {
+    setPositions((previous) => {
+      const next: Record<string, CanvasBlockPosition> = {};
+      forest.forEach((root, index) => {
+        const id = treeIdentity(root);
+        next[id] = previous[id] ?? {
+          x: 24 + (index % 2) * 330,
+          y: 24 + Math.floor(index / 2) * 220
+        };
+      });
+      return next;
+    });
+  }, [forest]);
+
+  const beginPointer = (
+    event: React.PointerEvent<HTMLDivElement>,
+    rootIndex: number,
+    blockId: string
+  ): void => {
+    if (event.button !== 0) return;
+    const element = (event.target as HTMLElement).closest<HTMLElement>('[data-tree-path]');
+    if (!element || !event.currentTarget.contains(element)) return;
+    const encodedPath = element.getAttribute('data-tree-path') ?? '';
+    const path = encodedPath
+      ? encodedPath.split('.').map(Number).filter(Number.isInteger)
+      : [];
+    const startPosition = positions[blockId] ?? { x: 24, y: 24 };
+    dragRef.current = {
+      pointerId: event.pointerId,
+      rootIndex,
+      path,
+      blockId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startPosition,
+      active: false
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePointer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startClientX;
+    const dy = event.clientY - drag.startClientY;
+    if (!drag.active && Math.hypot(dx, dy) < 6) return;
+
+    if (!drag.active) {
+      drag.active = true;
+      if (drag.path.length > 0) {
+        const nextForest = detachCanvasSubtree(forest, drag.rootIndex, drag.path);
+        if (nextForest === forest) {
+          dragRef.current = null;
+          return;
+        }
+        const detached = nextForest[nextForest.length - 1];
+        ensureTreeIdentity(detached);
+        const detachedId = treeIdentity(detached);
+        drag.blockId = detachedId;
+        drag.startPosition = {
+          x: drag.startPosition.x + 72,
+          y: drag.startPosition.y + 72
+        };
+        onForestChange(nextForest);
+      }
+    }
+
+    event.preventDefault();
+    setPositions((previous) => ({
+      ...previous,
+      [drag.blockId]: {
+        x: drag.startPosition.x + dx,
+        y: drag.startPosition.y + dy
+      }
+    }));
+  };
+
+  const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
-    <section
-      data-entry-gui-canvas
-      aria-label="GUI Editor canvas"
-      style={{
-        position: 'relative',
-        minHeight: '24rem',
-        overflow: 'hidden',
-        border: '1px solid var(--vscode-panel-border, #444)',
-        borderRadius: '6px',
-        backgroundColor: 'var(--vscode-editor-background)',
-        backgroundImage:
-          'radial-gradient(circle, var(--vscode-editorWidget-border, #555) 1px, transparent 1px)',
-        backgroundSize: '20px 20px'
-      }}
-    >
+    <section>
       <div
         style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'grid',
-          placeItems: 'center',
-          padding: '1rem',
-          color: 'var(--vscode-descriptionForeground, #999)',
-          textAlign: 'center'
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '0.75rem',
+          marginBottom: '0.45rem'
         }}
       >
-        <div>
-          <strong style={{ color: 'var(--vscode-foreground, #ddd)' }}>
-            GUI Editor (Canvas)
-          </strong>
-          <div style={{ marginTop: '0.35rem', fontSize: '0.85rem' }}>
-            DOM canvas shell ready · {parsed.ok ? 'SNL parsed' : 'waiting for valid SNL'}
-          </div>
-        </div>
+        <span style={{ opacity: 0.72, fontSize: '0.82rem' }}>
+          {forest.length} root{forest.length === 1 ? '' : 's'} · drag a nested macro to detach it
+        </span>
+        {forest.length > 1 ? (
+          <Button variant="secondary" size="sm" onClick={onResetFromSnl}>
+            Reset Canvas from SNL
+          </Button>
+        ) : null}
+      </div>
+      <div
+        data-entry-gui-canvas
+        aria-label="GUI Editor canvas"
+        style={{
+          position: 'relative',
+          minHeight: '32rem',
+          overflow: 'auto',
+          border: '1px solid var(--vscode-panel-border, #444)',
+          borderRadius: '6px',
+          backgroundColor: 'var(--vscode-editor-background)',
+          backgroundImage:
+            'radial-gradient(circle, var(--vscode-editorWidget-border, #555) 1px, transparent 1px)',
+          backgroundSize: '20px 20px'
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            width: '1800px',
+            height: '1100px',
+            pointerEvents: 'none'
+          }}
+        />
+        {forest.map((root, rootIndex) => {
+          const blockId = treeIdentity(root);
+          const position = positions[blockId] ?? { x: 24, y: 24 };
+          return (
+            <div
+              key={blockId}
+              data-canvas-root={blockId}
+              onPointerDownCapture={(event) => beginPointer(event, rootIndex, blockId)}
+              onPointerMoveCapture={movePointer}
+              onPointerUpCapture={endPointer}
+              onPointerCancelCapture={endPointer}
+              style={{
+                position: 'absolute',
+                left: position.x,
+                top: position.y,
+                minWidth: '15rem',
+                maxWidth: '34rem',
+                padding: '0.65rem',
+                border: '1px solid var(--vscode-focusBorder, #007fd4)',
+                borderRadius: '5px',
+                background: 'var(--vscode-editorWidget-background, #252526)',
+                boxShadow: '0 3px 12px rgba(0,0,0,0.28)',
+                touchAction: 'none',
+                userSelect: dragRef.current?.active ? 'none' : undefined
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: '0.45rem',
+                  fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                  fontSize: '0.75rem',
+                  opacity: 0.65
+                }}
+              >
+                root {rootIndex + 1}: {root.macro_name || '(empty)'}
+              </div>
+              <SnlSyntaxTreeView
+                tree={root}
+                macro_data_driver={macroDataDriver}
+                reader_runtime={webview_language_runtime}
+                kindPalette={kindPalette}
+                hooks={{ renderTooltip: () => null }}
+              />
+            </div>
+          );
+        })}
       </div>
     </section>
   );

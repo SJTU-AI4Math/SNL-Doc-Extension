@@ -10,6 +10,8 @@ describe('GUI Editor (Canvas) placement', () => {
     expect(entryEditor).toContain('GUI Editor (Inductive)');
     expect(entryEditor).toContain('GUI Editor (Canvas)');
     expect(entryEditor).toContain("setSnlMode('canvas')");
+    expect(entryEditor).toContain('canPersistCanvasForest(canvasForest)');
+    expect(entryEditor).toContain('multiple Canvas roots');
   });
 
   it('is not exposed as a global Dashboard or command-palette panel', () => {

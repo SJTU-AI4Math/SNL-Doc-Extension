@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
-import { GuiCanvasEditor } from '../CreateEntryApp';
+import { GuiCanvasEditor, resolveCanvasPointerTarget } from '../CreateEntryApp';
 
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sjtu-ai4math/snl-basics')>();
@@ -46,6 +46,24 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('infers a missing dynamic-macro wrapper from descendant geometry', () => {
+    const tree = node('root', [node('matrix', [node('cell')])]);
+    const block = document.createElement('div');
+    block.dataset.treePath = '';
+    const shell = document.createElement('span');
+    const cell = document.createElement('span');
+    cell.dataset.treePath = '0.0';
+    cell.getBoundingClientRect = () => new DOMRect(100, 100, 40, 20);
+    shell.appendChild(cell);
+    block.appendChild(shell);
+
+    const shellTarget = resolveCanvasPointerTarget(shell, block, tree, 92, 110);
+    expect(shellTarget?.path).toEqual([0]);
+
+    const cellTarget = resolveCanvasPointerTarget(cell, block, tree, 110, 110);
+    expect(cellTarget?.path).toEqual([0, 0]);
+  });
+
   it('detaches a dragged nested macro into a second root block', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('root', [node('child')])]);
@@ -69,6 +87,9 @@ describe('GuiCanvasEditor', () => {
       expect(found).not.toBeNull();
       return found!;
     });
+    child.getBoundingClientRect = () => new DOMRect(120, 80, 30, 20);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(10, 10, 800, 500);
 
     fireEvent.pointerDown(child, {
       pointerId: 1,
@@ -84,6 +105,9 @@ describe('GuiCanvasEditor', () => {
     fireEvent.pointerUp(child, { pointerId: 1, clientX: 40, clientY: 40 });
 
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
-    expect(view.container.querySelectorAll('[data-canvas-root]')).toHaveLength(2);
+    const blocks = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].style.left).toBe('130px');
+    expect(blocks[1].style.top).toBe('90px');
   });
 });

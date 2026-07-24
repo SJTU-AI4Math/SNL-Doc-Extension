@@ -860,7 +860,7 @@ export function CreateEntryApp(): React.ReactElement {
               fontWeight: 600
             }}
           >
-            Update is disabled while the Canvas syntax tree has multiple Canvas roots.
+            Save is disabled while the Canvas syntax tree has multiple Canvas roots.
             Reset the Canvas or continue editing until one root remains.
           </p>
         ) : null}
@@ -1103,6 +1103,84 @@ interface CanvasBlockPosition {
   y: number;
 }
 
+interface CanvasPointerTarget {
+  path: readonly number[];
+  rect: DOMRect;
+}
+
+function canvasTreePaths(
+  tree: SnlSyntaxTree,
+  prefix: readonly number[] = []
+): Array<readonly number[]> {
+  return tree.children.flatMap((child, index) => {
+    const path = [...prefix, index];
+    return [path, ...canvasTreePaths(child, path)];
+  });
+}
+
+function unionRects(rects: readonly DOMRect[]): DOMRect | null {
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/**
+ * Resolve the rendered macro under the pointer. Most nodes have their own
+ * data-tree-path wrapper. Dynamic KaTeX environments cannot always carry that
+ * wrapper, so for those nodes we infer a padded hit box from all rendered
+ * descendants and prefer it over a shallower direct ancestor.
+ */
+export function resolveCanvasPointerTarget(
+  target: HTMLElement,
+  block: HTMLElement,
+  tree: SnlSyntaxTree,
+  clientX: number,
+  clientY: number
+): CanvasPointerTarget | null {
+  const directElement = target.closest<HTMLElement>('[data-tree-path]');
+  const directEncoded =
+    directElement && block.contains(directElement)
+      ? directElement.getAttribute('data-tree-path') ?? ''
+      : '';
+  const directPath = directEncoded
+    ? directEncoded.split('.').map(Number).filter(Number.isInteger)
+    : [];
+  let resolved: CanvasPointerTarget | null = directElement
+    ? { path: directPath, rect: directElement.getBoundingClientRect() }
+    : null;
+
+  const pathElements = Array.from(
+    block.querySelectorAll<HTMLElement>('[data-tree-path]')
+  );
+  for (const path of canvasTreePaths(tree)) {
+    if (path.length <= (resolved?.path.length ?? -1)) continue;
+    const encoded = path.join('.');
+    if (pathElements.some((element) => element.getAttribute('data-tree-path') === encoded)) {
+      continue;
+    }
+    const prefix = `${encoded}.`;
+    const descendantRects = pathElements
+      .filter((element) => (element.getAttribute('data-tree-path') ?? '').startsWith(prefix))
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 || rect.height > 0);
+    const union = unionRects(descendantRects);
+    if (!union) continue;
+    const padding = 18;
+    if (
+      clientX >= union.left - padding &&
+      clientX <= union.right + padding &&
+      clientY >= union.top - padding &&
+      clientY <= union.bottom + padding
+    ) {
+      resolved = { path, rect: union };
+    }
+  }
+  return resolved;
+}
+
 interface CanvasPendingDrag {
   pointerId: number;
   rootIndex: number;
@@ -1150,17 +1228,27 @@ export function GuiCanvasEditor({
     blockId: string
   ): void => {
     if (event.button !== 0) return;
-    const element = (event.target as HTMLElement).closest<HTMLElement>('[data-tree-path]');
-    if (!element || !event.currentTarget.contains(element)) return;
-    const encodedPath = element.getAttribute('data-tree-path') ?? '';
-    const path = encodedPath
-      ? encodedPath.split('.').map(Number).filter(Number.isInteger)
-      : [];
-    const startPosition = positions[blockId] ?? { x: 24, y: 24 };
+    const resolved = resolveCanvasPointerTarget(
+      event.target as HTMLElement,
+      event.currentTarget,
+      forest[rootIndex],
+      event.clientX,
+      event.clientY
+    );
+    if (!resolved) return;
+    const canvas = event.currentTarget.closest<HTMLElement>('[data-entry-gui-canvas]');
+    const canvasRect = canvas?.getBoundingClientRect();
+    const startPosition =
+      resolved.path.length > 0 && canvas && canvasRect
+        ? {
+            x: resolved.rect.left - canvasRect.left + canvas.scrollLeft,
+            y: resolved.rect.top - canvasRect.top + canvas.scrollTop
+          }
+        : positions[blockId] ?? { x: 24, y: 24 };
     dragRef.current = {
       pointerId: event.pointerId,
       rootIndex,
-      path,
+      path: resolved.path,
       blockId,
       startClientX: event.clientX,
       startClientY: event.clientY,
@@ -1189,10 +1277,6 @@ export function GuiCanvasEditor({
         ensureTreeIdentity(detached);
         const detachedId = treeIdentity(detached);
         drag.blockId = detachedId;
-        drag.startPosition = {
-          x: drag.startPosition.x + 72,
-          y: drag.startPosition.y + 72
-        };
         onForestChange(nextForest);
       }
     }

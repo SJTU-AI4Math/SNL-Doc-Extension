@@ -1,5 +1,6 @@
 // Tiny helpers shared by every SNL webview entry.
 import type React from 'react';
+import './components/ui.css';
 
 /** Minimal shape of the VS Code webview API we rely on. */
 export interface VsCodeApi {
@@ -28,5 +29,9 @@ export const PANEL_STYLE: React.CSSProperties = {
     'var(--vscode-font-family, system-ui, -apple-system, sans-serif)',
   color: 'var(--vscode-foreground, #ddd)',
   padding: '1.5rem',
-  lineHeight: 1.5
+  lineHeight: 1.5,
+  width: '100%',
+  maxWidth: 'none',
+  minWidth: 0,
+  boxSizing: 'border-box'
 };

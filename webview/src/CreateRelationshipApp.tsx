@@ -265,7 +265,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   }
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '48rem' }}>
+    <main style={PANEL_STYLE}>
       <PanelNav
         vsApi={apiRef.current}
         back={{

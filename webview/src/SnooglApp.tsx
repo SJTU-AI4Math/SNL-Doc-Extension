@@ -179,7 +179,7 @@ export function SnooglApp(): React.ReactElement {
           message: { type: 'nav.openDashboard' }
         }}
       />
-      <header style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
+      <header className="snl-responsive-row" style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
         <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNoogL</h1>
         <span style={{ opacity: 0.65, fontSize: '0.9rem' }}>
           Search across your workspace's entries and macros.
@@ -213,7 +213,7 @@ export function SnooglApp(): React.ReactElement {
         </div>
       ) : null}
 
-      <div style={{ display: 'flex', gap: '1rem', minHeight: '20rem' }}>
+      <div className="snl-responsive-sidebar-layout" style={{ gap: '1rem', minHeight: '20rem' }}>
         <FiltersRail
           mode={mode}
           filters={filters}
@@ -241,8 +241,8 @@ function SearchBar({
 }): React.ReactElement {
   return (
     <div
+      className="snl-responsive-search-bar"
       style={{
-        display: 'flex',
         alignItems: 'stretch',
         gap: '0.4rem'
       }}

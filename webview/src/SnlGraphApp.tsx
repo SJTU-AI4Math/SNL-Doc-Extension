@@ -766,7 +766,6 @@ function SnlGraphInner({
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
-        maxWidth: 'none',
         boxSizing: 'border-box'
       }}
     >

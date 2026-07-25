@@ -896,7 +896,7 @@ export function CreateMacroApp(): React.ReactElement {
 
   return (
     <main
-      style={{ ...PANEL_STYLE, maxWidth: '64rem' }}
+      style={PANEL_STYLE}
       onInputCapture={() => { formDirtyRef.current = true; }}
       onClickCapture={() => { formDirtyRef.current = true; }}
     >
@@ -911,9 +911,8 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Row 1: Name (1/4) | Kind (1/4) | Description (1/2) ------------- */}
       <div
+        className="snl-responsive-grid--macro-header"
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 2fr',
           gap: '0.75rem',
           marginBottom: '1rem'
         }}
@@ -1042,6 +1041,7 @@ export function CreateMacroApp(): React.ReactElement {
            Only under the KaTeX template tab; other backends show plain textarea. */}
       {showPreview ? (
         <div
+          className="snl-responsive-row"
           style={{
             display: 'flex',
             gap: '0.75rem',
@@ -1326,9 +1326,8 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Sources (moved to the bottom, above Submit) ------------------- */}
       <SectionHeader title="Sources" />
       <div
+        className="snl-responsive-grid--two"
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
           gap: '1rem',
           marginBottom: '1rem'
         }}
@@ -1963,6 +1962,7 @@ function DynamicArityTemplateRow({
   };
   return (
     <div
+      className="snl-responsive-row"
       style={{
         display: 'flex',
         gap: '0.5rem',

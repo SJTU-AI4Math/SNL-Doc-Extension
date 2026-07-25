@@ -171,7 +171,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
   }
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '34rem' }}>
+    <main style={PANEL_STYLE}>
       <PanelNav
         vsApi={apiRef.current}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}

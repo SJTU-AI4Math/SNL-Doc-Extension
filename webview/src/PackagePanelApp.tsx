@@ -417,7 +417,7 @@ export function PackagePanelApp(): React.ReactElement {
 
   if (model.kind === 'noFile') {
     return (
-      <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>
+      <main style={PANEL_STYLE}>
       <PanelNav
         vsApi={apiRef.current}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
@@ -434,7 +434,7 @@ export function PackagePanelApp(): React.ReactElement {
 
   if (model.kind === 'error') {
     return (
-      <main style={{ ...PANEL_STYLE, maxWidth: '40rem' }}>
+      <main style={PANEL_STYLE}>
       <PanelNav
         vsApi={apiRef.current}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
@@ -453,13 +453,14 @@ export function PackagePanelApp(): React.ReactElement {
   const selectMode = mode === 'multiselect';
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '58rem' }}>
+    <main style={PANEL_STYLE}>
       <PanelNav
         vsApi={apiRef.current}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
       {toast ? <ToastBanner toast={toast} onDismiss={() => setToast(null)} /> : null}
       <div
+        className="snl-responsive-row"
         style={{
           display: 'flex',
           alignItems: 'flex-start',

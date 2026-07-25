@@ -267,7 +267,7 @@ export function CreateLibraryApp(): React.ReactElement {
   };
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: mode === 'edit' ? '54rem' : '34rem' }}>
+    <main style={PANEL_STYLE}>
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this library in the Infoview. */}
       <PanelNav
@@ -301,6 +301,7 @@ export function CreateLibraryApp(): React.ReactElement {
         // "directory / display name" instead of a stacked pair of near-duplicate
         // fields (per cat 2026-07-06).
         <div
+          className="snl-responsive-row"
           style={{
             display: 'flex',
             gap: '0.75rem',

@@ -547,7 +547,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   return (
     <main
-      style={{ ...PANEL_STYLE, width: '100%', maxWidth: 'none', boxSizing: 'border-box' }}
+      style={PANEL_STYLE}
       onInputCapture={() => { formDirtyRef.current = true; }}
       onClickCapture={() => { formDirtyRef.current = true; }}
     >
@@ -1727,7 +1727,7 @@ export function GuiCanvasEditor({
         style={{
           position: 'relative',
           minHeight: '32rem',
-          overflow: 'auto',
+          overflow: 'visible',
           border: '1px solid var(--vscode-panel-border, #444)',
           borderRadius: '6px',
           backgroundColor: 'var(--vscode-editor-background)',
@@ -1736,15 +1736,6 @@ export function GuiCanvasEditor({
           backgroundSize: '20px 20px'
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            width: '1800px',
-            height: '1100px',
-            pointerEvents: 'none'
-          }}
-        />
         {forest.map((root, rootIndex) => {
           const blockId = treeIdentity(root);
           const position = positions[blockId] ?? { x: 24, y: 24 };
@@ -1767,7 +1758,7 @@ export function GuiCanvasEditor({
                 width: 'max-content',
                 maxWidth: `calc(100% - ${Math.max(0, position.x) + 8}px)`,
                 boxSizing: 'border-box',
-                overflowX: 'auto',
+                overflow: 'visible',
                 padding: '0.3rem',
                 border: '1px solid var(--vscode-focusBorder, #007fd4)',
                 borderRadius: '5px',

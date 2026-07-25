@@ -40,6 +40,41 @@
 .snl-empty-state__title { color:var(--vscode-foreground,#ddd); }
 .snl-empty-state__action { margin-top:.25rem; }
 
+/* Every webview panel owns all available width. Container queries let the
+   same markup adapt when VS Code docks the panel at roughly half width. */
+main { container-type:inline-size; }
+.snl-responsive-row { flex-wrap:wrap; }
+.snl-responsive-grid--macro-header {
+  display:grid;
+  grid-template-columns:minmax(12rem,1fr) minmax(12rem,1fr) minmax(18rem,2fr);
+}
+.snl-responsive-grid--two {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+.snl-responsive-sidebar-layout { display:flex; }
+.snl-responsive-search-bar { display:flex; }
+
+@container (max-width:52rem) {
+  .snl-responsive-grid--macro-header {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .snl-responsive-grid--macro-header > :last-child { grid-column:1 / -1; }
+}
+
+@container (max-width:38rem) {
+  .snl-responsive-grid--macro-header,
+  .snl-responsive-grid--two {
+    grid-template-columns:minmax(0,1fr);
+  }
+  .snl-responsive-grid--macro-header > :last-child { grid-column:auto; }
+  .snl-responsive-sidebar-layout { flex-direction:column; }
+  .snl-responsive-sidebar-layout > aside { width:auto !important; }
+  .snl-responsive-search-bar { flex-wrap:wrap; }
+  .snl-responsive-search-bar > :last-child { flex-basis:100%; }
+  .snl-responsive-row > * { min-width:min(100%,16rem); }
+}
+
 /* User-selected semantic appearance. VS Code variables remain available to
    controls, while the page surface follows the explicit preference. */
 html[data-snl-color-scheme='light'] { color-scheme:light; }

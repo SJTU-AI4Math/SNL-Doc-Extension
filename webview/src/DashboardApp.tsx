@@ -190,7 +190,7 @@ function NotInitialized({
   api: VsCodeApi | undefined;
 }): React.ReactElement {
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '36rem' }}>
+    <main style={PANEL_STYLE}>
       <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
         SNL Dashboard
       </h1>
@@ -231,8 +231,9 @@ function Initialized({
   const hasMacroKinds = overview.macroKinds.length > 0;
 
   return (
-    <main style={{ ...PANEL_STYLE, maxWidth: '62rem' }}>
+    <main style={PANEL_STYLE}>
       <div
+        className="snl-responsive-row"
         style={{
           display: 'flex',
           alignItems: 'flex-start',

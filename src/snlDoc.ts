@@ -1374,11 +1374,13 @@ export async function readAllMacrosWithOrigin(
   // two colliding packages (Feature 3 will make this actionable).
   const origin: Record<string, string> = {};
 
-  // Same ordering `readMacroPackages` produced, so "last write wins" keeps
-  // its historical, deterministic outcome.
+  // Sort on the FILE name, not the bare name, so "last write wins" resolves
+  // name collisions exactly as it did when this walked `readMacroPackages`
+  // output. The two orders differ: `core.json` sorts before `core-extra.json`,
+  // but bare `core-extra` sorts before `core`. Review 2026-07-25.
   const activePackages = onDisk
     .filter((bare) => activeSet.has(bare))
-    .sort((a, b) => a.localeCompare(b));
+    .sort((a, b) => `${a}.json`.localeCompare(`${b}.json`));
   // Read concurrently, then fold in that order regardless of which I/O
   // finished first.
   const loaded = await Promise.all(

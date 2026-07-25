@@ -670,7 +670,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const active = new Set(await resolveActiveMacroPackages(rootUri));
         const all = await readMacroPackages(rootUri);
         packages = all
-          .filter((p) => active.has(p.file))
+          // `active` holds BARE names; `p.file` carries `.json`, so comparing
+          // them directly never matched and this list was always empty.
+          .filter((p) => active.has(p.file.replace(/\.json$/i, '')))
           .map((p) => ({ file: p.file }));
       } catch (err) {
         void vscode.window.showErrorMessage(

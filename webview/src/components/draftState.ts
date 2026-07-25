@@ -3,18 +3,19 @@
 // Cat 2026-07-25: "点跳转离开页面就会整个页面重置，这样会丢失未保存的编辑内容"
 // and "在各个编辑 Panel 里，Ctrl + S 则相当于点 Update 按钮".
 //
-// Why the reset happens: every panel is created with
-// `retainContextWhenHidden: false` (see src/*Panel.ts and the
-// panelRetention.test.ts policy that keeps it that way — retaining a dozen
-// hidden KaTeX/graph webviews is expensive). VS Code therefore DESTROYS the
-// webview's DOM whenever the panel is hidden, and rebuilds it from scratch on
-// return. React state is gone with it; nothing in the panel was ever written
-// down, so the edits simply vanished.
+// Why the reset used to happen: panels were created with
+// `retainContextWhenHidden: false`, so VS Code DESTROYED the webview's DOM
+// whenever the panel was hidden and rebuilt it from scratch on return. React
+// state went with it, and nothing had been written down.
 //
-// The fix is not to flip that flag — the memory policy is deliberate. It is to
-// write the in-progress edits into the webview's own persisted state, which is
-// exactly what `getState`/`setState` are for: VS Code keeps that blob across
-// the teardown and hands it back on reload.
+// Cat 2026-07-25 flipped that policy to `retainContextWhenHidden: true` (see
+// src/panelRetention.test.ts), so a plain hide/show no longer resets anything.
+// This module STAYS: retention only survives hiding. A window reload, a VS
+// Code restart, or an extension-host crash still disposes the webview and
+// replays it from its persisted state — which is exactly the blob
+// `getState`/`setState` keep. It is also idempotent with a retained live
+// panel: while the panel is retained the hook simply keeps rewriting the same
+// draft and never reloads it, since the component never remounts.
 
 import { useEffect, useRef } from 'react';
 import type { VsCodeApi } from '../vscodeApi';

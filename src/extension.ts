@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
+import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled } from './trace';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
 import { InitMacroKindsPanel } from './initMacroKindsPanel';
@@ -17,6 +18,7 @@ import { initSnlDoc } from './snlDoc';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 import { initialize_preferences_host } from './preferencesHost';
+import { installSnlDocContextKey } from './snlDocContext';
 
 // TODO: import SNL_render from snl-script lib
 
@@ -89,6 +91,8 @@ async function runInit(): Promise<void> {
 
 export function activate(context: vscode.ExtensionContext): void {
   initialize_preferences_host(context);
+  // Drives the `when` clause of the editor-title 🐱 Dashboard button.
+  installSnlDocContextKey(context.subscriptions);
   const openInfoview = vscode.commands.registerCommand(
     'snlDoc.openInfoview',
     (initialLibrarySlug?: unknown) => {
@@ -359,6 +363,25 @@ export function activate(context: vscode.ExtensionContext): void {
       DashboardPanel.createOrShow(context.extensionUri);
     }
   );
+
+  // Panel timing diagnostics (cat 2026-07-25). Off by default; the command
+  // flips it for the session so you can capture one open without editing
+  // settings, and the config change listener keeps the two in sync.
+  refreshTraceEnabled();
+  const toggleTrace = vscode.commands.registerCommand(
+    'snlDoc.toggleTrace',
+    () => {
+      const now = setTraceEnabled(!isTraceEnabled());
+      void vscode.window.showInformationMessage(
+        now
+          ? 'SNL panel timing trace ON — open a panel, then check the "SNL Trace" output channel.'
+          : 'SNL panel timing trace OFF.'
+      );
+    }
+  );
+  const traceConfigWatcher = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration('snlDoc.trace')) refreshTraceEnabled();
+  });
 
   const initEntryKinds = vscode.commands.registerCommand(
     'snlDoc.initEntryKinds',
@@ -715,6 +738,8 @@ export function activate(context: vscode.ExtensionContext): void {
     createLibrary,
     editLibrary,
     openDashboard,
+    toggleTrace,
+    traceConfigWatcher,
     initEntryKinds,
     createEntryKind,
     editEntryKind,

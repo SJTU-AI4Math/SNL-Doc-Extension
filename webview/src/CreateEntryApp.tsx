@@ -45,6 +45,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
+import { traceFirstPaint, traceMark } from './runtime/trace';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { MacroIdInput } from './components/MacroIdInput';
@@ -304,9 +305,10 @@ export function CreateEntryApp(): React.ReactElement {
   }, []);
   /**
    * Which entry id the restored draft belongs to, or null when nothing was
-   * restored. Panels are created with `retainContextWhenHidden: false`, so
-   * navigating away destroys the DOM and React state with it — the draft
-   * stashed in webview state is what survives. See components/draftState.ts.
+   * restored. Panels now run with `retainContextWhenHidden: true`, so merely
+   * hiding the tab keeps React state alive; a window reload / VS Code restart
+   * still destroys it, and the draft stashed in webview state is what
+   * survives that. See components/draftState.ts.
    */
   const restoredDraftIdRef = useRef<string | null>(null);
   const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
@@ -341,6 +343,17 @@ export function CreateEntryApp(): React.ReactElement {
     contentDirtyRef.current.clear();
     languageRef.current = nextLanguage;
   }, [preferencesRevision]);
+
+  // Report the first painted frame exactly once, so the timeline ends at
+  // "the author can actually see the panel".
+  const paintReportedRef = useRef(false);
+  useEffect(() => {
+    if (!paintReportedRef.current) {
+      paintReportedRef.current = true;
+      traceMark('app-mounted');
+      traceFirstPaint();
+    }
+  }, []);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -383,6 +396,8 @@ export function CreateEntryApp(): React.ReactElement {
           });
           break;
         case 'context':
+          // The payload has arrived and is about to be applied to state.
+          traceMark('context-received');
           setMode(msg.mode);
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);

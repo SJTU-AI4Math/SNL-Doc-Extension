@@ -6,8 +6,10 @@ import './components/ui.css';
  * Minimal shape of the VS Code webview API we rely on.
  *
  * `getState`/`setState` are the webview's own persisted scratch space. They
- * survive the DOM being torn down while the panel is hidden, which is exactly
- * what happens under `retainContextWhenHidden: false`.
+ * survive the DOM being torn down. Since 2026-07-25 panels run with
+ * `retainContextWhenHidden: true`, so hiding no longer tears anything down —
+ * but a window reload / VS Code restart still does, and this is what carries
+ * an in-progress draft across it.
  */
 export interface VsCodeApi {
   postMessage(message: unknown): void;

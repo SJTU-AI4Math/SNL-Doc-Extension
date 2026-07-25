@@ -8,8 +8,7 @@ import {
   readLibraryCounters,
   readLibraryGraph,
   readMacroKinds,
-  readMacroPackage,
-  readMacroPackages,
+  readAllMacrosWithOrigin,
   readRelationships,
   resolveActiveMacroPackages,
   type EntryData,
@@ -142,7 +141,7 @@ export class InfoviewPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
@@ -185,7 +184,7 @@ export class InfoviewPanel {
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
@@ -549,7 +548,18 @@ export class InfoviewPanel {
       const displayTitle = lib?.title ?? slug;
       const description = lib?.description;
 
-      const graphResult = await readLibraryGraph(root, slug);
+      // Shared pool + kinds for entry / kind / counter resolution. These are
+      // independent files, so read them together rather than one after the
+      // other, and hand the pool to `readLibraryGraph` so it does not read
+      // `entries.json` a second time for its dangling-id check.
+      // Cat 2026-07-25: panels felt slow.
+      const [entryPool, kinds, counters] = await Promise.all([
+        readEntries(root),
+        readEntryKinds(root),
+        readLibraryCounters(root, slug)
+      ]);
+
+      const graphResult = await readLibraryGraph(root, slug, { entryPool });
       const warnings: string[] = [];
       let graph: LibraryGraph = { nodes: [], relationships: [] };
       if (graphResult.status === 'ok') {
@@ -559,10 +569,6 @@ export class InfoviewPanel {
         warnings.push(graphResult.message);
       }
 
-      // Shared pool + kinds for entry / kind / counter resolution.
-      const entryPool = await readEntries(root);
-      const kinds = await readEntryKinds(root);
-      const counters = await readLibraryCounters(root, slug);
       const entriesById = new Map<string, EntryData>();
       for (const e of entryPool) {
         entriesById.set(e.id, e);
@@ -892,7 +898,13 @@ export class InfoviewPanel {
       return;
     }
     try {
-      const entries = await readEntries(root);
+      // Both files are needed for a hit and are independent, so fetch them
+      // together instead of only starting `readEntryKinds` after the pool
+      // has arrived. Cat 2026-07-25: panels felt slow.
+      const [entries, kinds] = await Promise.all([
+        readEntries(root),
+        readEntryKinds(root)
+      ]);
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         // Cat 2026-07-10: cross-library hover should still resolve
@@ -907,7 +919,6 @@ export class InfoviewPanel {
         });
         return;
       }
-      const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
       void this.panel.webview.postMessage({
@@ -929,21 +940,14 @@ export class InfoviewPanel {
   private async findActiveMacroPackage(name: string): Promise<string | null> {
     const root = firstWorkspaceFolder();
     if (!root) return null;
-    const active = new Set(await resolveActiveMacroPackages(root));
-    const packages = await readMacroPackages(root);
-    let winner: string | null = null;
-    for (const summary of packages) {
-      const bare = summary.file.replace(/\.json$/i, '');
-      if (!active.has(bare)) continue;
-      const result = await readMacroPackage(root, bare);
-      if (
-        result.status === 'ok' &&
-        result.macros.some((macro) => macro.name === name)
-      ) {
-        winner = bare;
-      }
-    }
-    return winner;
+    // `readAllMacrosWithOrigin` already answers "which active package owns
+    // this macro name" from ONE concurrent walk. The old code re-derived it
+    // by parsing every package twice (once for the listing, once per file)
+    // and serially at that. The origin map resolves collisions by file-name
+    // order, which is exactly what this loop's last-write-wins did.
+    // Cat 2026-07-25: panels felt slow.
+    const { origin } = await readAllMacrosWithOrigin(root);
+    return origin[name] ?? null;
   }
 
   public dispose(): void {

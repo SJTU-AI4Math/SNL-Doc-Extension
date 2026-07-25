@@ -31,7 +31,7 @@ export class KindPanelController {
     const title = mode === 'edit' ? `SNL Edit ${descriptor.cap} Kind — ${id}` : `SNL Create ${descriptor.cap} Kind`;
     const panel = vscode.window.createWebviewPanel(descriptor.viewType, title, vscode.ViewColumn.Active, {
       enableScripts: true,
-      retainContextWhenHidden: false,
+      retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
     });
     instances.set(key, new KindPanelController(domain, mode, id, key, panel, extensionUri, title));

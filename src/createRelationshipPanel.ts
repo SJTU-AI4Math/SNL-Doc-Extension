@@ -73,7 +73,7 @@ export class CreateRelationshipPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

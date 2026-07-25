@@ -1284,6 +1284,21 @@ export async function readMacroPackage(
     };
   }
 
+  return buildMacroPackageResult(bare, raw);
+}
+
+/**
+ * Pure tail of {@link readMacroPackage}: turn already-read raw JSON into the
+ * normalized `{pkg, macros}` result. Split out so callers that need BOTH the
+ * raw-shaped `macroCount` and the normalized macro rows (the Dashboard) can
+ * read each package file exactly once instead of twice.
+ */
+function buildMacroPackageResult(
+  bare: string,
+  raw: unknown
+):
+  | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
+  | { status: 'error'; message: string } {
   let macros: MacroPackageEntry[];
   try {
     macros = normalizeMacros(raw);
@@ -1431,6 +1446,18 @@ export async function resolveActiveMacroPackages(
       .then((raw) => normalizeConfig(raw))
       .catch((): SnlConfig | null => null)
   ]);
+  return resolveActiveFromConfig(onDisk, cfg);
+}
+
+/**
+ * Pure core of {@link resolveActiveMacroPackages}. Split out so callers that
+ * have already read `config.json` and listed the packages on disk (the
+ * Dashboard) don't have to read either a second time.
+ */
+function resolveActiveFromConfig(
+  onDisk: string[],
+  cfg: SnlConfig | null
+): string[] {
   if (!cfg || cfg.active_macro_packages === undefined) {
     // Missing field: all packages on disk are active.
     return Array.from(new Set(onDisk)).sort((a, b) => a.localeCompare(b));
@@ -1791,75 +1818,119 @@ export async function readOverview(
     };
   }
 
-  const entries = await readEntries(workspaceRoot);
+  // Everything below is independent I/O, so it all starts at once. This used
+  // to run as four strictly-sequential stages (entries → config → libraries →
+  // macro packages), each of which itself awaited in a loop. Cat 2026-07-25:
+  // "所有 Dashboard 相关的基本都慢,具体 Library 的 Infoview 不慢" — the
+  // Dashboard is the hot path precisely because it fans out the widest.
+  const [entries, config, discovered, packageNames, relationships] =
+    await Promise.all([
+      readEntries(workspaceRoot),
+      readJson<unknown>(configUri(workspaceRoot))
+        .then((raw) => normalizeConfig(raw))
+        .catch((): SnlConfig | null => null),
+      // Discover libraries by scanning the on-disk `libraries/` tree (per cat
+      // 2026-07-06: config is no longer the source of truth). `listLibraries`
+      // reads each meta.json (falling back to the slug when missing) and
+      // hands us back {slug, title} pairs.
+      listLibraries(workspaceRoot),
+      // Names only — we read each package's bytes exactly once below and
+      // derive BOTH the summary (macroCount) and the macro rows from it.
+      listMacroPackageNames(workspaceRoot),
+      readRelationships(workspaceRoot)
+    ]);
   const totalEntryCount: number | null = entries.length;
 
-  let config: SnlConfig | null = null;
-  try {
-    config = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
-  } catch {
-    config = null;
-  }
-
-  // Discover libraries by scanning the on-disk `libraries/` tree (per cat
-  // 2026-07-06: config is no longer the source of truth). `listLibraries`
-  // reads each meta.json (falling back to the slug when missing) and hands
-  // us back {slug, title} pairs.
-  const discovered = await listLibraries(workspaceRoot);
-  const libraries: LibrarySummary[] = [];
-  for (const lib of discovered) {
-    const summary: LibrarySummary = {
-      slug: lib.slug,
-      title: lib.title,
-      entryCount: null,
-      relationshipCount: null
-    };
-    try {
-      const rel = await readJson<LibraryGraphFile>(
-        libraryGraphUri(workspaceRoot, lib.slug)
-      );
-      const nodes = Array.isArray(rel.nodes) ? rel.nodes : [];
-      const rels = Array.isArray(rel.relationships) ? rel.relationships : [];
-      summary.relationshipCount = rels.length;
-      // Count distinct Entry-labelled nodes (Sections/Counters don't
-      // contribute to "entries in this library"). See spec §2.
-      const ids = new Set<string>();
-      for (const n of nodes) {
-        if (!n || typeof n !== 'object') continue;
-        const label = (n as { label?: unknown }).label;
-        if (label !== 'Entry') continue;
-        const id = (n as { id?: unknown }).id;
-        if (typeof id === 'string') {
-          ids.add(id);
+  // Per-library counts. Concurrent, but the summaries are assembled in
+  // `discovered` order so the rendered table never depends on I/O timing.
+  // Best-effort: a library whose graph.json is missing or corrupt keeps both
+  // counts null (rendered as "—") instead of failing the whole Dashboard.
+  const libraries: LibrarySummary[] = await Promise.all(
+    discovered.map(async (lib): Promise<LibrarySummary> => {
+      const summary: LibrarySummary = {
+        slug: lib.slug,
+        title: lib.title,
+        entryCount: null,
+        relationshipCount: null
+      };
+      try {
+        const rel = await readJson<LibraryGraphFile>(
+          libraryGraphUri(workspaceRoot, lib.slug)
+        );
+        const nodes = Array.isArray(rel.nodes) ? rel.nodes : [];
+        const rels = Array.isArray(rel.relationships) ? rel.relationships : [];
+        summary.relationshipCount = rels.length;
+        // Count distinct Entry-labelled nodes (Sections/Counters don't
+        // contribute to "entries in this library"). See spec §2.
+        const ids = new Set<string>();
+        for (const n of nodes) {
+          if (!n || typeof n !== 'object') continue;
+          const label = (n as { label?: unknown }).label;
+          if (label !== 'Entry') continue;
+          const id = (n as { id?: unknown }).id;
+          if (typeof id === 'string') {
+            ids.add(id);
+          }
         }
+        summary.entryCount = ids.size;
+      } catch {
+        // Leave both null — the dashboard renders "—" for unknown.
       }
-      summary.entryCount = ids.size;
-    } catch {
-      // Leave both null — the dashboard renders "—" for unknown.
-    }
-    libraries.push(summary);
-  }
+      return summary;
+    })
+  );
 
-  const macroPackages = await readMacroPackages(workspaceRoot);
-  const activeList = await resolveActiveMacroPackages(workspaceRoot);
-  const activeSet = new Set(activeList);
-  for (const summary of macroPackages) {
-    summary.active = activeSet.has(stripJsonExt(summary.file));
-  }
+  // ONE read per macro package. The old code read every package twice: once
+  // through `readMacroPackages` (which parsed the file only to infer a
+  // macroCount) and once more through `readMacroPackage` for the actual macro
+  // rows. Both products come from the same bytes, so we take them together.
+  const loaded = await Promise.all(
+    packageNames.map(async (bare) => {
+      const file = `${bare}.json`;
+      try {
+        const raw = await readJson<unknown>(
+          macroPackageUri(workspaceRoot, bare)
+        );
+        return { file, raw, ok: true as const };
+      } catch {
+        // Unreadable / corrupt JSON: summary still appears with a null count,
+        // and it contributes no macros. Matches the old best-effort split of
+        // `readMacroPackages` + `readMacroPackage`.
+        return { file, raw: undefined, ok: false as const };
+      }
+    })
+  );
+  // Fold in FILE-name order regardless of which read settled first, so
+  // `macroPackages` ordering, `allMacros` ordering, and every last-write-wins
+  // resolution stay byte-identical to the serial version. Note file order and
+  // bare-name order genuinely differ: `core-extra.json` < `core.json`, but
+  // bare `core` < `core-extra`. Review 2026-07-25.
+  loaded.sort((a, b) => a.file.localeCompare(b.file));
+
+  const activeSet = new Set(
+    resolveActiveFromConfig(packageNames, config)
+  );
+  const macroPackages: MacroPackageSummary[] = loaded.map(({ file, raw, ok }) => ({
+    file,
+    macroCount: ok ? inferMacroCount(raw) : null,
+    active: activeSet.has(stripJsonExt(file))
+  }));
   const entryKinds: EntryKind[] = config?.entry_kinds ?? [];
   const macroKinds: MacroKind[] = config?.macro_kinds ?? [];
 
-  // SNoogL search index: one entry per macro across every package.
-  // Second per-package read is intentional — readMacroPackages only did
-  // structure-detection and count-inference, we now need actual macro
-  // rows. Cheap for our expected package counts.
+  // SNoogL search index: one entry per macro across every package. Built from
+  // the same bytes we already have in `loaded` — no second read.
   const allMacros: AllMacroIndexEntry[] = [];
   const metricMacroSources: Record<
     string,
     { source: { entries: string[]; urls: string[] } }
   > = {};
-  for (const summary of macroPackages) {
-    const read = await readMacroPackage(workspaceRoot, summary.file);
+  for (let i = 0; i < macroPackages.length; i += 1) {
+    const summary = macroPackages[i];
+    // `macroPackages` is `loaded.map(...)`, so the indices line up exactly.
+    const entry = loaded[i];
+    if (!entry.ok) continue;
+    const read = buildMacroPackageResult(stripJsonExt(summary.file), entry.raw);
     if (read.status !== 'ok') continue;
     for (const macro of read.macros) {
       if (typeof macro.name !== 'string' || macro.name.length === 0) continue;
@@ -1895,7 +1966,7 @@ export async function readOverview(
     metricMacroSources,
     entryKinds,
     macroKinds,
-    relationships: await readRelationships(workspaceRoot)
+    relationships
   };
 }
 
@@ -3380,6 +3451,23 @@ export interface LibraryEntry {
 export async function listLibraries(
   workspaceRoot: vscode.Uri
 ): Promise<LibraryEntry[]> {
+  const slugs = await listLibraryDirNames(workspaceRoot);
+  // Read the metas concurrently — they are independent files and the serial
+  // `await` in a loop was pure latency on every Dashboard open. The output
+  // order is re-established by the sort below, so it stays deterministic
+  // regardless of which read settles first.
+  // Cat 2026-07-25: "所有 Dashboard 相关的基本都慢".
+  const out = await Promise.all(
+    slugs.map((name) => readLibraryEntry(workspaceRoot, name))
+  );
+  out.sort((a, b) => a.slug.localeCompare(b.slug));
+  return out;
+}
+
+/** Directory names under `.SNL_Doc/libraries/`, without reading any file. */
+async function listLibraryDirNames(
+  workspaceRoot: vscode.Uri
+): Promise<string[]> {
   const fsApi = vscode.workspace.fs;
   const dir = librariesDirUri(workspaceRoot);
   if (!(await exists(dir))) {
@@ -3393,36 +3481,41 @@ export async function listLibraries(
     return [];
   }
 
-  const out: LibraryEntry[] = [];
-  for (const [name, type] of entries) {
-    if (type !== vscode.FileType.Directory) continue;
-    if (name.startsWith('.')) continue;
+  return entries
+    .filter(
+      ([name, type]) =>
+        type === vscode.FileType.Directory && !name.startsWith('.')
+    )
+    .map(([name]) => name);
+}
 
-    const summary: LibraryEntry = {
-      slug: name,
-      title: name, // fallback: slug becomes the display title
-      hasMeta: false
-    };
-    try {
-      const raw = await readJson<LibraryMetaFile>(
-        libraryMetaUri(workspaceRoot, name)
-      );
-      if (raw && typeof raw === 'object') {
-        summary.hasMeta = true;
-        if (typeof raw.title === 'string' && raw.title.trim().length > 0) {
-          summary.title = raw.title.trim();
-        }
-        if (typeof raw.description === 'string') {
-          summary.description = raw.description;
-        }
+/** One library summary, folding in `meta.json` best-effort. */
+async function readLibraryEntry(
+  workspaceRoot: vscode.Uri,
+  name: string
+): Promise<LibraryEntry> {
+  const summary: LibraryEntry = {
+    slug: name,
+    title: name, // fallback: slug becomes the display title
+    hasMeta: false
+  };
+  try {
+    const raw = await readJson<LibraryMetaFile>(
+      libraryMetaUri(workspaceRoot, name)
+    );
+    if (raw && typeof raw === 'object') {
+      summary.hasMeta = true;
+      if (typeof raw.title === 'string' && raw.title.trim().length > 0) {
+        summary.title = raw.title.trim();
       }
-    } catch {
-      // Missing / malformed meta.json → keep hasMeta:false, use slug as title.
+      if (typeof raw.description === 'string') {
+        summary.description = raw.description;
+      }
     }
-    out.push(summary);
+  } catch {
+    // Missing / malformed meta.json → keep hasMeta:false, use slug as title.
   }
-  out.sort((a, b) => a.slug.localeCompare(b.slug));
-  return out;
+  return summary;
 }
 
 /**
@@ -3525,6 +3618,23 @@ export interface ReadLibraryGraphResult {
 }
 
 /**
+ * Optional inputs for {@link readLibraryGraph}.
+ *
+ * `entryPool` lets a caller that has ALREADY read the shared pool hand it in
+ * so the dangling-entryId validation doesn't read `entries.json` a second
+ * time. Panels routinely need both the graph and the pool, and the hidden
+ * inner read doubled that file on every push.
+ * Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+ *
+ * Semantics are unchanged: when omitted the pool is read internally exactly
+ * as before, and a read failure still degrades to "skip entryId validation"
+ * rather than failing the graph read.
+ */
+export interface ReadLibraryGraphOptions {
+  entryPool?: EntryData[];
+}
+
+/**
  * Read `libraries/<slug>/graph.json` and normalize it into a well-typed
  * shape. Non-fatal issues (dangling `entryId`, malformed rows, unknown label
  * strings) are collected in `warnings` rather than aborting the read — see
@@ -3533,7 +3643,8 @@ export interface ReadLibraryGraphResult {
  */
 export async function readLibraryGraph(
   workspaceRoot: vscode.Uri,
-  slug: string
+  slug: string,
+  opts?: ReadLibraryGraphOptions
 ): Promise<
   | { status: 'ok'; result: ReadLibraryGraphResult }
   | { status: 'noFile' }
@@ -3580,10 +3691,11 @@ export async function readLibraryGraph(
   }
 
   // Cheap pre-index of the shared entry pool so dangling-entryId warnings
-  // can be computed in one read.
+  // can be computed in one read. When the caller already holds the pool it
+  // hands it in via `opts.entryPool`, saving a duplicate `entries.json` read.
   const knownEntryIds = new Set<string>();
   try {
-    const entries = await readEntries(workspaceRoot);
+    const entries = opts?.entryPool ?? (await readEntries(workspaceRoot));
     for (const e of entries) {
       if (e && typeof e.id === 'string') knownEntryIds.add(e.id);
     }

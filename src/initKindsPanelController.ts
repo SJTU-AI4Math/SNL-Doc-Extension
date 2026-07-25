@@ -26,7 +26,7 @@ export class InitKindsPanelController {
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );

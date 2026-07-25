@@ -11,7 +11,9 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:.SNL_Doc/config.json"
+  ],
   "contributes": {
     "commands": [
       {
@@ -58,7 +60,15 @@
       },
       {
         "command": "snlDoc.openDashboard",
-        "title": "%snlDoc.command.openDashboard%"
+        "title": "%snlDoc.command.openDashboard%",
+        "icon": {
+          "light": "media/icons/cat-light.svg",
+          "dark": "media/icons/cat-dark.svg"
+        }
+      },
+      {
+        "command": "snlDoc.toggleTrace",
+        "title": "SNL: Toggle Panel Timing Trace"
       },
       {
         "command": "snlDoc.init",
@@ -155,6 +165,13 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "snlDoc.openDashboard",
+          "group": "navigation@100",
+          "when": "snlDoc.hasSnlDoc"
+        }
+      ],
       "commandPalette": [
         {
           "command": "snlDoc.openEntryInfoview",
@@ -205,6 +222,12 @@
     "configuration": {
       "title": "%snlDoc.settings.title%",
       "properties": {
+        "snlDoc.trace": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Log millisecond-resolution panel open/render timings to the \"SNL Trace\" output channel. For diagnosing slow panels; off by default."
+        },
         "snlDoc.locale": {
           "type": "string",
           "enum": [

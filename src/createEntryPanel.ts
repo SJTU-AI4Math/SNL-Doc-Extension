@@ -15,6 +15,21 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
+import { startTrace, type Trace } from './trace';
+
+/**
+ * Rough serialized size of a context payload, for tracing only. The exact
+ * number does not matter; the order of magnitude does — this payload is
+ * structured-cloned to the webview on every push.
+ */
+function estimateSize(payload: unknown): string {
+  try {
+    const bytes = JSON.stringify(payload)?.length ?? 0;
+    return bytes > 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${bytes}B`;
+  } catch {
+    return 'unknown';
+  }
+}
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Entry editor panel.
@@ -50,6 +65,13 @@ export class CreateEntryPanel {
    */
   private seedId: string;
   private disposables: vscode.Disposable[] = [];
+  /**
+   * Trace for the in-flight open, handed down from `open()` so the panel's
+   * own stages land on one timeline. Cleared after the first context push.
+   */
+  private openTrace: Trace | undefined;
+  /** Trace still waiting on the webview's own mount/paint marks. */
+  private tracePending: Trace | undefined;
 
   public static createOrShow(
     extensionUri: vscode.Uri,
@@ -71,6 +93,9 @@ export class CreateEntryPanel {
     id: string,
     seedId: string
   ): void {
+    // Cat 2026-07-25: trace the whole open path with ms timings so we can
+    // see WHICH stage is slow instead of guessing. Off unless `snlDoc.trace`.
+    const trace = startTrace('entryPanel:open', `mode=${mode} id=${id || '-'}`);
     const column = vscode.ViewColumn.Active;
     // Key by mode+id only — a second `createEntry` invocation with a
     // different seed should reveal the same panel (not spawn another).
@@ -84,6 +109,8 @@ export class CreateEntryPanel {
       if (mode === 'create' && seedId) {
         existing.applySeedId(seedId);
       }
+      // The interesting case: a retained panel should be near-instant here.
+      trace.mark('reveal-existing');
       return;
     }
 
@@ -95,14 +122,15 @@ export class CreateEntryPanel {
       column,
       {
         enableScripts: true,
-        retainContextWhenHidden: false,
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    trace.mark('webview-created');
 
     CreateEntryPanel.instances.set(
       key,
-      new CreateEntryPanel(panel, extensionUri, mode, id, seedId)
+      new CreateEntryPanel(panel, extensionUri, mode, id, seedId, trace)
     );
   }
 
@@ -111,13 +139,15 @@ export class CreateEntryPanel {
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
     id: string,
-    seedId: string
+    seedId: string,
+    trace?: Trace
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.mode = mode;
     this.id = id;
     this.seedId = seedId;
+    this.openTrace = trace;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -125,6 +155,9 @@ export class CreateEntryPanel {
       'createEntry',
       mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry'
     );
+    // The webview now starts fetching + parsing its bundle on its own clock;
+    // `webview:*` marks below come back from inside it.
+    trace?.mark('html-set');
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),
@@ -138,21 +171,33 @@ export class CreateEntryPanel {
   }
 
   private async pushContext(): Promise<void> {
+    // Reuse the open trace for the first push; later pushes (watcher-driven
+    // refreshes) get their own so a slow refresh is visible too.
+    const trace = this.openTrace ?? startTrace('entryPanel:refresh');
+    this.openTrace = undefined;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({ type: 'kinds', kinds: [] });
       return;
     }
+    trace.mark('read:start');
     // These four reads are independent, so they run concurrently instead of
     // one-after-another — the serial awaits were pure added latency on every
     // panel open. `readAllMacrosWithOrigin` also replaces a SECOND full walk
     // of every macro package that used to rebuild `macroOrigin` by hand.
     // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+    // Each read is timed individually so a slow one is attributable; they
+    // still run concurrently, so the marks show completion order.
+    const timed = <T>(name: string, work: Promise<T>): Promise<T> =>
+      work.then((value) => {
+        trace.mark(`read:${name}`);
+        return value;
+      });
     const [kinds, macroBundle, macroKinds, allEntriesResult] = await Promise.all([
-      listEntryKinds(root),
-      readAllMacrosWithOrigin(root),
-      readMacroKinds(root),
-      readEntries(root).catch((): EntryData[] => [])
+      timed('entryKinds', listEntryKinds(root)),
+      timed('macros', readAllMacrosWithOrigin(root)),
+      timed('macroKinds', readMacroKinds(root)),
+      timed('entries', readEntries(root).catch((): EntryData[] => []))
     ]);
     const macros = macroBundle.macros;
     const macroOrigin = macroBundle.origin;
@@ -161,10 +206,15 @@ export class CreateEntryPanel {
     if (this.mode === 'edit') {
       existing = allEntries.find((e) => e && e.id === this.id) ?? null;
     }
+    trace.mark(
+      'read:done',
+      `macros=${Object.keys(macros).length} entries=${allEntries.length} ` +
+        `kinds=${kinds.length}`
+    );
     // Legacy `kinds` payload for backward compat with the current webview code;
     // `context` carries the same info plus mode + existing entry + macros.
     void this.panel.webview.postMessage({ type: 'kinds', kinds });
-    void this.panel.webview.postMessage({
+    const payload = {
       type: 'context',
       mode: this.mode,
       id: this.id || undefined,
@@ -175,7 +225,12 @@ export class CreateEntryPanel {
       macroOrigin,
       existing,
       existingIds: allEntries.map(toEntryOption)
-    });
+    };
+    void this.panel.webview.postMessage(payload);
+    // Payload size matters: everything here is structured-cloned across the
+    // extension/webview boundary, and the macro table dominates it.
+    trace.mark('context-posted', `payloadBytes≈${estimateSize(payload)}`);
+    this.tracePending = trace;
   }
 
   /**
@@ -192,6 +247,23 @@ export class CreateEntryPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    // Timing marks reported by the webview itself — mount, first paint —
+    // folded into the same timeline as the host stages so the whole open
+    // path reads top-to-bottom. Cat 2026-07-25.
+    const traceMsg = message as
+      | { type?: string; stage?: string; ms?: number }
+      | undefined;
+    if (traceMsg?.type === 'trace' && typeof traceMsg.stage === 'string') {
+      const trace = this.tracePending ?? this.openTrace;
+      trace?.mark(
+        `webview:${traceMsg.stage}`,
+        typeof traceMsg.ms === 'number'
+          ? `webviewClock=${traceMsg.ms.toFixed(1)}ms`
+          : undefined
+      );
+      if (traceMsg.stage === 'first-paint') this.tracePending = undefined;
+      return;
+    }
     // Nav messages (back to Dashboard / Infoview) MUST be intercepted
     // before any type-filter early-return below drops them silently.
     // Cat 2026-07-10 caught this on Edit Library; every save-oriented

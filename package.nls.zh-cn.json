@@ -37,5 +37,6 @@
   "snlDoc.command.openInfoviewGraph": "SNL：打开关系图",
   "snlDoc.command.openInfoviewGraphForLibrary": "SNL：打开关系图（文档库）",
   "snlDoc.command.regenerateDependencies": "SNL：重新生成依赖关系",
-  "snlDoc.command.openSnoogL": "SNL：打开 SNoogL（搜索）"
+  "snlDoc.command.openSnoogL": "SNL：打开 SNoogL（搜索）",
+  "snlDoc.command.toggleTrace": "SNL：开关面板计时跟踪"
 }

@@ -68,7 +68,7 @@
       },
       {
         "command": "snlDoc.toggleTrace",
-        "title": "SNL: Toggle Panel Timing Trace"
+        "title": "%snlDoc.command.toggleTrace%"
       },
       {
         "command": "snlDoc.init",

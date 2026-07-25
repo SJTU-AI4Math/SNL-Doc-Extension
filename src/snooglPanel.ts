@@ -8,6 +8,10 @@ import {
   type EntryData
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import {
+  createSnooglSearchDocument,
+  rankSnooglDocuments
+} from './snooglSearch';
 
 /**
  * SNoogL — SNL search panel (cat 2026-07-12).
@@ -27,10 +31,10 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './p
  *      | { type: 'results'; results: SnoogLHit[]; kindsByMode: {entry: string[]; macro: string[]} }
  *      | { type: 'error'; message: string }
  *
- * Ranking is deliberately simple for now (prefix > substring position >
- * alphabetical); we plan to swap in a real scorer once the filter set
- * grows. Each hit carries a numeric `score` so the webview can show
- * a bar / badge later without a shape change.
+ * Ranking is delegated to the shared SNoogL scorer: whitespace-delimited
+ * tokens are matched independently across namespace tail, labels/tags, and
+ * namespace middle segments with soft field weights, then combined with an
+ * AND gate and geometric mean. Each hit carries the resulting numeric score.
  */
 
 interface SnoogLFilters {
@@ -52,6 +56,7 @@ interface SnoogLHitMacro {
   packageFile: string;
   packageName: string;
   macroKind: string | null;
+  tags: string[];
   score: number;
 }
 
@@ -209,6 +214,7 @@ export class SnoogLPanel {
               packageFile: bare,
               packageName: read.pkg?.name ?? bare,
               macroKind: typeof m.kind === 'string' && m.kind ? m.kind : null,
+              tags: Array.isArray(m.tags) ? m.tags : [],
               score: 0
             });
           }
@@ -286,35 +292,23 @@ function rankEntries(
   q: string,
   filters: SnoogLFilters
 ): SnoogLHitEntry[] {
-  const out: SnoogLHitEntry[] = [];
-  for (const e of entries) {
-    if (filters.kindId && e.kind !== filters.kindId) continue;
-    const idLower = (e.id ?? '').toLowerCase();
-    const titleLower = (e.title ?? '').toLowerCase();
-    let score = 0;
-    if (q.length > 0) {
-      const idPos = idLower.indexOf(q);
-      const titlePos = titleLower.indexOf(q);
-      if (idPos < 0 && titlePos < 0) continue;
-      // Higher = better. Prefix on id wins hardest.
-      if (idPos === 0) score = 100;
-      else if (idPos > 0) score = 80 - Math.min(idPos, 40);
-      else if (titlePos === 0) score = 60;
-      else score = 40 - Math.min(titlePos, 40);
-    }
-    out.push({
+  const hits = entries
+    .filter((entry) => !filters.kindId || entry.kind === filters.kindId)
+    .map((entry): SnoogLHitEntry => ({
       kind: 'entry',
-      id: e.id ?? '',
-      title: e.title ?? '',
-      entryKind: e.kind ?? null,
-      score
-    });
-  }
-  out.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
-    return (a.id || '').localeCompare(b.id || '');
-  });
-  return out;
+      id: entry.id ?? '',
+      title: entry.title ?? '',
+      entryKind: entry.kind ?? null,
+      score: 0
+    }));
+  return rankSnooglDocuments(
+    q,
+    hits.map((hit) => createSnooglSearchDocument({
+      id: hit.id,
+      value: hit,
+      labels: hit.title ? [hit.title] : []
+    }))
+  ).map((result) => ({ ...result.value, score: result.score }));
 }
 
 function rankMacros(
@@ -322,22 +316,15 @@ function rankMacros(
   q: string,
   filters: SnoogLFilters
 ): SnoogLHitMacro[] {
-  const out: SnoogLHitMacro[] = [];
-  for (const m of macros) {
-    if (filters.kindId && m.macroKind !== filters.kindId) continue;
-    const idLower = m.id.toLowerCase();
-    let score = 0;
-    if (q.length > 0) {
-      const pos = idLower.indexOf(q);
-      if (pos < 0) continue;
-      if (pos === 0) score = 100;
-      else score = 80 - Math.min(pos, 40);
-    }
-    out.push({ ...m, score });
-  }
-  out.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
-    return a.id.localeCompare(b.id);
-  });
-  return out;
+  const filtered = macros.filter(
+    (macro) => !filters.kindId || macro.macroKind === filters.kindId
+  );
+  return rankSnooglDocuments(
+    q,
+    filtered.map((macro) => createSnooglSearchDocument({
+      id: macro.id,
+      value: macro,
+      labels: macro.tags
+    }))
+  ).map((result) => ({ ...result.value, score: result.score }));
 }

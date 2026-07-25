@@ -3,9 +3,18 @@ import React, {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState
 } from 'react';
+import {
+  createSnooglSearchDocument,
+  SnooglSearchIndex,
+  type SnooglSearchCandidate
+} from '../../../src/snooglSearch';
+
+const EMPTY_MACRO_IDS: readonly string[] = [];
+const EMPTY_MACRO_CANDIDATES: readonly SnooglSearchCandidate[] = [];
 
 export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'binder' | 'context';
 
@@ -65,6 +74,8 @@ interface MacroIdInputBaseProps {
   value: string;
   onChange: (value: string) => void;
   autoSize?: boolean;
+  macroCandidates?: readonly SnooglSearchCandidate[];
+  /** @deprecated Pass structured `macroCandidates` so SNoogL can search labels/tags. */
   macroIds?: readonly string[];
   /** Open the embedded SNoogL Macro picker as soon as this control mounts. */
   openSnooglOnMount?: boolean;
@@ -90,7 +101,8 @@ export const MacroIdInput = forwardRef<
     onChange,
     multiline = false,
     autoSize = false,
-    macroIds = [],
+    macroCandidates = EMPTY_MACRO_CANDIDATES,
+    macroIds = EMPTY_MACRO_IDS,
     openSnooglOnMount = false,
     style,
     className,
@@ -116,6 +128,17 @@ export const MacroIdInput = forwardRef<
     (props as React.InputHTMLAttributes<HTMLInputElement>).disabled
   );
   useImperativeHandle(forwardedRef, () => controlRef.current!, [multiline]);
+  const searchCandidates = useMemo(() => Array.from(new Map([
+    ...macroIds.map((id) => [id, { id, labels: [] }] as const),
+    ...macroCandidates.map((candidate) => [candidate.id, candidate] as const)
+  ]).values()), [macroIds, macroCandidates]);
+  const searchIndex = useMemo(() => new SnooglSearchIndex(
+    searchCandidates.map((candidate) => createSnooglSearchDocument({
+      id: candidate.id,
+      value: candidate,
+      labels: candidate.labels
+    }))
+  ), [searchCandidates]);
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
@@ -147,17 +170,15 @@ export const MacroIdInput = forwardRef<
 
   const suggestionsAt = (position: number): string[] => {
     const range = macroTokenRange(value, position);
-    const needle = value.slice(range.start, range.end).toLowerCase();
+    const needle = value.slice(range.start, range.end);
     return needle
-      ? Array.from(new Set(macroIds))
-          .filter((id) =>
-            id.toLowerCase().includes(needle) &&
-            id.toLowerCase() !== needle
-          )
+      ? searchIndex.search(needle)
+          .map((result) => result.value.id)
+          .filter((id) => id.toLowerCase() !== needle.toLowerCase())
           .slice(0, 8)
       : [];
   };
-  const suggestions = suggestionsAt(caretPosition);
+  const suggestions = suggestionsOpen ? suggestionsAt(caretPosition) : [];
 
   useEffect(() => {
     setHighlightedSuggestion((index) =>
@@ -165,9 +186,11 @@ export const MacroIdInput = forwardRef<
     );
   }, [suggestions.length]);
 
-  const snooglResults = Array.from(new Set(macroIds))
-    .filter((id) => id.toLowerCase().includes(snooglQuery.trim().toLowerCase()))
-    .slice(0, 30);
+  const snooglResults = snooglOpen
+    ? searchIndex.search(snooglQuery)
+        .map((result) => result.value.id)
+        .slice(0, 30)
+    : [];
 
   useEffect(() => {
     setSnooglSelection((index) =>
@@ -219,7 +242,9 @@ export const MacroIdInput = forwardRef<
       setSnooglOpen(true);
       return;
     }
-    const currentSuggestions = suggestionsAt(currentCaret);
+    const currentSuggestions = suggestionsOpen
+      ? (currentCaret === caretPosition ? suggestions : suggestionsAt(currentCaret))
+      : [];
     if (suggestionsOpen && currentSuggestions.length > 0) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();

@@ -300,6 +300,7 @@
   },
   "dependencies": {
     "@sjtu-ai4math/snl-basics": "file:./external/SNL-Basics",
+    "fuse.js": "^7.5.0",
     "katex": "^0.16.0",
     "react": "^19",
     "react-dom": "^19",

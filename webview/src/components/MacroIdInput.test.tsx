@@ -138,6 +138,27 @@ describe('MacroIdInput', () => {
     expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
   });
 
+  it('uses shared SNoogL multi-token and tag ranking in the embedded picker', () => {
+    const view = render(
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        macroCandidates={[
+          { id: 'FOL.forall', labels: ['quantifier'] },
+          { id: 'Other.forall', labels: [] }
+        ]}
+        aria-label="Ranked SNoogL Macro ID"
+      />
+    );
+    const input = view.getByRole('textbox', { name: 'Ranked SNoogL Macro ID' });
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.change(search, { target: { value: 'quantifier forall' } });
+
+    expect(view.getByRole('option', { name: 'FOL.forall' })).toBeTruthy();
+    expect(view.queryByRole('option', { name: 'Other.forall' })).toBeNull();
+  });
+
   it('does not open completion UI for a read-only Macro ID', () => {
     const view = render(
       <MacroIdInput

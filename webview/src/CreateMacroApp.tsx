@@ -71,6 +71,7 @@ import {
   use_preferences_revision,
   webview_language_runtime
 } from './runtime/preferencesRuntime';
+import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 
 // ---------------------------------------------------------------------------
 // Preview constants
@@ -301,7 +302,7 @@ interface ContextMsg {
   file: string;
   packageName: string;
   existingNames: string[];
-  macroIds?: string[];
+  macroCandidates?: SnooglSearchCandidate[];
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
   /**
@@ -409,7 +410,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [file, setFile] = useState('');
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
-  const [macroIds, setMacroIds] = useState<string[]>([]);
+  const [macroCandidates, setMacroCandidates] = useState<SnooglSearchCandidate[]>([]);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
@@ -578,7 +579,11 @@ export function CreateMacroApp(): React.ReactElement {
           setFile(msg.file);
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
-          setMacroIds(Array.isArray(msg.macroIds) ? msg.macroIds : msg.existingNames ?? []);
+          setMacroCandidates(
+            Array.isArray(msg.macroCandidates)
+              ? msg.macroCandidates
+              : (msg.existingNames ?? []).map((id) => ({ id, labels: [] }))
+          );
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'edit' && msg.existing) {
@@ -922,7 +927,7 @@ export function CreateMacroApp(): React.ReactElement {
           </label>
           <NameEditor
             value={name}
-            macroIds={macroIds}
+            macroCandidates={macroCandidates}
             onChange={setName}
             readOnly={panelMode === 'edit'}
             invalid={isDuplicate}
@@ -1460,7 +1465,7 @@ function joinDotted(segments: string[]): string {
 
 interface NameEditorProps {
   value: string;
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   onChange: (next: string) => void;
   readOnly?: boolean;
   invalid?: boolean;
@@ -1469,7 +1474,7 @@ interface NameEditorProps {
 
 export function NameEditor({
   value,
-  macroIds,
+  macroCandidates,
   onChange,
   readOnly,
   invalid,
@@ -1511,7 +1516,7 @@ export function NameEditor({
     return (
       <SingleNameInput
         value={value}
-        macroIds={macroIds}
+        macroCandidates={macroCandidates}
         onDraftChange={onChange}
         onCommit={(next) => {
           onChange(next);
@@ -1534,7 +1539,7 @@ export function NameEditor({
   return (
     <MultiNameEditor
       segments={segments}
-      macroIds={macroIds}
+      macroCandidates={macroCandidates}
       onCommitSegments={(next) => onChange(joinDotted(next))}
       onEditWholeId={
         readOnly
@@ -1558,7 +1563,7 @@ export function NameEditor({
  */
 function SingleNameInput({
   value,
-  macroIds,
+  macroCandidates,
   onDraftChange,
   onCommit,
   readOnly,
@@ -1566,7 +1571,7 @@ function SingleNameInput({
   title
 }: {
   value: string;
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   onDraftChange: (v: string) => void;
   onCommit: (v: string) => void;
   readOnly?: boolean;
@@ -1582,7 +1587,7 @@ function SingleNameInput({
     <MacroIdInput
       id="m-name"
       value={local}
-      macroIds={macroIds}
+      macroCandidates={macroCandidates}
       placeholder="e.g. Add.add"
       onChange={(next) => {
         setLocal(next);
@@ -1615,7 +1620,7 @@ function SingleNameInput({
 
 function MultiNameEditor({
   segments,
-  macroIds,
+  macroCandidates,
   onCommitSegments,
   onEditWholeId,
   readOnly,
@@ -1623,7 +1628,7 @@ function MultiNameEditor({
   readOnlyTitle
 }: {
   segments: string[];
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   onCommitSegments: (next: string[]) => void;
   /** If set, renders an "Edit whole ID" button beside the last chip. */
   onEditWholeId?: () => void;
@@ -1669,7 +1674,7 @@ function MultiNameEditor({
             <React.Fragment key={i}>
               <NameSegmentInput
                 value={seg}
-                macroIds={macroIds}
+                macroCandidates={macroCandidates}
                 isLast={isLast}
                 errored={errIdx === i}
                 invalidBorder={invalid && isLast}
@@ -1742,7 +1747,7 @@ function MultiNameEditor({
 
 function NameSegmentInput({
   value,
-  macroIds,
+  macroCandidates,
   isLast,
   errored,
   invalidBorder,
@@ -1752,7 +1757,7 @@ function NameSegmentInput({
   onFocus
 }: {
   value: string;
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   isLast: boolean;
   errored: boolean;
   invalidBorder?: boolean;
@@ -1775,7 +1780,7 @@ function NameSegmentInput({
   return (
     <MacroIdInput
       value={local}
-      macroIds={macroIds}
+      macroCandidates={macroCandidates}
       placeholder={isLast ? 'name' : 'namespace'}
       onChange={setLocal}
       onBlur={commit}

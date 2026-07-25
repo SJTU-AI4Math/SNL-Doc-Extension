@@ -85,6 +85,7 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
+import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -214,11 +215,19 @@ export function CreateEntryApp(): React.ReactElement {
     () => createMacroDataDriver(bundledMacros, userMacros),
     [userMacros]
   );
-  const macroIds = useMemo(
-    () => Array.from(new Set([
-      ...Object.keys(bundledMacros),
-      ...Object.keys(wireMacros)
-    ])).sort(),
+  const macroCandidates = useMemo(
+    () => {
+      const candidates = new Map<string, SnooglSearchCandidate>();
+      for (const [name, macro] of Object.entries(bundledMacros)) {
+        candidates.set(name, { id: name, labels: macro.tags ?? [] });
+      }
+      for (const [name, macro] of Object.entries(wireMacros)) {
+        candidates.set(name, { id: name, labels: macro.tags ?? [] });
+      }
+      return Array.from(candidates.values()).sort((left, right) =>
+        left.id.localeCompare(right.id)
+      );
+    },
     [wireMacros]
   );
 
@@ -791,7 +800,7 @@ export function CreateEntryApp(): React.ReactElement {
             <GuiInductiveEditor
               snl={content.snl}
               macroDataDriver={macroDataDriver}
-              macroIds={macroIds}
+              macroCandidates={macroCandidates}
               macroOrigin={macroOrigin}
               onOpenMacroEditor={(payload) =>
                 apiRef.current?.postMessage({
@@ -808,7 +817,7 @@ export function CreateEntryApp(): React.ReactElement {
             <GuiCanvasEditor
               forest={canvasForest}
               macroDataDriver={macroDataDriver}
-              macroIds={macroIds}
+              macroCandidates={macroCandidates}
               kindPalette={kindPalette}
               onForestChange={(nextForest) => {
                 setCanvasForest(nextForest);
@@ -1260,14 +1269,14 @@ function sameCanvasTarget(
 export function GuiCanvasEditor({
   forest,
   macroDataDriver,
-  macroIds = [],
+  macroCandidates = [],
   kindPalette,
   onForestChange,
   onResetFromSnl
 }: {
   forest: SnlSyntaxTree[];
   macroDataDriver: MacroDataDriver;
-  macroIds?: readonly string[];
+  macroCandidates?: readonly SnooglSearchCandidate[];
   kindPalette: KindPalette | undefined;
   onForestChange: (next: SnlSyntaxTree[]) => void;
   onResetFromSnl: () => void;
@@ -1791,7 +1800,7 @@ export function GuiCanvasEditor({
             autoFocus
             className="snl-canvas-node-input"
             aria-label="Edit focused SNL"
-            macroIds={macroIds}
+            macroCandidates={macroCandidates}
             value={editingNode.value}
             onChange={(value) => setEditingNode({
               ...editingNode,
@@ -1827,7 +1836,7 @@ export function GuiCanvasEditor({
             autoFocus
             openSnooglOnMount
             aria-label="Insert Canvas root Macro"
-            macroIds={macroIds}
+            macroCandidates={macroCandidates}
             value=""
             onChange={(value) => {
               const parsed = tryParseSnlSyntaxTree(value.trim());
@@ -2072,14 +2081,14 @@ interface MacroOpenRequest {
 function GuiInductiveEditor({
   snl,
   macroDataDriver,
-  macroIds,
+  macroCandidates,
   macroOrigin,
   onOpenMacroEditor,
   onChange
 }: {
   snl: string;
   macroDataDriver: MacroDataDriver;
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
@@ -2203,7 +2212,7 @@ function GuiInductiveEditor({
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDataDriver={macroDataDriver}
-        macroIds={macroIds}
+        macroCandidates={macroCandidates}
         macroOrigin={macroOrigin}
         onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
@@ -2423,7 +2432,7 @@ function InductiveNode({
   onChange,
   onDelete,
   macroDataDriver,
-  macroIds,
+  macroCandidates,
   macroOrigin,
   onOpenMacroEditor,
   collapsed,
@@ -2446,7 +2455,7 @@ function InductiveNode({
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
   macroDataDriver: MacroDataDriver;
-  macroIds: readonly string[];
+  macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
@@ -2629,7 +2638,7 @@ function InductiveNode({
         {/* Name input — dark-mode uniform styling + kind-colored frame. */}
         <MacroIdInput
           value={rawInput}
-          macroIds={macroIds}
+          macroCandidates={macroCandidates}
           onChange={commitRaw}
           placeholder={depth === 0 ? 'root macro' : 'name / $expr$ / %text% / @…'}
           spellCheck={false}
@@ -2849,7 +2858,7 @@ function InductiveNode({
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
                 macroDataDriver={macroDataDriver}
-                macroIds={macroIds}
+                macroCandidates={macroCandidates}
                 macroOrigin={macroOrigin}
                 onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}

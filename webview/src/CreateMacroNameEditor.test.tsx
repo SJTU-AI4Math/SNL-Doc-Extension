@@ -11,7 +11,7 @@ describe('Create Macro NameEditor draft synchronization', () => {
       const [value, setValue] = React.useState('');
       return (
         <>
-          <NameEditor value={value} macroIds={[]} onChange={setValue} />
+          <NameEditor value={value} macroCandidates={[]} onChange={setValue} />
           <output aria-label="Parent macro name">{value}</output>
         </>
       );

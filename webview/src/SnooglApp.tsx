@@ -37,6 +37,7 @@ interface HitMacro {
   packageFile: string;
   packageName: string;
   macroKind: string | null;
+  tags: string[];
   score: number;
 }
 

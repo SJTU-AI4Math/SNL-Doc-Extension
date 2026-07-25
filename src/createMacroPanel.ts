@@ -13,6 +13,7 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
+import type { SnooglSearchCandidate } from './snooglSearch';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -205,7 +206,7 @@ export class CreateMacroPanel {
         file: `${this.file}.json`,
         packageName: this.file,
         existingNames: [],
-        macroIds: [],
+        macroCandidates: [],
         macroKinds: [],
         existing: null,
         entries: [],
@@ -214,11 +215,13 @@ export class CreateMacroPanel {
       return;
     }
     const macroKinds: MacroKind[] = await readMacroKinds(root);
-    let macroIds: string[] = [];
+    let macroCandidates: SnooglSearchCandidate[] = [];
     try {
-      macroIds = Object.keys(await readAllMacros(root)).sort();
+      macroCandidates = Object.entries(await readAllMacros(root))
+        .map(([id, macro]) => ({ id, labels: macro.tags ?? [] }))
+        .sort((left, right) => left.id.localeCompare(right.id));
     } catch {
-      macroIds = [];
+      macroCandidates = [];
     }
     // Fetch shared entry pool for the source.entries picker. Failures
     // (missing entries.json, parse error) are non-fatal — we surface an
@@ -242,7 +245,7 @@ export class CreateMacroPanel {
         file: `${this.file}.json`,
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
-        macroIds,
+        macroCandidates,
         macroKinds,
         existing,
         entries,
@@ -257,7 +260,7 @@ export class CreateMacroPanel {
       file: `${this.file}.json`,
       packageName: this.file,
       existingNames: [],
-      macroIds,
+      macroCandidates,
       macroKinds,
       existing: null,
       entries,

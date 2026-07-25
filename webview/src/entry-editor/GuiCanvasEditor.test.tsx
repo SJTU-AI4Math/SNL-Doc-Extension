@@ -375,7 +375,7 @@ describe('GuiCanvasEditor', () => {
         <GuiCanvasEditor
           forest={forest}
           macroDataDriver={driver}
-          macroIds={['FOL.forall', 'Add.add']}
+          macroCandidates={[{ id: 'FOL.forall', labels: [] }, { id: 'Add.add', labels: [] }]}
           kindPalette={undefined}
           onForestChange={setForest}
           onResetFromSnl={() => undefined}
@@ -404,7 +404,7 @@ describe('GuiCanvasEditor', () => {
         <GuiCanvasEditor
           forest={forest}
           macroDataDriver={driver}
-          macroIds={['FOL.forall', 'Add.add']}
+          macroCandidates={[{ id: 'FOL.forall', labels: [] }, { id: 'Add.add', labels: [] }]}
           kindPalette={undefined}
           onForestChange={setForest}
           onResetFromSnl={() => undefined}

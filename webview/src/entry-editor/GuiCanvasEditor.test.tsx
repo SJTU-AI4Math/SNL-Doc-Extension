@@ -262,6 +262,32 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.container.querySelector('.snl-canvas-focused')).toBeNull());
   });
 
+  it('clears Focus when an external forest replacement removes its path', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('root', [node('branch', [node('leaf')])])
+      ]);
+      return (
+        <>
+          <button onClick={() => setForest([node('replacement')])}>replace forest</button>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const leaf = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')!);
+    fireEvent.click(leaf);
+    await waitFor(() => expect(leaf.classList.contains('snl-canvas-focused')).toBe(true));
+    fireEvent.click(view.getByRole('button', { name: 'replace forest' }));
+    await waitFor(() => expect(view.container.querySelector('.snl-canvas-focused')).toBeNull());
+  });
+
   it('edits any focused subtree and commits on outside click', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([
@@ -284,11 +310,23 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2' });
     const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     expect((input as HTMLTextAreaElement).value).toBe('branch(leaf)');
+    fireEvent.click(input);
+    expect(branch.classList.contains('snl-canvas-focused')).toBe(true);
+
+    fireEvent.change(input, { target: { value: '(' } });
+    fireEvent.pointerDown(canvas);
+    fireEvent.click(canvas);
+    expect(view.getByRole('textbox', { name: 'Edit focused SNL' })).toBe(input);
+    expect(branch.classList.contains('snl-canvas-focused')).toBe(true);
+
     fireEvent.change(input, { target: { value: 'new(child)' } });
     fireEvent.pointerDown(canvas);
+    fireEvent.click(canvas);
 
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
-    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
+    const newTarget = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    expect(newTarget.textContent).toContain('new');
+    expect(newTarget.classList.contains('snl-canvas-focused')).toBe(true);
 
     const replaced = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
     fireEvent.click(replaced);

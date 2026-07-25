@@ -1265,6 +1265,7 @@ export function GuiCanvasEditor({
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
+  const suppressCanvasClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
   forestRef.current = forest;
 
@@ -1280,6 +1281,19 @@ export function GuiCanvasEditor({
       });
       return next;
     });
+  }, [forest]);
+
+  React.useEffect(() => {
+    if (focused) {
+      const root = forest[focused.rootIndex];
+      if (!root || !getNodeAtPath(root, focused.path.join('.'))) {
+        setFocused(null);
+      }
+    }
+    // Any external forest replacement invalidates the source snapshot held by
+    // an open editor. Internal editor commits clear editingNode in the same
+    // state transition, so this only cancels genuinely stale overlays.
+    if (editingNode) setEditingNode(null);
   }, [forest]);
 
   const updateDropTarget = (next: CanvasFocus | null): void => {
@@ -1500,6 +1514,9 @@ export function GuiCanvasEditor({
   };
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const clickTarget = event.target as Node;
+    if (editorRef.current?.contains(clickTarget)) return;
+    if (suppressCanvasClickRef.current) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -1601,6 +1618,13 @@ export function GuiCanvasEditor({
     const commitOnOutsidePointer = (event: PointerEvent): void => {
       const target = event.target as Node | null;
       if (target && editorRef.current?.contains(target)) return;
+      suppressCanvasClickRef.current = true;
+      document.addEventListener('click', () => {
+        suppressCanvasClickRef.current = false;
+      }, { once: true });
+      document.addEventListener('pointerup', () => {
+        window.setTimeout(() => { suppressCanvasClickRef.current = false; }, 0);
+      }, { once: true });
       commitNodeEdit();
     };
     document.addEventListener('pointerdown', commitOnOutsidePointer, true);

@@ -5,15 +5,21 @@ import React, {
   useRef
 } from 'react';
 
-export interface MacroIdInputProps extends Omit<
-  React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'value' | 'onChange' | 'rows'
-> {
+interface MacroIdInputBaseProps {
   value: string;
   onChange: (value: string) => void;
-  multiline?: boolean;
   autoSize?: boolean;
 }
+
+export type MacroIdInputProps =
+  | (MacroIdInputBaseProps &
+      Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+        multiline?: false;
+      })
+  | (MacroIdInputBaseProps &
+      Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'rows'> & {
+        multiline: true;
+      });
 
 /** Shared Macro-ID / SNL typing surface used by structural Entry editors. */
 export const MacroIdInput = forwardRef<
@@ -45,14 +51,22 @@ export const MacroIdInput = forwardRef<
     if (!multiline || !autoSize) return;
     const textarea = controlRef.current as HTMLTextAreaElement | null;
     if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.max(textarea.scrollHeight, rows * 20 + 8)}px`;
+    const resize = (): void => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(textarea.scrollHeight, rows * 20 + 8)}px`;
+    };
+    resize();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(textarea);
+    return () => observer.disconnect();
   }, [value, multiline, autoSize, rows]);
 
   if (multiline) {
+    const textareaProps = props as unknown as React.TextareaHTMLAttributes<HTMLTextAreaElement>;
     return (
       <textarea
-        {...props}
+        {...textareaProps}
         ref={(element) => { controlRef.current = element; }}
         className={className}
         value={value}

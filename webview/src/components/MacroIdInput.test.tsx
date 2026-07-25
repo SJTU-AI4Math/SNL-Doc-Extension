@@ -15,7 +15,16 @@ describe('MacroIdInput', () => {
     expect(input.tagName).toBe('INPUT');
   });
 
-  it('supports an auto-sized multiline SNL editing mode', () => {
+  it('supports an auto-sized multiline SNL editing mode and resizes with width', () => {
+    const callbacks: { resize?: ResizeObserverCallback } = {};
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { callbacks.resize = callback; }
+      observe = observe;
+      disconnect = disconnect;
+      unobserve = vi.fn();
+    });
     const view = render(
       <MacroIdInput
         multiline
@@ -29,5 +38,12 @@ describe('MacroIdInput', () => {
     expect(textarea.tagName).toBe('TEXTAREA');
     expect(textarea.style.width).toContain('ch');
     expect(textarea.getAttribute('rows')).toBe('3');
+    expect(observe).toHaveBeenCalledWith(textarea);
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 160 });
+    callbacks.resize?.([], {} as ResizeObserver);
+    expect(textarea.style.height).toBe('160px');
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 });

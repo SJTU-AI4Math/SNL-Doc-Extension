@@ -72,9 +72,11 @@ import {
   attachCanvasRoot,
   canPersistCanvasForest,
   createCanvasHole,
+  deleteCanvasTarget,
   detachCanvasSubtree,
   isCanvasHole,
-  listCanvasTargets,
+  moveCanvasCursor,
+  reconcileCanvasArity,
   replaceCanvasTarget
 } from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
@@ -1203,22 +1205,32 @@ export function resolveCanvasPointerTarget(
   for (const path of canvasTreePaths(tree)) {
     if (path.length <= (resolved?.path.length ?? -1)) continue;
     const encoded = path.join('.');
-    if (pathElements.some((element) => element.getAttribute('data-tree-path') === encoded)) {
-      continue;
-    }
-    const prefix = `${encoded}.`;
-    const descendantRects = pathElements
-      .filter((element) => (element.getAttribute('data-tree-path') ?? '').startsWith(prefix))
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 || rect.height > 0);
-    const union = unionRects(descendantRects);
-    if (!union) continue;
-    const padding = 18;
+    const own = pathElements.find(
+      (element) => element.getAttribute('data-tree-path') === encoded
+    );
+    // Cat 2026-07-25: a node that has its own wrapper still competes here.
+    // `closest()` only walks DOM ancestors, so when KaTeX lays a deeper
+    // node's box under the pointer without making it a DOM ancestor of the
+    // hit target, the click used to fall back to a shallower node (often the
+    // root). Geometry decides, and deeper always wins.
+    const padding = own ? 0 : 18;
+    const baseRect = own
+      ? own.getBoundingClientRect()
+      : (() => {
+          const prefix = `${encoded}.`;
+          return unionRects(
+            pathElements
+              .filter((element) => (element.getAttribute('data-tree-path') ?? '').startsWith(prefix))
+              .map((element) => element.getBoundingClientRect())
+              .filter((rect) => rect.width > 0 || rect.height > 0)
+          );
+        })();
+    if (!baseRect || (baseRect.width === 0 && baseRect.height === 0)) continue;
     const hitRect = new DOMRect(
-      union.left - padding,
-      union.top - padding,
-      union.width + padding * 2,
-      union.height + padding * 2
+      baseRect.left - padding,
+      baseRect.top - padding,
+      baseRect.width + padding * 2,
+      baseRect.height + padding * 2
     );
     if (
       clientX >= hitRect.left &&
@@ -1339,7 +1351,34 @@ export function GuiCanvasEditor({
   const suppressCanvasClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
   const lastPointerTargetRef = React.useRef<CanvasFocus | null>(null);
+  // Local undo stack (Ctrl/Cmd+Z). Canvas edits are structural and easy to
+  // mis-aim, so every mutation pushes the pre-change forest before applying.
+  const undoStackRef = React.useRef<Array<{ forest: SnlSyntaxTree[]; focused: CanvasFocus | null }>>([]);
   forestRef.current = forest;
+
+  /** Apply a structural change, recording the previous state for undo. */
+  const applyForestChange = (
+    next: SnlSyntaxTree[],
+    nextFocused: CanvasFocus | null | undefined = undefined
+  ): boolean => {
+    if (next === forestRef.current) return false;
+    undoStackRef.current.push({ forest: forestRef.current, focused });
+    if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+    forestRef.current = next;
+    if (nextFocused !== undefined) setFocused(nextFocused);
+    onForestChange(next);
+    return true;
+  };
+
+  const undoForestChange = (): void => {
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+    forestRef.current = previous.forest;
+    setEditingNode(null);
+    setContextMenu(null);
+    setFocused(previous.focused);
+    onForestChange(previous.forest);
+  };
 
   React.useEffect(() => {
     setPositions((previous) => {
@@ -1512,8 +1551,10 @@ export function GuiCanvasEditor({
             path: focused.path.slice(sourcePath.length)
           });
         }
+        // Must run before forestRef is advanced: applyForestChange snapshots
+        // the current forest for undo.
+        applyForestChange(nextForest);
         forestRef.current = nextForest;
-        onForestChange(nextForest);
       }
       suppressClickRef.current = true;
       setDraggingBlockId(drag.blockId);
@@ -1561,10 +1602,14 @@ export function GuiCanvasEditor({
         target.path
       );
       if (attached !== forestRef.current) {
-        forestRef.current = attached;
-        onForestChange(attached);
-        setFocused(null);
         setEditingNode(null);
+        // One drag = one undo step. The detach half already snapshotted the
+        // pre-drag forest, so drop it and let the attach entry stand in.
+        const detachEntry = drag.path.length > 0 ? undoStackRef.current.pop() : undefined;
+        applyForestChange(attached, null);
+        if (detachEntry) {
+          undoStackRef.current[undoStackRef.current.length - 1] = detachEntry;
+        }
       }
     }
     dragRef.current = null;
@@ -1692,8 +1737,22 @@ export function GuiCanvasEditor({
     return Boolean(editorRef.current?.contains(node) || editorSurface?.contains(node));
   };
 
+  /**
+   * The context menu is rendered inside the canvas, so the canvas' own
+   * capture-phase click handler and the block pointer handlers would
+   * otherwise swallow or preventDefault its clicks — which is exactly why it
+   * felt dead. `data-canvas-menu` marks the menu subtree as off-limits.
+   *
+   * The click guard is defensive against capture-phase ordering: jsdom lets
+   * the menu item's onClick run even after the canvas clears the menu, so
+   * only the pointerdown path is observable in tests.
+   */
+  const insideContextMenu = (node: Node | null): boolean =>
+    Boolean(node && (node as HTMLElement).closest?.('[data-canvas-menu]'));
+
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (insideOpenEditor(event.target as Node)) return;
+    if (insideContextMenu(event.target as Node)) return;
     if (suppressCanvasClickRef.current) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -1716,6 +1775,7 @@ export function GuiCanvasEditor({
   /** Double click == click here + F2: edit this node's own macro. */
   const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (insideOpenEditor(event.target as Node)) return;
+    if (insideContextMenu(event.target as Node)) return;
     const target = targetForMouseEvent(event);
     if (!target) return;
     event.preventDefault();
@@ -1725,27 +1785,31 @@ export function GuiCanvasEditor({
 
   const handleCanvasContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (insideOpenEditor(event.target as Node)) return;
-    const target = targetForMouseEvent(event);
-    // The Canvas owns right click on its blocks; elsewhere the host menu wins.
-    if (!target) {
-      setContextMenu(null);
+    // The menu itself is inside the canvas; never re-open on top of itself.
+    if ((event.target as HTMLElement).closest('[data-canvas-menu]')) {
+      event.preventDefault();
       return;
     }
+    const target = targetForMouseEvent(event);
     event.preventDefault();
     event.stopPropagation();
     const canvas = canvasRef.current;
     const canvasRect = canvas?.getBoundingClientRect();
-    setFocused(target);
+    const left = canvas && canvasRect
+      ? event.clientX - canvasRect.left + canvas.scrollLeft
+      : event.clientX;
+    const top = canvas && canvasRect
+      ? event.clientY - canvasRect.top + canvas.scrollTop
+      : event.clientY;
     setEditingNode(null);
-    setContextMenu({
-      ...target,
-      left: canvas && canvasRect
-        ? event.clientX - canvasRect.left + canvas.scrollLeft
-        : event.clientX,
-      top: canvas && canvasRect
-        ? event.clientY - canvasRect.top + canvas.scrollTop
-        : event.clientY
-    });
+    // Blank canvas space gets its own menu whose only action adds a root.
+    if (!target) {
+      setFocused(null);
+      setContextMenu({ rootIndex: -1, path: [], left, top });
+      return;
+    }
+    setFocused(target);
+    setContextMenu({ ...target, left, top });
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -1768,17 +1832,34 @@ export function GuiCanvasEditor({
       setFocused(null);
       return;
     }
-    if (event.key === 'Tab') {
-      const targets = listCanvasTargets(forestRef.current);
-      if (targets.length === 0) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault();
-      const currentIndex = targets.findIndex((target) => sameCanvasTarget(focused, target));
-      const delta = event.shiftKey ? -1 : 1;
-      const nextIndex = currentIndex < 0
-        ? (event.shiftKey ? targets.length - 1 : 0)
-        : (currentIndex + delta + targets.length) % targets.length;
-      const next = targets[nextIndex];
-      setFocused({ rootIndex: next.rootIndex, path: next.path });
+      undoForestChange();
+      return;
+    }
+    // Cat 2026-07-25 navigation model:
+    //   Tab / ArrowRight        -> next sibling (roots cycle among roots)
+    //   Shift+Tab / ArrowLeft   -> previous sibling
+    //   Enter / ArrowDown       -> first child (no-op on a leaf)
+    //   Shift+Enter / ArrowUp   -> parent (no-op at a root)
+    const move =
+      event.key === 'Tab'
+        ? (event.shiftKey ? 'previous' : 'next')
+        : event.key === 'ArrowRight'
+          ? 'next'
+          : event.key === 'ArrowLeft'
+            ? 'previous'
+            : event.key === 'Enter'
+              ? (event.shiftKey ? 'parent' : 'child')
+              : event.key === 'ArrowDown'
+                ? 'child'
+                : event.key === 'ArrowUp'
+                  ? 'parent'
+                  : null;
+    if (move) {
+      event.preventDefault();
+      const next = moveCanvasCursor(forestRef.current, focused, move);
+      if (next) setFocused(next);
       return;
     }
     if (event.key === 'F2' && focused) {
@@ -1788,31 +1869,31 @@ export function GuiCanvasEditor({
       startEditingTarget(focused, event.ctrlKey || event.metaKey ? 'subtree' : 'macro');
       return;
     }
-    if (event.key === 'Enter' && focused) {
+    if ((event.key === 'Delete' || event.key === 'Backspace') && focused) {
       event.preventDefault();
-      if (event.shiftKey) {
-        if (focused.path.length > 0) {
-          setFocused({
-            rootIndex: focused.rootIndex,
-            path: focused.path.slice(0, -1)
-          });
-        }
-        return;
-      }
-      const node = getNodeAtPath(
-        forestRef.current[focused.rootIndex],
-        focused.path.join('.')
-      );
-      if (node?.children.length) {
-        setFocused({
-          rootIndex: focused.rootIndex,
-          path: [...focused.path, 0]
-        });
-      }
+      const next = deleteCanvasTarget(forestRef.current, focused.rootIndex, focused.path);
+      applyForestChange(next, null);
+      return;
     }
   };
 
-  const commitNodeEdit = (): void => {
+  /**
+   * Required child count for a Macro, or null when unknown / dynamic arity
+   * (in which case children are left exactly as they are).
+   */
+  const macroArityForName = async (macroName: string): Promise<number | null> => {
+    const name = macroName.trim();
+    if (!name) return null;
+    try {
+      const macro = await macroDataDriver.query_macro({ macro_name: name });
+      if (!macro || macro.dynamic_arity === true) return null;
+      return macroTemplateArity(macro);
+    } catch {
+      return null;
+    }
+  };
+
+  const commitNodeEdit = async (): Promise<void> => {
     if (!editingNode) return;
     const previousNode = getNodeAtPath(
       forestRef.current[editingNode.rootIndex],
@@ -1854,15 +1935,30 @@ export function GuiCanvasEditor({
       else ensureTreeIdentity(parsed.tree);
       replacement = parsed.tree;
     }
-    const next = replaceCanvasTarget(
+    const replaced = replaceCanvasTarget(
       forestRef.current,
       editingNode.rootIndex,
       editingNode.path,
       replacement
     );
-    if (next === forestRef.current) return;
-    forestRef.current = next;
-    onForestChange(next);
+    if (replaced === forestRef.current) return;
+    // Cat 2026-07-25: the new Macro's arity decides what happens to the old
+    // children — surplus subtrees pop out as their own root blocks, missing
+    // slots become empty placeholders the author fills in manually. Never
+    // swallow a subtree and never resurrect one.
+    const arity = await macroArityForName(replacement.macro_name);
+    const next = arity === null
+      ? replaced
+      : reconcileCanvasArity(
+          replaced,
+          editingNode.rootIndex,
+          editingNode.path,
+          arity,
+          // Evicted subtrees become their own blocks; they must keep a stable
+          // identity so their canvas position is preserved rather than reset.
+          ensureTreeIdentity
+        );
+    applyForestChange(next);
     setEditingNode(null);
     window.setTimeout(() => canvasRef.current?.focus(), 0);
   };
@@ -2000,6 +2096,7 @@ export function GuiCanvasEditor({
             autoFocus
             className="snl-canvas-node-input"
             aria-label="Edit focused SNL"
+            selectAllOnMount
             macroCandidates={macroCandidates}
             snooglInsertsMacroId={editingNode.scope === 'subtree'}
             value={editingNode.value}
@@ -2050,10 +2147,8 @@ export function GuiCanvasEditor({
               ensureTreeIdentity(parsed.tree);
               const next = [...forestRef.current, parsed.tree];
               const rootIndex = next.length - 1;
-              forestRef.current = next;
               setAddingRootFromMacro(false);
-              setFocused({ rootIndex, path: [] });
-              onForestChange(next);
+              applyForestChange(next, { rootIndex, path: [] });
               window.setTimeout(() => canvasRef.current?.focus(), 0);
             }}
             onKeyDown={(event) => {
@@ -2076,10 +2171,11 @@ export function GuiCanvasEditor({
         {contextMenu ? (
           <CanvasContextMenuView
             menu={contextMenu}
-            node={getNodeAtPath(
+            node={contextMenu.rootIndex < 0 ? undefined : getNodeAtPath(
               forestRef.current[contextMenu.rootIndex],
               contextMenu.path.join('.')
             )}
+            onAddRoot={() => setAddingRootFromMacro(true)}
             onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
             onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}
             onDetach={() => {
@@ -2090,28 +2186,16 @@ export function GuiCanvasEditor({
                 contextMenu.path
               );
               setContextMenu(null);
-              if (next === forestRef.current) return;
-              forestRef.current = next;
-              setFocused({ rootIndex: next.length - 1, path: [] });
-              onForestChange(next);
+              applyForestChange(next, { rootIndex: next.length - 1, path: [] });
             }}
-            onClear={() => {
-              const hole = createCanvasHole(
-                contextMenu.path.length > 0
-                  ? contextMenu.path[contextMenu.path.length - 1]
-                  : 0
-              );
-              const next = replaceCanvasTarget(
+            onDelete={() => {
+              const next = deleteCanvasTarget(
                 forestRef.current,
                 contextMenu.rootIndex,
-                contextMenu.path,
-                hole
+                contextMenu.path
               );
               setContextMenu(null);
-              if (next === forestRef.current) return;
-              forestRef.current = next;
-              setFocused(null);
-              onForestChange(next);
+              applyForestChange(next, null);
             }}
             onClose={() => setContextMenu(null)}
           />
@@ -2149,35 +2233,42 @@ export function GuiCanvasEditor({
 function CanvasContextMenuView({
   menu,
   node,
+  onAddRoot,
   onEditMacro,
   onEditSubtree,
   onDetach,
-  onClear,
+  onDelete,
   onClose
 }: {
   menu: CanvasContextMenu;
   node: SnlSyntaxTree | undefined;
+  onAddRoot: () => void;
   onEditMacro: () => void;
   onEditSubtree: () => void;
   onDetach: () => void;
-  onClear: () => void;
+  onDelete: () => void;
   onClose: () => void;
 }): React.ReactElement {
+  const onBlankSpace = menu.rootIndex < 0;
   const isRoot = menu.path.length === 0;
   const isHole = isCanvasHole(node);
-  const items: Array<{ label: string; hint?: string; disabled?: boolean; run: () => void }> = [
-    { label: 'Edit Macro', hint: 'F2', disabled: isHole, run: onEditMacro },
-    { label: 'Edit subtree as SNL', hint: 'Ctrl+F2', run: onEditSubtree },
-    {
-      label: 'Detach into its own block',
-      disabled: isRoot || isHole,
-      run: onDetach
-    },
-    { label: 'Clear to empty slot', disabled: isHole, run: onClear }
-  ];
+  const items: Array<{ label: string; hint?: string; disabled?: boolean; run: () => void }> =
+    onBlankSpace
+      ? [{ label: 'Add root Macro', hint: 'Ctrl+F', run: onAddRoot }]
+      : [
+          { label: 'Edit Macro', hint: 'F2', disabled: isHole, run: onEditMacro },
+          { label: 'Edit subtree as SNL', hint: 'Ctrl+F2', run: onEditSubtree },
+          {
+            label: 'Detach into its own block',
+            disabled: isRoot || isHole,
+            run: onDetach
+          },
+          { label: 'Delete', hint: 'Del', disabled: isHole, run: onDelete }
+        ];
   return (
     <div
       role="menu"
+      data-canvas-menu
       aria-label="Canvas block actions"
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}

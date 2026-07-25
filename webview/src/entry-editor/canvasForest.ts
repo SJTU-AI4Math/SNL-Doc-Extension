@@ -198,6 +198,133 @@ function hasCanvasHole(node: SnlSyntaxTree): boolean {
   return isCanvasHole(node) || node.children.some(hasCanvasHole);
 }
 
+export type CanvasMove = 'next' | 'previous' | 'child' | 'parent';
+
+export interface CanvasCursor {
+  rootIndex: number;
+  path: CanvasTreePath;
+}
+
+/**
+ * Structural tree navigation (cat 2026-07-25).
+ *
+ *   next / previous — cycle among siblings (always children of the same
+ *                     Macro). At a root, cycle among roots instead.
+ *   child           — enter the first child; unavailable on a leaf.
+ *   parent          — go to the parent; unavailable at a root.
+ *
+ * Unavailable moves return the cursor unchanged (null when there is none).
+ */
+export function moveCanvasCursor(
+  forest: readonly SnlSyntaxTree[],
+  cursor: CanvasCursor | null,
+  move: CanvasMove
+): CanvasCursor | null {
+  if (forest.length === 0) return null;
+  if (!cursor) {
+    // No cursor yet: sibling motion lands on the first/last root.
+    if (move === 'next') return { rootIndex: 0, path: [] };
+    if (move === 'previous') return { rootIndex: forest.length - 1, path: [] };
+    return null;
+  }
+  const root = forest[cursor.rootIndex];
+  if (!root) return null;
+  const node = nodeAtPath(root, cursor.path);
+  if (!node) return null;
+
+  if (move === 'child') {
+    return node.children.length > 0
+      ? { rootIndex: cursor.rootIndex, path: [...cursor.path, 0] }
+      : cursor;
+  }
+  if (move === 'parent') {
+    return cursor.path.length > 0
+      ? { rootIndex: cursor.rootIndex, path: cursor.path.slice(0, -1) }
+      : cursor;
+  }
+
+  const delta = move === 'next' ? 1 : -1;
+  if (cursor.path.length === 0) {
+    const count = forest.length;
+    return {
+      rootIndex: (cursor.rootIndex + delta + count) % count,
+      path: []
+    };
+  }
+  const parent = nodeAtPath(root, cursor.path.slice(0, -1));
+  const count = parent?.children.length ?? 0;
+  if (count === 0) return cursor;
+  const index = cursor.path[cursor.path.length - 1];
+  return {
+    rootIndex: cursor.rootIndex,
+    path: [...cursor.path.slice(0, -1), (index + delta + count) % count]
+  };
+}
+
+/**
+ * Delete the node at `path`. A nested node collapses into an empty slot so
+ * its parent's arity is preserved; deleting a root removes the whole block.
+ */
+export function deleteCanvasTarget(
+  forest: readonly SnlSyntaxTree[],
+  rootIndex: number,
+  path: CanvasTreePath
+): SnlSyntaxTree[] {
+  const source = forest as SnlSyntaxTree[];
+  if (rootIndex < 0 || rootIndex >= forest.length) return source;
+  if (path.length === 0) {
+    const next = forest.slice();
+    next.splice(rootIndex, 1);
+    return next;
+  }
+  const existing = nodeAtPath(forest[rootIndex], path);
+  if (!existing || isCanvasHole(existing)) return source;
+  const hole = createCanvasHole(path[path.length - 1]);
+  const root = replaceAtPath(forest[rootIndex], path, hole);
+  if (!root) return source;
+  const next = forest.slice();
+  next[rootIndex] = root;
+  return next;
+}
+
 export function canPersistCanvasForest(forest: readonly SnlSyntaxTree[]): boolean {
   return forest.length === 1 && !hasCanvasHole(forest[0]);
+}
+
+/**
+ * Reconcile a node's children with the arity its (new) Macro requires.
+ *
+ * Cat 2026-07-25: changing a Macro must never silently swallow or resurrect
+ * subtrees. Surplus children are evicted to the forest as their own root
+ * blocks so the author can re-place them; new slots appear as empty
+ * placeholders the author fills manually. Empty placeholders are dropped
+ * rather than evicted — there is nothing to preserve.
+ *
+ * `arity < 0` means dynamic arity: children are left untouched.
+ */
+export function reconcileCanvasArity(
+  forest: readonly SnlSyntaxTree[],
+  rootIndex: number,
+  path: CanvasTreePath,
+  arity: number,
+  onEvict?: (subtree: SnlSyntaxTree) => void
+): SnlSyntaxTree[] {
+  const source = forest as SnlSyntaxTree[];
+  if (arity < 0 || rootIndex < 0 || rootIndex >= forest.length) return source;
+  const node = nodeAtPath(forest[rootIndex], path);
+  if (!node || node.children.length === arity) return source;
+
+  const kept = node.children.slice(0, arity);
+  const evicted = node.children.slice(arity).filter((child) => !isCanvasHole(child));
+  // Grown slots are always empty: a Macro that regains arity must not
+  // resurrect the children a previous shrink evicted.
+  while (kept.length < arity) kept.push(createCanvasHole(kept.length));
+
+  const root = replaceAtPath(forest[rootIndex], path, { ...node, children: kept });
+  if (!root) return source;
+  for (const subtree of evicted) onEvict?.(subtree);
+  const next = forest.slice();
+  next[rootIndex] = root;
+  next.push(...evicted);
+  return next;
 }

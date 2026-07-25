@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { GuiCanvasEditor, canvasInitialPosition, resolveCanvasPointerTarget } from '../CreateEntryApp';
@@ -96,7 +96,7 @@ describe('GuiCanvasEditor', () => {
     const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
     canvas.focus();
     fireEvent.keyDown(canvas, { key: 'Tab' });
-    fireEvent.keyDown(canvas, { key: 'Tab' });
+    fireEvent.keyDown(canvas, { key: 'Enter' });
     const shell = view.container.querySelector<HTMLElement>('.dynamic-shell')!;
     await waitFor(() => expect(shell.classList.contains('snl-canvas-focused')).toBe(true));
   });
@@ -779,5 +779,244 @@ describe('GuiCanvasEditor', () => {
     fireEvent.click(hole);
     const slotEditor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     expect((slotEditor as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('selects the whole value when F2 opens the Macro editor', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch')])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement
+    );
+    // F2 alone now behaves like the old F2 + Ctrl+A.
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    expect(input.value).toBe('branch');
+  });
+
+  it('deletes the focused node with Delete and restores it with Ctrl+Z', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('a'), node('b')])]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'Delete' });
+    await waitFor(() =>
+      expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.dataset.kind)
+        .toBe('argPlaceholder')
+    );
+
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() =>
+      expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toBe('a')
+    );
+  });
+
+  it('undoes a root insertion made from the blank-space menu', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            macroCandidates={[{ id: 'Add.add', labels: [] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+
+    // Right click on blank canvas space offers exactly one action: add a root.
+    fireEvent.contextMenu(canvas);
+    const menu = await waitFor(() => view.getByRole('menu', { name: 'Canvas block actions' }));
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent))
+      .toEqual([expect.stringContaining('Add root Macro')]);
+
+    // The menu must actually be clickable — this used to be swallowed.
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Add root Macro/ }));
+    const search = await waitFor(() => view.getByRole('textbox', { name: 'Search macros in SNoogL' }));
+    fireEvent.change(search, { target: { value: 'Add' } });
+    fireEvent.keyDown(search, { key: 'Tab' });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
+  });
+
+  it('focuses the deepest node under the pointer even when it has its own wrapper', () => {
+    const tree = node('root', [node('branch', [node('leaf')])]);
+    const block = document.createElement('div');
+    block.dataset.treePath = '';
+    block.getBoundingClientRect = () => new DOMRect(0, 0, 400, 200);
+    const branch = document.createElement('span');
+    branch.dataset.treePath = '0';
+    branch.getBoundingClientRect = () => new DOMRect(0, 0, 400, 200);
+    const leaf = document.createElement('span');
+    leaf.dataset.treePath = '0.0';
+    leaf.getBoundingClientRect = () => new DOMRect(100, 100, 40, 20);
+    // Sibling in the DOM, overlapping in geometry: `closest()` alone would
+    // resolve to the shallow branch and focus the wrong subtree.
+    block.appendChild(branch);
+    block.appendChild(leaf);
+
+    expect(resolveCanvasPointerTarget(branch, block, tree, 110, 110)?.path).toEqual([0, 0]);
+    expect(resolveCanvasPointerTarget(branch, block, tree, 350, 20)?.path).toEqual([0]);
+  });
+
+  it('pops surplus children out as roots when a Macro loses arity, and does not resurrect them', async () => {
+    // A driver with a real arity signal: binary#2 takes two args, unary#1 one.
+    const arityDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) => {
+          if (macro_name === 'binary') {
+            return { macro_name, dynamic_arity: false, styles: [{ template: '#0 + #1' }] } as never;
+          }
+          if (macro_name === 'unary') {
+            return { macro_name, dynamic_arity: false, styles: [{ template: '-#0' }] } as never;
+          }
+          return null;
+        }
+      }
+    });
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('binary', [node('x'), node('y')])]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={arityDriver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const shrink = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(shrink, { target: { value: 'unary' } });
+    fireEvent.keyDown(shrink, { key: 'Enter' });
+
+    // 'y' must survive as its own root block rather than silently vanishing.
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+    const blocks = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+    expect(blocks[0].textContent).toContain('x');
+    expect(blocks[1].textContent).toContain('y');
+
+    // Changing back must leave an EMPTY slot, not conjure 'y' back.
+    fireEvent.click(blocks[0].querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const grow = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(grow, { target: { value: 'binary' } });
+    fireEvent.keyDown(grow, { key: 'Enter' });
+
+    await waitFor(() => {
+      const slot = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"] [data-tree-path="1"]');
+      expect(slot?.dataset.kind).toBe('argPlaceholder');
+    });
+    expect(view.getByTestId('root-count').textContent).toBe('2');
+  });
+
+  it('keeps the context menu alive and actionable through a real pointer interaction', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('branch')])]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const branch = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.contextMenu(branch);
+    const menu = await waitFor(() => view.getByRole('menu', { name: 'Canvas block actions' }));
+    const item = within(menu).getByRole('menuitem', { name: /Detach into its own block/ });
+
+    // A real click is pointerdown -> pointerup -> click. Both the block's
+    // pointer capture and the canvas click handler used to eat these, which
+    // is what made the menu feel dead. The menu must survive pointerdown and
+    // still run its action on click.
+    fireEvent.pointerDown(item, { pointerId: 70, button: 0, clientX: 5, clientY: 5 });
+    expect(view.getByRole('menu', { name: 'Canvas block actions' })).toBeTruthy();
+    fireEvent.pointerUp(item, { pointerId: 70, clientX: 5, clientY: 5 });
+    fireEvent.click(item);
+
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+    expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
+    // The canvas click handler must not have stolen the gesture and cleared
+    // the focus the menu action just set on the detached block.
+    await waitFor(() => {
+      const blocks = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+      expect(blocks[1].querySelector('[data-tree-path=""]')?.classList
+        .contains('snl-canvas-focused')).toBe(true);
+    });
+  });
+
+  it('undoes a drag-detach so one drag is one undo step', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('child')])]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const child = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+
+    fireEvent.pointerDown(child, { pointerId: 80, button: 0, clientX: 20, clientY: 20 });
+    fireEvent.pointerMove(child, { pointerId: 80, clientX: 60, clientY: 60 });
+    fireEvent.pointerUp(child, { pointerId: 80, clientX: 60, clientY: 60 });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+
+    // Detaching is a 6px-slip away; it must be undoable.
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('child');
   });
 });

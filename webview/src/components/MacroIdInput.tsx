@@ -85,6 +85,8 @@ interface MacroIdInputBaseProps {
    * the box holds a whole SNL expression and replacing it would wipe the tree.
    */
   snooglInsertsMacroId?: boolean;
+  /** Select the whole value once the control mounts (F2-style editing). */
+  selectAllOnMount?: boolean;
 }
 
 export type MacroIdInputProps =
@@ -111,6 +113,7 @@ export const MacroIdInput = forwardRef<
     macroIds = EMPTY_MACRO_IDS,
     openSnooglOnMount = false,
     snooglInsertsMacroId = false,
+    selectAllOnMount = false,
     style,
     className,
     ...props
@@ -165,6 +168,16 @@ export const MacroIdInput = forwardRef<
   useEffect(() => {
     if (snooglOpen) snooglSearchRef.current?.focus();
   }, [snooglOpen]);
+
+  useEffect(() => {
+    if (!selectAllOnMount || interactionDisabled) return;
+    const control = controlRef.current;
+    if (!control) return;
+    control.focus();
+    control.setSelectionRange(0, control.value.length);
+    // Mount-only: retyping must not re-select what the user is editing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectAllOnMount, interactionDisabled]);
 
   useEffect(() => {
     if (!openSnooglOnMount || interactionDisabled) return;

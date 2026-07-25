@@ -2,7 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('vscode', () => ({
   RelativePattern: class {},
-  Uri: { joinPath: (b: { path: string }, ...p: string[]) => ({ path: [b.path, ...p].join('/') }) },
+  // fsPath matters: buildPanelHtml uses existsSync(cssPath.fsPath) to decide
+  // whether to emit the <link>. Without it the stylesheet vanished and every
+  // ordering assertion here passed vacuously.
+  Uri: {
+    joinPath: (b: { path: string; fsPath?: string }, ...p: string[]) => ({
+      path: [b.path, ...p].join('/'),
+      fsPath: [b.fsPath ?? b.path, ...p].join('/')
+    })
+  },
   workspace: {
     workspaceFolders: undefined,
     createFileSystemWatcher: () => undefined,
@@ -24,7 +32,13 @@ vi.mock('vscode', () => ({
  * ran, and without a mark ahead of the bundle there is no way to tell which
  * half that is. Cat 2026-07-25.
  */
+import { resolve } from 'node:path';
 import { buildPanelHtml } from './panelUtil';
+
+// Use the real repo root: `buildPanelHtml` only emits the <link> when the
+// built CSS exists on disk, so a fake path silently produced a stylesheet-less
+// document and every ordering assertion below passed vacuously.
+const EXT_ROOT = resolve(__dirname, '..');
 
 function html(): string {
   const webview = {
@@ -32,7 +46,7 @@ function html(): string {
     cspSource: 'vscode-webview://test'
   };
   return buildPanelHtml(
-    { path: '/ext', fsPath: '/ext' } as never,
+    { path: EXT_ROOT, fsPath: EXT_ROOT } as never,
     webview as never,
     'createEntry',
     'SNL Create Entry'
@@ -40,14 +54,37 @@ function html(): string {
 }
 
 describe('panel bootstrap tracing', () => {
-  it('emits a mark before the bundle script tag', () => {
+  it('marks the very start of the document, above the stylesheet', () => {
     const out = html();
-    const bootstrap = out.indexOf('document-start');
+    const headStart = out.indexOf("__snlMark('head-start')") >= 0
+      ? out.indexOf("__snlMark('head-start')")
+      : out.indexOf("mark('head-start')");
+    const css = out.indexOf('rel="stylesheet"');
     const bundle = out.indexOf('createEntry.js');
-    expect(bootstrap).toBeGreaterThan(-1);
+    expect(headStart).toBeGreaterThan(-1);
     expect(bundle).toBeGreaterThan(-1);
-    // The whole point: this mark must land BEFORE the bundle is requested.
-    expect(bootstrap).toBeLessThan(bundle);
+    // A render-blocking <link> delays everything after it, so a probe below
+    // the stylesheet would bill CSS wait time to "webview host boot".
+    // FIRST stylesheet: nothing render-blocking may precede the probe.
+    if (css > -1) expect(headStart).toBeLessThan(css);
+    expect(headStart).toBeLessThan(bundle);
+  });
+
+  it('brackets the stylesheet so its cost is attributable', () => {
+    const out = html();
+    const css = out.indexOf('rel="stylesheet"');
+    const cssLoaded = out.indexOf("__snlMark('css-loaded')");
+    expect(cssLoaded).toBeGreaterThan(-1);
+    // The mark must sit AFTER the link (or it measures nothing) and BEFORE
+    // the bundle (or it is billing bundle time to CSS).
+    if (css > -1) expect(cssLoaded).toBeGreaterThan(css);
+    expect(cssLoaded).toBeLessThan(out.indexOf('createEntry.js'));
+  });
+
+  it('still marks the point just before the bundle request', () => {
+    const out = html();
+    expect(out.indexOf("__snlMark('document-start')")).toBeGreaterThan(-1);
+    expect(out.indexOf("__snlMark('document-start')")).toBeLessThan(out.indexOf('createEntry.js'));
   });
 
   it('reports a dom-ready mark too', () => {

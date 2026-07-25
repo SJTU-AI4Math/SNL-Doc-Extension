@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
-import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled } from './trace';
+import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace } from './trace';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
 import { InitMacroKindsPanel } from './initMacroKindsPanel';
@@ -90,6 +90,12 @@ async function runInit(): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Cat 2026-07-25: panel opens are "sometimes fast, sometimes slow". One
+  // candidate is that the FIRST open of a session also pays for extension
+  // activation (module loading, command registration). Stamp it so that
+  // shows up on the same timeline instead of being invisible.
+  refreshTraceEnabled();
+  const activation = startTrace('extension:activate');
   initialize_preferences_host(context);
   // Drives the `when` clause of the editor-title 🐱 Dashboard button.
   installSnlDocContextKey(context.subscriptions);
@@ -762,6 +768,7 @@ export function activate(context: vscode.ExtensionContext): void {
     openSnoogL,
     createMacroPickPackage
   );
+  activation.mark('done');
 }
 
 export function deactivate(): void {

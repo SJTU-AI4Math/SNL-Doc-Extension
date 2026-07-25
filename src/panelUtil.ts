@@ -72,25 +72,38 @@ export function buildPanelHtml(
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script nonce="${nonce}">
+    /* Cat 2026-07-25: this must be the FIRST thing in the document.
+       Placed above the stylesheet link on purpose — a render-blocking
+       <link> in <head> delays everything after it, so a probe in <body>
+       cannot distinguish "VS Code booting the webview host" from "waiting
+       on our CSS". Three marks bracket the two costs:
+         head-start  -> document parsing began
+         css-loaded  -> the stylesheet finished (or errored)
+         dom-ready   -> parsing done */
+    try {
+      const api = acquireVsCodeApi();
+      window.__snlApi = api;
+      const mark = function (stage) {
+        api.postMessage({ type: 'trace', stage: stage, ms: performance.now() });
+      };
+      window.__snlMark = mark;
+      mark('head-start');
+      document.addEventListener('DOMContentLoaded', function () {
+        mark('dom-ready');
+      });
+    } catch (e) { /* tracing must never break the panel */ }
+  </script>
   ${styleTag}
+  <script nonce="${nonce}">
+    try { window.__snlMark && window.__snlMark('css-loaded'); } catch (e) {}
+  </script>
   <title>${safeTitle}</title>
 </head>
 <body>
   <div id="root"></div>
   <script nonce="${nonce}">
-    /* Cat 2026-07-25: split "webview host boot" from "our bundle cost".
-       This inline script runs as soon as the document is parsed, BEFORE the
-       bundle is fetched. Comparing its clock with the bundle's first line
-       tells us whether the ~1s is VS Code standing the webview up (which we
-       cannot avoid) or fetching+parsing our JS (which we can shrink). */
-    try {
-      const api = acquireVsCodeApi();
-      window.__snlApi = api;
-      api.postMessage({ type: 'trace', stage: 'document-start', ms: performance.now() });
-      document.addEventListener('DOMContentLoaded', function () {
-        api.postMessage({ type: 'trace', stage: 'dom-ready', ms: performance.now() });
-      });
-    } catch (e) { /* tracing must never break the panel */ }
+    try { window.__snlMark && window.__snlMark('document-start'); } catch (e) {}
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

@@ -48,6 +48,54 @@ export function tokenizeSnooglQuery(query: string): string[] {
   return query.trim().split(/\s+/u).filter(Boolean);
 }
 
+/** One scoring probe: a needle plus the field tiers it may match against. */
+interface SnooglProbe {
+  text: string;
+  tiers: readonly SnooglFieldTier[];
+}
+
+const ALL_TIERS: readonly SnooglFieldTier[] = ['primary', 'secondary', 'tertiary'];
+const TAIL_TIERS: readonly SnooglFieldTier[] = ['primary', 'secondary'];
+const MIDDLE_TIERS: readonly SnooglFieldTier[] = ['tertiary'];
+
+/**
+ * How completely the needle covers the matched field.
+ *
+ * Fuse with `ignoreLocation` scores a substring hit almost perfectly no
+ * matter how much trailing text follows, so `to` scored the same against
+ * `to`, `tot` and `toFun`. This factor keeps a whole-field match strictly
+ * ahead of a prefix-of-something-longer without hard-gating fuzzy hits.
+ */
+function exactnessFactor(needle: string, fieldText: string): number {
+  const field = fieldText.toLowerCase();
+  if (needle === field) return 1;
+  if (field.length === 0) return 0.85;
+  const coverage = Math.min(1, needle.length / field.length);
+  const base = field.startsWith(needle) ? 0.9 : 0.85;
+  return base * (0.6 + 0.4 * coverage);
+}
+
+/**
+ * Expand one whitespace token into scoring probes.
+ *
+ * A dotted token is itself a namespace, so it must be matched the same way
+ * documents are split — last segment against the namespace tail, earlier
+ * segments against the namespace middle. Matching `Type.to` as one opaque
+ * string never matches any single field (the tail is `to`, the middle is
+ * `Type`), so Fuse used to score every `Type.*` candidate identically and
+ * the exact hit sank into the pile. Cat 2026-07-25.
+ */
+export function expandSnooglToken(token: string): SnooglProbe[] {
+  if (!token.includes('.')) return [{ text: token, tiers: ALL_TIERS }];
+  const segments = token.split('.').map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length === 0) return [];
+  if (segments.length === 1) return [{ text: segments[0], tiers: ALL_TIERS }];
+  return [
+    { text: segments[segments.length - 1], tiers: TAIL_TIERS },
+    ...segments.slice(0, -1).map((segment) => ({ text: segment, tiers: MIDDLE_TIERS }))
+  ];
+}
+
 /**
  * Shared SNoogL ranker.
  *
@@ -113,17 +161,36 @@ export class SnooglSearchIndex<T> {
 
     const scoresByDocument = this.documents.map(() => [] as number[]);
     for (const token of tokens) {
-      const bestForToken = new Array<number>(this.documents.length).fill(0);
-      for (const result of this.fuse.search(token) as FuseResult<IndexedField>[]) {
-        const rawScore = result.score ?? 1;
-        const weightedScore =
-          Math.max(0, 1 - rawScore) * this.weights[result.item.tier];
-        const index = result.item.documentIndex;
-        if (weightedScore > bestForToken[index]) bestForToken[index] = weightedScore;
-      }
-      bestForToken.forEach((score, documentIndex) => {
-        scoresByDocument[documentIndex].push(score);
+      // A dotted token is scored segment-wise against the matching tiers and
+      // the parts are combined, so `Type.to` beats `Type.toFun` instead of
+      // tying with every other `Type.*`.
+      const probes = expandSnooglToken(token);
+      if (probes.length === 0) continue;
+      const probeScores = probes.map((probe) => {
+        const needle = probe.text.toLowerCase();
+        const best = new Array<number>(this.documents.length).fill(0);
+        for (const result of this.fuse.search(probe.text) as FuseResult<IndexedField>[]) {
+          if (!probe.tiers.includes(result.item.tier)) continue;
+          const rawScore = result.score ?? 1;
+          const weightedScore =
+            Math.max(0, 1 - rawScore) * this.weights[result.item.tier] *
+            exactnessFactor(needle, result.item.text);
+          const index = result.item.documentIndex;
+          if (weightedScore > best[index]) best[index] = weightedScore;
+        }
+        return best;
       });
+      for (let documentIndex = 0; documentIndex < this.documents.length; documentIndex += 1) {
+        // Every segment of a dotted token must land: geometric mean keeps a
+        // strong tail from masking a missing namespace prefix.
+        const parts = probeScores.map((scores) => scores[documentIndex]);
+        const combined = parts.some((score) => score <= 0)
+          ? 0
+          : Math.exp(
+              parts.reduce((sum, score) => sum + Math.log(score), 0) / parts.length
+            );
+        scoresByDocument[documentIndex].push(combined);
+      }
     }
 
     const ranked: Array<SnooglRankedResult<T> & { id: string }> = [];

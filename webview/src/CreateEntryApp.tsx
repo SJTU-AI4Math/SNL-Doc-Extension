@@ -221,11 +221,13 @@ export function CreateEntryApp(): React.ReactElement {
   const macroCandidates = useMemo(
     () => {
       const candidates = new Map<string, SnooglSearchCandidate>();
+      const styleNames = (macro: { styles?: readonly { style_name: string }[] }): string[] =>
+        (macro.styles ?? []).map((style) => style.style_name).filter(Boolean);
       for (const [name, macro] of Object.entries(bundledMacros)) {
-        candidates.set(name, { id: name, labels: macro.tags ?? [] });
+        candidates.set(name, { id: name, labels: macro.tags ?? [], styles: styleNames(macro) });
       }
       for (const [name, macro] of Object.entries(wireMacros)) {
-        candidates.set(name, { id: name, labels: macro.tags ?? [] });
+        candidates.set(name, { id: name, labels: macro.tags ?? [], styles: styleNames(macro) });
       }
       return Array.from(candidates.values()).sort((left, right) =>
         left.id.localeCompare(right.id)
@@ -907,8 +909,9 @@ export function CreateEntryApp(): React.ReactElement {
               fontWeight: 600
             }}
           >
-            Save is disabled while the Canvas syntax forest has multiple roots or
-            unresolved placeholders. Attach/fill them or reset the Canvas.
+            {canvasForest.length > 1
+              ? 'Save is disabled while the Canvas syntax forest has multiple roots. Attach the loose blocks or reset the Canvas.'
+              : 'Save is disabled because a Macro has a single unfilled slot, which cannot be written to SNL — an empty slot needs a comma, so give that Macro another argument or fill the slot.'}
           </p>
         ) : null}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
@@ -2552,14 +2555,11 @@ function GuiInductiveEditor({
     (nextTree: SnlSyntaxTree): void => {
       ensureTreeIdentity(nextTree);
       setTree(nextTree);
-      // Filter empty-name childless leaves before serializing. `+ child`
-      // creates a placeholder row with name='' so the user can type into
-      // it; if we serialized that verbatim, we'd get `foo(a,)` /
-      // `foo(,b)` — both fail the SNL parser and every downstream
-      // consumer (preview, save) trips on "Expected IDENT / macro name".
-      // Local tree state keeps the empty row so the UI keeps showing it;
-      // only the serialized-for-parent view is pruned. (Cat 2026-07-12:
-      // "删一个节点就容易不过编译了".)
+      // Unfilled `+ child` rows now survive serialization: `foo(a,)` and
+      // `foo(,b)` are valid SNL that round trips (cat 2026-07-25), so the
+      // Inductive and Canvas editors agree on what a half-finished tree
+      // means. Only the one unserializable shape is pruned — see
+      // `stripEmptyPlaceholders`.
       const pruned = stripEmptyPlaceholders(nextTree);
       const nextSnl = serializeTreePreserving(pruned);
       lastSerializedRef.current = nextSnl;
@@ -2690,7 +2690,7 @@ function parseOrDefault(text: string): SnlSyntaxTree {
  * Fix: use `stringifyLeafSource` for the head at every level so `%…%` /
  * `$…$` / `$$…$$` / `@` / `[style]` all survive. Children still recurse.
  */
-function serializeTreePreserving(node: SnlSyntaxTree): string {
+export function serializeTreePreserving(node: SnlSyntaxTree): string {
   const head = stringifyLeafSource(node);
   const childrenPart =
     node.children.length > 0
@@ -2700,18 +2700,24 @@ function serializeTreePreserving(node: SnlSyntaxTree): string {
 }
 
 /**
- * Drop empty placeholder rows before serializing. A row with name='' and no
- * children is a `+ child` slot the user hasn't filled yet — keep it in local
- * tree state so the UI shows the empty input, but never let it reach the
- * serializer, which would produce `foo(a,)` / `foo(,b)` / bare empty
- * identifiers that fail the parser at every downstream site (preview, save,
- * lint). Root itself is exempt: an empty root name is the initial stub and
- * we let the parser reject it downstream with a real error.
+ * Drop empty placeholder rows that cannot be serialized.
+ *
+ * Cat 2026-07-25: an empty row is now a real SNL empty node — `foo(a,)` and
+ * `foo(,b)` parse fine and round trip — so unfilled slots are KEPT, matching
+ * what the Canvas editor does. Switching between the two editors must not
+ * silently drop the author's slots.
+ *
+ * The one exception is a lone empty child (`foo(<empty>)`), which would
+ * serialize to `foo()` and reparse as ZERO arguments, losing the slot. That
+ * single shape is still pruned so the text stays readable-back.
  */
-function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
-  const kids = node.children
-    .map(stripEmptyPlaceholders)
-    .filter((c) => !(c.macro_name.trim() === '' && c.children.length === 0));
+export function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
+  const kids = node.children.map(stripEmptyPlaceholders);
+  const isEmptyRow = (child: SnlSyntaxTree): boolean =>
+    child.macro_name.trim() === '' && child.children.length === 0;
+  if (kids.length === 1 && isEmptyRow(kids[0])) {
+    return { ...node, children: [] };
+  }
   return { ...node, children: kids };
 }
 

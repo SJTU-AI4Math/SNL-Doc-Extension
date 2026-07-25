@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import { tryParseSnlSyntaxTree, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import { serializeTreePreserving, stripEmptyPlaceholders } from '../CreateEntryApp';
 import {
   attachCanvasRoot,
   canPersistCanvasForest,
+  canvasForestHasUnfilledSlots,
   canvasHoleIndex,
   createCanvasHole,
   detachCanvasSubtree,
@@ -44,15 +46,17 @@ describe('Canvas forest detach semantics', () => {
     expect(isCanvasHole(result[1].children[0])).toBe(true);
   });
 
-  it('preserves the vacated child index with a natural-size numbered hole', () => {
+  it('preserves the vacated child index with a numbered hole', () => {
     const forest = [node('root', [node('first'), node('second')])];
     const result = detachCanvasSubtree(forest, 0, [0]);
 
     expect(result[0].children).toHaveLength(2);
     expect(isCanvasHole(result[0].children[0])).toBe(true);
     expect(canvasHoleIndex(result[0].children[0])).toBe(0);
-    expect(result[0].children[0].macro_name).toContain('snlArgPlaceholder');
-    expect(result[0].children[0].macro_name).not.toContain('\\rule');
+    // A hole is the SNL empty node now, so it serializes as nothing between
+    // two commas rather than as a KaTeX blob that cannot be reparsed.
+    expect(result[0].children[0].macro_name).toBe('');
+    expect(result[0].children[0].env_mode).toBeUndefined();
     expect(result[0].children[1].macro_name).toBe('second');
     expect(detachCanvasSubtree(result, 0, [0])).toBe(result);
   });
@@ -101,10 +105,27 @@ describe('Canvas forest detach semantics', () => {
     expect(rootReplaced[1].macro_name).toBe('new-root');
   });
 
-  it('allows persistence only with one root and no unresolved holes', () => {
+  it('allows persistence with unfilled slots, but not with unwritable shapes', () => {
     expect(canPersistCanvasForest([node('root')])).toBe(true);
-    expect(canPersistCanvasForest([node('root', [createCanvasHole(0)])])).toBe(false);
+    // Cat 2026-07-25: a half-finished tree is a legitimate thing to save, as
+    // long as the slots survive the text round trip.
+    expect(canPersistCanvasForest([node('root', [node('a'), createCanvasHole(1)])])).toBe(true);
+    expect(canPersistCanvasForest([node('root', [createCanvasHole(0), createCanvasHole(1)])])).toBe(true);
+    // Several disconnected blocks genuinely have no single tree to write.
     expect(canPersistCanvasForest([node('a'), node('b')])).toBe(false);
+    // A LONE slot has no surface form: `f(<hole>)` serializes to `f()`, which
+    // reparses as zero arguments and silently loses the slot.
+    expect(canPersistCanvasForest([node('neg', [createCanvasHole(0)])])).toBe(false);
+    // ...including when it is nested deeper in the tree.
+    expect(canPersistCanvasForest([node('root', [node('neg', [createCanvasHole(0)])])])).toBe(false);
+    // A bare slot as the entire tree serializes to '' and does not parse.
+    expect(canPersistCanvasForest([createCanvasHole(0)])).toBe(false);
+  });
+
+  it('reports unfilled slots separately, as advice rather than a gate', () => {
+    expect(canvasForestHasUnfilledSlots([node('root')])).toBe(false);
+    expect(canvasForestHasUnfilledSlots([node('root', [createCanvasHole(0)])])).toBe(true);
+    expect(canvasForestHasUnfilledSlots([node('root', [node('a', [createCanvasHole(0)])])])).toBe(true);
   });
 });
 
@@ -249,5 +270,89 @@ describe('Canvas delete slot numbering', () => {
   it('numbers the replacement slot by the deleted child index', () => {
     const next = deleteCanvasTarget([node('root', [node('a'), node('b')])], 0, [1]);
     expect(canvasHoleIndex(next[0].children[1])).toBe(1);
+  });
+});
+
+describe('Canvas hole text round trip', () => {
+  it('survives serialize -> parse so a saved entry reopens with its slots', () => {
+    const forest = [node('pair', [node('a'), createCanvasHole(1)])];
+    const snl = serializeTreePreserving(forest[0]);
+    // The hole is written as an empty argument, not as an unparseable blob.
+    expect(snl).toBe('pair(a,)');
+
+    const reparsed = tryParseSnlSyntaxTree(snl);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.tree.children).toHaveLength(2);
+    // mdata does not survive the text round trip, so detection must be
+    // structural — this is what makes reopening work.
+    expect(reparsed.tree.children[1].mdata).toBeNull();
+    expect(isCanvasHole(reparsed.tree.children[1])).toBe(true);
+    expect(canPersistCanvasForest([reparsed.tree])).toBe(true);
+  });
+
+  it('round trips a hole in the middle of an argument list', () => {
+    const forest = [node('triple', [node('a'), createCanvasHole(1), node('c')])];
+    const snl = serializeTreePreserving(forest[0]);
+    expect(snl).toBe('triple(a,,c)');
+
+    const reparsed = tryParseSnlSyntaxTree(snl);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.tree.children.map(isCanvasHole)).toEqual([false, true, false]);
+    // Serializing again is stable.
+    expect(serializeTreePreserving(reparsed.tree)).toBe('triple(a,,c)');
+  });
+});
+
+describe('Canvas lone-slot guard', () => {
+  it('never lets a lone slot reach the file, because f() loses it', () => {
+    const forest = [node('neg', [createCanvasHole(0)])];
+    // Proof that the guard is necessary rather than defensive: the shape
+    // really does not survive the round trip.
+    const snl = serializeTreePreserving(forest[0]);
+    expect(snl).toBe('neg()');
+    const reparsed = tryParseSnlSyntaxTree(snl);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.tree.children).toHaveLength(0);
+
+    expect(canPersistCanvasForest(forest)).toBe(false);
+  });
+
+  it('a slot beside any sibling is fine, because the comma carries it', () => {
+    const forest = [node('pair', [node('a'), createCanvasHole(1)])];
+    const snl = serializeTreePreserving(forest[0]);
+    const reparsed = tryParseSnlSyntaxTree(snl);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.tree.children).toHaveLength(2);
+    expect(canPersistCanvasForest(forest)).toBe(true);
+  });
+});
+
+describe('Inductive editor empty-row pruning', () => {
+  it('keeps unfilled rows so both editors agree on a half-finished tree', () => {
+    // Cat 2026-07-25: these used to be silently dropped, so switching from
+    // the Inductive tab to the Canvas tab lost the author's slots.
+    const tree = node('root', [node('a'), node('')]);
+    const pruned = stripEmptyPlaceholders(tree);
+    expect(pruned.children).toHaveLength(2);
+    expect(serializeTreePreserving(pruned)).toBe('root(a,)');
+
+    const leading = stripEmptyPlaceholders(node('root', [node(''), node('b')]));
+    expect(serializeTreePreserving(leading)).toBe('root(,b)');
+  });
+
+  it('still prunes the lone empty row, which cannot be serialized', () => {
+    const pruned = stripEmptyPlaceholders(node('neg', [node('')]));
+    expect(pruned.children).toHaveLength(0);
+    expect(serializeTreePreserving(pruned)).toBe('neg');
+  });
+
+  it('prunes a lone empty row nested deeper too', () => {
+    const pruned = stripEmptyPlaceholders(node('root', [node('a'), node('neg', [node('')])]));
+    expect(pruned.children[1].children).toHaveLength(0);
+    expect(serializeTreePreserving(pruned)).toBe('root(a,neg)');
   });
 });

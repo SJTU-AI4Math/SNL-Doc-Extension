@@ -1,4 +1,8 @@
-import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import {
+  createEmptySnlSyntaxTreeNode,
+  isEmptySnlSyntaxTreeNode,
+  type SnlSyntaxTree
+} from '@sjtu-ai4math/snl-basics';
 
 export type CanvasTreePath = readonly number[];
 
@@ -11,28 +15,44 @@ export interface CanvasTarget {
   node: SnlSyntaxTree;
 }
 
+/**
+ * An unfilled argument slot.
+ *
+ * Cat 2026-07-25: this is now the SNL empty node (`macro_name === ''`), which
+ * the parser produces for `f(a,,b)` and the renderer draws as the numbered
+ * placeholder. It therefore SERIALIZES and ROUND TRIPS — an entry saved with
+ * unfilled slots reopens with those slots still in place. The `mdata` marker
+ * is kept as a fast path for Canvas-authored holes, but detection must not
+ * depend on it, since `mdata` does not survive a text round trip.
+ */
 export function createCanvasHole(index = 0): SnlSyntaxTree {
   const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
   return {
-    macro_name: `\\mathord{\\htmlClass{snlArgPlaceholder}{${safeIndex}}}`,
-    env_mode: 'formula_inline',
+    ...createEmptySnlSyntaxTreeNode(),
     kind: 'argPlaceholder',
     mdata: {
       [CANVAS_HOLE_KEY]: true,
       [CANVAS_HOLE_INDEX_KEY]: safeIndex
-    },
-    children: []
+    }
   };
 }
 
 export function isCanvasHole(node: SnlSyntaxTree | undefined): boolean {
-  if (!node?.mdata || typeof node.mdata !== 'object') return false;
+  if (!node) return false;
+  // Structural check first: this is what makes a reopened entry work.
+  if (isEmptySnlSyntaxTreeNode(node)) return true;
+  if (!node.mdata || typeof node.mdata !== 'object') return false;
   return (node.mdata as Record<string, unknown>)[CANVAS_HOLE_KEY] === true;
 }
 
+/**
+ * Which slot this hole was authored as, or null once it has been through a
+ * text round trip (`mdata` does not survive serialization). Callers that need
+ * a reliable index should use the child's position in its parent instead.
+ */
 export function canvasHoleIndex(node: SnlSyntaxTree | undefined): number | null {
   if (!isCanvasHole(node)) return null;
-  const value = (node!.mdata as Record<string, unknown>)[CANVAS_HOLE_INDEX_KEY];
+  const value = (node!.mdata as Record<string, unknown> | null)?.[CANVAS_HOLE_INDEX_KEY];
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
 }
 
@@ -287,8 +307,41 @@ export function deleteCanvasTarget(
   return next;
 }
 
+/**
+ * True for the one shape that has NO surface form: a node whose single child
+ * is an unfilled slot.
+ *
+ * `f(<hole>)` would serialize to `f()`, which the parser reads back as ZERO
+ * arguments — the slot silently disappears. Every other arity is fine, since
+ * an empty slot is expressed by a comma (`f(,)`, `f(a,)`, `f(a,,b)`).
+ * Cat 2026-07-25.
+ */
+function hasUnserializableLoneSlot(node: SnlSyntaxTree): boolean {
+  if (node.children.length === 1 && isCanvasHole(node.children[0])) return true;
+  return node.children.some(hasUnserializableLoneSlot);
+}
+
+/**
+ * A Canvas forest is serializable when it is a single tree that can be written
+ * and read back unchanged.
+ *
+ * Cat 2026-07-25: unfilled slots NO LONGER block saving — an empty slot is a
+ * real SNL node (`f(a,,b)`) that round trips, so saving a half-finished tree
+ * is a legitimate author workflow. Two shapes still block, both because they
+ * genuinely cannot be serialized: several disconnected root blocks (no single
+ * tree to write) and a lone unfilled slot (`f()` reparses as zero arguments).
+ */
 export function canPersistCanvasForest(forest: readonly SnlSyntaxTree[]): boolean {
-  return forest.length === 1 && !hasCanvasHole(forest[0]);
+  if (forest.length !== 1) return false;
+  // A bare slot as the whole tree serializes to the empty string, which is
+  // not parseable at all.
+  if (isCanvasHole(forest[0])) return false;
+  return !hasUnserializableLoneSlot(forest[0]);
+}
+
+/** True when any slot is still unfilled — advisory only, never a save gate. */
+export function canvasForestHasUnfilledSlots(forest: readonly SnlSyntaxTree[]): boolean {
+  return forest.some(hasCanvasHole);
 }
 
 /**

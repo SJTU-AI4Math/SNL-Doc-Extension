@@ -11,7 +11,7 @@ describe('GUI Editor (Canvas) placement', () => {
     expect(entryEditor).toContain('GUI Editor (Canvas)');
     expect(entryEditor).toContain("setSnlMode('canvas')");
     expect(entryEditor).toContain('canPersistCanvasForest(canvasForest)');
-    expect(entryEditor).toContain('multiple roots or');
+    expect(entryEditor).toContain('multiple roots.');
     expect(entryEditor).toContain('serializeTreePreserving(nextForest[0])');
     expect(entryEditor).not.toContain('root {rootIndex + 1}:');
     expect(entryEditor).toContain("? 'grabbing' : 'grab'");

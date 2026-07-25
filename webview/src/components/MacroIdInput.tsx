@@ -61,12 +61,47 @@ export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
   return tokens;
 }
 
+/**
+ * The span a Macro completion replaces: the identifier under the caret plus
+ * any `[style]` bracket immediately after it.
+ *
+ * Cat 2026-07-25: Style is completed from this same control now, so picking
+ * `foo[bar]` over an existing `foo[baz]` must replace the bracket too —
+ * otherwise the old style would be left dangling as `foo[bar][baz]`.
+ */
 function macroTokenRange(value: string, caret: number): { start: number; end: number } {
   const isToken = (char: string): boolean => !/[\s(),\[\]$%@]/.test(char);
   let start = Math.min(Math.max(caret, 0), value.length);
   let end = start;
+  // Caret parked just after `foo[bar]|`: treat it as being on that token,
+  // otherwise the range collapses to nothing and no completion is offered.
+  if (start > 0 && value[start - 1] === ']') {
+    const opening = value.lastIndexOf('[', start - 1);
+    if (opening > 0) {
+      end = start;
+      start = opening;
+      while (start > 0 && isToken(value[start - 1])) start -= 1;
+      return { start, end };
+    }
+  }
   while (start > 0 && isToken(value[start - 1])) start -= 1;
   while (end < value.length && isToken(value[end])) end += 1;
+  // Caret sitting inside `foo[ba|z]`: walk back out to the identifier, then
+  // recompute `end` from there so the closing bracket is included too —
+  // otherwise the replacement leaves a stray `]` behind as `foo[qux]]`.
+  if (start > 0 && value[start - 1] === '[') {
+    const bracket = start - 1;
+    let identifierStart = bracket;
+    while (identifierStart > 0 && isToken(value[identifierStart - 1])) identifierStart -= 1;
+    if (identifierStart < bracket) {
+      start = identifierStart;
+      const closingBracket = value.indexOf(']', bracket);
+      end = closingBracket === -1 ? end : closingBracket + 1;
+      return { start, end };
+    }
+  }
+  const closing = value.indexOf(']', end);
+  if (value[end] === '[' && closing !== -1) end = closing + 1;
   return { start, end };
 }
 
@@ -138,8 +173,8 @@ export const MacroIdInput = forwardRef<
     (props as React.InputHTMLAttributes<HTMLInputElement>).disabled
   );
   useImperativeHandle(forwardedRef, () => controlRef.current!, [multiline]);
-  const searchCandidates = useMemo(() => Array.from(new Map([
-    ...macroIds.map((id) => [id, { id, labels: [] }] as const),
+  const searchCandidates = useMemo(() => Array.from(new Map<string, SnooglSearchCandidate>([
+    ...macroIds.map((id) => [id, { id, labels: [] as readonly string[] }] as const),
     ...macroCandidates.map((candidate) => [candidate.id, candidate] as const)
   ]).values()), [macroIds, macroCandidates]);
   const searchIndex = useMemo(() => new SnooglSearchIndex(
@@ -149,6 +184,10 @@ export const MacroIdInput = forwardRef<
       labels: candidate.labels
     }))
   ), [searchCandidates]);
+  const candidateById = useMemo(
+    () => new Map(searchCandidates.map((candidate) => [candidate.id, candidate])),
+    [searchCandidates]
+  );
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
@@ -188,15 +227,34 @@ export const MacroIdInput = forwardRef<
     setSnooglOpen(true);
   }, [openSnooglOnMount, interactionDisabled]);
 
+  /**
+   * Expand a Macro id into the completions offered for it: the bare id first,
+   * then one `id[style]` per declared style.
+   *
+   * Cat 2026-07-25: Style used to be a separate control, so the author had to
+   * know the `[…]` bracket syntax and type it by hand. Folding it in here
+   * means one surface answers both "which Macro" and "rendered how".
+   * `styles[0]` is the implicit default and so is NOT offered as an explicit
+   * bracket — writing it out would serialize a redundant override.
+   */
+  const completionsFor = (id: string): string[] => {
+    const candidate = candidateById.get(id);
+    const styles = candidate?.styles ?? [];
+    return [id, ...styles.slice(1).map((style) => `${id}[${style}]`)];
+  };
+
   const suggestionsAt = (position: number): string[] => {
     const range = macroTokenRange(value, position);
-    const needle = value.slice(range.start, range.end);
-    return needle
-      ? searchIndex.search(needle)
-          .map((result) => result.value.id)
-          .filter((id) => id.toLowerCase() !== needle.toLowerCase())
-          .slice(0, 8)
-      : [];
+    const token = value.slice(range.start, range.end);
+    // Search on the identifier only: the `[style]` part is a completion
+    // result, not a search term, so `Div.div[inline]` must still find
+    // `Div.div` and offer its other styles.
+    const needle = token.split('[')[0];
+    if (!needle) return [];
+    return searchIndex.search(needle)
+      .flatMap((result) => completionsFor(result.value.id))
+      .filter((completion) => completion.toLowerCase() !== token.toLowerCase())
+      .slice(0, 8);
   };
   const suggestions = suggestionsOpen ? suggestionsAt(caretPosition) : [];
 
@@ -208,7 +266,7 @@ export const MacroIdInput = forwardRef<
 
   const snooglResults = snooglOpen
     ? searchIndex.search(snooglQuery)
-        .map((result) => result.value.id)
+        .flatMap((result) => completionsFor(result.value.id))
         .slice(0, 30)
     : [];
 
@@ -577,7 +635,7 @@ export const MacroIdInput = forwardRef<
         ))}
       </div>
       <div style={{ marginTop: '0.45rem', opacity: 0.65, fontSize: '0.8rem' }}>
-        Tab inserts the selected Macro · Esc closes
+        Tab inserts the selected Macro · pick <code>id[style]</code> to set a style · Esc closes
       </div>
     </div>
   ) : null;

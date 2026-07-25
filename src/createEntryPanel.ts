@@ -49,14 +49,29 @@ function estimateSize(payload: unknown): string {
  *            | 'error', ... }`
  */
 export class CreateEntryPanel {
-  private static readonly instances = new Map<string, CreateEntryPanel>();
+  /**
+   * The one Entry editor panel.
+   *
+   * Cat 2026-07-25: standing up a webview host costs ~1.09s in VS Code —
+   * measured, and almost entirely BEFORE our bundle is even requested
+   * (`html-set` → `document-start` = 1090ms; our 803KB bundle only cost
+   * 29ms). That cost is unavoidable per panel, so the only way to make
+   * switching entries feel fast is to stop creating panels: keep one and
+   * retarget it, the way the Infoview already does. Second and later opens
+   * skip the whole 1.09s.
+   *
+   * Trade-off cat accepted: you can no longer have two Entry editors open
+   * side by side.
+   */
+  private static instance: CreateEntryPanel | undefined;
 
   private static readonly viewType = 'snlCreateEntry';
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
-  private readonly mode: 'create' | 'edit';
-  private readonly id: string;
+  /** Mutable: one panel serves every entry, retargeting as you navigate. */
+  private mode: 'create' | 'edit';
+  private id: string;
   /**
    * Optional seed id for `create` mode — piped through from callers that
    * already know what the entry should be called (e.g. Library outline's
@@ -97,20 +112,12 @@ export class CreateEntryPanel {
     // see WHICH stage is slow instead of guessing. Off unless `snlDoc.trace`.
     const trace = startTrace('entryPanel:open', `mode=${mode} id=${id || '-'}`);
     const column = vscode.ViewColumn.Active;
-    // Key by mode+id only — a second `createEntry` invocation with a
-    // different seed should reveal the same panel (not spawn another).
-    // If the existing panel is already open, we still update its seed
-    // so the outline's typed id makes it into the id field.
-    const key = `${mode}:${id}`;
 
-    const existing = CreateEntryPanel.instances.get(key);
+    const existing = CreateEntryPanel.instance;
     if (existing) {
-      existing.panel.reveal(column);
-      if (mode === 'create' && seedId) {
-        existing.applySeedId(seedId);
-      }
-      // The interesting case: a retained panel should be near-instant here.
-      trace.mark('reveal-existing');
+      // Retarget the live panel instead of building a new one — this is the
+      // whole point of the singleton: skip the ~1.09s webview stand-up.
+      existing.retarget(mode, id, seedId, column, trace);
       return;
     }
 
@@ -128,10 +135,53 @@ export class CreateEntryPanel {
     );
     trace.mark('webview-created');
 
-    CreateEntryPanel.instances.set(
-      key,
-      new CreateEntryPanel(panel, extensionUri, mode, id, seedId, trace)
+    CreateEntryPanel.instance = new CreateEntryPanel(
+      panel,
+      extensionUri,
+      mode,
+      id,
+      seedId,
+      trace
     );
+  }
+
+  /**
+   * Point the live panel at a different entry.
+   *
+   * The webview keeps running — no reload, no bundle re-parse — so this is
+   * the fast path that makes navigating between entries feel instant. The
+   * webview is told to reset first so it does not briefly show the previous
+   * entry's fields while the new context is read.
+   */
+  private retarget(
+    mode: 'create' | 'edit',
+    id: string,
+    seedId: string,
+    column: vscode.ViewColumn,
+    trace: Trace
+  ): void {
+    const sameTarget = this.mode === mode && this.id === id;
+    this.mode = mode;
+    this.id = id;
+    if (mode === 'create' && seedId) {
+      this.seedId = seedId;
+    }
+    this.panel.title =
+      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry';
+    this.panel.reveal(column);
+    if (sameTarget) {
+      // Re-opening what is already shown: leave the author's in-progress
+      // edits alone. Re-pushing context here would clobber them.
+      if (mode === 'create' && seedId) this.applySeedId(seedId);
+      trace.mark('reveal-existing');
+      return;
+    }
+    // Different entry: clear the form before the new data lands so no field
+    // from the previous entry is ever visible against the new id.
+    void this.panel.webview.postMessage({ type: 'retarget', mode, id });
+    this.openTrace = trace;
+    trace.mark('retarget');
+    void this.pushContext();
   }
 
   private constructor(
@@ -578,8 +628,7 @@ export class CreateEntryPanel {
   }
 
   public dispose(): void {
-    const key = `${this.mode}:${this.id}`;
-    CreateEntryPanel.instances.delete(key);
+    CreateEntryPanel.instance = undefined;
 
     this.panel.dispose();
 

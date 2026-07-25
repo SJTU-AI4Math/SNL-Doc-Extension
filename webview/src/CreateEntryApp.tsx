@@ -361,6 +361,7 @@ export function CreateEntryApp(): React.ReactElement {
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
         | { type: 'kinds'; kinds: EntryKind[] }
+        | { type: 'retarget'; mode: Mode; id?: string }
         | {
             type: 'context';
             mode: Mode;
@@ -395,6 +396,24 @@ export function CreateEntryApp(): React.ReactElement {
             return msg.kinds && msg.kinds.length > 0 ? msg.kinds[0].id : '';
           });
           break;
+        case 'retarget': {
+          // One panel serves every entry now (cat 2026-07-25). Clear the
+          // form before the new entry's context lands so the previous
+          // entry's text is never shown against the new id, and drop the
+          // dirty/draft bookkeeping that belonged to the old target.
+          restoredDraftIdRef.current = null;
+          editingIdRef.current = '';
+          contentDirtyRef.current.clear();
+          markFormDirty(false);
+          setStatus({ kind: 'idle' });
+          setTitle('');
+          setSelectedKind('');
+          setContentI18n({});
+          setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
+          setId(typeof msg.id === 'string' ? msg.id : '');
+          if (msg.mode === 'create' || msg.mode === 'edit') setMode(msg.mode);
+          break;
+        }
         case 'context':
           // The payload has arrived and is about to be applied to state.
           traceMark('context-received');
@@ -605,12 +624,19 @@ export function CreateEntryApp(): React.ReactElement {
   // Restore unsaved work stashed before the panel was hidden, and keep the
   // stash current while the form is dirty. Runs before the host's `init`
   // arrives, so `preserveDraft` can see it.
-  const draftKey = 'createEntry';
+  //
+  // Namespaced per entry: since 2026-07-25 ONE panel serves every entry
+  // (retargeted instead of recreated, to skip the ~1.09s webview stand-up),
+  // so a single shared key would restore entry A's unsaved text over entry
+  // B the moment you navigated between them.
+  const draftKey = `createEntry:${mode}:${mode === 'edit' ? id : ''}`;
   // Resolved eagerly rather than read off `apiRef`: a ref written in an effect
   // is still undefined during the first render, and writing it never triggers
   // one, so the persist hook would keep the stale undefined forever.
   // `getVsCodeApi` caches internally, so this is the same object as apiRef.
   const draftApi = getVsCodeApi();
+  // Re-runs when the panel is retargeted at a different entry, so the new
+  // entry gets ITS stash rather than keeping the previous one's.
   useEffect(() => {
     const restored = loadDraft<{
       id: string;
@@ -624,6 +650,15 @@ export function CreateEntryApp(): React.ReactElement {
     if (!restored) return;
     restoredDraftIdRef.current = restored.id;
     markFormDirty(true);
+    // The stash records no per-format edit history, so treat every format it
+    // carries as edited. Without this `persist` returns the host's original
+    // i18n unchanged and the author's restored text is silently dropped.
+    // This lives here (not only in the `init` handler) because the draft key
+    // depends on mode+id, so a restore can land AFTER init — which is the
+    // normal order now that one panel is retargeted between entries.
+    for (const format of LOCALIZABLE_CONTENT_FORMATS) {
+      contentDirtyRef.current.add(format);
+    }
     setId(restored.id);
     setTitle(restored.title);
     setSelectedKind(restored.selectedKind);
@@ -640,7 +675,8 @@ export function CreateEntryApp(): React.ReactElement {
       for (const root of restored.canvasForest) ensureTreeIdentity(root);
       setCanvasForest(restored.canvasForest);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
 
   usePersistedDraft(
     draftApi,

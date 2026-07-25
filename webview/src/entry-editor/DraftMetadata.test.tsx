@@ -75,7 +75,7 @@ afterEach(cleanup);
 describe('restored draft in edit mode', () => {
   it('keeps contribution_info, pointer and other languages on save', async () => {
     // Unsaved work that outlived the panel being hidden.
-    saveDraft(api, 'createEntry', {
+    saveDraft(api, 'createEntry:edit:thm-1', {
       id: 'thm-1',
       title: 'My Unsaved Title',
       selectedKind: 'theorem',
@@ -117,7 +117,7 @@ describe('restored draft in edit mode', () => {
   it('treats the restored draft text as an edit, not as untouched host text', async () => {
     // Without marking the restored formats dirty, `persist` returns the
     // host's original i18n unchanged and the author's draft body is lost.
-    saveDraft(api, 'createEntry', {
+    saveDraft(api, 'createEntry:edit:thm-1', {
       id: 'thm-1',
       title: 'My Unsaved Title',
       selectedKind: 'theorem',
@@ -148,7 +148,7 @@ describe('restored draft in edit mode', () => {
   it('restores a Canvas forest that has no serialized form', async () => {
     // A multi-root forest cannot round trip through `content.snl`, so it must
     // ride in the draft itself or the author's loose blocks vanish.
-    saveDraft(api, 'createEntry', {
+    saveDraft(api, 'createEntry:edit:thm-1', {
       id: 'thm-1',
       title: 'Draft',
       selectedKind: 'theorem',
@@ -185,7 +185,7 @@ describe('restored draft in edit mode', () => {
     fireEvent.input(view.getByLabelText(/Title/i), { target: { value: 'edited' } });
 
     await waitFor(() => {
-      const draft = loadDraft<{ canvasForest?: unknown[] }>(api, 'createEntry');
+      const draft = loadDraft<{ canvasForest?: unknown[] }>(api, 'createEntry:edit:thm-1');
       expect(draft).toBeTruthy();
       expect(Array.isArray(draft!.canvasForest)).toBe(true);
       expect(draft!.canvasForest!.length).toBeGreaterThan(0);
@@ -234,5 +234,34 @@ describe('restored draft in edit mode', () => {
     // untouched — no forged zh-CN key freezing the fallback.
     expect(JSON.stringify(content.typst)).not.toContain('zh-CN');
     expect(JSON.stringify(content.markdown)).toContain('中文正文');
+  });
+
+  it('does not leak one entry\'s draft onto another after a retarget', async () => {
+    // ONE panel now serves every entry (cat 2026-07-25), so a shared draft
+    // key would restore thm-1's unsaved text over thm-2 the moment you
+    // navigated between them.
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1',
+      title: 'Draft For One',
+      selectedKind: 'theorem',
+      content: { snl: '', typst: '', latex: '', markdown: 'one body', text: '' },
+      activeFormat: 'markdown',
+      snlMode: 'text'
+    });
+
+    const view = render(<CreateEntryApp />);
+    sendInit();
+    await waitFor(() =>
+      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Draft For One')
+    );
+
+    // Host retargets the live panel at a different entry.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'retarget', mode: 'edit', id: 'thm-2' }
+    }));
+
+    await waitFor(() =>
+      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).not.toBe('Draft For One')
+    );
   });
 });

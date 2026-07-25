@@ -47,6 +47,7 @@ import {
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
+import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
 import { ensureTreeIdentity, treeIdentity } from './components/treeIdentity';
 import {
@@ -71,9 +72,9 @@ import {
   attachCanvasRoot,
   canPersistCanvasForest,
   detachCanvasSubtree,
-  fillCanvasHole,
   isCanvasHole,
-  listCanvasTargets
+  listCanvasTargets,
+  replaceCanvasTarget
 } from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
@@ -524,7 +525,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   return (
     <main
-      style={{ ...PANEL_STYLE, maxWidth: '48rem' }}
+      style={{ ...PANEL_STYLE, width: '100%', maxWidth: 'none', boxSizing: 'border-box' }}
       onInputCapture={() => { formDirtyRef.current = true; }}
       onClickCapture={() => { formDirtyRef.current = true; }}
     >
@@ -1217,12 +1218,12 @@ interface CanvasPendingDrag {
   active: boolean;
 }
 
-interface CanvasSelection {
+interface CanvasFocus {
   rootIndex: number;
   path: readonly number[];
 }
 
-interface CanvasHoleEditor extends CanvasSelection {
+interface CanvasNodeEditor extends CanvasFocus {
   left: number;
   top: number;
   value: string;
@@ -1230,8 +1231,8 @@ interface CanvasHoleEditor extends CanvasSelection {
 }
 
 function sameCanvasTarget(
-  left: CanvasSelection | null,
-  right: CanvasSelection | null
+  left: CanvasFocus | null,
+  right: CanvasFocus | null
 ): boolean {
   return Boolean(
     left &&
@@ -1257,10 +1258,11 @@ export function GuiCanvasEditor({
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
-  const [selected, setSelected] = React.useState<CanvasSelection | null>(null);
-  const [editingHole, setEditingHole] = React.useState<CanvasHoleEditor | null>(null);
-  const [dropTarget, setDropTarget] = React.useState<CanvasSelection | null>(null);
+  const [focused, setFocused] = React.useState<CanvasFocus | null>(null);
+  const [editingNode, setEditingNode] = React.useState<CanvasNodeEditor | null>(null);
+  const [dropTarget, setDropTarget] = React.useState<CanvasFocus | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
@@ -1280,7 +1282,7 @@ export function GuiCanvasEditor({
     });
   }, [forest]);
 
-  const updateDropTarget = (next: CanvasSelection | null): void => {
+  const updateDropTarget = (next: CanvasFocus | null): void => {
     setDropTarget((previous) => sameCanvasTarget(previous, next) ? previous : next);
   };
 
@@ -1288,7 +1290,7 @@ export function GuiCanvasEditor({
     clientX: number,
     clientY: number,
     draggedRootIndex: number
-  ): CanvasSelection | null => {
+  ): CanvasFocus | null => {
     if (typeof document.elementsFromPoint !== 'function') return null;
     for (const element of document.elementsFromPoint(clientX, clientY)) {
       const holeElement = (element as HTMLElement).closest<HTMLElement>(
@@ -1313,7 +1315,7 @@ export function GuiCanvasEditor({
     rootIndex: number,
     blockId: string
   ): void => {
-    if (event.button !== 0 || editingHole) return;
+    if (event.button !== 0 || editingNode) return;
     const resolved =
       resolveCanvasPointerTarget(
         event.target as HTMLElement,
@@ -1377,12 +1379,12 @@ export function GuiCanvasEditor({
         drag.blockId = detachedId;
         drag.rootIndex = nextForest.length - 1;
         if (
-          selected?.rootIndex === sourceRootIndex &&
-          sourcePath.every((part, index) => selected.path[index] === part)
+          focused?.rootIndex === sourceRootIndex &&
+          sourcePath.every((part, index) => focused.path[index] === part)
         ) {
-          setSelected({
+          setFocused({
             rootIndex: drag.rootIndex,
-            path: selected.path.slice(sourcePath.length)
+            path: focused.path.slice(sourcePath.length)
           });
         }
         forestRef.current = nextForest;
@@ -1419,8 +1421,8 @@ export function GuiCanvasEditor({
       if (attached !== forestRef.current) {
         forestRef.current = attached;
         onForestChange(attached);
-        setSelected(null);
-        setEditingHole(null);
+        setFocused(null);
+        setEditingNode(null);
       }
     }
     dragRef.current = null;
@@ -1446,7 +1448,7 @@ export function GuiCanvasEditor({
     }
   };
 
-  const elementForTarget = (target: CanvasSelection): HTMLElement | null => {
+  const elementForTarget = (target: CanvasFocus): HTMLElement | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const block = canvas.querySelector<HTMLElement>(
@@ -1479,20 +1481,20 @@ export function GuiCanvasEditor({
     return common && block.contains(common) ? common : null;
   };
 
-  const startEditingHole = (target: CanvasSelection): void => {
+  const startEditingTarget = (target: CanvasFocus): void => {
     const node = getNodeAtPath(forestRef.current[target.rootIndex], target.path.join('.'));
-    if (!isCanvasHole(node)) return;
+    if (!node) return;
     const element = elementForTarget(target);
     const canvas = canvasRef.current;
     if (!element || !canvas) return;
     const rect = element.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
-    setSelected(target);
-    setEditingHole({
+    setFocused(target);
+    setEditingNode({
       ...target,
       left: rect.left - canvasRect.left + canvas.scrollLeft,
       top: rect.top - canvasRect.top + canvas.scrollTop,
-      value: '',
+      value: isCanvasHole(node) ? '' : serializeTreePreserving(node),
       error: null
     });
   };
@@ -1505,7 +1507,10 @@ export function GuiCanvasEditor({
     const block = (event.target as HTMLElement).closest<HTMLElement>(
       '[data-canvas-root-index]'
     );
-    if (!block) return;
+    if (!block) {
+      setFocused(null);
+      return;
+    }
     const rootIndex = Number(block.dataset.canvasRootIndex);
     if (!Number.isInteger(rootIndex) || !forestRef.current[rootIndex]) return;
     const resolved = resolveCanvasPointerTarget(
@@ -1516,71 +1521,110 @@ export function GuiCanvasEditor({
       event.clientY
     ) ?? { path: [], rect: block.getBoundingClientRect() };
     const target = { rootIndex, path: resolved.path };
-    setSelected(target);
+    setFocused(target);
     const node = getNodeAtPath(forestRef.current[rootIndex], resolved.path.join('.'));
-    if (isCanvasHole(node)) startEditingHole(target);
+    if (isCanvasHole(node)) startEditingTarget(target);
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (editingHole) return;
+    if (editingNode) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setFocused(null);
+      return;
+    }
     if (event.key === 'Tab') {
       const targets = listCanvasTargets(forestRef.current);
       if (targets.length === 0) return;
       event.preventDefault();
-      const currentIndex = targets.findIndex((target) => sameCanvasTarget(selected, target));
+      const currentIndex = targets.findIndex((target) => sameCanvasTarget(focused, target));
       const delta = event.shiftKey ? -1 : 1;
       const nextIndex = currentIndex < 0
         ? (event.shiftKey ? targets.length - 1 : 0)
         : (currentIndex + delta + targets.length) % targets.length;
       const next = targets[nextIndex];
-      setSelected({ rootIndex: next.rootIndex, path: next.path });
+      setFocused({ rootIndex: next.rootIndex, path: next.path });
       return;
     }
-    if (event.key === 'F2' && selected) {
+    if (event.key === 'F2' && focused) {
       event.preventDefault();
-      startEditingHole(selected);
+      startEditingTarget(focused);
+      return;
+    }
+    if (event.key === 'Enter' && focused) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        if (focused.path.length > 0) {
+          setFocused({
+            rootIndex: focused.rootIndex,
+            path: focused.path.slice(0, -1)
+          });
+        }
+        return;
+      }
+      const node = getNodeAtPath(
+        forestRef.current[focused.rootIndex],
+        focused.path.join('.')
+      );
+      if (node?.children.length) {
+        setFocused({
+          rootIndex: focused.rootIndex,
+          path: [...focused.path, 0]
+        });
+      }
     }
   };
 
-  const commitHoleEdit = (): void => {
-    if (!editingHole) return;
-    const parsed = tryParseSnlSyntaxTree(editingHole.value.trim());
+  const commitNodeEdit = (): void => {
+    if (!editingNode) return;
+    const parsed = tryParseSnlSyntaxTree(editingNode.value.trim());
     if (!parsed.ok) {
-      setEditingHole((previous) => previous ? { ...previous, error: parsed.error } : null);
+      setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
       return;
     }
     ensureTreeIdentity(parsed.tree);
-    const next = fillCanvasHole(
+    const next = replaceCanvasTarget(
       forestRef.current,
-      editingHole.rootIndex,
-      editingHole.path,
+      editingNode.rootIndex,
+      editingNode.path,
       parsed.tree
     );
     if (next === forestRef.current) return;
     forestRef.current = next;
     onForestChange(next);
-    setEditingHole(null);
+    setEditingNode(null);
     window.setTimeout(() => canvasRef.current?.focus(), 0);
   };
+
+  React.useEffect(() => {
+    if (!editingNode) return;
+    const commitOnOutsidePointer = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && editorRef.current?.contains(target)) return;
+      commitNodeEdit();
+    };
+    document.addEventListener('pointerdown', commitOnOutsidePointer, true);
+    return () => document.removeEventListener('pointerdown', commitOnOutsidePointer, true);
+  }, [editingNode]);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const decorate = (): void => {
-      canvas.querySelectorAll('.snl-canvas-selected').forEach((element) =>
-        element.classList.remove('snl-canvas-selected')
+      canvas.querySelectorAll('.snl-canvas-focused').forEach((element) =>
+        element.classList.remove('snl-canvas-focused')
       );
       canvas.querySelectorAll('.snl-canvas-drop-target').forEach((element) =>
         element.classList.remove('snl-canvas-drop-target')
       );
-      if (selected) elementForTarget(selected)?.classList.add('snl-canvas-selected');
+      if (focused) elementForTarget(focused)?.classList.add('snl-canvas-focused');
       if (dropTarget) elementForTarget(dropTarget)?.classList.add('snl-canvas-drop-target');
     };
     decorate();
     const observer = new MutationObserver(decorate);
     observer.observe(canvas, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [forest, selected, dropTarget]);
+  }, [forest, focused, dropTarget]);
 
   return (
     <section>
@@ -1632,7 +1676,9 @@ export function GuiCanvasEditor({
                 top: position.y,
                 display: 'inline-block',
                 width: 'max-content',
-                maxWidth: 'none',
+                maxWidth: `calc(100% - ${Math.max(0, position.x) + 8}px)`,
+                boxSizing: 'border-box',
+                overflowX: 'auto',
                 padding: '0.3rem',
                 border: '1px solid var(--vscode-focusBorder, #007fd4)',
                 borderRadius: '5px',
@@ -1655,35 +1701,39 @@ export function GuiCanvasEditor({
             </div>
           );
         })}
-        {editingHole ? (
-          <input
+        {editingNode ? (
+          <MacroIdInput
+            ref={editorRef}
+            multiline
+            autoSize
             autoFocus
-            className="snl-canvas-hole-input"
-            aria-label="Edit SNL placeholder"
-            value={editingHole.value}
-            onChange={(event) => setEditingHole({
-              ...editingHole,
-              value: event.target.value,
+            className="snl-canvas-node-input"
+            aria-label="Edit focused SNL"
+            value={editingNode.value}
+            onChange={(value) => setEditingNode({
+              ...editingNode,
+              value,
               error: null
             })}
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === 'Enter') {
                 event.preventDefault();
-                commitHoleEdit();
+                commitNodeEdit();
               } else if (event.key === 'Escape') {
                 event.preventDefault();
-                setEditingHole(null);
+                setEditingNode(null);
                 window.setTimeout(() => canvasRef.current?.focus(), 0);
               }
             }}
-            title={editingHole.error ?? 'Enter SNL DSL and press Enter'}
+            title={editingNode.error ?? 'Enter SNL DSL and press Enter'}
             style={{
               position: 'absolute',
-              left: editingHole.left,
-              top: editingHole.top,
+              left: editingNode.left,
+              top: editingNode.top,
+              maxWidth: `calc(100% - ${Math.max(0, editingNode.left) + 8}px)`,
               zIndex: 20,
-              borderColor: editingHole.error
+              borderColor: editingNode.error
                 ? 'var(--vscode-errorForeground, #f48771)'
                 : undefined
             }}
@@ -1696,8 +1746,8 @@ export function GuiCanvasEditor({
             variant="secondary"
             size="sm"
             onClick={() => {
-              setSelected(null);
-              setEditingHole(null);
+              setFocused(null);
+              setEditingNode(null);
               updateDropTarget(null);
               onResetFromSnl();
             }}
@@ -2453,10 +2503,9 @@ function InductiveNode({
         </span>
 
         {/* Name input — dark-mode uniform styling + kind-colored frame. */}
-        <input
-          type="text"
+        <MacroIdInput
           value={rawInput}
-          onChange={(e) => commitRaw(e.target.value)}
+          onChange={commitRaw}
           placeholder={depth === 0 ? 'root macro' : 'name / $expr$ / %text% / @…'}
           spellCheck={false}
           style={{

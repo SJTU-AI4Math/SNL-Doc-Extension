@@ -147,6 +147,23 @@ export function attachCanvasRoot(
   return next;
 }
 
+/** Replace any focused subtree (or an entire root) with parsed SNL. */
+export function replaceCanvasTarget(
+  forest: readonly SnlSyntaxTree[],
+  targetRootIndex: number,
+  targetPath: CanvasTreePath,
+  subtree: SnlSyntaxTree
+): SnlSyntaxTree[] {
+  if (targetRootIndex < 0 || targetRootIndex >= forest.length) {
+    return forest as SnlSyntaxTree[];
+  }
+  const root = replaceAtPath(forest[targetRootIndex], targetPath, subtree);
+  if (!root) return forest as SnlSyntaxTree[];
+  const next = forest.slice();
+  next[targetRootIndex] = root;
+  return next;
+}
+
 /** Replace an unresolved slot with a parsed SNL subtree. */
 export function fillCanvasHole(
   forest: readonly SnlSyntaxTree[],

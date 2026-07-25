@@ -15,6 +15,8 @@ describe('GUI Editor (Canvas) placement', () => {
     expect(entryEditor).toContain('serializeTreePreserving(nextForest[0])');
     expect(entryEditor).not.toContain('root {rootIndex + 1}:');
     expect(entryEditor).toContain("? 'grabbing' : 'grab'");
+    expect(entryEditor).toContain("maxWidth: 'none'");
+    expect(entryEditor).toContain("width: '100%'");
   });
 
   it('is not exposed as a global Dashboard or command-palette panel', () => {

@@ -8,7 +8,8 @@ import {
   detachCanvasSubtree,
   fillCanvasHole,
   isCanvasHole,
-  listCanvasTargets
+  listCanvasTargets,
+  replaceCanvasTarget
 } from './canvasForest';
 
 const node = (macro_name: string, children: SnlSyntaxTree[] = []): SnlSyntaxTree => ({
@@ -85,6 +86,16 @@ describe('Canvas forest detach semantics', () => {
     expect(listCanvasTargets(filled).map((target) => target.path.join('.'))).toEqual([
       '', '0', '0.0', '1'
     ]);
+  });
+
+  it('replaces any focused subtree, including a root', () => {
+    const forest = [node('root', [node('old')]), node('floating')];
+    const childReplaced = replaceCanvasTarget(forest, 0, [0], node('new', [node('leaf')]));
+    expect(childReplaced[0].children[0].macro_name).toBe('new');
+    expect(childReplaced[0].children[0].children[0].macro_name).toBe('leaf');
+
+    const rootReplaced = replaceCanvasTarget(childReplaced, 1, [], node('new-root'));
+    expect(rootReplaced[1].macro_name).toBe('new-root');
   });
 
   it('allows persistence only with one root and no unresolved holes', () => {

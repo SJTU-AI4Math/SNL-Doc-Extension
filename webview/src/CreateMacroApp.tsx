@@ -62,6 +62,7 @@ import {
 } from './vscodeApi';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
+import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
@@ -1570,12 +1571,11 @@ function SingleNameInput({
     if (local !== value) onChange(local);
   };
   return (
-    <input
+    <MacroIdInput
       id="m-name"
-      type="text"
       value={local}
       placeholder="e.g. Add.add"
-      onChange={(e) => setLocal(e.target.value)}
+      onChange={setLocal}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -1756,17 +1756,16 @@ function NameSegmentInput({
   const chWidth = Math.max((local.length || 4) + 2, isLast ? 12 : 4);
 
   return (
-    <input
-      type="text"
+    <MacroIdInput
       value={local}
       placeholder={isLast ? 'name' : 'namespace'}
-      onChange={(e) => setLocal(e.target.value)}
+      onChange={setLocal}
       onBlur={commit}
       onFocus={onFocus}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
-          (e.currentTarget as HTMLInputElement).blur();
+          e.currentTarget.blur();
         }
       }}
       readOnly={readOnly}

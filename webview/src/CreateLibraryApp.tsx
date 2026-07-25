@@ -1006,7 +1006,12 @@ function OutlineEditor({
         break;
       }
       case 'move':
-        onGraphOp({ op: 'moveSibling', nodeId: op.id, direction: op.direction });
+        onGraphOp({
+          op: 'moveSibling',
+          nodeId: op.id,
+          direction: op.direction,
+          toEdge: op.toEdge === true
+        });
         break;
       case 'indent':
         onGraphOp({ op: 'indent', nodeId: op.id });
@@ -1095,6 +1100,7 @@ function OutlineEditor({
 
       <TreeOutlineEditor<GraphNode>
         roots={rootNodes}
+        moveToEdge
         getId={(n) => n.id}
         getChildren={getChildren}
         renderRow={renderRow}

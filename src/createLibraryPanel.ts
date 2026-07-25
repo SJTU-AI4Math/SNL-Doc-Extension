@@ -21,6 +21,7 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
+import { moveGraphSibling } from './graphSiblingOrder';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -445,7 +446,7 @@ export class CreateLibraryPanel {
    *   - deleteNode: { op: 'deleteNode', nodeId }
    *       Removes the graph node + all its branch edges. Does NOT delete
    *       the underlying shared-pool entry — undo-friendly.
-   *   - moveSibling: { op: 'moveSibling', nodeId, direction: 'up' | 'down' }
+   *   - moveSibling: { op: 'moveSibling', nodeId, direction: 'up' | 'down', toEdge? }
    *   - indent: { op: 'indent', nodeId }
    *       Demote the node under its previous sibling (make it that
    *       sibling's last child). No-op when there is no previous sibling
@@ -675,57 +676,15 @@ export class CreateLibraryPanel {
             });
             return;
           }
-          // Find this node's parent branch edge, and its sibling under the
-          // same parent to swap with. For a root node the "parent" is
-          // conceptually the roots list — swap the two nodes' declaration
-          // order in nodes[].
-          const parentRel = relationships.find(
-            (r) => r.label === 'branch' && r.to === nodeId
+          const moved = moveGraphSibling(
+            nodes,
+            relationships,
+            nodeId,
+            direction,
+            op.toEdge === true
           );
-          if (!parentRel) {
-            // Root case: swap in nodes[] declaration order.
-            const idx = nodes.findIndex((n) => n.id === nodeId);
-            if (idx < 0) return;
-            // Find nearest sibling ROOT (also has no parent).
-            const isRoot = (nid: string): boolean =>
-              !relationships.some(
-                (r) => r.label === 'branch' && r.to === nid
-              );
-            const step = direction === 'up' ? -1 : 1;
-            for (let j = idx + step; j >= 0 && j < nodes.length; j += step) {
-              if (isRoot(nodes[j].id)) {
-                const tmp = nodes[idx];
-                nodes[idx] = nodes[j];
-                nodes[j] = tmp;
-                break;
-              }
-            }
-            break;
-          }
-          const parentId = parentRel.from;
-          // Enumerate this parent's branch edges in relationships[] order.
-          const siblingRelIndices: number[] = [];
-          for (let i = 0; i < relationships.length; i++) {
-            const r = relationships[i];
-            if (r.label === 'branch' && r.from === parentId) {
-              siblingRelIndices.push(i);
-            }
-          }
-          const myRelPos = siblingRelIndices.findIndex(
-            (i) => relationships[i].to === nodeId
-          );
-          if (myRelPos < 0) return;
-          const swapRelPos =
-            direction === 'up' ? myRelPos - 1 : myRelPos + 1;
-          if (swapRelPos < 0 || swapRelPos >= siblingRelIndices.length) {
-            // Already at edge; no-op.
-            return;
-          }
-          const a = siblingRelIndices[myRelPos];
-          const b = siblingRelIndices[swapRelPos];
-          const tmp = relationships[a];
-          relationships[a] = relationships[b];
-          relationships[b] = tmp;
+          nodes = moved.nodes;
+          relationships = moved.relationships;
           break;
         }
         case 'indent': {

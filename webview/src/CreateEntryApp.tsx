@@ -1277,6 +1277,7 @@ export function GuiCanvasEditor({
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
   const [focused, setFocused] = React.useState<CanvasFocus | null>(null);
   const [editingNode, setEditingNode] = React.useState<CanvasNodeEditor | null>(null);
+  const [addingRootFromMacro, setAddingRootFromMacro] = React.useState(false);
   const [dropTarget, setDropTarget] = React.useState<CanvasFocus | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -1583,6 +1584,15 @@ export function GuiCanvasEditor({
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (editingNode) return;
+    if (
+      !focused &&
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === 'f'
+    ) {
+      event.preventDefault();
+      setAddingRootFromMacro(true);
+      return;
+    }
     if (event.key === 'Escape') {
       event.preventDefault();
       setFocused(null);
@@ -1809,6 +1819,42 @@ export function GuiCanvasEditor({
               borderColor: editingNode.error
                 ? 'var(--vscode-errorForeground, #f48771)'
                 : undefined
+            }}
+          />
+        ) : null}
+        {addingRootFromMacro ? (
+          <MacroIdInput
+            autoFocus
+            openSnooglOnMount
+            aria-label="Insert Canvas root Macro"
+            macroIds={macroIds}
+            value=""
+            onChange={(value) => {
+              const parsed = tryParseSnlSyntaxTree(value.trim());
+              if (!parsed.ok) return;
+              ensureTreeIdentity(parsed.tree);
+              const next = [...forestRef.current, parsed.tree];
+              const rootIndex = next.length - 1;
+              forestRef.current = next;
+              setAddingRootFromMacro(false);
+              setFocused({ rootIndex, path: [] });
+              onForestChange(next);
+              window.setTimeout(() => canvasRef.current?.focus(), 0);
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setAddingRootFromMacro(false);
+                window.setTimeout(() => canvasRef.current?.focus(), 0);
+              }
+            }}
+            style={{
+              position: 'absolute',
+              left: 24,
+              top: 24,
+              width: '18rem',
+              zIndex: 20
             }}
           />
         ) : null}

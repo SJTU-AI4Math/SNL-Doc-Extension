@@ -66,6 +66,8 @@ interface MacroIdInputBaseProps {
   onChange: (value: string) => void;
   autoSize?: boolean;
   macroIds?: readonly string[];
+  /** Open the embedded SNoogL Macro picker as soon as this control mounts. */
+  openSnooglOnMount?: boolean;
 }
 
 export type MacroIdInputProps =
@@ -89,6 +91,7 @@ export const MacroIdInput = forwardRef<
     multiline = false,
     autoSize = false,
     macroIds = [],
+    openSnooglOnMount = false,
     style,
     className,
     ...props
@@ -132,6 +135,15 @@ export const MacroIdInput = forwardRef<
   useEffect(() => {
     if (snooglOpen) snooglSearchRef.current?.focus();
   }, [snooglOpen]);
+
+  useEffect(() => {
+    if (!openSnooglOnMount || interactionDisabled) return;
+    snooglRangeRef.current = macroTokenRange(value, value.length);
+    setSuggestionsOpen(false);
+    setSnooglQuery('');
+    setSnooglSelection(0);
+    setSnooglOpen(true);
+  }, [openSnooglOnMount, interactionDisabled]);
 
   const suggestionsAt = (position: number): string[] => {
     const range = macroTokenRange(value, position);
@@ -471,6 +483,7 @@ export const MacroIdInput = forwardRef<
         onKeyDown={(event) => {
           if (event.key === 'Tab') {
             event.preventDefault();
+            event.stopPropagation();
             commitSnooglSelection();
           } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();

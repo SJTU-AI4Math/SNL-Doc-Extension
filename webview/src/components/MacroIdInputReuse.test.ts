@@ -5,10 +5,10 @@ import { describe, expect, it } from 'vitest';
 const repo = path.resolve(__dirname, '../../..');
 
 describe('shared Macro ID editor adoption', () => {
-  it('routes Canvas, Inductive and Create Macro name fields through MacroIdInput', () => {
+  it('routes Canvas editing/insertion, Inductive and Create Macro names through MacroIdInput', () => {
     const entry = fs.readFileSync(path.join(repo, 'webview/src/CreateEntryApp.tsx'), 'utf8');
     const macro = fs.readFileSync(path.join(repo, 'webview/src/CreateMacroApp.tsx'), 'utf8');
-    expect(entry.match(/<MacroIdInput/g)).toHaveLength(2);
+    expect(entry.match(/<MacroIdInput/g)).toHaveLength(3);
     expect(macro.match(/<MacroIdInput/g)).toHaveLength(2);
     expect(entry).toContain('macroIds={macroIds}');
     expect(macro).toContain('macroIds={macroIds}');

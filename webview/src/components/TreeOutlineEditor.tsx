@@ -39,6 +39,8 @@ export interface TreeOp {
   id: string;
   /** Only present for `kind === 'move'`. */
   direction?: 'up' | 'down';
+  /** Ctrl/Cmd-click on a move button jumps directly to that sibling edge. */
+  toEdge?: boolean;
 }
 
 export interface TreeOutlineEditorProps<T> {
@@ -56,6 +58,8 @@ export interface TreeOutlineEditorProps<T> {
    * by the entry outline to attach its "add child / add sibling" popover.
    */
   renderAfterRow?: (node: T, depth: number) => React.ReactNode;
+  /** Enable Ctrl/Cmd-click on move buttons to jump to the sibling edge. */
+  moveToEdge?: boolean;
 }
 
 const HOVER_STYLE_TAG_ID = 'snl-tree-outline-hover-style';
@@ -78,7 +82,8 @@ export function TreeOutlineEditor<T>({
   renderRow,
   onOp,
   emptyState,
-  renderAfterRow
+  renderAfterRow,
+  moveToEdge = false
 }: TreeOutlineEditorProps<T>): React.ReactElement {
   ensureHoverStyle();
   // Collapse state keyed by node id — persists across re-renders / host pushes
@@ -115,6 +120,7 @@ export function TreeOutlineEditor<T>({
           onOp={onOp}
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
+          moveToEdge={moveToEdge}
         />
       ))}
     </ol>
@@ -134,6 +140,7 @@ interface TreeRowProps<T> {
   onOp: (op: TreeOp) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (id: string) => void;
+  moveToEdge: boolean;
 }
 
 function TreeRow<T>({
@@ -148,7 +155,8 @@ function TreeRow<T>({
   renderAfterRow,
   onOp,
   collapsed,
-  onToggleCollapsed
+  onToggleCollapsed,
+  moveToEdge
 }: TreeRowProps<T>): React.ReactElement {
   const id = getId(node);
   const kids = getChildren(node);
@@ -235,15 +243,33 @@ function TreeRow<T>({
           />
           <ToolbarButton
             label="↑"
-            title={canMoveUp ? 'Move up (swap with previous sibling)' : 'Move up unavailable — already first among siblings'}
+            title={canMoveUp
+              ? moveToEdge
+                ? 'Move up (Ctrl/Cmd-click: move to first sibling)'
+                : 'Move up (swap with previous sibling)'
+              : 'Move up unavailable — already first among siblings'}
             disabled={!canMoveUp}
-            onClick={() => onOp({ kind: 'move', id, direction: 'up' })}
+            onClick={(event) => onOp({
+              kind: 'move',
+              id,
+              direction: 'up',
+              toEdge: moveToEdge && (event.ctrlKey || event.metaKey)
+            })}
           />
           <ToolbarButton
             label="↓"
-            title={canMoveDown ? 'Move down (swap with next sibling)' : 'Move down unavailable — already last among siblings'}
+            title={canMoveDown
+              ? moveToEdge
+                ? 'Move down (Ctrl/Cmd-click: move to last sibling)'
+                : 'Move down (swap with next sibling)'
+              : 'Move down unavailable — already last among siblings'}
             disabled={!canMoveDown}
-            onClick={() => onOp({ kind: 'move', id, direction: 'down' })}
+            onClick={(event) => onOp({
+              kind: 'move',
+              id,
+              direction: 'down',
+              toEdge: moveToEdge && (event.ctrlKey || event.metaKey)
+            })}
           />
           <ToolbarButton
             label="✕"
@@ -277,6 +303,7 @@ function TreeRow<T>({
               onOp={onOp}
               collapsed={collapsed}
               onToggleCollapsed={onToggleCollapsed}
+              moveToEdge={moveToEdge}
             />
           ))}
         </ol>
@@ -294,7 +321,7 @@ function ToolbarButton({
 }: {
   label: string;
   title: string;
-  onClick: () => void;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
   destructive?: boolean;
   disabled?: boolean;
 }): React.ReactElement {

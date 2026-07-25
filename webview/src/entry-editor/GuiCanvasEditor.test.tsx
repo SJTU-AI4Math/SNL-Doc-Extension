@@ -397,6 +397,45 @@ describe('GuiCanvasEditor', () => {
     expect(root.classList.contains('snl-canvas-focused')).toBe(true);
   });
 
+  it('opens Macro search with Ctrl+F when no node is focused and Tab inserts a root', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          macroIds={['FOL.forall', 'Add.add']}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<Harness />);
+    const canvas = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+    );
+    fireEvent.click(canvas);
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+
+    const search = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Search macros in SNoogL' })
+    );
+    fireEvent.change(search, { target: { value: 'Add' } });
+    fireEvent.keyDown(search, { key: 'Tab' });
+
+    await waitFor(() => {
+      const roots = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+      expect(roots).toHaveLength(2);
+      expect(roots[1].textContent).toContain('Add.add');
+      expect(
+        roots[1].querySelector<HTMLElement>('[data-tree-path=""]')
+          ?.classList.contains('snl-canvas-focused')
+      ).toBe(true);
+    });
+  });
+
   it('keeps a root block in place after editing its SNL', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('root', [node('child')])]);

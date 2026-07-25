@@ -111,14 +111,54 @@ export function installSnlDocWatcher(
   if (!root) return;
   const pattern = new vscode.RelativePattern(root, '.SNL_Doc/**');
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-  const fire = (): void => {
-    void refresh();
+  // Coalesce bursts. Saving one entry rewrites several files, and every
+  // open panel installs one of these — without a debounce a single save
+  // fanned out to (files × panels) full workspace re-reads, which is what
+  // made panels feel sluggish while editing.
+  // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fire = (uri: vscode.Uri): void => {
+    // Ignore churn we never read: only the entry pool, macro packages and
+    // config feed panel state.
+    if (!SNL_DOC_WATCHED_PATH.test(uri.path)) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refresh();
+    }, SNL_DOC_WATCH_DEBOUNCE_MS);
   };
   watcher.onDidCreate(fire, null, disposables);
   watcher.onDidChange(fire, null, disposables);
   watcher.onDidDelete(fire, null, disposables);
   disposables.push(watcher);
+  disposables.push({
+    dispose: () => {
+      if (timer) clearTimeout(timer);
+    }
+  });
 }
+
+/** How long to coalesce a burst of `.SNL_Doc` writes before refreshing. */
+export const SNL_DOC_WATCH_DEBOUNCE_MS = 120;
+
+/**
+ * The `.SNL_Doc` paths whose contents actually feed panel state, matching the
+ * URI helpers in snlDoc.ts (`configUri`, `entriesUri`, `relationshipsUri`,
+ * `termMacrosDirUri`, `libraryDirUri`). Anything else under `.SNL_Doc/**`
+ * (assets, scratch files, editor temp files) must not trigger a re-read.
+ *
+ * Entry kinds live inside `config.json`, so there is no separate file here.
+ */
+export const SNL_DOC_WATCHED_PATH = new RegExp(
+  '\\.SNL_Doc/(' +
+    'config\\.json|' +
+    'entries\\.json|' +
+    'relationships\\.json|' +
+    'term_macros/[^/]+\\.json|' +
+    'libraries/[^/]+/[^/]+\\.json' +
+    ')$',
+  'i'
+);
 
 /**
  * Shared handler for top-of-panel navigation messages posted by the

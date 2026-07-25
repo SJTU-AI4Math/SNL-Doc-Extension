@@ -214,26 +214,21 @@ export class CreateMacroPanel {
       });
       return;
     }
-    const macroKinds: MacroKind[] = await readMacroKinds(root);
-    let macroCandidates: SnooglSearchCandidate[] = [];
-    try {
-      macroCandidates = Object.entries(await readAllMacros(root))
-        .map(([id, macro]) => ({ id, labels: macro.tags ?? [] }))
-        .sort((left, right) => left.id.localeCompare(right.id));
-    } catch {
-      macroCandidates = [];
-    }
-    // Fetch shared entry pool for the source.entries picker. Failures
-    // (missing entries.json, parse error) are non-fatal — we surface an
-    // empty pool and the picker falls back to "No matching entry".
-    let entries: EntryOption[] = [];
-    try {
-      const rawEntries = await readEntries(root);
-      entries = rawEntries.map(toEntryOption);
-    } catch {
-      entries = [];
-    }
-    const read = await readMacroPackage(root, this.file);
+    // Independent reads — run them concurrently rather than one after
+    // another. Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+    const [macroKinds, allMacros, rawEntries, read] = await Promise.all([
+      readMacroKinds(root),
+      readAllMacros(root).catch(() => ({} as Record<string, { tags?: string[] }>)),
+      readEntries(root).catch(() => []),
+      readMacroPackage(root, this.file)
+    ]);
+    const macroCandidates: SnooglSearchCandidate[] = Object.entries(allMacros)
+      .map(([id, macro]) => ({ id, labels: macro.tags ?? [] }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    // Shared entry pool for the source.entries picker. Failures (missing
+    // entries.json, parse error) are non-fatal — an empty pool just makes
+    // the picker fall back to "No matching entry".
+    const entries: EntryOption[] = rawEntries.map(toEntryOption);
     if (read.status === 'ok') {
       const existing =
         this.mode === 'edit'

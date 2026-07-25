@@ -348,13 +348,11 @@ export class GraphPanel {
         typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0,
       snl: typeof e.content?.snl === 'string' ? e.content.snl : undefined
     }));
-    let allMacros: unknown = {};
-    try {
-      allMacros = await readAllMacros(root);
-    } catch {
-      allMacros = {};
-    }
-    const macroKinds = await readMacroKinds(root);
+    // Independent reads run concurrently (cat 2026-07-25: panels felt slow).
+    const [allMacros, macroKinds] = await Promise.all([
+      readAllMacros(root).catch((): unknown => ({})),
+      readMacroKinds(root)
+    ]);
 
     void this.panel.webview.postMessage({
       type: 'graph',

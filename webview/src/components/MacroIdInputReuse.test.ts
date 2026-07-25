@@ -16,7 +16,10 @@ describe('shared Macro ID editor adoption', () => {
 
   it('loads Create Macro search candidates with tags from every active workspace package', () => {
     const host = fs.readFileSync(path.join(repo, 'src/createMacroPanel.ts'), 'utf8');
-    expect(host).toContain('Object.entries(await readAllMacros(root))');
+    // The macros are now fetched alongside the other panel reads (one
+    // concurrent batch instead of serial awaits), then mapped.
+    expect(host).toContain('readAllMacros(root)');
+    expect(host).toContain('Object.entries(allMacros)');
     expect(host).toContain('labels: macro.tags');
     expect(host).toContain('macroCandidates,');
   });

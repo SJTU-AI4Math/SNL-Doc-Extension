@@ -232,9 +232,12 @@ export class CreateLibraryPanel {
         });
         return;
       }
-      const entries: EntryData[] = await readEntries(root);
-      const kinds: EntryKind[] = await readEntryKinds(root);
-      const macros = await readAllMacros(root);
+      // Independent reads run concurrently (cat 2026-07-25: panels felt slow).
+      const [entries, kinds, macros] = await Promise.all([
+        readEntries(root),
+        readEntryKinds(root),
+        readAllMacros(root)
+      ]);
       const metricMacroSources = Object.fromEntries(
         Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
       );

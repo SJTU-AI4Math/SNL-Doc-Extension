@@ -193,35 +193,45 @@ export class SnoogLPanel {
         });
         return;
       }
-      const entries = await safe(() => readEntries(root), []);
-      const macrosByName = await safe(() => readAllMacros(root), {});
       // For macro origin (package file + display name), we need the
-      // per-package read. Same pattern as createEntryPanel — best-effort.
-      const macroPackages: SnoogLHitMacro[] = [];
-      try {
-        const active = new Set(await resolveActiveMacroPackages(root));
-        const packages = await readMacroPackages(root);
-        for (const summary of packages) {
-          const bare = summary.file.replace(/\.json$/i, '');
-          if (!active.has(bare)) continue;
-          const read = await readMacroPackage(root, summary.file);
-          if (read.status !== 'ok') continue;
-          for (const m of read.macros) {
-            if (typeof m.name !== 'string' || !m.name) continue;
-            macroPackages.push({
-              kind: 'macro',
-              id: m.name,
-              packageFile: bare,
-              packageName: read.pkg?.name ?? bare,
-              macroKind: typeof m.kind === 'string' && m.kind ? m.kind : null,
-              tags: Array.isArray(m.tags) ? m.tags : [],
-              score: 0
-            });
+      // per-package read. Read them concurrently — they are independent
+      // files and the serial await was pure latency on every panel open.
+      // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+      const [entries, macrosByName, macroPackages] = await Promise.all([
+        safe(() => readEntries(root), []),
+        safe(() => readAllMacros(root), {}),
+        safe(async (): Promise<SnoogLHitMacro[]> => {
+          const [active, packages] = await Promise.all([
+            resolveActiveMacroPackages(root).then((names) => new Set(names)),
+            readMacroPackages(root)
+          ]);
+          const loaded = await Promise.all(
+            packages
+              .filter((summary) => active.has(summary.file.replace(/\.json$/i, '')))
+              .map(async (summary) => ({
+                bare: summary.file.replace(/\.json$/i, ''),
+                read: await readMacroPackage(root, summary.file)
+              }))
+          );
+          const out: SnoogLHitMacro[] = [];
+          for (const { bare, read } of loaded) {
+            if (read.status !== 'ok') continue;
+            for (const m of read.macros) {
+              if (typeof m.name !== 'string' || !m.name) continue;
+              out.push({
+                kind: 'macro',
+                id: m.name,
+                packageFile: bare,
+                packageName: read.pkg?.name ?? bare,
+                macroKind: typeof m.kind === 'string' && m.kind ? m.kind : null,
+                tags: Array.isArray(m.tags) ? m.tags : [],
+                score: 0
+              });
+            }
           }
-        }
-      } catch {
-        /* best-effort */
-      }
+          return out;
+        }, [])
+      ]);
       const kindsByMode = {
         entry: uniqueSorted(entries.map((e) => e.kind).filter(Boolean) as string[]),
         macro: uniqueSorted(

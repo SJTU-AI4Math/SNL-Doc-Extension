@@ -617,23 +617,31 @@ export async function readMacroPackages(
     return [];
   }
 
-  const out: MacroPackageSummary[] = [];
-  for (const [name, type] of entries) {
-    // Files only, json only, no dotfiles.
-    if (type !== vscode.FileType.File) continue;
-    if (!name.toLowerCase().endsWith('.json')) continue;
-    if (name.startsWith('.')) continue;
+  const candidates = entries
+    .filter(([name, type]) =>
+      // Files only, json only, no dotfiles.
+      type === vscode.FileType.File &&
+      name.toLowerCase().endsWith('.json') &&
+      !name.startsWith('.')
+    )
+    .map(([name]) => name);
 
-    const summary: MacroPackageSummary = { file: name, macroCount: null };
-    try {
-      summary.macroCount = inferMacroCount(
-        await readJson<unknown>(vscode.Uri.joinPath(dir, name))
-      );
-    } catch {
-      // Leave macroCount null.
-    }
-    out.push(summary);
-  }
+  // Read concurrently: these are independent files, and the serial await in
+  // a loop was pure latency on every panel open (this listing is the first
+  // thing several panels do). Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+  const out: MacroPackageSummary[] = await Promise.all(
+    candidates.map(async (name) => {
+      const summary: MacroPackageSummary = { file: name, macroCount: null };
+      try {
+        summary.macroCount = inferMacroCount(
+          await readJson<unknown>(vscode.Uri.joinPath(dir, name))
+        );
+      } catch {
+        // Leave macroCount null.
+      }
+      return summary;
+    })
+  );
   out.sort((a, b) => a.file.localeCompare(b.file));
   return out;
 }
@@ -1334,17 +1342,53 @@ export async function readMacroPackage(
 export async function readAllMacros(
   workspaceRoot: vscode.Uri
 ): Promise<Record<string, MacroPackageEntry>> {
-  const packages = await readMacroPackages(workspaceRoot);
-  const active = await resolveActiveMacroPackages(workspaceRoot);
+  return (await readAllMacrosWithOrigin(workspaceRoot)).macros;
+}
+
+/**
+ * Same as {@link readAllMacros}, but also returns the macro-name → owning
+ * package map that the walk already computes internally.
+ *
+ * Callers used to ask for the macros and then walk every active package a
+ * SECOND time just to rebuild this map — doubling the file reads on every
+ * panel open. The packages are also read concurrently now: they are
+ * independent files and the serial `await` in a loop was pure latency.
+ * Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+ */
+export async function readAllMacrosWithOrigin(
+  workspaceRoot: vscode.Uri
+): Promise<{
+  macros: Record<string, MacroPackageEntry>;
+  origin: Record<string, string>;
+}> {
+  // `listMacroPackageNames` instead of `readMacroPackages`: we are about to
+  // read each package in full anyway, so parsing them once more just to
+  // compute a discarded macroCount is wasted work.
+  const [onDisk, active] = await Promise.all([
+    listMacroPackageNames(workspaceRoot),
+    resolveActiveMacroPackages(workspaceRoot)
+  ]);
   const activeSet = new Set(active);
   const out: Record<string, MacroPackageEntry> = {};
   // Track which active package first defined each name so we can report the
   // two colliding packages (Feature 3 will make this actionable).
   const origin: Record<string, string> = {};
-  for (const summary of packages) {
-    const bare = stripJsonExt(summary.file);
-    if (!activeSet.has(bare)) continue;
-    const read = await readMacroPackage(workspaceRoot, summary.file);
+
+  // Same ordering `readMacroPackages` produced, so "last write wins" keeps
+  // its historical, deterministic outcome.
+  const activePackages = onDisk
+    .filter((bare) => activeSet.has(bare))
+    .sort((a, b) => a.localeCompare(b));
+  // Read concurrently, then fold in that order regardless of which I/O
+  // finished first.
+  const loaded = await Promise.all(
+    activePackages.map(async (bare) => ({
+      bare,
+      read: await readMacroPackage(workspaceRoot, `${bare}.json`)
+    }))
+  );
+
+  for (const { bare, read } of loaded) {
     if (read.status !== 'ok') continue;
     for (const macro of read.macros) {
       if (typeof macro.name === 'string' && macro.name.length > 0) {
@@ -1360,7 +1404,7 @@ export async function readAllMacros(
       }
     }
   }
-  return out;
+  return { macros: out, origin };
 }
 
 /**
@@ -1374,14 +1418,17 @@ export async function readAllMacros(
 export async function resolveActiveMacroPackages(
   workspaceRoot: vscode.Uri
 ): Promise<string[]> {
-  const packages = await readMacroPackages(workspaceRoot);
-  const onDisk = packages.map((p) => stripJsonExt(p.file));
-  let cfg: SnlConfig | null = null;
-  try {
-    cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
-  } catch {
-    cfg = null;
-  }
+  // Only the file NAMES matter here, so list them directly instead of going
+  // through `readMacroPackages`, which parses every package just to compute
+  // a macroCount this function throws away. That parse showed up as a whole
+  // extra read of every package on each panel open.
+  // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+  const [onDisk, cfg] = await Promise.all([
+    listMacroPackageNames(workspaceRoot),
+    readJson<unknown>(configUri(workspaceRoot))
+      .then((raw) => normalizeConfig(raw))
+      .catch((): SnlConfig | null => null)
+  ]);
   if (!cfg || cfg.active_macro_packages === undefined) {
     // Missing field: all packages on disk are active.
     return Array.from(new Set(onDisk)).sort((a, b) => a.localeCompare(b));
@@ -1390,6 +1437,26 @@ export async function resolveActiveMacroPackages(
   // Garbage-collect on read: only surface packages still present on disk.
   const resolved = onDisk.filter((bare) => declared.has(bare));
   return Array.from(new Set(resolved)).sort((a, b) => a.localeCompare(b));
+}
+
+/** Bare names of the macro-package files on disk, without reading them. */
+async function listMacroPackageNames(
+  workspaceRoot: vscode.Uri
+): Promise<string[]> {
+  const dir = termMacrosDirUri(workspaceRoot);
+  if (!(await exists(dir))) return [];
+  try {
+    const entries = await vscode.workspace.fs.readDirectory(dir);
+    return entries
+      .filter(([name, type]) =>
+        type === vscode.FileType.File &&
+        name.toLowerCase().endsWith('.json') &&
+        !name.startsWith('.')
+      )
+      .map(([name]) => stripJsonExt(name));
+  } catch {
+    return [];
+  }
 }
 
 /**

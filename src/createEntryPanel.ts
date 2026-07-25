@@ -3,7 +3,7 @@ import { toEntryOption } from './entryPoolOption';
 import {
   addEntry,
   listEntryKinds,
-  readAllMacros,
+  readAllMacrosWithOrigin,
   readEntries,
   readMacroPackage,
   readMacroPackages,
@@ -139,54 +139,27 @@ export class CreateEntryPanel {
 
   private async pushContext(): Promise<void> {
     const root = firstWorkspaceFolder();
-    const kinds = root ? await listEntryKinds(root) : [];
-    // Snapshot every macro from every package in the workspace so the
-    // Entry editor's SNL parser/renderer can dispatch on real user macros
-    // — not just the bundled fixture DB from @snl-basics. Merged into the
-    // webview's queried macro record (user macros win on collision).
-    const macros = root ? await readAllMacros(root) : {};
-    const macroKinds = root ? await readMacroKinds(root) : [];
-    // Map macro name → owning package file (bare, no `.json`). Built here
-    // so the webview's per-row "open macro editor" button can dispatch to
-    // the right `snlDoc.editMacro(file, name)` without another round-trip.
-    // Cat 2026-07-12: "在每一行边上加一个入口，进入相应 Macro 的
-    // Create/Edit 页面." — used by GuiInductiveEditor's row-side link.
-    const macroOrigin: Record<string, string> = {};
-    if (root) {
-      try {
-        const active = new Set(await resolveActiveMacroPackages(root));
-        const packages = await readMacroPackages(root);
-        for (const summary of packages) {
-          const bare = summary.file.replace(/\.json$/i, '');
-          if (!active.has(bare)) continue;
-          const read = await readMacroPackage(root, summary.file);
-          if (read.status !== 'ok') continue;
-          for (const m of read.macros) {
-            if (typeof m.name === 'string' && m.name && !macroOrigin[m.name]) {
-              macroOrigin[m.name] = bare;
-            }
-          }
-        }
-      } catch {
-        // Best-effort — if the origin map fails, the row button will fall
-        // back to "no target package" and the user picks one via quickpick.
-      }
+    if (!root) {
+      void this.panel.webview.postMessage({ type: 'kinds', kinds: [] });
+      return;
     }
+    // These four reads are independent, so they run concurrently instead of
+    // one-after-another — the serial awaits were pure added latency on every
+    // panel open. `readAllMacrosWithOrigin` also replaces a SECOND full walk
+    // of every macro package that used to rebuild `macroOrigin` by hand.
+    // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+    const [kinds, macroBundle, macroKinds, allEntriesResult] = await Promise.all([
+      listEntryKinds(root),
+      readAllMacrosWithOrigin(root),
+      readMacroKinds(root),
+      readEntries(root).catch((): EntryData[] => [])
+    ]);
+    const macros = macroBundle.macros;
+    const macroOrigin = macroBundle.origin;
+    const allEntries: EntryData[] = allEntriesResult;
     let existing: EntryData | null = null;
-    // Full entry pool (id + title) for the id picker's dedupe check in
-    // create mode. Cat 2026-07-09: same widget, requireUnique rule. In
-    // edit mode we still send it — the webview uses it to know "everyone
-    // else's id" (excluding self) for warnings.
-    let allEntries: EntryData[] = [];
-    if (root) {
-      try {
-        allEntries = await readEntries(root);
-      } catch {
-        allEntries = [];
-      }
-      if (this.mode === 'edit') {
-        existing = allEntries.find((e) => e && e.id === this.id) ?? null;
-      }
+    if (this.mode === 'edit') {
+      existing = allEntries.find((e) => e && e.id === this.id) ?? null;
     }
     // Legacy `kinds` payload for backward compat with the current webview code;
     // `context` carries the same info plus mode + existing entry + macros.

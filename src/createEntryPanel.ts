@@ -293,10 +293,11 @@ export class CreateEntryPanel {
             vscode.window.showInformationMessage(
               `Entry "${entry.title}" (${result.id}) updated.`
             );
-            void this.panel.webview.postMessage({
+            await this.panel.webview.postMessage({
               type: 'updated',
               id: result.id
             });
+            await this.pushContext();
             return;
           case 'notFound': {
             const text = `Entry "${result.id}" no longer exists.`;

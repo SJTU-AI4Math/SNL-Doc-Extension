@@ -98,6 +98,9 @@ export const MacroIdInput = forwardRef<
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const [mirrorStyle, setMirrorStyle] = useState<React.CSSProperties>({});
+  const mirrorSignatureRef = useRef('');
+  const [caretPosition, setCaretPosition] = useState(value.length);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlightedSuggestion, setHighlightedSuggestion] = useState(0);
   const [snooglOpen, setSnooglOpen] = useState(false);
@@ -111,9 +114,10 @@ export const MacroIdInput = forwardRef<
   );
   useImperativeHandle(forwardedRef, () => controlRef.current!, [multiline]);
 
-  const handleValueChange = (next: string): void => {
+  const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
     pendingCaretRef.current = normalized.caret;
+    setCaretPosition(normalized.caret ?? nextCaret ?? normalized.value.length);
     onChange(normalized.value);
     if (!interactionDisabled) setSuggestionsOpen(true);
   };
@@ -129,17 +133,19 @@ export const MacroIdInput = forwardRef<
     if (snooglOpen) snooglSearchRef.current?.focus();
   }, [snooglOpen]);
 
-  const caret = controlRef.current?.selectionStart ?? value.length;
-  const activeToken = macroTokenRange(value, caret);
-  const suggestionNeedle = value.slice(activeToken.start, activeToken.end).toLowerCase();
-  const suggestions = suggestionNeedle
-    ? Array.from(new Set(macroIds))
-        .filter((id) =>
-          id.toLowerCase().includes(suggestionNeedle) &&
-          id.toLowerCase() !== suggestionNeedle
-        )
-        .slice(0, 8)
-    : [];
+  const suggestionsAt = (position: number): string[] => {
+    const range = macroTokenRange(value, position);
+    const needle = value.slice(range.start, range.end).toLowerCase();
+    return needle
+      ? Array.from(new Set(macroIds))
+          .filter((id) =>
+            id.toLowerCase().includes(needle) &&
+            id.toLowerCase() !== needle
+          )
+          .slice(0, 8)
+      : [];
+  };
+  const suggestions = suggestionsAt(caretPosition);
 
   useEffect(() => {
     setHighlightedSuggestion((index) =>
@@ -160,6 +166,7 @@ export const MacroIdInput = forwardRef<
   const replaceRangeWithMacro = (range: { start: number; end: number }, id: string): void => {
     const next = `${value.slice(0, range.start)}${id}${value.slice(range.end)}`;
     pendingCaretRef.current = range.start + id.length;
+    setCaretPosition(range.start + id.length);
     onChange(next);
   };
 
@@ -173,10 +180,26 @@ export const MacroIdInput = forwardRef<
   const handleControlKeyDown = (
     event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
   ): void => {
+    const currentCaret = event.currentTarget.selectionStart ?? value.length;
+    const selectionEnd = event.currentTarget.selectionEnd ?? currentCaret;
+    if (
+      !interactionDisabled &&
+      !event.nativeEvent.isComposing &&
+      (event.key === '$' || event.key === '%') &&
+      currentCaret === 0
+    ) {
+      event.preventDefault();
+      const inner = selectionEnd === value.length ? '' : value;
+      const next = `${event.key}${inner}${event.key}`;
+      pendingCaretRef.current = 1;
+      setCaretPosition(1);
+      onChange(next);
+      setSuggestionsOpen(false);
+      return;
+    }
     if (!interactionDisabled && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
       event.preventDefault();
       event.stopPropagation();
-      const currentCaret = controlRef.current?.selectionStart ?? value.length;
       snooglRangeRef.current = macroTokenRange(value, currentCaret);
       setSuggestionsOpen(false);
       setSnooglQuery('');
@@ -184,18 +207,21 @@ export const MacroIdInput = forwardRef<
       setSnooglOpen(true);
       return;
     }
-    if (suggestionsOpen && suggestions.length > 0) {
+    const currentSuggestions = suggestionsAt(currentCaret);
+    if (suggestionsOpen && currentSuggestions.length > 0) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
         const delta = event.key === 'ArrowDown' ? 1 : -1;
         setHighlightedSuggestion((index) =>
-          (index + delta + suggestions.length) % suggestions.length
+          (index + delta + currentSuggestions.length) % currentSuggestions.length
         );
         return;
       }
       if (event.key === 'Tab') {
         event.preventDefault();
-        applySuggestion(suggestions[highlightedSuggestion] ?? suggestions[0]);
+        applySuggestion(
+          currentSuggestions[highlightedSuggestion] ?? currentSuggestions[0]
+        );
         return;
       }
       if (event.key === 'Escape') {
@@ -212,6 +238,13 @@ export const MacroIdInput = forwardRef<
   ): void => {
     if (!interactionDisabled) setSuggestionsOpen(true);
     (props.onFocus as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
+  };
+  const handleControlSelect = (
+    event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>
+  ): void => {
+    setCaretPosition(event.currentTarget.selectionStart ?? value.length);
+    setHighlightedSuggestion(0);
+    (props.onSelect as React.ReactEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
   const handleControlBlur = (
     event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -241,6 +274,33 @@ export const MacroIdInput = forwardRef<
     observer.observe(textarea);
     return () => observer.disconnect();
   }, [value, multiline, autoSize, rows]);
+
+  useLayoutEffect(() => {
+    const control = controlRef.current;
+    if (!control) return;
+    const computed = window.getComputedStyle(control);
+    const next: React.CSSProperties = {
+      top: computed.borderTopWidth,
+      right: computed.borderRightWidth,
+      bottom: computed.borderBottomWidth,
+      left: computed.borderLeftWidth,
+      padding: computed.padding,
+      fontFamily: computed.fontFamily,
+      fontSize: computed.fontSize,
+      fontWeight: computed.fontWeight,
+      fontStyle: computed.fontStyle,
+      lineHeight: computed.lineHeight,
+      letterSpacing: computed.letterSpacing,
+      textAlign: computed.textAlign as React.CSSProperties['textAlign'],
+      textIndent: computed.textIndent,
+      tabSize: computed.tabSize
+    };
+    const signature = JSON.stringify(next);
+    if (signature !== mirrorSignatureRef.current) {
+      mirrorSignatureRef.current = signature;
+      setMirrorStyle(next);
+    }
+  });
 
   const layoutStyle: React.CSSProperties = {
     position: style?.position ?? 'relative',
@@ -301,25 +361,28 @@ export const MacroIdInput = forwardRef<
       aria-hidden="true"
       data-macro-id-highlight="true"
       style={{
+        ...mirrorStyle,
         position: 'absolute',
-        inset: 0,
         zIndex: 0,
         pointerEvents: 'none',
         boxSizing: 'border-box',
         overflow: 'hidden',
-        padding: style?.padding ?? '0.2rem 0.35rem',
-        fontFamily: style?.fontFamily ?? 'var(--vscode-editor-font-family, monospace)',
-        fontSize: style?.fontSize ?? '0.85rem',
-        lineHeight: style?.lineHeight ?? 'normal',
-        whiteSpace: multiline ? 'pre-wrap' : 'pre',
-        transform: `translate(${-scroll.left}px, ${-scroll.top}px)`
+        whiteSpace: multiline ? 'pre-wrap' : 'pre'
       }}
     >
-      {tokenizeMacroIdDsl(value).map((token, index) => (
-        <span key={index} data-tone={token.tone} style={{ color: tokenColors[token.tone] }}>
-          {token.text}
-        </span>
-      ))}
+      <span
+        data-macro-id-highlight-content="true"
+        style={{
+          display: 'block',
+          transform: `translate(${-scroll.left}px, ${-scroll.top}px)`
+        }}
+      >
+        {tokenizeMacroIdDsl(value).map((token, index) => (
+          <span key={index} data-tone={token.tone} style={{ color: tokenColors[token.tone] }}>
+            {token.text}
+          </span>
+        ))}
+      </span>
     </div>
   ) : null;
 
@@ -457,27 +520,42 @@ export const MacroIdInput = forwardRef<
     </div>
   ) : null;
 
+  const viewportStyle: React.CSSProperties = {
+    position: 'relative',
+    display: 'flex',
+    flex: '1 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    borderRadius: style?.borderRadius
+  };
+
   if (multiline) {
     const textareaProps = props as unknown as React.TextareaHTMLAttributes<HTMLTextAreaElement>;
     return (
       <span style={layoutStyle} data-macro-id-control="true">
-        {highlight}
-        <textarea
-          {...textareaProps}
-          ref={(element) => { controlRef.current = element; }}
-          className={className}
-          value={value}
-          rows={autoSize ? rows : undefined}
-          onChange={(event) => handleValueChange(event.target.value)}
-          onKeyDown={handleControlKeyDown}
-          onFocus={handleControlFocus}
-          onBlur={handleControlBlur}
-          onScroll={(event) => {
-            setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop });
-            textareaProps.onScroll?.(event);
-          }}
-          style={controlStyle}
-        />
+        <span style={viewportStyle} data-macro-id-viewport="true">
+          {highlight}
+          <textarea
+            {...textareaProps}
+            ref={(element) => { controlRef.current = element; }}
+            className={className}
+            value={value}
+            rows={autoSize ? rows : undefined}
+            onChange={(event) => handleValueChange(
+              event.target.value,
+              event.target.selectionStart
+            )}
+            onSelect={handleControlSelect}
+            onKeyDown={handleControlKeyDown}
+            onFocus={handleControlFocus}
+            onBlur={handleControlBlur}
+            onScroll={(event) => {
+              setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop });
+              textareaProps.onScroll?.(event);
+            }}
+            style={controlStyle}
+          />
+        </span>
         {suggestionList}
         {snooglDialog}
       </span>
@@ -487,23 +565,29 @@ export const MacroIdInput = forwardRef<
   const inputProps = props as React.InputHTMLAttributes<HTMLInputElement>;
   return (
     <span style={layoutStyle} data-macro-id-control="true">
-      {highlight}
-      <input
-        {...inputProps}
-        ref={(element) => { controlRef.current = element; }}
-        className={className}
-        value={value}
-        onChange={(event) => handleValueChange(event.target.value)}
-        onKeyDown={handleControlKeyDown}
-        onFocus={handleControlFocus}
-        onBlur={handleControlBlur}
-        onScroll={(event) => {
-          setScroll({ left: event.currentTarget.scrollLeft, top: 0 });
-          inputProps.onScroll?.(event);
-        }}
-        style={controlStyle}
-        type={inputProps.type ?? 'text'}
-      />
+      <span style={viewportStyle} data-macro-id-viewport="true">
+        {highlight}
+        <input
+          {...inputProps}
+          ref={(element) => { controlRef.current = element; }}
+          className={className}
+          value={value}
+          onChange={(event) => handleValueChange(
+            event.target.value,
+            event.target.selectionStart
+          )}
+          onSelect={handleControlSelect}
+          onKeyDown={handleControlKeyDown}
+          onFocus={handleControlFocus}
+          onBlur={handleControlBlur}
+          onScroll={(event) => {
+            setScroll({ left: event.currentTarget.scrollLeft, top: 0 });
+            inputProps.onScroll?.(event);
+          }}
+          style={controlStyle}
+          type={inputProps.type ?? 'text'}
+        />
+      </span>
       {suggestionList}
       {snooglDialog}
     </span>

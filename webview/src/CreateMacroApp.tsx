@@ -1467,7 +1467,7 @@ interface NameEditorProps {
   readOnlyTitle?: string;
 }
 
-function NameEditor({
+export function NameEditor({
   value,
   macroIds,
   onChange,
@@ -1512,7 +1512,8 @@ function NameEditor({
       <SingleNameInput
         value={value}
         macroIds={macroIds}
-        onChange={(next) => {
+        onDraftChange={onChange}
+        onCommit={(next) => {
           onChange(next);
           // Once the user commits (blur / Enter) with a `.`, drop out of
           // forced-flat so the chip view takes over on next edit. But not
@@ -1558,35 +1559,35 @@ function NameEditor({
 function SingleNameInput({
   value,
   macroIds,
-  onChange,
+  onDraftChange,
+  onCommit,
   readOnly,
   invalid,
   title
 }: {
   value: string;
   macroIds: readonly string[];
-  onChange: (v: string) => void;
+  onDraftChange: (v: string) => void;
+  onCommit: (v: string) => void;
   readOnly?: boolean;
   invalid?: boolean;
   title?: string;
 }): React.ReactElement {
   const [local, setLocal] = useState(value);
-  // Only re-sync from parent when the parent's value CHANGES externally
-  // (e.g. hydrateFromExisting). During normal typing our own commit
-  // triggers a parent update, then this effect runs — but local already
-  // equals value, so it's a no-op. During mid-typing before commit, the
-  // parent hasn't changed, so local stays put.
+  // Parent state follows the draft for validation and submit enablement, while
+  // this local value keeps the one-piece input mounted until blur/Enter.
   useEffect(() => setLocal(value), [value]);
-  const commit = () => {
-    if (local !== value) onChange(local);
-  };
+  const commit = () => onCommit(local);
   return (
     <MacroIdInput
       id="m-name"
       value={local}
       macroIds={macroIds}
       placeholder="e.g. Add.add"
-      onChange={setLocal}
+      onChange={(next) => {
+        setLocal(next);
+        onDraftChange(next);
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {

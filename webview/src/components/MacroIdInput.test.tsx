@@ -76,6 +76,42 @@ describe('MacroIdInput', () => {
     expect((input as HTMLInputElement).value).toBe('FOL.forall');
   });
 
+  it('refreshes suggestions when the caret moves to another token before Tab', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('foo ba');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          macroIds={['Foo.macro', 'Bar.macro']}
+          aria-label="Multi-token Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Multi-token Macro ID' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    input.setSelectionRange(0, 3);
+    fireEvent.select(input);
+    expect(view.getByRole('option', { name: 'Foo.macro' })).toBeTruthy();
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input.value).toBe('Foo.macro ba');
+  });
+
+  it('wraps an existing value when a delimiter is typed at the leading caret', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('foo');
+      return <MacroIdInput value={value} onChange={setValue} aria-label="Leading delimiter" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Leading delimiter' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: '$' });
+    expect(input.value).toBe('$foo$');
+    expect(input.selectionStart).toBe(1);
+  });
+
   it('opens an embedded SNoogL picker with Ctrl+F and Tab inserts the selected Macro', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
@@ -128,6 +164,31 @@ describe('MacroIdInput', () => {
     fireEvent.change(input, { target: { value: 'bar' } });
     expect(onChange).toHaveBeenCalledWith('bar');
     expect(input.tagName).toBe('INPUT');
+  });
+
+  it('clips the scrolled highlight and mirrors className typography', () => {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = '.macro-class-style { padding: 7px; font-size: 19px; line-height: 23px; }';
+    document.head.appendChild(styleElement);
+    const view = render(
+      <MacroIdInput
+        className="macro-class-style"
+        value="Long.Macro.Identifier"
+        onChange={() => undefined}
+        aria-label="Styled Macro ID"
+      />
+    );
+    const input = view.getByRole('textbox', { name: 'Styled Macro ID' }) as HTMLInputElement;
+    const viewport = view.container.querySelector<HTMLElement>('[data-macro-id-viewport]')!;
+    const highlight = view.container.querySelector<HTMLElement>('[data-macro-id-highlight]')!;
+    const highlightContent = view.container.querySelector<HTMLElement>('[data-macro-id-highlight-content]')!;
+    expect(viewport.style.overflow).toBe('hidden');
+    expect(highlight.style.padding).toBe('7px');
+    expect(highlight.style.fontSize).toBe('19px');
+    Object.defineProperty(input, 'scrollLeft', { configurable: true, value: 30 });
+    fireEvent.scroll(input);
+    expect(highlightContent.style.transform).toContain('-30px');
+    styleElement.remove();
   });
 
   it('supports an auto-sized multiline SNL editing mode and resizes with width', () => {

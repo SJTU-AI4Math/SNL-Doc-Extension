@@ -110,26 +110,33 @@ describe('CreateEntryApp Canvas update round-trip', () => {
       .findLast((message: any) => message?.type === 'update') as any;
     expect(update.entry.content.snl).toBe('changed(grandchild)');
 
+    const refreshedContext = {
+      type: 'context',
+      mode: 'edit',
+      id: existing.id,
+      kinds: [{
+        id: 'definition',
+        name: 'Definition',
+        coloring: { stroke: '#888888', background: '#222222' },
+        numbering: '1',
+        style: 'default'
+      }],
+      macros: {},
+      macroKinds: [],
+      macroOrigin: {},
+      existing: { ...existing, content: update.entry.content },
+      existingIds: [{ id: existing.id, title: existing.title, hasContent: true }]
+    };
+    // A file watcher may race ahead of the acknowledgement. It must preserve
+    // the dirty Canvas; the explicit post-update context must do the same.
+    window.dispatchEvent(new MessageEvent('message', { data: refreshedContext }));
+    block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    expect(block.textContent).toContain('changed');
+    expect(block.style.left).toBe('84px');
+    expect(block.style.top).toBe('64px');
+
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'updated', id: existing.id } }));
-    window.dispatchEvent(new MessageEvent('message', {
-      data: {
-        type: 'context',
-        mode: 'edit',
-        id: existing.id,
-        kinds: [{
-          id: 'definition',
-          name: 'Definition',
-          coloring: { stroke: '#888888', background: '#222222' },
-          numbering: '1',
-          style: 'default'
-        }],
-        macros: {},
-        macroKinds: [],
-        macroOrigin: {},
-        existing: { ...existing, content: update.entry.content },
-        existingIds: [{ id: existing.id, title: existing.title, hasContent: true }]
-      }
-    }));
+    window.dispatchEvent(new MessageEvent('message', { data: refreshedContext }));
 
     block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
     expect(block.textContent).toContain('changed');

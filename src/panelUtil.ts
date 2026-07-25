@@ -77,6 +77,21 @@ export function buildPanelHtml(
 </head>
 <body>
   <div id="root"></div>
+  <script nonce="${nonce}">
+    /* Cat 2026-07-25: split "webview host boot" from "our bundle cost".
+       This inline script runs as soon as the document is parsed, BEFORE the
+       bundle is fetched. Comparing its clock with the bundle's first line
+       tells us whether the ~1s is VS Code standing the webview up (which we
+       cannot avoid) or fetching+parsing our JS (which we can shrink). */
+    try {
+      const api = acquireVsCodeApi();
+      window.__snlApi = api;
+      api.postMessage({ type: 'trace', stage: 'document-start', ms: performance.now() });
+      document.addEventListener('DOMContentLoaded', function () {
+        api.postMessage({ type: 'trace', stage: 'dom-ready', ms: performance.now() });
+      });
+    } catch (e) { /* tracing must never break the panel */ }
+  </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

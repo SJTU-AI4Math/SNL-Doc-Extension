@@ -20,10 +20,18 @@ export interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 // `acquireVsCodeApi` may only be called once per webview load; cache it.
+// The panel HTML calls it first (in an inline bootstrap script that emits
+// timing marks) and parks the handle on `window.__snlApi`, so prefer that
+// over calling again — a second call throws. Cat 2026-07-25.
 let vscodeApi: VsCodeApi | undefined;
 
 export function getVsCodeApi(): VsCodeApi | undefined {
   if (vscodeApi) {
+    return vscodeApi;
+  }
+  const preAcquired = (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
+  if (preAcquired) {
+    vscodeApi = preAcquired;
     return vscodeApi;
   }
   if (typeof acquireVsCodeApi === 'function') {

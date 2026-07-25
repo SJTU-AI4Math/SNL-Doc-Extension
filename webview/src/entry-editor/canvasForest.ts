@@ -117,7 +117,8 @@ function detachFromTree(
 export function detachCanvasSubtree(
   forest: readonly SnlSyntaxTree[],
   rootIndex: number,
-  path: CanvasTreePath
+  path: CanvasTreePath,
+  removeSlot = false
 ): SnlSyntaxTree[] {
   if (
     path.length === 0 ||
@@ -131,9 +132,23 @@ export function detachCanvasSubtree(
   const result = detachFromTree(forest[rootIndex], path, hole);
   if (!result) return forest as SnlSyntaxTree[];
   const next = forest.slice();
-  next[rootIndex] = result.tree;
+  // A dynamic-arity parent has no fixed positions, so the vacated slot is
+  // removed rather than left as a blank the author cannot clear.
+  next[rootIndex] = removeSlot
+    ? removeChildAt(result.tree, path) ?? result.tree
+    : result.tree;
   next.push(result.detached);
   return next;
+}
+
+/** Drop the child at `path` from its parent, shrinking the parent's arity. */
+function removeChildAt(tree: SnlSyntaxTree, path: CanvasTreePath): SnlSyntaxTree | null {
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAtPath(tree, parentPath);
+  if (!parent) return null;
+  const children = parent.children.slice();
+  children.splice(path[path.length - 1], 1);
+  return replaceAtPath(tree, parentPath, { ...parent, children });
 }
 
 /** Insert one detached root into a slot and remove its former root block. */
@@ -141,7 +156,8 @@ export function attachCanvasRoot(
   forest: readonly SnlSyntaxTree[],
   draggedRootIndex: number,
   targetRootIndex: number,
-  targetPath: CanvasTreePath
+  targetPath: CanvasTreePath,
+  append = false
 ): SnlSyntaxTree[] {
   if (
     draggedRootIndex === targetRootIndex ||
@@ -152,19 +168,35 @@ export function attachCanvasRoot(
   ) {
     return forest as SnlSyntaxTree[];
   }
-  if (!isCanvasHole(nodeAtPath(forest[targetRootIndex], targetPath))) {
-    return forest as SnlSyntaxTree[];
-  }
-  const attached = replaceAtPath(
-    forest[targetRootIndex],
-    targetPath,
-    forest[draggedRootIndex]
-  );
+  // Route C: a variadic Macro grows a new argument at the drop instead of
+  // filling an existing slot, so `targetPath` points one past its last child.
+  const attached = append
+    ? appendChildAt(forest[targetRootIndex], targetPath, forest[draggedRootIndex])
+    : isCanvasHole(nodeAtPath(forest[targetRootIndex], targetPath))
+      ? replaceAtPath(forest[targetRootIndex], targetPath, forest[draggedRootIndex])
+      : null;
   if (!attached) return forest as SnlSyntaxTree[];
   const next = forest.slice();
   next[targetRootIndex] = attached;
   next.splice(draggedRootIndex, 1);
   return next;
+}
+
+/** Insert `subtree` as the child at `path`, growing the parent's arity. */
+function appendChildAt(
+  tree: SnlSyntaxTree,
+  path: CanvasTreePath,
+  subtree: SnlSyntaxTree
+): SnlSyntaxTree | null {
+  if (path.length === 0) return null;
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAtPath(tree, parentPath);
+  if (!parent) return null;
+  const index = path[path.length - 1];
+  if (!Number.isInteger(index) || index < 0 || index > parent.children.length) return null;
+  const children = parent.children.slice();
+  children.splice(index, 0, subtree);
+  return replaceAtPath(tree, parentPath, { ...parent, children });
 }
 
 /** Replace any focused subtree (or an entire root) with parsed SNL. */
@@ -282,13 +314,19 @@ export function moveCanvasCursor(
 }
 
 /**
- * Delete the node at `path`. A nested node collapses into an empty slot so
- * its parent's arity is preserved; deleting a root removes the whole block.
+ * Delete the node at `path`.
+ *
+ * A nested node normally collapses into an empty slot so its parent's arity is
+ * preserved. When the parent is DYNAMIC-arity the slot itself is removed
+ * instead (`removeSlot`), because a variadic Macro has no fixed positions —
+ * otherwise it would accumulate blank slots the author can never get rid of.
+ * Deleting a root removes the whole block. Cat 2026-07-25.
  */
 export function deleteCanvasTarget(
   forest: readonly SnlSyntaxTree[],
   rootIndex: number,
-  path: CanvasTreePath
+  path: CanvasTreePath,
+  removeSlot = false
 ): SnlSyntaxTree[] {
   const source = forest as SnlSyntaxTree[];
   if (rootIndex < 0 || rootIndex >= forest.length) return source;
@@ -298,7 +336,15 @@ export function deleteCanvasTarget(
     return next;
   }
   const existing = nodeAtPath(forest[rootIndex], path);
-  if (!existing || isCanvasHole(existing)) return source;
+  if (!existing) return source;
+  if (removeSlot) {
+    const root = removeChildAt(forest[rootIndex], path);
+    if (!root) return source;
+    const next = forest.slice();
+    next[rootIndex] = root;
+    return next;
+  }
+  if (isCanvasHole(existing)) return source;
   const hole = createCanvasHole(path[path.length - 1]);
   const root = replaceAtPath(forest[rootIndex], path, hole);
   if (!root) return source;
@@ -342,6 +388,66 @@ export function canPersistCanvasForest(forest: readonly SnlSyntaxTree[]): boolea
 /** True when any slot is still unfilled — advisory only, never a save gate. */
 export function canvasForestHasUnfilledSlots(forest: readonly SnlSyntaxTree[]): boolean {
   return forest.some(hasCanvasHole);
+}
+
+/**
+ * Set how many arguments a DYNAMIC-arity node has.
+ *
+ * Fixed arity is derived from the Macro template and reconciled
+ * ({@link reconcileCanvasArity}); dynamic arity is authored, so it needs a
+ * writable operation instead:
+ *
+ *  - growing appends empty slots, never resurrecting evicted children;
+ *  - shrinking sheds EMPTY SLOTS FIRST, wherever they sit, and only evicts
+ *    real subtrees (to the forest, as their own root blocks) once no blank
+ *    remains. This differs from `reconcileCanvasArity`, which truncates from
+ *    the tail: a variadic Macro has no fixed positions, so removing a blank
+ *    from the middle loses nothing, whereas truncating would evict content
+ *    while a blank survived;
+ *  - `nextCount` is clamped at 0 — a variadic Macro with no arguments is
+ *    legal SNL (`f`), so there is no reason to force a minimum.
+ *
+ * Returns the same array reference when nothing changes, so callers keep
+ * their no-op / undo semantics. Cat 2026-07-25.
+ */
+export function setCanvasDynamicArity(
+  forest: readonly SnlSyntaxTree[],
+  rootIndex: number,
+  path: CanvasTreePath,
+  nextCount: number,
+  onEvict?: (subtree: SnlSyntaxTree) => void
+): SnlSyntaxTree[] {
+  const source = forest as SnlSyntaxTree[];
+  if (rootIndex < 0 || rootIndex >= forest.length) return source;
+  const node = nodeAtPath(forest[rootIndex], path);
+  if (!node) return source;
+  const target = Math.max(0, Math.trunc(nextCount));
+  if (target === node.children.length) return source;
+
+  let kept: SnlSyntaxTree[];
+  const evicted: SnlSyntaxTree[] = [];
+  if (target > node.children.length) {
+    kept = node.children.slice();
+    while (kept.length < target) kept.push(createCanvasHole(kept.length));
+  } else {
+    // Shed empty slots before real content, wherever they sit, so shrinking
+    // never throws away a subtree while a blank slot survives.
+    kept = node.children.slice();
+    while (kept.length > target) {
+      const lastEmpty = kept.map(isCanvasHole).lastIndexOf(true);
+      const dropAt = lastEmpty === -1 ? kept.length - 1 : lastEmpty;
+      const [removed] = kept.splice(dropAt, 1);
+      if (!isCanvasHole(removed)) evicted.push(removed);
+    }
+  }
+
+  const root = replaceAtPath(forest[rootIndex], path, { ...node, children: kept });
+  if (!root) return source;
+  for (const subtree of evicted) onEvict?.(subtree);
+  const next = forest.slice();
+  next[rootIndex] = root;
+  next.push(...evicted);
+  return next;
 }
 
 /**

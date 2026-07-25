@@ -14,6 +14,7 @@ import {
   listCanvasTargets,
   moveCanvasCursor,
   reconcileCanvasArity,
+  setCanvasDynamicArity,
   replaceCanvasTarget
 } from './canvasForest';
 
@@ -354,5 +355,122 @@ describe('Inductive editor empty-row pruning', () => {
     const pruned = stripEmptyPlaceholders(node('root', [node('a'), node('neg', [node('')])]));
     expect(pruned.children[1].children).toHaveLength(0);
     expect(serializeTreePreserving(pruned)).toBe('root(a,neg)');
+  });
+});
+
+describe('Canvas dynamic arity', () => {
+  it('appends empty slots when the author grows a variadic node', () => {
+    const next = setCanvasDynamicArity([node('list', [node('a')])], 0, [], 3);
+    expect(next).toHaveLength(1);
+    expect(next[0].children[0].macro_name).toBe('a');
+    expect(next[0].children.slice(1).every(isCanvasHole)).toBe(true);
+  });
+
+  it('drops empty slots before evicting real content when shrinking', () => {
+    const forest = [node('list', [node('a'), createCanvasHole(1), node('c')])];
+    const next = setCanvasDynamicArity(forest, 0, [], 2);
+    // The blank slot goes first; 'c' survives in place, nothing is evicted.
+    expect(next).toHaveLength(1);
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['a', 'c']);
+  });
+
+  it('evicts real subtrees as their own blocks once slots run out', () => {
+    const forest = [node('list', [node('a'), node('b'), node('c')])];
+    const evicted: string[] = [];
+    const next = setCanvasDynamicArity(forest, 0, [], 1, (subtree) => {
+      evicted.push(subtree.macro_name);
+    });
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['a']);
+    expect(next.slice(1).map((root) => root.macro_name)).toEqual(['c', 'b']);
+    expect(evicted.sort()).toEqual(['b', 'c']);
+  });
+
+  it('allows shrinking all the way to zero, which is legal SNL', () => {
+    const next = setCanvasDynamicArity([node('list', [createCanvasHole(0)])], 0, [], 0);
+    expect(next[0].children).toEqual([]);
+  });
+
+  it('clamps a negative count and is a no-op at the current count', () => {
+    const forest = [node('list', [node('a')])];
+    expect(setCanvasDynamicArity(forest, 0, [], -5)[0].children).toEqual([]);
+    // No change means the SAME reference, so undo/no-op semantics hold.
+    expect(setCanvasDynamicArity(forest, 0, [], 1)).toBe(forest);
+  });
+
+  it('never resurrects evicted children when the count grows again', () => {
+    const shrunk = setCanvasDynamicArity([node('list', [node('a'), node('b')])], 0, [], 1);
+    const grown = setCanvasDynamicArity(shrunk, 0, [], 2);
+    expect(grown[0].children[0].macro_name).toBe('a');
+    expect(isCanvasHole(grown[0].children[1])).toBe(true);
+    expect(grown.slice(1).map((root) => root.macro_name)).toEqual(['b']);
+  });
+
+  it('operates on a nested node without touching its siblings', () => {
+    const forest = [node('root', [node('keep'), node('list', [node('x')])])];
+    const next = setCanvasDynamicArity(forest, 0, [1], 2);
+    expect(next[0].children[0].macro_name).toBe('keep');
+    expect(next[0].children[1].children).toHaveLength(2);
+    expect(isCanvasHole(next[0].children[1].children[1])).toBe(true);
+  });
+});
+
+describe('Canvas delete and detach under a dynamic parent', () => {
+  it('removes the slot entirely instead of leaving a blank', () => {
+    const forest = [node('list', [node('a'), node('b'), node('c')])];
+    const next = deleteCanvasTarget(forest, 0, [1], true);
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['a', 'c']);
+  });
+
+  it('still collapses to a numbered slot for a fixed-arity parent', () => {
+    const forest = [node('pair', [node('a'), node('b')])];
+    const next = deleteCanvasTarget(forest, 0, [1]);
+    expect(next[0].children).toHaveLength(2);
+    expect(isCanvasHole(next[0].children[1])).toBe(true);
+  });
+
+  it('lets a dynamic parent delete an existing empty slot', () => {
+    // The non-removeSlot path refuses this, which is why a variadic node
+    // would otherwise accumulate blanks forever.
+    const forest = [node('list', [node('a'), createCanvasHole(1)])];
+    expect(deleteCanvasTarget(forest, 0, [1])).toBe(forest);
+    expect(deleteCanvasTarget(forest, 0, [1], true)[0].children).toHaveLength(1);
+  });
+
+  it('shrinks the parent when a dynamic child is dragged out', () => {
+    const forest = [node('list', [node('a'), node('b')])];
+    const next = detachCanvasSubtree(forest, 0, [0], true);
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['b']);
+    expect(next[1].macro_name).toBe('a');
+  });
+
+  it('keeps the numbered slot when a fixed-arity child is dragged out', () => {
+    const next = detachCanvasSubtree([node('pair', [node('a'), node('b')])], 0, [0]);
+    expect(next[0].children).toHaveLength(2);
+    expect(isCanvasHole(next[0].children[0])).toBe(true);
+  });
+});
+
+describe('Canvas drag-to-append onto a variadic Macro', () => {
+  it('grows the parent instead of requiring an existing slot', () => {
+    const forest = [node('list', [node('a')]), node('dragged')];
+    const next = attachCanvasRoot(forest, 1, 0, [1], true);
+    expect(next).toHaveLength(1);
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['a', 'dragged']);
+  });
+
+  it('can append onto a variadic Macro that has no arguments yet', () => {
+    const next = attachCanvasRoot([node('list'), node('dragged')], 1, 0, [0], true);
+    expect(next[0].children.map((child) => child.macro_name)).toEqual(['dragged']);
+  });
+
+  it('refuses an append position beyond the end', () => {
+    const forest = [node('list', [node('a')]), node('dragged')];
+    expect(attachCanvasRoot(forest, 1, 0, [5], true)).toBe(forest);
+  });
+
+  it('still requires an empty slot when not appending', () => {
+    const forest = [node('pair', [node('a'), node('b')]), node('dragged')];
+    // No hole at [1], so a non-append drop must be refused.
+    expect(attachCanvasRoot(forest, 1, 0, [1], false)).toBe(forest);
   });
 });

@@ -1019,4 +1019,238 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('child');
   });
+
+  const variadicDriver = new MacroDataDriver({
+    queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        if (macro_name === 'list') {
+          return {
+            macro_name, dynamic_arity: true,
+            styles: [{ template: '#*', separator: ', ' }]
+          } as never;
+        }
+        if (macro_name === 'pair') {
+          return {
+            macro_name, dynamic_arity: false,
+            styles: [{ template: '#0 + #1' }]
+          } as never;
+        }
+        return null;
+      }
+    }
+  });
+
+  function VariadicHarness({ initial }: { initial: SnlSyntaxTree[] }): React.ReactElement {
+    const [forest, setForest] = React.useState(initial);
+    return (
+      <>
+        <output data-testid="root-count">{forest.length}</output>
+        <output data-testid="arity">{forest[0]?.children.length ?? 0}</output>
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={variadicDriver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      </>
+    );
+  }
+
+  it('grows and shrinks a variadic Macro with + and -', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    // Wait for the async dynamic_arity lookup to land.
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd' });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+    fireEvent.keyDown(canvas, { key: '-', code: 'NumpadSubtract' });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('1'));
+
+    // The main row works too.
+    fireEvent.keyDown(canvas, { key: '+', code: 'Equal' });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+  });
+
+  it('leaves a fixed-arity Macro alone, since its template owns the count', async () => {
+    const view = render(<VariadicHarness initial={[node('pair', [node('a'), node('b')])]} />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.container.querySelector('[data-tree-path=""]')?.classList
+      .contains('snl-canvas-focused')).toBe(true));
+
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd' });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(view.getByTestId('arity').textContent).toBe('2');
+    expect(view.queryByLabelText('Argument count')).toBeNull();
+  });
+
+  it('undoes an arity change', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd' });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('1'));
+  });
+
+  it('drives the same change from the inline [- n +] control', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    const control = await waitFor(() => view.getByLabelText('Argument count'));
+    expect(within(control).getByLabelText('Argument count value').textContent).toBe('1');
+
+    fireEvent.click(within(control).getByLabelText('Add argument'));
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+    // The control must survive its own click — clicking it used to clear the
+    // focus, so it vanished after a single use.
+    fireEvent.click(within(view.getByLabelText('Argument count')).getByLabelText('Remove an argument'));
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('1'));
+  });
+
+  it('offers argument actions in the menu only for a variadic Macro', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    const root = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.click(root);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+    fireEvent.contextMenu(root);
+    const menu = await waitFor(() => view.getByRole('menu', { name: 'Canvas block actions' }));
+    expect(within(menu).getByRole('menuitem', { name: /Add argument/ })).toBeTruthy();
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Add argument/ }));
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+  });
+
+  it('removes the slot outright when deleting a variadic child', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a'), node('b')])]} />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'Delete' });
+    // Arity shrinks rather than leaving a blank the author cannot clear.
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('1'));
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toBe('b');
+  });
+
+  it('leaves Ctrl/Cmd and Alt +/- to the browser and the OS', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    // Ctrl/Cmd +/- is browser zoom; Alt +/- belongs to the OS.
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd', ctrlKey: true });
+    fireEvent.keyDown(canvas, { key: '-', code: 'NumpadSubtract', metaKey: true });
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd', altKey: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(view.getByTestId('arity').textContent).toBe('1');
+
+    // Unmodified still works.
+    fireEvent.keyDown(canvas, { key: '+', code: 'NumpadAdd' });
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+  });
+
+  it('sheds an empty slot before evicting real content when shrinking', async () => {
+    const view = render(
+      <VariadicHarness initial={[node('list', [node('a'), createCanvasHole(1), node('b')])]} />
+    );
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    fireEvent.keyDown(canvas, { key: '-', code: 'NumpadSubtract' });
+    // The blank goes; 'b' stays put and nothing is evicted to a new block.
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+    expect(view.getByTestId('root-count').textContent).toBe('1');
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="1"]')?.textContent).toBe('b');
+  });
+
+  it('shrinks a variadic parent when a child is dragged out', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a'), node('b')])]} />);
+    const child = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    // Let the dynamic_arity lookup land before the gesture starts.
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    fireEvent.pointerDown(child, { pointerId: 90, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(child, { pointerId: 90, clientX: 60, clientY: 60 });
+    fireEvent.pointerUp(child, { pointerId: 90, clientX: 60, clientY: 60 });
+
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+    // No blank left behind: the variadic parent simply has one argument now.
+    expect(view.getByTestId('arity').textContent).toBe('1');
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toBe('b');
+  });
+
+  it('highlights the variadic parent that a drop would grow', async () => {
+    // The append target points one past the last child and so has no element
+    // of its own; without the parent fallback there is no drop feedback.
+    const view = render(
+      <VariadicHarness initial={[node('list', [node('a')]), node('dragged')]} />
+    );
+    const parent = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.click(parent);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+
+    const listBlock = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    const dragBlock = view.container.querySelector<HTMLElement>('[data-canvas-root-index="1"]')!;
+    const dragRoot = dragBlock.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    const listRoot = listBlock.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    document.elementsFromPoint = () => [listRoot];
+
+    fireEvent.pointerDown(dragRoot, { pointerId: 91, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(dragRoot, { pointerId: 91, clientX: 70, clientY: 70 });
+    await waitFor(() => expect(listRoot.classList.contains('snl-canvas-drop-target')).toBe(true));
+
+    fireEvent.pointerUp(dragRoot, { pointerId: 91, clientX: 70, clientY: 70 });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
+    expect(view.getByTestId('arity').textContent).toBe('2');
+  });
+
+  it('re-reads dynamic_arity when the Macro source changes', async () => {
+    function SwappableHarness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('list', [node('a')])]);
+      const [variadic, setVariadic] = React.useState(false);
+      // A fresh driver stands in for the Macro being edited mid-session.
+      const driver = React.useMemo(() => new MacroDataDriver({
+        queries: {
+          query_macro: async ({ macro_name }: { macro_name: string }) =>
+            macro_name === 'list'
+              ? ({ macro_name, dynamic_arity: variadic, styles: [{ template: '#*' }] } as never)
+              : null
+        }
+      }), [variadic]);
+      return (
+        <>
+          <button type="button" onClick={() => setVariadic(true)}>make variadic</button>
+          <output data-testid="arity">{forest[0]?.children.length ?? 0}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<SwappableHarness />);
+    const root = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.click(root);
+    // Initially fixed: no control, and the cached answer says "not dynamic".
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(view.queryByLabelText('Argument count')).toBeNull();
+
+    fireEvent.click(view.getByText('make variadic'));
+    // A stale cache would keep the control hidden forever.
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+  });
 });

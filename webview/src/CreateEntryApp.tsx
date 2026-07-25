@@ -77,7 +77,8 @@ import {
   isCanvasHole,
   moveCanvasCursor,
   reconcileCanvasArity,
-  replaceCanvasTarget
+  replaceCanvasTarget,
+  setCanvasDynamicArity
 } from './entry-editor/canvasForest';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
@@ -1261,6 +1262,11 @@ interface CanvasPendingDrag {
 interface CanvasFocus {
   rootIndex: number;
   path: readonly number[];
+  /**
+   * Drop-target only: the path points one past a variadic Macro's last child,
+   * so the drop grows its arity rather than filling an existing slot.
+   */
+  append?: boolean;
 }
 
 /**
@@ -1302,6 +1308,42 @@ function sameCanvasTarget(
  * canvas (cat 2026-07-25: "默认应该把根节点放在画布正中间"); later blocks fan out
  * from there so they don't stack on top of each other.
  */
+/**
+ * Canvas arity shortcuts, keyed by `KeyboardEvent.code` first so the numpad
+ * and the main row stay distinguishable, with a `key` fallback for layouts
+ * that do not report a code.
+ *
+ * Cat 2026-07-25 asked for numpad priority and for this to be user-rebindable
+ * later, so the bindings live in one exported table rather than inline
+ * conditionals — a future settings surface has exactly one place to read.
+ */
+export const CANVAS_ARITY_KEYS: {
+  increase: { codes: readonly string[]; keys: readonly string[] };
+  decrease: { codes: readonly string[]; keys: readonly string[] };
+} = {
+  increase: { codes: ['NumpadAdd', 'Equal'], keys: ['+', '='] },
+  decrease: { codes: ['NumpadSubtract', 'Minus'], keys: ['-', '_'] }
+};
+
+export function canvasArityDelta(event: {
+  code?: string;
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+}): number | null {
+  // Ctrl/Cmd +/- is browser zoom and Alt +/- belongs to the OS; claiming
+  // those would hijack a shortcut the author expects to work everywhere.
+  if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  const { increase, decrease } = CANVAS_ARITY_KEYS;
+  if (event.code && increase.codes.includes(event.code)) return 1;
+  if (event.code && decrease.codes.includes(event.code)) return -1;
+  // `key` fallback for layouts that report no code at all.
+  if (increase.keys.includes(event.key)) return 1;
+  if (decrease.keys.includes(event.key)) return -1;
+  return null;
+}
+
 export function canvasInitialPosition(
   index: number,
   canvas: { clientWidth: number; clientHeight: number } | null,
@@ -1357,6 +1399,23 @@ export function GuiCanvasEditor({
   // Local undo stack (Ctrl/Cmd+Z). Canvas edits are structural and easy to
   // mis-aim, so every mutation pushes the pre-change forest before applying.
   const undoStackRef = React.useRef<Array<{ forest: SnlSyntaxTree[]; focused: CanvasFocus | null }>>([]);
+  /**
+   * Synchronous `dynamic_arity` lookup.
+   *
+   * `macroDataDriver.query_macro` is async, but the keyboard handler is not:
+   * awaiting inside it would let two fast `+` presses both read the
+   * pre-change forest. Every rendered Macro is resolved into this cache, so
+   * the shortcut can decide instantly. Cat 2026-07-25.
+   */
+  const dynamicArityRef = React.useRef<Map<string, boolean>>(new Map());
+  const [dynamicArityVersion, setDynamicArityVersion] = React.useState(0);
+  const noteDynamicArity = React.useCallback((macroName: string, dynamic: boolean): void => {
+    if (dynamicArityRef.current.get(macroName) === dynamic) return;
+    dynamicArityRef.current.set(macroName, dynamic);
+    setDynamicArityVersion((version) => version + 1);
+  }, []);
+  const isDynamicMacro = (macroName: string): boolean =>
+    dynamicArityRef.current.get(macroName) === true;
   forestRef.current = forest;
 
   /** Apply a structural change, recording the previous state for undo. */
@@ -1437,6 +1496,40 @@ export function GuiCanvasEditor({
     if (editingNode) setEditingNode(null);
   }, [forest]);
 
+  // Resolve dynamic_arity for every Macro currently on the Canvas so the
+  // synchronous shortcut path always has an answer ready. The cache is
+  // dropped whenever the Macro source changes, so editing a Macro from
+  // fixed to variadic (or back) mid-session is picked up.
+  React.useEffect(() => {
+    dynamicArityRef.current.clear();
+    setDynamicArityVersion((version) => version + 1);
+  }, [macroDataDriver]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const names = new Set<string>();
+    const visit = (node: SnlSyntaxTree): void => {
+      const name = node.macro_name.trim();
+      if (name && !node.env_mode) names.add(name);
+      node.children.forEach(visit);
+    };
+    forest.forEach(visit);
+    void (async () => {
+      for (const name of names) {
+        if (dynamicArityRef.current.has(name)) continue;
+        try {
+          const macro = await macroDataDriver.query_macro({ macro_name: name });
+          if (cancelled) return;
+          noteDynamicArity(name, macro?.dynamic_arity === true);
+        } catch {
+          if (cancelled) return;
+          noteDynamicArity(name, false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [forest, macroDataDriver, noteDynamicArity]);
+
   const updateDropTarget = (next: CanvasFocus | null): void => {
     setDropTarget((previous) => sameCanvasTarget(previous, next) ? previous : next);
   };
@@ -1461,6 +1554,22 @@ export function GuiCanvasEditor({
       const path = encoded ? encoded.split('.').map(Number) : [];
       if (!isCanvasHole(getNodeAtPath(forestRef.current[rootIndex], encoded))) continue;
       return { rootIndex, path };
+    }
+    // Route C (cat 2026-07-25): a variadic Macro has no fixed slots, so
+    // dropping anywhere on its own box appends a new argument. Checked after
+    // the slot search so an explicit empty slot always wins.
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const pathElement = (element as HTMLElement).closest<HTMLElement>('[data-tree-path]');
+      const block = pathElement?.closest<HTMLElement>('[data-canvas-root-index]');
+      if (!pathElement || !block) continue;
+      const rootIndex = Number(block.dataset.canvasRootIndex);
+      if (!Number.isInteger(rootIndex) || rootIndex === draggedRootIndex) continue;
+      const encoded = pathElement.getAttribute('data-tree-path') ?? '';
+      const node = getNodeAtPath(forestRef.current[rootIndex], encoded);
+      if (!node || !isDynamicMacro(node.macro_name)) continue;
+      const path = encoded ? encoded.split('.').map(Number) : [];
+      // The append position is one past the last child.
+      return { rootIndex, path: [...path, node.children.length], append: true };
     }
     return null;
   };
@@ -1531,10 +1640,14 @@ export function GuiCanvasEditor({
       if (drag.path.length > 0) {
         const sourceRootIndex = drag.rootIndex;
         const sourcePath = [...drag.path];
+        // A variadic parent must not keep the vacated slot: the drop lands
+        // somewhere else and the blank would be left behind for good. It can
+        // still take the subtree back by appending (route C).
         const nextForest = detachCanvasSubtree(
           forestRef.current,
           drag.rootIndex,
-          drag.path
+          drag.path,
+          parentIsDynamic({ rootIndex: drag.rootIndex, path: drag.path })
         );
         if (nextForest === forestRef.current) {
           dragRef.current = null;
@@ -1602,7 +1715,8 @@ export function GuiCanvasEditor({
         forestRef.current,
         drag.rootIndex,
         target.rootIndex,
-        target.path
+        target.path,
+        target.append === true
       );
       if (attached !== forestRef.current) {
         setEditingNode(null);
@@ -1645,7 +1759,9 @@ export function GuiCanvasEditor({
       `[data-canvas-root-index="${target.rootIndex}"]`
     );
     if (!block) return null;
-    const encoded = target.path.join('.');
+    // An append target points one past the last child, so it has no element
+    // of its own — highlight the variadic parent that will grow instead.
+    const encoded = (target.append ? target.path.slice(0, -1) : target.path).join('.');
     const pathElements = Array.from(
       block.querySelectorAll<HTMLElement>('[data-tree-path]')
     );
@@ -1741,17 +1857,21 @@ export function GuiCanvasEditor({
   };
 
   /**
-   * The context menu is rendered inside the canvas, so the canvas' own
-   * capture-phase click handler and the block pointer handlers would
-   * otherwise swallow or preventDefault its clicks — which is exactly why it
-   * felt dead. `data-canvas-menu` marks the menu subtree as off-limits.
+   * The context menu and the arity control are rendered inside the canvas, so
+   * the canvas' own capture-phase click handler and the block pointer
+   * handlers would otherwise swallow or preventDefault their clicks — which
+   * is exactly why the menu felt dead. These attributes mark those subtrees
+   * as off-limits.
    *
    * The click guard is defensive against capture-phase ordering: jsdom lets
    * the menu item's onClick run even after the canvas clears the menu, so
    * only the pointerdown path is observable in tests.
    */
   const insideContextMenu = (node: Node | null): boolean =>
-    Boolean(node && (node as HTMLElement).closest?.('[data-canvas-menu]'));
+    Boolean(
+      node &&
+        (node as HTMLElement).closest?.('[data-canvas-menu], [data-canvas-arity-control]')
+    );
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (insideOpenEditor(event.target as Node)) return;
@@ -1874,10 +1994,56 @@ export function GuiCanvasEditor({
     }
     if ((event.key === 'Delete' || event.key === 'Backspace') && focused) {
       event.preventDefault();
-      const next = deleteCanvasTarget(forestRef.current, focused.rootIndex, focused.path);
+      const next = deleteCanvasTarget(
+        forestRef.current,
+        focused.rootIndex,
+        focused.path,
+        parentIsDynamic(focused)
+      );
       applyForestChange(next, null);
       return;
     }
+    // Dynamic-arity nodes own their argument count, so `+` / `-` edit it
+    // directly (numpad preferred — see CANVAS_ARITY_KEYS).
+    if (focused) {
+      const delta = canvasArityDelta(event);
+      if (delta !== null) {
+        const node = getNodeAtPath(
+          forestRef.current[focused.rootIndex],
+          focused.path.join('.')
+        );
+        if (node && isDynamicMacro(node.macro_name)) {
+          event.preventDefault();
+          changeDynamicArity(focused, delta);
+        }
+      }
+    }
+  };
+
+  /** True when the focused node's PARENT is a variadic Macro. */
+  const parentIsDynamic = (target: CanvasFocus): boolean => {
+    if (target.path.length === 0) return false;
+    const parent = getNodeAtPath(
+      forestRef.current[target.rootIndex],
+      target.path.slice(0, -1).join('.')
+    );
+    return Boolean(parent && isDynamicMacro(parent.macro_name));
+  };
+
+  const changeDynamicArity = (target: CanvasFocus, delta: number): void => {
+    const node = getNodeAtPath(
+      forestRef.current[target.rootIndex],
+      target.path.join('.')
+    );
+    if (!node) return;
+    const next = setCanvasDynamicArity(
+      forestRef.current,
+      target.rootIndex,
+      target.path,
+      node.children.length + delta,
+      ensureTreeIdentity
+    );
+    applyForestChange(next);
   };
 
   /**
@@ -1895,6 +2061,30 @@ export function GuiCanvasEditor({
       return null;
     }
   };
+
+  /**
+   * Position and count for the inline `[- n +]` control, shown only while a
+   * variadic Macro is focused and nothing else is being edited.
+   * `dynamicArityVersion` is a dependency so the control appears as soon as
+   * the async lookup resolves.
+   */
+  const focusedDynamicControl = React.useMemo(() => {
+    if (!focused || editingNode || contextMenu) return null;
+    const node = getNodeAtPath(forest[focused.rootIndex], focused.path.join('.'));
+    if (!node || !isDynamicMacro(node.macro_name)) return null;
+    const element = elementForTarget(focused);
+    const canvas = canvasRef.current;
+    if (!element || !canvas) return null;
+    const rect = element.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    return {
+      target: focused,
+      count: node.children.length,
+      left: rect.left - canvasRect.left + canvas.scrollLeft,
+      top: rect.bottom - canvasRect.top + canvas.scrollTop + 4
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, editingNode, contextMenu, forest, dynamicArityVersion]);
 
   const commitNodeEdit = async (): Promise<void> => {
     if (!editingNode) return;
@@ -2171,6 +2361,47 @@ export function GuiCanvasEditor({
             }}
           />
         ) : null}
+        {focusedDynamicControl ? (
+          <div
+            data-canvas-arity-control
+            aria-label="Argument count"
+            onPointerDown={(event) => event.stopPropagation()}
+            style={{
+              position: 'absolute',
+              left: focusedDynamicControl.left,
+              top: focusedDynamicControl.top,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.15rem 0.3rem',
+              borderRadius: '0.35rem',
+              background: 'var(--vscode-editorWidget-background, #252526)',
+              border: '1px solid var(--vscode-editorWidget-border, #454545)',
+              zIndex: 19
+            }}
+          >
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Remove an argument"
+              disabled={focusedDynamicControl.count === 0}
+              onClick={() => changeDynamicArity(focusedDynamicControl.target, -1)}
+            >
+              −
+            </Button>
+            <span aria-label="Argument count value" style={{ minWidth: '1.2rem', textAlign: 'center' }}>
+              {focusedDynamicControl.count}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Add argument"
+              onClick={() => changeDynamicArity(focusedDynamicControl.target, 1)}
+            >
+              +
+            </Button>
+          </div>
+        ) : null}
         {contextMenu ? (
           <CanvasContextMenuView
             menu={contextMenu}
@@ -2181,12 +2412,30 @@ export function GuiCanvasEditor({
             onAddRoot={() => setAddingRootFromMacro(true)}
             onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
             onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}
+            isDynamic={
+              contextMenu.rootIndex >= 0 &&
+              isDynamicMacro(
+                getNodeAtPath(
+                  forestRef.current[contextMenu.rootIndex],
+                  contextMenu.path.join('.')
+                )?.macro_name ?? ''
+              )
+            }
+            onAddArgument={() => {
+              setContextMenu(null);
+              changeDynamicArity(contextMenu, 1);
+            }}
+            onRemoveArgument={() => {
+              setContextMenu(null);
+              changeDynamicArity(contextMenu, -1);
+            }}
             onDetach={() => {
               if (contextMenu.path.length === 0) return;
               const next = detachCanvasSubtree(
                 forestRef.current,
                 contextMenu.rootIndex,
-                contextMenu.path
+                contextMenu.path,
+                parentIsDynamic(contextMenu)
               );
               setContextMenu(null);
               applyForestChange(next, { rootIndex: next.length - 1, path: [] });
@@ -2195,7 +2444,8 @@ export function GuiCanvasEditor({
               const next = deleteCanvasTarget(
                 forestRef.current,
                 contextMenu.rootIndex,
-                contextMenu.path
+                contextMenu.path,
+                parentIsDynamic(contextMenu)
               );
               setContextMenu(null);
               applyForestChange(next, null);
@@ -2236,18 +2486,24 @@ export function GuiCanvasEditor({
 function CanvasContextMenuView({
   menu,
   node,
+  isDynamic,
   onAddRoot,
   onEditMacro,
   onEditSubtree,
+  onAddArgument,
+  onRemoveArgument,
   onDetach,
   onDelete,
   onClose
 }: {
   menu: CanvasContextMenu;
   node: SnlSyntaxTree | undefined;
+  isDynamic: boolean;
   onAddRoot: () => void;
   onEditMacro: () => void;
   onEditSubtree: () => void;
+  onAddArgument: () => void;
+  onRemoveArgument: () => void;
   onDetach: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -2261,6 +2517,19 @@ function CanvasContextMenuView({
       : [
           { label: 'Edit Macro', hint: 'F2', disabled: isHole, run: onEditMacro },
           { label: 'Edit subtree as SNL', hint: 'Ctrl+F2', run: onEditSubtree },
+          // Only a variadic Macro owns its argument count; a fixed-arity one
+          // gets it from the template and must not be edited by hand.
+          ...(isDynamic
+            ? [
+                { label: 'Add argument', hint: '+', run: onAddArgument },
+                {
+                  label: 'Remove an argument',
+                  hint: '-',
+                  disabled: (node?.children.length ?? 0) === 0,
+                  run: onRemoveArgument
+                }
+              ]
+            : []),
           {
             label: 'Detach into its own block',
             disabled: isRoot || isHole,

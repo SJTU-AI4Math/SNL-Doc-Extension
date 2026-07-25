@@ -34,6 +34,7 @@
 //     the raw internal `_snl_draft` name.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSaveShortcut } from './components/draftState';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
@@ -855,6 +856,9 @@ export function CreateMacroApp(): React.ReactElement {
   function resetArgs(): void {
     setPreviewArgs(['', '', '', '']);
   }
+
+  // Ctrl/Cmd+S is the same action as the Create/Update button.
+  useSaveShortcut(() => handleSubmit(), canCreate);
 
   function handleSubmit(): void {
     if (!canCreate) {

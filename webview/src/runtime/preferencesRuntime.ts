@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { getVsCodeApi } from '../vscodeApi';
+// Lean subpath: the Reader runtime only, with no path to the React views
+// (and therefore none to KaTeX). See vite.runtime.config.ts in SNL-Basics.
 import {
   ReaderRuntime,
   type LanguageEnvironment
-} from '@sjtu-ai4math/snl-basics';
+} from '@sjtu-ai4math/snl-basics/runtime';
 
 interface WebviewPreferences {
   language: string;

@@ -75,7 +75,12 @@ function main() {
   }
 
   if (!force) {
-    const distExists = existsSync(distLibIndex)
+    // Every published entry point must be present, not just index.js: a tree
+    // whose dist-lib predates the /core and /runtime subpaths would look
+    // "up to date" by mtime and then fail vite resolution with ENOENT.
+    const distExists = [distLibIndex, 'core.js', 'runtime.js'].every((file, index) =>
+      existsSync(index === 0 ? file : join(submoduleDir, 'dist-lib', file)),
+    )
     const distMtime = distExists ? statSync(distLibIndex).mtimeMs : 0
     const srcMtime = newestMtime(srcDir)
     if (distExists && distMtime >= srcMtime) {

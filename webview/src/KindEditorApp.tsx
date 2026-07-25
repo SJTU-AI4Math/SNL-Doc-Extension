@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PANEL_STYLE } from './vscodeApi';
+import { useSaveShortcut } from './components/draftState';
 import { Button } from './components/Button';
 import { Alert } from './components/FormControls';
 import { ColorField, ColorPreview, KindTextField } from './components/KindFormFields';
@@ -90,6 +91,9 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     }
     post({ type: mode === 'edit' ? 'update' : 'create', payload });
   };
+
+  // Ctrl/Cmd+S is the same action as the Create/Update button.
+  useSaveShortcut(() => submit(), canSubmit);
 
   return <main style={PANEL_STYLE}>
     <PanelNav vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />

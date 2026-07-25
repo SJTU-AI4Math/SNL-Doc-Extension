@@ -1,4 +1,4 @@
-import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
 
 const TREE_ID = Symbol('snl.guiTreeNodeId');
 type IdentifiedTree = SnlSyntaxTree & { [TREE_ID]?: string };

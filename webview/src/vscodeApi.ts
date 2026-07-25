@@ -2,9 +2,17 @@
 import type React from 'react';
 import './components/ui.css';
 
-/** Minimal shape of the VS Code webview API we rely on. */
+/**
+ * Minimal shape of the VS Code webview API we rely on.
+ *
+ * `getState`/`setState` are the webview's own persisted scratch space. They
+ * survive the DOM being torn down while the panel is hidden, which is exactly
+ * what happens under `retainContextWhenHidden: false`.
+ */
 export interface VsCodeApi {
   postMessage(message: unknown): void;
+  getState?(): unknown;
+  setState?(state: unknown): void;
 }
 
 declare function acquireVsCodeApi(): VsCodeApi;

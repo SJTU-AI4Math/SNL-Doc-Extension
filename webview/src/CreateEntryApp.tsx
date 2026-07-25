@@ -80,6 +80,7 @@ import {
   replaceCanvasTarget,
   setCanvasDynamicArity
 } from './entry-editor/canvasForest';
+import { loadDraft, saveDraft, usePersistedDraft, useSaveShortcut } from './components/draftState';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   use_preferences_revision,
@@ -117,6 +118,13 @@ interface EntryKind {
 
 type ContentFormat = 'snl' | 'typst' | 'latex' | 'markdown' | 'text';
 type LocalizableContentFormat = Exclude<ContentFormat, 'snl'>;
+
+const LOCALIZABLE_CONTENT_FORMATS: readonly LocalizableContentFormat[] = [
+  'typst',
+  'latex',
+  'markdown',
+  'text'
+];
 
 type Mode = 'create' | 'edit';
 
@@ -282,6 +290,25 @@ export function CreateEntryApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
+  /**
+   * Mirror of `formDirtyRef` as real state.
+   *
+   * The ref alone cannot drive the draft-stashing effect: writing a ref does
+   * not re-render, so an interaction that sets dirty without changing any
+   * state would never persist. Review 2026-07-25.
+   */
+  const [formDirty, setFormDirty] = useState(false);
+  const markFormDirty = React.useCallback((dirty: boolean): void => {
+    formDirtyRef.current = dirty;
+    setFormDirty(dirty);
+  }, []);
+  /**
+   * Which entry id the restored draft belongs to, or null when nothing was
+   * restored. Panels are created with `retainContextWhenHidden: false`, so
+   * navigating away destroys the DOM and React state with it — the draft
+   * stashed in webview state is what survives. See components/draftState.ts.
+   */
+  const restoredDraftIdRef = useRef<string | null>(null);
   const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
   const editingIdRef = useRef('');
   const existingMetadataRef = useRef<{
@@ -371,39 +398,59 @@ export function CreateEntryApp(): React.ReactElement {
           setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
             const incomingId = msg.id ?? msg.existing?.id ?? '';
-            const preserveDraft = !!msg.existing &&
+            const preserveDraft = (!!msg.existing &&
               formDirtyRef.current &&
-              editingIdRef.current === incomingId;
+              editingIdRef.current === incomingId) ||
+              // A restored draft is unsaved work that outlived the panel
+              // being hidden; the host's copy is by definition older.
+              (restoredDraftIdRef.current !== null &&
+                restoredDraftIdRef.current === incomingId);
             if (msg.id) {
               setId(msg.id);
             }
-            if (msg.existing && !preserveDraft) {
-              editingIdRef.current = incomingId;
-              setTitle(msg.existing.title || '');
-              setSelectedKind(msg.existing.kind || '');
+            if (msg.existing) {
+              // Metadata the panel does not edit but DOES write back on
+              // Update. It must be absorbed even when a draft wins, or
+              // saving from a restored draft silently nulls out
+              // contribution_info/pointer and drops every non-current
+              // language, because updateEntry overwrites the whole record.
+              // Review 2026-07-25.
+              existingMetadataRef.current = {
+                contribution_info: msg.existing.contribution_info ?? null,
+                pointer: msg.existing.pointer ?? null
+              };
               const typst = projectLocalizedContent(msg.existing.content?.typst);
               const latex = projectLocalizedContent(msg.existing.content?.latex);
               const markdown = projectLocalizedContent(msg.existing.content?.markdown);
               const text = projectLocalizedContent(msg.existing.content?.text);
-              setContent({
-                snl: msg.existing.content?.snl ?? '',
-                typst: typst.text,
-                latex: latex.text,
-                markdown: markdown.text,
-                text: text.text
-              });
               setContentI18n({
                 ...(typst.i18n ? { typst: typst.i18n } : {}),
                 ...(latex.i18n ? { latex: latex.i18n } : {}),
                 ...(markdown.i18n ? { markdown: markdown.i18n } : {}),
                 ...(text.i18n ? { text: text.i18n } : {})
               });
-              existingMetadataRef.current = {
-                contribution_info: msg.existing.contribution_info ?? null,
-                pointer: msg.existing.pointer ?? null
-              };
-              contentDirtyRef.current.clear();
-              formDirtyRef.current = false;
+              if (!preserveDraft) {
+                editingIdRef.current = incomingId;
+                setTitle(msg.existing.title || '');
+                setSelectedKind(msg.existing.kind || '');
+                setContent({
+                  snl: msg.existing.content?.snl ?? '',
+                  typst: typst.text,
+                  latex: latex.text,
+                  markdown: markdown.text,
+                  text: text.text
+                });
+                contentDirtyRef.current.clear();
+                markFormDirty(false);
+              } else {
+                // The draft owns the visible fields, so every format it
+                // carries counts as edited — otherwise `persist` would merge
+                // the draft text into the host's i18n as if untouched.
+                editingIdRef.current = incomingId;
+                for (const format of LOCALIZABLE_CONTENT_FORMATS) {
+                  contentDirtyRef.current.add(format);
+                }
+              }
             }
           } else {
             // Cat 2026-07-15: seed the id field with the caller-provided
@@ -424,7 +471,7 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'created', id: msg.id });
           break;
         case 'updated':
-          formDirtyRef.current = false;
+          markFormDirty(false);
           contentDirtyRef.current.clear();
           setStatus({ kind: 'updated', id: msg.id });
           break;
@@ -530,19 +577,95 @@ export function CreateEntryApp(): React.ReactElement {
     });
   }
 
+  // Restore unsaved work stashed before the panel was hidden, and keep the
+  // stash current while the form is dirty. Runs before the host's `init`
+  // arrives, so `preserveDraft` can see it.
+  const draftKey = 'createEntry';
+  // Resolved eagerly rather than read off `apiRef`: a ref written in an effect
+  // is still undefined during the first render, and writing it never triggers
+  // one, so the persist hook would keep the stale undefined forever.
+  // `getVsCodeApi` caches internally, so this is the same object as apiRef.
+  const draftApi = getVsCodeApi();
+  useEffect(() => {
+    const restored = loadDraft<{
+      id: string;
+      title: string;
+      selectedKind: string;
+      content: Record<ContentFormat, string>;
+      activeFormat: ContentFormat;
+      snlMode: 'text' | 'gui' | 'canvas';
+      canvasForest?: SnlSyntaxTree[];
+    }>(draftApi, draftKey);
+    if (!restored) return;
+    restoredDraftIdRef.current = restored.id;
+    markFormDirty(true);
+    setId(restored.id);
+    setTitle(restored.title);
+    setSelectedKind(restored.selectedKind);
+    setContent(restored.content);
+    setActiveFormat(restored.activeFormat);
+    setSnlMode(restored.snlMode);
+    // The Canvas forest is NOT recoverable from `content.snl`: a multi-root
+    // or half-finished forest has no serialized form at all, and node
+    // identity (which drives block positions) is lost either way. Restore it
+    // directly, and suppress the reparse that `content.snl` would otherwise
+    // trigger. Review 2026-07-25.
+    if (restored.canvasForest && restored.canvasForest.length > 0) {
+      canvasAuthoredSnlRef.current = restored.content.snl;
+      for (const root of restored.canvasForest) ensureTreeIdentity(root);
+      setCanvasForest(restored.canvasForest);
+    }
+  }, []);
+
+  usePersistedDraft(
+    draftApi,
+    draftKey,
+    { id, title, selectedKind, content, activeFormat, snlMode, canvasForest },
+    formDirty && status.kind !== 'created' && status.kind !== 'updated'
+  );
+
+  // A completed save makes the stash obsolete — keeping it would resurrect
+  // old text the next time the panel opens.
+  useEffect(() => {
+    if (status.kind === 'created' || status.kind === 'updated') {
+      restoredDraftIdRef.current = null;
+      saveDraft(draftApi, draftKey, undefined);
+    }
+  }, [status.kind]);
+
+  useSaveShortcut(handleSubmit, canCreate, () => {
+    // Never leave the key looking dead: say why the save was refused.
+    setStatus({
+      kind: 'invalid',
+      message: canvasBlockingReason() ??
+        'Cannot save yet — fill in the title, id and kind first.'
+    });
+  });
+
+  /** Why the Canvas is blocking a save, if it is. */
+  function canvasBlockingReason(): string | null {
+    if (canPersistCanvasForest(canvasForest)) return null;
+    return canvasForest.length > 1
+      ? 'Cannot save yet — the Canvas has several loose blocks. Attach them first.'
+      : 'Cannot save yet — a Macro has a single unfilled slot, which cannot be written to SNL.';
+  }
+
   function handleCancel(): void {
     if (mode === 'edit') {
       // Cancel in edit mode is a no-op reset that's rarely useful; just clear
-      // the status banner so the user can keep editing.
+      // the status banner so the user can keep editing. The draft stays —
+      // the author did not ask to throw their edits away.
       setStatus({ kind: 'idle' });
       return;
     }
+    restoredDraftIdRef.current = null;
+    saveDraft(draftApi, draftKey, undefined);
     setTitle('');
     setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
     setContentI18n({});
     contentDirtyRef.current.clear();
-    formDirtyRef.current = false;
+    markFormDirty(false);
     setActiveFormat('snl');
     setSnlMode('text');
     setStatus({ kind: 'idle' });
@@ -554,8 +677,8 @@ export function CreateEntryApp(): React.ReactElement {
   return (
     <main
       style={PANEL_STYLE}
-      onInputCapture={() => { formDirtyRef.current = true; }}
-      onClickCapture={() => { formDirtyRef.current = true; }}
+      onInputCapture={() => { markFormDirty(true); }}
+      onClickCapture={() => { markFormDirty(true); }}
     >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
@@ -815,7 +938,7 @@ export function CreateEntryApp(): React.ReactElement {
                 })
               }
               onChange={(next) => {
-                formDirtyRef.current = true;
+                markFormDirty(true);
                 setContent((prev) => ({ ...prev, snl: next }));
               }}
             />
@@ -829,7 +952,7 @@ export function CreateEntryApp(): React.ReactElement {
                 setCanvasForest(nextForest);
                 if (canPersistCanvasForest(nextForest)) {
                   const nextSnl = serializeTreePreserving(nextForest[0]);
-                  formDirtyRef.current = true;
+                  markFormDirty(true);
                   setContent((previous) => {
                     if (previous.snl === nextSnl) return previous;
                     canvasAuthoredSnlRef.current = nextSnl;
@@ -848,7 +971,7 @@ export function CreateEntryApp(): React.ReactElement {
               <textarea
                 value={content[activeFormat]}
                 onChange={(e) => {
-                  formDirtyRef.current = true;
+                  markFormDirty(true);
                   if (activeFormat !== 'snl') {
                     contentDirtyRef.current.add(activeFormat);
                   }
@@ -2729,14 +2852,25 @@ function useQueriedMacro(
   macroName: string
 ): SnlMacro | undefined {
   const [macro, setMacro] = useState<SnlMacro | undefined>(undefined);
+  // Epoch guard: `query_macro` has an LRU cache, so a cache HIT for the new
+  // name can resolve long before an in-flight MISS for the previous one. The
+  // AbortController only guards the driver's entry point, not a promise that
+  // already resolved, so without this a late answer for an old name lands on
+  // the current node — either opening slots that belong to the previous Macro
+  // or clearing a result that had already arrived. Review 2026-07-25.
+  const epochRef = useRef(0);
   useEffect(() => {
     const controller = new AbortController();
-    setMacro(undefined);
+    const epoch = ++epochRef.current;
+    const settle = (value: SnlMacro | undefined): void => {
+      if (epochRef.current === epoch) setMacro(value);
+    };
+    settle(undefined);
     void driver.query_macro({ macro_name: macroName, signal: controller.signal })
-      .then((value) => setMacro(value ?? undefined))
+      .then((value) => settle(value ?? undefined))
       .catch((error: unknown) => {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setMacro(undefined);
+          settle(undefined);
         }
       });
     return () => controller.abort();
@@ -2781,7 +2915,7 @@ interface MacroOpenRequest {
   style_name?: string;
 }
 
-function GuiInductiveEditor({
+export function GuiInductiveEditor({
   snl,
   macroDataDriver,
   macroCandidates,
@@ -2834,6 +2968,31 @@ function GuiInductiveEditor({
       lastSerializedRef.current = nextSnl;
       setParseError(null);
       onChange(nextSnl);
+    },
+    [onChange]
+  );
+
+  /**
+   * Set a row's child count, addressed by path and applied against the LATEST
+   * tree rather than a render-time snapshot.
+   *
+   * Arity auto-fill runs from an effect, so every unfilled sibling fires in
+   * the same commit. Routing those writes through `onChange({...node})` made
+   * each sibling overwrite the previous one's result — only the last sibling
+   * kept its slots. A functional, path-addressed update composes instead.
+   * Review 2026-07-25.
+   */
+  const setRowArity = useCallback(
+    (path: string, count: number): void => {
+      setTree((previous) => {
+        const next = withArityAtPath(previous, path, count);
+        if (next === previous) return previous;
+        ensureTreeIdentity(next);
+        const nextSnl = serializeTreePreserving(stripEmptyPlaceholders(next));
+        lastSerializedRef.current = nextSnl;
+        onChange(nextSnl);
+        return next;
+      });
     },
     [onChange]
   );
@@ -2918,6 +3077,7 @@ function GuiInductiveEditor({
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
         treeOp={treeOp}
+        setRowArity={setRowArity}
       />
       <p
         style={{
@@ -3009,6 +3169,55 @@ export function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
  * Returns the same object when the op is a no-op, so treeOp can bail
  * without triggering a needless propagate.
  */
+/**
+ * Return `tree` with the node at `path` padded to `count` children.
+ *
+ * Grows with empty rows and shrinks only while the surplus is entirely
+ * empty — the same contract the arity effect used to apply in place, but
+ * expressed as a pure transform so concurrent sibling updates compose
+ * instead of overwriting each other. Returns the SAME tree when nothing
+ * changes, so callers keep their no-op semantics.
+ */
+export function withArityAtPath(
+  tree: SnlSyntaxTree,
+  path: string,
+  count: number
+): SnlSyntaxTree {
+  const steps = path === '' ? [] : path.split('.').map(Number);
+  const isEmptyRow = (child: SnlSyntaxTree): boolean =>
+    child.macro_name.trim() === '' && child.children.length === 0;
+
+  const walk = (node: SnlSyntaxTree, depth: number): SnlSyntaxTree => {
+    if (depth === steps.length) {
+      if (count > node.children.length) {
+        return {
+          ...node,
+          children: [
+            ...node.children,
+            ...Array.from(
+              { length: count - node.children.length },
+              () => createSnlSyntaxTreeNode('')
+            )
+          ]
+        };
+      }
+      const surplus = node.children.slice(count);
+      if (surplus.length === 0 || !surplus.every(isEmptyRow)) return node;
+      return { ...node, children: node.children.slice(0, count) };
+    }
+    const index = steps[depth];
+    const child = node.children[index];
+    if (!child) return node;
+    const nextChild = walk(child, depth + 1);
+    if (nextChild === child) return node;
+    const children = node.children.slice();
+    children[index] = nextChild;
+    return { ...node, children };
+  };
+
+  return walk(tree, 0);
+}
+
 function applyTreeOp(
   tree: SnlSyntaxTree,
   op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
@@ -3143,7 +3352,8 @@ function InductiveNode({
   onOpenMacroEditor,
   collapsed,
   onToggleCollapsed,
-  treeOp
+  treeOp,
+  setRowArity
 }: {
   node: SnlSyntaxTree;
   /** Dotted path from root; root = "", children = "0", "0.1", ... */
@@ -3172,6 +3382,7 @@ function InductiveNode({
    * '↑ move up', '↓ move down' all dispatch through here so cross-node
    * rearrangements don't need multi-level onChange chaining.
    */
+  setRowArity: (path: string, count: number) => void;
   treeOp: (
     op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
     path: string
@@ -3193,26 +3404,6 @@ function InductiveNode({
   const commitRaw = (nextRaw: string): void => {
     setRawInput(nextRaw);
     const leaf = parseLeafSource(nextRaw);
-    // Macro auto-fill lookup: use the literal typed name. If the user
-    // has typed sigil chars (e.g. `%foo%`) into the name box, this
-    // lookup will (correctly) miss — the row is now a raw literal, not
-    // a macro reference. Cat 2026-07-15.
-    const matched = leaf.macro_name === node.macro_name ? macroEntry : undefined;
-    let nextChildren = node.children;
-    if (matched && matched.dynamic_arity !== true) {
-      const requiredArity = macroTemplateArity(matched);
-      if (requiredArity > node.children.length) {
-        const padding = Array.from(
-          { length: requiredArity - node.children.length },
-          () => createSnlSyntaxTreeNode('')
-        );
-        nextChildren = [...node.children, ...padding];
-        // Expand the row so the newly-created child slots are visible
-        // immediately — otherwise the user just sees the frame border
-        // change color and has no cue that slots opened.
-        if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
-      }
-    }
     onChange({
       ...node,
       macro_name: leaf.macro_name,
@@ -3226,9 +3417,10 @@ function InductiveNode({
       // Style still has its own dedicated box — only overwrite when the
       // typed source explicitly carried a bracket suffix.
       style_name: leaf.style_name !== undefined ? leaf.style_name : node.style_name,
-      children: nextChildren
+      children: node.children
     });
   };
+
 
   const addChild = (): void => {
     // New child inherits nothing — empty leaf. Expand the parent so the new
@@ -3252,9 +3444,59 @@ function InductiveNode({
   const hasKids = node.children.length > 0;
   const isCollapsed = collapsed.has(nodeId);
   const macroEntry = useQueriedMacro(macroDataDriver, node.macro_name);
+  /**
+   * The Macro whose arity has already been reconciled for this row, so
+   * reclaiming surplus slots happens once per Macro change rather than on
+   * every render — otherwise `+ child` would be undone as fast as it is
+   * clicked.
+   */
+  const reconciledMacroRef = useRef<string | null>(null);
   const effectiveKind = resolveRowKind(node, macroEntry);
   const palette = paletteFor(effectiveKind);
   const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
+
+  /**
+   * Open the child rows a fixed-arity Macro requires, as soon as the row
+   * actually resolves to one.
+   *
+   * This used to live in `commitRaw`, which made it dead in the common case:
+   * `useQueriedMacro` is keyed on `node.macro_name`, so at the moment the
+   * author finishes typing `pair` the lookup for `pair` has not run yet —
+   * `macroEntry` still holds the PREVIOUS name's result, the
+   * `leaf.macro_name === node.macro_name` guard fails, and no slots appear.
+   * It only ever fired when re-committing an already-resolved name.
+   *
+   * Reacting to the resolved macro instead fires exactly once, when the
+   * answer arrives. Cat 2026-07-25.
+   */
+  useEffect(() => {
+    // No stale-name check needed: `useQueriedMacro` is keyed on
+    // `node.macro_name` and clears to undefined while a new lookup is in
+    // flight, so a defined `macroEntry` always describes the current name.
+    if (!macroEntry || macroEntry.dynamic_arity === true) return;
+    const requiredArity = macroTemplateArity(macroEntry);
+    if (requiredArity > node.children.length) {
+      setRowArity(path, requiredArity);
+      // Expand the row so the new slots are visible immediately — otherwise
+      // the author just sees the frame border change color with no other cue.
+      if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
+      return;
+    }
+    // Retyping one Macro over another leaves the previous Macro's slots
+    // behind (`pair` opens two, then `atom` needs none and the row would
+    // serialize as `atom(,)`). Reclaim that surplus — but only on the edit
+    // that actually changed the Macro, and only while the surplus is
+    // entirely empty.
+    //
+    // Both conditions matter. Without the first, `+ child` on a fixed-arity
+    // row is undone the instant the author clicks it and the button looks
+    // broken; without the second, work the author already typed would be
+    // silently deleted. Review 2026-07-25.
+    if (reconciledMacroRef.current === macroEntry.name) return;
+    reconciledMacroRef.current = macroEntry.name;
+    if (node.children.length > requiredArity) setRowArity(path, requiredArity);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [macroEntry, node.macro_name, node.children.length]);
 
   // Frame: kind palette when the row resolved to a pool macro (or an
   // env_mode leaf); default gray when the name doesn't match anything.
@@ -3570,6 +3812,7 @@ function InductiveNode({
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 treeOp={treeOp}
+                setRowArity={setRowArity}
               />
             );
           })}

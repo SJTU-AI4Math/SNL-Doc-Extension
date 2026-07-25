@@ -12,6 +12,7 @@
 //      All graph mutations post `{ type: 'graphOp', op }` to the host.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSaveShortcut } from './components/draftState';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -246,6 +247,9 @@ export function CreateLibraryApp(): React.ReactElement {
   // Edit mode allows empty title changes? No — updateLibrary requires a
   // non-empty title, so keep the same gate.
   const canSubmit = trimmed.length > 0 && status.kind !== 'creating';
+
+  // Ctrl/Cmd+S is the same action as the Create/Update button.
+  useSaveShortcut(() => handleSubmit(), canSubmit);
 
   function handleSubmit(): void {
     if (!canSubmit) {

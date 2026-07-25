@@ -4,7 +4,7 @@ import {
   tryParseSnlSyntaxTree,
   type SnlMacroSourceLookup,
   type SnlSourceMetrics
-} from '@sjtu-ai4math/snl-basics';
+} from '@sjtu-ai4math/snl-basics/core';
 import {
   applyContextSrcLookup,
   buildContextIndex,

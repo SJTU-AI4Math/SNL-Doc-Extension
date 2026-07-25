@@ -28,6 +28,7 @@ import {
   resolveEntryOption
 } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
+import { useSaveShortcut } from './components/draftState';
 
 interface RelationshipData {
   id: string;
@@ -228,6 +229,9 @@ export function CreateRelationshipApp(): React.ReactElement {
     !!toResolved &&
     trimmedLabel.length > 0 &&
     metadataError === null;
+
+  // Ctrl/Cmd+S is the same action as the Create/Update button.
+  useSaveShortcut(() => onSubmit(), canSubmit);
 
   function onSubmit(): void {
     if (!canSubmit) return;

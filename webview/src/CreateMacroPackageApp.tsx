@@ -7,6 +7,7 @@
 // display name and description are editable.
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useSaveShortcut } from './components/draftState';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -156,6 +157,9 @@ export function CreateMacroPackageApp(): React.ReactElement {
   const fileValid = mode === 'edit' ? true : FILE_RE.test(trimmedFile);
   const canSubmit =
     fileValid && trimmedName.length > 0 && status.kind !== 'creating';
+
+  // Ctrl/Cmd+S is the same action as the Create/Update button.
+  useSaveShortcut(() => handleSubmit(), canSubmit);
 
   function handleSubmit(): void {
     if (!canSubmit) {

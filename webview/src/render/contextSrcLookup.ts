@@ -20,7 +20,7 @@
 import {
   parseSnlSyntaxTree,
   type SnlSyntaxTree,
-} from '@sjtu-ai4math/snl-basics';
+} from '@sjtu-ai4math/snl-basics/core';
 
 /**
  * Given an entry's SNL source, return the set of TOP-LEVEL `@<name>`

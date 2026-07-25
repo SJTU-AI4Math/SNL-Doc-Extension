@@ -1,7 +1,7 @@
 import {
   write_localized,
   type I18n
-} from '@sjtu-ai4math/snl-basics';
+} from '@sjtu-ai4math/snl-basics/runtime';
 
 /** Preserve fallback semantics until the user actually edits this locale. */
 export function merge_localized_projection(

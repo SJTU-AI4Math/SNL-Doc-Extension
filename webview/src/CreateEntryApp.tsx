@@ -1370,6 +1370,9 @@ export function GuiCanvasEditor({
             y: resolved.rect.top - canvasRect.top + canvas.scrollTop
           }
         : positions[blockId] ?? { x: 24, y: 24 };
+    // Pointer-down must suppress the browser's native text-selection gesture;
+    // the Canvas owns this drag surface, while editing uses a separate input.
+    event.preventDefault();
     dragRef.current = {
       pointerId: event.pointerId,
       rootIndex,
@@ -1426,14 +1429,31 @@ export function GuiCanvasEditor({
     }
 
     event.preventDefault();
+    const nextDropTarget = findDropTarget(
+      event.clientX,
+      event.clientY,
+      drag.rootIndex
+    );
+    const canvas = canvasRef.current;
+    const targetElement = nextDropTarget ? elementForTarget(nextDropTarget) : null;
+    const canvasRect = canvas?.getBoundingClientRect();
+    const snappedPosition = targetElement && canvas && canvasRect
+      ? (() => {
+          const targetRect = targetElement.getBoundingClientRect();
+          return {
+            x: targetRect.left - canvasRect.left + canvas.scrollLeft,
+            y: targetRect.top - canvasRect.top + canvas.scrollTop
+          };
+        })()
+      : null;
     setPositions((previous) => ({
       ...previous,
-      [drag.blockId]: {
+      [drag.blockId]: snappedPosition ?? {
         x: drag.startPosition.x + dx,
         y: drag.startPosition.y + dy
       }
     }));
-    updateDropTarget(findDropTarget(event.clientX, event.clientY, drag.rootIndex));
+    updateDropTarget(nextDropTarget);
   };
 
   const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -1649,7 +1669,9 @@ export function GuiCanvasEditor({
       document.addEventListener('pointerup', () => {
         window.setTimeout(() => { suppressCanvasClickRef.current = false; }, 0);
       }, { once: true });
-      commitNodeEdit();
+      // Clicking away has the same semantics as Escape: discard the draft.
+      setEditingNode(null);
+      window.setTimeout(() => canvasRef.current?.focus(), 0);
     };
     document.addEventListener('pointerdown', commitOnOutsidePointer, true);
     return () => document.removeEventListener('pointerdown', commitOnOutsidePointer, true);
@@ -1735,8 +1757,10 @@ export function GuiCanvasEditor({
                   : 'var(--vscode-editorWidget-background, #252526)',
                 boxShadow: '0 3px 12px rgba(0,0,0,0.28)',
                 touchAction: 'none',
+                zIndex: draggingBlockId === blockId ? 1000 : hoveredBlockId === blockId ? 1 : 0,
                 cursor: draggingBlockId === blockId ? 'grabbing' : 'grab',
-                userSelect: draggingBlockId === blockId ? 'none' : undefined
+                userSelect: 'none',
+                WebkitUserSelect: 'none'
               }}
             >
               <SnlSyntaxTreeView

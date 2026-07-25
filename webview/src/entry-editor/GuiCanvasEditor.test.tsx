@@ -122,10 +122,17 @@ describe('GuiCanvasEditor', () => {
       return found!;
     });
     expect(block.style.cursor).toBe('grab');
+    expect(block.style.userSelect).toBe('none');
 
-    fireEvent.pointerDown(block, { pointerId: 2, button: 0, clientX: 10, clientY: 10 });
+    expect(fireEvent.pointerDown(block, {
+      pointerId: 2,
+      button: 0,
+      clientX: 10,
+      clientY: 10
+    })).toBe(false);
     fireEvent.pointerMove(block, { pointerId: 2, clientX: 30, clientY: 40 });
     await waitFor(() => expect(block.style.cursor).toBe('grabbing'));
+    expect(block.style.zIndex).toBe('1000');
     expect(block.style.left).toBe('44px');
     expect(block.style.top).toBe('54px');
 
@@ -180,6 +187,9 @@ describe('GuiCanvasEditor', () => {
       return found;
     });
     const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    hole.getBoundingClientRect = () => new DOMRect(500, 300, 30, 20);
+    canvas.getBoundingClientRect = () => new DOMRect(0, 0, 800, 500);
     Object.defineProperty(document, 'elementsFromPoint', {
       configurable: true,
       value: (x: number) => x >= 300 ? [hole] : []
@@ -188,6 +198,16 @@ describe('GuiCanvasEditor', () => {
     fireEvent.pointerDown(blocks[1], { pointerId: 3, button: 0, clientX: 300, clientY: 200 });
     fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
     await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(true));
+    expect(blocks[1].style.left).toBe('500px');
+    expect(blocks[1].style.top).toBe('300px');
+
+    fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 100, clientY: 100 });
+    await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(false));
+    expect(blocks[1].style.left).toBe('154px');
+    expect(blocks[1].style.top).toBe('-76px');
+
+    fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
+    await waitFor(() => expect(blocks[1].style.left).toBe('500px'));
     fireEvent.pointerUp(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
 
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
@@ -288,7 +308,7 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.container.querySelector('.snl-canvas-focused')).toBeNull());
   });
 
-  it('edits any focused subtree and commits on outside click', async () => {
+  it('edits any focused subtree, cancels on outside click, and commits only on Enter', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([
         node('root', [node('branch', [node('leaf')])])
@@ -316,12 +336,23 @@ describe('GuiCanvasEditor', () => {
     fireEvent.change(input, { target: { value: '(' } });
     fireEvent.pointerDown(canvas);
     fireEvent.click(canvas);
-    expect(view.getByRole('textbox', { name: 'Edit focused SNL' })).toBe(input);
-    expect(branch.classList.contains('snl-canvas-focused')).toBe(true);
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+    expect(branch.textContent).toContain('branch');
 
-    fireEvent.change(input, { target: { value: 'new(child)' } });
+    fireEvent.click(branch);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const outsideCancelled = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(outsideCancelled, { target: { value: 'outside(child)' } });
     fireEvent.pointerDown(canvas);
     fireEvent.click(canvas);
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('branch');
+
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const enterCommitted = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(enterCommitted, { target: { value: 'new(child)' } });
+    fireEvent.keyDown(enterCommitted, { key: 'Enter' });
 
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
     const newTarget = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;

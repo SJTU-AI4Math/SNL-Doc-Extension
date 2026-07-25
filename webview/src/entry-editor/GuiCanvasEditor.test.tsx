@@ -337,6 +337,71 @@ describe('GuiCanvasEditor', () => {
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
   });
 
+  it('keeps Canvas editing active while embedded SNoogL fills the focused editor', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          macroIds={['FOL.forall', 'Add.add']}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const root = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.click(root);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.keyDown(editor, { key: 'f', ctrlKey: true });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.click(view.getByRole('option', { name: 'FOL.forall' }));
+    fireEvent.keyDown(search, { key: 'Tab' });
+    expect((view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement).value)
+      .toBe('FOL.forall');
+    expect(root.classList.contains('snl-canvas-focused')).toBe(true);
+  });
+
+  it('keeps a root block in place after editing its SNL', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('child')])]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    let block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    fireEvent.pointerDown(block, { pointerId: 12, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(block, { pointerId: 12, clientX: 50, clientY: 40 });
+    fireEvent.pointerUp(block, { pointerId: 12, clientX: 50, clientY: 40 });
+    expect(block.style.left).toBe('64px');
+    expect(block.style.top).toBe('54px');
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    const root = block.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    fireEvent.click(root);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(editor, { target: { value: 'changed(grandchild)' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    expect(block.textContent).toContain('changed');
+    expect(block.style.left).toBe('64px');
+    expect(block.style.top).toBe('54px');
+  });
+
   it('selects targets with Tab and edits a selected placeholder with F2/Enter', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([

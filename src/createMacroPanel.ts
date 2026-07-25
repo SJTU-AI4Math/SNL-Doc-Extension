@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   addMacro,
   readEntries,
+  readAllMacros,
   readMacroKinds,
   readMacroPackage,
   updateMacro,
@@ -204,6 +205,7 @@ export class CreateMacroPanel {
         file: `${this.file}.json`,
         packageName: this.file,
         existingNames: [],
+        macroIds: [],
         macroKinds: [],
         existing: null,
         entries: [],
@@ -212,6 +214,12 @@ export class CreateMacroPanel {
       return;
     }
     const macroKinds: MacroKind[] = await readMacroKinds(root);
+    let macroIds: string[] = [];
+    try {
+      macroIds = Object.keys(await readAllMacros(root)).sort();
+    } catch {
+      macroIds = [];
+    }
     // Fetch shared entry pool for the source.entries picker. Failures
     // (missing entries.json, parse error) are non-fatal — we surface an
     // empty pool and the picker falls back to "No matching entry".
@@ -234,6 +242,7 @@ export class CreateMacroPanel {
         file: `${this.file}.json`,
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
+        macroIds,
         macroKinds,
         existing,
         entries,
@@ -248,6 +257,7 @@ export class CreateMacroPanel {
       file: `${this.file}.json`,
       packageName: this.file,
       existingNames: [],
+      macroIds,
       macroKinds,
       existing: null,
       entries,

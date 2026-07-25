@@ -26,3 +26,20 @@ export function treeIdentity(node: SnlSyntaxTree): string {
   ensureTreeIdentity(node);
   return (node as IdentifiedTree)[TREE_ID]!;
 }
+
+/** Keep a replacement node in the same visual slot while its children get fresh ids. */
+export function inheritTreeIdentity(
+  source: SnlSyntaxTree,
+  replacement: SnlSyntaxTree
+): void {
+  const identified = replacement as IdentifiedTree;
+  if (!identified[TREE_ID]) {
+    Object.defineProperty(identified, TREE_ID, {
+      value: treeIdentity(source),
+      enumerable: true,
+      configurable: false,
+      writable: false
+    });
+  }
+  for (const child of replacement.children) ensureTreeIdentity(child);
+}

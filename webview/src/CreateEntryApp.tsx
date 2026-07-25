@@ -49,7 +49,7 @@ import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
-import { ensureTreeIdentity, treeIdentity } from './components/treeIdentity';
+import { ensureTreeIdentity, inheritTreeIdentity, treeIdentity } from './components/treeIdentity';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES
@@ -214,6 +214,13 @@ export function CreateEntryApp(): React.ReactElement {
     () => createMacroDataDriver(bundledMacros, userMacros),
     [userMacros]
   );
+  const macroIds = useMemo(
+    () => Array.from(new Set([
+      ...Object.keys(bundledMacros),
+      ...Object.keys(wireMacros)
+    ])).sort(),
+    [wireMacros]
+  );
 
   // (`macroQuery` used to be threaded into the SnlSyntaxTreeView-based
   // preview; the EntryRender path derives its own query internally so we
@@ -242,7 +249,13 @@ export function CreateEntryApp(): React.ReactElement {
     ensureTreeIdentity(root);
     return [root];
   });
+  const canvasAuthoredSnlRef = useRef<string | null>(null);
   useEffect(() => {
+    if (canvasAuthoredSnlRef.current === content.snl) {
+      canvasAuthoredSnlRef.current = null;
+      return;
+    }
+    canvasAuthoredSnlRef.current = null;
     const root = parseOrDefault(content.snl);
     ensureTreeIdentity(root);
     setCanvasForest([root]);
@@ -778,6 +791,7 @@ export function CreateEntryApp(): React.ReactElement {
             <GuiInductiveEditor
               snl={content.snl}
               macroDataDriver={macroDataDriver}
+              macroIds={macroIds}
               macroOrigin={macroOrigin}
               onOpenMacroEditor={(payload) =>
                 apiRef.current?.postMessage({
@@ -794,17 +808,18 @@ export function CreateEntryApp(): React.ReactElement {
             <GuiCanvasEditor
               forest={canvasForest}
               macroDataDriver={macroDataDriver}
+              macroIds={macroIds}
               kindPalette={kindPalette}
               onForestChange={(nextForest) => {
                 setCanvasForest(nextForest);
                 if (canPersistCanvasForest(nextForest)) {
                   const nextSnl = serializeTreePreserving(nextForest[0]);
                   formDirtyRef.current = true;
-                  setContent((previous) =>
-                    previous.snl === nextSnl
-                      ? previous
-                      : { ...previous, snl: nextSnl }
-                  );
+                  setContent((previous) => {
+                    if (previous.snl === nextSnl) return previous;
+                    canvasAuthoredSnlRef.current = nextSnl;
+                    return { ...previous, snl: nextSnl };
+                  });
                 }
               }}
               onResetFromSnl={() => {
@@ -1245,12 +1260,14 @@ function sameCanvasTarget(
 export function GuiCanvasEditor({
   forest,
   macroDataDriver,
+  macroIds = [],
   kindPalette,
   onForestChange,
   onResetFromSnl
 }: {
   forest: SnlSyntaxTree[];
   macroDataDriver: MacroDataDriver;
+  macroIds?: readonly string[];
   kindPalette: KindPalette | undefined;
   onForestChange: (next: SnlSyntaxTree[]) => void;
   onResetFromSnl: () => void;
@@ -1515,7 +1532,8 @@ export function GuiCanvasEditor({
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     const clickTarget = event.target as Node;
-    if (editorRef.current?.contains(clickTarget)) return;
+    const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
+    if (editorRef.current?.contains(clickTarget) || editorSurface?.contains(clickTarget)) return;
     if (suppressCanvasClickRef.current) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -1599,7 +1617,12 @@ export function GuiCanvasEditor({
       setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
       return;
     }
-    ensureTreeIdentity(parsed.tree);
+    const previousNode = getNodeAtPath(
+      forestRef.current[editingNode.rootIndex],
+      editingNode.path.join('.')
+    );
+    if (previousNode) inheritTreeIdentity(previousNode, parsed.tree);
+    else ensureTreeIdentity(parsed.tree);
     const next = replaceCanvasTarget(
       forestRef.current,
       editingNode.rootIndex,
@@ -1617,7 +1640,8 @@ export function GuiCanvasEditor({
     if (!editingNode) return;
     const commitOnOutsidePointer = (event: PointerEvent): void => {
       const target = event.target as Node | null;
-      if (target && editorRef.current?.contains(target)) return;
+      const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
+      if (target && (editorRef.current?.contains(target) || editorSurface?.contains(target))) return;
       suppressCanvasClickRef.current = true;
       document.addEventListener('click', () => {
         suppressCanvasClickRef.current = false;
@@ -1733,6 +1757,7 @@ export function GuiCanvasEditor({
             autoFocus
             className="snl-canvas-node-input"
             aria-label="Edit focused SNL"
+            macroIds={macroIds}
             value={editingNode.value}
             onChange={(value) => setEditingNode({
               ...editingNode,
@@ -1977,12 +2002,14 @@ interface MacroOpenRequest {
 function GuiInductiveEditor({
   snl,
   macroDataDriver,
+  macroIds,
   macroOrigin,
   onOpenMacroEditor,
   onChange
 }: {
   snl: string;
   macroDataDriver: MacroDataDriver;
+  macroIds: readonly string[];
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
@@ -2106,6 +2133,7 @@ function GuiInductiveEditor({
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDataDriver={macroDataDriver}
+        macroIds={macroIds}
         macroOrigin={macroOrigin}
         onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
@@ -2325,6 +2353,7 @@ function InductiveNode({
   onChange,
   onDelete,
   macroDataDriver,
+  macroIds,
   macroOrigin,
   onOpenMacroEditor,
   collapsed,
@@ -2347,6 +2376,7 @@ function InductiveNode({
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
   macroDataDriver: MacroDataDriver;
+  macroIds: readonly string[];
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
@@ -2529,6 +2559,7 @@ function InductiveNode({
         {/* Name input — dark-mode uniform styling + kind-colored frame. */}
         <MacroIdInput
           value={rawInput}
+          macroIds={macroIds}
           onChange={commitRaw}
           placeholder={depth === 0 ? 'root macro' : 'name / $expr$ / %text% / @…'}
           spellCheck={false}
@@ -2748,6 +2779,7 @@ function InductiveNode({
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
                 macroDataDriver={macroDataDriver}
+                macroIds={macroIds}
                 macroOrigin={macroOrigin}
                 onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}

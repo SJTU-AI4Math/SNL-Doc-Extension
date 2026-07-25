@@ -301,6 +301,7 @@ interface ContextMsg {
   file: string;
   packageName: string;
   existingNames: string[];
+  macroIds?: string[];
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
   /**
@@ -408,6 +409,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [file, setFile] = useState('');
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
+  const [macroIds, setMacroIds] = useState<string[]>([]);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
@@ -576,6 +578,7 @@ export function CreateMacroApp(): React.ReactElement {
           setFile(msg.file);
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
+          setMacroIds(Array.isArray(msg.macroIds) ? msg.macroIds : msg.existingNames ?? []);
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'edit' && msg.existing) {
@@ -919,6 +922,7 @@ export function CreateMacroApp(): React.ReactElement {
           </label>
           <NameEditor
             value={name}
+            macroIds={macroIds}
             onChange={setName}
             readOnly={panelMode === 'edit'}
             invalid={isDuplicate}
@@ -1456,6 +1460,7 @@ function joinDotted(segments: string[]): string {
 
 interface NameEditorProps {
   value: string;
+  macroIds: readonly string[];
   onChange: (next: string) => void;
   readOnly?: boolean;
   invalid?: boolean;
@@ -1464,6 +1469,7 @@ interface NameEditorProps {
 
 function NameEditor({
   value,
+  macroIds,
   onChange,
   readOnly,
   invalid,
@@ -1505,6 +1511,7 @@ function NameEditor({
     return (
       <SingleNameInput
         value={value}
+        macroIds={macroIds}
         onChange={(next) => {
           onChange(next);
           // Once the user commits (blur / Enter) with a `.`, drop out of
@@ -1526,6 +1533,7 @@ function NameEditor({
   return (
     <MultiNameEditor
       segments={segments}
+      macroIds={macroIds}
       onCommitSegments={(next) => onChange(joinDotted(next))}
       onEditWholeId={
         readOnly
@@ -1549,12 +1557,14 @@ function NameEditor({
  */
 function SingleNameInput({
   value,
+  macroIds,
   onChange,
   readOnly,
   invalid,
   title
 }: {
   value: string;
+  macroIds: readonly string[];
   onChange: (v: string) => void;
   readOnly?: boolean;
   invalid?: boolean;
@@ -1574,6 +1584,7 @@ function SingleNameInput({
     <MacroIdInput
       id="m-name"
       value={local}
+      macroIds={macroIds}
       placeholder="e.g. Add.add"
       onChange={setLocal}
       onBlur={commit}
@@ -1603,6 +1614,7 @@ function SingleNameInput({
 
 function MultiNameEditor({
   segments,
+  macroIds,
   onCommitSegments,
   onEditWholeId,
   readOnly,
@@ -1610,6 +1622,7 @@ function MultiNameEditor({
   readOnlyTitle
 }: {
   segments: string[];
+  macroIds: readonly string[];
   onCommitSegments: (next: string[]) => void;
   /** If set, renders an "Edit whole ID" button beside the last chip. */
   onEditWholeId?: () => void;
@@ -1655,6 +1668,7 @@ function MultiNameEditor({
             <React.Fragment key={i}>
               <NameSegmentInput
                 value={seg}
+                macroIds={macroIds}
                 isLast={isLast}
                 errored={errIdx === i}
                 invalidBorder={invalid && isLast}
@@ -1727,6 +1741,7 @@ function MultiNameEditor({
 
 function NameSegmentInput({
   value,
+  macroIds,
   isLast,
   errored,
   invalidBorder,
@@ -1736,6 +1751,7 @@ function NameSegmentInput({
   onFocus
 }: {
   value: string;
+  macroIds: readonly string[];
   isLast: boolean;
   errored: boolean;
   invalidBorder?: boolean;
@@ -1758,6 +1774,7 @@ function NameSegmentInput({
   return (
     <MacroIdInput
       value={local}
+      macroIds={macroIds}
       placeholder={isLast ? 'name' : 'namespace'}
       onChange={setLocal}
       onBlur={commit}

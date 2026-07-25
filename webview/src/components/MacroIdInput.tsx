@@ -1,14 +1,71 @@
 import React, {
   forwardRef,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
-  useRef
+  useRef,
+  useState
 } from 'react';
+
+export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'binder' | 'context';
+
+export interface MacroIdDslToken {
+  text: string;
+  tone: MacroIdDslTone;
+}
+
+export function autoCloseLeadingDelimiter(
+  previous: string,
+  next: string
+): { value: string; caret: number | null } {
+  if (previous.length === 0 && (next === '$' || next === '%')) {
+    return { value: `${next}${next}`, caret: 1 };
+  }
+  return { value: next, caret: null };
+}
+
+/** Lightweight lexical projection of the parser's delimiter/binder roles. */
+export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
+  const tokens: MacroIdDslToken[] = [];
+  let atNodeStart = true;
+  const push = (text: string, tone: MacroIdDslTone): void => {
+    const previous = tokens.at(-1);
+    if (previous?.tone === tone) previous.text += text;
+    else tokens.push({ text, tone });
+  };
+  for (const char of value) {
+    if (char === '$') {
+      push(char, 'formula');
+      atNodeStart = false;
+    } else if (char === '%') {
+      push(char, 'text');
+      atNodeStart = false;
+    } else if (char === '@') {
+      push(char, atNodeStart ? 'binder' : 'context');
+      atNodeStart = false;
+    } else {
+      push(char, 'plain');
+      if (char === '(' || char === ',') atNodeStart = true;
+      else if (!/\s/.test(char)) atNodeStart = false;
+    }
+  }
+  return tokens;
+}
+
+function macroTokenRange(value: string, caret: number): { start: number; end: number } {
+  const isToken = (char: string): boolean => !/[\s(),\[\]$%@]/.test(char);
+  let start = Math.min(Math.max(caret, 0), value.length);
+  let end = start;
+  while (start > 0 && isToken(value[start - 1])) start -= 1;
+  while (end < value.length && isToken(value[end])) end += 1;
+  return { start, end };
+}
 
 interface MacroIdInputBaseProps {
   value: string;
   onChange: (value: string) => void;
   autoSize?: boolean;
+  macroIds?: readonly string[];
 }
 
 export type MacroIdInputProps =
@@ -31,6 +88,7 @@ export const MacroIdInput = forwardRef<
     onChange,
     multiline = false,
     autoSize = false,
+    macroIds = [],
     style,
     className,
     ...props
@@ -38,7 +96,129 @@ export const MacroIdInput = forwardRef<
   forwardedRef
 ): React.ReactElement {
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const pendingCaretRef = useRef<number | null>(null);
+  const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(0);
+  const [snooglOpen, setSnooglOpen] = useState(false);
+  const [snooglQuery, setSnooglQuery] = useState('');
+  const [snooglSelection, setSnooglSelection] = useState(0);
+  const snooglSearchRef = useRef<HTMLInputElement | null>(null);
+  const snooglRangeRef = useRef<{ start: number; end: number } | null>(null);
+  const interactionDisabled = Boolean(
+    (props as React.InputHTMLAttributes<HTMLInputElement>).readOnly ||
+    (props as React.InputHTMLAttributes<HTMLInputElement>).disabled
+  );
   useImperativeHandle(forwardedRef, () => controlRef.current!, [multiline]);
+
+  const handleValueChange = (next: string): void => {
+    const normalized = autoCloseLeadingDelimiter(value, next);
+    pendingCaretRef.current = normalized.caret;
+    onChange(normalized.value);
+    if (!interactionDisabled) setSuggestionsOpen(true);
+  };
+
+  useLayoutEffect(() => {
+    if (pendingCaretRef.current === null) return;
+    const caret = pendingCaretRef.current;
+    pendingCaretRef.current = null;
+    controlRef.current?.setSelectionRange(caret, caret);
+  }, [value]);
+
+  useEffect(() => {
+    if (snooglOpen) snooglSearchRef.current?.focus();
+  }, [snooglOpen]);
+
+  const caret = controlRef.current?.selectionStart ?? value.length;
+  const activeToken = macroTokenRange(value, caret);
+  const suggestionNeedle = value.slice(activeToken.start, activeToken.end).toLowerCase();
+  const suggestions = suggestionNeedle
+    ? Array.from(new Set(macroIds))
+        .filter((id) =>
+          id.toLowerCase().includes(suggestionNeedle) &&
+          id.toLowerCase() !== suggestionNeedle
+        )
+        .slice(0, 8)
+    : [];
+
+  useEffect(() => {
+    setHighlightedSuggestion((index) =>
+      suggestions.length === 0 ? 0 : Math.min(index, suggestions.length - 1)
+    );
+  }, [suggestions.length]);
+
+  const snooglResults = Array.from(new Set(macroIds))
+    .filter((id) => id.toLowerCase().includes(snooglQuery.trim().toLowerCase()))
+    .slice(0, 30);
+
+  useEffect(() => {
+    setSnooglSelection((index) =>
+      snooglResults.length === 0 ? 0 : Math.min(index, snooglResults.length - 1)
+    );
+  }, [snooglResults.length]);
+
+  const replaceRangeWithMacro = (range: { start: number; end: number }, id: string): void => {
+    const next = `${value.slice(0, range.start)}${id}${value.slice(range.end)}`;
+    pendingCaretRef.current = range.start + id.length;
+    onChange(next);
+  };
+
+  const applySuggestion = (id: string): void => {
+    const currentCaret = controlRef.current?.selectionStart ?? value.length;
+    const range = macroTokenRange(value, currentCaret);
+    replaceRangeWithMacro(range, id);
+    setSuggestionsOpen(false);
+  };
+
+  const handleControlKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ): void => {
+    if (!interactionDisabled && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      event.stopPropagation();
+      const currentCaret = controlRef.current?.selectionStart ?? value.length;
+      snooglRangeRef.current = macroTokenRange(value, currentCaret);
+      setSuggestionsOpen(false);
+      setSnooglQuery('');
+      setSnooglSelection(0);
+      setSnooglOpen(true);
+      return;
+    }
+    if (suggestionsOpen && suggestions.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        setHighlightedSuggestion((index) =>
+          (index + delta + suggestions.length) % suggestions.length
+        );
+        return;
+      }
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        applySuggestion(suggestions[highlightedSuggestion] ?? suggestions[0]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSuggestionsOpen(false);
+        return;
+      }
+    }
+    (props.onKeyDown as React.KeyboardEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
+  };
+
+  const handleControlFocus = (
+    event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
+  ): void => {
+    if (!interactionDisabled) setSuggestionsOpen(true);
+    (props.onFocus as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
+  };
+  const handleControlBlur = (
+    event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
+  ): void => {
+    window.setTimeout(() => setSuggestionsOpen(false), 0);
+    (props.onBlur as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
+  };
 
   const lines = value.split('\n');
   const rows = Math.max(1, lines.length);
@@ -62,39 +242,270 @@ export const MacroIdInput = forwardRef<
     return () => observer.disconnect();
   }, [value, multiline, autoSize, rows]);
 
+  const layoutStyle: React.CSSProperties = {
+    position: style?.position ?? 'relative',
+    left: style?.left,
+    top: style?.top,
+    right: style?.right,
+    bottom: style?.bottom,
+    zIndex: style?.zIndex,
+    display: style?.display ?? (multiline ? 'inline-block' : 'inline-flex'),
+    flex: style?.flex,
+    flexGrow: style?.flexGrow,
+    flexShrink: style?.flexShrink,
+    flexBasis: style?.flexBasis,
+    alignSelf: style?.alignSelf,
+    width: autoSize ? `${widthCh}ch` : style?.width,
+    minWidth: style?.minWidth,
+    maxWidth: style?.maxWidth,
+    height: style?.height,
+    margin: style?.margin,
+    marginTop: style?.marginTop,
+    marginRight: style?.marginRight,
+    marginBottom: style?.marginBottom,
+    marginLeft: style?.marginLeft,
+    background: style?.background ?? style?.backgroundColor ??
+      'var(--vscode-input-background, #1e1e1e)',
+    borderRadius: style?.borderRadius
+  };
+  const controlStyle: React.CSSProperties = {
+    ...style,
+    position: 'relative',
+    left: undefined,
+    top: undefined,
+    right: undefined,
+    bottom: undefined,
+    zIndex: 1,
+    display: 'block',
+    flex: undefined,
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+    margin: 0,
+    boxSizing: 'border-box',
+    background: 'transparent',
+    backgroundColor: 'transparent',
+    color: value ? 'transparent' : style?.color,
+    caretColor: style?.color ?? 'var(--vscode-input-foreground, #ddd)',
+    ...(autoSize ? { resize: 'none', overflow: 'hidden' } : {})
+  };
+  const tokenColors: Record<MacroIdDslTone, string> = {
+    plain: style?.color?.toString() ?? 'var(--vscode-input-foreground, #ddd)',
+    formula: '#f14c4c',
+    text: '#4ec9b0',
+    binder: '#ce9178',
+    context: '#c586c0'
+  };
+  const highlight = value ? (
+    <div
+      aria-hidden="true"
+      data-macro-id-highlight="true"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 0,
+        pointerEvents: 'none',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        padding: style?.padding ?? '0.2rem 0.35rem',
+        fontFamily: style?.fontFamily ?? 'var(--vscode-editor-font-family, monospace)',
+        fontSize: style?.fontSize ?? '0.85rem',
+        lineHeight: style?.lineHeight ?? 'normal',
+        whiteSpace: multiline ? 'pre-wrap' : 'pre',
+        transform: `translate(${-scroll.left}px, ${-scroll.top}px)`
+      }}
+    >
+      {tokenizeMacroIdDsl(value).map((token, index) => (
+        <span key={index} data-tone={token.tone} style={{ color: tokenColors[token.tone] }}>
+          {token.text}
+        </span>
+      ))}
+    </div>
+  ) : null;
+
+  const suggestionList = suggestionsOpen && suggestions.length > 0 ? (
+    <div
+      role="listbox"
+      aria-label="Macro ID suggestions"
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: 0,
+        minWidth: '100%',
+        maxHeight: '12rem',
+        overflowY: 'auto',
+        zIndex: 1000,
+        border: '1px solid var(--vscode-widget-border, #555)',
+        background: 'var(--vscode-editorWidget-background, #252526)',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
+      }}
+    >
+      {suggestions.map((id, index) => (
+        <div
+          key={id}
+          role="option"
+          aria-selected={index === highlightedSuggestion}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            applySuggestion(id);
+          }}
+          style={{
+            padding: '0.25rem 0.45rem',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            color: 'var(--vscode-editorWidget-foreground, #ddd)',
+            background: index === highlightedSuggestion
+              ? 'var(--vscode-list-activeSelectionBackground, #094771)'
+              : 'transparent'
+          }}
+        >
+          {id}
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  const closeSnoogl = (): void => {
+    setSnooglOpen(false);
+    window.setTimeout(() => controlRef.current?.focus(), 0);
+  };
+  const commitSnooglSelection = (): void => {
+    const id = snooglResults[snooglSelection];
+    const range = snooglRangeRef.current;
+    if (!id || !range) return;
+    replaceRangeWithMacro(range, id);
+    closeSnoogl();
+  };
+  const snooglDialog = snooglOpen ? (
+    <div
+      role="dialog"
+      aria-label="SNoogL Macro Search"
+      aria-modal="true"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        top: '18%',
+        transform: 'translateX(-50%)',
+        width: 'min(42rem, calc(100vw - 3rem))',
+        maxHeight: '64vh',
+        zIndex: 10000,
+        padding: '0.75rem',
+        border: '1px solid var(--vscode-widget-border, #555)',
+        borderRadius: '6px',
+        background: 'var(--vscode-editorWidget-background, #252526)',
+        boxShadow: '0 12px 36px rgba(0,0,0,0.55)'
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>SNoogL · Macro</div>
+      <input
+        ref={snooglSearchRef}
+        aria-label="Search macros in SNoogL"
+        value={snooglQuery}
+        onChange={(event) => {
+          setSnooglQuery(event.target.value);
+          setSnooglSelection(0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Tab') {
+            event.preventDefault();
+            commitSnooglSelection();
+          } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (snooglResults.length > 0) {
+              const delta = event.key === 'ArrowDown' ? 1 : -1;
+              setSnooglSelection((index) =>
+                (index + delta + snooglResults.length) % snooglResults.length
+              );
+            }
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            closeSnoogl();
+          }
+        }}
+        style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '0.4rem 0.5rem',
+          color: 'var(--vscode-input-foreground, #ddd)',
+          background: 'var(--vscode-input-background, #1e1e1e)',
+          border: '1px solid var(--vscode-input-border, #555)'
+        }}
+      />
+      <div role="listbox" aria-label="SNoogL macro results" style={{ marginTop: '0.5rem', maxHeight: '48vh', overflowY: 'auto' }}>
+        {snooglResults.map((id, index) => (
+          <div
+            key={id}
+            role="option"
+            aria-selected={index === snooglSelection}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setSnooglSelection(index)}
+            style={{
+              padding: '0.35rem 0.5rem',
+              cursor: 'pointer',
+              background: index === snooglSelection
+                ? 'var(--vscode-list-activeSelectionBackground, #094771)'
+                : 'transparent'
+            }}
+          >
+            {id}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: '0.45rem', opacity: 0.65, fontSize: '0.8rem' }}>
+        Tab inserts the selected Macro · Esc closes
+      </div>
+    </div>
+  ) : null;
+
   if (multiline) {
     const textareaProps = props as unknown as React.TextareaHTMLAttributes<HTMLTextAreaElement>;
     return (
-      <textarea
-        {...textareaProps}
-        ref={(element) => { controlRef.current = element; }}
-        className={className}
-        value={value}
-        rows={autoSize ? rows : undefined}
-        onChange={(event) => onChange(event.target.value)}
-        style={{
-          ...style,
-          ...(autoSize ? {
-            width: `${widthCh}ch`,
-            maxWidth: style?.maxWidth ?? 'calc(100% - 1rem)',
-            resize: 'none',
-            overflow: 'hidden'
-          } : {})
-        }}
-      />
+      <span style={layoutStyle} data-macro-id-control="true">
+        {highlight}
+        <textarea
+          {...textareaProps}
+          ref={(element) => { controlRef.current = element; }}
+          className={className}
+          value={value}
+          rows={autoSize ? rows : undefined}
+          onChange={(event) => handleValueChange(event.target.value)}
+          onKeyDown={handleControlKeyDown}
+          onFocus={handleControlFocus}
+          onBlur={handleControlBlur}
+          onScroll={(event) => {
+            setScroll({ left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop });
+            textareaProps.onScroll?.(event);
+          }}
+          style={controlStyle}
+        />
+        {suggestionList}
+        {snooglDialog}
+      </span>
     );
   }
 
   const inputProps = props as React.InputHTMLAttributes<HTMLInputElement>;
   return (
-    <input
-      {...inputProps}
-      ref={(element) => { controlRef.current = element; }}
-      className={className}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      style={style}
-      type={inputProps.type ?? 'text'}
-    />
+    <span style={layoutStyle} data-macro-id-control="true">
+      {highlight}
+      <input
+        {...inputProps}
+        ref={(element) => { controlRef.current = element; }}
+        className={className}
+        value={value}
+        onChange={(event) => handleValueChange(event.target.value)}
+        onKeyDown={handleControlKeyDown}
+        onFocus={handleControlFocus}
+        onBlur={handleControlBlur}
+        onScroll={(event) => {
+          setScroll({ left: event.currentTarget.scrollLeft, top: 0 });
+          inputProps.onScroll?.(event);
+        }}
+        style={controlStyle}
+        type={inputProps.type ?? 'text'}
+      />
+      {suggestionList}
+      {snooglDialog}
+    </span>
   );
 });

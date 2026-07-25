@@ -442,14 +442,24 @@ export function CreateEntryApp(): React.ReactElement {
                 });
                 contentDirtyRef.current.clear();
                 markFormDirty(false);
-              } else {
-                // The draft owns the visible fields, so every format it
-                // carries counts as edited — otherwise `persist` would merge
-                // the draft text into the host's i18n as if untouched.
+              } else if (restoredDraftIdRef.current === incomingId) {
+                // ONLY on the restored-draft path: the stash carries no
+                // record of which formats were edited, so treating them all
+                // as edited is the lesser evil — otherwise `persist` merges
+                // the draft text into the host's i18n as if untouched and
+                // the author's work is dropped.
+                //
+                // The other `preserveDraft` source (a live dirty form being
+                // re-pushed by the file watcher) must NOT come here: its
+                // `contentDirtyRef` is accurate, and widening it would
+                // freeze every untouched format's language fallback into an
+                // explicit translation. Review 2026-07-25.
                 editingIdRef.current = incomingId;
                 for (const format of LOCALIZABLE_CONTENT_FORMATS) {
                   contentDirtyRef.current.add(format);
                 }
+              } else {
+                editingIdRef.current = incomingId;
               }
             }
           } else {
@@ -634,13 +644,26 @@ export function CreateEntryApp(): React.ReactElement {
   }, [status.kind]);
 
   useSaveShortcut(handleSubmit, canCreate, () => {
+    // A save already in flight is not a refusal: reporting one here would
+    // overwrite the `creating` status, which is the very latch that keeps
+    // `canCreate` false — clearing it would let the next Ctrl+S submit the
+    // same entry a second time. Review 2026-07-25.
+    if (status.kind === 'creating') return;
     // Never leave the key looking dead: say why the save was refused.
-    setStatus({
-      kind: 'invalid',
-      message: canvasBlockingReason() ??
-        'Cannot save yet — fill in the title, id and kind first.'
-    });
+    setStatus({ kind: 'invalid', message: saveBlockingReason() });
   });
+
+  /** The most specific reason the save button is currently disabled. */
+  function saveBlockingReason(): string {
+    if (kinds.length === 0) return 'Cannot save yet — no Entry kinds are defined.';
+    if (!trimmedTitle) return 'Cannot save yet — the title is empty.';
+    if (!trimmedId) return 'Cannot save yet — the id is empty.';
+    if (!isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined)) {
+      return `Cannot save yet — the id "${trimmedId}" is already taken.`;
+    }
+    if (!selectedKind) return 'Cannot save yet — pick a kind first.';
+    return canvasBlockingReason() ?? 'Cannot save yet.';
+  }
 
   /** Why the Canvas is blocking a save, if it is. */
   function canvasBlockingReason(): string | null {

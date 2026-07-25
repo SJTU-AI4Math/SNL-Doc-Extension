@@ -49,6 +49,13 @@ function sendInit(): void {
             type: 'i18n',
             default_language: 'en',
             values: { en: 'english body', 'zh-CN': '中文正文' }
+          },
+          // English only: reading in zh-CN falls back to `en`. Marking this
+          // untouched format dirty would write that fallback into `zh-CN`.
+          typst: {
+            type: 'i18n',
+            default_language: 'en',
+            values: { en: 'typst only in english' }
           }
         },
         contribution_info: { author: 'someone' },
@@ -183,5 +190,49 @@ describe('restored draft in edit mode', () => {
       expect(Array.isArray(draft!.canvasForest)).toBe(true);
       expect(draft!.canvasForest!.length).toBeGreaterThan(0);
     }, { timeout: 3000 });
+  });
+
+  it('does not widen dirty formats when the watcher re-pushes a dirty form', async () => {
+    // No draft here: the panel is alive and its dirty tracking is accurate.
+    // Widening it would freeze every untouched format's language fallback
+    // into an explicit current-language translation. Review 2026-07-25.
+    // Read in zh-CN so an unedited format's fallback vs explicit value are
+    // distinguishable in the payload.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'snl.preferences/snapshot',
+        revision: 1,
+        preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'auto' }
+      }
+    }));
+    const view = render(<CreateEntryApp />);
+    sendInit();
+    await waitFor(() =>
+      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Host Title')
+    );
+    // Author edits ONLY the title; typst is left untouched.
+    fireEvent.input(view.getByLabelText(/Title/i), { target: { value: 'Retitled' } });
+    // The file watcher re-pushes the same entry.
+    sendInit();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    fireEvent.click(await waitFor(() => view.getByRole('button', { name: /Update Entry/i })));
+    const submission = await waitFor(() => {
+      const found = posted.find(
+        (message): message is { type: string; entry: Record<string, unknown> } =>
+          typeof message === 'object' && message !== null &&
+          (message as { type?: string }).type === 'update'
+      );
+      expect(found).toBeTruthy();
+      return found!;
+    });
+
+    // markdown was never edited, so its i18n must come back untouched —
+    // both languages intact and distinct.
+    const content = submission.entry.content as Record<string, unknown>;
+    // typst was never edited, so its English-only i18n must come back
+    // untouched — no forged zh-CN key freezing the fallback.
+    expect(JSON.stringify(content.typst)).not.toContain('zh-CN');
+    expect(JSON.stringify(content.markdown)).toContain('中文正文');
   });
 });

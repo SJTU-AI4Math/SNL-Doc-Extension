@@ -176,4 +176,30 @@ describe('save shortcut when saving is refused', () => {
     fireEvent.keyDown(document, { key: 'ы', code: 'KeyS', ctrlKey: true });
     expect(onSave).toHaveBeenCalledTimes(1);
   });
+
+  it('lets the panel stay silent while a save is already running', () => {
+    // The panel decides; the hook must not force a report. A save in flight
+    // is not a refusal, and reporting one would clobber the `creating`
+    // status that prevents a double submit.
+    const onSave = vi.fn();
+    const reports: number[] = [];
+    let saving = false;
+    function Harness(): React.ReactElement {
+      useSaveShortcut(
+        () => { saving = true; onSave(); },
+        !saving,
+        () => { if (!saving) reports.push(1); }
+      );
+      return <input aria-label="f" />;
+    }
+    const view = render(<Harness />);
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    view.rerender(<Harness />);
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true });
+    // Second press neither saves again nor reports a bogus refusal.
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(reports).toEqual([]);
+  });
 });

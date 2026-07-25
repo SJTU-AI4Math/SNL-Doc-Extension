@@ -264,4 +264,33 @@ describe('restored draft in edit mode', () => {
       expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).not.toBe('Draft For One')
     );
   });
+
+  it('drops the previous entry\'s relationships on retarget', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'context',
+        mode: 'edit',
+        id: 'thm-1',
+        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' } }],
+        existingIds: ['thm-1'],
+        existing: { id: 'thm-1', title: 'One', kind: 'theorem', content: { snl: '' } },
+        relationships: [
+          { id: 'r1', label: 'depends', direction: 'outgoing', otherId: 'lemma-9', otherTitle: 'Lemma Nine' }
+        ]
+      }
+    }));
+    // The section is collapsed by default, so assert on the visible count.
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: /Relationships \(1\)/ })).toBeTruthy()
+    );
+
+    // Retarget must clear them, or the new entry shows the old one's graph.
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'retarget', mode: 'edit', id: 'thm-2' }
+    }));
+    await waitFor(() =>
+      expect(view.getByRole('button', { name: /Relationships \(0\)/ })).toBeTruthy()
+    );
+  });
 });

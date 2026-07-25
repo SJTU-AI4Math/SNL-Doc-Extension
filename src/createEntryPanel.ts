@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { toEntryOption } from './entryPoolOption';
+import { selectEntryRelationships } from './entryRelationships';
 import {
   addEntry,
   listEntryKinds,
@@ -8,6 +9,7 @@ import {
   readMacroPackage,
   readMacroPackages,
   readMacroKinds,
+  readRelationships,
   resolveActiveMacroPackages,
   updateEntry,
   type EntryData
@@ -231,11 +233,14 @@ export class CreateEntryPanel {
       return;
     }
     trace.mark('read:start');
-    // These four reads are independent, so they run concurrently instead of
+    // These reads are independent, so they run concurrently instead of
     // one-after-another — the serial awaits were pure added latency on every
     // panel open. `readAllMacrosWithOrigin` also replaces a SECOND full walk
     // of every macro package that used to rebuild `macroOrigin` by hand.
     // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
+    // The Relationships section's read joins this same fan-out — appending
+    // a serial `await` would re-add exactly the latency the concurrency was
+    // introduced to remove.
     // Each read is timed individually so a slow one is attributable; they
     // still run concurrently, so the marks show completion order.
     const timed = <T>(name: string, work: Promise<T>): Promise<T> =>
@@ -243,12 +248,14 @@ export class CreateEntryPanel {
         trace.mark(`read:${name}`);
         return value;
       });
-    const [kinds, macroBundle, macroKinds, allEntriesResult] = await Promise.all([
-      timed('entryKinds', listEntryKinds(root)),
-      timed('macros', readAllMacrosWithOrigin(root)),
-      timed('macroKinds', readMacroKinds(root)),
-      timed('entries', readEntries(root).catch((): EntryData[] => []))
-    ]);
+    const [kinds, macroBundle, macroKinds, allEntriesResult, relationships] =
+      await Promise.all([
+        timed('entryKinds', listEntryKinds(root)),
+        timed('macros', readAllMacrosWithOrigin(root)),
+        timed('macroKinds', readMacroKinds(root)),
+        timed('entries', readEntries(root).catch((): EntryData[] => [])),
+        timed('relationships', readRelationships(root).catch(() => []))
+      ]);
     const macros = macroBundle.macros;
     const macroOrigin = macroBundle.origin;
     const allEntries: EntryData[] = allEntriesResult;
@@ -256,6 +263,14 @@ export class CreateEntryPanel {
     if (this.mode === 'edit') {
       existing = allEntries.find((e) => e && e.id === this.id) ?? null;
     }
+    // Relationships this entry participates in, minus the "other entries
+    // depend on me" direction (cat 2026-07-25). Create mode has no identity
+    // yet, so the list is empty there by construction.
+    const relationshipRows = selectEntryRelationships(
+      this.mode === 'edit' ? this.id : '',
+      relationships,
+      allEntries
+    );
     trace.mark(
       'read:done',
       `macros=${Object.keys(macros).length} entries=${allEntries.length} ` +
@@ -274,7 +289,8 @@ export class CreateEntryPanel {
       macroKinds,
       macroOrigin,
       existing,
-      existingIds: allEntries.map(toEntryOption)
+      existingIds: allEntries.map(toEntryOption),
+      relationships: relationshipRows
     };
     void this.panel.webview.postMessage(payload);
     // Payload size matters: everything here is structured-cloned across the

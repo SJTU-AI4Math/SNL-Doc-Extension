@@ -46,6 +46,10 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 import { traceFirstPaint, traceMark } from './runtime/trace';
+import {
+  EntryRelationshipsSection,
+  type EntryRelationshipRow
+} from './components/EntryRelationshipsSection';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
 import { MacroIdInput } from './components/MacroIdInput';
@@ -288,6 +292,8 @@ export function CreateEntryApp(): React.ReactElement {
     Partial<Record<LocalizableContentFormat, I18n<string, string>>>
   >({});
 
+  /** Rows for the Relationships section; replaced wholesale on every push. */
+  const [relationships, setRelationships] = useState<EntryRelationshipRow[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
@@ -373,6 +379,7 @@ export function CreateEntryApp(): React.ReactElement {
             macroOrigin?: Record<string, string>;
             existing?: ExistingEntry | null;
             existingIds?: EntryOption[];
+            relationships?: EntryRelationshipRow[];
           }
         | { type: 'created'; id: string }
         | { type: 'updated'; id: string }
@@ -409,6 +416,7 @@ export function CreateEntryApp(): React.ReactElement {
           setTitle('');
           setSelectedKind('');
           setContentI18n({});
+          setRelationships([]);
           setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
           setId(typeof msg.id === 'string' ? msg.id : '');
           if (msg.mode === 'create' || msg.mode === 'edit') setMode(msg.mode);
@@ -417,6 +425,9 @@ export function CreateEntryApp(): React.ReactElement {
         case 'context':
           // The payload has arrived and is about to be applied to state.
           traceMark('context-received');
+          setRelationships(
+            Array.isArray(msg.relationships) ? msg.relationships : []
+          );
           setMode(msg.mode);
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
@@ -1085,7 +1096,23 @@ export function CreateEntryApp(): React.ReactElement {
           )}
         </div>
 
-        {/* 5. Contributor ============================================= */}
+        {/* 5. Relationships ============================================ */}
+        {mode === 'edit' ? (
+          <EntryRelationshipsSection
+            relationships={relationships}
+            onOpenEntry={(entryId) =>
+              // Reuse the existing nav contract rather than inventing a
+              // message the host does not handle: `nav.openInfoview` with an
+              // entryId opens that entry's reading view.
+              apiRef.current?.postMessage({
+                type: 'nav.openInfoview',
+                entryId
+              })
+            }
+          />
+        ) : null}
+
+        {/* 6. Contributor ============================================= */}
         <div style={{ marginBottom: '1rem' }}>
           <Label>Contributor</Label>
           <PlaceholderBox text="Not implemented yet — deferred until the contribution_info schema is defined." />

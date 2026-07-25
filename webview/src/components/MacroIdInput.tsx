@@ -79,6 +79,12 @@ interface MacroIdInputBaseProps {
   macroIds?: readonly string[];
   /** Open the embedded SNoogL Macro picker as soon as this control mounts. */
   openSnooglOnMount?: boolean;
+  /**
+   * SNoogL Tab inserts the picked Macro id at the caret instead of replacing
+   * the surrounding token. Used by the Canvas subtree (Ctrl+F2) editor, where
+   * the box holds a whole SNL expression and replacing it would wipe the tree.
+   */
+  snooglInsertsMacroId?: boolean;
 }
 
 export type MacroIdInputProps =
@@ -104,6 +110,7 @@ export const MacroIdInput = forwardRef<
     macroCandidates = EMPTY_MACRO_CANDIDATES,
     macroIds = EMPTY_MACRO_IDS,
     openSnooglOnMount = false,
+    snooglInsertsMacroId = false,
     style,
     className,
     ...props
@@ -235,7 +242,9 @@ export const MacroIdInput = forwardRef<
     if (!interactionDisabled && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
       event.preventDefault();
       event.stopPropagation();
-      snooglRangeRef.current = macroTokenRange(value, currentCaret);
+      snooglRangeRef.current = snooglInsertsMacroId
+        ? { start: currentCaret, end: currentCaret }
+        : macroTokenRange(value, currentCaret);
       setSuggestionsOpen(false);
       setSnooglQuery('');
       setSnooglSelection(0);
@@ -473,6 +482,8 @@ export const MacroIdInput = forwardRef<
     const id = snooglResults[snooglSelection];
     const range = snooglRangeRef.current;
     if (!id || !range) return;
+    // In insert-only mode `range` is already the collapsed caret position, so
+    // picking a Macro never wipes the surrounding SNL expression.
     replaceRangeWithMacro(range, id);
     closeSnoogl();
   };

@@ -71,6 +71,7 @@ import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 import {
   attachCanvasRoot,
   canPersistCanvasForest,
+  createCanvasHole,
   detachCanvasSubtree,
   isCanvasHole,
   listCanvasTargets,
@@ -245,7 +246,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
-  const [snlMode, setSnlMode] = useState<'text' | 'gui' | 'canvas'>('text');
+  const [snlMode, setSnlMode] = useState<'text' | 'gui' | 'canvas'>('canvas');
   const [content, setContent] = useState<Record<ContentFormat, string>>({
     snl: '',
     typst: '',
@@ -776,10 +777,10 @@ export function CreateEntryApp(): React.ReactElement {
               }}
             >
               <SubTabButton
-                active={snlMode === 'text'}
-                onClick={() => setSnlMode('text')}
+                active={snlMode === 'canvas'}
+                onClick={() => setSnlMode('canvas')}
               >
-                Text Editor
+                GUI Editor (Canvas)
               </SubTabButton>
               <SubTabButton
                 active={snlMode === 'gui'}
@@ -788,10 +789,10 @@ export function CreateEntryApp(): React.ReactElement {
                 GUI Editor (Inductive)
               </SubTabButton>
               <SubTabButton
-                active={snlMode === 'canvas'}
-                onClick={() => setSnlMode('canvas')}
+                active={snlMode === 'text'}
+                onClick={() => setSnlMode('text')}
               >
-                GUI Editor (Canvas)
+                Text Editor
               </SubTabButton>
             </div>
           ) : null}
@@ -1247,11 +1248,26 @@ interface CanvasFocus {
   path: readonly number[];
 }
 
+/**
+ * What a Canvas inline editor is allowed to rewrite.
+ *
+ *   - 'macro'   (F2)      — only this block's own macro head (`name[style]`).
+ *                           Children are preserved verbatim.
+ *   - 'subtree' (Ctrl+F2) — the whole subtree serialized as SNL DSL.
+ */
+type CanvasEditScope = 'macro' | 'subtree';
+
 interface CanvasNodeEditor extends CanvasFocus {
+  scope: CanvasEditScope;
   left: number;
   top: number;
   value: string;
   error: string | null;
+}
+
+interface CanvasContextMenu extends CanvasFocus {
+  left: number;
+  top: number;
 }
 
 function sameCanvasTarget(
@@ -1264,6 +1280,33 @@ function sameCanvasTarget(
     left.rootIndex === right.rootIndex &&
     left.path.join('.') === right.path.join('.')
   );
+}
+
+/**
+ * Where a freshly-added root block starts. The first block is centred on the
+ * canvas (cat 2026-07-25: "默认应该把根节点放在画布正中间"); later blocks fan out
+ * from there so they don't stack on top of each other.
+ */
+export function canvasInitialPosition(
+  index: number,
+  canvas: { clientWidth: number; clientHeight: number } | null,
+  block: { offsetWidth: number; offsetHeight: number } | null
+): CanvasBlockPosition {
+  // Only the first root is centred; extra blocks keep the original grid so
+  // detached subtrees land in predictable, non-overlapping slots.
+  if (index > 0) {
+    return {
+      x: 24 + (index % 2) * 330,
+      y: 24 + Math.floor(index / 2) * 220
+    };
+  }
+  const width = canvas?.clientWidth ?? 0;
+  const height = canvas?.clientHeight ?? 0;
+  if (width <= 0 || height <= 0) return { x: 24, y: 24 };
+  return {
+    x: Math.max(8, Math.round((width - (block?.offsetWidth ?? Math.min(320, width / 2))) / 2)),
+    y: Math.max(8, Math.round((height - (block?.offsetHeight ?? Math.min(160, height / 2))) / 2))
+  };
 }
 
 export function GuiCanvasEditor({
@@ -1288,12 +1331,14 @@ export function GuiCanvasEditor({
   const [editingNode, setEditingNode] = React.useState<CanvasNodeEditor | null>(null);
   const [addingRootFromMacro, setAddingRootFromMacro] = React.useState(false);
   const [dropTarget, setDropTarget] = React.useState<CanvasFocus | null>(null);
+  const [contextMenu, setContextMenu] = React.useState<CanvasContextMenu | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
   const suppressCanvasClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
+  const lastPointerTargetRef = React.useRef<CanvasFocus | null>(null);
   forestRef.current = forest;
 
   React.useEffect(() => {
@@ -1301,13 +1346,40 @@ export function GuiCanvasEditor({
       const next: Record<string, CanvasBlockPosition> = {};
       forest.forEach((root, index) => {
         const id = treeIdentity(root);
-        next[id] = previous[id] ?? {
-          x: 24 + (index % 2) * 330,
-          y: 24 + Math.floor(index / 2) * 220
-        };
+        next[id] = previous[id] ?? canvasInitialPosition(
+          index,
+          canvasRef.current,
+          index === 0
+            ? canvasRef.current?.querySelector<HTMLElement>('[data-canvas-root-index="0"]') ?? null
+            : null
+        );
       });
       return next;
     });
+  }, [forest]);
+
+  // The first root starts centred on the canvas. Only ever done once per
+  // mount: later identity changes (edits, Clear) must not yank a block the
+  // user has already dragged somewhere.
+  const centredRootRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const first = forest[0];
+    if (!canvas || !first || centredRootRef.current) return;
+    const id = treeIdentity(first);
+    const block = canvas.querySelector<HTMLElement>('[data-canvas-root-index="0"]');
+    if (!block) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    const blockRect = block.getBoundingClientRect();
+    if (canvasRect.width === 0 || blockRect.width === 0) return;
+    centredRootRef.current = true;
+    setPositions((previous) => ({
+      ...previous,
+      [id]: {
+        x: Math.max(8, Math.round((canvasRect.width - blockRect.width) / 2)),
+        y: Math.max(8, Math.round((canvasRect.height - blockRect.height) / 2))
+      }
+    }));
   }, [forest]);
 
   React.useEffect(() => {
@@ -1356,6 +1428,10 @@ export function GuiCanvasEditor({
     rootIndex: number,
     blockId: string
   ): void => {
+    // Cleared unconditionally: every early return below (right button, open
+    // editor, empty slot) must invalidate the previous gesture's target so a
+    // stale entry can never hijack a later click / double-click / right-click.
+    lastPointerTargetRef.current = null;
     if (event.button !== 0 || editingNode) return;
     const resolved =
       resolveCanvasPointerTarget(
@@ -1393,6 +1469,11 @@ export function GuiCanvasEditor({
       startPosition,
       active: false
     };
+    // Cat 2026-07-25: a plain click must focus exactly the subtree that a
+    // drag from this same spot would carry away. Record the drag's resolved
+    // target here so the click handler can reuse it verbatim instead of
+    // re-resolving (and possibly landing on a shallower ancestor).
+    lastPointerTargetRef.current = { rootIndex, path: resolved.path };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1542,42 +1623,59 @@ export function GuiCanvasEditor({
     return common && block.contains(common) ? common : null;
   };
 
-  const startEditingTarget = (target: CanvasFocus): void => {
+  const startEditingTarget = (
+    target: CanvasFocus,
+    scope: CanvasEditScope = 'macro'
+  ): void => {
     const node = getNodeAtPath(forestRef.current[target.rootIndex], target.path.join('.'));
     if (!node) return;
     const element = elementForTarget(target);
     const canvas = canvasRef.current;
     if (!element || !canvas) return;
+    // An empty slot has no Macro of its own to rename — filling it always
+    // means authoring a whole subtree.
+    const effectiveScope: CanvasEditScope = isCanvasHole(node) ? 'subtree' : scope;
     const rect = element.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
     setFocused(target);
+    setContextMenu(null);
     setEditingNode({
       ...target,
+      scope: effectiveScope,
       left: rect.left - canvasRect.left + canvas.scrollLeft,
       top: rect.top - canvasRect.top + canvas.scrollTop,
-      value: isCanvasHole(node) ? '' : serializeTreePreserving(node),
+      value: isCanvasHole(node)
+        ? ''
+        : effectiveScope === 'macro'
+          ? stringifyLeafSource(node)
+          : serializeTreePreserving(node),
       error: null
     });
   };
 
-  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-    const clickTarget = event.target as Node;
-    const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
-    if (editorRef.current?.contains(clickTarget) || editorSurface?.contains(clickTarget)) return;
-    if (suppressCanvasClickRef.current) return;
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      return;
-    }
+  /**
+   * Resolve the mouse position to the subtree a drag from the same spot
+   * would detach. Prefers the target the pointer-down handler already
+   * resolved so click focus and drag payload can never disagree.
+   */
+  const targetForMouseEvent = (
+    event: React.MouseEvent<HTMLDivElement>
+  ): CanvasFocus | null => {
     const block = (event.target as HTMLElement).closest<HTMLElement>(
       '[data-canvas-root-index]'
     );
-    if (!block) {
-      setFocused(null);
-      return;
-    }
+    if (!block) return null;
     const rootIndex = Number(block.dataset.canvasRootIndex);
-    if (!Number.isInteger(rootIndex) || !forestRef.current[rootIndex]) return;
+    if (!Number.isInteger(rootIndex) || !forestRef.current[rootIndex]) return null;
+    const remembered = lastPointerTargetRef.current;
+    // Only reuse the drag-resolved target when this very gesture landed on the
+    // same block; otherwise re-resolve from the DOM.
+    if (remembered && remembered.rootIndex === rootIndex) {
+      const element = elementForTarget(remembered);
+      if (element && (element === event.target || element.contains(event.target as Node))) {
+        return remembered;
+      }
+    }
     const resolved = resolveCanvasPointerTarget(
       event.target as HTMLElement,
       block,
@@ -1585,10 +1683,69 @@ export function GuiCanvasEditor({
       event.clientX,
       event.clientY
     ) ?? { path: [], rect: block.getBoundingClientRect() };
-    const target = { rootIndex, path: resolved.path };
+    return { rootIndex, path: resolved.path };
+  };
+
+  const insideOpenEditor = (node: Node | null): boolean => {
+    if (!node) return false;
+    const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
+    return Boolean(editorRef.current?.contains(node) || editorSurface?.contains(node));
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (insideOpenEditor(event.target as Node)) return;
+    if (suppressCanvasClickRef.current) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    setContextMenu(null);
+    const target = targetForMouseEvent(event);
+    if (!target) {
+      setFocused(null);
+      return;
+    }
     setFocused(target);
-    const node = getNodeAtPath(forestRef.current[rootIndex], resolved.path.join('.'));
-    if (isCanvasHole(node)) startEditingTarget(target);
+    const node = getNodeAtPath(
+      forestRef.current[target.rootIndex],
+      target.path.join('.')
+    );
+    if (isCanvasHole(node)) startEditingTarget(target, 'subtree');
+  };
+
+  /** Double click == click here + F2: edit this node's own macro. */
+  const handleCanvasDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (insideOpenEditor(event.target as Node)) return;
+    const target = targetForMouseEvent(event);
+    if (!target) return;
+    event.preventDefault();
+    setFocused(target);
+    startEditingTarget(target, 'macro');
+  };
+
+  const handleCanvasContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (insideOpenEditor(event.target as Node)) return;
+    const target = targetForMouseEvent(event);
+    // The Canvas owns right click on its blocks; elsewhere the host menu wins.
+    if (!target) {
+      setContextMenu(null);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const canvas = canvasRef.current;
+    const canvasRect = canvas?.getBoundingClientRect();
+    setFocused(target);
+    setEditingNode(null);
+    setContextMenu({
+      ...target,
+      left: canvas && canvasRect
+        ? event.clientX - canvasRect.left + canvas.scrollLeft
+        : event.clientX,
+      top: canvas && canvasRect
+        ? event.clientY - canvasRect.top + canvas.scrollTop
+        : event.clientY
+    });
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -1604,6 +1761,10 @@ export function GuiCanvasEditor({
     }
     if (event.key === 'Escape') {
       event.preventDefault();
+      if (contextMenu) {
+        setContextMenu(null);
+        return;
+      }
       setFocused(null);
       return;
     }
@@ -1622,7 +1783,9 @@ export function GuiCanvasEditor({
     }
     if (event.key === 'F2' && focused) {
       event.preventDefault();
-      startEditingTarget(focused);
+      // Cat 2026-07-25: F2 now edits only this block's Macro; the old
+      // whole-subtree DSL editor moved to Ctrl/Cmd+F2.
+      startEditingTarget(focused, event.ctrlKey || event.metaKey ? 'subtree' : 'macro');
       return;
     }
     if (event.key === 'Enter' && focused) {
@@ -1651,22 +1814,51 @@ export function GuiCanvasEditor({
 
   const commitNodeEdit = (): void => {
     if (!editingNode) return;
-    const parsed = tryParseSnlSyntaxTree(editingNode.value.trim());
-    if (!parsed.ok) {
-      setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
-      return;
-    }
     const previousNode = getNodeAtPath(
       forestRef.current[editingNode.rootIndex],
       editingNode.path.join('.')
     );
-    if (previousNode) inheritTreeIdentity(previousNode, parsed.tree);
-    else ensureTreeIdentity(parsed.tree);
+    let replacement: SnlSyntaxTree;
+    if (editingNode.scope === 'macro') {
+      // Macro scope rewrites only the head; children stay exactly as they are.
+      const head = editingNode.value.trim();
+      if (head.includes('(') || head.includes(',')) {
+        setEditingNode((previous) => previous
+          ? { ...previous, error: 'Macro edit accepts a single macro id; use Ctrl+F2 to edit the subtree.' }
+          : null);
+        return;
+      }
+      const parsedHead = tryParseSnlSyntaxTree(head);
+      if (!parsedHead.ok) {
+        setEditingNode((previous) => previous ? { ...previous, error: parsedHead.error } : null);
+        return;
+      }
+      const base = previousNode ?? parsedHead.tree;
+      replacement = {
+        ...base,
+        macro_name: parsedHead.tree.macro_name,
+        kind: parsedHead.tree.kind,
+        env_mode: parsedHead.tree.env_mode,
+        style_name: parsedHead.tree.style_name,
+        children: previousNode ? previousNode.children : parsedHead.tree.children
+      };
+      if (previousNode) inheritTreeIdentity(previousNode, replacement);
+      else ensureTreeIdentity(replacement);
+    } else {
+      const parsed = tryParseSnlSyntaxTree(editingNode.value.trim());
+      if (!parsed.ok) {
+        setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
+        return;
+      }
+      if (previousNode) inheritTreeIdentity(previousNode, parsed.tree);
+      else ensureTreeIdentity(parsed.tree);
+      replacement = parsed.tree;
+    }
     const next = replaceCanvasTarget(
       forestRef.current,
       editingNode.rootIndex,
       editingNode.path,
-      parsed.tree
+      replacement
     );
     if (next === forestRef.current) return;
     forestRef.current = next;
@@ -1696,6 +1888,20 @@ export function GuiCanvasEditor({
     return () => document.removeEventListener('pointerdown', commitOnOutsidePointer, true);
   }, [editingNode]);
 
+  // A right-click menu must also close when the user clicks anywhere outside
+  // the Canvas (the canvas click handler only sees clicks inside it).
+  React.useEffect(() => {
+    if (!contextMenu) return;
+    const closeOnOutsidePointer = (event: PointerEvent): void => {
+      const canvas = canvasRef.current;
+      const target = event.target as Node | null;
+      if (canvas && target && canvas.contains(target)) return;
+      setContextMenu(null);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+  }, [contextMenu]);
+
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1723,11 +1929,14 @@ export function GuiCanvasEditor({
         aria-label="GUI Editor canvas"
         tabIndex={0}
         onClickCapture={handleCanvasClick}
+        onDoubleClickCapture={handleCanvasDoubleClick}
+        onContextMenu={handleCanvasContextMenu}
         onKeyDown={handleCanvasKeyDown}
         style={{
           position: 'relative',
           minHeight: '32rem',
           overflow: 'visible',
+          fontSize: '1.05rem',
           border: '1px solid var(--vscode-panel-border, #444)',
           borderRadius: '6px',
           backgroundColor: 'var(--vscode-editor-background)',
@@ -1792,6 +2001,7 @@ export function GuiCanvasEditor({
             className="snl-canvas-node-input"
             aria-label="Edit focused SNL"
             macroCandidates={macroCandidates}
+            snooglInsertsMacroId={editingNode.scope === 'subtree'}
             value={editingNode.value}
             onChange={(value) => setEditingNode({
               ...editingNode,
@@ -1809,7 +2019,12 @@ export function GuiCanvasEditor({
                 window.setTimeout(() => canvasRef.current?.focus(), 0);
               }
             }}
-            title={editingNode.error ?? 'Enter SNL DSL and press Enter'}
+            title={
+              editingNode.error ??
+              (editingNode.scope === 'macro'
+                ? 'Edit this block\u2019s Macro and press Enter'
+                : 'Enter SNL DSL and press Enter')
+            }
             style={{
               position: 'absolute',
               left: editingNode.left,
@@ -1858,6 +2073,49 @@ export function GuiCanvasEditor({
             }}
           />
         ) : null}
+        {contextMenu ? (
+          <CanvasContextMenuView
+            menu={contextMenu}
+            node={getNodeAtPath(
+              forestRef.current[contextMenu.rootIndex],
+              contextMenu.path.join('.')
+            )}
+            onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
+            onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}
+            onDetach={() => {
+              if (contextMenu.path.length === 0) return;
+              const next = detachCanvasSubtree(
+                forestRef.current,
+                contextMenu.rootIndex,
+                contextMenu.path
+              );
+              setContextMenu(null);
+              if (next === forestRef.current) return;
+              forestRef.current = next;
+              setFocused({ rootIndex: next.length - 1, path: [] });
+              onForestChange(next);
+            }}
+            onClear={() => {
+              const hole = createCanvasHole(
+                contextMenu.path.length > 0
+                  ? contextMenu.path[contextMenu.path.length - 1]
+                  : 0
+              );
+              const next = replaceCanvasTarget(
+                forestRef.current,
+                contextMenu.rootIndex,
+                contextMenu.path,
+                hole
+              );
+              setContextMenu(null);
+              if (next === forestRef.current) return;
+              forestRef.current = next;
+              setFocused(null);
+              onForestChange(next);
+            }}
+            onClose={() => setContextMenu(null)}
+          />
+        ) : null}
       </div>
       {!canPersistCanvasForest(forest) ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.45rem' }}>
@@ -1882,6 +2140,97 @@ export function GuiCanvasEditor({
 // ---------------------------------------------------------------------------
 // GUI Editor (Inductive) — library-outline-styled tree editor
 // ---------------------------------------------------------------------------
+
+/**
+ * Canvas right-click menu (cat 2026-07-25). Right click on a block owns the
+ * gesture: it focuses that subtree and offers the same operations the
+ * keyboard exposes, so the Canvas never falls through to the host menu.
+ */
+function CanvasContextMenuView({
+  menu,
+  node,
+  onEditMacro,
+  onEditSubtree,
+  onDetach,
+  onClear,
+  onClose
+}: {
+  menu: CanvasContextMenu;
+  node: SnlSyntaxTree | undefined;
+  onEditMacro: () => void;
+  onEditSubtree: () => void;
+  onDetach: () => void;
+  onClear: () => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const isRoot = menu.path.length === 0;
+  const isHole = isCanvasHole(node);
+  const items: Array<{ label: string; hint?: string; disabled?: boolean; run: () => void }> = [
+    { label: 'Edit Macro', hint: 'F2', disabled: isHole, run: onEditMacro },
+    { label: 'Edit subtree as SNL', hint: 'Ctrl+F2', run: onEditSubtree },
+    {
+      label: 'Detach into its own block',
+      disabled: isRoot || isHole,
+      run: onDetach
+    },
+    { label: 'Clear to empty slot', disabled: isHole, run: onClear }
+  ];
+  return (
+    <div
+      role="menu"
+      aria-label="Canvas block actions"
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+      style={{
+        position: 'absolute',
+        left: menu.left,
+        top: menu.top,
+        zIndex: 50,
+        minWidth: '14rem',
+        padding: '0.25rem',
+        borderRadius: '5px',
+        border: '1px solid var(--vscode-widget-border, #555)',
+        background: 'var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526))',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        fontSize: '0.9rem'
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          disabled={item.disabled}
+          onClick={() => {
+            if (item.disabled) return;
+            item.run();
+            onClose();
+          }}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            width: '100%',
+            padding: '0.3rem 0.5rem',
+            border: 'none',
+            borderRadius: '3px',
+            background: 'transparent',
+            color: item.disabled
+              ? 'var(--vscode-disabledForeground, #777)'
+              : 'var(--vscode-menu-foreground, inherit)',
+            cursor: item.disabled ? 'not-allowed' : 'pointer',
+            font: 'inherit',
+            textAlign: 'left'
+          }}
+        >
+          <span>{item.label}</span>
+          {item.hint ? <span style={{ opacity: 0.6 }}>{item.hint}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 //
 // Cat 2026-07-12 reset. The old row was `[input] [+child] [-delete]` with an
 // unconditional +child button and a light-mode inline input. This version
@@ -2617,7 +2966,7 @@ function InductiveNode({
         <span
           style={{
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.75rem',
+            fontSize: '0.9rem',
             color: 'var(--vscode-descriptionForeground, #888)',
             minWidth: numberPath ? `${Math.max(2, numberPath.length + 1)}ch` : 0,
             flexShrink: 0
@@ -2638,7 +2987,7 @@ function InductiveNode({
             flex: '1 1 auto',
             padding: '0.25rem 0.5rem',
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.85rem',
+            fontSize: '1rem',
             borderColor: frameBorder,
             background: frameBackground,
             color: 'var(--vscode-input-foreground, #ddd)'

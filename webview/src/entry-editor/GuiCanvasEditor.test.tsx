@@ -2,7 +2,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
-import { GuiCanvasEditor, resolveCanvasPointerTarget } from '../CreateEntryApp';
+import { GuiCanvasEditor, canvasInitialPosition, resolveCanvasPointerTarget } from '../CreateEntryApp';
 import { createCanvasHole } from './canvasForest';
 
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
@@ -327,7 +327,7 @@ describe('GuiCanvasEditor', () => {
     const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
     const branch = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
     fireEvent.click(branch);
-    fireEvent.keyDown(canvas, { key: 'F2' });
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     expect((input as HTMLTextAreaElement).value).toBe('branch(leaf)');
     fireEvent.click(input);
@@ -340,7 +340,7 @@ describe('GuiCanvasEditor', () => {
     expect(branch.textContent).toContain('branch');
 
     fireEvent.click(branch);
-    fireEvent.keyDown(canvas, { key: 'F2' });
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const outsideCancelled = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(outsideCancelled, { target: { value: 'outside(child)' } });
     fireEvent.pointerDown(canvas);
@@ -349,7 +349,7 @@ describe('GuiCanvasEditor', () => {
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('branch');
 
     fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
-    fireEvent.keyDown(canvas, { key: 'F2' });
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const enterCommitted = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(enterCommitted, { target: { value: 'new(child)' } });
     fireEvent.keyDown(enterCommitted, { key: 'Enter' });
@@ -361,7 +361,7 @@ describe('GuiCanvasEditor', () => {
 
     const replaced = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
     fireEvent.click(replaced);
-    fireEvent.keyDown(canvas, { key: 'F2' });
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const cancelled = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(cancelled, { target: { value: 'discarded' } });
     fireEvent.keyDown(cancelled, { key: 'Escape' });
@@ -461,7 +461,7 @@ describe('GuiCanvasEditor', () => {
     const root = block.querySelector<HTMLElement>('[data-tree-path=""]')!;
     fireEvent.click(root);
     const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
-    fireEvent.keyDown(canvas, { key: 'F2' });
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(editor, { target: { value: 'changed(grandchild)' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
@@ -566,5 +566,218 @@ describe('GuiCanvasEditor', () => {
     expect(blocks[1].style.top).toBe('90px');
     const detachedRoot = blocks[1].querySelector<HTMLElement>('[data-tree-path=""]')!;
     await waitFor(() => expect(detachedRoot.classList.contains('snl-canvas-focused')).toBe(true));
+  });
+
+  it('centres the first root block and keeps later blocks on the fallback grid', () => {
+    expect(canvasInitialPosition(0, { clientWidth: 800, clientHeight: 500 }, { offsetWidth: 200, offsetHeight: 100 }))
+      .toEqual({ x: 300, y: 200 });
+    expect(canvasInitialPosition(0, null, null)).toEqual({ x: 24, y: 24 });
+    expect(canvasInitialPosition(1, { clientWidth: 800, clientHeight: 500 }, null))
+      .toEqual({ x: 354, y: 24 });
+  });
+
+  it('edits only the focused Macro with F2 and keeps its children', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('branch', [node('leaf')])])]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    // Macro scope shows only the head, never the serialized subtree.
+    expect((input as HTMLTextAreaElement).value).toBe('branch');
+
+    fireEvent.change(input, { target: { value: 'renamed' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent)
+        .toContain('renamed')
+    );
+    // The child survives the Macro-only rewrite.
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')?.textContent)
+      .toContain('leaf');
+  });
+
+  it('rejects a subtree expression typed into the Macro-scope editor', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch')])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(input, { target: { value: 'foo(bar)' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(view.getByRole('textbox', { name: 'Edit focused SNL' }).getAttribute('title'))
+        .toContain('Ctrl+F2')
+    );
+  });
+
+  it('double click edits the clicked node exactly like click + F2', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('branch', [node('leaf')])])]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const leaf = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')!);
+    fireEvent.doubleClick(leaf);
+    const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    expect((input as HTMLTextAreaElement).value).toBe('leaf');
+    expect(leaf.classList.contains('snl-canvas-focused')).toBe(true);
+  });
+
+  it('focuses the subtree a drag would carry away, not the whole root', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch', [node('leaf')])])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const leaf = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')!);
+    const block = view.container.querySelector<HTMLElement>('[data-canvas-root]')!;
+    // Pointer-down resolves the drag payload; the click must agree with it.
+    fireEvent.pointerDown(leaf, { pointerId: 30, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(leaf, { pointerId: 30, clientX: 10, clientY: 10 });
+    fireEvent.click(leaf);
+    await waitFor(() => expect(leaf.classList.contains('snl-canvas-focused')).toBe(true));
+    expect(block.querySelector<HTMLElement>('[data-tree-path=""]')?.classList
+      .contains('snl-canvas-focused')).toBe(false);
+  });
+
+  it('opens a Canvas-owned menu on right click and can detach from it', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('branch')])]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const branch = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.contextMenu(branch);
+    const menu = await waitFor(() => view.getByRole('menu', { name: 'Canvas block actions' }));
+    expect(menu).toBeTruthy();
+    expect(branch.classList.contains('snl-canvas-focused')).toBe(true);
+
+    fireEvent.click(view.getByRole('menuitem', { name: /Detach into its own block/ }));
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+    expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
+  });
+
+  it('Ctrl+F2 SNoogL Tab inserts the Macro id instead of replacing the expression', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch')])]}
+        macroDataDriver={driver}
+        macroCandidates={[{ id: 'FOL.forall', labels: [] }, { id: 'Add.add', labels: [] }]}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    expect((editor as HTMLTextAreaElement).value).toBe('root(branch)');
+
+    (editor as HTMLTextAreaElement).setSelectionRange(5, 5);
+    fireEvent.keyDown(editor, { key: 'f', ctrlKey: true });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.change(search, { target: { value: 'Add' } });
+    fireEvent.keyDown(search, { key: 'Tab' });
+
+    await waitFor(() =>
+      expect((view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement).value)
+        .toBe('root(Add.addbranch)')
+    );
+  });
+
+  it('does not let a previous click hijack a later gesture on another node', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('root', [node('alpha'), node('beta'), createCanvasHole(2)])
+      ]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const alpha = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    const beta = view.container.querySelector<HTMLElement>('[data-tree-path="1"]')!;
+    const hole = view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!;
+
+    // Left click alpha first — this is what used to poison every later gesture.
+    fireEvent.pointerDown(alpha, { pointerId: 40, button: 0, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(alpha, { pointerId: 40, clientX: 5, clientY: 5 });
+    fireEvent.click(alpha);
+    await waitFor(() => expect(alpha.classList.contains('snl-canvas-focused')).toBe(true));
+
+    // Right click on a sibling must target the sibling, not alpha.
+    fireEvent.contextMenu(beta);
+    await waitFor(() => expect(beta.classList.contains('snl-canvas-focused')).toBe(true));
+    expect(alpha.classList.contains('snl-canvas-focused')).toBe(false);
+    fireEvent.keyDown(view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!, { key: 'Escape' });
+
+    // Double click on a sibling must edit the sibling, not alpha.
+    fireEvent.click(alpha);
+    fireEvent.doubleClick(beta);
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    expect((editor as HTMLTextAreaElement).value).toBe('beta');
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+
+    // Clicking an empty slot after clicking a macro must still open its editor.
+    fireEvent.click(alpha);
+    fireEvent.pointerDown(hole, { pointerId: 41, button: 0, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(hole, { pointerId: 41, clientX: 5, clientY: 5 });
+    fireEvent.click(hole);
+    const slotEditor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    expect((slotEditor as HTMLTextAreaElement).value).toBe('');
   });
 });

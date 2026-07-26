@@ -222,6 +222,12 @@
     "configuration": {
       "title": "%snlDoc.settings.title%",
       "properties": {
+        "snlDoc.openBeside": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Open SNL editor panels in a new group beside the current editor, instead of taking over it. The Infoview already does this and opens noticeably faster; enable to compare."
+        },
         "snlDoc.trace": {
           "type": "boolean",
           "default": false,

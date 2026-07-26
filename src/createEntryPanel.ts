@@ -113,7 +113,18 @@ export class CreateEntryPanel {
     // Cat 2026-07-25: trace the whole open path with ms timings so we can
     // see WHICH stage is slow instead of guessing. Off unless `snlDoc.trace`.
     const trace = startTrace('entryPanel:open', `mode=${mode} id=${id || '-'}`);
-    const column = vscode.ViewColumn.Active;
+    // Cat 2026-07-25: the Infoview is fast even on its FIRST open, and it is
+    // the only panel that uses `Beside`. Everything else uses `Active`, which
+    // takes over the current editor group — that means VS Code must also tear
+    // down / re-lay-out the editor that was there. Setting `snlDoc.openBeside`
+    // opens editor panels beside instead, so the hypothesis can be tested
+    // directly rather than argued about.
+    const column = vscode.workspace
+      .getConfiguration('snlDoc')
+      .get<boolean>('openBeside')
+      ? vscode.ViewColumn.Beside
+      : vscode.ViewColumn.Active;
+    trace.mark('column-chosen', column === vscode.ViewColumn.Beside ? 'Beside' : 'Active');
 
     const existing = CreateEntryPanel.instance;
     if (existing) {

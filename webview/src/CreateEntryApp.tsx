@@ -1615,6 +1615,7 @@ export function GuiCanvasEditor({
   const [contextMenu, setContextMenu] = React.useState<CanvasContextMenu | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
   const suppressCanvasClickRef = React.useRef(false);
@@ -1660,7 +1661,7 @@ export function GuiCanvasEditor({
     const previous = undoStackRef.current.pop();
     if (!previous) return;
     forestRef.current = previous.forest;
-    setEditingNode(null);
+    closeCanvasInputs();
     setContextMenu(null);
     setFocused(previous.focused);
     onForestChange(previous.forest);
@@ -1718,6 +1719,10 @@ export function GuiCanvasEditor({
     // an open editor. Internal editor commits clear editingNode in the same
     // state transition, so this only cancels genuinely stale overlays.
     if (editingNode) setEditingNode(null);
+    // The add-root input is anchored to nothing in the tree, but a forest
+    // replacement (Reset, external push, undo) still means its draft is
+    // orphaned — destroy it rather than leave it floating (Cat 2026-07-26).
+    setAddingRootFromMacro(false);
   }, [forest]);
 
   // Resolve dynamic_arity for every Macro currently on the Canvas so the
@@ -2027,6 +2032,8 @@ export function GuiCanvasEditor({
     const canvasRect = canvas.getBoundingClientRect();
     setFocused(target);
     setContextMenu(null);
+    // The two floating inputs are mutually exclusive by construction.
+    setAddingRootFromMacro(false);
     setEditingNode({
       ...target,
       scope: effectiveScope,
@@ -2076,8 +2083,20 @@ export function GuiCanvasEditor({
 
   const insideOpenEditor = (node: Node | null): boolean => {
     if (!node) return false;
-    const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
-    return Boolean(editorRef.current?.contains(node) || editorSurface?.contains(node));
+    // Both floating inputs count: the node editor AND the add-root input.
+    // Missing the latter is how it used to survive clicks that should have
+    // destroyed it (Cat 2026-07-26).
+    return [editorRef.current, addRootRef.current].some((control) => {
+      if (!control) return false;
+      const surface = control.closest('[data-macro-id-control]');
+      return Boolean(control.contains(node) || surface?.contains(node));
+    });
+  };
+
+  /** Tear down every floating Canvas input. One exit door, no leaks. */
+  const closeCanvasInputs = (): void => {
+    setEditingNode(null);
+    setAddingRootFromMacro(false);
   };
 
   /**
@@ -2106,6 +2125,8 @@ export function GuiCanvasEditor({
       return;
     }
     setContextMenu(null);
+    // A stray click anywhere on the Canvas dismisses a pending root insert.
+    setAddingRootFromMacro(false);
     const target = targetForMouseEvent(event);
     if (!target) {
       setFocused(null);
@@ -2126,6 +2147,7 @@ export function GuiCanvasEditor({
     const target = targetForMouseEvent(event);
     if (!target) return;
     event.preventDefault();
+    setAddingRootFromMacro(false);
     setFocused(target);
     startEditingTarget(target, 'macro');
   };
@@ -2148,7 +2170,7 @@ export function GuiCanvasEditor({
     const top = canvas && canvasRect
       ? event.clientY - canvasRect.top + canvas.scrollTop
       : event.clientY;
-    setEditingNode(null);
+    closeCanvasInputs();
     // Blank canvas space gets its own menu whose only action adds a root.
     if (!target) {
       setFocused(null);
@@ -2160,7 +2182,8 @@ export function GuiCanvasEditor({
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (editingNode) return;
+    // A floating input owns the keyboard while it is open.
+    if (editingNode || addingRootFromMacro) return;
     if (
       !focused &&
       (event.ctrlKey || event.metaKey) &&
@@ -2381,11 +2404,10 @@ export function GuiCanvasEditor({
   };
 
   React.useEffect(() => {
-    if (!editingNode) return;
+    if (!editingNode && !addingRootFromMacro) return;
     const commitOnOutsidePointer = (event: PointerEvent): void => {
       const target = event.target as Node | null;
-      const editorSurface = editorRef.current?.closest('[data-macro-id-control]');
-      if (target && (editorRef.current?.contains(target) || editorSurface?.contains(target))) return;
+      if (insideOpenEditor(target)) return;
       suppressCanvasClickRef.current = true;
       document.addEventListener('click', () => {
         suppressCanvasClickRef.current = false;
@@ -2394,12 +2416,13 @@ export function GuiCanvasEditor({
         window.setTimeout(() => { suppressCanvasClickRef.current = false; }, 0);
       }, { once: true });
       // Clicking away has the same semantics as Escape: discard the draft.
-      setEditingNode(null);
+      closeCanvasInputs();
       window.setTimeout(() => canvasRef.current?.focus(), 0);
     };
     document.addEventListener('pointerdown', commitOnOutsidePointer, true);
     return () => document.removeEventListener('pointerdown', commitOnOutsidePointer, true);
-  }, [editingNode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingNode, addingRootFromMacro]);
 
   // A right-click menu must also close when the user clicks anywhere outside
   // the Canvas (the canvas click handler only sees clicks inside it).
@@ -2553,6 +2576,7 @@ export function GuiCanvasEditor({
         ) : null}
         {addingRootFromMacro ? (
           <MacroIdInput
+            ref={addRootRef}
             autoFocus
             openSnooglOnMount
             aria-label="Insert Canvas root Macro"
@@ -2633,7 +2657,10 @@ export function GuiCanvasEditor({
               forestRef.current[contextMenu.rootIndex],
               contextMenu.path.join('.')
             )}
-            onAddRoot={() => setAddingRootFromMacro(true)}
+            onAddRoot={() => {
+              setEditingNode(null);
+              setAddingRootFromMacro(true);
+            }}
             onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
             onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}
             isDynamic={
@@ -2685,7 +2712,7 @@ export function GuiCanvasEditor({
             size="sm"
             onClick={() => {
               setFocused(null);
-              setEditingNode(null);
+              closeCanvasInputs();
               updateDropTarget(null);
               onResetFromSnl();
             }}

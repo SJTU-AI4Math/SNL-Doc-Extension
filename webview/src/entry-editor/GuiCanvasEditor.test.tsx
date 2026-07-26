@@ -1215,6 +1215,114 @@ describe('GuiCanvasEditor', () => {
     expect(view.getByTestId('arity').textContent).toBe('2');
   });
 
+  // Cat 2026-07-26: the Canvas hosts two floating inputs. Only the node editor
+  // had teardown paths; the "add a root" input leaked in every other exit.
+  describe('floating input teardown', () => {
+    function AddRootHarness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          macroCandidates={[{ id: 'Add.add', labels: [] }]}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const openAddRoot = async (view: ReturnType<typeof render>): Promise<HTMLElement> => {
+      const canvas = await waitFor(() =>
+        view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+      );
+      fireEvent.click(canvas);
+      fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+      await waitFor(() => view.getByRole('textbox', { name: 'Insert Canvas root Macro' }));
+      return canvas;
+    };
+
+    it('destroys the add-root input when the user clicks elsewhere on the Canvas', async () => {
+      const view = render(<AddRootHarness />);
+      const canvas = await openAddRoot(view);
+      fireEvent.pointerDown(canvas, { pointerId: 1, button: 0 });
+      fireEvent.click(canvas);
+      await waitFor(() =>
+        expect(view.queryByRole('textbox', { name: 'Insert Canvas root Macro' })).toBeNull()
+      );
+    });
+
+    it('destroys the add-root input when the user right-clicks the Canvas', async () => {
+      const view = render(<AddRootHarness />);
+      const canvas = await openAddRoot(view);
+      fireEvent.contextMenu(canvas);
+      await waitFor(() =>
+        expect(view.queryByRole('textbox', { name: 'Insert Canvas root Macro' })).toBeNull()
+      );
+    });
+
+    it('destroys the add-root input when the user clicks outside the Canvas', async () => {
+      const view = render(<AddRootHarness />);
+      await openAddRoot(view);
+      fireEvent.pointerDown(document.body, { pointerId: 2, button: 0 });
+      await waitFor(() =>
+        expect(view.queryByRole('textbox', { name: 'Insert Canvas root Macro' })).toBeNull()
+      );
+    });
+
+    it('never shows the add-root input and the node editor at the same time', async () => {
+      const view = render(<AddRootHarness />);
+      await openAddRoot(view);
+      const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+      fireEvent.doubleClick(root);
+      await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+      expect(view.queryByRole('textbox', { name: 'Insert Canvas root Macro' })).toBeNull();
+    });
+
+    it('destroys the node editor when the context menu opens a root insert', async () => {
+      const view = render(<AddRootHarness />);
+      const canvas = await waitFor(() =>
+        view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+      );
+      const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+      fireEvent.doubleClick(root);
+      await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+      fireEvent.contextMenu(canvas);
+      fireEvent.click(view.getByRole('menuitem', { name: /Add root/i }));
+      await waitFor(() =>
+        expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull()
+      );
+    });
+
+    it('destroys the node editor when the edited node disappears from the forest', async () => {
+      function ShrinkHarness(): React.ReactElement {
+        const [forest, setForest] = React.useState([node('root', [node('child')])]);
+        return (
+          <>
+            <button type="button" onClick={() => setForest([node('root')])}>drop child</button>
+            <GuiCanvasEditor
+              forest={forest}
+              macroDataDriver={driver}
+              kindPalette={undefined}
+              onForestChange={setForest}
+              onResetFromSnl={() => undefined}
+            />
+          </>
+        );
+      }
+      const view = render(<ShrinkHarness />);
+      const child = await waitFor(() =>
+        view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!
+      );
+      fireEvent.doubleClick(child);
+      await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+      fireEvent.click(view.getByText('drop child'));
+      await waitFor(() =>
+        expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull()
+      );
+    });
+  });
+
   it('re-reads dynamic_arity when the Macro source changes', async () => {
     function SwappableHarness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('list', [node('a')])]);

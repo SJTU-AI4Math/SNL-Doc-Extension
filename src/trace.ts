@@ -26,6 +26,22 @@ import * as vscode from 'vscode';
 
 let channel: vscode.OutputChannel | null = null;
 let enabled = false;
+/**
+ * How many webview panels this window has stood up since activation.
+ *
+ * Cat 2026-07-25: the ~1s that precedes our HTML is charged on the webview's
+ * OWN clock, i.e. before anything we control runs. If it is a one-time cost
+ * per window (VS Code booting its webview service / Electron process) then
+ * only the first panel of a session should be slow and the label below makes
+ * that obvious immediately. If every panel shows `panelsThisSession=N` with
+ * the same ~1s, it is genuinely per-panel.
+ */
+let panelsThisSession = 0;
+
+export function countPanelOpen(): number {
+  panelsThisSession += 1;
+  return panelsThisSession;
+}
 
 /** Lazily create the channel; degrade to a no-op outside the extension host. */
 function output(): vscode.OutputChannel | null {

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { type Trace } from './trace';
 import * as fs from 'fs';
 import { extension_preferences_runtime } from './preferences';
 import { register_preferences_webview } from './preferencesHost';
@@ -207,6 +208,30 @@ export const SNL_DOC_WATCHED_PATH = new RegExp(
  * it and swallow the message; otherwise we hand it back to the caller
  * (false) so a panel that doesn't opt in stays unaffected.
  */
+/**
+ * Fold a webview-reported timing mark into `trace`, if it is one.
+ *
+ * Every panel gets this for free so we can compare panel types against each
+ * other. Cat 2026-07-25: the Infoview is fast on first open while editor
+ * panels take ~1.09s, and the only way to settle why is to put both on the
+ * same timeline instead of reasoning about their differences.
+ *
+ * Returns true when the message was a trace mark and needs no further
+ * handling.
+ */
+export function handleWebviewTraceMessage(
+  message: unknown,
+  trace: Trace | undefined
+): boolean {
+  const msg = message as { type?: unknown; stage?: unknown; ms?: unknown } | null;
+  if (!msg || msg.type !== 'trace' || typeof msg.stage !== 'string') return false;
+  trace?.mark(
+    `webview:${msg.stage}`,
+    typeof msg.ms === 'number' ? `webviewClock=${msg.ms.toFixed(1)}ms` : undefined
+  );
+  return true;
+}
+
 export async function handlePanelNavMessage(
   message: unknown,
   refresh?: () => void | Promise<void>

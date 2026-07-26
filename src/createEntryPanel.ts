@@ -17,7 +17,7 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
-import { startTrace, type Trace } from './trace';
+import { countPanelOpen, startTrace, type Trace } from './trace';
 
 /**
  * Rough serialized size of a context payload, for tracing only. The exact
@@ -146,7 +146,7 @@ export class CreateEntryPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
-    trace.mark('webview-created');
+    trace.mark('webview-created', `panelsThisSession=${countPanelOpen()}`);
 
     CreateEntryPanel.instance = new CreateEntryPanel(
       panel,

@@ -16,7 +16,8 @@ import {
   type LibraryEntry,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handleWebviewTraceMessage } from './panelUtil';
+import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
   numberFor,
   type CounterNode,
@@ -94,6 +95,9 @@ function infoviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[] {
 export class InfoviewPanel {
   /** The single browser instance (loads `main`), or undefined when closed. */
   private static browserPanel: InfoviewPanel | undefined;
+
+  /** Open-path trace, so webview marks land on the same timeline. */
+  public openTrace: Trace | undefined;
   /** Per-entry panels keyed by entryId (loads `entryInfoview`). */
   public static readonly panels = new Map<string, InfoviewPanel>();
 
@@ -123,10 +127,15 @@ export class InfoviewPanel {
     extensionUri: vscode.Uri,
     initialLibrarySlug?: string
   ): void {
+    // Cat 2026-07-25: the Infoview is the one panel that feels fast on first
+    // open. Trace it on the same timeline as the editor panels so the two are
+    // directly comparable instead of argued about.
+    const trace = startTrace('infoview:open');
     const column = vscode.ViewColumn.Beside;
 
     if (InfoviewPanel.browserPanel) {
       InfoviewPanel.browserPanel.panel.reveal(column);
+      trace.mark('reveal-existing');
       if (initialLibrarySlug) {
         // Navigate the already-open panel to the requested library.
         InfoviewPanel.browserPanel.currentLibrarySlug = initialLibrarySlug;
@@ -146,6 +155,7 @@ export class InfoviewPanel {
       }
     );
 
+    trace.mark('webview-created', `panelsThisSession=${countPanelOpen()}`);
     const instance = new InfoviewPanel(
       panel,
       extensionUri,
@@ -153,6 +163,7 @@ export class InfoviewPanel {
       'main',
       'SNL Infoview'
     );
+    instance.openTrace = trace;
     InfoviewPanel.browserPanel = instance;
     if (initialLibrarySlug) {
       // Wait a tick for the webview to send `ready` — the webview's own
@@ -217,6 +228,7 @@ export class InfoviewPanel {
       webviewEntry,
       title
     );
+    this.openTrace?.mark('html-set');
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),
@@ -327,6 +339,9 @@ export class InfoviewPanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    // Timing marks reported by the webview itself, folded into the open
+    // trace so the Infoview and the editor panels are directly comparable.
+    if (handleWebviewTraceMessage(message, this.openTrace)) return;
     const msg = message as
       | {
           type?: string;

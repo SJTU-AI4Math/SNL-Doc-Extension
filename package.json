@@ -71,6 +71,10 @@
         "title": "%snlDoc.command.toggleTrace%"
       },
       {
+        "command": "snlDoc.probeWebviewCost",
+        "title": "%snlDoc.command.probeWebviewCost%"
+      },
+      {
         "command": "snlDoc.init",
         "title": "%snlDoc.command.init%"
       },
@@ -226,7 +230,7 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "Open SNL editor panels in a new group beside the current editor, instead of taking over it. The Infoview already does this and opens noticeably faster; enable to compare."
+          "description": "Open SNL editor panels in a new group beside the current editor, instead of taking over it. Note: this was tried as a performance fix and measured as a non-cause (Active 1077ms vs Beside 1096ms); it is a layout preference only."
         },
         "snlDoc.trace": {
           "type": "boolean",

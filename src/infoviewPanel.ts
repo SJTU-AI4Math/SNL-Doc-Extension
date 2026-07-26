@@ -127,9 +127,14 @@ export class InfoviewPanel {
     extensionUri: vscode.Uri,
     initialLibrarySlug?: string
   ): void {
-    // Cat 2026-07-25: the Infoview is the one panel that feels fast on first
-    // open. Trace it on the same timeline as the editor panels so the two are
-    // directly comparable instead of argued about.
+    // Cat 2026-07-26 CORRECTED the 07-25 premise: the Infoview is NOT fast on
+    // first open. Verbatim: '首次开 Infoview -> Libraries 列表页面不快, 从
+    // Libraries 进 单个 Library 的 Infoview 面板快.' What is fast is the
+    // Infoview's INNER navigation, because drilling Libraries -> library ->
+    // entry is a postMessage inside this already-live webview and never calls
+    // createWebviewPanel. The ~1.09s is the cost of standing a webview up, and
+    // this panel pays it exactly like every other one. Keep the trace so the
+    // two remain comparable, but do not reason from 'the Infoview is special'.
     const trace = startTrace('infoview:open');
     const column = vscode.ViewColumn.Beside;
 

@@ -5,21 +5,25 @@ import { join } from 'node:path';
 /**
  * Which editor column a panel opens in, per panel type.
  *
- * Cat 2026-07-25 reported that the Infoview is fast **on its first open**,
- * while every editor panel takes ~1.09s — and that first-open speed rules
- * out the singleton/retain explanation. The only structural difference left
- * between them is the `ViewColumn` they pass to `createWebviewPanel`:
+ * HISTORICAL NOTE — the performance theory this file was written to track is
+ * DEAD. Both of its premises were refuted:
  *
- *   Infoview        -> ViewColumn.Beside   (opens a NEW editor group)
- *   everything else -> ViewColumn.Active   (takes over the CURRENT group)
+ *   1. '`Beside` is faster than `Active`.' Measured 2026-07-25:
+ *      Active 1077ms vs Beside 1096ms. If anything Beside is slower.
+ *   2. 'The Infoview is fast on its first open.' Refuted by cat 2026-07-26:
+ *      '首次开 Infoview -> Libraries 列表页面不快, 从 Libraries 进 单个
+ *      Library 的 Infoview 面板快.' Only the Infoview's INNER navigation is
+ *      fast, because drilling into a library is a postMessage inside a webview
+ *      that is already standing. Its first open pays the same ~1.09s.
  *
- * Bundle size, CSS size, @font-face count and webview options are otherwise
- * near-identical (main.js 668KB / createEntry.js 788KB, both ~37KB CSS with
- * the same 59 KaTeX font files), so those cannot explain the gap.
+ * So ViewColumn does not explain anything, and the Infoview is not a special
+ * fast panel. The real variable is simply whether an action calls
+ * `createWebviewPanel` at all. Do not resurrect the ViewColumn theory.
  *
- * This test does not assert that `Beside` is *faster* — that is cat's
- * observation to confirm with a trace. It pins the split so the correlation
- * stays visible and cannot drift silently while we investigate.
+ * The test is kept because the column split is still a real UX decision worth
+ * pinning against silent drift — the Infoview opens beside so it can sit next
+ * to the document you are reading, and editor panels take over the active
+ * group. That is layout intent now, not a performance claim.
  */
 
 const SRC = join(__dirname);
@@ -43,16 +47,20 @@ describe('panel view column', () => {
     const infoview = panelSources().find((f) => f.file === 'infoviewPanel.ts');
     expect(infoview).toBeTruthy();
     expect(infoview!.text).toContain('ViewColumn.Beside');
-    // If this ever flips to Active, the Infoview should be re-timed: it is
-    // the one panel cat reports as fast on first open.
+    // Layout intent: the reading surface sits beside your document rather
+    // than replacing it. Not a performance claim — see the header note.
     expect(infoview!.text).not.toContain('ViewColumn.Active');
   });
 
   it('documents that every other panel takes over the active column', () => {
-    const others = panelSources().filter((f) => f.file !== 'infoviewPanel.ts');
+    // `webviewCostProbe.ts` is excluded: it is a diagnostic that opens empty
+    // throwaway webviews Beside (so it never steals the editor the author is
+    // looking at) and disposes them at once. It is not a panel and carries no
+    // layout intent.
+    const others = panelSources().filter(
+      (f) => f.file !== 'infoviewPanel.ts' && f.file !== 'webviewCostProbe.ts'
+    );
     const usingActive = others.filter((f) => f.text.includes('ViewColumn.Active'));
-    // Every non-Infoview panel currently uses Active. This is the population
-    // cat reports as slow.
     expect(usingActive.length).toBe(others.length);
   });
 });

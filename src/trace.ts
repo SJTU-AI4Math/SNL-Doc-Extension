@@ -43,6 +43,17 @@ export function countPanelOpen(): number {
   return panelsThisSession;
 }
 
+/**
+ * The shared "SNL Trace" channel, created on demand.
+ *
+ * Exported so diagnostics that are not themselves traces (the webview cost
+ * probe) report into the same place instead of spawning a second channel the
+ * author has to hunt for.
+ */
+export function traceChannel(): vscode.OutputChannel | null {
+  return output();
+}
+
 /** Lazily create the channel; degrade to a no-op outside the extension host. */
 function output(): vscode.OutputChannel | null {
   if (channel) return channel;

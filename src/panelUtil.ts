@@ -212,9 +212,10 @@ export const SNL_DOC_WATCHED_PATH = new RegExp(
  * Fold a webview-reported timing mark into `trace`, if it is one.
  *
  * Every panel gets this for free so we can compare panel types against each
- * other. Cat 2026-07-25: the Infoview is fast on first open while editor
- * panels take ~1.09s, and the only way to settle why is to put both on the
- * same timeline instead of reasoning about their differences.
+ * other. Putting them on one timeline is what refuted the original theory:
+ * cat 2026-07-26 established that the Infoview's FIRST open is just as slow
+ * as an editor panel's, and only its in-webview navigation is fast. So panel
+ * type is not the variable — calling `createWebviewPanel` is.
  *
  * Returns true when the message was a trace mark and needs no further
  * handling.

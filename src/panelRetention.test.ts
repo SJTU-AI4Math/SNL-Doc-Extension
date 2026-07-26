@@ -27,10 +27,25 @@ import { describe, expect, it } from 'vitest';
 
 const src = resolve(__dirname);
 
-/** Every source file that actually creates a webview panel. */
+/**
+ * Files that create a webview but are deliberately NOT user-facing panels, so
+ * the retention policy does not apply to them.
+ *
+ * `webviewCostProbe.ts` stands up throwaway EMPTY webviews purely to measure
+ * what `createWebviewPanel` costs, then disposes each one immediately. It must
+ * pass `retainContextWhenHidden: false`: retaining a panel we are about to
+ * dispose would both leak the thing the probe promises to clean up and warm
+ * state that the next sample is supposed to pay for cold. Exempting it here is
+ * the honest fix — bending the probe to satisfy the policy would silently
+ * corrupt the measurement the probe exists to produce.
+ */
+const NON_PANEL_WEBVIEWS = new Set(['webviewCostProbe.ts']);
+
+/** Every source file that actually creates a user-facing webview panel. */
 function panelSources(): { name: string; text: string }[] {
   return readdirSync(src)
     .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
+    .filter((name) => !NON_PANEL_WEBVIEWS.has(name))
     .map((name) => ({ name, text: readFileSync(resolve(src, name), 'utf8') }))
     .filter((f) => f.text.includes('createWebviewPanel('));
 }

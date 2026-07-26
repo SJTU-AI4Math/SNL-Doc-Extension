@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
-import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace } from './trace';
+import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace, traceChannel } from './trace';
+import { registerWebviewCostProbe } from './webviewCostProbe';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
 import { InitMacroKindsPanel } from './initMacroKindsPanel';
@@ -389,6 +390,13 @@ export function activate(context: vscode.ExtensionContext): void {
     if (event.affectsConfiguration('snlDoc.trace')) refreshTraceEnabled();
   });
 
+  // Cat 2026-07-26: settles per-window-boot vs per-panel for the ~1.09s that
+  // every panel pays before our code runs. Reports into the same "SNL Trace"
+  // channel. See webviewCostProbe.ts for why guessing was not an option.
+  const probeChannel =
+    traceChannel() ?? vscode.window.createOutputChannel('SNL Trace');
+  const probeWebviewCost = registerWebviewCostProbe(probeChannel);
+
   const initEntryKinds = vscode.commands.registerCommand(
     'snlDoc.initEntryKinds',
     () => {
@@ -746,6 +754,7 @@ export function activate(context: vscode.ExtensionContext): void {
     openDashboard,
     toggleTrace,
     traceConfigWatcher,
+    probeWebviewCost,
     initEntryKinds,
     createEntryKind,
     editEntryKind,

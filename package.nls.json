@@ -38,5 +38,6 @@
   "snlDoc.command.openInfoviewGraphForLibrary": "SNL: Open Relationship Graph (Library)",
   "snlDoc.command.regenerateDependencies": "SNL: Regenerate Dependency Relationships",
   "snlDoc.command.openSnoogL": "SNL: Open SNoogL (Search)",
-  "snlDoc.command.toggleTrace": "SNL: Toggle Panel Timing Trace"
+  "snlDoc.command.toggleTrace": "SNL: Toggle Panel Timing Trace",
+  "snlDoc.command.probeWebviewCost": "SNL: Probe Webview Open Cost"
 }

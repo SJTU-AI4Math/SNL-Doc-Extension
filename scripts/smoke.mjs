@@ -716,7 +716,7 @@ async function main() {
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
 
-  console.log('\n[21] SNL-Basics submodule DB uses the v7 styles-array shape');
+  console.log('\n[21] SNL-Basics package DB uses the v7 styles-array shape');
   const macroDb = JSON.parse(
     await fs.readFile(
       nodePath.resolve(

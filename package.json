@@ -302,12 +302,10 @@
     }
   },
   "scripts": {
-    "postinstall": "node scripts/rebuild-snl-basics.mjs",
     "bootstrap": "node scripts/bootstrap.mjs",
-    "snl:rebuild": "node scripts/rebuild-snl-basics.mjs --force",
-    "compile": "node scripts/rebuild-snl-basics.mjs && tsc -p ./",
+    "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "build:webview": "node scripts/rebuild-snl-basics.mjs && npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl",
+    "build:webview": "npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:entryInfoview": "cross-env SNL_WEBVIEW_ENTRY=entryInfoview vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
@@ -327,12 +325,10 @@
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "vitest run",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
-    "setup-snl": "node scripts/setup-submodule.mjs",
-    "rebuild-snl": "cd external/SNL-Basics && npm run build:lib",
     "vscode:prepublish": "npm test && npm run compile && npm run build:webview"
   },
   "dependencies": {
-    "@sjtu-ai4math/snl-basics": "file:./external/SNL-Basics",
+    "@sjtu-ai4math/snl-basics": "^0.1.0",
     "fuse.js": "^7.5.0",
     "katex": "^0.16.0",
     "react": "^19",

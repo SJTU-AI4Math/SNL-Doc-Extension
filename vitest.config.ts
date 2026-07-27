@@ -1,11 +1,10 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-// The SNL-Basics submodule carries its own nested `node_modules/react`, so a
-// test that renders a component from there can end up with two React copies
-// and the classic "Cannot read properties of null (reading 'useState')".
-// Mirror webview/vite.config.ts's dedupe so tests resolve React the same way
-// the real bundles do.
+// Mirror webview/vite.config.ts's React dedupe so tests resolve React the same
+// way the real bundles do. Without a single pinned copy, a test that renders a
+// @sjtu-ai4math/snl-basics component can end up with two React instances and
+// the classic "Cannot read properties of null (reading 'useState')".
 const reactResolve = {
   dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
   alias: {

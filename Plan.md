@@ -528,7 +528,7 @@ segments 后每个 literal 独立成 `<span>` 就能自然换行。
 "若 X 是 Set 且 f: X → Y 是……"）时，横向 scrollbar 严重影响阅读；
 换行后紧凑舒适。
 
-**改动位置：** `external/SNL-Basics/src/components/SnlSyntaxTreeView.tsx`
+**改动位置：** SNL-Basics 仓库的 `src/components/SnlSyntaxTreeView.tsx`
 的 text-mode render 分支（当前统一走 `<MathSpan>` 一次性 KaTeX 渲染）。
 需要：
 1. 新增一个 `splitTextTemplate(template): (LiteralSegment | ChildSegment)[]`
@@ -553,8 +553,9 @@ segments 后每个 literal 独立成 `<span>` 就能自然换行。
   拆开不会损失交互。
 
 **estimate：** 200 行 core + 3-4 个 vitest 场景，~2 小时 focused work。
-写在下游因为改的是 SNL-Basics submodule，需要走完整的
-`build:lib` 流程，主 repo 再 `rebuild-snl-basics.mjs` 拉到 dist-lib。
+写在下游因为改的是 SNL-Basics，需要在那边走完 `build:lib` 并发一版
+npm，主 repo 再 `npm install @sjtu-ai4math/snl-basics@latest`（本地
+迭代期可以先 `npm link`）。
 
 **依赖：** 无。可以随时开做。
 
@@ -562,7 +563,7 @@ segments 后每个 literal 独立成 `<span>` 就能自然换行。
 
 ## 8. SNL-Basics 接口盘点 (2026-07-08)
 
-**来源：** `external/SNL-Basics/src/snl-react-view/index.ts` package barrel，pin 到 submodule 当前 commit（v3 macro / v6 on-disk / v2 library-graph）。
+**来源：** SNL-Basics 的 `src/snl-react-view/index.ts` package barrel，对应当前依赖的 `@sjtu-ai4math/snl-basics` 版本（v3 macro / v6 on-disk / v2 library-graph）。
 只列消费者面能看到、能覆盖的公开 API；`components/` 内部实现细节按住不表。
 
 ### 8.1 数据类型接口
@@ -644,7 +645,7 @@ segments 后每个 literal 独立成 `<span>` 就能自然换行。
 
 ### 8.5 版本 pin
 
-Submodule 当前 commit 见 `git -C external/SNL-Basics rev-parse HEAD`。schema 版本：
+当前依赖版本见 `npm ls @sjtu-ai4math/snl-basics`。schema 版本：
 - `SnlMacro` v3 = **v6 on-disk** (`term_macros/*.json` 的 `version` 字段)
 - `SnlSyntaxTree` = flat runtime（未来会切到 discriminated `node-types` union，暂时并存）
 - `LibraryGraph` = v2（`label: 'Entry'` / `label: 'branch'`）

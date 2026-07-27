@@ -1,5 +1,5 @@
 import { MacroDataDriver, type SnlMacro } from '@sjtu-ai4math/snl-basics';
-import bundledMacroJson from '../../../external/SNL-Basics/public/snl-macro-db.json';
+import bundledMacroJson from '@sjtu-ai4math/snl-basics/snl-macro-db.json';
 
 /** Runtime v7 macro record used only behind query adapters. */
 export type MacroRecord = Record<string, SnlMacro>;

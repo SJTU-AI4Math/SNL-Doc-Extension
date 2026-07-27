@@ -319,6 +319,14 @@ export function CreateEntryApp(): React.ReactElement {
   const restoredDraftIdRef = useRef<string | null>(null);
   const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
   const editingIdRef = useRef('');
+  /**
+   * Id of an entry this panel just created, until the host's follow-up
+   * `edit` context has been absorbed. Cat 2026-07-27: after a create the
+   * panel flips itself into Edit mode in place, and the context that lands
+   * a moment later must NOT re-fill the form from the host's copy — see the
+   * `preserveDraft` computation in the `context` handler.
+   */
+  const justCreatedIdRef = useRef<string | null>(null);
   const existingMetadataRef = useRef<{
     contribution_info: unknown;
     pointer: unknown;
@@ -443,7 +451,14 @@ export function CreateEntryApp(): React.ReactElement {
           setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
           if (msg.mode === 'edit') {
             const incomingId = msg.id ?? msg.existing?.id ?? '';
-            const preserveDraft = (!!msg.existing &&
+            // Cat 2026-07-27: the context that immediately follows our own
+            // successful create. What is on screen IS what was just written,
+            // and it carries state the host's copy cannot reproduce (Canvas
+            // node identity / multi-root forests are not recoverable from
+            // `content.snl`). Always preserve, never re-fill.
+            const justCreated = justCreatedIdRef.current === incomingId;
+            const preserveDraft = justCreated ||
+              (!!msg.existing &&
               formDirtyRef.current &&
               editingIdRef.current === incomingId) ||
               // A restored draft is unsaved work that outlived the panel
@@ -507,6 +522,10 @@ export function CreateEntryApp(): React.ReactElement {
                 editingIdRef.current = incomingId;
               }
             }
+            // One-shot: consumed by the single context push that follows the
+            // create. Later pushes (file watcher, retarget) must go through
+            // the normal dirty-form rules.
+            if (justCreated) justCreatedIdRef.current = null;
           } else {
             // Cat 2026-07-15: seed the id field with the caller-provided
             // hint (e.g. the id the user typed into the Library outline's
@@ -522,9 +541,29 @@ export function CreateEntryApp(): React.ReactElement {
             });
           }
           break;
-        case 'created':
+        case 'created': {
+          // Cat 2026-07-27: the host now flips this panel into Edit mode for
+          // the entry we just created and re-pushes context. Record the id so
+          // the follow-up `edit` context is recognised as the SAME target and
+          // preserves what is already on screen instead of re-filling it.
+          const createdId = typeof msg.id === 'string' ? msg.id : '';
+          editingIdRef.current = createdId;
+          justCreatedIdRef.current = createdId;
+          // The form was just persisted, so it is by definition no longer
+          // dirty (mirrors `updated` below). This also makes
+          // `justCreatedIdRef` the SOLE reason the follow-up context
+          // preserves the form rather than one of two redundant guards —
+          // without it a mutation to the flip logic would be masked by the
+          // ordinary dirty-form rule and no test could see the difference.
+          markFormDirty(false);
+          // `draftKey` embeds `mode`, so the flip switches to
+          // `createEntry:edit:<id>`. A stale stash left there by an earlier
+          // session for the same id would be restored on top of the content
+          // that was just written. Drop it before the key changes.
+          saveDraft(getVsCodeApi(), `createEntry:edit:${createdId}`, undefined);
           setStatus({ kind: 'created', id: msg.id });
           break;
+        }
         case 'updated':
           markFormDirty(false);
           contentDirtyRef.current.clear();

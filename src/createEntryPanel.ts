@@ -478,6 +478,17 @@ export class CreateEntryPanel {
             type: 'created',
             id: result.id
           });
+          // Cat 2026-07-27: after creating something the natural next action
+          // is to keep editing THAT entry, not to create another one. Flip the
+          // live panel into edit mode in place — same panel, same webview, no
+          // reload. Deliberately NOT `retarget()`/`{type:'retarget'}`: that
+          // path resets the webview form (title/kind/content blanked) and the
+          // author would watch their just-submitted content flash away.
+          this.mode = 'edit';
+          this.id = result.id;
+          this.seedId = '';
+          this.panel.title = `SNL Edit Entry — ${result.id}`;
+          await this.pushContext();
           return;
         case 'duplicate': {
           const text = `Entry id "${result.id}" already exists.`;

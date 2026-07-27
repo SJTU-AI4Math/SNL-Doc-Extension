@@ -619,6 +619,11 @@ export function CreateMacroApp(): React.ReactElement {
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           break;
         case 'created':
+          // The host flips this panel to edit mode for the macro we just
+          // created and immediately re-pushes a context. Adopt the new name
+          // as our editing identity now so the follow-up context is
+          // recognised as "the thing I am already editing".
+          editingNameRef.current = msg.name;
           formDirtyRef.current = false;
           setStyles((currentStyles) => currentStyles.map((style) => ({
             ...style,

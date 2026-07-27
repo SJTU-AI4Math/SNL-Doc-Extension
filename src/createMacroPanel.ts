@@ -66,11 +66,14 @@ export class CreateMacroPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
-  private readonly mode: 'create' | 'edit';
+  // Mutable: a successful CREATE flips this panel in place to 'edit' mode
+  // (cat 2026-07-27) so the user can keep editing what they just made.
+  private mode: 'create' | 'edit';
   /** Bare filename (no `.json`) of the target package. */
   private readonly file: string;
   /** Macro name being edited (mode === 'edit' only). */
-  private readonly macroName: string;
+  // Mutable for the same create->edit flip: it becomes the created name.
+  private macroName: string;
   private disposables: vscode.Disposable[] = [];
 
   /**
@@ -80,7 +83,7 @@ export class CreateMacroPanel {
    * picker; `template` seeds the KaTeX template field; `name` seeds
    * the name field.
    */
-  private readonly prefill: {
+  private prefill: {
     name?: string;
     template?: string;
     mode?: 'formula_inline' | 'formula_display' | 'text';
@@ -387,6 +390,13 @@ export class CreateMacroPanel {
             type: 'created',
             name: result.name
           });
+          // Cat 2026-07-27: flip this panel in place to EDIT mode for the
+          // macro we just created — the natural next action is to keep
+          // editing the same thing. This also fixes a live bug: the
+          // re-pushed context below puts the new name into `existingNames`,
+          // and the webview's duplicate check only exempts edit mode, so a
+          // create-mode panel would leave Save permanently disabled.
+          this.flipToEditMode(result.name);
           // Refresh the editor's existing-names list.
           await this.pushContext();
           return;
@@ -429,7 +439,34 @@ export class CreateMacroPanel {
     }
   }
 
+  /**
+   * Turn a CREATE panel into the EDIT panel for `name`, in place.
+   *
+   * REKEY HAZARD: `instances` is keyed by `${mode}:${file}:${macroName}`.
+   * If we mutate `mode`/`macroName` without moving the Map entry, the old
+   * `create:<file>:` key leaks forever (dispose() would delete the NEW key
+   * only) and `editOrShow()` would miss the live panel and construct a
+   * SECOND one. So delete the old key and set the new one atomically here.
+   */
+  private flipToEditMode(name: string): void {
+    if (this.mode !== 'create' || !name) {
+      return;
+    }
+    const oldKey = `${this.mode}:${this.file}:${this.macroName}`;
+    this.mode = 'edit';
+    this.macroName = name;
+    this.prefill = null;
+    const newKey = `${this.mode}:${this.file}:${this.macroName}`;
+    if (CreateMacroPanel.instances.get(oldKey) === this) {
+      CreateMacroPanel.instances.delete(oldKey);
+    }
+    CreateMacroPanel.instances.set(newKey, this);
+    this.panel.title = `SNL Edit Macro — ${this.macroName} (${this.file})`;
+  }
+
   public dispose(): void {
+    // Uses the CURRENT mode/macroName so a flipped panel removes its
+    // post-flip key rather than leaking a stale one.
     const key = `${this.mode}:${this.file}:${this.macroName}`;
     CreateMacroPanel.instances.delete(key);
 

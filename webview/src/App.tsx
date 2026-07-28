@@ -29,6 +29,7 @@ import {
 } from './render/macroKindPalette';
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
+import { harvestLibraryHtml } from './export/htmlExport';
 
 function ui(en: string, zhCN: string): LocalizedString {
   return {
@@ -139,8 +140,34 @@ export function App(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  const outlineRef = useRef<HTMLDivElement | null>(null);
+
   const postMessage = (message: unknown): void => {
     apiRef.current?.postMessage(message);
+  };
+
+  /**
+   * Export the Library the reader is currently looking at.
+   *
+   * We harvest the live DOM instead of re-rendering: by this point every Entry
+   * has settled (SNL context resolved, KaTeX painted), so the snapshot is
+   * exactly what the reader sees. A fresh render would have to redo that
+   * asynchronous work and could not be captured synchronously anyway —
+   * `renderToStaticMarkup` cannot render this tree at all, because the hover
+   * popover layer mounts a portal.
+   */
+  const exportHtml = (slug: string, title: string, entryCount: number): void => {
+    const root = outlineRef.current;
+    if (!root) return;
+    const { html, assets } = harvestLibraryHtml(root, assetBaseUri);
+    postMessage({
+      type: 'exportLibraryHtml',
+      slug,
+      title,
+      subtitle: `${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} \u00b7 ${slug}`,
+      body: html,
+      assets
+    });
   };
   const markdownImageUrlTransform = React.useMemo(
     () => assetBaseUri
@@ -171,7 +198,9 @@ export function App(): React.ReactElement {
           entryPool,
           userMacros,
           kindPalette,
-          markdownImageUrlTransform
+          markdownImageUrlTransform,
+          exportHtml,
+          outlineRef
         })}
       </main>
     </HoverPopoverProvider>
@@ -185,6 +214,10 @@ interface RenderCtx {
   userMacros: MacroRecord | undefined;
   kindPalette: KindPalette | undefined;
   markdownImageUrlTransform?: (source: string) => string;
+  /** Harvest the rendered outline and hand it to the host to write out. */
+  exportHtml: (slug: string, title: string, entryCount: number) => void;
+  /** Wraps the rendered outline forest; the export harvests from here. */
+  outlineRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
@@ -408,6 +441,11 @@ function LibraryLayer({
               }
             />
             <ToolbarButton
+              label="Export HTML"
+              title={`Export library "${slug}" as a static HTML document`}
+              onClick={() => ctx.exportHtml(slug, title, totalEntries)}
+            />
+            <ToolbarButton
               label="Edit this Library"
               title={`Open the editor for library "${slug}"`}
               onClick={() =>
@@ -426,7 +464,10 @@ function LibraryLayer({
           This library has no entries yet. Add some via the Dashboard.
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div
+          ref={ctx.outlineRef}
+          style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+        >
           {outline.map((node) => (
             <OutlineTreeNode
               key={node.nodeId}

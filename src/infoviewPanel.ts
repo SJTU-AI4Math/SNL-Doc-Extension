@@ -17,8 +17,7 @@ import {
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handleWebviewTraceMessage } from './panelUtil';
-import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
-import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
+import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
   numberFor,
@@ -498,7 +497,7 @@ export class InfoviewPanel {
         }
         return;
       case 'exportLibraryHtml':
-        await this.exportLibraryHtml(msg as unknown as ExportRequest);
+        this.exportLibraryHtml(msg as unknown as ExportPayload);
         return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
@@ -717,84 +716,14 @@ export class InfoviewPanel {
   }
 
   /**
-   * Write the harvested Library out as a static HTML document.
+   * Hand the harvested Library to the Export Options panel.
    *
-   * The reader picks the shape first, because it changes what the save dialog
-   * should ask for: a single file needs a filename, a directory needs a
-   * folder. Asking afterwards would mean showing the wrong dialog.
+   * The Infoview's job ends at producing markup; shape, destination, and
+   * options are chosen in a dedicated panel (cat 2026-07-28) rather than a
+   * chain of modal dialogs.
    */
-  private async exportLibraryHtml(request: ExportRequest): Promise<void> {
-    const root = firstWorkspaceFolder();
-    if (!root) {
-      void vscode.window.showErrorMessage(
-        'SNL Export: no workspace folder is open.'
-      );
-      return;
-    }
-
-    const SINGLE = 'Single self-contained file';
-    const FOLDER = 'Folder (index.html + assets)';
-    const shape = await vscode.window.showQuickPick([SINGLE, FOLDER], {
-      title: `Export "${request.title}" as HTML`,
-      placeHolder: 'Choose the export shape'
-    });
-    if (!shape) return;
-
-    const inline = shape === SINGLE;
-    const defaultName = defaultExportName(request.slug, inline);
-
-    const destination = inline
-      ? await vscode.window.showSaveDialog({
-          title: 'Export SNL document',
-          defaultUri: vscode.Uri.joinPath(root, defaultName),
-          filters: { HTML: ['html'] }
-        })
-      : await vscode.window
-          .showOpenDialog({
-            title: 'Choose a folder for the exported document',
-            canSelectFiles: false,
-            canSelectFolders: true,
-            canSelectMany: false,
-            defaultUri: root,
-            openLabel: 'Export here'
-          })
-          .then((picked) =>
-            picked?.[0] ? vscode.Uri.joinPath(picked[0], defaultName) : undefined
-          );
-    if (!destination) return;
-
-    try {
-      const outcome = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Exporting SNL document…' },
-        () =>
-          writeExport(request, {
-            extensionUri: this.extensionUri,
-            workspaceRoot: root,
-            destination,
-            buildDocument: (input) =>
-              buildExportDocument({
-                ...input,
-                css: `${EXPORT_BASE_CSS}\n${input.css}`
-              })
-          })
-      );
-
-      for (const warning of outcome.warnings) {
-        InfoviewPanel.getOutput().appendLine(`[export] ${warning}`);
-      }
-
-      const summary = outcome.warnings.length
-        ? `Exported with ${outcome.warnings.length} warning(s) — see the SNL Doc output channel.`
-        : `Exported ${outcome.fileCount} file(s).`;
-      const REVEAL = 'Reveal';
-      const choice = await vscode.window.showInformationMessage(summary, REVEAL);
-      if (choice === REVEAL) {
-        void vscode.commands.executeCommand('revealFileInOS', outcome.target);
-      }
-    } catch (err) {
-      const text = err instanceof Error ? err.message : String(err);
-      void vscode.window.showErrorMessage(`SNL Export failed: ${text}`);
-    }
+  private exportLibraryHtml(request: ExportPayload): void {
+    ExportOptionsPanel.show(this.extensionUri, request);
   }
 
   /**

@@ -155,6 +155,10 @@ export function App(): React.ReactElement {
    * asynchronous work and could not be captured synchronously anyway —
    * `renderToStaticMarkup` cannot render this tree at all, because the hover
    * popover layer mounts a portal.
+   *
+   * Callers must expand the outline first: collapse is rendered by *omitting*
+   * the subtree, so a collapsed branch is absent from the DOM and would be
+   * silently dropped from the export.
    */
   const exportHtml = (slug: string, title: string, entryCount: number): void => {
     const root = outlineRef.current;
@@ -443,7 +447,14 @@ function LibraryLayer({
             <ToolbarButton
               label="Export HTML"
               title={`Export library "${slug}" as a static HTML document`}
-              onClick={() => ctx.exportHtml(slug, title, totalEntries)}
+              onClick={() => {
+                // A collapsed subtree is not in the DOM, so it cannot be
+                // harvested. Expand everything, then export after the paint.
+                setCollapsed(new Set());
+                requestAnimationFrame(() =>
+                  ctx.exportHtml(slug, title, totalEntries)
+                );
+              }}
             />
             <ToolbarButton
               label="Edit this Library"
@@ -519,6 +530,8 @@ function OutlineTreeNode({
 
   return (
     <div
+      data-snl-collapsible={hasChildren ? '' : undefined}
+      data-snl-child-count={hasChildren ? countNodes(node.children) : undefined}
       style={{
         marginLeft: depth === 0 ? 0 : INDENT_PER_LEVEL,
         display: 'flex',
@@ -557,7 +570,10 @@ function OutlineTreeNode({
         )}
       </div>
       {hasChildren && !isCollapsed ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div
+          data-snl-subtree=""
+          style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+        >
           {node.children.map((child) => (
             <OutlineTreeNode
               key={child.nodeId}

@@ -73,6 +73,44 @@ describe('harvestLibraryHtml', () => {
   });
 });
 
+describe('collapse structure survives the strip pass', () => {
+  it('keeps the markers the exported runtime rebuilds collapse from', () => {
+    const { html } = harvestLibraryHtml(
+      el(
+        '<div data-snl-collapsible="" data-snl-child-count="3">' +
+          '<button>toggle</button><section>row</section>' +
+          '<div data-snl-subtree=""><section>child</section></div>' +
+          '</div>'
+      ),
+      BASE
+    );
+    // The React toggle is gone, but the structure it drove is intact.
+    expect(html).not.toContain('<button');
+    expect(html).toContain('data-snl-collapsible');
+    expect(html).toContain('data-snl-child-count="3"');
+    expect(html).toContain('data-snl-subtree');
+    expect(html).toContain('child');
+  });
+
+  it('drops the marker on a row whose subtree was collapsed away', () => {
+    // The live Infoview renders collapse by omitting the subtree, so a
+    // still-collapsed row reaches the exporter with no children. Leaving the
+    // marker would render a toggle that controls nothing.
+    const { html } = harvestLibraryHtml(
+      el('<div data-snl-collapsible="" data-snl-child-count="3"><section>row</section></div>'),
+      BASE
+    );
+    expect(html).not.toContain('data-snl-collapsible');
+    expect(html).not.toContain('data-snl-child-count');
+    expect(html).toContain('row');
+  });
+
+  it('leaves a childless row unmarked', () => {
+    const { html } = harvestLibraryHtml(el('<div><section>leaf</section></div>'), BASE);
+    expect(html).not.toContain('data-snl-collapsible');
+  });
+});
+
 describe('end-to-end: a real rendered Entry survives export', () => {
   // Unmount between cases: React 19 schedules work through a macrotask, and a
   // tree still mounted at teardown wakes up after jsdom's `window` is gone.

@@ -13,6 +13,11 @@ export interface DocumentOptions {
   body: string;
   /** Optional subtitle line under the document title. */
   subtitle?: string;
+  /**
+   * Inline script restoring hover highlighting and collapse. Omit for a
+   * strictly static document (no JavaScript at all).
+   */
+  script?: string;
 }
 
 function escapeHtml(text: string): string {
@@ -26,15 +31,19 @@ function escapeHtml(text: string): string {
 /**
  * Wrap harvested markup in a complete, self-sufficient HTML document.
  *
- * The page carries no script: a static SNL document is a reading artifact, and
- * shipping zero JavaScript keeps it viewable from `file://`, embeddable, and
- * safe to host anywhere.
+ * When `script` is omitted the page carries no JavaScript at all. When it is
+ * supplied the script is inlined at the end of `<body>`, so the document stays
+ * a single self-sufficient file with no outbound requests either way.
  */
 export function buildExportDocument(options: DocumentOptions): string {
-  const { title, css, body, subtitle } = options;
+  const { title, css, body, subtitle, script } = options;
   const heading = subtitle
     ? `<h1>${escapeHtml(title)}</h1>\n<p class="snl-export-subtitle">${escapeHtml(subtitle)}</p>`
     : `<h1>${escapeHtml(title)}</h1>`;
+  // `</script>` inside the payload would close the tag early.
+  const scriptTag = script
+    ? `<script>\n${script.replace(/<\/script>/gi, '<\\/script>')}\n</script>\n`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -52,7 +61,7 @@ ${css}
 ${heading}
 ${body}
 </main>
-</body>
+${scriptTag}</body>
 </html>
 `;
 }

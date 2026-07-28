@@ -39,18 +39,48 @@ const STRIPPED_SELECTORS = [
 ].join(',');
 
 /**
+ * Normalise the collapse structure so the exported runtime can rebuild it.
+ *
+ * The live Infoview renders the toggle as a React `<button>` that the strip
+ * pass removes, and it renders collapse by *omitting* the subtree entirely.
+ * The exporter therefore requires the caller to expand everything first (see
+ * `exportHtml` in App.tsx) — a collapsed subtree is simply not in the DOM and
+ * cannot be harvested. Here we only guarantee the annotations the runtime
+ * needs, and drop any marker on a row whose subtree did not make it.
+ */
+function markCollapsibleRows(clone: HTMLElement): void {
+  for (const host of Array.from(
+    clone.querySelectorAll<HTMLElement>('[data-snl-collapsible]')
+  )) {
+    const subtree = Array.from(host.children).find(
+      (child) => child instanceof HTMLElement && child.hasAttribute('data-snl-subtree')
+    );
+    if (!subtree) {
+      host.removeAttribute('data-snl-collapsible');
+      host.removeAttribute('data-snl-child-count');
+    }
+  }
+}
+
+/**
  * Copy a rendered outline subtree into standalone markup.
  *
  * `assetBaseUri` is the webview asset root (`webview.asWebviewUri` of
  * `.SNL_Doc/assets`). Images under it become `assets/<name>`; anything else
  * (absolute http(s), data: URLs) is left untouched so external figures keep
  * working.
+ *
+ * Interactive controls are stripped, but the *structure* they operated on is
+ * preserved and annotated first (see {@link markCollapsibleRows}) so the
+ * exported runtime can rebuild collapse without the React tree.
  */
 export function harvestLibraryHtml(
   root: HTMLElement,
   assetBaseUri: string
 ): HarvestResult {
   const clone = root.cloneNode(true) as HTMLElement;
+
+  markCollapsibleRows(clone);
 
   for (const node of Array.from(clone.querySelectorAll(STRIPPED_SELECTORS))) {
     node.remove();

@@ -22,9 +22,28 @@
 // The highlight CSS already travels with the document (SNL-Basics emits it as
 // an inline <style> inside the entry body), so this script only toggles the
 // classes that stylesheet already targets.
+//
+// The collapse toggle's APPEARANCE is not reinvented here either: glyphs,
+// geometry, classes and label wording all come from
+// `src/collapseToggleContract.ts`, the same module the live React
+// toggle uses. The `.snl-btn` styles those classes reference are already inside
+// the built stylesheet the export inlines.
 
-/** Emitted verbatim into the exported page. Keep it dependency-free ES5-ish. */
-export const EXPORT_RUNTIME_JS = String.raw`
+import {
+  COLLAPSE_GLYPH,
+  COLLAPSE_TOGGLE_CLASS,
+  COLLAPSE_TOGGLE_GEOMETRY,
+  COLLAPSE_TOGGLE_STYLE
+} from './collapseToggleContract';
+
+/** Object style -> inline `style="..."` string. */
+function toInlineStyle(style: Record<string, string>): string {
+  return Object.entries(style)
+    .map(([k, v]) => `${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}:${v}`)
+    .join(';');
+}
+
+const RUNTIME_TEMPLATE = String.raw`
 (function () {
   'use strict';
 
@@ -94,25 +113,41 @@ export const EXPORT_RUNTIME_JS = String.raw`
    * Restore expand/collapse. The exporter marks each subtree wrapper with
    * data-snl-subtree and its owning row with data-snl-collapsible, so the
    * static file can rebuild the toggle the live Infoview renders as a button.
+   *
+   * The toggle is built to the SAME contract as the live one
+   * (webview/src/components/collapseToggle.ts): same glyphs, same geometry,
+   * same .snl-btn classes, count in the tooltip rather than on the button
+   * face. Those .snl-btn styles are already inside the stylesheet the export
+   * inlines, so this reuses them instead of restyling from scratch.
    */
   function wireCollapse() {
     var hosts = document.querySelectorAll('[data-snl-collapsible]');
     for (var i = 0; i < hosts.length; i++) {
       (function (host) {
-        var subtree = host.querySelector(':scope > [data-snl-subtree]');
+        var subtree = null;
+        for (var c = 0; c < host.children.length; c++) {
+          if (host.children[c].hasAttribute('data-snl-subtree')) {
+            subtree = host.children[c];
+            break;
+          }
+        }
         if (!subtree) return;
+
+        var count = parseInt(host.getAttribute('data-snl-child-count') || '0', 10);
+        var noun = 'sub-entr' + (count === 1 ? 'y' : 'ies');
 
         var toggle = document.createElement('button');
         toggle.type = 'button';
-        toggle.className = 'snl-export-toggle';
+        toggle.className = '__TOGGLE_CLASS__';
+        toggle.setAttribute('style', '__TOGGLE_STYLE__');
         toggle.setAttribute('aria-expanded', 'true');
 
-        var count = host.getAttribute('data-snl-child-count') || '';
         function paint() {
           var open = toggle.getAttribute('aria-expanded') === 'true';
           subtree.hidden = !open;
-          toggle.textContent = (open ? '\u25be' : '\u25b8') + (count ? ' ' + count : '');
-          toggle.title = (open ? 'Collapse' : 'Expand') + ' subtree';
+          toggle.textContent = open ? '__GLYPH_EXPANDED__' : '__GLYPH_COLLAPSED__';
+          toggle.title = (open ? 'Collapse ' : 'Expand ') + count + ' ' + noun;
+          toggle.setAttribute('aria-label', open ? 'Collapse' : 'Expand');
         }
         toggle.addEventListener('click', function () {
           toggle.setAttribute(
@@ -138,30 +173,29 @@ export const EXPORT_RUNTIME_JS = String.raw`
 })();
 `.trim();
 
-/** Styling for the collapse control the runtime injects. */
-export const EXPORT_RUNTIME_CSS = `
-.snl-export-toggle {
-  position: absolute;
-  left: -1.5rem;
-  top: 0.35rem;
-  min-width: 1.25rem;
-  padding: 0 0.25rem;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  opacity: 0.55;
-  font: inherit;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  cursor: pointer;
-}
-.snl-export-toggle:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
-[data-snl-collapsible] { position: relative; }
-/*
- * The toggle hangs in the gutter to the left of a row. A top-level row sits
- * flush with the page edge, so without room the control is clipped off-screen
- * (observed in headless Chromium). Reserve that gutter on the export body.
+/**
+ * The script emitted into the exported page.
+ *
+ * Placeholders are filled from `src/collapseToggleContract.ts` —
+ * the same module the live React toggle uses — so glyphs, geometry, classes
+ * and label wording cannot drift between the two surfaces.
  */
-.snl-export { padding-left: 1.75rem; }
+export const EXPORT_RUNTIME_JS = RUNTIME_TEMPLATE
+  .replace('__TOGGLE_CLASS__', COLLAPSE_TOGGLE_CLASS)
+  .replace('__TOGGLE_STYLE__', toInlineStyle(COLLAPSE_TOGGLE_STYLE))
+  .replace('__GLYPH_EXPANDED__', COLLAPSE_GLYPH.expanded)
+  .replace('__GLYPH_COLLAPSED__', COLLAPSE_GLYPH.collapsed);
+
+/**
+ * Gutter reservation, the one style the export genuinely needs on its own.
+ *
+ * The toggle hangs to the LEFT of a row (shared geometry puts it at -20px). In
+ * the panel the outline already sits inside padded chrome; a bare exported page
+ * does not, so a top-level row would clip the control off-screen — observed in
+ * headless Chromium. Everything else (.snl-btn appearance) comes from the
+ * stylesheet the export already inlines.
+ */
+export const EXPORT_RUNTIME_CSS = `
+[data-snl-collapsible] { position: relative; }
+.snl-export { padding-left: ${-COLLAPSE_TOGGLE_GEOMETRY.left + 8}px; }
 `.trim();

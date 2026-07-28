@@ -30,6 +30,12 @@ import {
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml } from './export/htmlExport';
+import {
+  COLLAPSE_GLYPH,
+  COLLAPSE_TOGGLE_STYLE,
+  collapseToggleAriaLabel,
+  collapseToggleTitle
+} from '../../src/collapseToggleContract';
 
 function ui(en: string, zhCN: string): LocalizedString {
   return {
@@ -608,34 +614,21 @@ function CollapseToggle({
   return (
     <Button
       type="button"
+      variant="ghost"
+      size="sm"
       onClick={onClick}
-      title={
-        collapsed
-          ? `Expand ${childCount} sub-entr${childCount === 1 ? 'y' : 'ies'}`
-          : `Collapse ${childCount} sub-entr${childCount === 1 ? 'y' : 'ies'}`
-      }
-      aria-label={collapsed ? 'Expand' : 'Collapse'}
+      title={collapseToggleTitle(collapsed, childCount)}
+      aria-label={collapseToggleAriaLabel(collapsed)}
       aria-expanded={!collapsed}
       style={{
-        position: 'absolute',
-        left: -20,
-        top: 8,
-        width: 18,
-        height: 18,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 0,
+        ...(COLLAPSE_TOGGLE_STYLE as React.CSSProperties),
+        color: 'var(--vscode-editor-foreground, #ddd)',
         border: 'none',
         background: 'transparent',
-        color: 'var(--vscode-editor-foreground, #ddd)',
-        cursor: 'pointer',
-        fontSize: '0.85rem',
-        opacity: 0.75,
-        userSelect: 'none'
+        cursor: 'pointer'
       }}
     >
-      {collapsed ? '▶' : '▼'}
+      {collapsed ? COLLAPSE_GLYPH.collapsed : COLLAPSE_GLYPH.expanded}
     </Button>
   );
 }

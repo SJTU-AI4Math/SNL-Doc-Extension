@@ -58,7 +58,7 @@ interface LibraryEntry {
  * as `entry: null`; the webview shows a stub row so the tree structure is
  * still visible.
  */
-interface OutlineNode {
+export interface OutlineNode {
   nodeId: string;
   entry: EntryData | null;
   kind: EntryKind | null;
@@ -485,25 +485,77 @@ function LibraryLayer({
           This library has no entries yet. Add some via the Dashboard.
         </p>
       ) : (
-        <div
-          ref={ctx.outlineRef}
-          style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
-        >
-          {outline.map((node) => (
-            <OutlineTreeNode
-              key={node.nodeId}
-              node={node}
-              depth={0}
-              collapsed={collapsed}
-              toggle={toggle}
-              ctx={ctx}
-            />
-          ))}
-        </div>
+        <LibraryOutline
+          nodes={outline}
+          collapsed={collapsed}
+          toggle={toggle}
+          ctx={ctx}
+          outlineRef={ctx.outlineRef}
+        />
       )}
     </>
   );
 }
+
+/**
+ * The outline forest — the exact subtree the HTML exporter harvests.
+ *
+ * Extracted from `LibraryView` so the export tests can render the REAL markup
+ * instead of a hand-written imitation of it. 猫猫 2026-07-29: "Library 里条目的
+ * Collapse 还是不 work" — the previous export tests built their own markup, so
+ * they proved the runtime worked on markup that only resembled this one, and
+ * missed that the harvested structure never carried the markers.
+ *
+ * `outlineRef` is optional so a test can mount this without the panel around it.
+ */
+export function LibraryOutline({
+  nodes,
+  collapsed = EMPTY_COLLAPSED,
+  toggle = () => {},
+  ctx = EXPORT_TEST_CTX,
+  outlineRef
+}: {
+  nodes: OutlineNode[];
+  collapsed?: Set<string>;
+  toggle?: (nodeId: string) => void;
+  ctx?: RenderCtx;
+  outlineRef?: React.RefObject<HTMLDivElement | null>;
+}): React.ReactElement {
+  return (
+    <div
+      ref={outlineRef}
+      style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+    >
+      {nodes.map((node) => (
+        <OutlineTreeNode
+          key={node.nodeId}
+          node={node}
+          depth={0}
+          collapsed={collapsed}
+          toggle={toggle}
+          ctx={ctx}
+        />
+      ))}
+    </div>
+  );
+}
+
+const EMPTY_COLLAPSED: Set<string> = new Set();
+
+/**
+ * Minimal context for rendering the outline outside the panel (export tests).
+ * Every field is either inert or empty: no host bridge, no macro pool.
+ */
+const EXPORT_TEST_CTX = {
+  postMessage: () => {},
+  goBack: () => {},
+  entryPool: [],
+  userMacros: [],
+  kindPalette: {},
+  markdownImageUrlTransform: undefined,
+  exportHtml: () => {},
+  outlineRef: { current: null }
+} as unknown as RenderCtx;
 
 /** Count all descendants (including self) in an outline forest. */
 function countNodes(nodes: OutlineNode[]): number {

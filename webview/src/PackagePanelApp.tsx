@@ -41,6 +41,7 @@ import { Button } from './components/Button';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import { macroKindsToPalette } from './render/macroKindPalette';
+import { extensionRenderers } from './render/blockRenderers';
 import {
   use_preferences_revision,
   webview_language_runtime
@@ -704,7 +705,14 @@ export function MacroTable({
   // Tooltip / hover pipeline is pointless in a compact row preview and only
   // adds jitter. Suppress via renderTooltip → null.
   const previewHooks: SnlRenderHooks = useMemo(
-    () => ({ ...defaultRenderHooks, renderTooltip: () => null }),
+    // `renderers` replaces the registry wholesale; `extensionRenderers` keeps
+    // the Basics defaults and adds `collapsible`, so a package macro using that
+    // preset previews correctly instead of falling back to a plain block.
+    () => ({
+      ...defaultRenderHooks,
+      renderTooltip: () => null,
+      renderers: extensionRenderers
+    }),
     []
   );
 

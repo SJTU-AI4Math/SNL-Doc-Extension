@@ -22,6 +22,7 @@ import {
   webview_language_runtime
 } from '../runtime/preferencesRuntime';
 import { bundledMacros, type MacroRecord } from './macroData';
+import { extensionRenderers } from './blockRenderers';
 import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
 
 export function mergeMacroDb(userMacros: MacroRecord | undefined | null): MacroRecord {
@@ -242,6 +243,16 @@ export function EntryRender({
 
   const hooks = useMemo<SnlRenderHooks>(() => ({
     renderTooltip: () => null,
+    // `renderers` is a WHOLE-registry replacement (the view shallow-merges
+    // hooks), and `extensionRenderers` already spreads SNL-Basics's defaults.
+    // Placed before the override spread so a caller can still swap it out.
+    //
+    // The cast is a packaging artifact, not a semantic one: SNL-Basics ships
+    // the same renderer types through two entry points (`.` and `/entry`) as
+    // structurally identical but nominally distinct declarations, and this
+    // module imports from the barrel while EntrySurface's hooks come from
+    // `/entry`.
+    renderers: extensionRenderers as unknown as SnlRenderHooks['renderers'],
     ...(hooksOverride ?? {})
   }), [hooksOverride]);
 

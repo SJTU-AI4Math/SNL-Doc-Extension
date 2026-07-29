@@ -73,6 +73,7 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
+import { extensionRenderers } from './render/blockRenderers';
 import {
   attachCanvasRoot,
   canPersistCanvasForest,
@@ -2562,7 +2563,7 @@ export function GuiCanvasEditor({
                 macro_data_driver={macroDataDriver}
                 reader_runtime={webview_language_runtime}
                 kindPalette={kindPalette}
-                hooks={{ renderTooltip: () => null }}
+                hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
               />
             </div>
           );

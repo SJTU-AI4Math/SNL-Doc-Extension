@@ -56,6 +56,7 @@ import {
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
+import { extensionRenderers } from './render/blockRenderers';
 import {
   getVsCodeApi,
   PANEL_STYLE,
@@ -775,7 +776,13 @@ export function CreateMacroApp(): React.ReactElement {
     [previewMacroRecord]
   );
 
-  const hooks: SnlRenderHooks = useMemo(() => ({ ...defaultRenderHooks }), []);
+  // `renderers` must be the full registry (the view replaces, not merges, it);
+  // `extensionRenderers` spreads SNL-Basics's defaults. Needed here so that
+  // picking the `collapsible` preset actually previews as collapsible.
+  const hooks: SnlRenderHooks = useMemo(
+    () => ({ ...defaultRenderHooks, renderers: extensionRenderers }),
+    []
+  );
 
   // --- Arg slots -----------------------------------------------------------
 
@@ -2241,16 +2248,26 @@ function StylesEditor({
   );
 }
 
-/** Known built-in block renderers registered in SNL-Basics `defaultRenderers`. */
+/**
+ * Block renderer presets available in this Extension.
+ *
+ * The first four come from SNL-Basics's built-in `defaultRenderers`. The rest
+ * are registered by THIS Extension in `webview/src/render/blockRenderers.tsx`
+ * (`extensionRenderers`), so they only work on surfaces that pass that
+ * registry as `hooks.renderers`.
+ */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   key: string;
   label: string;
   hint: string;
 }> = [
+  // --- SNL-Basics built-ins ---
   { key: 'list', label: 'list', hint: 'Unordered list — LaTeX \\begin{itemize} → <ul><li>…' },
   { key: 'enumerate', label: 'enumerate', hint: 'Ordered list — LaTeX \\begin{enumerate} → <ol><li>…' },
   { key: 'table', label: 'table', hint: 'Table — variadic children are rows; first child with kind="table-header" becomes <thead>.' },
-  { key: 'centered', label: 'centered', hint: 'Horizontally-centered block wrapper.' }
+  { key: 'centered', label: 'centered', hint: 'Horizontally-centered block wrapper.' },
+  // --- Registered by SNL-Doc-Extension ---
+  { key: 'collapsible', label: 'collapsible', hint: 'Collapsible block — first child is the always-visible summary, the rest fold behind a toggle.' }
 ];
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 

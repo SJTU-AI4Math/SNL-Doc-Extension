@@ -118,11 +118,19 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
       </div>
       {/* Not rendered while collapsed: guarantees the hidden body holds no
           tab stops (a `display:none` container would also work, but this is
-          unconditionally safe). */}
+          unconditionally safe).
+
+          Each child gets its own block-level wrapper. A block renderer walks
+          `node.children` directly and never sees the style template, so the
+          template's `separator` is NOT applied here — without a wrapper the
+          steps would run together as inline text ("…there.hence…"). Separation
+          is the renderer's job precisely because it is presentation. */}
       {collapsed ? null : (
         <div className="snl-collapsible__body">
           {body.map((child, i) => (
-            <React.Fragment key={i}>{renderChild(child)}</React.Fragment>
+            <div className="snl-collapsible__part" key={i}>
+              {renderChild(child)}
+            </div>
           ))}
         </div>
       )}

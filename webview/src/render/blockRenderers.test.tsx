@@ -93,4 +93,20 @@ describe('CollapsibleRenderer', () => {
     mount(blockNode([node('summary'), node('body1')]));
     expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Collapse');
   });
+
+  // Regression lock (found by rendering a real proof entry in a browser): a
+  // block renderer walks `node.children` and never sees the style template, so
+  // the template's `separator` does NOT apply. Without a block-level wrapper
+  // per child the steps concatenate as inline text — the Rolle proof rendered
+  // as "…exists there.hence F'(c) = 0…".
+  it('wraps each body child in its own block so steps do not run together', () => {
+    const { container } = mount(
+      blockNode([node('summary'), node('body1'), node('body2')])
+    );
+    const parts = container.querySelectorAll('.snl-collapsible__body > .snl-collapsible__part');
+    expect(parts.length).toBe(2);
+    // Each wrapper holds exactly one rendered child.
+    expect(parts[0].querySelector('[data-testid="child-body1"]')).toBeTruthy();
+    expect(parts[1].querySelector('[data-testid="child-body2"]')).toBeTruthy();
+  });
 });

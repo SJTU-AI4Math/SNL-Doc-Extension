@@ -42,22 +42,39 @@ const STRIPPED_SELECTORS = [
  * Normalise the collapse structure so the exported runtime can rebuild it.
  *
  * The live Infoview renders the toggle as a React `<button>` that the strip
- * pass removes, and it renders collapse by *omitting* the subtree entirely.
- * The exporter therefore requires the caller to expand everything first (see
- * `exportHtml` in App.tsx) — a collapsed subtree is simply not in the DOM and
- * cannot be harvested. Here we only guarantee the annotations the runtime
- * needs, and drop any marker on a row whose subtree did not make it.
+ * pass removes, so the exporter guarantees the annotations the runtime needs
+ * and drops any marker whose subtree is missing.
+ *
+ * Ownership matters: the Entry outline puts `data-snl-subtree` on a DIRECT
+ * child, but the `collapsible` block renderer nests its body under a summary
+ * row, and collapsibles nest inside each other. So we search descendants and
+ * accept a subtree only when the nearest enclosing collapsible host is THIS
+ * host — the same rule `src/exportRuntime.ts` applies at read time. A direct-
+ * children-only scan (the original) saw no subtree on every block collapsible
+ * and stripped its markers, which is why 猫猫 found "到处以后所有的 Collapse
+ * 都不 work" (2026-07-29).
  */
+function ownedSubtree(host: HTMLElement): HTMLElement | undefined {
+  return Array.from(host.querySelectorAll<HTMLElement>('[data-snl-subtree]')).find(
+    (sub) => {
+      let owner: HTMLElement | null = sub.parentElement;
+      while (owner && owner !== host && !owner.hasAttribute('data-snl-collapsible')) {
+        owner = owner.parentElement;
+      }
+      return owner === host;
+    }
+  );
+}
+
 function markCollapsibleRows(clone: HTMLElement): void {
   for (const host of Array.from(
     clone.querySelectorAll<HTMLElement>('[data-snl-collapsible]')
   )) {
-    const subtree = Array.from(host.children).find(
-      (child) => child instanceof HTMLElement && child.hasAttribute('data-snl-subtree')
-    );
-    if (!subtree) {
+    if (!ownedSubtree(host)) {
       host.removeAttribute('data-snl-collapsible');
       host.removeAttribute('data-snl-child-count');
+      host.removeAttribute('data-snl-collapse-noun');
+      host.removeAttribute('data-snl-collapsed');
     }
   }
 }

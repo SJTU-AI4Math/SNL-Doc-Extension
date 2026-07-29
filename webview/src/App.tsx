@@ -454,8 +454,12 @@ function LibraryLayer({
               label="Export HTML"
               title={`Export library "${slug}" as a static HTML document`}
               onClick={() => {
-                // A collapsed subtree is not in the DOM, so it cannot be
+                // The Entry outline renders collapse by OMITTING the subtree,
+                // so a collapsed branch is not in the DOM and cannot be
                 // harvested. Expand everything, then export after the paint.
+                // (Collapsible BLOCKS don't need this: they keep their body
+                // mounted and just set `hidden`, so their fold state is
+                // harvested as-is and carried into the exported file.)
                 setCollapsed(new Set());
                 requestAnimationFrame(() =>
                   ctx.exportHtml(slug, title, totalEntries)

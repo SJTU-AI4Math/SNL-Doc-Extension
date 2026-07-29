@@ -70,7 +70,7 @@ function initiallyCollapsed(node: SnlSyntaxTree): boolean {
  * erroring.
  */
 export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
-  const children = Array.isArray(node.children) ? node.children : [];
+  const children: SnlSyntaxTree[] = Array.isArray(node.children) ? node.children : [];
   const [collapsed, setCollapsed] = useState(() => initiallyCollapsed(node));
 
   // Degenerate case: no separable body → plain block, no chrome.
@@ -88,7 +88,19 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
   const toggle = (): void => setCollapsed((c) => !c);
 
   return (
-    <div className="snl-collapsible" data-collapsed={collapsed ? 'true' : 'false'}>
+    <div
+      className="snl-collapsible"
+      data-collapsed={collapsed ? 'true' : 'false'}
+      // Export contract. `harvestLibraryHtml` strips every <button>, so the
+      // static file rebuilds the toggle from these markers (see
+      // `src/exportRuntime.ts`). The noun differs from the Entry outline's
+      // "sub-entries", so it travels with the markup rather than being
+      // hardcoded in the runtime.
+      data-snl-collapsible=""
+      data-snl-child-count={body.length}
+      data-snl-collapse-noun={body.length === 1 ? 'part' : 'parts'}
+      data-snl-collapsed={collapsed ? 'true' : undefined}
+    >
       {/* `position: relative` + the toggle's `position: absolute; left: -20px`
           make the triangle hang in a gutter to the LEFT of the row. The gutter
           is reserved by `.snl-collapsible`'s own padding-left in `ui.css`
@@ -115,24 +127,30 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
         </button>
         {renderChild(summary)}
       </div>
-      {/* Not rendered while collapsed: guarantees the hidden body holds no
-          tab stops (a `display:none` container would also work, but this is
-          unconditionally safe).
+      {/* Rendered UNCONDITIONALLY and hidden with the `hidden` attribute
+          rather than removed from the tree.
+
+          Two reasons. (1) Export: `harvestLibraryHtml` snapshots the live DOM,
+          so a body that isn't mounted is silently DROPPED from the exported
+          file — the reader loses content, not just a control. The Entry
+          outline dodges this by expanding everything before export
+          (`setCollapsed(new Set())` in App.tsx), but that switch lives in App
+          state and cannot reach a block renderer's local `useState`.
+          (2) `hidden` resolves to `display:none`, whose subtree is neither
+          rendered nor focusable, so the no-tab-stops guarantee is unchanged.
 
           Each child gets its own block-level wrapper. A block renderer walks
           `node.children` directly and never sees the style template, so the
           template's `separator` is NOT applied here — without a wrapper the
           steps would run together as inline text ("…there.hence…"). Separation
           is the renderer's job precisely because it is presentation. */}
-      {collapsed ? null : (
-        <div className="snl-collapsible__body">
-          {body.map((child, i) => (
-            <div className="snl-collapsible__part" key={i}>
-              {renderChild(child)}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="snl-collapsible__body" data-snl-subtree="" hidden={collapsed}>
+        {body.map((child, i) => (
+          <div className="snl-collapsible__part" key={i}>
+            {renderChild(child)}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

@@ -45,34 +45,63 @@ describe('extensionRenderers', () => {
 });
 
 describe('CollapsibleRenderer', () => {
+  /**
+   * The body stays MOUNTED when collapsed and is hidden with the `hidden`
+   * attribute instead. `harvestLibraryHtml` snapshots the live DOM, so an
+   * unmounted body would be silently dropped from an exported document —
+   * losing content, not just a control (猫猫 2026-07-29). `hidden` gives the
+   * same `display:none` semantics, so nothing is rendered or focusable.
+   */
+  const bodyHost = (): HTMLElement => {
+    const el = document.querySelector<HTMLElement>('.snl-collapsible__body');
+    if (!el) throw new Error('body host not rendered');
+    return el;
+  };
+
   it('toggles body visibility on click', () => {
     mount(blockNode([node('summary'), node('body1'), node('body2')]));
     expect(screen.getByTestId('child-summary')).toBeTruthy();
-    expect(screen.queryByTestId('child-body1')).toBeTruthy();
+    expect(bodyHost().hidden).toBe(false);
 
     const btn = screen.getByRole('button');
     expect(btn.getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.click(btn);
-    expect(screen.queryByTestId('child-body1')).toBeNull();
-    expect(screen.queryByTestId('child-body2')).toBeNull();
+    // Content is still in the DOM (so export can harvest it) but hidden.
+    expect(screen.queryByTestId('child-body1')).toBeTruthy();
+    expect(screen.queryByTestId('child-body2')).toBeTruthy();
+    expect(bodyHost().hidden).toBe(true);
     expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
     // Summary always visible.
     expect(screen.getByTestId('child-summary')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.queryByTestId('child-body1')).toBeTruthy();
+    expect(bodyHost().hidden).toBe(false);
+  });
+
+  it('exposes the export markers the static runtime rebuilds collapse from', () => {
+    mount(blockNode([node('summary'), node('body1'), node('body2')]));
+    const host = document.querySelector<HTMLElement>('.snl-collapsible')!;
+    expect(host.hasAttribute('data-snl-collapsible')).toBe(true);
+    // Counts the FOLDABLE parts, not every child — the summary never folds.
+    expect(host.getAttribute('data-snl-child-count')).toBe('2');
+    expect(host.getAttribute('data-snl-collapse-noun')).toBe('parts');
+    expect(bodyHost().hasAttribute('data-snl-subtree')).toBe(true);
   });
 
   it('starts collapsed when mdata.collapsed === true', () => {
     mount(blockNode([node('summary'), node('body1')], { collapsed: true }));
-    expect(screen.queryByTestId('child-body1')).toBeNull();
+    expect(bodyHost().hidden).toBe(true);
     expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+    // The export carries that state across, singular noun and all.
+    const host = document.querySelector<HTMLElement>('.snl-collapsible')!;
+    expect(host.getAttribute('data-snl-collapsed')).toBe('true');
+    expect(host.getAttribute('data-snl-collapse-noun')).toBe('part');
   });
 
   it('starts expanded for other mdata shapes', () => {
     mount(blockNode([node('summary'), node('body1')], { collapsed: 'true' }));
-    expect(screen.queryByTestId('child-body1')).toBeTruthy();
+    expect(bodyHost().hidden).toBe(false);
   });
 
   it('renders no toggle when there are fewer than two children', () => {

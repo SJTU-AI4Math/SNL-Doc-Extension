@@ -92,6 +92,44 @@ describe('collapse structure survives the strip pass', () => {
     expect(html).toContain('child');
   });
 
+  it('keeps the markers of a collapsible BLOCK, whose subtree is not a direct child', () => {
+    // The block renderer nests the body under a summary row. A direct-children
+    // scan found nothing and stripped the markers, killing collapse in every
+    // exported block (猫猫 2026-07-29).
+    const { html } = harvestLibraryHtml(
+      el(
+        '<div class="snl-collapsible" data-snl-collapsible="" data-snl-child-count="2" data-snl-collapse-noun="parts">' +
+          '<div class="snl-collapsible__summary"><button>t</button><section>sum</section></div>' +
+          '<div class="snl-collapsible__body" data-snl-subtree=""><div>part1</div></div>' +
+          '</div>'
+      ),
+      BASE
+    );
+    expect(html).toContain('data-snl-collapsible');
+    expect(html).toContain('data-snl-collapse-noun="parts"');
+    expect(html).toContain('data-snl-subtree');
+    expect(html).not.toContain('<button');
+  });
+
+  it('does not let a parent adopt a nested collapsible\'s subtree', () => {
+    // The outer host owns no subtree of its own; only the inner one does. If
+    // ownership were ignored the outer host would keep a marker controlling
+    // markup it does not contain.
+    const { html } = harvestLibraryHtml(
+      el(
+        '<div id="outer" data-snl-collapsible="" data-snl-child-count="1">' +
+          '<div data-snl-collapsible="" data-snl-child-count="1">' +
+          '<div data-snl-subtree=""><span>inner</span></div>' +
+          '</div></div>'
+      ),
+      BASE
+    );
+    const doc = el(`<div>${html}</div>`);
+    const hosts = doc.querySelectorAll('[data-snl-collapsible]');
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].querySelector(':scope > [data-snl-subtree]')).not.toBeNull();
+  });
+
   it('drops the marker on a row whose subtree was collapsed away', () => {
     // The live Infoview renders collapse by omitting the subtree, so a
     // still-collapsed row reaches the exporter with no children. Leaving the

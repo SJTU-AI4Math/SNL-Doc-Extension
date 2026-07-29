@@ -1,0 +1,169 @@
+// Behavioural tests for the exported document's runtime, executed against a
+// real DOM.
+//
+// The sibling `src/exportRuntime.test.ts` only asserts on the SOURCE TEXT of
+// the runtime (it runs in the `node` project, no DOM). That caught nothing when
+// 猫猫 reported 2026-07-29 that "到处以后所有的 Collapse 都不 work": the string
+// 'data-snl-collapsible' was still present, so the text assertions stayed
+// green while the script silently found no subtree to bind. These tests
+// actually EXECUTE the runtime over markup shaped like the harvest output, so
+// a regression in the wiring fails instead of passing quietly.
+//
+// Lives under `webview/` purely because that is the vitest project running in
+// jsdom; the code under test is host-side.
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { EXPORT_RUNTIME_JS } from '../../../src/exportRuntime';
+
+/**
+ * Markup shaped like `harvestLibraryHtml` output: every <button> already
+ * stripped, only the data-* markers left. Covers BOTH collapsible surfaces —
+ * the Entry outline (subtree is a direct child) and the `collapsible` block
+ * renderer (subtree sits under a summary row) — plus a nested block, which is
+ * the case that made a naive `host.children` scan wrong.
+ */
+const HARVESTED = `
+<div id="outline" data-snl-collapsible="" data-snl-child-count="2">
+  <div style="position:relative"><section>outline-row</section></div>
+  <div data-snl-subtree=""><section>outline-child</section></div>
+</div>
+<div id="block" class="snl-collapsible" data-snl-collapsible=""
+     data-snl-child-count="2" data-snl-collapse-noun="parts" data-snl-collapsed="true">
+  <div class="snl-collapsible__summary"><section>block-summary</section></div>
+  <div class="snl-collapsible__body" data-snl-subtree="">
+    <div class="snl-collapsible__part">part1</div>
+    <div id="nested" class="snl-collapsible" data-snl-collapsible=""
+         data-snl-child-count="1" data-snl-collapse-noun="part">
+      <div class="snl-collapsible__summary"><section>nested-summary</section></div>
+      <div class="snl-collapsible__body" data-snl-subtree=""><div>nested-part</div></div>
+    </div>
+  </div>
+</div>
+<div data-entry-body="">
+  <span data-scope="binder" data-bindref="b1" data-kind="rule" data-name="forall">
+    <span data-kind="binder" data-bindref="b1" data-name="x">x</span>
+    <span id="scoped-bvar" data-kind="bvar" data-bindref="b1" data-name="x">x</span>
+  </span>
+  <span data-scope="binder" data-bindref="b2" data-kind="rule" data-name="forall">
+    <span data-kind="binder" data-bindref="b2" data-name="x">x</span>
+    <span data-kind="bvar" data-bindref="b2" data-name="x">x</span>
+  </span>
+  <span id="orphan-bvar" data-kind="bvar" data-bindref="b9" data-name="y">y</span>
+  <span data-kind="bvar" data-bindref="b9" data-name="y">y</span>
+</div>`;
+
+/** The subtree THIS host owns — mirrors the runtime's ownership rule. */
+function ownSubtree(host: HTMLElement): HTMLElement {
+  const found = Array.from(
+    host.querySelectorAll<HTMLElement>('[data-snl-subtree]')
+  ).find((sub) => {
+    let owner: HTMLElement | null = sub.parentElement;
+    while (owner && owner !== host && !owner.hasAttribute('data-snl-collapsible')) {
+      owner = owner.parentElement;
+    }
+    return owner === host;
+  });
+  if (!found) throw new Error('no owned subtree');
+  return found;
+}
+
+function toggleOf(host: HTMLElement): HTMLButtonElement {
+  const btn =
+    host.querySelector<HTMLButtonElement>(':scope > .snl-collapsible__summary > button') ??
+    host.querySelector<HTMLButtonElement>(':scope > button');
+  if (!btn) throw new Error('no toggle');
+  return btn;
+}
+
+const byId = (id: string): HTMLElement => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el;
+};
+
+const click = (el: Element): void => {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+};
+const hover = (el: Element): void => {
+  el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+};
+
+describe('EXPORT_RUNTIME_JS, executed', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<main class="snl-export">${HARVESTED}</main>`;
+    // The runtime installs on DOMContentLoaded or immediately when the document
+    // has already parsed; jsdom's document is 'complete' here, so eval suffices.
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('builds a toggle for every collapsible host, on both surfaces', () => {
+    expect(document.querySelectorAll('[data-snl-collapsible]')).toHaveLength(3);
+    expect(document.querySelectorAll('button')).toHaveLength(3);
+  });
+
+  it('collapses and re-expands an Entry outline row', () => {
+    const host = byId('outline');
+    const subtree = ownSubtree(host);
+    expect(subtree.hidden).toBe(false);
+    click(toggleOf(host));
+    expect(subtree.hidden).toBe(true);
+    click(toggleOf(host));
+    expect(subtree.hidden).toBe(false);
+  });
+
+  it('finds the body of a collapsible BLOCK, whose subtree is not a direct child', () => {
+    // The original runtime scanned `host.children` only, so this host bound no
+    // subtree at all and its toggle was never built — the reported bug.
+    const host = byId('block');
+    const subtree = ownSubtree(host);
+    click(toggleOf(host));
+    expect(subtree.hidden).toBe(false);
+  });
+
+  it('mounts the block toggle inside the summary row so the gutter offset resolves', () => {
+    // `left:-20px` is measured from the offset parent; only the summary row is
+    // positioned (ui.css). Mounting on the host would throw the glyph off-block.
+    expect(
+      byId('block').querySelector(':scope > .snl-collapsible__summary > button')
+    ).not.toBeNull();
+  });
+
+  it('honours the fold state the reader exported', () => {
+    expect(ownSubtree(byId('block')).hidden).toBe(true);
+    expect(ownSubtree(byId('outline')).hidden).toBe(false);
+  });
+
+  it('uses the noun the markup carries, not a hardcoded "sub-entries"', () => {
+    expect(toggleOf(byId('block')).title).toBe('Expand 2 parts');
+    expect(toggleOf(byId('nested')).title).toBe('Collapse 1 part');
+    expect(toggleOf(byId('outline')).title).toBe('Collapse 2 sub-entries');
+  });
+
+  it('keeps a nested collapsible independent of its parent', () => {
+    click(toggleOf(byId('nested')));
+    expect(ownSubtree(byId('nested')).hidden).toBe(true);
+    expect(ownSubtree(byId('block')).hidden).toBe(true); // parent unchanged
+  });
+
+  it('limits bvar highlighting to the binder scope, matching the live panel', () => {
+    hover(byId('scoped-bvar'));
+    // Exactly the one bvar and one binder inside scope b1 — NOT the b2 pair.
+    expect(document.querySelectorAll('.snl-bvar-scope')).toHaveLength(1);
+    expect(document.querySelectorAll('.snl-binder-decl')).toHaveLength(1);
+  });
+
+  it('highlights nothing beyond the hovered node when no scope root carries the ref', () => {
+    // 猫猫 2026-07-29: hovering a bvar lit up "全体". Cause: the runtime fell
+    // back to the whole container as scope root, so every same-ref occurrence
+    // in the entry lit up. defaultHighlightStrategy returns empty buckets here.
+    hover(byId('orphan-bvar'));
+    expect(document.querySelectorAll('.snl-bvar-scope')).toHaveLength(0);
+    expect(document.querySelectorAll('.snl-binder-decl')).toHaveLength(0);
+    expect(document.querySelectorAll('.snl-single-hover')).toHaveLength(1);
+  });
+});

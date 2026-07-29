@@ -73,11 +73,19 @@ const RUNTIME_TEMPLATE = String.raw`
     var ref = bindRefOf(target);
     if ((kind !== 'bvar' && kind !== 'binder') || !ref) return;
 
-    var scopeRoot = container;
+    // The scope root MUST be a matching [data-scope="binder"] ancestor. There
+    // is deliberately no container-wide fallback: defaultHighlightStrategy
+    // returns EMPTY bvar/binder buckets when no scope root carries this ref
+    // (SNL-Basics hooks.tsx), so falling back to container would light up
+    // every same-ref occurrence in the whole entry — a highlight the live
+    // Infoview never shows. 猫猫 2026-07-29: '导出以后 bvar 的悬浮是悬浮一个
+    // 全体触发的，和 Extension 行为不一样'.
+    var scopeRoot = null;
     var scopes = container.querySelectorAll('[data-scope="binder"]');
     for (var s = 0; s < scopes.length; s++) {
       if (bindRefOf(scopes[s]) === ref) { scopeRoot = scopes[s]; break; }
     }
+    if (!scopeRoot) return;
 
     var all = scopeRoot.querySelectorAll('[data-kind="bvar"], [data-kind="binder"]');
     for (var i = 0; i < all.length; i++) {
@@ -124,23 +132,37 @@ const RUNTIME_TEMPLATE = String.raw`
     var hosts = document.querySelectorAll('[data-snl-collapsible]');
     for (var i = 0; i < hosts.length; i++) {
       (function (host) {
+        // The subtree is a DIRECT child in the Entry outline, but the
+        // collapsible block renderer nests its body one level down (inside
+        // .snl-collapsible, after the summary row). Search descendants and
+        // keep only the one whose nearest collapsible host is THIS host, so a
+        // nested collapsible's body never gets adopted by its ancestor.
         var subtree = null;
-        for (var c = 0; c < host.children.length; c++) {
-          if (host.children[c].hasAttribute('data-snl-subtree')) {
-            subtree = host.children[c];
-            break;
+        var candidates = host.querySelectorAll('[data-snl-subtree]');
+        for (var c = 0; c < candidates.length; c++) {
+          var owner = candidates[c].parentNode;
+          while (owner && owner !== host && !owner.hasAttribute('data-snl-collapsible')) {
+            owner = owner.parentNode;
           }
+          if (owner === host) { subtree = candidates[c]; break; }
         }
         if (!subtree) return;
 
         var count = parseInt(host.getAttribute('data-snl-child-count') || '0', 10);
-        var noun = 'sub-entr' + (count === 1 ? 'y' : 'ies');
+        // Vocabulary travels with the markup: the Entry outline hides
+        // sub-entries, a collapsible block hides body parts.
+        var noun = host.getAttribute('data-snl-collapse-noun');
+        if (!noun) noun = 'sub-entr' + (count === 1 ? 'y' : 'ies');
 
         var toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = '__TOGGLE_CLASS__';
         toggle.setAttribute('style', '__TOGGLE_STYLE__');
-        toggle.setAttribute('aria-expanded', 'true');
+        // Honour the state the reader was looking at when they exported.
+        toggle.setAttribute(
+          'aria-expanded',
+          host.getAttribute('data-snl-collapsed') === 'true' ? 'false' : 'true'
+        );
 
         function paint() {
           var open = toggle.getAttribute('aria-expanded') === 'true';
@@ -157,7 +179,14 @@ const RUNTIME_TEMPLATE = String.raw`
           paint();
         });
 
-        host.insertBefore(toggle, host.firstChild);
+        // The toggle's left:-20px is measured from its offset parent, which
+        // must be the positioned row it belongs to. In the Entry outline that
+        // is the host's first child; in a collapsible block it is the
+        // .snl-collapsible__summary row (see ui.css). Mount inside that row
+        // when one exists, otherwise fall back to the host.
+        var row = host.querySelector(':scope > .snl-collapsible__summary');
+        var mount = row || host;
+        mount.insertBefore(toggle, mount.firstChild);
         paint();
       })(hosts[i]);
     }

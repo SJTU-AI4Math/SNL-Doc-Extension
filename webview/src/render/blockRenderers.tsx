@@ -88,16 +88,15 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
   const toggle = (): void => setCollapsed((c) => !c);
 
   return (
-    <div
-      className="snl-collapsible"
-      data-collapsed={collapsed ? 'true' : 'false'}
-      style={{ position: 'relative' }}
-    >
-      <div
-        className="snl-collapsible__summary"
-        onClick={toggle}
-        style={{ cursor: 'pointer' }}
-      >
+    <div className="snl-collapsible" data-collapsed={collapsed ? 'true' : 'false'}>
+      {/* `position: relative` + the toggle's `position: absolute; left: -20px`
+          make the triangle hang in a gutter to the LEFT of the row. The gutter
+          is reserved by `.snl-collapsible`'s own padding-left in `ui.css`
+          (matching the Entry outline in App.tsx, which reserves it with
+          INDENT_PER_LEVEL, and the static export, which reserves it with
+          `.snl-export { padding-left }`). Without that reservation the glyph
+          escapes past the left edge of the block. */}
+      <div className="snl-collapsible__summary" onClick={toggle}>
         <button
           type="button"
           className={COLLAPSE_TOGGLE_CLASS}

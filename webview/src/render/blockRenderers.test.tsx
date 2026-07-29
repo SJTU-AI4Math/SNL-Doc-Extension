@@ -2,6 +2,7 @@ import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import { COLLAPSE_TOGGLE_GEOMETRY } from '../../../src/collapseToggleContract';
 import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
 
 // This project does not enable vitest `globals`, so testing-library's automatic
@@ -108,5 +109,33 @@ describe('CollapsibleRenderer', () => {
     // Each wrapper holds exactly one rendered child.
     expect(parts[0].querySelector('[data-testid="child-body1"]')).toBeTruthy();
     expect(parts[1].querySelector('[data-testid="child-body2"]')).toBeTruthy();
+  });
+
+  // Regression lock (cat, 2026-07-29: "箭头会跑到左侧外面去"): the shared
+  // COLLAPSE_TOGGLE_STYLE is `position:absolute; left:-20px`, i.e. the glyph
+  // hangs in a gutter OUTSIDE the row's content box. That only lands correctly
+  // if (a) the host reserves the gutter with padding-left, and (b) the
+  // SUMMARY ROW is the positioning context — if `position:relative` sits on
+  // the host instead, the offset is measured from the padding box's outer edge
+  // and the arrow escapes past the left border again.
+  //
+  // jsdom does not do layout, so the geometry itself is asserted in the
+  // browser harness. What is checkable here is the DOM contract the CSS keys
+  // off: the toggle must be a direct child of `.snl-collapsible__summary`,
+  // which must be a direct child of `.snl-collapsible`.
+  it('nests the toggle inside the summary row so the gutter offset resolves', () => {
+    const { container } = mount(blockNode([node('summary'), node('body1')]));
+    const host = container.querySelector('.snl-collapsible');
+    expect(host).toBeTruthy();
+    const row = host!.querySelector(':scope > .snl-collapsible__summary');
+    expect(row).toBeTruthy();
+    const btn = row!.querySelector(':scope > button');
+    expect(btn).toBeTruthy();
+    // The absolute offset comes from the shared contract, not a local literal.
+    expect((btn as HTMLElement).style.position).toBe('absolute');
+    expect((btn as HTMLElement).style.left).toBe(`${COLLAPSE_TOGGLE_GEOMETRY.left}px`);
+    // Presentation lives in ui.css; the renderer must not re-inline it.
+    expect((host as HTMLElement).getAttribute('style')).toBeNull();
+    expect((row as HTMLElement).getAttribute('style')).toBeNull();
   });
 });

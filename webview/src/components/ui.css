@@ -96,10 +96,27 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
 }
 
 /* Collapsible block macros (`block_template_name: "collapsible"`).
-   A block renderer walks node.children directly and never applies the style
-   template's `separator`, so each body part needs real block-level separation
-   here — otherwise consecutive proof steps run together as inline prose. */
-.snl-collapsible__summary { display:flex; align-items:flex-start; gap:.4rem; }
-.snl-collapsible__body { margin-left:1.1rem; padding-left:.9rem; border-left:2px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#d0d7de)); }
+
+   Gutter: the toggle is `position:absolute; left:-20px` (COLLAPSE_TOGGLE_STYLE,
+   shared with the Entry outline and the static export), so it hangs OUTSIDE the
+   row's content box. Every surface that uses it must reserve that width itself
+   — App.tsx does it with INDENT_PER_LEVEL, exportRuntime with
+   `.snl-export{padding-left}`, and here with the padding below. 20px is
+   `-COLLAPSE_TOGGLE_GEOMETRY.left`; keep the three in step.
+
+   Separation: a block renderer walks node.children directly and never applies
+   the style template's `separator`, so each body part needs real block-level
+   separation here — otherwise consecutive proof steps run together as inline
+   prose. */
+.snl-collapsible { padding-left:20px; }
+/* The summary row — NOT the host — is the positioning context: the toggle's
+   `left:-20px` is then measured from the row's left edge, which the host's
+   padding has already pushed 20px inward, so the glyph lands exactly in the
+   reserved gutter instead of outside the block. */
+.snl-collapsible__summary { position:relative; cursor:pointer; }
+.snl-collapsible__body { margin-top:.5rem; padding-left:.9rem; border-left:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#444)); }
 .snl-collapsible__part { display:block; }
 .snl-collapsible__part + .snl-collapsible__part { margin-top:.5rem; }
+/* A nested collapsible already sits inside its parent's body padding; it only
+   needs its own gutter, not another indent step. */
+.snl-collapsible .snl-collapsible { padding-left:20px; }

@@ -227,4 +227,18 @@ export const EXPORT_RUNTIME_JS = RUNTIME_TEMPLATE
 export const EXPORT_RUNTIME_CSS = `
 [data-snl-collapsible] { position: relative; }
 .snl-export { padding-left: ${-COLLAPSE_TOGGLE_GEOMETRY.left + 8}px; }
+
+/* Collapse MUST beat the inline style on the row it hides.
+ *
+ * The Entry outline renders its subtree with an inline
+ * \`style="display: flex; ..."\`, and an inline declaration outranks the UA's
+ * \`[hidden] { display: none }\`. So setting \`subtree.hidden = true\` marked the
+ * element hidden while it stayed on screen: 猫猫 2026-07-29 saw block collapse
+ * work (its body carries no inline display) and outline collapse do nothing.
+ *
+ * \`!important\` is the only thing that outranks an inline declaration without
+ * mutating author markup, so the rule is scoped as tightly as possible: only
+ * the subtree of a collapsible, only while hidden. */
+[data-snl-collapsible] > [data-snl-subtree][hidden],
+[data-snl-collapsible] [data-snl-subtree][hidden] { display: none !important; }
 `.trim();

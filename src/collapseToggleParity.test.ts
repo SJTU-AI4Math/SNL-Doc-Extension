@@ -84,11 +84,26 @@ describe('the exported runtime consumes the same contract', () => {
   });
 
   it('no longer ships a duplicate stylesheet for the button', () => {
-    // Appearance comes from .snl-btn in the inlined bundle CSS. The only style
-    // the export owns is the gutter the toggle hangs in.
+    // Appearance comes from .snl-btn in the inlined bundle CSS. The only styles
+    // the export owns are the gutter the toggle hangs in and the collapse rule
+    // that has to outrank the outline's inline `display` (see EXPORT_RUNTIME_CSS).
     expect(EXPORT_RUNTIME_CSS).not.toContain('snl-export-toggle');
     expect(EXPORT_RUNTIME_CSS).toContain('padding-left');
-    expect(EXPORT_RUNTIME_CSS.length).toBeLessThan(200);
+    // Assert the INTENT directly instead of proxying it through a byte count:
+    // no button appearance is restyled here. A length cap would just have to be
+    // re-raised every time a legitimate rule is added (it already blocked the
+    // 2026-07-29 collapse fix).
+    for (const property of [
+      'background',
+      'border',
+      'border-radius',
+      'color',
+      'font-size',
+      'opacity',
+      'transition'
+    ]) {
+      expect(EXPORT_RUNTIME_CSS).not.toContain(`${property}:`);
+    }
   });
 
   it('reserves exactly the gutter the shared geometry needs', () => {

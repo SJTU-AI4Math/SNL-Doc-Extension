@@ -115,6 +115,13 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
    reserved gutter instead of outside the block. */
 .snl-collapsible__summary { position:relative; cursor:pointer; }
 .snl-collapsible__body { margin-top:.5rem; padding-left:.9rem; border-left:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#444)); }
+/* Collapse must win over any `display` the body ends up carrying. Today it
+   carries none, so the UA's `[hidden] { display:none }` suffices — but an
+   inline `display` would silently outrank it and the fold would stop working
+   while still reporting `hidden`. That is exactly how outline collapse broke
+   in the export (猫猫 2026-07-29); this keeps the panel immune to the same
+   class of bug. */
+.snl-collapsible__body[hidden] { display:none !important; }
 .snl-collapsible__part { display:block; }
 .snl-collapsible__part + .snl-collapsible__part { margin-top:.5rem; }
 /* A nested collapsible already sits inside its parent's body padding; it only

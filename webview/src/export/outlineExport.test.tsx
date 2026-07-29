@@ -51,6 +51,21 @@ const click = (el: Element): void => {
   el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 };
 
+/**
+ * Whether the element is ACTUALLY not rendered.
+ *
+ * Asserting on `.hidden` alone is not enough and was the hole that let the
+ * reported bug through: the Entry outline's subtree carries an inline
+ * `display: flex`, which outranks the UA's `[hidden] { display: none }`, so
+ * the property read `true` while the rows stayed on screen (猫猫 2026-07-29:
+ * block collapse worked, outline collapse did not). Only the computed style
+ * tells the truth.
+ */
+function isVisuallyCollapsed(el: HTMLElement): boolean {
+  const w = el.ownerDocument.defaultView!;
+  return el.hidden && w.getComputedStyle(el).display === 'none';
+}
+
 afterEach(cleanup);
 
 describe('Library outline survives export with working collapse', () => {
@@ -79,11 +94,11 @@ describe('Library outline survives export with working collapse', () => {
       const subtree = host.querySelector<HTMLElement>(':scope > [data-snl-subtree]');
       expect(toggle).not.toBeNull();
       expect(subtree).not.toBeNull();
-      expect(subtree!.hidden).toBe(false);
+      expect(isVisuallyCollapsed(subtree!)).toBe(false);
       click(toggle!);
-      expect(subtree!.hidden).toBe(true);
+      expect(isVisuallyCollapsed(subtree!)).toBe(true);
       click(toggle!);
-      expect(subtree!.hidden).toBe(false);
+      expect(isVisuallyCollapsed(subtree!)).toBe(false);
     }
   });
 
@@ -96,7 +111,7 @@ describe('Library outline survives export with working collapse', () => {
     const outerSub = outer.querySelector<HTMLElement>(':scope > [data-snl-subtree]')!;
 
     click(inner.querySelector(':scope > button')!);
-    expect(innerSub.hidden).toBe(true);
-    expect(outerSub.hidden).toBe(false);
+    expect(isVisuallyCollapsed(innerSub)).toBe(true);
+    expect(isVisuallyCollapsed(outerSub)).toBe(false);
   });
 });

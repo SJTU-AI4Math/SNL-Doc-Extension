@@ -49,6 +49,13 @@ const POLL_MS = 25;
  * timeout either.
  */
 const BODY_GRACE_MS = 250;
+/**
+ * The body appears before SnlSyntaxTreeView's async macro batch resolves. A
+ * MutationObserver cannot distinguish that first fallback frame from the final
+ * macro-rendered frame, so require the subtree to stay byte-stable for a short
+ * quiet window before harvesting it.
+ */
+export const MACRO_SETTLE_QUIET_MS = 100;
 
 export type { EntryDetail };
 
@@ -175,6 +182,9 @@ export async function prerenderPopovers(
               postMessage={() => {
                 /* idem */
               }}
+              userMacros={deps.userMacros}
+              kindPalette={deps.kindPalette}
+              markdownImageUrlTransform={deps.markdownImageUrlTransform}
               disableTitleJump
             />
           </HoverPopoverProvider>
@@ -183,14 +193,22 @@ export async function prerenderPopovers(
         const deadline = Date.now() + timeoutMs;
         let stubGoneAt: number | null = null;
         let settled = false;
+        let lastMarkup = '';
+        let stableSince = 0;
         while (Date.now() < deadline) {
           await sleep(POLL_MS);
           if (!host.querySelector('.snl-entry-loading') && stubGoneAt === null) {
             stubGoneAt = Date.now();
           }
           if (isSettled(host, stubGoneAt)) {
-            settled = true;
-            break;
+            const markup = host.innerHTML;
+            if (markup !== lastMarkup) {
+              lastMarkup = markup;
+              stableSince = Date.now();
+            } else if (Date.now() - stableSince >= MACRO_SETTLE_QUIET_MS) {
+              settled = true;
+              break;
+            }
           }
         }
 

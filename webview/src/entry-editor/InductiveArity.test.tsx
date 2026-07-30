@@ -254,7 +254,8 @@ describe('Inductive editor arity auto-fill', () => {
     fireEvent.change(box, { target: { value: 'pair' } });
     await waitFor(() => expect(latest()).toBe('pair(,)'), { timeout: 2000 });
 
-    fireEvent.click(view.getAllByLabelText('Add child')[0]);
+    fireEvent.click(view.getAllByLabelText('Choose add position')[0]);
+    fireEvent.click(view.getByRole('menuitem', { name: 'Add child' }));
     await waitFor(() => expect(latest()).toBe('pair(,,)'), { timeout: 2000 });
     // And it stays: nothing reclaims it on a later render.
     await new Promise((resolve) => setTimeout(resolve, 250));

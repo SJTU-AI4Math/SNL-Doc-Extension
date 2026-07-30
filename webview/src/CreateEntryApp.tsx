@@ -3206,13 +3206,13 @@ export function GuiInductiveEditor({
     [onChange]
   );
 
-  // Path-based tree operations (cat 2026-07-15): '+ parent', indent,
+  // Path-based tree operations (cat 2026-07-15): add parent/sibling, indent,
   // outdent. Implemented as single top-level transforms so cross-node
   // rearrangements (indent/outdent) don't need to chain multiple
   // stale-state onChange calls up the tree. Path is the same dotted
   // form used by `collapsed` — '' for root, '0', '0.1', etc.
   const treeOp = useCallback(
-    (op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown', path: string): void => {
+    (op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown', path: string): void => {
       const next = applyTreeOp(tree, op, path);
       if (next !== tree) propagate(next);
     },
@@ -3296,7 +3296,7 @@ export function GuiInductiveEditor({
           fontStyle: 'italic'
         }}
       >
-        Inductive editor — hover a row for + child / − delete. Delimited
+        Inductive editor — hover a row for the action dial. Delimited
         forms are recognized: <code>$foo$</code>, <code>$$x+y$$</code>,{' '}
         <code>%text%</code>, <code>@$x$</code>, <code>foo[style]</code>.
       </p>
@@ -3429,7 +3429,7 @@ export function withArityAtPath(
 
 function applyTreeOp(
   tree: SnlSyntaxTree,
-  op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
+  op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
   path: string
 ): SnlSyntaxTree {
   if (op === 'wrapParent') {
@@ -3446,6 +3446,13 @@ function applyTreeOp(
   if (parts.length === 0) return tree;
   const idx = Number(parts[parts.length - 1]);
   const parentPath = parts.slice(0, -1).join('.');
+  if (op === 'addSibling') {
+    return transformChildrenAtPath(tree, parentPath, (kids) => {
+      const nextKids = kids.slice();
+      nextKids.splice(idx + 1, 0, createSnlSyntaxTreeNode(''));
+      return nextKids;
+    });
+  }
   if (op === 'indent') {
     if (idx === 0) return tree; // no preceding sibling
     return transformChildrenAtPath(tree, parentPath, (kids) => {
@@ -3593,7 +3600,7 @@ function InductiveNode({
    */
   setRowArity: (path: string, count: number) => void;
   treeOp: (
-    op: 'wrapParent' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
+    op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
     path: string
   ) => void;
 }): React.ReactElement {
@@ -3601,6 +3608,23 @@ function InductiveNode({
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
   );
+  const [addMenuOpen, setAddMenuOpen] = React.useState(false);
+  const addControlRef = React.useRef<HTMLDivElement>(null);
+  const addMenuId = React.useId();
+
+  React.useEffect(() => {
+    if (!addMenuOpen) return;
+    addControlRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+      ?.focus();
+    const closeOnOutsideClick = (event: MouseEvent): void => {
+      if (!addControlRef.current?.contains(event.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [addMenuOpen]);
 
   // Sync from external changes (e.g. text mode edit → re-parse → new tree).
   // Only reset if the incoming node's stringified form differs from what we
@@ -3639,6 +3663,12 @@ function InductiveNode({
       ...node,
       children: [...node.children, createSnlSyntaxTreeNode('')]
     });
+  };
+  const chooseAddPosition = (position: 'parent' | 'child' | 'sibling'): void => {
+    setAddMenuOpen(false);
+    if (position === 'parent') treeOp('wrapParent', path);
+    else if (position === 'child') addChild();
+    else if (path !== '') treeOp('addSibling', path);
   };
   const updateChild = (i: number, next: SnlSyntaxTree): void => {
     const nextChildren = node.children.slice();
@@ -3853,10 +3883,7 @@ function InductiveNode({
           }}
         />
 
-        <div
-          className="snl-tree-row-toolbar"
-          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
-        >
+        <div className="snl-tree-row-toolbar">
           {(() => {
             const trimmed = node.macro_name.trim();
             const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
@@ -3875,6 +3902,7 @@ function InductiveNode({
               <Button
                 variant="ghost"
                 size="sm"
+                className="snl-tree-compact-action"
                 onClick={() =>
                   onOpenMacroEditor({
                     name: trimmed,
@@ -3894,107 +3922,119 @@ function InductiveNode({
               </Button>
             );
           })()}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={addChild}
-            title="Add a child under this node"
-            aria-label="Add child"
-          >
-            + child
-          </Button>
           {(() => {
-            const parts = path.split('.').filter((s) => s.length > 0);
-            const idx =
-              parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
-            const canIndent = parts.length > 0 && idx > 0;
+            const parts = path.split('.').filter((part) => part.length > 0);
+            const index = parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
+            const canIndent = parts.length > 0 && index > 0;
             const canOutdent = parts.length >= 2;
-            const canMoveUp = parts.length > 0 && idx > 0;
-            const canMoveDown = parts.length > 0 && idx < siblingCount - 1;
+            const canMoveUp = parts.length > 0 && index > 0;
+            const canMoveDown = parts.length > 0 && index < siblingCount - 1;
             return (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => treeOp('wrapParent', path)}
-                  title="Wrap this row in a new empty parent"
-                  aria-label="Add parent"
-                >
-                  + parent
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => canOutdent && treeOp('outdent', path)}
-                  disabled={!canOutdent}
-                  title={
-                    canOutdent
-                      ? 'Outdent — move up one level (become sibling of parent)'
-                      : 'Cannot outdent — already at top-level'
-                  }
-                  aria-label="Outdent"
-                >
-                  ⇤
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => canIndent && treeOp('indent', path)}
-                  disabled={!canIndent}
-                  title={
-                    canIndent
-                      ? 'Indent — become child of preceding sibling'
-                      : 'Cannot indent — no preceding sibling'
-                  }
-                  aria-label="Indent"
-                >
-                  ⇥
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => canMoveUp && treeOp('moveUp', path)}
-                  disabled={!canMoveUp}
-                  title={
-                    canMoveUp
-                      ? 'Move up — swap with preceding sibling'
-                      : 'Cannot move up — already first'
-                  }
-                  aria-label="Move up"
-                >
-                  ↑
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => canMoveDown && treeOp('moveDown', path)}
-                  disabled={!canMoveDown}
-                  title={
-                    canMoveDown
-                      ? 'Move down — swap with following sibling'
-                      : 'Cannot move down — already last'
-                  }
-                  aria-label="Move down"
-                >
-                  ↓
-                </Button>
-              </>
+              <div className="snl-tree-operation-cluster">
+                <div ref={addControlRef} className="snl-tree-operation-dial">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-dial-action snl-tree-dial-action--up"
+                    onClick={() => canMoveUp && treeOp('moveUp', path)}
+                    disabled={!canMoveUp}
+                    title={canMoveUp ? 'Move up — swap with preceding sibling' : 'Cannot move up — already first'}
+                    aria-label="Move up"
+                  >
+                    ↑
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-dial-action snl-tree-dial-action--outdent"
+                    onClick={() => canOutdent && treeOp('outdent', path)}
+                    disabled={!canOutdent}
+                    title={canOutdent ? 'Outdent — move up one level' : 'Cannot outdent — already at top-level'}
+                    aria-label="Outdent"
+                  >
+                    ←
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-dial-action snl-tree-dial-action--add"
+                    onClick={() => setAddMenuOpen((open) => !open)}
+                    title="Choose where to add a node"
+                    aria-label="Choose add position"
+                    aria-haspopup="menu"
+                    aria-expanded={addMenuOpen}
+                    aria-controls={addMenuOpen ? addMenuId : undefined}
+                  >
+                    +
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-dial-action snl-tree-dial-action--indent"
+                    onClick={() => canIndent && treeOp('indent', path)}
+                    disabled={!canIndent}
+                    title={canIndent ? 'Indent — become child of preceding sibling' : 'Cannot indent — no preceding sibling'}
+                    aria-label="Indent"
+                  >
+                    →
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-dial-action snl-tree-dial-action--down"
+                    onClick={() => canMoveDown && treeOp('moveDown', path)}
+                    disabled={!canMoveDown}
+                    title={canMoveDown ? 'Move down — swap with following sibling' : 'Cannot move down — already last'}
+                    aria-label="Move down"
+                  >
+                    ↓
+                  </Button>
+                  {addMenuOpen ? (
+                    <div
+                      id={addMenuId}
+                      role="menu"
+                      aria-label="Add node position"
+                      className="snl-tree-add-menu"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.stopPropagation();
+                          setAddMenuOpen(false);
+                          addControlRef.current
+                            ?.querySelector<HTMLButtonElement>('[aria-label="Choose add position"]')
+                            ?.focus();
+                          return;
+                        }
+                        if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) return;
+                        event.preventDefault();
+                        const items = Array.from(
+                          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+                        );
+                        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+                        const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+                        items[(current + step + items.length) % items.length]?.focus();
+                      }}
+                    >
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add parent" onClick={() => chooseAddPosition('parent')} title="Add a parent around this node">parent</Button>
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add child" onClick={() => chooseAddPosition('child')} title="Add a child under this node">child</Button>
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add sibling" disabled={path === ''} onClick={() => chooseAddPosition('sibling')} title={path === '' ? 'Root cannot have a sibling' : 'Add a sibling after this node'}>sibling</Button>
+                    </div>
+                  ) : null}
+                </div>
+                {onDelete ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="snl-tree-compact-action snl-tree-delete-action"
+                    onClick={onDelete}
+                    title="Delete this subtree"
+                    aria-label="Delete subtree"
+                  >
+                    ×
+                  </Button>
+                ) : null}
+              </div>
             );
           })()}
-          {onDelete ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDelete}
-              title="Delete this subtree"
-              aria-label="Delete subtree"
-              style={{
-                color: 'var(--vscode-errorForeground, #f48771)'
-              }}
-            >
-              ✕
-            </Button>
-          ) : null}
         </div>
       </div>
 

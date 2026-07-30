@@ -39,3 +39,55 @@
   font-size: 1rem;
   outline: none;
 }
+
+/* The inductive editor keeps structural controls in a small 3×3 dial instead
+   of a horizontal strip. This bounds the action bar while preserving a
+   spatial mapping between arrows and operations. */
+.snl-tree-row-toolbar,
+.snl-tree-operation-cluster {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.snl-tree-operation-dial {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1.15rem);
+  grid-template-rows: repeat(3, 1.15rem);
+}
+
+.snl-tree-dial-action,
+.snl-tree-compact-action {
+  box-sizing: border-box;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-width: 1.15rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.snl-tree-dial-action--up { grid-area: 1 / 2; }
+.snl-tree-dial-action--outdent { grid-area: 2 / 1; }
+.snl-tree-dial-action--add { grid-area: 2 / 2; }
+.snl-tree-dial-action--indent { grid-area: 2 / 3; }
+.snl-tree-dial-action--down { grid-area: 3 / 2; }
+
+.snl-tree-delete-action {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.snl-tree-add-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(50% + 0.7rem);
+  right: 0;
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, #555));
+  border-radius: 3px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+}

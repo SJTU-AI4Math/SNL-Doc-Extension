@@ -30,6 +30,8 @@ import {
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml } from './export/htmlExport';
+import { createEntryDetailLoader } from './export/entryDetailBridge';
+import { prerenderPopovers } from './export/popoverPrerender';
 import {
   COLLAPSE_GLYPH,
   COLLAPSE_TOGGLE_STYLE,
@@ -170,14 +172,54 @@ export function App(): React.ReactElement {
     const root = outlineRef.current;
     if (!root) return;
     const { html, assets } = harvestLibraryHtml(root, assetBaseUri);
-    postMessage({
-      type: 'exportLibraryHtml',
-      slug,
-      title,
-      subtitle: `${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} \u00b7 ${slug}`,
-      body: html,
-      assets
-    });
+    const send = (
+      popovers: Record<string, string>,
+      extraAssets: typeof assets
+    ): void => {
+      const merged = new Map(assets.map((a) => [a.path, a] as const));
+      for (const asset of extraAssets) if (!merged.has(asset.path)) merged.set(asset.path, asset);
+      postMessage({
+        type: 'exportLibraryHtml',
+        slug,
+        title,
+        subtitle: `${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} \u00b7 ${slug}`,
+        body: html,
+        assets: [...merged.values()],
+        popovers
+      });
+    };
+
+    // Popovers are pre-rendered HERE rather than shipped as a renderer,
+    // because an Entry body needs React + KaTeX and the webview already has
+    // both loaded (see export/popoverPrerender.tsx). This is asynchronous —
+    // each Entry must settle — so the export message is sent afterwards. A
+    // failure degrades to a popover-less document instead of aborting.
+    void prerenderPopovers(html, {
+      loadDetail: createEntryDetailLoader({ postMessage }),
+      entries: entryPool,
+      userMacros,
+      kindPalette,
+      markdownImageUrlTransform: assetBaseUri
+        ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
+        : undefined
+    }).then(
+      (closure) => {
+        // Fragments can embed workspace images too. Reuse the harvest so
+        // their srcs are rewritten and their assets collected exactly like
+        // the body's, rather than a second near-copy of that logic.
+        const popovers: Record<string, string> = {};
+        const extra: typeof assets = [];
+        for (const [entryId, fragment] of Object.entries(closure.fragments)) {
+          const holder = document.createElement('div');
+          holder.innerHTML = fragment;
+          const harvested = harvestLibraryHtml(holder, assetBaseUri);
+          popovers[entryId] = harvested.html;
+          extra.push(...harvested.assets);
+        }
+        send(popovers, extra);
+      },
+      () => send({}, [])
+    );
   };
   const markdownImageUrlTransform = React.useMemo(
     () => assetBaseUri

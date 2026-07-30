@@ -89,6 +89,12 @@ describe('the exported runtime consumes the same contract', () => {
     // that has to outrank the outline's inline `display` (see EXPORT_RUNTIME_CSS).
     expect(EXPORT_RUNTIME_CSS).not.toContain('snl-export-toggle');
     expect(EXPORT_RUNTIME_CSS).toContain('padding-left');
+    // The popover frame legitimately paints (background, shadow, fade), and
+    // it is not a button — so scope this assertion to everything else.
+    const withoutPopover = EXPORT_RUNTIME_CSS.replace(
+      /\.snl-export-popover[^{]*\{[^}]*\}/g,
+      ''
+    );
     // Assert the INTENT directly instead of proxying it through a byte count:
     // no button appearance is restyled here. A length cap would just have to be
     // re-raised every time a legitimate rule is added (it already blocked the
@@ -102,7 +108,7 @@ describe('the exported runtime consumes the same contract', () => {
       'opacity',
       'transition'
     ]) {
-      expect(EXPORT_RUNTIME_CSS).not.toContain(`${property}:`);
+      expect(withoutPopover).not.toContain(`${property}:`);
     }
   });
 

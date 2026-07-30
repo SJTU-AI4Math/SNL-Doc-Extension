@@ -3,8 +3,13 @@ import {
   buildExportPlan,
   exportFileStem,
   rewriteBundledCss,
-  type BinaryAsset
+  type BinaryAsset,
+  type TextAsset
 } from './exportDocument';
+import {
+  buildPopoverScript,
+  POPOVER_SCRIPT_PATH
+} from './exportPopoverPayload';
 
 /** What the webview sends when the reader hits Export. */
 export interface ExportRequest {
@@ -16,6 +21,12 @@ export interface ExportRequest {
   /** `assets/<name>` → the `vscode-webview:` URL it was harvested from. */
   assets: { path: string; sourceUrl: string }[];
   inline: boolean;
+  /**
+   * entryId → pre-rendered popover markup, harvested by the webview. Absent
+   * or empty means the document ships without popovers, which is a valid
+   * (merely poorer) export rather than an error.
+   */
+  popovers?: Record<string, string>;
 }
 
 const WEBVIEW_CSS = 'main.css';
@@ -101,6 +112,7 @@ export interface ExportDeps {
     subtitle?: string;
     css: string;
     body: string;
+    scriptSources: string[];
   }) => string;
 }
 
@@ -129,14 +141,24 @@ export async function writeExport(
     warnings
   );
 
+  // One payload, two shapes: the document always references `popovers.js`,
+  // and `buildExportPlan` folds that reference into an inline <script> for the
+  // single-file shape. Never a fetch() — under file:// that is a blocked
+  // cross-origin request.
+  const texts: TextAsset[] =
+    request.popovers && Object.keys(request.popovers).length > 0
+      ? [{ path: POPOVER_SCRIPT_PATH, source: buildPopoverScript(request.popovers) }]
+      : [];
+
   const html = deps.buildDocument({
     title: request.title,
     subtitle: request.subtitle,
     css,
-    body: request.body
+    body: request.body,
+    scriptSources: texts.map((t) => t.path)
   });
 
-  const plan = buildExportPlan({ html, binaries, inline: request.inline });
+  const plan = buildExportPlan({ html, binaries, inline: request.inline, texts });
   const encoder = new TextEncoder();
 
   if (request.inline) {
@@ -157,9 +179,16 @@ export async function writeExport(
     await fsApi.writeFile(fileUri, binary.bytes);
   }
 
+  for (const text of plan.texts) {
+    await fsApi.writeFile(
+      vscode.Uri.joinPath(deps.destination, ...text.path.split('/')),
+      encoder.encode(text.source)
+    );
+  }
+
   return {
     target: indexUri,
-    fileCount: plan.binaries.length + 1,
+    fileCount: plan.binaries.length + plan.texts.length + 1,
     warnings
   };
 }

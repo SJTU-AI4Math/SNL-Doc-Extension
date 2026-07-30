@@ -78,6 +78,166 @@ const RUNTIME_TEMPLATE = String.raw`
 
   var hover = globalThis.__snlHover;
 
+  // Pre-rendered popover fragments, keyed by Entry id. Baked in at export
+  // time (see webview/src/export/popoverPrerender.tsx) because rendering an
+  // Entry needs React + KaTeX, which would blow this runtime up by ~40x.
+  // Missing global = the export was written without popovers; degrade to no
+  // popovers rather than throwing and killing collapse/highlight too.
+  function popoverData() {
+    var data = globalThis.__SNL_POPOVERS__;
+    return data && typeof data === 'object' ? data : null;
+  }
+
+  var POPOVER_DELAY_MS = 1000;
+  var POPOVER_FADE_MS = 150;
+  var POPOVER_MAX_WIDTH = 720;
+  // Grace period for the pointer to cross the gap between the anchor and the
+  // popover, or between a popover and the one it spawned.
+  var POPOVER_CLOSE_MS = 180;
+
+  /**
+   * Hover popovers over [data-src] references.
+   *
+   * A stack, not a single layer: a popover body contains references of its
+   * own, so hovering one opens a child popover on top. Closing is depth-based
+   * — leaving level N disposes N and everything above it — which is the only
+   * rule that keeps the stack consistent when the pointer jumps backwards
+   * several levels at once.
+   */
+  function wirePopovers() {
+    var data = popoverData();
+    if (!data) return;
+
+    var stack = [];        // { el, depth, anchor }
+    var closeTimer = null;
+    var openTimer = null;
+    var pendingAnchor = null;
+
+    function cancelOpen() {
+      if (openTimer) { clearTimeout(openTimer); openTimer = null; }
+      pendingAnchor = null;
+    }
+
+    function disposeFrom(depth) {
+      while (stack.length > depth) {
+        (function (layer) {
+          layer.el.style.opacity = '0';
+          layer.el.style.pointerEvents = 'none';
+          // Remove only after the fade so the reader sees it leave.
+          setTimeout(function () {
+            if (layer.el.parentNode) layer.el.parentNode.removeChild(layer.el);
+          }, POPOVER_FADE_MS);
+        })(stack.pop());
+      }
+    }
+
+    function scheduleClose(depth) {
+      if (closeTimer) clearTimeout(closeTimer);
+      closeTimer = setTimeout(function () { disposeFrom(depth); }, POPOVER_CLOSE_MS);
+    }
+
+    function keepOpen() {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    }
+
+    /** Keep the panel inside the viewport, biased below-right of the pointer. */
+    function place(el, x, y) {
+      var vw = window.innerWidth || 1024;
+      var vh = window.innerHeight || 768;
+      var rect = el.getBoundingClientRect();
+      var w = rect.width || POPOVER_MAX_WIDTH;
+      var h = rect.height || 0;
+      var left = x + 12;
+      var top = y + 16;
+      if (left + w > vw - 8) left = Math.max(8, vw - 8 - w);
+      // Flip above the pointer rather than clamping to the bottom edge, so the
+      // panel never covers the very thing being hovered.
+      if (top + h > vh - 8) top = Math.max(8, y - 12 - h);
+      el.style.left = left + 'px';
+      el.style.top = top + 'px';
+    }
+
+    function openPopover(entryId, depth, x, y, anchor) {
+      var html = Object.prototype.hasOwnProperty.call(data, entryId)
+        ? data[entryId]
+        : null;
+      if (html === null || html === undefined) return;
+      disposeFrom(depth);
+
+      var el = document.createElement('div');
+      el.className = 'snl-export-popover';
+      el.setAttribute('data-snl-popover', entryId);
+      el.setAttribute('data-snl-popover-depth', String(depth));
+      el.style.opacity = '0';
+      el.innerHTML = html;
+      document.body.appendChild(el);
+      place(el, x, y);
+
+      var layer = { el: el, depth: depth, anchor: anchor };
+      stack.push(layer);
+
+      el.addEventListener('mouseenter', keepOpen);
+      el.addEventListener('mouseleave', function () { scheduleClose(depth); });
+      // A popover is a hover surface in its own right: bind the same handler
+      // so nested references keep working to arbitrary depth.
+      bind(el, depth + 1);
+      // Highlighting inside a popover body must work too.
+      wireHighlightingIn(el);
+
+      // Fade in on the next frame; setting opacity in the same tick as the
+      // insert would skip the transition entirely.
+      setTimeout(function () { el.style.opacity = '1'; }, 0);
+    }
+
+    /** Attach reference-hover handling inside container, at the given depth. */
+    function bind(container, depth) {
+      function referenceAncestor(start) {
+        var node = start;
+        while (node && node !== container && node.nodeType === 1) {
+          if (node.hasAttribute && node.hasAttribute('data-src')) return node;
+          node = node.parentNode;
+        }
+        return null;
+      }
+      container.addEventListener('mouseover', function (event) {
+        var node = referenceAncestor(event.target);
+        if (!node) return;
+        var entryId = node.getAttribute('data-src');
+        if (!entryId) return;
+        keepOpen();
+        // Already showing this exact anchor's popover — nothing to redo.
+        if (stack.length > depth && stack[depth].anchor === node) return;
+        if (pendingAnchor === node) return;
+        cancelOpen();
+        pendingAnchor = node;
+        var x = event.clientX;
+        var y = event.clientY;
+        openTimer = setTimeout(function () {
+          openTimer = null;
+          pendingAnchor = null;
+          openPopover(entryId, depth, x, y, node);
+        }, POPOVER_DELAY_MS);
+      });
+      container.addEventListener('mouseout', function (event) {
+        // Delegating at the whole Entry/popover container must not turn that
+        // whole region into the anchor's hitbox. Leaving a [data-src] for an
+        // ordinary sibling is a real leave: cancel a not-yet-open timer and
+        // close its layer. The old container.contains(to) check returned in
+        // precisely that case, so a popover stayed forever — or appeared a
+        // second AFTER the pointer had already left the reference.
+        var anchor = referenceAncestor(event.target);
+        if (!anchor) return;
+        var to = event.relatedTarget;
+        if (to && anchor.contains(to)) return;
+        cancelOpen();
+        scheduleClose(depth);
+      });
+    }
+
+    var main = document.querySelector('.snl-export') || document.body;
+    bind(main, 0);
+  }
+
   /**
    * Attach hover to each entry body.
    *
@@ -88,7 +248,12 @@ const RUNTIME_TEMPLATE = String.raw`
    */
   function wireHighlighting() {
     if (!hover) return;
-    var bodies = document.querySelectorAll('[data-entry-body]');
+    wireHighlightingIn(document);
+  }
+
+  function wireHighlightingIn(scope) {
+    if (!hover) return;
+    var bodies = scope.querySelectorAll('[data-entry-body]');
     for (var i = 0; i < bodies.length; i++) {
       (function (body) {
         body.addEventListener('mousemove', function (event) {
@@ -183,7 +348,7 @@ const RUNTIME_TEMPLATE = String.raw`
     }
   }
 
-  function init() { wireHighlighting(); wireCollapse(); }
+  function init() { wireHighlighting(); wireCollapse(); wirePopovers(); }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -230,4 +395,26 @@ export const EXPORT_RUNTIME_CSS = `
  * the subtree of a collapsible, only while hidden. */
 [data-snl-collapsible] > [data-snl-subtree][hidden],
 [data-snl-collapsible] [data-snl-subtree][hidden] { display: none !important; }
+
+/* Hover popovers.
+ *
+ * Values mirror the panel's HoverPopoverProvider frame (720px cap, 80vh, the
+ * same shadow) so a document reads the same in the browser as in the Infoview.
+ * The stack is z-ordered above everything else the page can produce; nesting
+ * depth does not need its own z-index because later siblings paint on top. */
+.snl-export-popover {
+  position: fixed;
+  z-index: 2147483000;
+  box-sizing: border-box;
+  max-width: 720px;
+  width: max-content;
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 80vh;
+  transition: opacity 150ms ease;
+}
+.snl-export-popover-fallback { padding: 0.6rem 0.8rem; }
 `.trim();

@@ -11,6 +11,8 @@ export interface ExportPayload {
   subtitle?: string;
   body: string;
   assets: { path: string; sourceUrl: string }[];
+  /** entryId → pre-rendered popover markup (see the webview's prerender). */
+  popovers?: Record<string, string>;
 }
 
 /**
@@ -228,6 +230,9 @@ export class ExportOptionsPanel {
         buildDocument: (input) =>
           buildExportDocument({
             ...input,
+            // Dropped when the reader asked for a static document: without the
+            // runtime nothing would read the payload anyway.
+            scriptSources: runtimeJs ? input.scriptSources : [],
             css: [EXPORT_BASE_CSS, runtimeJs ? EXPORT_RUNTIME_CSS : '', input.css]
               .filter(Boolean)
               .join('\n'),

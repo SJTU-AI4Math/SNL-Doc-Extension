@@ -18,6 +18,16 @@ export interface DocumentOptions {
    * strictly static document (no JavaScript at all).
    */
   script?: string;
+  /**
+   * Sidecar scripts emitted as `<script src="...">` BEFORE {@link script}.
+   *
+   * Order is load-bearing: the runtime reads `window.__SNL_POPOVERS__` during
+   * init, so the payload must already have executed. Referenced rather than
+   * inlined here because the directory shape wants a separate file; the inline
+   * shape folds these exact tags back in via `inlineScripts`, so one payload
+   * serves both shapes.
+   */
+  scriptSources?: string[];
 }
 
 function escapeHtml(text: string): string {
@@ -36,10 +46,13 @@ function escapeHtml(text: string): string {
  * a single self-sufficient file with no outbound requests either way.
  */
 export function buildExportDocument(options: DocumentOptions): string {
-  const { title, css, body, subtitle, script } = options;
+  const { title, css, body, subtitle, script, scriptSources = [] } = options;
   const heading = subtitle
     ? `<h1>${escapeHtml(title)}</h1>\n<p class="snl-export-subtitle">${escapeHtml(subtitle)}</p>`
     : `<h1>${escapeHtml(title)}</h1>`;
+  const sidecarTags = scriptSources
+    .map((src) => `<script src="${escapeHtml(src)}"></script>\n`)
+    .join('');
   // `</script>` inside the payload would close the tag early.
   const scriptTag = script
     ? `<script>\n${script.replace(/<\/script>/gi, '<\\/script>')}\n</script>\n`
@@ -61,7 +74,7 @@ ${css}
 ${heading}
 ${body}
 </main>
-${scriptTag}</body>
+${sidecarTags}${scriptTag}</body>
 </html>
 `;
 }

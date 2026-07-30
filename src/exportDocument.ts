@@ -17,12 +17,29 @@ export interface BinaryAsset {
   bytes: Uint8Array;
 }
 
+/**
+ * A sidecar text file the export may emit — currently only the pre-rendered
+ * popover payload.
+ *
+ * It is deliberately NOT modelled as a {@link BinaryAsset}: binaries get
+ * folded into `data:` URLs when inlining, and `<script src="data:...">` is
+ * refused or restricted by several browsers. Scripts fold into a real inline
+ * `<script>` element instead (see {@link inlineScripts}).
+ */
+export interface TextAsset {
+  /** Path relative to the export root, e.g. `popovers.js`. */
+  path: string;
+  source: string;
+}
+
 /** Everything to be written, resolved and ready. */
 export interface ExportPlan {
   /** `index.html` for a directory export, or the single file when inlined. */
   html: string;
   /** Empty when inlined — every byte lives inside `html` instead. */
   binaries: BinaryAsset[];
+  /** Empty when inlined — each source lives inside `html` instead. */
+  texts: TextAsset[];
 }
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -114,15 +131,45 @@ export function inlineBinaries(html: string, binaries: BinaryAsset[]): string {
   return out;
 }
 
+/**
+ * Fold each sidecar script into the document.
+ *
+ * The directory shape's `<script src="popovers.js"></script>` becomes an
+ * inline `<script>` carrying the same source, so the two shapes run byte-
+ * identical payloads and cannot drift. `</script>` inside the source is
+ * escaped for the same reason `buildExportDocument` escapes the runtime.
+ */
+export function inlineScripts(html: string, scripts: TextAsset[]): string {
+  let out = html;
+  for (const { path, source } of scripts) {
+    const tag = `<script src="${path}"></script>`;
+    out = out
+      .split(tag)
+      .join(`<script>\n${source.replace(/<\/script>/gi, '<\\/script>')}\n</script>`);
+  }
+  return out;
+}
+
 export interface PlanInput {
   html: string;
   binaries: BinaryAsset[];
   inline: boolean;
+  /** Sidecar scripts; omitted means none. */
+  texts?: TextAsset[];
 }
 
-export function buildExportPlan({ html, binaries, inline }: PlanInput): ExportPlan {
-  if (!inline) return { html, binaries };
-  return { html: inlineBinaries(html, binaries), binaries: [] };
+export function buildExportPlan({
+  html,
+  binaries,
+  inline,
+  texts = []
+}: PlanInput): ExportPlan {
+  if (!inline) return { html, binaries, texts };
+  return {
+    html: inlineBinaries(inlineScripts(html, texts), binaries),
+    binaries: [],
+    texts: []
+  };
 }
 
 /** Filesystem-safe stem for an exported document. */

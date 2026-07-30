@@ -36,7 +36,10 @@ describe('EXPORT_RUNTIME_WIRING_JS', () => {
   });
 
   it('stays small enough to inline without thought', () => {
-    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(8000);
+    // Raised from 8000 when hover popovers landed (2026-07-30). The cap exists
+    // to catch a renderer accidentally being dragged in — React alone is 100x
+    // this — not to police a few hundred bytes of new wiring.
+    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(16000);
   });
 });
 

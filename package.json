@@ -330,7 +330,7 @@
     "build:webview:exportOptions": "cross-env SNL_WEBVIEW_ENTRY=exportOptions vite build --config webview/vite.config.ts"
   },
   "dependencies": {
-    "@sjtu-ai4math/snl-basics": "^0.1.0",
+    "@sjtu-ai4math/snl-basics": "^0.1.1",
     "fuse.js": "^7.5.0",
     "katex": "^0.16.0",
     "react": "^19",

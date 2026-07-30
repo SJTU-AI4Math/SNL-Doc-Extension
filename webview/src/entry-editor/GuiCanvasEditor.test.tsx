@@ -1375,6 +1375,8 @@ describe('GuiCanvasEditor', () => {
     );
     expect(style.value).toBe('default');
     expect(root.textContent).not.toContain('[default]');
+    expect(fireEvent.keyDown(style, { key: 'ArrowDown' })).toBe(true);
+    expect(root.classList.contains('snl-canvas-focused')).toBe(true);
     fireEvent.change(style, { target: { value: 'compact' } });
     await waitFor(() => expect(view.getByTestId('canvas-style').textContent).toBe('compact'));
     expect((view.getByRole('combobox', { name: 'Macro style' }) as HTMLSelectElement).value)
@@ -1398,6 +1400,34 @@ describe('GuiCanvasEditor', () => {
       target: { value: 'default' }
     });
     await waitFor(() => expect(view.getByTestId('canvas-style').textContent).toBe(''));
+  });
+
+  it('can clear a missing Canvas Style from its only normal editing channel', async () => {
+    function Harness(): React.ReactElement {
+      const initial = { ...node('gone'), style_name: 'legacy' };
+      const [forest, setForest] = React.useState([initial]);
+      return (
+        <>
+          <output data-testid="missing-canvas-style">{forest[0]?.style_name ?? ''}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={variadicDriver}
+            macroCandidates={[{ id: 'gone', labels: [], styles: [] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    const style = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Macro style' }) as HTMLSelectElement
+    );
+    expect(Array.from(style.options).map((option) => option.value)).toContain('');
+    fireEvent.change(style, { target: { value: '' } });
+    await waitFor(() => expect(view.getByTestId('missing-canvas-style').textContent).toBe(''));
   });
 
   it('shows Edit/Create Macro links beside the focused Canvas controls', async () => {

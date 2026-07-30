@@ -69,6 +69,7 @@ describe('Inductive editor arity auto-fill', () => {
     expect(macroInput.value).not.toContain('[');
     fireEvent.change(macroInput, { target: { value: 'styled[compact]' } });
     expect(latest()).toBe('styled');
+    expect(macroInput.value).toBe('styled');
 
     const style = await waitFor(() =>
       view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
@@ -83,6 +84,17 @@ describe('Inductive editor arity auto-fill', () => {
     expect(macroInput.value).toBe('styled');
     fireEvent.change(style, { target: { value: 'default' } });
     expect(latest()).toBe('styled');
+  });
+
+  it('can clear a missing legacy Style through the independent dropdown', async () => {
+    const { view, latest } = renderEditor('gone[legacy]');
+    const style = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Macro style for gone' }) as HTMLSelectElement
+    );
+    expect(style.disabled).toBe(false);
+    expect(Array.from(style.options).map((option) => option.value)).toContain('');
+    fireEvent.change(style, { target: { value: '' } });
+    expect(latest()).toBe('gone');
   });
 
   it('opens child rows once a fixed-arity Macro is matched', async () => {

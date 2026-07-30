@@ -2826,6 +2826,7 @@ export function GuiCanvasEditor({
                           styleNames
                         )
                       }
+                      onKeyDown={(event) => event.stopPropagation()}
                       title="Select Macro style"
                       style={{
                         maxWidth: '9rem',
@@ -2835,6 +2836,9 @@ export function GuiCanvasEditor({
                         border: '1px solid var(--vscode-dropdown-border, #555)'
                       }}
                     >
+                      {explicitStyleMissing && styleNames.length === 0 ? (
+                        <option value="">(clear style)</option>
+                      ) : null}
                       {explicitStyleMissing ? (
                         <option value={node.style_name}>{node.style_name} (missing)</option>
                       ) : null}
@@ -3123,8 +3127,8 @@ function parseLeafSource(raw: string): {
   //     show up inside the head we treat the whole raw string as an
   //     opaque name (defensive; the paren guard on the caller side
   //     usually keeps them out).
-  //   - A trailing `[style]` is peeled into `node.style_name` so the dedicated
-  //     style box on the right can drive it independently.
+  //   - A trailing `[style]` is recognized only so the Macro-name input can
+  //     immediately strip it; the independent dropdown is the sole Style writer.
   if (trimmed.includes('(') || trimmed.includes(',')) {
     return { macro_name: raw };
   }
@@ -3773,8 +3777,12 @@ function InductiveNode({
   }, [node.macro_name, node.env_mode, node.kind, node.style_name]);
 
   const commitRaw = (nextRaw: string): void => {
-    setRawInput(nextRaw);
     const leaf = parseLeafSource(nextRaw);
+    // Never leave bracket syntax looking accepted in the Macro-name channel.
+    // Canonicalize it immediately while preserving the model's independent Style.
+    setRawInput(
+      leaf.style_name !== undefined ? leaf.macro_name : nextRaw
+    );
     onChange({
       ...node,
       macro_name: leaf.macro_name,
@@ -3904,6 +3912,7 @@ function InductiveNode({
   const styleDisplay = styleIsExplicit ? node.style_name! : defaultStyleTag;
   const explicitStyleMissing =
     styleIsExplicit && !styleTags.includes(node.style_name!);
+  const styleSelectable = styleAvailable || explicitStyleMissing;
 
   const commitStyle = (nextValue: string): void => {
     const trimmed = nextValue.trim();
@@ -3992,15 +4001,17 @@ function InductiveNode({
 
         <select
           value={styleDisplay}
-          disabled={!styleAvailable}
+          disabled={!styleSelectable}
           onChange={(event) => commitStyle(event.target.value)}
           aria-label={`Macro style for ${node.macro_name || 'unresolved Macro'}`}
           title={
-            !styleAvailable
-              ? 'Style unavailable — name does not match a Macro with styles'
-              : styleIsExplicit
-                ? `explicit style: [${node.style_name}]`
-                : `default style (implicit): [${defaultStyleTag}]`
+            explicitStyleMissing
+              ? `Style [${node.style_name}] is missing; choose clear or a declared Style`
+              : !styleAvailable
+                ? 'Style unavailable — name does not match a Macro with styles'
+                : styleIsExplicit
+                  ? `explicit style: [${node.style_name}]`
+                  : `default style (implicit): [${defaultStyleTag}]`
           }
           style={{
             ...inputStyle,
@@ -4009,15 +4020,17 @@ function InductiveNode({
             padding: '0.25rem 0.4rem',
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
             fontSize: '0.8rem',
-            opacity: !styleAvailable ? 0.35 : 1,
+            opacity: !styleSelectable ? 0.35 : 1,
             background: 'var(--vscode-dropdown-background, var(--vscode-input-background, #2a2a2a))',
             color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))',
             borderColor:
               'var(--vscode-dropdown-border, var(--vscode-input-border, #555))',
-            cursor: !styleAvailable ? 'not-allowed' : 'default'
+            cursor: !styleSelectable ? 'not-allowed' : 'default'
           }}
         >
-          {!styleAvailable ? <option value="">style</option> : null}
+          {!styleAvailable ? (
+            <option value="">{explicitStyleMissing ? '(clear style)' : 'style'}</option>
+          ) : null}
           {explicitStyleMissing ? (
             <option value={node.style_name}>{node.style_name} (missing)</option>
           ) : null}

@@ -27,6 +27,14 @@ interface EntryOption {
   hasContent: boolean;
 }
 
+interface CreateMacroPrefill {
+  name?: string;
+  template?: string;
+  mode?: 'formula_inline' | 'formula_display' | 'text';
+  /** Resolve this macro from the target package and clone it into create mode. */
+  copyFrom?: string;
+}
+
 /** Convert an EntryData record into the picker projection. Empty title is
  *  legal (per snlDoc.ts spec); the picker renders it as "(untitled)". */
 function toEntryOption(e: EntryData): EntryOption {
@@ -83,20 +91,12 @@ export class CreateMacroPanel {
    * picker; `template` seeds the KaTeX template field; `name` seeds
    * the name field.
    */
-  private prefill: {
-    name?: string;
-    template?: string;
-    mode?: 'formula_inline' | 'formula_display' | 'text';
-  } | null;
+  private prefill: CreateMacroPrefill | null;
 
   public static createOrShow(
     extensionUri: vscode.Uri,
     file: string,
-    prefill?: {
-      name?: string;
-      template?: string;
-      mode?: 'formula_inline' | 'formula_display' | 'text';
-    } | null
+    prefill?: CreateMacroPrefill | null
   ): void {
     const bare = stripJsonExt(file);
     if (!bare) {
@@ -122,17 +122,17 @@ export class CreateMacroPanel {
     mode: 'create' | 'edit',
     file: string,
     macroName: string,
-    prefill: {
-      name?: string;
-      template?: string;
-      mode?: 'formula_inline' | 'formula_display' | 'text';
-    } | null
+    prefill: CreateMacroPrefill | null
   ): void {
     const column = vscode.ViewColumn.Active;
     const key = `${mode}:${file}:${macroName}`;
 
     const existing = CreateMacroPanel.instances.get(key);
     if (existing) {
+      if (prefill) {
+        existing.prefill = prefill;
+        void existing.pushContext();
+      }
       existing.panel.reveal(column);
       return;
     }
@@ -165,11 +165,7 @@ export class CreateMacroPanel {
     mode: 'create' | 'edit',
     file: string,
     macroName: string,
-    prefill: {
-      name?: string;
-      template?: string;
-      mode?: 'formula_inline' | 'formula_display' | 'text';
-    } | null
+    prefill: CreateMacroPrefill | null
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
@@ -237,6 +233,13 @@ export class CreateMacroPanel {
         this.mode === 'edit'
           ? read.macros.find((m) => m.name === this.macroName) ?? null
           : null;
+      const copySource =
+        this.mode === 'create' && this.prefill?.copyFrom
+          ? read.macros.find((macro) => macro.name === this.prefill?.copyFrom)
+          : undefined;
+      const prefill = copySource
+        ? { macro: { ...copySource, name: '' } }
+        : this.prefill;
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
@@ -247,7 +250,7 @@ export class CreateMacroPanel {
         macroKinds,
         existing,
         entries,
-        prefill: this.mode === 'create' ? this.prefill : null
+        prefill: this.mode === 'create' ? prefill : null
       });
       return;
     }

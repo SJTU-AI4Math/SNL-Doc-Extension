@@ -33,20 +33,34 @@ const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+(\.json)?$/;
  */
 function sanitizeCreateMacroPrefill(
   value: unknown
-): { name?: string; template?: string; mode?: 'formula_inline' | 'formula_display' | 'text' } | null {
+): {
+  name?: string;
+  template?: string;
+  mode?: 'formula_inline' | 'formula_display' | 'text';
+  copyFrom?: string;
+} | null {
   if (!value || typeof value !== 'object') return null;
   const p = value as Record<string, unknown>;
   const out: {
     name?: string;
     template?: string;
     mode?: 'formula_inline' | 'formula_display' | 'text';
+    copyFrom?: string;
   } = {};
   if (typeof p.name === 'string' && p.name.length > 0) out.name = p.name;
   if (typeof p.template === 'string' && p.template.length > 0) out.template = p.template;
   if (p.mode === 'formula_inline' || p.mode === 'formula_display' || p.mode === 'text') {
     out.mode = p.mode;
   }
-  if (out.name === undefined && out.template === undefined && out.mode === undefined) {
+  if (typeof p.copyFrom === 'string' && p.copyFrom.trim()) {
+    out.copyFrom = p.copyFrom.trim();
+  }
+  if (
+    out.name === undefined &&
+    out.template === undefined &&
+    out.mode === undefined &&
+    out.copyFrom === undefined
+  ) {
     return null;
   }
   return out;

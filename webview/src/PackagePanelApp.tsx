@@ -321,6 +321,8 @@ export function PackagePanelApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'editMacroPackage' });
   const editMacro = (name: string): void =>
     apiRef.current?.postMessage({ type: 'editMacro', name });
+  const copyMacro = (name: string): void =>
+    apiRef.current?.postMessage({ type: 'copyMacro', name });
   const setPackageActive = (active: boolean): void =>
     apiRef.current?.postMessage({ type: 'setPackageActive', active });
 
@@ -524,6 +526,7 @@ export function PackagePanelApp(): React.ReactElement {
           macroKinds={macroKinds}
           entryPoolIds={entryPoolIds}
           onEdit={editMacro}
+          onCopy={copyMacro}
           onDelete={deleteMacro}
           selectMode={selectMode}
           selectedNames={selectedNames}
@@ -658,6 +661,7 @@ export function MacroTable({
   macroKinds,
   entryPoolIds,
   onEdit,
+  onCopy,
   onDelete,
   selectMode,
   selectedNames,
@@ -667,6 +671,7 @@ export function MacroTable({
   macroKinds: MacroKind[];
   entryPoolIds: Set<string>;
   onEdit: (name: string) => void;
+  onCopy: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selectedNames: Set<string>;
@@ -746,7 +751,7 @@ export function MacroTable({
           <th style={{ ...HEAD, width: '13rem' }}>Style Tags</th>
           {/* Description can be long and wrapping is fine here. */}
           <th style={HEAD}>Description</th>
-          <th style={{ ...HEAD, width: '3rem', textAlign: 'center' }}>Actions</th>
+          <th style={{ ...HEAD, width: '7rem', textAlign: 'center' }}>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -761,6 +766,7 @@ export function MacroTable({
             previewMacroDataDriver={previewMacroDataDriver}
             previewHooks={previewHooks}
             onEdit={onEdit}
+            onCopy={onCopy}
             onDelete={onDelete}
             selectMode={selectMode}
             selected={selectedNames.has(m.name)}
@@ -791,6 +797,7 @@ function MacroRowGroup({
   previewMacroDataDriver,
   previewHooks,
   onEdit,
+  onCopy,
   onDelete,
   selectMode,
   selected,
@@ -804,6 +811,7 @@ function MacroRowGroup({
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  onCopy: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
@@ -836,6 +844,7 @@ function MacroRowGroup({
         previewMacroDataDriver={previewMacroDataDriver}
         previewHooks={previewHooks}
         onEdit={onEdit}
+        onCopy={onCopy}
         onDelete={onDelete}
         selectMode={selectMode}
         selected={selected}
@@ -860,6 +869,7 @@ function MacroRowGroup({
               previewMacroDataDriver={previewMacroDataDriver}
               previewHooks={previewHooks}
               onEdit={onEdit}
+              onCopy={onCopy}
               onDelete={onDelete}
               selectMode={false}
               selected={false}
@@ -897,6 +907,7 @@ function MacroStyleRow({
   previewMacroDataDriver,
   previewHooks,
   onEdit,
+  onCopy,
   onDelete,
   selectMode,
   selected,
@@ -918,6 +929,7 @@ function MacroStyleRow({
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
+  onCopy: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
@@ -1106,19 +1118,33 @@ function MacroStyleRow({
       </td>
       <td style={{ ...CELL, textAlign: 'center' }}>
         {showMacroLevel && !selectMode ? (
-          <Button
-            variant="destructive"
-            size="sm"
-            title={`Delete macro ${macro.name}`}
-            aria-label={`Delete macro ${macro.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(macro.name);
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            🗑
-          </Button>
+          <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
+            <Button
+              size="sm"
+              title={`Copy macro ${macro.name}`}
+              aria-label={`Copy macro ${macro.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopy(macro.name);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              Copy
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              title={`Delete macro ${macro.name}`}
+              aria-label={`Delete macro ${macro.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(macro.name);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              🗑
+            </Button>
+          </span>
         ) : (
           <Dash />
         )}

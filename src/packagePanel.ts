@@ -230,6 +230,17 @@ export class PackagePanel {
       case 'createMacro':
         await vscode.commands.executeCommand('snlDoc.createMacro', this.file);
         return;
+      case 'copyMacro': {
+        const name = (msg as { name?: unknown }).name;
+        if (typeof name === 'string' && name) {
+          await vscode.commands.executeCommand(
+            'snlDoc.createMacro',
+            this.file,
+            { copyFrom: name }
+          );
+        }
+        return;
+      }
       case 'editMacroPackage':
         await vscode.commands.executeCommand(
           'snlDoc.editMacroPackage',

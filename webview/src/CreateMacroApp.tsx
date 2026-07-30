@@ -325,6 +325,8 @@ interface ContextMsg {
     name?: string;
     template?: string;
     mode?: 'formula_inline' | 'formula_display' | 'text';
+    /** Full source macro for Copy Macro; its identity is cleared on hydration. */
+    macro?: ExtendedSnlMacro;
   } | null;
 }
 
@@ -596,6 +598,10 @@ export function CreateMacroApp(): React.ReactElement {
             // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
             // `$$…$$` / plain-id content so the user doesn't retype.
             const p = msg.prefill;
+            if (p.macro) {
+              hydrateFromExisting({ ...p.macro, name: '' });
+              break;
+            }
             if (typeof p.name === 'string' && p.name) setName(p.name);
             setStyles((prev) => {
               const first = prev[0] ?? newStyleDraft('default');

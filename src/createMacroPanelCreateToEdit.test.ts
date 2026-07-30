@@ -100,6 +100,7 @@ type Ctx = {
   mode?: string;
   existing?: unknown;
   existingNames?: string[];
+  prefill?: unknown;
 };
 
 function contexts(): Ctx[] {
@@ -122,6 +123,33 @@ describe('macro panel create -> edit flip', () => {
   beforeEach(() => {
     reset();
     vi.resetModules();
+  });
+
+  it('resolves a copy prefill from the target package and clears only its name', async () => {
+    const source = {
+      name: 'source',
+      description: 'description',
+      source: { entries: ['entry'], urls: ['https://example.com'] },
+      kind: 'operator',
+      dynamic_arity: false,
+      tags: ['macro-tag'],
+      styles: [{
+        style_name: 'default',
+        mode: 'formula_inline',
+        template: '#0',
+        tags: ['style-tag']
+      }]
+    };
+    macros.push(source);
+
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+    CreateMacroPanel.createOrShow(extUri, 'algebra.json', { copyFrom: 'source' });
+    await handlers[0]({ type: 'ready' });
+
+    expect(contexts().at(-1)?.mode).toBe('create');
+    expect(contexts().at(-1)?.prefill).toEqual({
+      macro: { ...source, name: '' }
+    });
   });
 
   it('flips mode/name/title and pushes an edit-mode context', async () => {

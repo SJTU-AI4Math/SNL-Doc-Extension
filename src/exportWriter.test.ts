@@ -46,6 +46,7 @@ function seed(): void {
     )
   );
   files.set('/ext/media/webview/main-KaTeX_Main-Regular-abc.woff2', new Uint8Array([9, 9]));
+  files.set('/ext/media/icons/logoCSS_black.svg', new TextEncoder().encode('<svg id="logo"/>'));
   files.set('/ws/.SNL_Doc/assets/Dashboard-Panel.png', PNG);
 }
 
@@ -85,7 +86,8 @@ describe('writeExport — directory shape', () => {
     expect(out.warnings).toEqual([]);
     expect(files.has('/out/tour/assets/Dashboard-Panel.png')).toBe(true);
     expect(files.has('/out/tour/fonts/KaTeX_Main-Regular-abc.woff2')).toBe(true);
-    expect(out.fileCount).toBe(3);
+    expect(files.has('/out/tour/assets/sjtu-ai4math-logo.svg')).toBe(true);
+    expect(out.fileCount).toBe(4);
   });
 
   it('inlines the stylesheet and points it at the exported fonts', async () => {
@@ -135,7 +137,11 @@ describe('writeExport — inline shape', () => {
     const html = new TextDecoder().decode(files.get('/out/tour.html'));
     expect(html).toContain('data:image/png;base64,iVBORw==');
     expect(html).toContain('data:font/woff2;base64,CQk=');
+    expect(html).toContain('data:image/svg+xml;base64,PHN2ZyBpZD0ibG9nbyIvPg==');
+    expect(html).toContain('Interactive formulae powered by SNL by Fulcrum@SJTU AI4Math Team');
+    expect(html).toContain('href="https://github.com/SJTU-AI4Math/SNL-Basics"');
     expect(html).not.toContain('assets/Dashboard-Panel.png');
+    expect(html).not.toContain('assets/sjtu-ai4math-logo.svg');
     expect(html).not.toContain('fonts/KaTeX_Main-Regular-abc.woff2');
 
     const written = [...files.keys()].filter((k) => k.startsWith('/out/'));

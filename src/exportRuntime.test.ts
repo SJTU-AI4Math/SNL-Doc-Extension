@@ -59,7 +59,7 @@ describe('buildExportDocument with a runtime', () => {
     expect(doc).toContain('<script>');
     expect(doc).toContain('__snlHover');
     expect(doc.indexOf('<script>')).toBeGreaterThan(doc.indexOf('<p>x</p>'));
-    expect(doc).not.toContain('src=');
+    expect(doc).not.toContain('<script src=');
   });
 
   it('neutralises a closing script tag hidden in the payload', () => {

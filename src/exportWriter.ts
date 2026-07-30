@@ -6,6 +6,7 @@ import {
   type BinaryAsset,
   type TextAsset
 } from './exportDocument';
+import { EXPORT_WATERMARK_LOGO_PATH } from './exportHtmlDocument';
 import {
   buildPopoverScript,
   POPOVER_SCRIPT_PATH
@@ -140,6 +141,20 @@ export async function writeExport(
     fsApi,
     warnings
   );
+
+  // Export pages are white, so carry the black logo. It is an ordinary binary
+  // in the shared export plan: directory shape writes a sidecar SVG; integrated
+  // shape folds the same bytes into a data URL.
+  try {
+    binaries.push({
+      path: EXPORT_WATERMARK_LOGO_PATH,
+      bytes: await fsApi.readFile(
+        vscode.Uri.joinPath(deps.extensionUri, 'media', 'icons', 'logoCSS_black.svg')
+      )
+    });
+  } catch {
+    warnings.push('Missing SJTU AI4Math watermark logo.');
+  }
 
   // One payload, two shapes: the document always references `popovers.js`,
   // and `buildExportPlan` folds that reference into an inline <script> for the

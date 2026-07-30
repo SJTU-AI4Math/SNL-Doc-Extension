@@ -38,6 +38,9 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export const EXPORT_WATERMARK_LOGO_PATH = 'assets/sjtu-ai4math-logo.svg';
+export const SNL_BASICS_URL = 'https://github.com/SJTU-AI4Math/SNL-Basics';
+
 /**
  * Wrap harvested markup in a complete, self-sufficient HTML document.
  *
@@ -74,6 +77,10 @@ ${css}
 ${heading}
 ${body}
 </main>
+<a class="snl-export-watermark" href="${SNL_BASICS_URL}" target="_blank" rel="noopener noreferrer" aria-label="SNL-Basics on GitHub">
+  <img src="${EXPORT_WATERMARK_LOGO_PATH}" alt="SJTU AI4Math" />
+  <span>Interactive formulae powered by SNL by Fulcrum@SJTU AI4Math Team</span>
+</a>
 ${sidecarTags}${scriptTag}</body>
 </html>
 `;
@@ -99,4 +106,27 @@ body {
 }
 .snl-export img { max-width: 100%; height: auto; }
 .snl-export section { margin-bottom: 1rem; }
+.snl-export-watermark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  width: fit-content;
+  max-width: calc(100% - 2rem);
+  margin: 3rem auto 0;
+  padding: 0.55rem 0.8rem;
+  color: inherit;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-decoration: none;
+  opacity: 0.48;
+  transition: opacity 150ms ease;
+}
+.snl-export-watermark:hover,
+.snl-export-watermark:focus-visible { opacity: 0.78; }
+.snl-export-watermark img {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+}
 `.trim();

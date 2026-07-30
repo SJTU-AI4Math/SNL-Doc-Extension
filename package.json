@@ -324,7 +324,7 @@
     "build:webview:snoogl": "cross-env SNL_WEBVIEW_ENTRY=snoogl vite build --config webview/vite.config.ts",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
-    "test": "vitest run",
+    "test": "npm run build:export-runtime && vitest run",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
     "vscode:prepublish": "npm test && npm run compile && npm run build:export-runtime && npm run build:webview",
     "build:webview:exportOptions": "cross-env SNL_WEBVIEW_ENTRY=exportOptions vite build --config webview/vite.config.ts"

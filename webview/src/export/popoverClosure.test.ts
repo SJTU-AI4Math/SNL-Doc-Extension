@@ -95,6 +95,22 @@ describe('buildPopoverClosure', () => {
     expect(calls.filter((id) => id === 'd')).toHaveLength(1);
   });
 
+  it('cancels an obsolete walk before rendering the next Entry', async () => {
+    let cancelled = false;
+    const calls: string[] = [];
+    const result = await buildPopoverClosure(ref('a'), {
+      isCancelled: () => cancelled,
+      renderEntry: async (id) => {
+        calls.push(id);
+        cancelled = true;
+        return ref('b');
+      }
+    });
+    expect(calls).toEqual(['a']);
+    expect(result.truncated).toBe(true);
+    expect(result.fragments.b).toBeUndefined();
+  });
+
   it('stops at maxEntries rather than walking a pathological library', async () => {
     const table: Record<string, string> = {};
     for (let i = 0; i < 20; i++) table[`e${i}`] = `<p>${ref(`e${i + 1}`)}</p>`;

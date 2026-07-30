@@ -15,6 +15,17 @@ function el(html: string): HTMLElement {
 }
 
 describe('harvestLibraryHtml', () => {
+  it('decodes percent-encoded workspace filenames for filesystem export', () => {
+    const { html, assets } = harvestLibraryHtml(
+      el(`<p><img src="${BASE}/a%20b.png"></p>`),
+      BASE
+    );
+    expect(html).toContain('src="assets/a b.png"');
+    expect(assets).toEqual([
+      { path: 'assets/a b.png', sourceUrl: `${BASE}/a%20b.png` }
+    ]);
+  });
+
   it('rewrites workspace asset images to export-relative paths', () => {
     const { html, assets } = harvestLibraryHtml(
       el(`<p><img src="${BASE}/Dashboard-Panel.png"></p>`),

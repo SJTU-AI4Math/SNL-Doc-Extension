@@ -38,6 +38,8 @@ export interface ClosureOptions {
    * whole export.
    */
   renderEntry: (entryId: string) => Promise<string | null>;
+  /** Abort an obsolete export's closure walk between Entries. */
+  isCancelled?: () => boolean;
   /** Safety valve against a pathological library; 0 means unlimited. */
   maxEntries?: number;
 }
@@ -61,13 +63,14 @@ export async function buildPopoverClosure(
   seedHtml: string,
   options: ClosureOptions
 ): Promise<ClosureResult> {
-  const { renderEntry, maxEntries = 0 } = options;
+  const { renderEntry, maxEntries = 0, isCancelled = () => false } = options;
 
   const fragments: Record<string, string> = {};
   const missing: string[] = [];
   const visited = new Set<string>();
   const queue: string[] = [];
   let truncated = false;
+  let processed = 0;
 
   const enqueue = (ids: string[]): void => {
     for (const id of ids) {
@@ -80,11 +83,16 @@ export async function buildPopoverClosure(
   enqueue(collectEntryRefs(seedHtml));
 
   while (queue.length > 0) {
-    if (maxEntries > 0 && Object.keys(fragments).length >= maxEntries) {
+    if (isCancelled()) {
+      truncated = true;
+      break;
+    }
+    if (maxEntries > 0 && processed >= maxEntries) {
       truncated = true;
       break;
     }
     const entryId = queue.shift() as string;
+    processed += 1;
     let html: string | null = null;
     try {
       html = await renderEntry(entryId);

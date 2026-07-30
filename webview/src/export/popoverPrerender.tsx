@@ -59,6 +59,10 @@ export interface PrerenderDeps {
   userMacros?: MacroRecord;
   kindPalette?: KindPalette;
   markdownImageUrlTransform?: (source: string) => string;
+  /** Abort an obsolete export between Entry renders. */
+  isCancelled?: () => boolean;
+  /** Hard cap for a pathological reference graph. */
+  maxEntries?: number;
   /** Overridable so tests do not have to wait seconds for the fallback. */
   timeoutMs?: number;
   /** Injected in tests; defaults to `document`. */
@@ -145,6 +149,8 @@ export async function prerenderPopovers(
 
   try {
     return await buildPopoverClosure(seedHtml, {
+      isCancelled: deps.isCancelled,
+      maxEntries: deps.maxEntries,
       renderEntry: async (entryId) => {
         const detail = await deps.loadDetail(entryId);
         if (!detail.entry) return null;

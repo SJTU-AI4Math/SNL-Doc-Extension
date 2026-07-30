@@ -110,7 +110,15 @@ export function harvestLibraryHtml(
     const src = img.getAttribute('src') ?? '';
     if (!base || !src.startsWith(`${base}/`)) continue;
     const rest = src.slice(base.length + 1);
-    const clean = rest.split(/[?#]/)[0];
+    let clean: string;
+    try {
+      // Webview URIs percent-encode workspace filenames. The exported path and
+      // the host-side filesystem lookup must use the real filename, otherwise
+      // `a b.png` turns into a request for the non-existent `a%20b.png`.
+      clean = decodeURIComponent(rest.split(/[?#]/)[0]);
+    } catch {
+      clean = '';
+    }
     if (!clean || clean.split('/').some((s) => !s || s === '..')) {
       // Never let a webview-internal URL survive into a portable file: it
       // would be a guaranteed dead link outside VS Code. Neutralise instead.

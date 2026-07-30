@@ -154,6 +154,8 @@ export function App(): React.ReactElement {
     apiRef.current?.postMessage(message);
   };
 
+  const exportGenerationRef = useRef(0);
+
   /**
    * Export the Library the reader is currently looking at.
    *
@@ -169,6 +171,7 @@ export function App(): React.ReactElement {
    * silently dropped from the export.
    */
   const exportHtml = (slug: string, title: string, entryCount: number): void => {
+    const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
     if (!root) return;
     const { html, assets } = harvestLibraryHtml(root, assetBaseUri);
@@ -176,6 +179,9 @@ export function App(): React.ReactElement {
       popovers: Record<string, string>,
       extraAssets: typeof assets
     ): void => {
+      // A later click or navigation owns the export panel now. The old async
+      // closure may finish, but it must not overwrite the newer payload.
+      if (generation !== exportGenerationRef.current) return;
       const merged = new Map(assets.map((a) => [a.path, a] as const));
       for (const asset of extraAssets) if (!merged.has(asset.path)) merged.set(asset.path, asset);
       postMessage({
@@ -201,7 +207,12 @@ export function App(): React.ReactElement {
       kindPalette,
       markdownImageUrlTransform: assetBaseUri
         ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
-        : undefined
+        : undefined,
+      isCancelled: () => generation !== exportGenerationRef.current,
+      // A corrupt or machine-generated graph must not make Export disappear
+      // for hours. This cap is deliberately high enough for real documents;
+      // the closure remains transitive within it.
+      maxEntries: 1000
     }).then(
       (closure) => {
         // Fragments can embed workspace images too. Reuse the harvest so

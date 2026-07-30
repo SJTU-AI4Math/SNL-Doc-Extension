@@ -155,6 +155,42 @@ describe('GuiCanvasEditor', () => {
     expect(view.getByTestId('root-count').textContent).toBe('0');
   });
 
+  it('does not publish a delayed root after the Canvas unmounts', async () => {
+    let resolveMacro!: (value: unknown) => void;
+    const delayed = new Promise((resolve) => { resolveMacro = resolve; });
+    const delayedDriver = new MacroDataDriver({
+      queries: { query_macro: async () => await delayed as never }
+    });
+    const onForestChange = vi.fn();
+    const view = render(
+      <GuiCanvasEditor
+        forest={[]}
+        macroDataDriver={delayedDriver}
+        kindPalette={undefined}
+        onForestChange={onForestChange}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Insert Canvas root Macro' }) as HTMLInputElement
+    );
+    fireEvent.change(input, { target: { value: 'pair' } });
+    view.unmount();
+    resolveMacro({
+      name: 'pair',
+      description: '',
+      source: { entries: [], urls: [] },
+      tags: [],
+      dynamic_arity: false,
+      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onForestChange).not.toHaveBeenCalled();
+  });
+
   it('infers a missing dynamic-macro wrapper from descendant geometry', () => {
     const tree = node('root', [node('matrix', [node('cell')])]);
     const block = document.createElement('div');

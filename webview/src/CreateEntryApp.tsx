@@ -1687,6 +1687,12 @@ export function GuiCanvasEditor({
     dynamicArityRef.current.get(macroName) === true;
   forestRef.current = forest;
 
+  React.useEffect(() => () => {
+    // A MacroDataDriver request may outlive the Canvas. Never publish into the
+    // parent after the user switches modes or closes the editor.
+    addRootRequestRef.current += 1;
+  }, []);
+
   /** Apply a structural change, recording the previous state for undo. */
   const applyForestChange = (
     next: SnlSyntaxTree[],
@@ -2639,11 +2645,15 @@ export function GuiCanvasEditor({
               // the first observable frame already has the required slots.
               void (async () => {
                 const request = ++addRootRequestRef.current;
+                const sourceForest = forestRef.current;
                 ensureTreeIdentity(parsed.tree);
-                const next = [...forestRef.current, parsed.tree];
-                const rootIndex = next.length - 1;
                 const arity = await macroArityForName(parsed.tree.macro_name);
-                if (request !== addRootRequestRef.current) return;
+                if (
+                  request !== addRootRequestRef.current ||
+                  forestRef.current !== sourceForest
+                ) return;
+                const next = [...sourceForest, parsed.tree];
+                const rootIndex = next.length - 1;
                 const reconciled = arity === null
                   ? next
                   : reconcileCanvasArity(

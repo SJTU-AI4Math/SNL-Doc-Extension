@@ -174,7 +174,7 @@ export function App(): React.ReactElement {
     const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
     if (!root) return;
-    const { html, assets } = harvestLibraryHtml(root, assetBaseUri);
+    const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
     const send = (
       popovers: Record<string, string>,
       extraAssets: typeof assets
@@ -223,7 +223,7 @@ export function App(): React.ReactElement {
         for (const [entryId, fragment] of Object.entries(closure.fragments)) {
           const holder = document.createElement('div');
           holder.innerHTML = fragment;
-          const harvested = harvestLibraryHtml(holder, assetBaseUri);
+          const harvested = harvestLibraryHtml(holder, assetBaseUri, userMacros);
           popovers[entryId] = harvested.html;
           extra.push(...harvested.assets);
         }

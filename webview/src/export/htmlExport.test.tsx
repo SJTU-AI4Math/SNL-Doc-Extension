@@ -15,6 +15,36 @@ function el(html: string): HTMLElement {
 }
 
 describe('harvestLibraryHtml', () => {
+  it('projects macro Entry sources onto constants for static popovers', () => {
+    const { html } = harvestLibraryHtml(
+      el('<span data-name="Set" data-kind="const">Set</span><span data-name="T" data-kind="bvar" data-src="ctx-t">T</span>'),
+      BASE,
+      {
+        Set: {
+          name: 'Set',
+          description: 'sets',
+          source: { entries: ['def-set'], urls: [] },
+          kind: 'const',
+          dynamic_arity: false,
+          tags: [],
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'Set(#0)', tags: [] }]
+        },
+        T: {
+          name: 'T',
+          description: 'must not override a context-resolved source',
+          source: { entries: ['wrong'], urls: [] },
+          kind: 'fvar',
+          dynamic_arity: false,
+          tags: [],
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }]
+        }
+      }
+    );
+    expect(html).toContain('data-name="Set" data-kind="const" data-src="def-set"');
+    expect(html).toContain('data-name="T" data-kind="bvar" data-src="ctx-t"');
+    expect(html).not.toContain('data-src="wrong"');
+  });
+
   it('decodes percent-encoded workspace filenames for filesystem export', () => {
     const { html, assets } = harvestLibraryHtml(
       el(`<p><img src="${BASE}/a%20b.png"></p>`),

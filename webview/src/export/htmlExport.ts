@@ -16,6 +16,8 @@
 // copy for free. Only KaTeX + the two SNL-Basics stylesheets have to travel
 // alongside, and those are collected host-side from the built webview bundle.
 
+import type { MacroRecord } from '../render/macroData';
+
 /** An image referenced by the harvested DOM, to be emitted alongside it. */
 export interface ExportedAsset {
   /** Path relative to the export root, e.g. `assets/Dashboard-Panel.png`. */
@@ -93,9 +95,26 @@ function markCollapsibleRows(clone: HTMLElement): void {
  */
 export function harvestLibraryHtml(
   root: HTMLElement,
-  assetBaseUri: string
+  assetBaseUri: string,
+  macros?: MacroRecord
 ): HarvestResult {
   const clone = root.cloneNode(true) as HTMLElement;
+
+  // The live EntryRender resolves a reference as
+  // `context.macro?.source.entries[0] ?? target.dataset.src`. A static DOM has
+  // no interaction context or macro driver, so project that exact first source
+  // into data-src while the same macro DB is still available. Constants such
+  // as `Set` otherwise lose the Entry popover that works in the panel, whereas
+  // bvars happen to keep working because context resolution already painted
+  // data-src onto them.
+  if (macros) {
+    for (const node of Array.from(clone.querySelectorAll<HTMLElement>('[data-name]'))) {
+      if (node.hasAttribute('data-src')) continue;
+      const name = node.getAttribute('data-name') ?? '';
+      const source = macros[name]?.source?.entries?.[0];
+      if (typeof source === 'string' && source) node.setAttribute('data-src', source);
+    }
+  }
 
   markCollapsibleRows(clone);
 

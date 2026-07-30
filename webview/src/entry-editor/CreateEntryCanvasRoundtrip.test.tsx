@@ -98,7 +98,7 @@ describe('CreateEntryApp Canvas update round-trip', () => {
     fireEvent.keyDown(view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!, { key: 'F2', ctrlKey: true });
     const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(editor, { target: { value: 'changed(grandchild)' } });
-    fireEvent.keyDown(editor, { key: 'Enter' });
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
 
     block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
     expect(block.textContent).toContain('changed');

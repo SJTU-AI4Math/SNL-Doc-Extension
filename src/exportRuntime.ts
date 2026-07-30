@@ -170,6 +170,10 @@ const RUNTIME_TEMPLATE = String.raw`
       el.setAttribute('data-snl-popover-depth', String(depth));
       el.style.opacity = '0';
       el.innerHTML = html;
+      // EntrySurface cards carry inline width:100% with content-box sizing.
+      // Their border would otherwise extend beyond the measured shell and be
+      // clipped by overflow-x:hidden (5px in the user's integrated HTML).
+      if (el.firstElementChild) el.firstElementChild.style.boxSizing = 'border-box';
       document.body.appendChild(el);
       place(el, x, y);
 
@@ -406,7 +410,7 @@ export const EXPORT_RUNTIME_CSS = `
   position: fixed;
   z-index: 2147483000;
   box-sizing: border-box;
-  max-width: 720px;
+  max-width: min(720px, calc(100vw - 16px));
   width: max-content;
   background: #ffffff;
   color: #111111;
@@ -416,5 +420,10 @@ export const EXPORT_RUNTIME_CSS = `
   max-height: 80vh;
   transition: opacity 150ms ease;
 }
+/* EntrySurface cards carry inline width:100% with content-box sizing. Without
+ * this override their left border is added outside the popover's measured
+ * width, then clipped by overflow-x:hidden — observed as a missing 5px edge in
+ * the user's actual integrated HTML, recursively at every popover level. */
+.snl-export-popover > [data-entry-id] { box-sizing: border-box; }
 .snl-export-popover-fallback { padding: 0.6rem 0.8rem; }
 `.trim();

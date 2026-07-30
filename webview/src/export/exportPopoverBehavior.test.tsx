@@ -175,6 +175,15 @@ describe('exported document popovers, executed', () => {
     expect(panels()).toHaveLength(0);
   });
 
+  it('keeps a full-width Entry card inside the popover box', () => {
+    boot(POPOVERS);
+    mouseover(byId('ref-a'));
+    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
+    const panel = panels()[0];
+    const card = panel.firstElementChild as HTMLElement;
+    expect(getComputedStyle(card).boxSizing).toBe('border-box');
+  });
+
   it('keeps the panel inside the viewport instead of overflowing right', () => {
     boot(POPOVERS);
     // jsdom reports zero-size rects, so pin a width the placement can use.

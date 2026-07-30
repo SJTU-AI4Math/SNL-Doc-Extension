@@ -1286,16 +1286,18 @@ function LivePreview({
       kindPalette={kindPalette}
       localDetails={localDetails}
     >
-      <EntrySurface
-        entry={entry}
-        kind={renderKind}
-        entries={previewEntries}
-        postMessage={postMessage}
-        userMacros={userMacros}
-        kindPalette={kindPalette}
-        counterLabel={undefined}
-        disableTitleJump={true}
-      />
+      <div className="snl-entry-live-preview">
+        <EntrySurface
+          entry={entry}
+          kind={renderKind}
+          entries={previewEntries}
+          postMessage={postMessage}
+          userMacros={userMacros}
+          kindPalette={kindPalette}
+          counterLabel={undefined}
+          disableTitleJump={true}
+        />
+      </div>
     </HoverPopoverProvider>
   );
 }

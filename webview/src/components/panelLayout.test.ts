@@ -39,6 +39,23 @@ describe('responsive full-width panel layout', () => {
     expect(css).toContain('@container');
   });
 
+  it('contains Entry preview errors instead of letting long source widen the editor', () => {
+    const source = fs.readFileSync(
+      path.join(repo, 'webview/src/CreateEntryApp.tsx'),
+      'utf8'
+    );
+    const css = fs.readFileSync(
+      path.join(repo, 'webview/src/components/ui.css'),
+      'utf8'
+    );
+    expect(source).toContain('snl-entry-live-preview');
+    expect(css).toContain('.snl-entry-live-preview {');
+    expect(css).toContain('.snl-entry-live-preview .snl-entry-error');
+    expect(css).toContain('.snl-entry-live-preview .snl-entry-error + pre');
+    expect(css).toContain('white-space:pre-wrap');
+    expect(css).toContain('overflow-wrap:anywhere');
+  });
+
   it('removes scrolling from the GUI Editor Canvas surface and blocks', () => {
     const source = fs.readFileSync(
       path.join(repo, 'webview/src/CreateEntryApp.tsx'),

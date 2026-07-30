@@ -95,6 +95,33 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
   transform:none;
 }
 
+/* Entry editor preview containment. SNL-Basics deliberately prints the raw
+   source in a <pre> after an error. Browser pre defaults preserve one unbroken
+   line, whose min-content width used to stretch the entire editor. Keep wide
+   valid formulae locally scrollable, but wrap diagnostic prose/source. */
+.snl-entry-live-preview {
+  box-sizing:border-box;
+  min-width:0;
+  width:100%;
+  max-width:100%;
+  overflow-x:auto;
+}
+.snl-entry-live-preview > * { min-width:0; max-width:100%; box-sizing:border-box; }
+.snl-entry-live-preview .snl-entry-error {
+  max-width:100%;
+  box-sizing:border-box;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.snl-entry-live-preview .snl-entry-error + pre {
+  box-sizing:border-box;
+  max-width:100%;
+  margin:.5rem 0 0;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
 /* Collapsible block macros (`block_template_name: "collapsible"`).
 
    Gutter: the toggle is `position:absolute; left:-20px` (COLLAPSE_TOGGLE_STYLE,

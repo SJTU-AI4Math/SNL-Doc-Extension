@@ -40,6 +40,10 @@ describe('Inductive node action dial', () => {
     const dial = childRow.querySelector<HTMLElement>('.snl-tree-operation-dial');
 
     expect(dial).not.toBeNull();
+    expect(getComputedStyle(childRow).position).toBe('relative');
+    const toolbar = childRow.querySelector<HTMLElement>('.snl-tree-row-toolbar')!;
+    expect(getComputedStyle(toolbar).position).toBe('absolute');
+    expect(getComputedStyle(toolbar).left).not.toBe('auto');
     expect(within(dial!).getByRole('button', { name: 'Move up' }).textContent).toBe('↑');
     expect(within(dial!).getByRole('button', { name: 'Move down' }).textContent).toBe('↓');
     expect(within(dial!).getByRole('button', { name: 'Outdent' }).textContent).toBe('←');

@@ -1207,6 +1207,118 @@ describe('GuiCanvasEditor', () => {
     );
   }
 
+  it('gives a newly inserted variadic Macro one clickable placeholder', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <>
+          <output data-testid="inserted-arity">{forest[1]?.children.length ?? -1}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={variadicDriver}
+            macroCandidates={[{ id: 'list', labels: [] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() => view.getByRole('textbox', { name: 'Insert Canvas root Macro' }));
+    fireEvent.change(input, { target: { value: 'list' } });
+
+    await waitFor(() => expect(view.getByTestId('inserted-arity').textContent).toBe('1'));
+    const second = view.container.querySelector<HTMLElement>('[data-canvas-root-index="1"]')!;
+    expect(second.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1);
+  });
+
+  it('gives a variadic Macro inserted into a placeholder one child too', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [createCanvasHole(0)])]);
+      return (
+        <>
+          <output data-testid="replacement-arity">{forest[0]?.children[0]?.children.length ?? -1}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={variadicDriver}
+            macroCandidates={[{ id: 'list', labels: [] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-kind="argPlaceholder"]')!);
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(editor, { target: { value: 'list' } });
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => expect(view.getByTestId('replacement-arity').textContent).toBe('1'));
+    expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1);
+  });
+
+  it('does not collapse an existing variadic Macro that already has children', async () => {
+    const view = render(
+      <VariadicHarness initial={[node('list', [node('a'), node('b')])]} />
+    );
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(editor, { target: { value: 'list' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('2'));
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toBe('a');
+    expect(view.container.querySelector<HTMLElement>('[data-tree-path="1"]')?.textContent).toBe('b');
+  });
+
+  it('shows Edit/Create Macro links beside the focused Canvas controls', async () => {
+    const edit = vi.fn();
+    const known = render(
+      <GuiCanvasEditor
+        forest={[node('list', [node('a')])]}
+        macroDataDriver={variadicDriver}
+        macroOrigin={{ list: 'macros.json' }}
+        onOpenMacroEditor={edit}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    fireEvent.click(known.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    const editButton = await waitFor(() => known.getByRole('button', { name: 'Edit macro' }));
+    expect(editButton.textContent).toBe('↗');
+    fireEvent.click(editButton);
+    expect(edit).toHaveBeenCalledWith({ name: 'list', env_mode: undefined, style_name: undefined });
+
+    cleanup();
+    const create = vi.fn();
+    const unknown = render(
+      <GuiCanvasEditor
+        forest={[node('Fresh.macro')]}
+        macroDataDriver={variadicDriver}
+        macroOrigin={{}}
+        onOpenMacroEditor={create}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    fireEvent.click(unknown.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.click(await waitFor(() => unknown.getByRole('button', { name: 'Create macro' })));
+    expect(create).toHaveBeenCalledWith({
+      name: 'Fresh.macro',
+      env_mode: undefined,
+      style_name: undefined
+    });
+  });
+
   it('grows and shrinks a variadic Macro with + and -', async () => {
     const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
     const canvas = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!);

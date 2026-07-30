@@ -42,7 +42,8 @@
 
 /* The inductive editor keeps structural controls in a small 3×3 dial instead
    of a horizontal strip. This bounds the action bar while preserving a
-   spatial mapping between arrows and operations. */
+   spatial mapping between arrows and operations. The toolbar itself is
+   absolutely positioned by InductiveNode so the dial cannot affect row height. */
 .snl-tree-row-toolbar,
 .snl-tree-operation-cluster {
   display: flex;

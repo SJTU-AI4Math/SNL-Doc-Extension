@@ -1072,6 +1072,13 @@ export function CreateEntryApp(): React.ReactElement {
               forest={canvasForest}
               macroDataDriver={macroDataDriver}
               macroCandidates={macroCandidates}
+              macroOrigin={macroOrigin}
+              onOpenMacroEditor={(payload) =>
+                apiRef.current?.postMessage({
+                  type: 'openMacroEditor',
+                  ...payload
+                })
+              }
               kindPalette={kindPalette}
               onForestChange={(nextForest) => {
                 setCanvasForest(nextForest);
@@ -1636,6 +1643,8 @@ export function GuiCanvasEditor({
   forest,
   macroDataDriver,
   macroCandidates = [],
+  macroOrigin = {},
+  onOpenMacroEditor = () => undefined,
   kindPalette,
   onForestChange,
   onResetFromSnl
@@ -1643,6 +1652,8 @@ export function GuiCanvasEditor({
   forest: SnlSyntaxTree[];
   macroDataDriver: MacroDataDriver;
   macroCandidates?: readonly SnooglSearchCandidate[];
+  macroOrigin?: Record<string, string>;
+  onOpenMacroEditor?: (req: MacroOpenRequest) => void;
   kindPalette: KindPalette | undefined;
   onForestChange: (next: SnlSyntaxTree[]) => void;
   onResetFromSnl: () => void;
@@ -2348,16 +2359,16 @@ export function GuiCanvasEditor({
     applyForestChange(next);
   };
 
-  /**
-   * Required child count for a Macro, or null when unknown / dynamic arity
-   * (in which case children are left exactly as they are).
-   */
-  const macroArityForName = async (macroName: string): Promise<number | null> => {
+  /** Resolve whether an inserted Macro is fixed, variadic, or unknown. */
+  const macroArityForName = async (
+    macroName: string
+  ): Promise<number | 'dynamic' | null> => {
     const name = macroName.trim();
     if (!name) return null;
     try {
       const macro = await macroDataDriver.query_macro({ macro_name: name });
-      if (!macro || macro.dynamic_arity === true) return null;
+      if (!macro) return null;
+      if (macro.dynamic_arity === true) return 'dynamic';
       return macroTemplateArity(macro);
     } catch {
       return null;
@@ -2365,15 +2376,13 @@ export function GuiCanvasEditor({
   };
 
   /**
-   * Position and count for the inline `[- n +]` control, shown only while a
-   * variadic Macro is focused and nothing else is being edited.
-   * `dynamicArityVersion` is a dependency so the control appears as soon as
-   * the async lookup resolves.
+   * Position and metadata for the floating focused-Macro control. Every real
+   * Macro gets ↗; variadic ones share the same panel with [- n +].
    */
-  const focusedDynamicControl = React.useMemo(() => {
+  const focusedMacroControl = React.useMemo(() => {
     if (!focused || editingNode || contextMenu) return null;
     const node = getNodeAtPath(forest[focused.rootIndex], focused.path.join('.'));
-    if (!node || !isDynamicMacro(node.macro_name)) return null;
+    if (!node || isCanvasHole(node) || !node.macro_name.trim()) return null;
     const element = elementForTarget(focused);
     const canvas = canvasRef.current;
     if (!element || !canvas) return null;
@@ -2381,6 +2390,8 @@ export function GuiCanvasEditor({
     const canvasRect = canvas.getBoundingClientRect();
     return {
       target: focused,
+      node,
+      dynamic: isDynamicMacro(node.macro_name),
       count: node.children.length,
       left: rect.left - canvasRect.left + canvas.scrollLeft,
       top: rect.bottom - canvasRect.top + canvas.scrollTop + 4
@@ -2442,13 +2453,17 @@ export function GuiCanvasEditor({
     // slots become empty placeholders the author fills in manually. Never
     // swallow a subtree and never resurrect one.
     const arity = await macroArityForName(replacement.macro_name);
-    const next = arity === null
+    const targetArity: number | null =
+      arity === 'dynamic'
+        ? (replacement.children.length === 0 ? 1 : null)
+        : arity;
+    const next = targetArity === null
       ? replaced
       : reconcileCanvasArity(
           replaced,
           editingNode.rootIndex,
           editingNode.path,
-          arity,
+          targetArity,
           // Evicted subtrees become their own blocks; they must keep a stable
           // identity so their canvas position is preserved rather than reset.
           ensureTreeIdentity
@@ -2659,13 +2674,17 @@ export function GuiCanvasEditor({
                 ) return;
                 const next = [...sourceForest, parsed.tree];
                 const rootIndex = next.length - 1;
-                const reconciled = arity === null
+                const targetArity: number | null =
+                  arity === 'dynamic'
+                    ? (parsed.tree.children.length === 0 ? 1 : null)
+                    : arity;
+                const reconciled = targetArity === null
                   ? next
                   : reconcileCanvasArity(
                       next,
                       rootIndex,
                       [],
-                      arity,
+                      targetArity,
                       ensureTreeIdentity
                     );
                 setAddingRootFromMacro(false);
@@ -2690,15 +2709,16 @@ export function GuiCanvasEditor({
             }}
           />
         ) : null}
-        {focusedDynamicControl ? (
+        {focusedMacroControl ? (
           <div
-            data-canvas-arity-control
-            aria-label="Argument count"
+            data-canvas-macro-control
+            data-canvas-arity-control={focusedMacroControl.dynamic ? true : undefined}
+            aria-label={focusedMacroControl.dynamic ? 'Argument count' : 'Macro actions'}
             onPointerDown={(event) => event.stopPropagation()}
             style={{
               position: 'absolute',
-              left: focusedDynamicControl.left,
-              top: focusedDynamicControl.top,
+              left: focusedMacroControl.left,
+              top: focusedMacroControl.top,
               display: 'flex',
               alignItems: 'center',
               gap: '0.25rem',
@@ -2709,26 +2729,56 @@ export function GuiCanvasEditor({
               zIndex: 19
             }}
           >
-            <Button
-              variant="secondary"
-              size="sm"
-              aria-label="Remove an argument"
-              disabled={focusedDynamicControl.count === 0}
-              onClick={() => changeDynamicArity(focusedDynamicControl.target, -1)}
-            >
-              −
-            </Button>
-            <span aria-label="Argument count value" style={{ minWidth: '1.2rem', textAlign: 'center' }}>
-              {focusedDynamicControl.count}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              aria-label="Add argument"
-              onClick={() => changeDynamicArity(focusedDynamicControl.target, 1)}
-            >
-              +
-            </Button>
+            {focusedMacroControl.dynamic ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label="Remove an argument"
+                  disabled={focusedMacroControl.count === 0}
+                  onClick={() => changeDynamicArity(focusedMacroControl.target, -1)}
+                >
+                  −
+                </Button>
+                <span aria-label="Argument count value" style={{ minWidth: '1.2rem', textAlign: 'center' }}>
+                  {focusedMacroControl.count}
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label="Add argument"
+                  onClick={() => changeDynamicArity(focusedMacroControl.target, 1)}
+                >
+                  +
+                </Button>
+              </>
+            ) : null}
+            {(() => {
+              const node = focusedMacroControl.node;
+              const name = node.macro_name.trim();
+              const known = Boolean(macroOrigin[name]);
+              return (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={known ? 'Edit macro' : 'Create macro'}
+                  title={
+                    known
+                      ? `Open Edit Macro: ${name} (${macroOrigin[name]})`
+                      : `Open Create Macro (prefill id "${name}")`
+                  }
+                  onClick={() =>
+                    onOpenMacroEditor({
+                      name,
+                      env_mode: node.env_mode === 'block' ? undefined : node.env_mode,
+                      style_name: node.style_name
+                    })
+                  }
+                >
+                  ↗
+                </Button>
+              );
+            })()}
           </div>
         ) : null}
         {contextMenu ? (
@@ -3787,6 +3837,8 @@ function InductiveNode({
         data-snl-tree-node-id={nodeId}
         style={{
           display: 'flex',
+          position: 'relative',
+          overflow: 'visible',
           alignItems: 'center',
           gap: '0.35rem',
           padding: '0.15rem 0.3rem',
@@ -3891,7 +3943,16 @@ function InductiveNode({
           }}
         />
 
-        <div className="snl-tree-row-toolbar">
+        <div
+          className="snl-tree-row-toolbar"
+          style={{
+            position: 'absolute',
+            left: 'calc(100% + 0.25rem)',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 10
+          }}
+        >
           {(() => {
             const trimmed = node.macro_name.trim();
             const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);

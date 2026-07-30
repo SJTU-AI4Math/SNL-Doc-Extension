@@ -1348,6 +1348,58 @@ describe('GuiCanvasEditor', () => {
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="1"]')?.textContent).toBe('b');
   });
 
+  it('keeps Canvas Macro identity and Style in separate input channels', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('list', [node('a')])]);
+      return (
+        <>
+          <output data-testid="canvas-style">{forest[0]?.style_name ?? ''}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={variadicDriver}
+            macroCandidates={[
+              { id: 'list', labels: [], styles: ['default', 'compact'] }
+            ]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    fireEvent.click(root);
+    const style = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Macro style' }) as HTMLSelectElement
+    );
+    expect(style.value).toBe('default');
+    expect(root.textContent).not.toContain('[default]');
+    fireEvent.change(style, { target: { value: 'compact' } });
+    await waitFor(() => expect(view.getByTestId('canvas-style').textContent).toBe('compact'));
+    expect((view.getByRole('combobox', { name: 'Macro style' }) as HTMLSelectElement).value)
+      .toBe('compact');
+
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const macroEditor = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLInputElement
+    );
+    expect(macroEditor.value).toBe('list');
+    fireEvent.change(macroEditor, { target: { value: 'list[default]' } });
+    fireEvent.keyDown(macroEditor, { key: 'Enter' });
+    await waitFor(() => expect(macroEditor.title).toContain('Style dropdown'));
+    expect(view.getByTestId('canvas-style').textContent).toBe('compact');
+    fireEvent.keyDown(macroEditor, { key: 'Escape' });
+    fireEvent.keyDown(macroEditor, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+
+    fireEvent.change(await waitFor(() => view.getByRole('combobox', { name: 'Macro style' })), {
+      target: { value: 'default' }
+    });
+    await waitFor(() => expect(view.getByTestId('canvas-style').textContent).toBe(''));
+  });
+
   it('shows Edit/Create Macro links beside the focused Canvas controls', async () => {
     const edit = vi.fn();
     const known = render(

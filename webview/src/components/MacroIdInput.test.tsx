@@ -248,7 +248,7 @@ describe('MacroIdInput', () => {
     { id: 'Add.add', labels: [], styles: ['plus'] }
   ];
 
-  it('offers id[style] completions alongside the bare Macro id', async () => {
+  it('offers only bare Macro ids even when candidates declare styles', async () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
       return (
@@ -264,50 +264,12 @@ describe('MacroIdInput', () => {
     const input = view.getByRole('textbox', { name: 'DSL Macro ID' }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'Div' } });
 
-    const options = await view.findAllByRole('option');
-    const labels = options.map((option) => option.textContent);
-    expect(labels).toContain('Div.div');
-    // Non-default styles are offered explicitly...
-    expect(labels).toContain('Div.div[inline]');
-    expect(labels).toContain('Div.div[slash]');
-    // ...but styles[0] is the implicit default and must not be written out.
-    expect(labels).not.toContain('Div.div[frac]');
+    const labels = (await view.findAllByRole('option')).map((option) => option.textContent);
+    expect(labels[0]).toBe('Div.div');
+    expect(labels.every((label) => !label?.includes('['))).toBe(true);
   });
 
-  it('replaces an existing style bracket instead of appending a second one', async () => {
-    function Harness(): React.ReactElement {
-      const [value, setValue] = React.useState('Div.div[inline]');
-      return (
-        <>
-          <output data-testid="value">{value}</output>
-          <MacroIdInput
-            value={value}
-            onChange={setValue}
-            macroCandidates={styledCandidates}
-            aria-label="DSL Macro ID"
-          />
-        </>
-      );
-    }
-    const view = render(<Harness />);
-    const input = view.getByRole('textbox', { name: 'DSL Macro ID' }) as HTMLInputElement;
-    // Retype the tail so the suggestion list opens with the caret inside the
-    // identifier of an already-styled token.
-    fireEvent.change(input, { target: { value: 'Div.di[inline]' } });
-    input.setSelectionRange(6, 6);
-    fireEvent.change(input, { target: { value: 'Div.div[inline]' } });
-    input.setSelectionRange(7, 7);
-
-    const option = await view.findByText('Div.div[slash]');
-    fireEvent.mouseDown(option);
-    fireEvent.click(option);
-
-    // Picking the styled completion replaces the WHOLE token including the
-    // old bracket — never `Div.div[slash][inline]`.
-    expect(view.getByTestId('value').textContent).toBe('Div.div[slash]');
-  });
-
-  it('keeps a Macro with a single style free of bracket noise', async () => {
+  it('inserts only the Macro id from the embedded SNoogL dialog', async () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
       return (
@@ -321,42 +283,14 @@ describe('MacroIdInput', () => {
     }
     const view = render(<Harness />);
     const input = view.getByRole('textbox', { name: 'DSL Macro ID' }) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Add' } });
-
-    const labels = (await view.findAllByRole('option')).map((option) => option.textContent);
-    expect(labels).toContain('Add.add');
-    // Its only style is the implicit default, so it gets no bracket variants.
-    expect(labels.filter((label) => label?.startsWith('Add.add'))).toEqual(['Add.add']);
-  });
-
-  it('replaces the whole bracket when the caret sits inside the style name', async () => {
-    function Harness(): React.ReactElement {
-      const [value, setValue] = React.useState('');
-      return (
-        <>
-          <output data-testid="value">{value}</output>
-          <MacroIdInput
-            value={value}
-            onChange={setValue}
-            macroCandidates={styledCandidates}
-            aria-label="DSL Macro ID"
-          />
-        </>
-      );
-    }
-    const view = render(<Harness />);
-    const input = view.getByRole('textbox', { name: 'DSL Macro ID' }) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Div.div[inlin]' } });
-    // Caret in the MIDDLE of the style name, not after the closing bracket.
-    input.setSelectionRange(12, 12);
-    fireEvent.change(input, { target: { value: 'Div.div[inline]' } });
-    input.setSelectionRange(13, 13);
-
-    const option = await view.findByText('Div.div[slash]');
-    fireEvent.mouseDown(option);
-    fireEvent.click(option);
-
-    // The closing bracket must be consumed too — never `Div.div[slash]]`.
-    expect(view.getByTestId('value').textContent).toBe('Div.div[slash]');
+    input.focus();
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.change(search, { target: { value: 'Div' } });
+    const results = view.getAllByRole('option').map((option) => option.textContent);
+    expect(results[0]).toBe('Div.div');
+    expect(results.every((label) => !label?.includes('['))).toBe(true);
+    fireEvent.keyDown(search, { key: 'Tab' });
+    expect(input.value).toBe('Div.div');
   });
 });

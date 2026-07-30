@@ -28,6 +28,19 @@ const driver = new MacroDataDriver({
       if (macro_name === 'atom') return macro('atom', false, 'A');
       if (macro_name === 'top') return macro('top', false, '#0 , #1');
       if (macro_name === 'top3') return macro('top3', false, '#0 #1 #2');
+      if (macro_name === 'styled') {
+        return {
+          name: 'styled',
+          description: '',
+          source: { entries: [], urls: [] },
+          tags: [],
+          dynamic_arity: false,
+          styles: [
+            { style_name: 'default', mode: 'formula_inline', template: 'S', tags: [] },
+            { style_name: 'compact', mode: 'formula_inline', template: 's', tags: [] }
+          ]
+        } as never;
+      }
       return null;
     }
   }
@@ -49,6 +62,29 @@ function renderEditor(initial: string): { view: ReturnType<typeof render>; lates
 }
 
 describe('Inductive editor arity auto-fill', () => {
+  it('keeps Macro identity and Style in separate input channels', async () => {
+    const { view, latest } = renderEditor('styled');
+    const macroInput = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    expect(macroInput.value).toBe('styled');
+    expect(macroInput.value).not.toContain('[');
+    fireEvent.change(macroInput, { target: { value: 'styled[compact]' } });
+    expect(latest()).toBe('styled');
+
+    const style = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
+    );
+    expect(style.value).toBe('default');
+    expect(Array.from(style.options).map((option) => option.value)).toEqual([
+      'default',
+      'compact'
+    ]);
+    fireEvent.change(style, { target: { value: 'compact' } });
+    expect(latest()).toBe('styled[compact]');
+    expect(macroInput.value).toBe('styled');
+    fireEvent.change(style, { target: { value: 'default' } });
+    expect(latest()).toBe('styled');
+  });
+
   it('opens child rows once a fixed-arity Macro is matched', async () => {
     let latest = '';
     const view = render(

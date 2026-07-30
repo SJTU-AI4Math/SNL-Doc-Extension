@@ -1545,7 +1545,7 @@ interface CanvasFocus {
 /**
  * What a Canvas inline editor is allowed to rewrite.
  *
- *   - 'macro'   (F2)      — only this block's own macro head (`name[style]`).
+ *   - 'macro'   (F2)      — only this block's own Macro name; Style is separate.
  *                           Children are preserved verbatim.
  *   - 'subtree' (Ctrl+F2) — the whole subtree serialized as SNL DSL.
  */
@@ -1699,6 +1699,12 @@ export function GuiCanvasEditor({
   }, []);
   const isDynamicMacro = (macroName: string): boolean =>
     dynamicArityRef.current.get(macroName) === true;
+  const macroStylesByName = React.useMemo(
+    () => new Map(
+      macroCandidates.map((candidate) => [candidate.id, candidate.styles ?? []] as const)
+    ),
+    [macroCandidates]
+  );
   forestRef.current = forest;
 
   React.useEffect(() => () => {
@@ -2110,7 +2116,7 @@ export function GuiCanvasEditor({
       value: isCanvasHole(node)
         ? ''
         : effectiveScope === 'macro'
-          ? stringifyLeafSource(node)
+          ? stringifyLeafHead(node)
           : serializeTreePreserving(node),
       error: null
     });
@@ -2349,6 +2355,30 @@ export function GuiCanvasEditor({
     return Boolean(parent && isDynamicMacro(parent.macro_name));
   };
 
+  const changeCanvasStyle = (
+    target: CanvasFocus,
+    selected: string,
+    styleNames: readonly string[]
+  ): void => {
+    const root = forestRef.current[target.rootIndex];
+    const node = getNodeAtPath(root, target.path.join('.'));
+    if (!root || !node) return;
+    const defaultStyle = styleNames[0] ?? '';
+    const replacement: SnlSyntaxTree = {
+      ...node,
+      style_name:
+        selected === '' || selected === defaultStyle ? undefined : selected
+    };
+    inheritTreeIdentity(node, replacement);
+    const next = replaceCanvasTarget(
+      forestRef.current,
+      target.rootIndex,
+      target.path,
+      replacement
+    );
+    applyForestChange(next, target);
+  };
+
   const changeDynamicArity = (target: CanvasFocus, delta: number): void => {
     const node = getNodeAtPath(
       forestRef.current[target.rootIndex],
@@ -2428,13 +2458,19 @@ export function GuiCanvasEditor({
         setEditingNode((previous) => previous ? { ...previous, error: parsedHead.error } : null);
         return;
       }
+      if (parsedHead.tree.style_name !== undefined) {
+        setEditingNode((previous) => previous
+          ? { ...previous, error: 'Macro edit accepts a Macro name only; use the Style dropdown.' }
+          : null);
+        return;
+      }
       const base = previousNode ?? parsedHead.tree;
       replacement = {
         ...base,
         macro_name: parsedHead.tree.macro_name,
         kind: parsedHead.tree.kind,
         env_mode: parsedHead.tree.env_mode,
-        style_name: parsedHead.tree.style_name,
+        style_name: previousNode ? previousNode.style_name : undefined,
         children: previousNode ? previousNode.children : parsedHead.tree.children
       };
       if (previousNode) inheritTreeIdentity(previousNode, replacement);
@@ -2773,26 +2809,62 @@ export function GuiCanvasEditor({
               const node = focusedMacroControl.node;
               const name = node.macro_name.trim();
               const known = Boolean(macroOrigin[name]);
+              const styleNames = macroStylesByName.get(name) ?? [];
+              const selectedStyle = node.style_name ?? styleNames[0] ?? '';
+              const explicitStyleMissing =
+                Boolean(node.style_name) && !styleNames.includes(node.style_name!);
               return (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={known ? 'Edit macro' : 'Create macro'}
-                  title={
-                    known
-                      ? `Open Edit Macro: ${name} (${macroOrigin[name]})`
-                      : `Open Create Macro (prefill id "${name}")`
-                  }
-                  onClick={() =>
-                    onOpenMacroEditor({
-                      name,
-                      env_mode: node.env_mode === 'block' ? undefined : node.env_mode,
-                      style_name: node.style_name
-                    })
-                  }
-                >
-                  ↗
-                </Button>
+                <>
+                  {styleNames.length > 0 || explicitStyleMissing ? (
+                    <select
+                      aria-label="Macro style"
+                      value={selectedStyle}
+                      onChange={(event) =>
+                        changeCanvasStyle(
+                          focusedMacroControl.target,
+                          event.target.value,
+                          styleNames
+                        )
+                      }
+                      title="Select Macro style"
+                      style={{
+                        maxWidth: '9rem',
+                        padding: '0.15rem 0.3rem',
+                        background: 'var(--vscode-dropdown-background, #2a2a2a)',
+                        color: 'var(--vscode-dropdown-foreground, #ddd)',
+                        border: '1px solid var(--vscode-dropdown-border, #555)'
+                      }}
+                    >
+                      {explicitStyleMissing ? (
+                        <option value={node.style_name}>{node.style_name} (missing)</option>
+                      ) : null}
+                      {styleNames.map((style, index) => (
+                        <option key={style} value={style}>
+                          {style}{index === 0 ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={known ? 'Edit macro' : 'Create macro'}
+                    title={
+                      known
+                        ? `Open Edit Macro: ${name} (${macroOrigin[name]})`
+                        : `Open Create Macro (prefill id "${name}")`
+                    }
+                    onClick={() =>
+                      onOpenMacroEditor({
+                        name,
+                        env_mode: node.env_mode === 'block' ? undefined : node.env_mode,
+                        style_name: node.style_name
+                      })
+                    }
+                  >
+                    ↗
+                  </Button>
+                </>
               );
             })()}
           </div>
@@ -3364,7 +3436,7 @@ export function GuiInductiveEditor({
       >
         Inductive editor — hover a row for the action dial. Delimited
         forms are recognized: <code>$foo$</code>, <code>$$x+y$$</code>,{' '}
-        <code>%text%</code>, <code>@$x$</code>, <code>foo[style]</code>.
+        <code>%text%</code>, <code>@$x$</code>. Choose Style from the adjacent dropdown.
       </p>
     </div>
   );
@@ -3713,9 +3785,9 @@ function InductiveNode({
       // node.kind` re-latched the old `binder` and the `@` came back).
       env_mode: undefined,
       kind: '',
-      // Style still has its own dedicated box — only overwrite when the
-      // typed source explicitly carried a bracket suffix.
-      style_name: leaf.style_name !== undefined ? leaf.style_name : node.style_name,
+      // Macro text owns identity/env syntax only. Style is changed exclusively
+      // by the adjacent dropdown, so typing/pasting `id[style]` cannot mutate it.
+      style_name: node.style_name,
       children: node.children
     });
   };
@@ -3822,20 +3894,16 @@ function InductiveNode({
     ? kindBackgroundTint(palette.background)
     : 'var(--vscode-input-background, #2a2a2a)';
 
-  // Style-box state (cat 2026-07-12). Behaviour:
-  //   - Disabled entirely when no macro matches the current name (env_mode
-  //     leaves don't carry `[style]` either — they're literal payloads).
-  //   - When node.style_name is set explicitly (user typed one, or parser
-  //     extracted `[foo]` from the name), show it at full opacity.
-  //   - When node.style_name is unset AND the macro has styles, prefill the
-  //     input with `style_name` at low opacity so the user sees which
-  //     style would be picked without polluting the serialized SNL. Typing
-  //     into it commits the value; clearing to empty (or typing the
-  //     default) drops back to the implicit-default form.
-  const defaultStyleTag = macroEntry?.styles?.[0]?.style_name ?? '';
-  const styleAvailable = (macroEntry?.styles.length ?? 0) > 0;
+  // Style is a separate dropdown channel; MacroIdInput owns identity only.
+  const styleTags = (macroEntry?.styles ?? [])
+    .map((style) => style.style_name)
+    .filter((style): style is string => Boolean(style));
+  const defaultStyleTag = styleTags[0] ?? '';
+  const styleAvailable = styleTags.length > 0;
   const styleIsExplicit = node.style_name !== undefined && node.style_name !== '';
   const styleDisplay = styleIsExplicit ? node.style_name! : defaultStyleTag;
+  const explicitStyleMissing =
+    styleIsExplicit && !styleTags.includes(node.style_name!);
 
   const commitStyle = (nextValue: string): void => {
     const trimmed = nextValue.trim();
@@ -3922,42 +3990,43 @@ function InductiveNode({
           }
         />
 
-        {/* Style input (cat 2026-07-12). Sits to the right of the name.
-            - Disabled when no macro matches (no style semantics available).
-            - Full opacity when node.style_name is explicitly set.
-            - Low opacity + prefilled with style_name when the resolved
-              style is the implicit default — makes it visible which style
-              the parser will pick without polluting the SNL. */}
-        <input
-          type="text"
+        <select
           value={styleDisplay}
           disabled={!styleAvailable}
-          onChange={(e) => commitStyle(e.target.value)}
-          placeholder="style"
-          spellCheck={false}
+          onChange={(event) => commitStyle(event.target.value)}
+          aria-label={`Macro style for ${node.macro_name || 'unresolved Macro'}`}
           title={
             !styleAvailable
-              ? 'style has no meaning here — name does not match a macro'
+              ? 'Style unavailable — name does not match a Macro with styles'
               : styleIsExplicit
                 ? `explicit style: [${node.style_name}]`
                 : `default style (implicit): [${defaultStyleTag}]`
           }
           style={{
             ...inputStyle,
-            width: '5.5rem',
+            width: '7rem',
             flexShrink: 0,
             padding: '0.25rem 0.4rem',
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
             fontSize: '0.8rem',
-            opacity: !styleAvailable ? 0.35 : styleIsExplicit ? 1 : 0.5,
-            fontStyle: styleIsExplicit ? 'normal' : 'italic',
-            background: 'var(--vscode-input-background, #2a2a2a)',
-            color: 'var(--vscode-input-foreground, #ddd)',
+            opacity: !styleAvailable ? 0.35 : 1,
+            background: 'var(--vscode-dropdown-background, var(--vscode-input-background, #2a2a2a))',
+            color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))',
             borderColor:
-              'var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-            cursor: !styleAvailable ? 'not-allowed' : 'text'
+              'var(--vscode-dropdown-border, var(--vscode-input-border, #555))',
+            cursor: !styleAvailable ? 'not-allowed' : 'default'
           }}
-        />
+        >
+          {!styleAvailable ? <option value="">style</option> : null}
+          {explicitStyleMissing ? (
+            <option value={node.style_name}>{node.style_name} (missing)</option>
+          ) : null}
+          {styleTags.map((style, index) => (
+            <option key={style} value={style}>
+              {style}{index === 0 ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
 
         <div
           className="snl-tree-row-toolbar"

@@ -36,7 +36,7 @@ describe('Inductive node action dial', () => {
   it('uses a compact directional dial and keeps the Macro and delete actions', () => {
     const { view, onOpenMacroEditor } = renderEditor();
     const rootRow = rowForInput(view.getAllByRole('textbox')[0]);
-    const childRow = rowForInput(view.getAllByRole('textbox')[2]);
+    const childRow = rowForInput(view.getAllByRole('textbox')[1]);
     const dial = childRow.querySelector<HTMLElement>('.snl-tree-operation-dial');
 
     expect(dial).not.toBeNull();
@@ -69,7 +69,7 @@ describe('Inductive node action dial', () => {
 
   it('opens all three add positions from the center and closes the choices', () => {
     const { view } = renderEditor();
-    const childRow = rowForInput(view.getAllByRole('textbox')[2]);
+    const childRow = rowForInput(view.getAllByRole('textbox')[1]);
     const add = within(childRow).getByRole('button', { name: 'Choose add position' });
 
     expect(add.getAttribute('aria-haspopup')).toBe('menu');
@@ -106,14 +106,14 @@ describe('Inductive node action dial', () => {
 
   it('dispatches parent, child, and sibling additions without changing their tree semantics', async () => {
     let rendered = renderEditor('root(a,b)');
-    let firstChild = rowForInput(rendered.view.getAllByRole('textbox')[2]);
+    let firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
     fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
     fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add parent' }));
     expect(rendered.latest()).toBe('root((a),b)');
 
     cleanup();
     rendered = renderEditor('root(a,b)');
-    firstChild = rowForInput(rendered.view.getAllByRole('textbox')[2]);
+    firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
     const rowsBeforeChild = rendered.view.container.querySelectorAll('.snl-tree-row').length;
     fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
     fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add child' }));
@@ -125,7 +125,7 @@ describe('Inductive node action dial', () => {
 
     cleanup();
     rendered = renderEditor('root(a,b)');
-    firstChild = rowForInput(rendered.view.getAllByRole('textbox')[2]);
+    firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
     fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
     fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add sibling' }));
     expect(rendered.latest()).toBe('root(a,,b)');
@@ -135,9 +135,9 @@ describe('Inductive node action dial', () => {
     const rendered = renderEditor('root(a,b(c))');
     const inputs = rendered.view.getAllByRole('textbox');
     const rootRow = rowForInput(inputs[0]);
-    const firstRow = rowForInput(inputs[2]);
-    const secondRow = rowForInput(inputs[4]);
-    const nestedRow = rowForInput(inputs[6]);
+    const firstRow = rowForInput(inputs[1]);
+    const secondRow = rowForInput(inputs[2]);
+    const nestedRow = rowForInput(inputs[3]);
 
     expect((within(rootRow).getByRole('button', { name: 'Move up' }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(rootRow).getByRole('button', { name: 'Move down' }) as HTMLButtonElement).disabled).toBe(true);
@@ -155,7 +155,7 @@ describe('Inductive node action dial', () => {
 
   it('keeps deletion independent from the dial', () => {
     const rendered = renderEditor('root(a,b)');
-    const firstRow = rowForInput(rendered.view.getAllByRole('textbox')[2]);
+    const firstRow = rowForInput(rendered.view.getAllByRole('textbox')[1]);
 
     fireEvent.click(within(firstRow).getByRole('button', { name: 'Delete subtree' }));
     expect(rendered.latest()).toBe('root(b)');

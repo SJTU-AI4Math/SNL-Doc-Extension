@@ -217,11 +217,8 @@ export class SnooglSearchIndex<T> {
 export interface SnooglSearchCandidate {
   id: string;
   labels: readonly string[];
-  /**
-   * Style names this Macro declares, in order — `styles[0]` is the implicit
-   * default. Lets a Macro-ID surface offer `id[style]` in one place instead of
-   * making the author remember the bracket syntax. Cat 2026-07-25.
-   */
+  /** Style names declared by this Macro, in order (first is default).
+   * Kept as metadata for a separate style dropdown; search results remain IDs. */
   styles?: readonly string[];
 }
 

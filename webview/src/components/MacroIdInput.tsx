@@ -184,10 +184,6 @@ export const MacroIdInput = forwardRef<
       labels: candidate.labels
     }))
   ), [searchCandidates]);
-  const candidateById = useMemo(
-    () => new Map(searchCandidates.map((candidate) => [candidate.id, candidate])),
-    [searchCandidates]
-  );
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
@@ -227,33 +223,16 @@ export const MacroIdInput = forwardRef<
     setSnooglOpen(true);
   }, [openSnooglOnMount, interactionDisabled]);
 
-  /**
-   * Expand a Macro id into the completions offered for it: the bare id first,
-   * then one `id[style]` per declared style.
-   *
-   * Cat 2026-07-25: Style used to be a separate control, so the author had to
-   * know the `[…]` bracket syntax and type it by hand. Folding it in here
-   * means one surface answers both "which Macro" and "rendered how".
-   * `styles[0]` is the implicit default and so is NOT offered as an explicit
-   * bracket — writing it out would serialize a redundant override.
-   */
-  const completionsFor = (id: string): string[] => {
-    const candidate = candidateById.get(id);
-    const styles = candidate?.styles ?? [];
-    return [id, ...styles.slice(1).map((style) => `${id}[${style}]`)];
-  };
-
   const suggestionsAt = (position: number): string[] => {
     const range = macroTokenRange(value, position);
     const token = value.slice(range.start, range.end);
-    // Search on the identifier only: the `[style]` part is a completion
-    // result, not a search term, so `Div.div[inline]` must still find
-    // `Div.div` and offer its other styles.
     const needle = token.split('[')[0];
     if (!needle) return [];
+    // SNoogL owns Macro identity only. Style is selected through the editor's
+    // separate dropdown and must never leak back into this text channel.
     return searchIndex.search(needle)
-      .flatMap((result) => completionsFor(result.value.id))
-      .filter((completion) => completion.toLowerCase() !== token.toLowerCase())
+      .map((result) => result.value.id)
+      .filter((id) => id.toLowerCase() !== token.toLowerCase())
       .slice(0, 8);
   };
   const suggestions = suggestionsOpen ? suggestionsAt(caretPosition) : [];
@@ -266,7 +245,7 @@ export const MacroIdInput = forwardRef<
 
   const snooglResults = snooglOpen
     ? searchIndex.search(snooglQuery)
-        .flatMap((result) => completionsFor(result.value.id))
+        .map((result) => result.value.id)
         .slice(0, 30)
     : [];
 
@@ -635,7 +614,7 @@ export const MacroIdInput = forwardRef<
         ))}
       </div>
       <div style={{ marginTop: '0.45rem', opacity: 0.65, fontSize: '0.8rem' }}>
-        Tab inserts the selected Macro · pick <code>id[style]</code> to set a style · Esc closes
+        Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes
       </div>
     </div>
   ) : null;

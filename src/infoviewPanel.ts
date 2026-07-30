@@ -1022,7 +1022,7 @@ export class InfoviewPanel {
  * have it) push a warning; the outline still emits a stub node with
  * `entry: null` so the tree structure survives.
  */
-function buildOutline(
+export function buildOutline(
   graph: LibraryGraph,
   entriesById: Map<string, EntryData>,
   kindsById: Map<string, EntryKind>,
@@ -1050,13 +1050,23 @@ function buildOutline(
     }
   }
 
-  const visited = new Set<string>();
+  // Cycle guard. This tracks the nodes on the CURRENT path, not every node
+  // ever seen: a node legitimately appears under more than one parent when
+  // two entries both branch to it, and a build-wide `visited` set silently
+  // dropped every occurrence after the first — together with its whole
+  // subtree. 猫猫 2026-07-29: "有时候索引条目显示不出来". It read as intermittent
+  // because it only bites on a re-reachable node, and which parent kept it
+  // depended on nodes[] declaration order.
+  const onPath = new Set<string>();
+  // Nodes that were reached from some parent, for the orphan pass below.
+  const reached = new Set<string>();
 
   const buildNode = (nodeId: string): OutlineNode | null => {
-    if (visited.has(nodeId)) return null; // defensive: cycles / dupes
-    visited.add(nodeId);
+    if (onPath.has(nodeId)) return null; // genuine cycle
     const node = nodesById.get(nodeId);
     if (!node) return null;
+    onPath.add(nodeId);
+    reached.add(nodeId);
 
     let entry: EntryData | null = null;
     let kind: EntryKind | null = null;
@@ -1087,6 +1097,10 @@ function buildOutline(
       const built = buildNode(cid);
       if (built) children.push(built);
     }
+    // Leave the path: siblings and later parents must be free to reach this
+    // node again. Without this pop, `onPath` degrades into the build-wide
+    // `visited` set that caused the bug.
+    onPath.delete(nodeId);
 
     return {
       nodeId,
@@ -1108,7 +1122,7 @@ function buildOutline(
   // Orphan pass: Entry nodes with a parent that doesn't exist in nodes[]
   // wouldn't have been reached — append them so the tree isn't lossy.
   for (const n of graph.nodes) {
-    if (visited.has(n.id)) continue;
+    if (reached.has(n.id)) continue;
     const built = buildNode(n.id);
     if (built) roots.push(built);
   }

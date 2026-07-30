@@ -65,6 +65,96 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('adds fixed-arity placeholders when a Macro is inserted as a new root', async () => {
+    const pairDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) =>
+          macro_name === 'pair'
+            ? ({
+                name: 'pair',
+                description: '',
+                source: { entries: [], urls: [] },
+                tags: [],
+                dynamic_arity: false,
+                styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+              } as never)
+            : null
+      }
+    });
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={pairDriver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<Harness />);
+    const canvas = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+    );
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Insert Canvas root Macro' }) as HTMLInputElement
+    );
+    fireEvent.change(input, { target: { value: 'pair' } });
+
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(2)
+    );
+  });
+
+  it('does not insert a root after Escape cancels a slow arity lookup', async () => {
+    const slowDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          return {
+            name: 'pair',
+            description: '',
+            source: { entries: [], urls: [] },
+            tags: [],
+            dynamic_arity: false,
+            styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+          } as never;
+        }
+      }
+    });
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={slowDriver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Insert Canvas root Macro' }) as HTMLInputElement
+    );
+    fireEvent.change(input, { target: { value: 'pair' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(view.getByTestId('root-count').textContent).toBe('0');
+  });
+
   it('infers a missing dynamic-macro wrapper from descendant geometry', () => {
     const tree = node('root', [node('matrix', [node('cell')])]);
     const block = document.createElement('div');

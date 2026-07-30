@@ -1656,6 +1656,10 @@ export function GuiCanvasEditor({
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  // Async arity lookup belongs to the exact SNooGL selection that launched it.
+  // A second selection, Escape, or an external forest replacement invalidates
+  // the older result before it can append a stale/duplicate root.
+  const addRootRequestRef = React.useRef(0);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
   const suppressCanvasClickRef = React.useRef(false);
@@ -1759,6 +1763,8 @@ export function GuiCanvasEditor({
     // an open editor. Internal editor commits clear editingNode in the same
     // state transition, so this only cancels genuinely stale overlays.
     if (editingNode) setEditingNode(null);
+    // Invalidate an add-root arity lookup that started against the old forest.
+    addRootRequestRef.current += 1;
     // The add-root input is anchored to nothing in the tree, but a forest
     // replacement (Reset, external push, undo) still means its draft is
     // orphaned — destroy it rather than leave it floating (Cat 2026-07-26).
@@ -2135,6 +2141,7 @@ export function GuiCanvasEditor({
 
   /** Tear down every floating Canvas input. One exit door, no leaks. */
   const closeCanvasInputs = (): void => {
+    addRootRequestRef.current += 1;
     setEditingNode(null);
     setAddingRootFromMacro(false);
   };
@@ -2625,18 +2632,37 @@ export function GuiCanvasEditor({
             onChange={(value) => {
               const parsed = tryParseSnlSyntaxTree(value.trim());
               if (!parsed.ok) return;
-              ensureTreeIdentity(parsed.tree);
-              const next = [...forestRef.current, parsed.tree];
-              const rootIndex = next.length - 1;
-              setAddingRootFromMacro(false);
-              applyForestChange(next, { rootIndex, path: [] });
-              window.setTimeout(() => canvasRef.current?.focus(), 0);
+              // Root insertion used to bypass the arity reconciliation shared
+              // by every existing-node edit. Consequently a fixed-arity Macro
+              // selected from SNooGL entered the Canvas with zero children and
+              // no placeholders. Resolve before publishing the new forest, so
+              // the first observable frame already has the required slots.
+              void (async () => {
+                const request = ++addRootRequestRef.current;
+                ensureTreeIdentity(parsed.tree);
+                const next = [...forestRef.current, parsed.tree];
+                const rootIndex = next.length - 1;
+                const arity = await macroArityForName(parsed.tree.macro_name);
+                if (request !== addRootRequestRef.current) return;
+                const reconciled = arity === null
+                  ? next
+                  : reconcileCanvasArity(
+                      next,
+                      rootIndex,
+                      [],
+                      arity,
+                      ensureTreeIdentity
+                    );
+                setAddingRootFromMacro(false);
+                applyForestChange(reconciled, { rootIndex, path: [] });
+                window.setTimeout(() => canvasRef.current?.focus(), 0);
+              })();
             }}
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === 'Escape') {
                 event.preventDefault();
-                setAddingRootFromMacro(false);
+                closeCanvasInputs();
                 window.setTimeout(() => canvasRef.current?.focus(), 0);
               }
             }}

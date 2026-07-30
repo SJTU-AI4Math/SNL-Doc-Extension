@@ -478,7 +478,7 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const enterCommitted = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(enterCommitted, { target: { value: 'new(child)' } });
-    fireEvent.keyDown(enterCommitted, { key: 'Enter' });
+    fireEvent.keyDown(enterCommitted, { key: 'Enter', ctrlKey: true });
 
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
     const newTarget = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
@@ -492,6 +492,30 @@ describe('GuiCanvasEditor', () => {
     fireEvent.change(cancelled, { target: { value: 'discarded' } });
     fireEvent.keyDown(cancelled, { key: 'Escape' });
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
+  });
+
+  it('lets Ctrl+F2 subtree editing keep and display newline input', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch')])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
+    const editor = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement
+    );
+
+    // Plain Enter belongs to the multiline textarea; it must not submit.
+    expect(fireEvent.keyDown(editor, { key: 'Enter' })).toBe(true);
+    fireEvent.change(editor, { target: { value: 'root(\n  branch\n)' } });
+    expect(view.getByRole('textbox', { name: 'Edit focused SNL' })).toBe(editor);
+    expect(editor.value).toBe('root(\n  branch\n)');
   });
 
   it('keeps Canvas editing active while embedded SNoogL fills the focused editor', async () => {
@@ -590,7 +614,7 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(editor, { target: { value: 'changed(grandchild)' } });
-    fireEvent.keyDown(editor, { key: 'Enter' });
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
 
     block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
     expect(block.textContent).toContain('changed');
@@ -598,7 +622,7 @@ describe('GuiCanvasEditor', () => {
     expect(block.style.top).toBe('54px');
   });
 
-  it('selects targets with Tab and edits a selected placeholder with F2/Enter', async () => {
+  it('selects targets with Tab and edits a selected placeholder with F2/Ctrl+Enter', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([
         node('root', [createCanvasHole(0), node('tail')])
@@ -637,7 +661,7 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2' });
     const input = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(input, { target: { value: 'foo(bar)' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
 
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('foo');

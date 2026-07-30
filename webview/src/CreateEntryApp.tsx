@@ -1673,6 +1673,7 @@ export function GuiCanvasEditor({
   // A second selection, Escape, or an external forest replacement invalidates
   // the older result before it can append a stale/duplicate root.
   const addRootRequestRef = React.useRef(0);
+  const nodeEditRequestRef = React.useRef(0);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
   const suppressCanvasClickRef = React.useRef(false);
@@ -1704,6 +1705,7 @@ export function GuiCanvasEditor({
     // A MacroDataDriver request may outlive the Canvas. Never publish into the
     // parent after the user switches modes or closes the editor.
     addRootRequestRef.current += 1;
+    nodeEditRequestRef.current += 1;
   }, []);
 
   /** Apply a structural change, recording the previous state for undo. */
@@ -1782,8 +1784,9 @@ export function GuiCanvasEditor({
     // an open editor. Internal editor commits clear editingNode in the same
     // state transition, so this only cancels genuinely stale overlays.
     if (editingNode) setEditingNode(null);
-    // Invalidate an add-root arity lookup that started against the old forest.
+    // Invalidate every arity lookup started against the old forest.
     addRootRequestRef.current += 1;
+    nodeEditRequestRef.current += 1;
     // The add-root input is anchored to nothing in the tree, but a forest
     // replacement (Reset, external push, undo) still means its draft is
     // orphaned — destroy it rather than leave it floating (Cat 2026-07-26).
@@ -2161,6 +2164,7 @@ export function GuiCanvasEditor({
   /** Tear down every floating Canvas input. One exit door, no leaks. */
   const closeCanvasInputs = (): void => {
     addRootRequestRef.current += 1;
+    nodeEditRequestRef.current += 1;
     setEditingNode(null);
     setAddingRootFromMacro(false);
   };
@@ -2179,7 +2183,9 @@ export function GuiCanvasEditor({
   const insideContextMenu = (node: Node | null): boolean =>
     Boolean(
       node &&
-        (node as HTMLElement).closest?.('[data-canvas-menu], [data-canvas-arity-control]')
+        (node as HTMLElement).closest?.(
+          '[data-canvas-menu], [data-canvas-arity-control], [data-canvas-macro-control]'
+        )
     );
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
@@ -2401,8 +2407,10 @@ export function GuiCanvasEditor({
 
   const commitNodeEdit = async (): Promise<void> => {
     if (!editingNode) return;
+    const request = ++nodeEditRequestRef.current;
+    const sourceForest = forestRef.current;
     const previousNode = getNodeAtPath(
-      forestRef.current[editingNode.rootIndex],
+      sourceForest[editingNode.rootIndex],
       editingNode.path.join('.')
     );
     let replacement: SnlSyntaxTree;
@@ -2442,20 +2450,28 @@ export function GuiCanvasEditor({
       replacement = parsed.tree;
     }
     const replaced = replaceCanvasTarget(
-      forestRef.current,
+      sourceForest,
       editingNode.rootIndex,
       editingNode.path,
       replacement
     );
-    if (replaced === forestRef.current) return;
+    if (replaced === sourceForest) return;
     // Cat 2026-07-25: the new Macro's arity decides what happens to the old
     // children — surplus subtrees pop out as their own root blocks, missing
     // slots become empty placeholders the author fills in manually. Never
     // swallow a subtree and never resurrect one.
     const arity = await macroArityForName(replacement.macro_name);
+    if (
+      request !== nodeEditRequestRef.current ||
+      forestRef.current !== sourceForest
+    ) return;
+    const isNewMacro =
+      !previousNode ||
+      isCanvasHole(previousNode) ||
+      previousNode.macro_name !== replacement.macro_name;
     const targetArity: number | null =
       arity === 'dynamic'
-        ? (replacement.children.length === 0 ? 1 : null)
+        ? (isNewMacro && replacement.children.length === 0 ? 1 : null)
         : arity;
     const next = targetArity === null
       ? replaced

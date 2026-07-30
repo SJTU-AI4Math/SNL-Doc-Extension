@@ -1262,6 +1262,76 @@ describe('GuiCanvasEditor', () => {
     expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1);
   });
 
+  it('does not let a slow node arity lookup overwrite a newer edit', async () => {
+    let resolveList!: (value: unknown) => void;
+    const slowList = new Promise((resolve) => { resolveList = resolve; });
+    const racingDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) => {
+          if (macro_name === 'list') return await slowList as never;
+          if (macro_name === 'pair') {
+            return {
+              macro_name,
+              dynamic_arity: false,
+              styles: [{ template: '#0 + #1' }]
+            } as never;
+          }
+          return null;
+        }
+      }
+    });
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <>
+          <output data-testid="racing-name">{forest[0]?.macro_name}</output>
+          <output data-testid="racing-arity">{forest[0]?.children.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={racingDriver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(editor, { target: { value: 'list' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    fireEvent.change(editor, { target: { value: 'pair' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    await waitFor(() => expect(view.getByTestId('racing-name').textContent).toBe('pair'));
+    expect(view.getByTestId('racing-arity').textContent).toBe('2');
+    resolveList({ macro_name: 'list', dynamic_arity: true, styles: [{ template: '#*' }] });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(view.getByTestId('racing-name').textContent).toBe('pair');
+    expect(view.getByTestId('racing-arity').textContent).toBe('2');
+  });
+
+  it('keeps an explicitly zero-arity variadic Macro at zero across F2 re-edit', async () => {
+    const view = render(<VariadicHarness initial={[node('list', [node('a')])]} />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    const control = await waitFor(() => view.getByLabelText('Argument count'));
+    fireEvent.click(within(control).getByLabelText('Remove an argument'));
+    await waitFor(() => expect(view.getByTestId('arity').textContent).toBe('0'));
+
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.change(editor, { target: { value: 'list' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+    expect(view.getByTestId('arity').textContent).toBe('0');
+    expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(0);
+  });
+
   it('does not collapse an existing variadic Macro that already has children', async () => {
     const view = render(
       <VariadicHarness initial={[node('list', [node('a'), node('b')])]} />
@@ -1296,6 +1366,8 @@ describe('GuiCanvasEditor', () => {
     expect(editButton.textContent).toBe('↗');
     fireEvent.click(editButton);
     expect(edit).toHaveBeenCalledWith({ name: 'list', env_mode: undefined, style_name: undefined });
+    expect(known.container.querySelector<HTMLElement>('[data-tree-path=""]')?.classList.contains('snl-canvas-focused')).toBe(true);
+    expect(known.getByRole('button', { name: 'Edit macro' })).toBeTruthy();
 
     cleanup();
     const create = vi.fn();
@@ -1311,12 +1383,15 @@ describe('GuiCanvasEditor', () => {
       />
     );
     fireEvent.click(unknown.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
-    fireEvent.click(await waitFor(() => unknown.getByRole('button', { name: 'Create macro' })));
+    const createButton = await waitFor(() => unknown.getByRole('button', { name: 'Create macro' }));
+    fireEvent.click(createButton);
     expect(create).toHaveBeenCalledWith({
       name: 'Fresh.macro',
       env_mode: undefined,
       style_name: undefined
     });
+    expect(unknown.container.querySelector<HTMLElement>('[data-tree-path=""]')?.classList.contains('snl-canvas-focused')).toBe(true);
+    expect(unknown.getByRole('button', { name: 'Create macro' })).toBeTruthy();
   });
 
   it('grows and shrinks a variadic Macro with + and -', async () => {

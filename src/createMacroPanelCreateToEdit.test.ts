@@ -125,6 +125,29 @@ describe('macro panel create -> edit flip', () => {
     vi.resetModules();
   });
 
+  it('opens Copy Macro in a separate Create panel instead of reusing a dirty blank form', async () => {
+    const source = {
+      name: 'source',
+      description: 'description',
+      source: { entries: [], urls: [] },
+      dynamic_arity: false,
+      tags: [],
+      styles: []
+    };
+    macros.push(source);
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+
+    CreateMacroPanel.createOrShow(extUri, 'algebra.json');
+    CreateMacroPanel.createOrShow(extUri, 'algebra.json', { copyFrom: 'source' });
+
+    expect(created).toHaveLength(2);
+    expect(handlers).toHaveLength(2);
+    await handlers[1]({ type: 'ready' });
+    expect(contexts().at(-1)?.prefill).toEqual({
+      macro: { ...source, name: '' }
+    });
+  });
+
   it('resolves a copy prefill from the target package and clears only its name', async () => {
     const source = {
       name: 'source',

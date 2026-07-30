@@ -69,6 +69,8 @@ function stripJsonExt(file: string): string {
  */
 export class CreateMacroPanel {
   private static readonly instances = new Map<string, CreateMacroPanel>();
+  /** Copy is an explicit request for a new form; never steal a dirty create draft. */
+  private static copySequence = 0;
 
   private static readonly viewType = 'snlCreateMacro';
 
@@ -79,6 +81,8 @@ export class CreateMacroPanel {
   private mode: 'create' | 'edit';
   /** Bare filename (no `.json`) of the target package. */
   private readonly file: string;
+  /** Current key in instances; copy-create panels have a unique pre-create key. */
+  private instanceKey: string;
   /** Macro name being edited (mode === 'edit' only). */
   // Mutable for the same create->edit flip: it becomes the created name.
   private macroName: string;
@@ -125,7 +129,10 @@ export class CreateMacroPanel {
     prefill: CreateMacroPrefill | null
   ): void {
     const column = vscode.ViewColumn.Active;
-    const key = `${mode}:${file}:${macroName}`;
+    const key =
+      mode === 'create' && prefill?.copyFrom
+        ? `create:${file}:copy:${++CreateMacroPanel.copySequence}`
+        : `${mode}:${file}:${macroName}`;
 
     const existing = CreateMacroPanel.instances.get(key);
     if (existing) {
@@ -155,7 +162,7 @@ export class CreateMacroPanel {
 
     CreateMacroPanel.instances.set(
       key,
-      new CreateMacroPanel(panel, extensionUri, mode, file, macroName, prefill)
+      new CreateMacroPanel(panel, extensionUri, mode, file, macroName, prefill, key)
     );
   }
 
@@ -165,7 +172,8 @@ export class CreateMacroPanel {
     mode: 'create' | 'edit',
     file: string,
     macroName: string,
-    prefill: CreateMacroPrefill | null
+    prefill: CreateMacroPrefill | null,
+    instanceKey: string
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
@@ -173,6 +181,7 @@ export class CreateMacroPanel {
     this.file = file;
     this.macroName = macroName;
     this.prefill = prefill;
+    this.instanceKey = instanceKey;
 
     const title =
       mode === 'edit'
@@ -455,7 +464,7 @@ export class CreateMacroPanel {
     if (this.mode !== 'create' || !name) {
       return;
     }
-    const oldKey = `${this.mode}:${this.file}:${this.macroName}`;
+    const oldKey = this.instanceKey;
     this.mode = 'edit';
     this.macroName = name;
     this.prefill = null;
@@ -463,15 +472,13 @@ export class CreateMacroPanel {
     if (CreateMacroPanel.instances.get(oldKey) === this) {
       CreateMacroPanel.instances.delete(oldKey);
     }
+    this.instanceKey = newKey;
     CreateMacroPanel.instances.set(newKey, this);
     this.panel.title = `SNL Edit Macro — ${this.macroName} (${this.file})`;
   }
 
   public dispose(): void {
-    // Uses the CURRENT mode/macroName so a flipped panel removes its
-    // post-flip key rather than leaking a stale one.
-    const key = `${this.mode}:${this.file}:${this.macroName}`;
-    CreateMacroPanel.instances.delete(key);
+    CreateMacroPanel.instances.delete(this.instanceKey);
 
     this.panel.dispose();
 

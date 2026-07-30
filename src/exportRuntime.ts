@@ -1,33 +1,33 @@
 // The runtime injected into an exported document to restore interaction.
 //
-// Deliberately NOT the SNL-Basics React bundle. That bundle renders Entries and
-// talks to the VS Code host over `postMessage`; in a static file there is no
-// host, no macro query endpoint, and nothing left to render — the markup is
-// already final. Shipping it would add ~60 KB of code whose entry points are
-// all unreachable.
+// ── Hover highlighting is NOT reimplemented here ─────────────────────────────
 //
-// What actually drives SNL interaction is the semantic `data-*` attributes
-// SNL-Basics paints onto the rendered DOM, and `harvestLibraryHtml` keeps every
-// one of them. Verified in headless Chromium against Fulcrum-Notes-SNL:
-// `data-kind`, `data-bindref`, `data-scope`, `data-src`, `data-name`,
-// `data-tree-path` all survive. So the export ships a small vanilla script that
-// reimplements the two behaviours a *reader* needs, against those attributes:
+// 猫猫 2026-07-29: "这应该是 SNL-Basics 里就确定的行为，你到底有没有复用代码?"
+// It previously WAS reimplemented — a hand-written mirror of
+// `defaultHighlightStrategy` — and the copy drifted from the original: it never
+// set `--snl-base-text-color`, which `.snl-single-hover [data-kind]` in
+// SNL-Basics's stylesheet reads to keep nested subtrees at the base colour. So
+// hovering a node highlighted its whole subtree instead of just the node.
 //
-//   1. hover highlight — mirrors `defaultHighlightStrategy`: the hovered node
-//      gets `.snl-single-hover`, and hovering a bvar/binder lights up its whole
-//      binding scope via `.snl-bvar-scope` / `.snl-binder-decl`.
-//   2. collapse — the outline's expand/collapse, which is pure DOM state and
-//      was previously lost because the export stripped every <button>.
+// Hover now comes from SNL-Basics itself. `buildHoverRuntimeSource` bundles
+// `applySnlHoverHighlight` + `findMinimalHoverRoot` (both public API since the
+// 2026-07-29 hover-apply extraction) into a self-contained IIFE via esbuild.
+// The panel and the exported file therefore run the SAME function, and a future
+// change to the highlight policy reaches both without anyone remembering to
+// copy it.
 //
-// The highlight CSS already travels with the document (SNL-Basics emits it as
-// an inline <style> inside the entry body), so this script only toggles the
-// classes that stylesheet already targets.
+// What this module still owns is the part SNL-Basics has no concept of:
+//   - collapse — the outline / block expand-collapse, which is Extension
+//     structure (`data-snl-collapsible` / `data-snl-subtree`) and pure DOM
+//     state. The React <button> is stripped on export, so the static file
+//     rebuilds it from those markers.
+//   - wiring — attaching listeners to `[data-entry-body]` regions.
 //
-// The collapse toggle's APPEARANCE is not reinvented here either: glyphs,
-// geometry, classes and label wording all come from
-// `src/collapseToggleContract.ts`, the same module the live React
-// toggle uses. The `.snl-btn` styles those classes reference are already inside
-// the built stylesheet the export inlines.
+// The rest of what a reader needs already travels with the document: the
+// semantic `data-*` attributes SNL-Basics paints onto the rendered DOM
+// (`data-kind`, `data-bindref`, `data-scope`, `data-src`, `data-name`,
+// `data-tree-path`) all survive `harvestLibraryHtml`, and the highlight CSS is
+// inside the stylesheet the export inlines.
 
 import {
   COLLAPSE_GLYPH,
@@ -43,76 +43,68 @@ function toInlineStyle(style: Record<string, string>): string {
     .join(';');
 }
 
+/**
+ * Entry module bundled into the exported page's hover runtime.
+ *
+ * Kept as source text (rather than a real file) so the bundling step has no
+ * on-disk dependency and `buildHoverRuntimeSource` can be called from a test.
+ * It re-exports SNL-Basics's own helpers onto a global the wiring code below
+ * calls — no policy is expressed here, only plumbing.
+ */
+export const HOVER_ENTRY_SOURCE = `
+import {
+  applySnlHoverHighlight,
+  clearSnlHoverHighlight,
+  findMinimalHoverRoot
+} from '@sjtu-ai4math/snl-basics/hover';
+
+globalThis.__snlHover = {
+  apply: applySnlHoverHighlight,
+  clear: clearSnlHoverHighlight,
+  resolveRoot: findMinimalHoverRoot
+};
+`.trim();
+
+/**
+ * Wiring layer. Deliberately ES5-ish and dependency-free: it is concatenated
+ * after the bundled SNL-Basics hover code and runs in a bare page.
+ *
+ * Hover delegates every decision to `__snlHover` (i.e. to SNL-Basics). The only
+ * judgement made here is WHERE to attach listeners.
+ */
 const RUNTIME_TEMPLATE = String.raw`
 (function () {
   'use strict';
 
-  var SINGLE = 'snl-single-hover';
-  var BVAR_SCOPE = 'snl-bvar-scope';
-  var BINDER_DECL = 'snl-binder-decl';
+  var hover = globalThis.__snlHover;
 
-  function bindRefOf(el) {
-    return el.getAttribute('data-bindref') || el.getAttribute('data-bindRef');
-  }
-
-  function clear(root) {
-    var sel = '.' + SINGLE + ', .' + BVAR_SCOPE + ', .' + BINDER_DECL;
-    var marked = root.querySelectorAll(sel);
-    for (var i = 0; i < marked.length; i++) {
-      marked[i].classList.remove(SINGLE, BVAR_SCOPE, BINDER_DECL);
-    }
-  }
-
-  /** Mirror of SNL-Basics defaultHighlightStrategy, DOM-only. */
-  function highlight(container, target) {
-    clear(container);
-    if (!target) return;
-    target.classList.add(SINGLE);
-
-    var kind = target.getAttribute('data-kind');
-    var ref = bindRefOf(target);
-    if ((kind !== 'bvar' && kind !== 'binder') || !ref) return;
-
-    // The scope root MUST be a matching [data-scope="binder"] ancestor. There
-    // is deliberately no container-wide fallback: defaultHighlightStrategy
-    // returns EMPTY bvar/binder buckets when no scope root carries this ref
-    // (SNL-Basics hooks.tsx), so falling back to container would light up
-    // every same-ref occurrence in the whole entry — a highlight the live
-    // Infoview never shows. 猫猫 2026-07-29: '导出以后 bvar 的悬浮是悬浮一个
-    // 全体触发的，和 Extension 行为不一样'.
-    var scopeRoot = null;
-    var scopes = container.querySelectorAll('[data-scope="binder"]');
-    for (var s = 0; s < scopes.length; s++) {
-      if (bindRefOf(scopes[s]) === ref) { scopeRoot = scopes[s]; break; }
-    }
-    if (!scopeRoot) return;
-
-    var all = scopeRoot.querySelectorAll('[data-kind="bvar"], [data-kind="binder"]');
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      if (bindRefOf(el) !== ref) continue;
-      el.classList.add(el.getAttribute('data-kind') === 'bvar' ? BVAR_SCOPE : BINDER_DECL);
-    }
-  }
-
-  /** Innermost semantic node under the pointer — the minimal hover root. */
-  function resolveTarget(node, container) {
-    var el = node;
-    while (el && el !== container) {
-      if (el.nodeType === 1 && el.hasAttribute('data-kind')) return el;
-      el = el.parentNode;
-    }
-    return null;
-  }
-
+  /**
+   * Attach hover to each entry body.
+   *
+   * findMinimalHoverRoot walks up to the nearest semantic node and skips
+   * kind="partial" wrappers, matching the panel exactly — the export used to
+   * do its own naive data-kind walk here, which disagreed with the panel on
+   * matrix cells and dynamic-arity delimiters.
+   */
   function wireHighlighting() {
+    if (!hover) return;
     var bodies = document.querySelectorAll('[data-entry-body]');
     for (var i = 0; i < bodies.length; i++) {
       (function (body) {
         body.addEventListener('mousemove', function (event) {
-          highlight(body, resolveTarget(event.target, body));
+          var target = event.target;
+          if (!target || target.nodeType !== 1) {
+            hover.clear(body);
+            return;
+          }
+          var root = hover.resolveRoot(target, body);
+          if (!root || !root.hasAttribute('data-name') || root.getAttribute('data-kind') === 'partial') {
+            hover.clear(body);
+            return;
+          }
+          hover.apply(root, body);
         });
-        body.addEventListener('mouseleave', function () { clear(body); });
+        body.addEventListener('mouseleave', function () { hover.clear(body); });
       })(bodies[i]);
     }
   }
@@ -123,10 +115,9 @@ const RUNTIME_TEMPLATE = String.raw`
    * static file can rebuild the toggle the live Infoview renders as a button.
    *
    * The toggle is built to the SAME contract as the live one
-   * (webview/src/components/collapseToggle.ts): same glyphs, same geometry,
-   * same .snl-btn classes, count in the tooltip rather than on the button
-   * face. Those .snl-btn styles are already inside the stylesheet the export
-   * inlines, so this reuses them instead of restyling from scratch.
+   * (src/collapseToggleContract.ts): same glyphs, same geometry, same .snl-btn
+   * classes, count in the tooltip rather than on the button face. Those
+   * .snl-btn styles are already inside the stylesheet the export inlines.
    */
   function wireCollapse() {
     var hosts = document.querySelectorAll('[data-snl-collapsible]');
@@ -203,26 +194,24 @@ const RUNTIME_TEMPLATE = String.raw`
 `.trim();
 
 /**
- * The script emitted into the exported page.
- *
- * Placeholders are filled from `src/collapseToggleContract.ts` —
- * the same module the live React toggle uses — so glyphs, geometry, classes
- * and label wording cannot drift between the two surfaces.
+ * The wiring half of the runtime, with the shared toggle contract substituted
+ * in. Concatenate after the bundled hover code to get the full script.
  */
-export const EXPORT_RUNTIME_JS = RUNTIME_TEMPLATE
+export const EXPORT_RUNTIME_WIRING_JS = RUNTIME_TEMPLATE
   .replace('__TOGGLE_CLASS__', COLLAPSE_TOGGLE_CLASS)
   .replace('__TOGGLE_STYLE__', toInlineStyle(COLLAPSE_TOGGLE_STYLE))
   .replace('__GLYPH_EXPANDED__', COLLAPSE_GLYPH.expanded)
   .replace('__GLYPH_COLLAPSED__', COLLAPSE_GLYPH.collapsed);
 
 /**
- * Gutter reservation, the one style the export genuinely needs on its own.
+ * Gutter reservation and the collapse rule — the styles the export genuinely
+ * owns. Everything else (.snl-btn appearance, highlight colours) comes from
+ * the stylesheet the export already inlines.
  *
  * The toggle hangs to the LEFT of a row (shared geometry puts it at -20px). In
  * the panel the outline already sits inside padded chrome; a bare exported page
  * does not, so a top-level row would clip the control off-screen — observed in
- * headless Chromium. Everything else (.snl-btn appearance) comes from the
- * stylesheet the export already inlines.
+ * headless Chromium.
  */
 export const EXPORT_RUNTIME_CSS = `
 [data-snl-collapsible] { position: relative; }

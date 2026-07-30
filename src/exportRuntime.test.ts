@@ -1,31 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_JS } from './exportRuntime';
+import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_WIRING_JS } from './exportRuntime';
 import { buildExportDocument } from './exportHtmlDocument';
 
-describe('EXPORT_RUNTIME_JS', () => {
+describe('EXPORT_RUNTIME_WIRING_JS', () => {
   it('is self-contained: no imports, no bundler globals, no host bridge', () => {
-    expect(EXPORT_RUNTIME_JS).not.toMatch(/\bimport\b/);
-    expect(EXPORT_RUNTIME_JS).not.toMatch(/\brequire\(/);
-    expect(EXPORT_RUNTIME_JS).not.toContain('acquireVsCodeApi');
-    expect(EXPORT_RUNTIME_JS).not.toContain('postMessage');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toMatch(/\bimport\b/);
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toMatch(/\brequire\(/);
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('acquireVsCodeApi');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('postMessage');
   });
 
-  it('drives interaction off the data-* attributes harvest preserves', () => {
-    expect(EXPORT_RUNTIME_JS).toContain('data-kind');
-    expect(EXPORT_RUNTIME_JS).toContain('data-bindref');
-    expect(EXPORT_RUNTIME_JS).toContain('data-scope="binder"');
-    expect(EXPORT_RUNTIME_JS).toContain('snl-single-hover');
-    expect(EXPORT_RUNTIME_JS).toContain('snl-bvar-scope');
-    expect(EXPORT_RUNTIME_JS).toContain('snl-binder-decl');
+  it('delegates hover to SNL-Basics instead of reimplementing it', () => {
+    // The wiring must NOT know the highlight class names or the scope-walking
+    // rules: that policy lives in SNL-Basics and is bundled in beside this
+    // (see scripts/build-export-runtime.mjs). A hand-rolled copy is exactly
+    // what drifted and broke nested-subtree colouring (猫猫 2026-07-29).
+    for (const owned of [
+      'snl-single-hover',
+      'snl-bvar-scope',
+      'snl-binder-decl',
+      'data-scope="binder"',
+      'data-bindref'
+    ]) {
+      expect(EXPORT_RUNTIME_WIRING_JS).not.toContain(owned);
+    }
+    // It only attaches listeners and hands the target to SNL-Basics.
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('__snlHover');
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-entry-body');
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('resolveRoot');
   });
 
   it('rebuilds collapse from the exporter markers', () => {
-    expect(EXPORT_RUNTIME_JS).toContain('data-snl-collapsible');
-    expect(EXPORT_RUNTIME_JS).toContain('data-snl-subtree');
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-snl-collapsible');
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-snl-subtree');
   });
 
   it('stays small enough to inline without thought', () => {
-    expect(EXPORT_RUNTIME_JS.length).toBeLessThan(8000);
+    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(8000);
   });
 });
 
@@ -40,10 +51,10 @@ describe('buildExportDocument with a runtime', () => {
       title: 'T',
       css: EXPORT_RUNTIME_CSS,
       body: '<p>x</p>',
-      script: EXPORT_RUNTIME_JS
+      script: EXPORT_RUNTIME_WIRING_JS
     });
     expect(doc).toContain('<script>');
-    expect(doc).toContain('snl-single-hover');
+    expect(doc).toContain('__snlHover');
     expect(doc.indexOf('<script>')).toBeGreaterThan(doc.indexOf('<p>x</p>'));
     expect(doc).not.toContain('src=');
   });

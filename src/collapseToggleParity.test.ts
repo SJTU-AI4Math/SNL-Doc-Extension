@@ -9,7 +9,7 @@ import {
   collapseToggleAriaLabel,
   collapseToggleTitle
 } from './collapseToggleContract';
-import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_JS } from './exportRuntime';
+import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_WIRING_JS } from './exportRuntime';
 
 /**
  * Cat 2026-07-28: '为什么 Collapse 按钮的效果和 Extension 内很不一样?'
@@ -56,17 +56,17 @@ describe('the live panel consumes the contract', () => {
 
 describe('the exported runtime consumes the same contract', () => {
   it('emits the shared glyphs', () => {
-    expect(EXPORT_RUNTIME_JS).toContain(COLLAPSE_GLYPH.expanded);
-    expect(EXPORT_RUNTIME_JS).toContain(COLLAPSE_GLYPH.collapsed);
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_GLYPH.expanded);
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_GLYPH.collapsed);
     // The small triangles the first version used are gone.
-    expect(EXPORT_RUNTIME_JS).not.toContain('\u25be');
-    expect(EXPORT_RUNTIME_JS).not.toContain('\u25b8');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('\u25be');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('\u25b8');
   });
 
   it('emits the shared class list and geometry', () => {
-    expect(EXPORT_RUNTIME_JS).toContain(COLLAPSE_TOGGLE_CLASS);
-    expect(EXPORT_RUNTIME_JS).toContain(`left:${COLLAPSE_TOGGLE_STYLE.left}`);
-    expect(EXPORT_RUNTIME_JS).toContain(`width:${COLLAPSE_TOGGLE_STYLE.width}`);
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_TOGGLE_CLASS);
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain(`left:${COLLAPSE_TOGGLE_STYLE.left}`);
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain(`width:${COLLAPSE_TOGGLE_STYLE.width}`);
   });
 
   it('produces the same tooltip wording as the live panel', () => {
@@ -78,9 +78,9 @@ describe('the exported runtime consumes the same contract', () => {
   });
 
   it('leaves no placeholder unsubstituted', () => {
-    expect(EXPORT_RUNTIME_JS).not.toContain('__TOGGLE_CLASS__');
-    expect(EXPORT_RUNTIME_JS).not.toContain('__TOGGLE_STYLE__');
-    expect(EXPORT_RUNTIME_JS).not.toMatch(/__GLYPH_[A-Z]+__/);
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('__TOGGLE_CLASS__');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('__TOGGLE_STYLE__');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toMatch(/__GLYPH_[A-Z]+__/);
   });
 
   it('no longer ships a duplicate stylesheet for the button', () => {

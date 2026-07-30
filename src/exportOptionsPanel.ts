@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
-import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_JS } from './exportRuntime';
+import { EXPORT_RUNTIME_CSS } from './exportRuntime';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
 
 /** Harvested payload handed over by the Infoview, held until the user commits. */
@@ -201,6 +201,25 @@ export class ExportOptionsPanel {
     const destination = vscode.Uri.file(destinationPath);
     const request: ExportRequest = { ...this.payload, inline: shape === 'single' };
 
+    // The interactive runtime is generated at build time (see
+    // scripts/build-export-runtime.mjs) because it bundles SNL-Basics's own
+    // hover implementation and a packaged extension has no bundler to run.
+    let runtimeJs: string | undefined;
+    if (interactive) {
+      try {
+        const uri = vscode.Uri.joinPath(this.extensionUri, 'media', 'exportRuntime.js');
+        runtimeJs = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+      } catch {
+        // Degrade to a strictly static document rather than failing the export:
+        // the reader still gets correct, readable content, just without hover
+        // and collapse.
+        void vscode.window.showWarningMessage(
+          'Interactive runtime not found (run `npm run build:export-runtime`); exporting a static document instead.'
+        );
+        runtimeJs = undefined;
+      }
+    }
+
     try {
       const outcome = await writeExport(request, {
         extensionUri: this.extensionUri,
@@ -209,10 +228,10 @@ export class ExportOptionsPanel {
         buildDocument: (input) =>
           buildExportDocument({
             ...input,
-            css: [EXPORT_BASE_CSS, interactive ? EXPORT_RUNTIME_CSS : '', input.css]
+            css: [EXPORT_BASE_CSS, runtimeJs ? EXPORT_RUNTIME_CSS : '', input.css]
               .filter(Boolean)
               .join('\n'),
-            script: interactive ? EXPORT_RUNTIME_JS : undefined
+            script: runtimeJs
           })
       });
 

@@ -11,7 +11,15 @@ import { render, cleanup } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 import { LibraryOutline, type OutlineNode } from '../App';
 import { harvestLibraryHtml } from './htmlExport';
-import { EXPORT_RUNTIME_JS, EXPORT_RUNTIME_CSS } from '../../../src/exportRuntime';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { EXPORT_RUNTIME_CSS } from '../../../src/exportRuntime';
+
+/** The real generated runtime — see exportRuntimeBehavior.test.tsx. */
+const EXPORT_RUNTIME_JS = readFileSync(
+  resolve(__dirname, '../../../media/exportRuntime.js'),
+  'utf8'
+);
 import { buildExportDocument, EXPORT_BASE_CSS } from '../../../src/exportHtmlDocument';
 
 const leaf = (id: string): OutlineNode => ({

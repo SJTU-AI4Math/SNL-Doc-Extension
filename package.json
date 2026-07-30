@@ -304,6 +304,7 @@
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
     "compile": "tsc -p ./",
+    "build:export-runtime": "node scripts/build-export-runtime.mjs",
     "watch": "tsc -watch -p ./",
     "build:webview": "npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl && npm run build:webview:exportOptions",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
@@ -325,7 +326,7 @@
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "vitest run",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
-    "vscode:prepublish": "npm test && npm run compile && npm run build:webview",
+    "vscode:prepublish": "npm test && npm run compile && npm run build:export-runtime && npm run build:webview",
     "build:webview:exportOptions": "cross-env SNL_WEBVIEW_ENTRY=exportOptions vite build --config webview/vite.config.ts"
   },
   "dependencies": {

@@ -303,7 +303,7 @@
   },
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
-    "compile": "tsc -p ./",
+    "compile": "node scripts/clean-out.mjs && tsc -p ./",
     "build:export-runtime": "node scripts/build-export-runtime.mjs",
     "watch": "tsc -watch -p ./",
     "build:webview": "npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl && npm run build:webview:exportOptions",

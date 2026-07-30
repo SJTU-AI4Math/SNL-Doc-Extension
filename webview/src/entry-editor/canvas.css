@@ -64,8 +64,14 @@
   width: 1.15rem;
   height: 1.15rem;
   min-width: 1.15rem;
-  padding: 0;
   line-height: 1;
+}
+/* ui.css is bundled after this file and its .snl-btn--sm rule has equal
+   specificity. Qualify the compact controls so the generic button padding
+   cannot collapse the dial's content box or push arrows outside it. */
+.snl-tree-dial-action.snl-btn--sm,
+.snl-tree-compact-action.snl-btn--sm {
+  padding: 0;
 }
 
 .snl-tree-dial-action--up { grid-area: 1 / 2; }

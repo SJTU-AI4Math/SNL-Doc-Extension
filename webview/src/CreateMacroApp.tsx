@@ -409,6 +409,10 @@ export function CreateMacroApp(): React.ReactElement {
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
   const editingNameRef = useRef('');
+  // Preserve consumer/backend extension fields that this editor does not know
+  // how to project into controls. Copy and edit submissions overlay the known
+  // draft fields onto this source record instead of silently deleting extras.
+  const hydratedMacroBaseRef = useRef<ExtendedSnlMacro | null>(null);
 
   const [panelMode, setPanelMode] = useState<PanelMode>('create');
   const [file, setFile] = useState('');
@@ -516,6 +520,15 @@ export function CreateMacroApp(): React.ReactElement {
    * migrated to v6 shape by the host reader (snlDoc.v5MacroToV6).
    */
   function hydrateFromExisting(existing: ExtendedSnlMacro): void {
+    hydratedMacroBaseRef.current = {
+      ...existing,
+      source: {
+        entries: [...(existing.source?.entries ?? [])],
+        urls: [...(existing.source?.urls ?? [])]
+      },
+      styles: (existing.styles ?? []).map((style) => ({ ...style })),
+      tags: [...(existing.tags ?? [])]
+    };
     setName(existing.name ?? '');
     setDescription(existing.description ?? '');
     const src = existing.source ?? { entries: [], urls: [] };
@@ -590,6 +603,9 @@ export function CreateMacroApp(): React.ReactElement {
           );
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
+          if (msg.mode === 'create' && !msg.prefill?.macro) {
+            hydratedMacroBaseRef.current = null;
+          }
           if (msg.mode === 'edit' && msg.existing) {
             const sameDirtyDraft =
               formDirtyRef.current && editingNameRef.current === msg.existing.name;
@@ -882,9 +898,13 @@ export function CreateMacroApp(): React.ReactElement {
     if (!canCreate) {
       return;
     }
+    const sourceStyles = hydratedMacroBaseRef.current?.styles ?? [];
     const styleList: ExtendedSnlMacroStyle[] = styles
       .filter((s) => s.style_name.trim().length > 0)
-      .map((style) => styleDraftToExtended(style, dynamicArity));
+      .map((style, index) => ({
+        ...(sourceStyles[index] ?? {}),
+        ...styleDraftToExtended(style, dynamicArity)
+      }));
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
@@ -895,6 +915,7 @@ export function CreateMacroApp(): React.ReactElement {
         : style;
     }));
     const macro: ExtendedSnlMacro = {
+      ...(hydratedMacroBaseRef.current ?? {}),
       name: trimmedName,
       description: description.trim(),
       source: {

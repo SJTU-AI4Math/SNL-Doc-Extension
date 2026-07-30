@@ -3669,6 +3669,13 @@ function InductiveNode({
     if (position === 'parent') treeOp('wrapParent', path);
     else if (position === 'child') addChild();
     else if (path !== '') treeOp('addSibling', path);
+    // Structural operations may move or remount this row. Restore focus by its
+    // stable tree identity, not by a ref that can point at an unmounted dial.
+    window.requestAnimationFrame(() => {
+      const row = Array.from(document.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
+        .find((candidate) => candidate.dataset.snlTreeNodeId === nodeId);
+      row?.querySelector<HTMLButtonElement>('[aria-label="Choose add position"]')?.focus();
+    });
   };
   const updateChild = (i: number, next: SnlSyntaxTree): void => {
     const nextChildren = node.children.slice();
@@ -3777,6 +3784,7 @@ function InductiveNode({
     <div>
       <div
         className="snl-tree-row"
+        data-snl-tree-node-id={nodeId}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -3995,6 +4003,12 @@ function InductiveNode({
                       role="menu"
                       aria-label="Add node position"
                       className="snl-tree-add-menu"
+                      onBlur={(event) => {
+                        const next = event.relatedTarget as Node | null;
+                        if (!next || !addControlRef.current?.contains(next)) {
+                          setAddMenuOpen(false);
+                        }
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === 'Escape') {
                           event.stopPropagation();

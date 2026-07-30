@@ -35,6 +35,7 @@ const original = {
   kind: 'operator',
   dynamic_arity: true,
   tags: ['macro-tag'],
+  consumer_metadata: { owner: 'downstream', flags: ['keep-me'] },
   styles: [
     {
       style_name: 'default',
@@ -45,7 +46,8 @@ const original = {
       typst: { built_in: 'sum', synthesis: { mode: 'formula', macro: 'sum(#*)' } },
       latex: { built_in: '\\sum', synthesis: { mode: 'text', macro: 'sum #*' } },
       markdown: '**#***',
-      text: 'items: #*'
+      text: 'items: #*',
+      custom_renderer: { engine: 'consumer-x', options: { compact: false } }
     },
     {
       style_name: 'compact',

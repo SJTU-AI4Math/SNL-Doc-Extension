@@ -21,6 +21,8 @@
     "node_modules",
     "out",
     "webview",
-    "media"
+    "media",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
   ]
 }

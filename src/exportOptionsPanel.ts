@@ -201,7 +201,14 @@ export class ExportOptionsPanel {
     }
 
     const destination = vscode.Uri.file(destinationPath);
-    const request: ExportRequest = { ...this.payload, inline: shape === 'single' };
+    const request: ExportRequest = {
+      ...this.payload,
+      inline: shape === 'single',
+      // A static export promises no JavaScript. Do not merely hide the tag:
+      // otherwise directory mode still writes an orphan popovers.js and counts
+      // it as an exported file even though nothing can load it.
+      popovers: interactive ? this.payload.popovers : undefined
+    };
 
     // The interactive runtime is generated at build time (see
     // scripts/build-export-runtime.mjs) because it bundles SNL-Basics's own

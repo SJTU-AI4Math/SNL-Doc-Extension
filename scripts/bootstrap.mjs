@@ -9,7 +9,8 @@
 // Sequence:
 //   1. npm install (if node_modules missing or package-lock.json is newer).
 //   2. Compile (tsc).
-//   3. Webview build (all vite entries).
+//   3. Export runtime (esbuild bundle of SNL-Basics's hover + our wiring).
+//   4. Webview build (all vite entries).
 //
 // SNL-Basics is a plain registry dependency (@sjtu-ai4math/snl-basics) since
 // 2026-07-27 — npm install fetches its prebuilt dist-lib, so there is no
@@ -75,7 +76,15 @@ function main() {
   run(npmBin, ['run', 'compile'], repoRoot,
     'TypeScript compile failed. See errors above.')
 
-  // 3. Webview build (all vite entries).
+  // 3. Export runtime. media/exportRuntime.js is a gitignored build product,
+  // so a fresh clone has none; without it Export silently degrades to a static
+  // document and the reader loses BOTH hover and collapse. It must be built
+  // here, not only in `vscode:prepublish` — F5 never runs prepublish.
+  console.log('[bootstrap] Building the export runtime…')
+  run(npmBin, ['run', 'build:export-runtime'], repoRoot,
+    'Export runtime build failed. See errors above.')
+
+  // 4. Webview build (all vite entries).
   console.log('[bootstrap] Building webview bundles…')
   run(npmBin, ['run', 'build:webview'], repoRoot,
     'Webview build failed. See errors above.')

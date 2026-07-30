@@ -16,6 +16,7 @@
       "label": "build",
       "dependsOn": [
         "compile",
+        "build:export-runtime",
         "build:webview"
       ],
       "dependsOrder": "sequence",
@@ -30,6 +31,15 @@
       "type": "npm",
       "script": "compile",
       "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
+      "label": "build:export-runtime",
+      "type": "npm",
+      "script": "build:export-runtime",
+      "problemMatcher": [],
       "presentation": {
         "reveal": "silent"
       }

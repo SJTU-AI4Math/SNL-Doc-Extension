@@ -105,22 +105,22 @@ function hasResolvedSemantics(
   const src = typeof meta.src === 'string' ? meta.src : '';
   const srcStatus = typeof meta.srcStatus === 'string' ? meta.srcStatus : '';
 
-  if (
-    node.kind === 'bvar' &&
-    bindRef.length > 0 &&
-    binderNames.has(node.macro_name)
-  ) {
-    return true;
-  }
-
-  // applyContextSrcLookup upgrades only a successfully resolved external
-  // source to bvar. A status means dangling or present-without-declaration.
+  // An explicit source on a non-binder overrides a same-named local binding:
+  // it is valid only when context lookup found the target entry and exact export.
   if (src.length > 0) {
     return (
       node.kind === 'bvar' &&
       srcStatus.length === 0 &&
       accessibleEntryIds.has(src)
     );
+  }
+
+  if (
+    node.kind === 'bvar' &&
+    bindRef.length > 0 &&
+    binderNames.has(node.macro_name)
+  ) {
+    return true;
   }
 
   // Delimited text/formula nodes and parser-classified free variables are
@@ -166,15 +166,18 @@ export function analyzeSnlStructuralIndex(
   const walk = (node: SnlSyntaxTree): void => {
     if (!isNumericNode(node)) {
       const catalogConstant = isCatalogConstant(node, macroLookup);
-      const weight = catalogConstant ? 1 : snlNodeLengthWeight(node.macro_name);
-      weightedTotal += weight;
-
       const sourced = hasResolvedSemantics(
         node,
         macroLookup,
         accessibleEntryIds,
         binderNames
       );
+      const lengthExempt =
+        catalogConstant ||
+        node.kind === 'binder' ||
+        (node.kind === 'bvar' && sourced);
+      const weight = lengthExempt ? 1 : snlNodeLengthWeight(node.macro_name);
+      weightedTotal += weight;
 
       if (!sourced) {
         strongSemanticFreedom += 1;

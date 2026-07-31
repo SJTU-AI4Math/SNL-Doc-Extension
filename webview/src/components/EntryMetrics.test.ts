@@ -268,6 +268,88 @@ describe('SNL Structural Index', () => {
     }
   });
 
+  it('does not apply length penalties to indexed bvars or binders', () => {
+    const longName = 'variable.one.two.three.four.five.six.seven.eight';
+    const binder = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree(`@${longName}`),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(binder).toMatchObject({
+      weightedTotal: 1,
+      weightedStrongSemanticFreedom: 0,
+      structuralIndex: 1
+    });
+
+    const local = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree(`root(@${longName},${longName})`),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(local).toMatchObject({
+      weightedTotal: 3,
+      weightedStrongSemanticFreedom: 0,
+      structuralIndex: 1
+    });
+
+    const externalContext = buildEntryMetricContext([
+      { id: 'ctx', content: { snl: `context(@${longName})` } }
+    ]);
+    const external = okMetrics(
+      computeEntryMetrics(`${longName}@ctx`, indexedMacros, externalContext)
+    );
+    expect(external).toMatchObject({
+      weightedTotal: 1,
+      weightedStrongSemanticFreedom: 0,
+      structuralIndex: 1
+    });
+
+    const unresolved = okMetrics(
+      computeEntryMetrics(
+        `${longName}@missing`,
+        indexedMacros,
+        buildEntryMetricContext([])
+      )
+    );
+    expect(unresolved.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+
+    const existingWithoutDeclaration = okMetrics(
+      computeEntryMetrics(
+        `${longName}@ctx`,
+        indexedMacros,
+        buildEntryMetricContext([
+          { id: 'ctx', content: { snl: 'context(@another.variable)' } }
+        ])
+      )
+    );
+    expect(existingWithoutDeclaration.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+
+    const localWithDanglingExplicitSource = okMetrics(
+      computeEntryMetrics(
+        `root(@${longName},${longName}@missing)`,
+        indexedMacros,
+        buildEntryMetricContext([
+          { id: 'entry-ok', content: { snl: 'context(@anchor)' } }
+        ])
+      )
+    );
+    expect(localWithDanglingExplicitSource.strongSemanticFreedom).toBe(1);
+    expect(localWithDanglingExplicitSource.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+
+    const localWithInvalidExistingSource = okMetrics(
+      computeEntryMetrics(
+        `root(@${longName},${longName}@ctx)`,
+        indexedMacros,
+        buildEntryMetricContext([
+          { id: 'entry-ok', content: { snl: 'context(@anchor)' } },
+          { id: 'ctx', content: { snl: 'context(@another.variable)' } }
+        ])
+      )
+    );
+    expect(localWithInvalidExistingSource.strongSemanticFreedom).toBe(1);
+    expect(localWithInvalidExistingSource.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+  });
+
   it('does not apply length penalties to catalog constants', () => {
     const longName = 'constant.one.two.three.four.five.six.seven.eight';
     const constantMacros: SnlMacroSourceLookup = {

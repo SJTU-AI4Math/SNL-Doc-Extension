@@ -1053,6 +1053,7 @@ export function CreateEntryApp(): React.ReactElement {
           {activeFormat === 'snl' && snlMode === 'gui' ? (
             <GuiInductiveEditor
               snl={content.snl}
+              entryCandidates={existingIds}
               macroDataDriver={macroDataDriver}
               macroCandidates={macroCandidates}
               macroOrigin={macroOrigin}
@@ -3120,9 +3121,10 @@ function parseLeafSource(raw: string): {
   if (trimmed.length === 0) {
     return { macro_name: '' };
   }
-  // Cat 2026-07-15: the GUI editor is deliberately dumb about sigils —
-  // `@`, `%`, `$` and friends are just literal characters that belong in
-  // `name` verbatim. Only `()` and `[]` carry structural meaning:
+  // Prefix sigils such as binder `@`, `%`, and `$` remain literal characters
+  // in the Macro channel. InductiveNode separately recognizes a suffix
+  // `macro@entryId` and moves the part after `@` into the Context Entry field.
+  // Parentheses and brackets retain their existing structural meaning:
   //   - `(` / `,` are handled at the row boundary (children), so if they
   //     show up inside the head we treat the whole raw string as an
   //     opaque name (defensive; the paren guard on the caller side
@@ -3142,14 +3144,69 @@ function parseLeafSource(raw: string): {
   return { macro_name: trimmed };
 }
 
+function splitContextEntrySurface(
+  raw: string
+): { macroSurface: string; contextEntryId: string } | null {
+  const parsed = tryParseSnlSyntaxTree(raw);
+  if (parsed.ok && parsed.tree.children.length === 0) {
+    const contextEntryId = readContextEntryId(parsed.tree);
+    if (contextEntryId !== undefined) {
+      return {
+        macroSurface: stringifyLeafHead(parsed.tree),
+        contextEntryId
+      };
+    }
+    return null;
+  }
+
+  // A just-typed trailing `@` is not parseable yet. Treat it as a context
+  // separator only when everything before it is already one complete leaf.
+  if (raw.endsWith('@')) {
+    const macroSurface = raw.slice(0, -1);
+    const prefix = tryParseSnlSyntaxTree(macroSurface);
+    if (prefix.ok && prefix.tree.children.length === 0) {
+      return { macroSurface, contextEntryId: '' };
+    }
+  }
+  return null;
+}
+
 /**
  * Render an SnlSyntaxTree leaf's identity back to the source text the user
  * would have typed for it. Inverse of `parseLeafSource` (round-trippable for
  * the surface forms the row input accepts).
  */
 function stringifyLeafSource(node: SnlSyntaxTree): string {
+  const contextEntryId = readContextEntryId(node);
+  const contextPart = contextEntryId ? `@${contextEntryId}` : '';
   const stylePart = node.style_name ? `[${node.style_name}]` : '';
-  return `${stringifyLeafHead(node)}${stylePart}`;
+  return `${stringifyLeafHead(node)}${contextPart}${stylePart}`;
+}
+
+function readContextEntryId(node: SnlSyntaxTree): string | undefined {
+  if (!node.mdata || typeof node.mdata !== 'object' || Array.isArray(node.mdata)) {
+    return undefined;
+  }
+  const src = (node.mdata as Record<string, unknown>).src;
+  return typeof src === 'string' ? src : undefined;
+}
+
+export function withContextEntryId(node: SnlSyntaxTree, value: string): SnlSyntaxTree['mdata'] {
+  const base =
+    node.mdata && typeof node.mdata === 'object' && !Array.isArray(node.mdata)
+      ? { ...(node.mdata as Record<string, unknown>) }
+      : {};
+  const trimmed = value.trim();
+  if (trimmed) base.src = trimmed;
+  else delete base.src;
+  return Object.keys(base).length > 0 ? base : null;
+}
+
+function withoutBindingMetadata(mdata: SnlSyntaxTree['mdata']): SnlSyntaxTree['mdata'] {
+  if (!mdata || typeof mdata !== 'object' || Array.isArray(mdata)) return mdata;
+  const next = { ...(mdata as Record<string, unknown>) };
+  delete next.bindRef;
+  return Object.keys(next).length > 0 ? next : null;
 }
 
 /**
@@ -3157,19 +3214,21 @@ function stringifyLeafSource(node: SnlSyntaxTree): string {
  * the InductiveNode name-box `rawInput`, paired with a separate style
  * box on the right.
  *
- * Cat 2026-07-15 (v2): the name box shows literal characters — the
- * editor no longer reconstructs sigils (`@`, `%…%`, `$…$`, `$${'$'}…$${'$'}`)
+ * Cat 2026-07-15 (v2): the name box shows prefix sigils literally. The
+ * editor no longer reconstructs `%…%`, `$…$`, `$${'$'}…$${'$'}`
  * from `node.env_mode` / `node.kind`. Those fields are meaningful for
  * trees that came from an external SNL parse; for those, the name still
  * carries the identifier without the sigils and we prepend/wrap them so
  * the first render truthfully mirrors the source. But on ANY user edit,
  * `commitRaw` clears env_mode + kind and stores whatever the user typed
- * verbatim into `name` — so if you backspace the `@` off `@foo` it
+ * verbatim into `name` — so if you backspace the binder `@` off `@foo` it
  * actually goes away instead of the useEffect re-adding it. See
  * "GUI Editor 应该只管圆括号和方括号" for the design directive.
  */
 function stringifyLeafHead(node: SnlSyntaxTree): string {
-  const binderPrefix = node.kind === 'binder' ? '@' : '';
+  // `kind: binder` is also assigned to bound occurrences by annotate-bind.
+  // Only binder_explicit records an authored prefix `@` on this node.
+  const binderPrefix = node.binder_explicit ? '@' : '';
   if (node.env_mode === 'text') {
     return `${binderPrefix}%${node.macro_name}%`;
   }
@@ -3268,6 +3327,7 @@ interface MacroOpenRequest {
 
 export function GuiInductiveEditor({
   snl,
+  entryCandidates = [],
   macroDataDriver,
   macroCandidates,
   macroOrigin,
@@ -3275,6 +3335,7 @@ export function GuiInductiveEditor({
   onChange
 }: {
   snl: string;
+  entryCandidates?: readonly EntryOption[];
   macroDataDriver: MacroDataDriver;
   macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
@@ -3413,6 +3474,22 @@ export function GuiInductiveEditor({
           padding-right: 6.65rem;
         }
         @container snl-inductive (max-width: 30rem) {
+          .snl-tree-row {
+            flex-wrap: wrap;
+            align-items: flex-start;
+          }
+          .snl-tree-row > [data-macro-id-control='true'] {
+            flex: 1 1 9rem !important;
+            width: auto !important;
+            min-width: 0 !important;
+          }
+          .snl-tree-context-entry-control {
+            flex: 1 1 9rem !important;
+            min-width: 5rem !important;
+          }
+          .snl-tree-style-select {
+            flex: 0 1 7rem !important;
+          }
           .snl-tree-row:hover,
           .snl-tree-row:focus-within {
             padding-right: 0.3rem;
@@ -3459,6 +3536,7 @@ export function GuiInductiveEditor({
         onChange={propagate}
         onDelete={undefined /* root cannot be deleted */}
         macroDataDriver={macroDataDriver}
+        entryCandidates={entryCandidates}
         macroCandidates={macroCandidates}
         macroOrigin={macroOrigin}
         onOpenMacroEditor={onOpenMacroEditor}
@@ -3477,7 +3555,8 @@ export function GuiInductiveEditor({
       >
         Inductive editor — hover a row for the action dial. Delimited
         forms are recognized: <code>$foo$</code>, <code>$$x+y$$</code>,{' '}
-        <code>%text%</code>, <code>@$x$</code>. Choose Style from the adjacent dropdown.
+        <code>%text%</code>, <code>@$x$</code>. A suffix <code>@</code> opens
+        the Context Entry ID input. Choose Style from the adjacent dropdown.
       </p>
     </div>
   );
@@ -3742,6 +3821,7 @@ function InductiveNode({
   onChange,
   onDelete,
   macroDataDriver,
+  entryCandidates,
   macroCandidates,
   macroOrigin,
   onOpenMacroEditor,
@@ -3766,6 +3846,7 @@ function InductiveNode({
   /** Undefined for the root row. */
   onDelete: (() => void) | undefined;
   macroDataDriver: MacroDataDriver;
+  entryCandidates: readonly EntryOption[];
   macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
@@ -3787,9 +3868,19 @@ function InductiveNode({
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
   );
+  const [contextInputOpen, setContextInputOpen] = React.useState(
+    () => readContextEntryId(node) !== undefined
+  );
+  const contextDraftOpenRef = React.useRef(false);
+  const contextAutoFocusRequestedRef = React.useRef(false);
+  const previousNodeIdRef = React.useRef(nodeId);
   const [addMenuOpen, setAddMenuOpen] = React.useState(false);
   const addControlRef = React.useRef<HTMLDivElement>(null);
   const addMenuId = React.useId();
+
+  React.useEffect(() => {
+    if (contextInputOpen) contextAutoFocusRequestedRef.current = false;
+  }, [contextInputOpen]);
 
   React.useEffect(() => {
     if (!addMenuOpen) return;
@@ -3811,18 +3902,36 @@ function InductiveNode({
   React.useEffect(() => {
     const canonical = stringifyLeafHead(node);
     setRawInput((prev) => (prev.trim() === canonical.trim() ? prev : canonical));
-  }, [node.macro_name, node.env_mode, node.kind, node.style_name]);
+    const contextEntryId = readContextEntryId(node);
+    const externalNodeReplacement = previousNodeIdRef.current !== nodeId;
+    previousNodeIdRef.current = nodeId;
+    if (externalNodeReplacement) {
+      contextDraftOpenRef.current = false;
+      setContextInputOpen(contextEntryId !== undefined);
+    } else if (contextEntryId !== undefined) {
+      contextDraftOpenRef.current = false;
+      setContextInputOpen(true);
+    } else if (!contextDraftOpenRef.current) {
+      setContextInputOpen(false);
+    }
+  }, [nodeId, node.macro_name, node.env_mode, node.kind, node.style_name, node.mdata]);
 
   const commitRaw = (nextRaw: string): void => {
     const leaf = parseLeafSource(nextRaw);
-    // Never leave bracket syntax looking accepted in the Macro-name channel.
-    // Canonicalize it immediately while preserving the model's independent Style.
-    setRawInput(
-      leaf.style_name !== undefined ? leaf.macro_name : nextRaw
-    );
+    const contextSurface = splitContextEntrySurface(leaf.macro_name);
+    const typedContext = contextSurface?.contextEntryId;
+    const nextMacroName = contextSurface?.macroSurface ?? leaf.macro_name;
+    if (contextSurface) {
+      contextDraftOpenRef.current = typedContext === '';
+      contextAutoFocusRequestedRef.current = true;
+      setContextInputOpen(true);
+    }
+    // Bracket syntax and an `@entry` suffix belong to their independent
+    // channels, never to the Macro identity field.
+    setRawInput(nextMacroName);
     onChange({
       ...node,
-      macro_name: leaf.macro_name,
+      macro_name: nextMacroName,
       // Cat 2026-07-15: the GUI editor no longer manages sigils. Any
       // user edit collapses the node's parsed env_mode/kind meta into
       // whatever literal chars are now in `name`, so backspacing a
@@ -3830,9 +3939,16 @@ function InductiveNode({
       // node.kind` re-latched the old `binder` and the `@` came back).
       env_mode: undefined,
       kind: '',
+      binder_explicit: undefined,
+      scope: undefined,
       // Macro text owns identity/env syntax only. Style is changed exclusively
       // by the adjacent dropdown, so typing/pasting `id[style]` cannot mutate it.
       style_name: node.style_name,
+      mdata: withoutBindingMetadata(
+        typedContext !== undefined
+          ? withContextEntryId(node, typedContext)
+          : node.mdata
+      ),
       children: node.children
     });
   };
@@ -3940,6 +4056,7 @@ function InductiveNode({
     : 'var(--vscode-input-background, #2a2a2a)';
 
   // Style is a separate dropdown channel; MacroIdInput owns identity only.
+  const contextEntryId = readContextEntryId(node) ?? '';
   const styleTags = (macroEntry?.styles ?? [])
     .map((style) => style.style_name)
     .filter((style): style is string => Boolean(style));
@@ -4022,6 +4139,7 @@ function InductiveNode({
           style={{
             ...inputStyle,
             flex: '1 1 auto',
+            minWidth: 0,
             padding: '0.25rem 0.5rem',
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
             fontSize: '1rem',
@@ -4036,7 +4154,84 @@ function InductiveNode({
           }
         />
 
+        {contextInputOpen ? (
+          <div
+            className="snl-tree-context-entry-control"
+            onKeyDownCapture={(event) => {
+              if (
+                contextEntryId.trim() === '' &&
+                (event.key === 'Enter' || event.key === 'Escape')
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+                contextDraftOpenRef.current = false;
+                setContextInputOpen(false);
+                onChange({ ...node, mdata: withContextEntryId(node, '') });
+              }
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (next && event.currentTarget.contains(next)) return;
+              if (contextEntryId.trim() === '') {
+                contextDraftOpenRef.current = false;
+                setContextInputOpen(false);
+                onChange({ ...node, mdata: withContextEntryId(node, '') });
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '0.2rem',
+              flex: '0 1 11rem',
+              minWidth: '5rem'
+            }}
+          >
+            <label
+              htmlFor={`snl-context-entry-${nodeId}`}
+              title="Context Entry ID"
+              style={{ paddingTop: '0.3rem', fontFamily: 'monospace' }}
+            >
+              <span aria-hidden="true">@</span>
+              <span
+                style={{
+                  position: 'absolute',
+                  width: 1,
+                  height: 1,
+                  padding: 0,
+                  margin: -1,
+                  overflow: 'hidden',
+                  clip: 'rect(0, 0, 0, 0)',
+                  whiteSpace: 'nowrap',
+                  border: 0
+                }}
+              >
+                Context Entry ID
+              </span>
+            </label>
+            <EntityIdSearchBox
+              entries={entryCandidates}
+              value={contextEntryId}
+              validate={ENTRY_VALIDATE_RULES.requireMatch}
+              hideResolvedChip
+              autoFocus={contextAutoFocusRequestedRef.current}
+              idPrefix={`snl-context-entry-${nodeId}`}
+              placeholder="Entry ID"
+              onChange={(value) => {
+                contextDraftOpenRef.current = value.trim() === '';
+                onChange({ ...node, mdata: withContextEntryId(node, value) });
+              }}
+              style={{ flex: '1 1 auto', minWidth: 0 }}
+              inputStyle={{
+                padding: '0.25rem 0.4rem',
+                fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                fontSize: '0.8rem'
+              }}
+            />
+          </div>
+        ) : null}
+
         <select
+          className="snl-tree-style-select"
           value={styleDisplay}
           disabled={!styleSelectable}
           onChange={(event) => commitStyle(event.target.value)}
@@ -4262,6 +4457,7 @@ function InductiveNode({
                 onChange={(next) => updateChild(i, next)}
                 onDelete={() => deleteChild(i)}
                 macroDataDriver={macroDataDriver}
+                entryCandidates={entryCandidates}
                 macroCandidates={macroCandidates}
                 macroOrigin={macroOrigin}
                 onOpenMacroEditor={onOpenMacroEditor}

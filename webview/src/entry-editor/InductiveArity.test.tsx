@@ -2,8 +2,8 @@
 import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MacroDataDriver } from '@sjtu-ai4math/snl-basics';
-import { GuiInductiveEditor } from '../CreateEntryApp';
+import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';
+import { GuiInductiveEditor, withContextEntryId } from '../CreateEntryApp';
 
 afterEach(cleanup);
 
@@ -46,11 +46,15 @@ const driver = new MacroDataDriver({
   }
 });
 
-function renderEditor(initial: string): { view: ReturnType<typeof render>; latest: () => string } {
+function renderEditor(
+  initial: string,
+  entryCandidates: Array<{ id: string; title: string; hasContent: boolean }> = []
+): { view: ReturnType<typeof render>; latest: () => string } {
   let latest = initial;
   const view = render(
     <GuiInductiveEditor
       snl={initial}
+      entryCandidates={entryCandidates}
       macroDataDriver={driver}
       macroCandidates={[{ id: 'pair', labels: [] }]}
       macroOrigin={{}}
@@ -62,6 +66,18 @@ function renderEditor(initial: string): { view: ReturnType<typeof render>; lates
 }
 
 describe('Inductive editor arity auto-fill', () => {
+  it('updates or clears mdata.src without dropping consumer-owned metadata', () => {
+    const node = createSnlSyntaxTreeNode('styled');
+    node.mdata = { src: 'entry-a', consumerFlag: { keep: true } };
+    expect(withContextEntryId(node, 'entry-b')).toEqual({
+      src: 'entry-b',
+      consumerFlag: { keep: true }
+    });
+    expect(withContextEntryId(node, '')).toEqual({
+      consumerFlag: { keep: true }
+    });
+  });
+
   it('keeps Macro identity and Style in separate input channels', async () => {
     const { view, latest } = renderEditor('styled');
     const macroInput = view.getAllByRole('textbox')[0] as HTMLInputElement;
@@ -86,6 +102,157 @@ describe('Inductive editor arity auto-fill', () => {
     expect(style.style.color).toBe('var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))');
     fireEvent.change(style, { target: { value: 'default' } });
     expect(latest()).toBe('styled');
+  });
+
+  it('shows an existing @ context as an independent Entry ID input', async () => {
+    const { view, latest } = renderEditor('styled@entry-a', [
+      { id: 'entry-a', title: 'Entry A', hasContent: true },
+      { id: 'entry-b', title: 'Entry B', hasContent: true }
+    ]);
+    const macroInput = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    expect(macroInput.value).toBe('styled');
+    const row = macroInput.closest<HTMLElement>('.snl-tree-row')!;
+    const macroControl = row.querySelector<HTMLElement>('[data-macro-id-control="true"]')!;
+    expect(macroControl.style.minWidth).toBe('0px');
+    const responsiveCss = Array.from(view.container.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    expect(responsiveCss).toContain('flex-wrap: wrap');
+    expect(responsiveCss).toContain('.snl-tree-context-entry-control');
+
+    const contextInput = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Context Entry ID' }) as HTMLInputElement
+    );
+    expect(contextInput.value).toBe('entry-a');
+    expect(document.activeElement).not.toBe(contextInput);
+    fireEvent.focus(contextInput);
+    expect(view.getByRole('option', { name: /Entry A/ })).toBeTruthy();
+
+    fireEvent.change(contextInput, { target: { value: 'entry' } });
+    fireEvent.keyDown(contextInput, { key: 'ArrowDown' });
+    fireEvent.keyDown(contextInput, { key: 'Enter' });
+    expect(contextInput.value).toBe('entry-b');
+    expect(latest()).toBe('styled@entry-b');
+
+    fireEvent.change(contextInput, { target: { value: 'entry' } });
+    fireEvent.mouseDown(view.getByRole('option', { name: /Entry A/ }));
+    expect(contextInput.value).toBe('entry-a');
+    expect(latest()).toBe('styled@entry-a');
+
+    fireEvent.change(contextInput, { target: { value: 'missing-entry' } });
+    expect(contextInput.getAttribute('aria-invalid')).toBe('true');
+    expect(view.getByText('No entry with this id in the current pool.')).toBeTruthy();
+    fireEvent.change(contextInput, { target: { value: 'entry-b' } });
+    const style = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
+    );
+    fireEvent.change(style, { target: { value: 'compact' } });
+    expect(latest()).toBe('styled@entry-b[compact]');
+  });
+
+  it('preserves binder, context, Style, children, and recursive context ordering', async () => {
+    const { view, latest } = renderEditor(
+      'root(@$x$@entry-a[compact](child@entry-b))',
+      [
+        { id: 'entry-a', title: 'Entry A', hasContent: true },
+        { id: 'entry-b', title: 'Entry B', hasContent: true }
+      ]
+    );
+    await waitFor(() =>
+      expect(view.getAllByRole('combobox', { name: 'Context Entry ID' })).toHaveLength(2)
+    );
+    const macroInputs = view.getAllByRole('textbox') as HTMLInputElement[];
+    expect(macroInputs.map((input) => input.value)).toEqual(['root', '@$x$', 'child']);
+
+    const contexts = view.getAllByRole('combobox', {
+      name: 'Context Entry ID'
+    }) as HTMLInputElement[];
+    expect(contexts.map((input) => input.value)).toEqual(['entry-a', 'entry-b']);
+    fireEvent.change(contexts[1], { target: { value: 'entry-a' } });
+    expect(latest()).toBe('root(@$x$@entry-a[compact](child@entry-a))');
+  });
+
+  it('distinguishes authored binder @ from annotate-bind occurrences during edits', async () => {
+    let rendered = renderEditor('root(@$x$,$x$)');
+    await waitFor(() => expect(rendered.view.getAllByRole('textbox')).toHaveLength(3));
+    let macroInputs = rendered.view.getAllByRole('textbox') as HTMLInputElement[];
+    expect(macroInputs.map((input) => input.value)).toEqual(['root', '@$x$', '$x$']);
+
+    cleanup();
+    rendered = renderEditor('@$x$');
+    macroInputs = rendered.view.getAllByRole('textbox') as HTMLInputElement[];
+    fireEvent.change(macroInputs[0], { target: { value: '$x$' } });
+    expect(macroInputs[0].value).toBe('$x$');
+    expect(rendered.latest()).toBe('$x$');
+  });
+
+  it('closes the Context Entry input when external SNL removes the suffix', async () => {
+    const common = {
+      entryCandidates: [{ id: 'entry-a', title: 'Entry A', hasContent: true }],
+      macroDataDriver: driver,
+      macroCandidates: [{ id: 'styled', labels: [] }],
+      macroOrigin: {},
+      onOpenMacroEditor: () => undefined,
+      onChange: () => undefined
+    };
+    const view = render(<GuiInductiveEditor {...common} snl="styled@entry-a" />);
+    await waitFor(() =>
+      expect(view.getByRole('combobox', { name: 'Context Entry ID' })).toBeTruthy()
+    );
+    view.rerender(<GuiInductiveEditor {...common} snl="styled" />);
+    await waitFor(() =>
+      expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull()
+    );
+  });
+
+  it('opens the Entry ID input on a suffix @ and drops it when blank editing ends', async () => {
+    const { view, latest } = renderEditor('styled', [
+      { id: 'entry-a', title: 'Entry A', hasContent: true }
+    ]);
+    const macroInput = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    fireEvent.change(macroInput, { target: { value: 'styled@' } });
+    expect(macroInput.value).toBe('styled');
+
+    const contextInput = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Context Entry ID' }) as HTMLInputElement
+    );
+    expect(contextInput.value).toBe('');
+    expect(document.activeElement).toBe(contextInput);
+    expect(latest()).toBe('styled');
+
+    fireEvent.change(contextInput, { target: { value: 'entry-a' } });
+    expect(latest()).toBe('styled@entry-a');
+    fireEvent.change(contextInput, { target: { value: '' } });
+    expect(latest()).toBe('styled');
+    const style = view.getByRole('combobox', { name: 'Macro style for styled' });
+    fireEvent.blur(contextInput, { relatedTarget: style });
+    expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull();
+
+    fireEvent.change(macroInput, { target: { value: 'styled@' } });
+    const emptyContext = await waitFor(() =>
+      view.getByRole('combobox', { name: 'Context Entry ID' }) as HTMLInputElement
+    );
+    fireEvent.keyDown(emptyContext, { key: 'Enter' });
+    expect(latest()).toBe('styled');
+    expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull();
+
+    fireEvent.change(macroInput, { target: { value: '@styled' } });
+    expect(latest()).toBe('@styled');
+    expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull();
+
+    fireEvent.change(macroInput, { target: { value: '%mail@host%' } });
+    expect(latest()).toBe('%mail@host%');
+    expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull();
+    fireEvent.change(macroInput, { target: { value: '$x@y$' } });
+    expect(latest()).toBe('$x@y$');
+    expect(view.queryByRole('combobox', { name: 'Context Entry ID' })).toBeNull();
+
+    fireEvent.change(macroInput, { target: { value: '%mail@host%@entry-a' } });
+    expect(macroInput.value).toBe('%mail@host%');
+    expect(latest()).toBe('%mail@host%@entry-a');
+    expect(
+      (view.getByRole('combobox', { name: 'Context Entry ID' }) as HTMLInputElement).value
+    ).toBe('entry-a');
   });
 
   it('covers default, missing, and unavailable Style presentation states', async () => {

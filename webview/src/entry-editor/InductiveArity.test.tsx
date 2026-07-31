@@ -75,15 +75,56 @@ describe('Inductive editor arity auto-fill', () => {
       view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
     );
     expect(style.value).toBe('default');
-    expect(Array.from(style.options).map((option) => option.value)).toEqual([
-      'default',
-      'compact'
+    expect(Array.from(style.options).map((option) => [option.value, option.textContent])).toEqual([
+      ['default', 'default ★'],
+      ['compact', 'compact']
     ]);
+    expect(style.style.color).toBe('var(--vscode-descriptionForeground, #999)');
     fireEvent.change(style, { target: { value: 'compact' } });
     expect(latest()).toBe('styled[compact]');
     expect(macroInput.value).toBe('styled');
+    expect(style.style.color).toBe('var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))');
     fireEvent.change(style, { target: { value: 'default' } });
     expect(latest()).toBe('styled');
+  });
+
+  it('covers default, missing, and unavailable Style presentation states', async () => {
+    let rendered = renderEditor('styled[default]');
+    let style = await waitFor(() =>
+      rendered.view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
+    );
+    expect(style.value).toBe('default');
+    expect(style.options[0]?.textContent).toBe('default ★');
+    expect(style.style.color).toBe('var(--vscode-descriptionForeground, #999)');
+
+    cleanup();
+    rendered = renderEditor('styled[legacy]');
+    style = await waitFor(() =>
+      rendered.view.getByRole('combobox', { name: 'Macro style for styled' }) as HTMLSelectElement
+    );
+    expect(Array.from(style.options).map((option) => option.textContent)).toEqual([
+      'legacy (missing)',
+      'default ★',
+      'compact'
+    ]);
+    expect(style.style.color).toBe('var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))');
+    fireEvent.change(style, { target: { value: 'default' } });
+    expect(rendered.latest()).toBe('styled');
+
+    cleanup();
+    rendered = renderEditor('atom');
+    style = await waitFor(() =>
+      rendered.view.getByRole('combobox', { name: 'Macro style for atom' }) as HTMLSelectElement
+    );
+    expect(style.disabled).toBe(false);
+    expect(style.value).toBe('default');
+    expect(style.style.color).toBe('var(--vscode-descriptionForeground, #999)');
+
+    cleanup();
+    rendered = renderEditor('x');
+    style = rendered.view.getByRole('combobox', { name: 'Macro style for x' }) as HTMLSelectElement;
+    expect(style.disabled).toBe(true);
+    expect(style.style.opacity).toBe('0.35');
   });
 
   it('can clear a missing legacy Style through the independent dropdown', async () => {

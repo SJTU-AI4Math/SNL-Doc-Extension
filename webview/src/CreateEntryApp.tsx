@@ -3372,6 +3372,7 @@ export function GuiInductiveEditor({
 
   return (
     <div
+      className="snl-inductive-editor"
       style={{
         border:
           '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
@@ -3380,18 +3381,54 @@ export function GuiInductiveEditor({
         background: 'var(--vscode-editorWidget-background, #252526)'
       }}
     >
-      {/* Pure-CSS hover-reveal for the per-row toolbar. Same pattern as
-          CreateLibraryApp OutlineRow — opacity toggle keeps the buttons in
-          layout so hover doesn't shift columns, and browser-native `:hover`
-          never drops a leave event. */}
+      {/* Pure-CSS hover/focus reveal for the per-row toolbar. The row reserves
+          the toolbar's width only while it is visible, so the flexible Macro
+          input contracts instead of letting the actions spill outside. */}
       <style>{`
+        .snl-inductive-editor {
+          container-name: snl-inductive;
+          container-type: inline-size;
+        }
         .snl-tree-row-toolbar {
+          position: absolute;
+          right: 0.3rem;
+          top: 50%;
+          transform: translateY(-50%);
           opacity: 0;
+          pointer-events: none;
           transition: opacity 90ms ease-in;
+        }
+        .snl-tree-row {
+          padding-block: 0.15rem;
+          padding-right: 0.3rem;
+          transition: padding-right 90ms ease-in, padding-bottom 90ms ease-in;
         }
         .snl-tree-row:hover .snl-tree-row-toolbar,
         .snl-tree-row:focus-within .snl-tree-row-toolbar {
           opacity: 1;
+          pointer-events: auto;
+        }
+        .snl-tree-row:hover,
+        .snl-tree-row:focus-within {
+          padding-right: 6.65rem;
+        }
+        @container snl-inductive (max-width: 30rem) {
+          .snl-tree-row:hover,
+          .snl-tree-row:focus-within {
+            padding-right: 0.3rem;
+            padding-bottom: 3.8rem;
+          }
+          .snl-tree-row-toolbar {
+            top: auto;
+            bottom: 0.15rem;
+            transform: none;
+          }
+          .snl-tree-row:has(.snl-tree-add-menu) {
+            padding-bottom: 5.8rem;
+          }
+          .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
+            bottom: 2.15rem;
+          }
         }
       `}</style>
 
@@ -3910,6 +3947,7 @@ function InductiveNode({
   const styleAvailable = styleTags.length > 0;
   const styleIsExplicit = node.style_name !== undefined && node.style_name !== '';
   const styleDisplay = styleIsExplicit ? node.style_name! : defaultStyleTag;
+  const styleUsesDefault = styleAvailable && styleDisplay === defaultStyleTag;
   const explicitStyleMissing =
     styleIsExplicit && !styleTags.includes(node.style_name!);
   const styleSelectable = styleAvailable || explicitStyleMissing;
@@ -3934,7 +3972,6 @@ function InductiveNode({
           overflow: 'visible',
           alignItems: 'center',
           gap: '0.35rem',
-          padding: '0.15rem 0.3rem',
           paddingLeft: `${0.3 + depth * 1.1}rem`,
           // Very subtle depth-tint so nested rows visually anchor.
           background:
@@ -4016,13 +4053,16 @@ function InductiveNode({
           style={{
             ...inputStyle,
             width: '7rem',
-            flexShrink: 0,
+            minWidth: '4rem',
+            flexShrink: 1,
             padding: '0.25rem 0.4rem',
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
             fontSize: '0.8rem',
             opacity: !styleSelectable ? 0.35 : 1,
             background: 'var(--vscode-dropdown-background, var(--vscode-input-background, #2a2a2a))',
-            color: 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))',
+            color: styleUsesDefault
+              ? 'var(--vscode-descriptionForeground, #999)'
+              : 'var(--vscode-dropdown-foreground, var(--vscode-input-foreground, #ddd))',
             borderColor:
               'var(--vscode-dropdown-border, var(--vscode-input-border, #555))',
             cursor: !styleSelectable ? 'not-allowed' : 'default'
@@ -4036,20 +4076,14 @@ function InductiveNode({
           ) : null}
           {styleTags.map((style, index) => (
             <option key={style} value={style}>
-              {style}{index === 0 ? ' (default)' : ''}
+              {style}{index === 0 ? ' ★' : ''}
             </option>
           ))}
         </select>
 
         <div
           className="snl-tree-row-toolbar"
-          style={{
-            position: 'absolute',
-            left: 'calc(100% + 0.25rem)',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            zIndex: 10
-          }}
+          style={{ zIndex: 10 }}
         >
           {(() => {
             const trimmed = node.macro_name.trim();

@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver } from '@sjtu-ai4math/snl-basics';
@@ -43,7 +44,49 @@ describe('Inductive node action dial', () => {
     expect(getComputedStyle(childRow).position).toBe('relative');
     const toolbar = childRow.querySelector<HTMLElement>('.snl-tree-row-toolbar')!;
     expect(getComputedStyle(toolbar).position).toBe('absolute');
-    expect(getComputedStyle(toolbar).left).not.toBe('auto');
+    expect(getComputedStyle(toolbar).pointerEvents).toBe('none');
+    expect(getComputedStyle(toolbar).left).toBe('auto');
+    expect(getComputedStyle(toolbar).right).toBe('0.3rem');
+    const toolbarRevealRule = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .find((rule) =>
+        rule instanceof CSSStyleRule &&
+        rule.selectorText.includes('.snl-tree-row:hover .snl-tree-row-toolbar')
+      ) as CSSStyleRule | undefined;
+    expect(toolbarRevealRule?.style.pointerEvents).toBe('auto');
+    const hoverRule = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .find((rule) =>
+        rule instanceof CSSStyleRule &&
+        rule.selectorText.includes('.snl-tree-row:hover') &&
+        rule.style.paddingRight !== ''
+      ) as CSSStyleRule | undefined;
+    expect(hoverRule?.style.paddingRight).toBe('6.65rem');
+    const responsiveCss = Array.from(view.container.querySelectorAll('style'))
+      .map((style) => style.textContent ?? '')
+      .join('\n');
+    expect(responsiveCss).toContain('@container snl-inductive (max-width: 30rem)');
+    expect(responsiveCss).toContain('padding-bottom: 3.8rem');
+    expect(responsiveCss).toContain('padding-bottom: 5.8rem');
+    expect(responsiveCss).toContain('bottom: 2.15rem');
+    const styleSelect = within(childRow).getByRole('combobox') as HTMLSelectElement;
+    expect(styleSelect.style.flexShrink).toBe('1');
+    expect(styleSelect.style.minWidth).toBe('4rem');
+
+    const canvasCss = readFileSync('webview/src/entry-editor/canvas.css', 'utf8');
+    const compactWidth = Number(
+      canvasCss.match(/\.snl-tree-compact-action[\s\S]*?width:\s*([\d.]+)rem/)?.[1]
+    );
+    const actionGap = Number(
+      canvasCss.match(/\.snl-tree-operation-cluster[\s\S]*?gap:\s*([\d.]+)rem/)?.[1]
+    );
+    expect(Number.isFinite(compactWidth)).toBe(true);
+    expect(Number.isFinite(actionGap)).toBe(true);
+    const authoredToolbarWidth =
+      compactWidth + actionGap + 3 * compactWidth + actionGap + compactWidth;
+    const visibleRowReserve = parseFloat(hoverRule!.style.paddingRight);
+    const toolbarRight = parseFloat(getComputedStyle(toolbar).right);
+    expect(visibleRowReserve - toolbarRight - authoredToolbarWidth).toBeGreaterThanOrEqual(0.25);
     expect(within(dial!).getByRole('button', { name: 'Move up' }).textContent).toBe('↑');
     expect(within(dial!).getByRole('button', { name: 'Move down' }).textContent).toBe('↓');
     expect(within(dial!).getByRole('button', { name: 'Outdent' }).textContent).toBe('←');

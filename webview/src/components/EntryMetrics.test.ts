@@ -268,6 +268,62 @@ describe('SNL Structural Index', () => {
     }
   });
 
+  it('does not apply length penalties to catalog constants', () => {
+    const longName = 'constant.one.two.three.four.five.six.seven.eight';
+    const constantMacros: SnlMacroSourceLookup = {
+      ...indexedMacros,
+      [longName]: { source: { entries: ['missing-entry'], urls: [] } }
+    };
+    const constant = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree(`root(${longName},indexed)`),
+      constantMacros,
+      new Set(['entry-ok'])
+    );
+    const free = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree(`root(${longName},indexed)`),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+
+    expect(constant).toMatchObject({
+      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 1,
+      weightedTotal: 3,
+      weightedStrongSemanticFreedom: 1
+    });
+    expect(constant.structuralIndex).toBeCloseTo(2 / 3);
+    expect(free.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+    expect(free.structuralIndex).toBeLessThan(constant.structuralIndex);
+
+    const sourcedLongName = 'sourced.one.two.three.four.five.six.seven.eight';
+    const sourcedLong = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree(sourcedLongName),
+      {
+        [sourcedLongName]: {
+          source: { entries: ['entry-ok'], urls: [] }
+        }
+      },
+      new Set(['entry-ok'])
+    );
+    expect(sourcedLong).toMatchObject({
+      weightedTotal: 1,
+      weightedStrongSemanticFreedom: 0,
+      structuralIndex: 1
+    });
+
+    const invalidCollision = okMetrics(
+      computeEntryMetrics(
+        `${longName}@missing`,
+        constantMacros,
+        buildEntryMetricContext([])
+      )
+    );
+    expect(invalidCollision.weakSemanticFreedom).toBe(1);
+    expect(invalidCollision.strongSemanticFreedom).toBe(1);
+    expect(invalidCollision.weightedStrongSemanticFreedom).toBeGreaterThan(1);
+    expect(invalidCollision.structuralIndex).toBe(0);
+  });
+
   it('penalizes a long free-text node more than a short free node', () => {
     const short = analyzeSnlStructuralIndex(
       parseSnlSyntaxTree('root(%one two three four five six%,indexed)'),

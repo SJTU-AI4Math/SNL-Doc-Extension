@@ -165,7 +165,8 @@ export function analyzeSnlStructuralIndex(
 
   const walk = (node: SnlSyntaxTree): void => {
     if (!isNumericNode(node)) {
-      const weight = snlNodeLengthWeight(node.macro_name);
+      const catalogConstant = isCatalogConstant(node, macroLookup);
+      const weight = catalogConstant ? 1 : snlNodeLengthWeight(node.macro_name);
       weightedTotal += weight;
 
       const sourced = hasResolvedSemantics(
@@ -178,7 +179,7 @@ export function analyzeSnlStructuralIndex(
       if (!sourced) {
         strongSemanticFreedom += 1;
         weightedStrongSemanticFreedom += weight;
-        if (!isCatalogConstant(node, macroLookup)) {
+        if (!catalogConstant) {
           weakSemanticFreedom += 1;
           weightedWeakSemanticFreedom += weight;
         }

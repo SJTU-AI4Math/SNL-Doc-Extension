@@ -5,6 +5,7 @@ import {
   buildEntryMetricContext,
   countSnlSemanticTokens,
   computeEntryMetrics,
+  computeEntryMetricsForIds,
   snlNodeLengthWeight,
   type SnlMacroSourceLookup
 } from './EntryMetrics';
@@ -19,6 +20,22 @@ function okMetrics(result: ReturnType<typeof computeEntryMetrics>) {
 }
 
 describe('computeEntryMetrics context sources', () => {
+  it('precomputes each requested library entry once', () => {
+    const results = computeEntryMetricsForIds(
+      [
+        { id: 'free-entry', content: { snl: 'free' } },
+        { id: 'unused-entry', content: { snl: 'unused' } }
+      ],
+      ['free-entry', 'free-entry'],
+      {}
+    );
+    expect([...results.keys()]).toEqual(['free-entry']);
+    expect(results.get('free-entry')).toMatchObject({
+      kind: 'ok',
+      metrics: { structuralIndex: 0 }
+    });
+  });
+
   it('counts x@entry as sourced only when that entry exports @x', () => {
     const resolved = buildEntryMetricContext([
       { id: 'ctx', content: { snl: 'context(@x)' } }

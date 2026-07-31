@@ -17,4 +17,10 @@ describe('SNL Structural Index surfaces', () => {
       expect(text).not.toContain('metric="structuredRatio"');
     }
   });
+
+  it('precomputes the whole library instead of recalculating inside each row', () => {
+    const text = source('webview/src/CreateLibraryApp.tsx');
+    expect(text).toContain('computeEntryMetricsForIds(');
+    expect(text).not.toContain('const metrics = computeEntryMetrics(');
+  });
 });

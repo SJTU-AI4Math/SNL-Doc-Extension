@@ -24,11 +24,10 @@ import { EmptyAction } from './components/EmptyAction';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
 import {
-  buildEntryMetricContext,
-  computeEntryMetrics,
+  computeEntryMetricsForIds,
   DEFAULT_ENTRY_METRIC_THRESHOLDS,
   EntryMetricValue,
-  type EntryMetricContext,
+  type EntryMetricResult,
   type EntryMetricThresholds,
   type SnlMacroSourceLookup
 } from './components/EntryMetrics';
@@ -873,14 +872,20 @@ function OutlineEditor({
     return { childrenOf, roots, nodeById, entriesById, kindsById };
   }, [graph]);
 
-  // Projection for the EntityIdSearchBox in AddNodeForm. Kept separate from
-  // entriesById so keystroke-driven filter re-renders don't re-project the
-  // whole pool. `hasContent` is derived from `content.snl` presence — same
-  // rule the render layer uses to decide "stub or real". Cat 2026-07-09.
-  const metricContext = useMemo(
-    () => buildEntryMetricContext(graph?.entries ?? []),
-    [graph?.entries]
-  );
+  // Recompute every distinct Entry referenced by this library once per fresh
+  // graph payload (including the initial Edit Library open). Metrics are derived
+  // in memory and never persisted into entries.json or graph.json.
+  const entryMetricsById = useMemo(() => {
+    if (!graph) return new Map<string, EntryMetricResult>();
+    const libraryEntryIds = graph.nodes.flatMap((node) =>
+      typeof node.props.entryId === 'string' ? [node.props.entryId] : []
+    );
+    return computeEntryMetricsForIds(
+      graph.entries,
+      libraryEntryIds,
+      graph.metricMacroSources
+    );
+  }, [graph]);
 
   const entryOptions = useMemo<EntryOption[]>(() => {
     if (!graph) return [];
@@ -1046,9 +1051,12 @@ function OutlineEditor({
       kindsById={kindsById}
       numbersById={numbersById}
       counters={counters}
-      macroSources={graph.metricMacroSources}
+      metricResult={
+        typeof node.props.entryId === 'string'
+          ? entryMetricsById.get(node.props.entryId)
+          : undefined
+      }
       metricThresholds={graph.metricThresholds}
-      metricContext={metricContext}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
     />
@@ -1149,9 +1157,8 @@ interface OutlineRowContentProps {
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
   counters: CounterNode[];
-  macroSources: SnlMacroSourceLookup;
+  metricResult: EntryMetricResult | undefined;
   metricThresholds: EntryMetricThresholds;
-  metricContext: EntryMetricContext;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
 }
@@ -1167,9 +1174,8 @@ function OutlineRowContent({
   kindsById,
   numbersById,
   counters,
-  macroSources,
+  metricResult,
   metricThresholds,
-  metricContext,
   onOpenEntry,
   onUpdateNodeCounter
 }: OutlineRowContentProps): React.ReactElement {
@@ -1188,11 +1194,6 @@ function OutlineRowContent({
   const flatCounters = flattenCounters(counters);
   const currentCounterId =
     typeof node.props.counterId === 'string' ? node.props.counterId : '';
-  const metrics = computeEntryMetrics(
-    entry?.content?.snl,
-    macroSources,
-    metricContext
-  );
 
   const title = entry?.title ?? '';
   const displayTitle =
@@ -1284,9 +1285,9 @@ function OutlineRowContent({
         </span>
       )}
 
-      {entry ? (
+      {entry && metricResult ? (
         <EntryMetricValue
-          result={metrics}
+          result={metricResult}
           metric="structuralIndex"
           thresholds={metricThresholds}
           compact

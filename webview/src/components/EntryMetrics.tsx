@@ -250,6 +250,25 @@ export function computeEntryMetrics(
   };
 }
 
+export function computeEntryMetricsForIds(
+  entries: EntryPoolItemForLookup[],
+  entryIds: Iterable<string>,
+  macroSources: SnlMacroSourceLookup
+): Map<string, EntryMetricResult> {
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+  const context = buildEntryMetricContext(entries);
+  const results = new Map<string, EntryMetricResult>();
+  for (const id of new Set(entryIds)) {
+    const entry = entriesById.get(id);
+    if (!entry) continue;
+    results.set(
+      id,
+      computeEntryMetrics(entry.content?.snl, macroSources, context)
+    );
+  }
+  return results;
+}
+
 type MetricKind = 'structuralIndex';
 
 function metricColor(

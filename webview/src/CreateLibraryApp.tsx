@@ -1285,20 +1285,12 @@ function OutlineRowContent({
       )}
 
       {entry ? (
-        <>
-          <EntryMetricValue
-            result={metrics}
-            metric="semanticFreedom"
-            thresholds={metricThresholds}
-            compact
-          />
-          <EntryMetricValue
-            result={metrics}
-            metric="structuredRatio"
-            thresholds={metricThresholds}
-            compact
-          />
-        </>
+        <EntryMetricValue
+          result={metrics}
+          metric="structuralIndex"
+          thresholds={metricThresholds}
+          compact
+        />
       ) : null}
 
       {/* Per-entry counter override. Only meaningful when the row resolves

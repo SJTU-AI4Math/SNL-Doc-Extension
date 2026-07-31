@@ -41,24 +41,17 @@ export function extractExportedBinders(snl: string): Set<string> {
   } catch {
     return out;
   }
-  // Walk direct + shallow descendants: parser's `@`-binder mark is
-  // RECURSIVE (every descendant of an `@` node is kind='binder'), so
-  // "top-level exports" means the first binder node encountered on each
-  // root path — we want its name only. Traverse the root's children
-  // and collect binder names, but stop descending once we've hit one
-  // (its children are scoped INSIDE that binder).
-  visit(tree);
-  return out;
-
-  function visit(node: SnlSyntaxTree): void {
-    if (!node) return;
-    if (node.kind === 'binder') {
-      out.add(node.macro_name);
-      // Do not descend — binder scope owns its children.
-      return;
-    }
-    for (const c of node.children) visit(c);
+  // A root binder is itself exported. Otherwise only direct children of the
+  // root are declaration positions; binders nested inside another macro
+  // argument are scoped to that subtree and must not leak into the entry index.
+  if (tree.kind === 'binder') {
+    out.add(tree.macro_name);
+    return out;
   }
+  for (const child of tree.children) {
+    if (child.kind === 'binder') out.add(child.macro_name);
+  }
+  return out;
 }
 
 /** Payload of an entries.json entry that this module cares about. */

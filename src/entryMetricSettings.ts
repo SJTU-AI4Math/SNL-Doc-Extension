@@ -1,14 +1,10 @@
 import * as vscode from 'vscode';
 
 export interface EntryMetricThresholds {
-  /** Semantic freedom values below this are green. */
-  semanticFreedomGreenBelow: number;
-  /** Semantic freedom values above this are red; the middle band is orange. */
-  semanticFreedomRedAbove: number;
-  /** Structured percentages below this are red. */
-  structuredRatioRedBelow: number;
-  /** Structured percentages at or above this are green; the middle band is orange. */
-  structuredRatioGreenAtLeast: number;
+  /** SNL Structural Index percentages below this are red. */
+  structuralIndexRedBelow: number;
+  /** Index percentages at or above this are green; the middle band is orange. */
+  structuralIndexGreenAtLeast: number;
 }
 
 function finiteNumber(value: unknown, fallback: number): number {
@@ -17,29 +13,19 @@ function finiteNumber(value: unknown, fallback: number): number {
 
 export function readEntryMetricThresholds(): EntryMetricThresholds {
   const config = vscode.workspace.getConfiguration('snlDoc.metrics');
-  const semanticFreedomGreenBelow = Math.max(
-    0,
-    finiteNumber(config.get('semanticFreedomGreenBelow'), 3)
-  );
-  const semanticFreedomRedAbove = Math.max(
-    semanticFreedomGreenBelow,
-    finiteNumber(config.get('semanticFreedomRedAbove'), 5)
-  );
-  const structuredRatioRedBelow = Math.min(
+  const structuralIndexRedBelow = Math.min(
     100,
-    Math.max(0, finiteNumber(config.get('structuredRatioRedBelow'), 60))
+    Math.max(0, finiteNumber(config.get('structuralIndexRedBelow'), 60))
   );
-  const structuredRatioGreenAtLeast = Math.min(
+  const structuralIndexGreenAtLeast = Math.min(
     100,
     Math.max(
-      structuredRatioRedBelow,
-      finiteNumber(config.get('structuredRatioGreenAtLeast'), 80)
+      structuralIndexRedBelow,
+      finiteNumber(config.get('structuralIndexGreenAtLeast'), 80)
     )
   );
   return {
-    semanticFreedomGreenBelow,
-    semanticFreedomRedAbove,
-    structuredRatioRedBelow,
-    structuredRatioGreenAtLeast
+    structuralIndexRedBelow,
+    structuralIndexGreenAtLeast
   };
 }

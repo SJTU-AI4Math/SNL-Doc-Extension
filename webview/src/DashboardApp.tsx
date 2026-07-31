@@ -293,6 +293,13 @@ function Initialized({
         }`}
         expanded={openLibraries}
         onToggle={() => setOpenLibraries((v) => !v)}
+        headerActions={
+          <HeaderActionButton
+            label="+ Create Library"
+            title="Open the Create Library panel"
+            onClick={() => api?.postMessage({ type: 'createLibrary' })}
+          />
+        }
       >
         {overview.libraries.length > 0 ? (
           <LibrariesTable
@@ -526,9 +533,9 @@ function CollapsibleSection({
   onToggle: () => void;
   /**
    * Optional inline actions rendered flush-right on the header row.
-   * Cat 2026-07-13: some sections (Entries, SNL Macros) want jump
-   * buttons — Create Entry / Create Macro / Open SNoogL — reachable
-   * WITHOUT expanding the section. Buttons must call
+   * Cat 2026-07-13: some sections (Libraries, Entries, SNL Macros) want jump
+   * buttons, such as Create Library / Create Entry / Create Macro / Open
+   * SNoogL, reachable WITHOUT expanding the section. Buttons must call
    * `stopPropagation` on their own click handlers so the header
    * toggle doesn't fire when the user only meant to hit the button.
    */
@@ -1116,8 +1123,7 @@ function EntriesTable({
           <th style={HEAD}>ID</th>
           <th style={HEAD}>Kind</th>
           <th style={HEAD}>Formats</th>
-          <th style={{ ...HEAD, textAlign: 'center' }}>Semantic freedom</th>
-          <th style={{ ...HEAD, textAlign: 'center' }}>Structured</th>
+          <th style={{ ...HEAD, textAlign: 'center' }}>SNL Structural Index</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -1169,14 +1175,7 @@ function EntriesTable({
               <td style={{ ...CELL, textAlign: 'center' }}>
                 <EntryMetricValue
                   result={metrics}
-                  metric="semanticFreedom"
-                  thresholds={metricThresholds}
-                />
-              </td>
-              <td style={{ ...CELL, textAlign: 'center' }}>
-                <EntryMetricValue
-                  result={metrics}
-                  metric="structuredRatio"
+                  metric="structuralIndex"
                   thresholds={metricThresholds}
                 />
               </td>

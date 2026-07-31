@@ -272,31 +272,19 @@
           "scope": "window",
           "description": "%snlDoc.settings.motion.description%"
         },
-        "snlDoc.metrics.semanticFreedomGreenBelow": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "description": "Semantic freedom values below this threshold are shown in green."
-        },
-        "snlDoc.metrics.semanticFreedomRedAbove": {
-          "type": "number",
-          "default": 5,
-          "minimum": 0,
-          "description": "Semantic freedom values above this threshold are shown in red; values between the two thresholds are orange."
-        },
-        "snlDoc.metrics.structuredRatioRedBelow": {
+        "snlDoc.metrics.structuralIndexRedBelow": {
           "type": "number",
           "default": 60,
           "minimum": 0,
           "maximum": 100,
-          "description": "Structured percentages below this threshold are shown in red."
+          "description": "SNL Structural Index percentages below this threshold are shown in red."
         },
-        "snlDoc.metrics.structuredRatioGreenAtLeast": {
+        "snlDoc.metrics.structuralIndexGreenAtLeast": {
           "type": "number",
           "default": 80,
           "minimum": 0,
           "maximum": 100,
-          "description": "Structured percentages at or above this threshold are shown in green; values between the two thresholds are orange."
+          "description": "SNL Structural Index percentages at or above this threshold are shown in green; values between the two thresholds are orange."
         }
       }
     }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import {
+  analyzeSnlStructuralIndex,
   buildEntryMetricContext,
+  countSnlSemanticTokens,
   computeEntryMetrics,
+  snlNodeLengthWeight,
   type SnlMacroSourceLookup
 } from './EntryMetrics';
 import { applyContextSrcLookup } from '../render/contextSrcLookup';
@@ -21,35 +24,58 @@ describe('computeEntryMetrics context sources', () => {
       { id: 'ctx', content: { snl: 'context(@x)' } }
     ]);
     expect(okMetrics(computeEntryMetrics('x@ctx', macros, resolved))).toMatchObject({
-      totalNodes: 1,
-      sourcedNodes: 1,
-      semanticFreedom: 0
+      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 0,
+      structuralIndex: 1
     });
 
     const noDeclaration = buildEntryMetricContext([
       { id: 'ctx', content: { snl: 'context(y)' } }
     ]);
     expect(okMetrics(computeEntryMetrics('x@ctx', macros, noDeclaration))).toMatchObject({
-      sourcedNodes: 0,
-      semanticFreedom: 1
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
     });
 
     const dangling = buildEntryMetricContext([]);
     expect(okMetrics(computeEntryMetrics('x@missing', macros, dangling))).toMatchObject({
-      sourcedNodes: 0,
-      semanticFreedom: 1
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+
+    const nestedDeclaration = buildEntryMetricContext([
+      { id: 'ctx', content: { snl: 'context(wrapper(@x))' } }
+    ]);
+    expect(
+      okMetrics(computeEntryMetrics('x@ctx', macros, nestedDeclaration))
+    ).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
     });
   });
 
   it('does not confuse a local binder name with an entry source id', () => {
     const context = buildEntryMetricContext([]);
-    expect(
-      okMetrics(computeEntryMetrics('root(@ctx,x@ctx)', macros, context))
-    ).toMatchObject({
-      totalNodes: 3,
-      sourcedNodes: 1,
-      semanticFreedom: 2
+    const metrics = okMetrics(
+      computeEntryMetrics('root(@ctx,x@ctx)', macros, context)
+    );
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 2,
+      strongSemanticFreedom: 2
     });
+    expect(metrics.structuralIndex).toBeCloseTo(1 / 3);
+  });
+
+  it('does not expose contradictory legacy source metrics', () => {
+    const metrics = okMetrics(
+      computeEntryMetrics('free', macros, buildEntryMetricContext([]))
+    );
+    expect(metrics).not.toHaveProperty('sourcedNodes');
+    expect(metrics).not.toHaveProperty('semanticFreedom');
+    expect(metrics).not.toHaveProperty('structuredRatio');
   });
 
   it('distinguishes dangling src from an entry with no matching declaration', () => {
@@ -65,5 +91,194 @@ describe('computeEntryMetrics context sources', () => {
     expect(noDeclaration.mdata).toMatchObject({
       srcStatus: 'srcResolvedNoDecl'
     });
+  });
+});
+
+describe('SNL Structural Index', () => {
+  const indexedMacros: SnlMacroSourceLookup = {
+    root: { source: { entries: ['entry-ok'], urls: [] } },
+    indexed: { source: { entries: ['entry-ok'], urls: [] } },
+    unresolved: { source: { entries: ['missing-entry'], urls: [] } }
+  };
+
+  it('tokenizes Han characters individually and Latin words as units', () => {
+    expect(countSnlSemanticTokens('这是 two_words, plus')).toBe(5);
+    expect(countSnlSemanticTokens('alpha.beta-gamma')).toBe(3);
+  });
+
+  it('starts a logarithmic length penalty after six tokens', () => {
+    expect(snlNodeLengthWeight('one two three four five six')).toBe(1);
+    expect(snlNodeLengthWeight('one two three four five six seven')).toBeCloseTo(1.2);
+    expect(snlNodeLengthWeight('one two three four five six seven eight')).toBeCloseTo(
+      1 + 0.2 * Math.log2(3)
+    );
+  });
+
+  it('uses unresolved constants only in strong freedom and excludes numbers', () => {
+    const tree = parseSnlSyntaxTree('root(free,unresolved,indexed,42)');
+    const metrics = analyzeSnlStructuralIndex(
+      tree,
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 2,
+      weightedTotal: 4,
+      weightedWeakSemanticFreedom: 1,
+      weightedStrongSemanticFreedom: 2,
+      structuralIndex: 0.5
+    });
+  });
+
+  it('treats an all-numeric tree as structurally explicit', () => {
+    const metrics = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('42'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(metrics.weightedTotal).toBe(0);
+    expect(metrics.weakSemanticFreedom).toBe(0);
+    expect(metrics.strongSemanticFreedom).toBe(0);
+    expect(metrics.structuralIndex).toBe(1);
+  });
+
+  it('does not mistake free text or a numeric-looking parent for numeric literals', () => {
+    const freeText = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('%42%'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(freeText).toMatchObject({
+      weightedTotal: 1,
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+
+    const parent = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('42(x)'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(parent).toMatchObject({
+      weightedTotal: 2,
+      weakSemanticFreedom: 2,
+      strongSemanticFreedom: 2,
+      structuralIndex: 0
+    });
+  });
+
+  it('keeps an invalid external bvar free even when the entry id is accessible', () => {
+    const tree = parseSnlSyntaxTree('x');
+    tree.kind = 'bvar';
+    tree.mdata = { src: 'entry-ok', srcStatus: 'srcResolvedNoDecl' };
+    const metrics = analyzeSnlStructuralIndex(
+      tree,
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+  });
+
+  it('keeps binder declarations semantic even when their src annotation dangles', () => {
+    const tree = parseSnlSyntaxTree('@x@missing');
+    applyContextSrcLookup(tree, buildEntryMetricContext([]).contextIndex);
+    const metrics = analyzeSnlStructuralIndex(tree, indexedMacros, new Set());
+    expect(tree.kind).toBe('binder');
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 0,
+      structuralIndex: 1
+    });
+  });
+
+  it('keeps an invalid explicit source weakly free despite a catalog collision', () => {
+    const collisionMacros: SnlMacroSourceLookup = {
+      x: { source: { entries: ['entry-ok'], urls: [] } },
+      indexed: { source: { entries: ['entry-ok'], urls: [] } }
+    };
+    const context = buildEntryMetricContext([
+      { id: 'entry-ok', content: { snl: 'context(@x)' } },
+      { id: 'ctx', content: { snl: 'context(y)' } }
+    ]);
+
+    expect(okMetrics(computeEntryMetrics('x@ctx', collisionMacros, context))).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+    expect(
+      okMetrics(computeEntryMetrics('indexed@missing', collisionMacros, context))
+    ).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+  });
+
+  it('keeps free text free when its payload collides with an indexed macro name', () => {
+    const metrics = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('%indexed%'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+
+    const formula = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('$indexed$'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(formula).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+  });
+
+  it('excludes decimal and scientific numeric leaves and bounds every index', () => {
+    for (const source of ['3.14', '1e10', '$42$']) {
+      const metrics = analyzeSnlStructuralIndex(
+        parseSnlSyntaxTree(source),
+        indexedMacros,
+        new Set(['entry-ok'])
+      );
+      expect(metrics.weightedTotal).toBe(0);
+      expect(metrics.structuralIndex).toBe(1);
+    }
+
+    for (const source of ['free', 'root(free,indexed)', 'root(indexed,42)']) {
+      const metrics = analyzeSnlStructuralIndex(
+        parseSnlSyntaxTree(source),
+        indexedMacros,
+        new Set(['entry-ok'])
+      );
+      expect(metrics.structuralIndex).toBeGreaterThanOrEqual(0);
+      expect(metrics.structuralIndex).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('penalizes a long free-text node more than a short free node', () => {
+    const short = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('root(%one two three four five six%,indexed)'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    const long = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('root(%one two three four five six seven eight nine ten%,indexed)'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(long.structuralIndex).toBeLessThan(short.structuralIndex);
   });
 });

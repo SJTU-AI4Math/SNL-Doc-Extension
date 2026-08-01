@@ -36,6 +36,38 @@ describe('computeEntryMetrics context sources', () => {
     });
   });
 
+  it('resolves declarations grouped by list-partial in a context judgment', () => {
+    const snl =
+      'def(Set.SymmDiff(A@Set.ctxt.AB,B@Set.ctxt.AB),Set.diff(parentheses(Set.union(A@Set.ctxt.AB,B@Set.ctxt.AB)),parentheses(Set.inter(A@Set.ctxt.AB,B@Set.ctxt.AB))))';
+    const source = { source: { entries: ['entry-ok'], urls: [] } };
+    const setMacros: SnlMacroSourceLookup = {
+      'Set.SymmDiff': source,
+      'Set.diff': source,
+      'Set.union': source,
+      'Set.inter': source,
+      def: { source: { entries: [], urls: [] } },
+      parentheses: { source: { entries: [], urls: [] } }
+    };
+    const context = buildEntryMetricContext([
+      {
+        id: 'Set.ctxt.AB',
+        content: {
+          snl: 'Type.judge(list-partial(@A,@B),Set(T@Set.ctxt.T))'
+        }
+      },
+      { id: 'Set.ctxt.T', content: { snl: '@T' } },
+      { id: 'entry-ok', content: { snl: '@anchor' } }
+    ]);
+
+    const metrics = okMetrics(computeEntryMetrics(snl, setMacros, context));
+    expect(metrics).toMatchObject({
+      strongSemanticFreedom: 3,
+      weakSemanticFreedom: 0,
+      weightedTotal: 13
+    });
+    expect(metrics.structuralIndex).toBeCloseTo(10 / 13);
+  });
+
   it('counts x@entry as sourced only when that entry exports @x', () => {
     const resolved = buildEntryMetricContext([
       { id: 'ctx', content: { snl: 'context(@x)' } }
@@ -68,9 +100,9 @@ describe('computeEntryMetrics context sources', () => {
     expect(
       okMetrics(computeEntryMetrics('x@ctx', macros, nestedDeclaration))
     ).toMatchObject({
-      weakSemanticFreedom: 1,
-      strongSemanticFreedom: 1,
-      structuralIndex: 0
+      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 0,
+      structuralIndex: 1
     });
   });
 

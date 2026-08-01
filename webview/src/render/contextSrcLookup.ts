@@ -5,8 +5,8 @@
 // nodes as fvar. This module runs AFTER parseSnlSyntaxTree and walks the
 // tree upgrading any node with mdata.src to:
 //
-//   - kind = 'bvar' when the target entry exists AND has a top-level @<name>
-//     binder declaration matching this node's name;
+//   - kind = 'bvar' when the target entry exists AND SNL-Basics reports an
+//     exported @<name> binder declaration matching this node's name;
 //   - kind stays whatever annotate-bind set + `mdata.srcStatus =
 //     'dangling' | 'srcResolvedNoDecl'` when the target's missing or
 //     doesn't declare @<name>. Renderer surfaces srcStatus via a
@@ -17,42 +17,10 @@
 // up. That's acceptable Stage 1 behavior; future work can wire
 // cross-entry highlight.
 
-import {
-  parseSnlSyntaxTree,
-  type SnlSyntaxTree,
-} from '@sjtu-ai4math/snl-basics/core';
+import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
+import { extractExportedBinders } from '@sjtu-ai4math/snl-basics/entry';
 
-/**
- * Given an entry's SNL source, return the set of TOP-LEVEL `@<name>`
- * binder decl names it exports. "Top-level" per spec §fork-B means
- * children of the root — nested @x inside a macro arg is scoped, not
- * exported.
- *
- * Cheap-but-correct: we parse the SNL and inspect direct children of
- * the root whose kind === 'binder'. If parse fails, return an empty set
- * (the entry can't declare anything the linter didn't already flag).
- */
-export function extractExportedBinders(snl: string): Set<string> {
-  const out = new Set<string>();
-  if (!snl || snl.trim() === '') return out;
-  let tree: SnlSyntaxTree;
-  try {
-    tree = parseSnlSyntaxTree(snl);
-  } catch {
-    return out;
-  }
-  // A root binder is itself exported. Otherwise only direct children of the
-  // root are declaration positions; binders nested inside another macro
-  // argument are scoped to that subtree and must not leak into the entry index.
-  if (tree.kind === 'binder') {
-    out.add(tree.macro_name);
-    return out;
-  }
-  for (const child of tree.children) {
-    if (child.kind === 'binder') out.add(child.macro_name);
-  }
-  return out;
-}
+export { extractExportedBinders };
 
 /** Payload of an entries.json entry that this module cares about. */
 export interface EntryPoolItemForLookup {

@@ -6,9 +6,10 @@
 //   3. Preview   — kind-aware live box (stroke + background + mock number)
 //   4. Content   — SNL / Typst / LaTeX / Markdown / Text tabs (each its own
 //                  textarea; SNL has a Text / GUI (Inductive) sub-switch)
-//   5. Contributor — deferred placeholder
-//   6. Pointer     — deferred placeholder
-//   7. Submit/Cancel + result banner
+//   5. Relationships — edit-only, collapsed by default
+//   6. Contributor — deferred placeholder, collapsed by default
+//   7. Pointer     — schema-driven source binding editor, collapsed by default
+//   8. Submit/Cancel + result banner
 //
 // SNL rendering uses one merged MacroDataDriver: bundled macros overridden
 // by every macro in every package in the current workspace, shipped via the
@@ -52,6 +53,7 @@ import {
 } from './components/EntryRelationshipsSection';
 import { PanelNav } from './components/PanelNav';
 import { Button } from './components/Button';
+import { Disclosure } from './components/Disclosure';
 import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
 import { ensureTreeIdentity, inheritTreeIdentity, treeIdentity } from './components/treeIdentity';
@@ -147,6 +149,121 @@ interface ExistingEntry {
   };
   contribution_info?: unknown;
   pointer?: unknown;
+}
+
+type PointerMode = 'lines' | 'regex';
+
+interface PointerDraft {
+  enabled: boolean;
+  file: string;
+  mode: PointerMode;
+  line: string;
+  endLine: string;
+  pattern: string;
+  flags: string;
+  occurrence: string;
+}
+
+type EntryPointer =
+  | { file: string; mode: 'lines'; line: number; endLine?: number }
+  | { file: string; mode: 'regex'; pattern: string; flags?: string; occurrence?: number };
+
+const EMPTY_POINTER_DRAFT: PointerDraft = {
+  enabled: false,
+  file: '',
+  mode: 'lines',
+  line: '1',
+  endLine: '',
+  pattern: '',
+  flags: '',
+  occurrence: ''
+};
+
+function pointerDraftFrom(value: unknown): PointerDraft {
+  if (!value || typeof value !== 'object') return { ...EMPTY_POINTER_DRAFT };
+  const pointer = value as Record<string, unknown>;
+  if (typeof pointer.file !== 'string') return { ...EMPTY_POINTER_DRAFT };
+  if (pointer.mode === 'lines' && typeof pointer.line === 'number') {
+    return {
+      ...EMPTY_POINTER_DRAFT,
+      enabled: true,
+      file: pointer.file,
+      mode: 'lines',
+      line: String(pointer.line),
+      endLine: typeof pointer.endLine === 'number' ? String(pointer.endLine) : ''
+    };
+  }
+  if (pointer.mode === 'regex' && typeof pointer.pattern === 'string') {
+    return {
+      ...EMPTY_POINTER_DRAFT,
+      enabled: true,
+      file: pointer.file,
+      mode: 'regex',
+      pattern: pointer.pattern,
+      flags: typeof pointer.flags === 'string' ? pointer.flags : '',
+      occurrence: typeof pointer.occurrence === 'number' ? String(pointer.occurrence) : ''
+    };
+  }
+  return { ...EMPTY_POINTER_DRAFT };
+}
+
+function positiveInteger(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function pointerDraftError(draft: PointerDraft): string | null {
+  if (!draft.enabled) return null;
+  const file = draft.file.trim().replace(/\\/g, '/');
+  if (!file) return 'Choose a project-relative file.';
+  if (file.startsWith('/') || /^[A-Za-z]:\//.test(file)) {
+    return 'The file path must be relative to the project root.';
+  }
+  if (file.split('/').some((segment) => segment === '..')) {
+    return 'The file path cannot leave the project root.';
+  }
+  if (draft.mode === 'lines') {
+    const line = positiveInteger(draft.line);
+    if (line === null) return 'Start line must be a positive integer.';
+    if (draft.endLine) {
+      const endLine = positiveInteger(draft.endLine);
+      if (endLine === null || endLine < line) {
+        return 'End line must be a positive integer at or after the start line.';
+      }
+    }
+    return null;
+  }
+  if (!draft.pattern) return 'Regex pattern cannot be empty.';
+  try {
+    void new RegExp(draft.pattern, draft.flags);
+  } catch (error) {
+    return `Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (draft.occurrence && positiveInteger(draft.occurrence) === null) {
+    return 'Occurrence must be a positive integer.';
+  }
+  return null;
+}
+
+function pointerFromDraft(draft: PointerDraft): EntryPointer | null {
+  if (!draft.enabled || pointerDraftError(draft)) return null;
+  const file = draft.file.trim().replace(/\\/g, '/');
+  if (draft.mode === 'lines') {
+    const pointer: EntryPointer = {
+      file,
+      mode: 'lines',
+      line: positiveInteger(draft.line)!
+    };
+    const endLine = positiveInteger(draft.endLine);
+    if (endLine !== null) pointer.endLine = endLine;
+    return pointer;
+  }
+  const pointer: EntryPointer = { file, mode: 'regex', pattern: draft.pattern };
+  if (draft.flags) pointer.flags = draft.flags;
+  const occurrence = positiveInteger(draft.occurrence);
+  if (occurrence !== null) pointer.occurrence = occurrence;
+  return pointer;
 }
 
 const FORMAT_TABS: { id: ContentFormat; label: string }[] = [
@@ -292,6 +409,10 @@ export function CreateEntryApp(): React.ReactElement {
   const [contentI18n, setContentI18n] = useState<
     Partial<Record<LocalizableContentFormat, I18n<string, string>>>
   >({});
+  const [pointerDraft, setPointerDraft] = useState<PointerDraft>(() => ({
+    ...EMPTY_POINTER_DRAFT
+  }));
+  const pointerDirtyRef = useRef(false);
 
   /** Rows for the Relationships section; replaced wholesale on every push. */
   const [relationships, setRelationships] = useState<EntryRelationshipRow[]>([]);
@@ -425,6 +546,8 @@ export function CreateEntryApp(): React.ReactElement {
           setTitle('');
           setSelectedKind('');
           setContentI18n({});
+          setPointerDraft({ ...EMPTY_POINTER_DRAFT });
+          pointerDirtyRef.current = false;
           setRelationships([]);
           setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
           setId(typeof msg.id === 'string' ? msg.id : '');
@@ -494,6 +617,8 @@ export function CreateEntryApp(): React.ReactElement {
                 editingIdRef.current = incomingId;
                 setTitle(msg.existing.title || '');
                 setSelectedKind(msg.existing.kind || '');
+                setPointerDraft(pointerDraftFrom(msg.existing.pointer));
+                pointerDirtyRef.current = false;
                 setContent({
                   snl: msg.existing.content?.snl ?? '',
                   typst: typst.text,
@@ -612,12 +737,20 @@ export function CreateEntryApp(): React.ReactElement {
 
   const trimmedTitle = title.trim();
   const trimmedId = id.trim();
+  // Existing metadata is preserved byte-for-byte until the author actually
+  // touches Pointer. A malformed legacy pointer must not block an unrelated
+  // title/content edit merely because the editor cannot project it cleanly.
+  const editablePointerError =
+    mode === 'edit' && !pointerDirtyRef.current
+      ? null
+      : pointerDraftError(pointerDraft);
   const canCreate =
     kinds.length > 0 &&
     trimmedTitle.length > 0 &&
     trimmedId.length > 0 &&
     isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
+    editablePointerError === null &&
     canPersistCanvasForest(canvasForest) &&
     status.kind !== 'creating';
 
@@ -664,7 +797,10 @@ export function CreateEntryApp(): React.ReactElement {
       },
       contribution_info:
         mode === 'edit' ? existingMetadataRef.current.contribution_info : null,
-      pointer: mode === 'edit' ? existingMetadataRef.current.pointer : null
+      pointer:
+        mode === 'edit' && !pointerDirtyRef.current
+          ? existingMetadataRef.current.pointer
+          : pointerFromDraft(pointerDraft)
     };
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
@@ -697,6 +833,7 @@ export function CreateEntryApp(): React.ReactElement {
       activeFormat: ContentFormat;
       snlMode: 'text' | 'gui' | 'canvas';
       canvasForest?: SnlSyntaxTree[];
+      pointerDraft?: PointerDraft;
     }>(draftApi, draftKey);
     if (!restored) return;
     restoredDraftIdRef.current = restored.id;
@@ -716,6 +853,10 @@ export function CreateEntryApp(): React.ReactElement {
     setContent(restored.content);
     setActiveFormat(restored.activeFormat);
     setSnlMode(restored.snlMode);
+    if (restored.pointerDraft) {
+      setPointerDraft(restored.pointerDraft);
+      pointerDirtyRef.current = true;
+    }
     // The Canvas forest is NOT recoverable from `content.snl`: a multi-root
     // or half-finished forest has no serialized form at all, and node
     // identity (which drives block positions) is lost either way. Restore it
@@ -732,7 +873,16 @@ export function CreateEntryApp(): React.ReactElement {
   usePersistedDraft(
     draftApi,
     draftKey,
-    { id, title, selectedKind, content, activeFormat, snlMode, canvasForest },
+    {
+      id,
+      title,
+      selectedKind,
+      content,
+      activeFormat,
+      snlMode,
+      canvasForest,
+      pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined
+    },
     formDirty && status.kind !== 'created' && status.kind !== 'updated'
   );
 
@@ -764,6 +914,7 @@ export function CreateEntryApp(): React.ReactElement {
       return `Cannot save yet — the id "${trimmedId}" is already taken.`;
     }
     if (!selectedKind) return 'Cannot save yet — pick a kind first.';
+    if (editablePointerError) return `Cannot save yet — ${editablePointerError}`;
     return canvasBlockingReason() ?? 'Cannot save yet.';
   }
 
@@ -789,6 +940,8 @@ export function CreateEntryApp(): React.ReactElement {
     setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
     setContentI18n({});
+    setPointerDraft({ ...EMPTY_POINTER_DRAFT });
+    pointerDirtyRef.current = false;
     contentDirtyRef.current.clear();
     markFormDirty(false);
     setActiveFormat('snl');
@@ -803,7 +956,6 @@ export function CreateEntryApp(): React.ReactElement {
     <main
       style={PANEL_STYLE}
       onInputCapture={() => { markFormDirty(true); }}
-      onClickCapture={() => { markFormDirty(true); }}
     >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
@@ -985,8 +1137,7 @@ export function CreateEntryApp(): React.ReactElement {
         </div>
 
         {/* 3. Live preview ============================================= */}
-        <div style={{ marginBottom: '1rem' }}>
-          <Label>Live Preview</Label>
+        <CollapsibleEntrySection title="Live Preview">
           <LivePreview
             kind={kind}
             entryId={trimmedId || '(new-entry)'}
@@ -997,7 +1148,7 @@ export function CreateEntryApp(): React.ReactElement {
             kindPalette={kindPalette}
             postMessage={(message) => apiRef.current?.postMessage(message)}
           />
-        </div>
+        </CollapsibleEntrySection>
 
         {/* 4. Content tabs ============================================= */}
         <div style={{ marginBottom: '1rem' }}>
@@ -1161,16 +1312,21 @@ export function CreateEntryApp(): React.ReactElement {
         ) : null}
 
         {/* 6. Contributor ============================================= */}
-        <div style={{ marginBottom: '1rem' }}>
-          <Label>Contributor</Label>
+        <CollapsibleEntrySection title="Contributor">
           <PlaceholderBox text="Not implemented yet — deferred until the contribution_info schema is defined." />
-        </div>
+        </CollapsibleEntrySection>
 
-        {/* 6. Pointer ================================================= */}
-        <div style={{ marginBottom: '1rem' }}>
-          <Label>Pointer</Label>
-          <PlaceholderBox text="Not implemented yet — deferred until the pointer (code-binding) schema is defined." />
-        </div>
+        {/* 7. Pointer ================================================= */}
+        <CollapsibleEntrySection title="Pointer">
+          <PointerEditor
+            value={pointerDraft}
+            onChange={(next) => {
+              pointerDirtyRef.current = true;
+              markFormDirty(true);
+              setPointerDraft(next);
+            }}
+          />
+        </CollapsibleEntrySection>
 
         {/* 7. Submit / Cancel ========================================= */}
         {!canPersistCanvasForest(canvasForest) ? (
@@ -1310,6 +1466,204 @@ function LivePreview({
   );
 }
 
+
+function CollapsibleEntrySection({
+  title,
+  children
+}: {
+  title: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const reactId = React.useId();
+  const panelId = `entry-section-${reactId.replace(/[^a-z0-9_-]+/gi, '-')}`;
+  return (
+    <section
+      style={{
+        marginBottom: '1rem',
+        borderTop: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+        paddingTop: '0.4rem'
+      }}
+    >
+      <Disclosure
+        expanded={open}
+        controls={panelId}
+        onToggle={() => setOpen((value) => !value)}
+        title={`${title} — ${open ? 'collapse' : 'expand'} section`}
+        style={{
+          display: 'flex',
+          width: '100%',
+          alignItems: 'baseline',
+          gap: '0.6rem',
+          padding: 0,
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          font: 'inherit',
+          textAlign: 'left'
+        }}
+      >
+        <span aria-hidden="true" style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
+          {open ? '▾' : '▸'}
+        </span>
+        <span role="heading" aria-level={2} style={{ fontSize: '1rem', fontWeight: 600 }}>
+          {title}
+        </span>
+      </Disclosure>
+      {open ? <div id={panelId} style={{ paddingTop: '0.55rem' }}>{children}</div> : null}
+    </section>
+  );
+}
+
+function PointerEditor({
+  value,
+  onChange
+}: {
+  value: PointerDraft;
+  onChange: (next: PointerDraft) => void;
+}): React.ReactElement {
+  const error = pointerDraftError(value);
+  const errorId = 'snl-entry-pointer-error';
+  const describedBy = value.enabled ? errorId : undefined;
+  const fileInvalid = !!error && (
+    error.startsWith('Choose a project-relative file') || error.startsWith('The file path')
+  );
+  const lineInvalid = !!error && (
+    error.startsWith('Start line') || error.startsWith('End line')
+  );
+  const regexInvalid = !!error && (
+    error.startsWith('Regex pattern') || error.startsWith('Invalid regular expression')
+  );
+  const occurrenceInvalid = !!error && error.startsWith('Occurrence');
+  const update = (patch: Partial<PointerDraft>): void => onChange({ ...value, ...patch });
+  return (
+    <div data-testid="entry-pointer-editor">
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <input
+          type="checkbox"
+          checked={value.enabled}
+          onChange={(event) => update({ enabled: event.target.checked })}
+        />
+        Bind this Entry to a source location
+      </label>
+      {value.enabled ? (
+        <>
+          <Label htmlFor="snl-entry-pointer-file">Project-relative file</Label>
+          <input
+            id="snl-entry-pointer-file"
+            type="text"
+            value={value.file}
+            onChange={(event) => update({ file: event.target.value })}
+            aria-invalid={fileInvalid || undefined}
+            aria-describedby={describedBy}
+            placeholder="e.g. src/theorems/pythagorean.ts"
+            style={{ ...inputStyle, ...monoStyle }}
+          />
+          <Label htmlFor="snl-entry-pointer-mode">Mode</Label>
+          <select
+            id="snl-entry-pointer-mode"
+            value={value.mode}
+            onChange={(event) => update({ mode: event.target.value as PointerMode })}
+            aria-describedby={describedBy}
+            style={inputStyle}
+          >
+            <option value="lines">Line range</option>
+            <option value="regex">Regular expression</option>
+          </select>
+          {value.mode === 'lines' ? (
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 10rem' }}>
+                <Label htmlFor="snl-entry-pointer-line">Start line</Label>
+                <input
+                  id="snl-entry-pointer-line"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={value.line}
+                  onChange={(event) => update({ line: event.target.value })}
+                  aria-invalid={lineInvalid || undefined}
+                  aria-describedby={describedBy}
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ flex: '1 1 10rem' }}>
+                <Label htmlFor="snl-entry-pointer-end-line">End line (optional)</Label>
+                <input
+                  id="snl-entry-pointer-end-line"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={value.endLine}
+                  onChange={(event) => update({ endLine: event.target.value })}
+                  aria-invalid={lineInvalid || undefined}
+                  aria-describedby={describedBy}
+                  placeholder="same as start"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <Label htmlFor="snl-entry-pointer-pattern">Regex pattern</Label>
+              <input
+                id="snl-entry-pointer-pattern"
+                type="text"
+                value={value.pattern}
+                onChange={(event) => update({ pattern: event.target.value })}
+                aria-invalid={regexInvalid || undefined}
+                aria-describedby={describedBy}
+                placeholder="e.g. function\\s+provePythagorean"
+                style={{ ...inputStyle, ...monoStyle }}
+              />
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 10rem' }}>
+                  <Label htmlFor="snl-entry-pointer-flags">Regex flags (optional)</Label>
+                  <input
+                    id="snl-entry-pointer-flags"
+                    type="text"
+                    value={value.flags}
+                    onChange={(event) => update({ flags: event.target.value })}
+                    aria-invalid={regexInvalid || undefined}
+                    aria-describedby={describedBy}
+                    placeholder="e.g. im"
+                    style={{ ...inputStyle, ...monoStyle }}
+                  />
+                </div>
+                <div style={{ flex: '1 1 10rem' }}>
+                  <Label htmlFor="snl-entry-pointer-occurrence">Occurrence (optional)</Label>
+                  <input
+                    id="snl-entry-pointer-occurrence"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={value.occurrence}
+                    onChange={(event) => update({ occurrence: event.target.value })}
+                    aria-invalid={occurrenceInvalid || undefined}
+                    aria-describedby={describedBy}
+                    placeholder="1"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          <p
+            id={errorId}
+            role={error ? 'alert' : undefined}
+            aria-live="polite"
+            style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', opacity: error ? 1 : 0.65, color: error ? 'var(--vscode-errorForeground, #f48771)' : undefined }}
+          >
+            {error ?? 'Paths are resolved from the project root. Line numbers and regex occurrences are 1-indexed.'}
+          </p>
+        </>
+      ) : (
+        <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.65 }}>
+          No source location is attached. Enable the binding to choose a file and addressing mode.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Label({
   htmlFor,

@@ -1780,6 +1780,32 @@ interface CanvasBlockPosition {
   y: number;
 }
 
+interface CanvasBlockBounds extends CanvasBlockPosition {
+  width: number;
+  height: number;
+}
+
+interface CanvasExtent {
+  width: number;
+  height: number;
+}
+
+export function canvasExtentForBlocks(
+  viewport: CanvasExtent,
+  blocks: readonly CanvasBlockBounds[],
+  padding: number
+): CanvasExtent {
+  let width = Math.max(0, viewport.width);
+  let height = Math.max(0, viewport.height);
+  for (const block of blocks) {
+    const right = block.x + Math.max(0, block.width) + padding;
+    const bottom = block.y + Math.max(0, block.height) + padding;
+    if (Number.isFinite(right)) width = Math.max(width, right);
+    if (Number.isFinite(bottom)) height = Math.max(height, bottom);
+  }
+  return { width: Math.ceil(width), height: Math.ceil(height) };
+}
+
 interface CanvasPointerTarget {
   path: readonly number[];
   rect: DOMRect;
@@ -2012,6 +2038,7 @@ export function GuiCanvasEditor({
   onResetFromSnl: () => void;
 }): React.ReactElement {
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
+  const [canvasExtent, setCanvasExtent] = React.useState<CanvasExtent>({ width: 0, height: 0 });
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
   const [focused, setFocused] = React.useState<CanvasFocus | null>(null);
@@ -2019,6 +2046,7 @@ export function GuiCanvasEditor({
   const [addingRootFromMacro, setAddingRootFromMacro] = React.useState(false);
   const [dropTarget, setDropTarget] = React.useState<CanvasFocus | null>(null);
   const [contextMenu, setContextMenu] = React.useState<CanvasContextMenu | null>(null);
+  const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -2131,6 +2159,47 @@ export function GuiCanvasEditor({
       }
     }));
   }, [forest]);
+
+  const measureCanvasExtent = React.useCallback((): void => {
+    const viewport = viewportRef.current;
+    const canvas = canvasRef.current;
+    if (!viewport || !canvas || viewport.clientWidth <= 0) return;
+    const computedMinHeight = Number.parseFloat(window.getComputedStyle(canvas).minHeight);
+    const minimumHeight = Number.isFinite(computedMinHeight) && computedMinHeight > 0
+      ? computedMinHeight
+      : 512;
+    const blocks = [...canvas.querySelectorAll<HTMLElement>('[data-canvas-root-index]')]
+      .map((block): CanvasBlockBounds => ({
+        x: block.offsetLeft,
+        y: block.offsetTop,
+        width: Math.max(block.offsetWidth, block.scrollWidth),
+        height: Math.max(block.offsetHeight, block.scrollHeight)
+      }));
+    const next = canvasExtentForBlocks(
+      { width: viewport.clientWidth, height: minimumHeight },
+      blocks,
+      24
+    );
+    setCanvasExtent((previous) =>
+      previous.width === next.width && previous.height === next.height ? previous : next
+    );
+  }, []);
+
+  React.useLayoutEffect(() => {
+    measureCanvasExtent();
+  }, [forest, positions, measureCanvasExtent]);
+
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    const canvas = canvasRef.current;
+    if (!viewport || !canvas || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measureCanvasExtent);
+    observer.observe(viewport);
+    canvas.querySelectorAll<HTMLElement>('[data-canvas-root-index]').forEach((block) =>
+      observer.observe(block)
+    );
+    return () => observer.disconnect();
+  }, [forest, measureCanvasExtent]);
 
   React.useEffect(() => {
     if (focused) {
@@ -2935,6 +3004,20 @@ export function GuiCanvasEditor({
   return (
     <section>
       <div
+        ref={viewportRef}
+        data-entry-gui-canvas-viewport
+        style={{
+          width: '100%',
+          minWidth: 0,
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          contain: 'inline-size',
+          overflowX: 'auto',
+          overflowY: 'visible',
+          paddingBottom: '0.25rem'
+        }}
+      >
+      <div
         ref={canvasRef}
         data-entry-gui-canvas
         aria-label="GUI Editor canvas"
@@ -2946,6 +3029,10 @@ export function GuiCanvasEditor({
         style={{
           position: 'relative',
           minHeight: '32rem',
+          minWidth: '100%',
+          width: canvasExtent.width > 0 ? canvasExtent.width : '100%',
+          height: canvasExtent.height > 0 ? canvasExtent.height : undefined,
+          boxSizing: 'border-box',
           overflow: 'visible',
           fontSize: '1.05rem',
           border: '1px solid var(--vscode-panel-border, #444)',
@@ -2976,7 +3063,7 @@ export function GuiCanvasEditor({
                 top: position.y,
                 display: 'inline-block',
                 width: 'max-content',
-                maxWidth: `calc(100% - ${Math.max(0, position.x) + 8}px)`,
+                maxWidth: 'none',
                 boxSizing: 'border-box',
                 overflow: 'visible',
                 padding: '0.3rem',
@@ -3280,6 +3367,7 @@ export function GuiCanvasEditor({
             onClose={() => setContextMenu(null)}
           />
         ) : null}
+      </div>
       </div>
       {!canPersistCanvasForest(forest) ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.45rem' }}>

@@ -2,7 +2,12 @@ import React from 'react';
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
-import { GuiCanvasEditor, canvasInitialPosition, resolveCanvasPointerTarget } from '../CreateEntryApp';
+import {
+  GuiCanvasEditor,
+  canvasExtentForBlocks,
+  canvasInitialPosition,
+  resolveCanvasPointerTarget
+} from '../CreateEntryApp';
 import { createCanvasHole } from './canvasForest';
 
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
@@ -55,6 +60,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'elementsFromPoint');
 });
 
@@ -65,6 +71,55 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('expands the canvas bounds for blocks wider and taller than the viewport', () => {
+    expect(canvasExtentForBlocks(
+      { width: 800, height: 512 },
+      [{ x: 120, y: 80, width: 1600, height: 1200 }],
+      24
+    )).toEqual({ width: 1744, height: 1304 });
+    expect(canvasExtentForBlocks(
+      { width: 800, height: 512 },
+      [{ x: 24, y: 24, width: 200, height: 100 }],
+      24
+    )).toEqual({ width: 800, height: 512 });
+  });
+
+  it('reflows the live canvas when ResizeObserver sees a huge rendered block', async () => {
+    const callbacks: ResizeObserverCallback[] = [];
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) { callbacks.push(callback); }
+      observe(): void { /* test triggers the callback after geometry is installed */ }
+      unobserve(): void { /* no-op */ }
+      disconnect(): void { /* no-op */ }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('huge')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    const block = view.container.querySelector<HTMLElement>('[data-canvas-root]')!;
+    Object.defineProperty(viewport, 'clientWidth', { configurable: true, value: 800 });
+    Object.defineProperties(block, {
+      offsetLeft: { configurable: true, value: 120 },
+      offsetTop: { configurable: true, value: 80 },
+      offsetWidth: { configurable: true, value: 1600 },
+      scrollWidth: { configurable: true, value: 1600 },
+      offsetHeight: { configurable: true, value: 1200 },
+      scrollHeight: { configurable: true, value: 1200 }
+    });
+
+    callbacks.forEach((callback) => callback([], {} as ResizeObserver));
+    await waitFor(() => expect(canvas.style.width).toBe('1744px'));
+    expect(canvas.style.height).toBe('1304px');
+  });
+
   it('adds fixed-arity placeholders when a Macro is inserted as a new root', async () => {
     const pairDriver = new MacroDataDriver({
       queries: {
@@ -280,8 +335,13 @@ describe('GuiCanvasEditor', () => {
     const block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
     expect(block.style.width).toBe('max-content');
     expect(block.style.minWidth).toBe('');
-    expect(block.style.maxWidth).toBe('calc(100% - 32px)');
+    expect(block.style.maxWidth).toBe('none');
     expect(block.style.padding).toBe('0.3rem');
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    expect(viewport.style.overflowX).toBe('auto');
+    expect(viewport.style.width).toBe('100%');
+    expect(viewport.style.minWidth).toBe('0px');
+    expect(viewport.style.contain).toBe('inline-size');
     const resting = block.style.background;
     fireEvent.pointerEnter(block);
     await waitFor(() => expect(block.style.background).not.toBe(resting));

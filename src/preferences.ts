@@ -16,7 +16,8 @@ function language_preference(value: unknown): LanguagePreference {
 }
 
 function color_scheme_preference(value: unknown): ColorSchemePreference {
-  return value === 'light' || value === 'dark' || value === 'high-contrast'
+  return value === 'light' || value === 'dark' || value === 'high-contrast' ||
+    value === 'high-contrast-light'
     ? value
     : 'auto';
 }
@@ -30,8 +31,9 @@ function active_color_scheme(): ColorScheme {
     case vscode.ColorThemeKind.Light:
       return 'light';
     case vscode.ColorThemeKind.HighContrast:
-    case vscode.ColorThemeKind.HighContrastLight:
       return 'high-contrast';
+    case vscode.ColorThemeKind.HighContrastLight:
+      return 'high-contrast-light';
     default:
       return 'dark';
   }
@@ -40,11 +42,13 @@ function active_color_scheme(): ColorScheme {
 /** Read effective preferences from VS Code without exposing that backend to Basics. */
 export function read_extension_preferences(): ExtensionPreferences {
   const config = vscode.workspace.getConfiguration('snlDoc');
+  const languagePreference = language_preference(config.get('locale'));
   return {
     language: resolve_language(
-      language_preference(config.get('locale')),
+      languagePreference,
       vscode.env.language
     ),
+    language_preference: languagePreference,
     color_scheme: resolve_color_scheme(
       color_scheme_preference(config.get('appearance.theme')),
       active_color_scheme()

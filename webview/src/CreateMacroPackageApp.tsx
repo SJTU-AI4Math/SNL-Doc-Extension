@@ -13,7 +13,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 
 type Mode = 'create' | 'edit';
@@ -176,13 +176,11 @@ export function CreateMacroPackageApp(): React.ReactElement {
 
   return (
     <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={mode === 'edit' ? 'Edit Macro Package' : 'Create Macro Package'}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
-      <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        {mode === 'edit' ? 'Edit Macro Package' : 'Create Macro Package'}
-      </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
           ? 'Update this package\u2019s display name and description. The file name is immutable \u2014 renaming means delete + recreate.'

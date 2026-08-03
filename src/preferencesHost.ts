@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { extension_preferences_runtime } from './preferences';
-import type { ExtensionPreferences } from './preferences-core';
+import {
+  is_supported_language,
+  language_configuration_target,
+  type ExtensionPreferences
+} from './preferences-core';
 
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
@@ -8,7 +12,7 @@ export interface PreferencesSnapshotMessage {
   preferences: ExtensionPreferences;
 }
 
-class PreferencesHost implements vscode.Disposable {
+export class PreferencesHost implements vscode.Disposable {
   private readonly webviews = new Set<WeakRef<vscode.Webview>>();
   private readonly webviewRefs = new WeakMap<vscode.Webview, WeakRef<vscode.Webview>>();
   private readonly disposables: vscode.Disposable[] = [];
@@ -38,10 +42,43 @@ class PreferencesHost implements vscode.Disposable {
     this.webviewRefs.set(webview, ref);
     this.webviews.add(ref);
     this.disposables.push(webview.onDidReceiveMessage((message: unknown) => {
-      if ((message as { type?: unknown } | null)?.type !== 'snl.preferences/ready') return;
-      const target = ref.deref();
-      if (target) void this.send(target, ref);
+      const incoming = message as { type?: unknown; language?: unknown } | null;
+      if (incoming?.type === 'snl.preferences/ready') {
+        const target = ref.deref();
+        if (target) void this.send(target, ref);
+        return;
+      }
+      if (
+        incoming?.type === 'snl.preferences/set-language' &&
+        is_supported_language(incoming.language)
+      ) {
+        const target = ref.deref();
+        if (target) void this.setLanguage(target, incoming.language);
+      }
     }));
+  }
+
+  private async setLanguage(
+    webview: vscode.Webview,
+    language: 'en' | 'zh-CN'
+  ): Promise<void> {
+    const config = vscode.workspace.getConfiguration('snlDoc');
+    const target = language_configuration_target(config.inspect<string>('locale')) === 'workspace'
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    try {
+      await config.update('locale', language, target);
+    } catch (error) {
+      const message = `Could not change SNL interface language: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      void vscode.window.showErrorMessage(message);
+      try {
+        await webview.postMessage({ type: 'snl.preferences/error', message });
+      } catch {
+        // The panel may have closed while the configuration write was pending.
+      }
+    }
   }
 
   private snapshot(): PreferencesSnapshotMessage {

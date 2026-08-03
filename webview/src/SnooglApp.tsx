@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import {
   listboxKeyAction,
@@ -171,20 +171,16 @@ export function SnooglApp(): React.ReactElement {
 
   return (
     <main style={{ ...PANEL_STYLE, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title="SNoogL"
+        subtitle="Search across your workspace's entries and macros."
         back={{
           label: '← Dashboard',
           title: 'Return to the SNL Dashboard',
           message: { type: 'nav.openDashboard' }
         }}
       />
-      <header className="snl-responsive-row" style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
-        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNoogL</h1>
-        <span style={{ opacity: 0.65, fontSize: '0.9rem' }}>
-          Search across your workspace's entries and macros.
-        </span>
-      </header>
 
       <SearchBar
         q={q}

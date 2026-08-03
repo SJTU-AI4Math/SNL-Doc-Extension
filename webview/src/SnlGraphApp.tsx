@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
 import type { EntryOption } from './render/EntryRender';
@@ -703,6 +703,15 @@ function SnlGraphInner({
   if (!msg || !laid) {
     return (
       <main style={PANEL_STYLE}>
+        <PanelHeader
+          vsApi={apiRef.current}
+          title="SNL Relationship Graph"
+          back={{
+            label: 'Infoview',
+            title: 'Back to SNL Infoview',
+            message: { type: 'nav.openInfoview' }
+          }}
+        />
         <p style={{ opacity: 0.7 }}>Loading graph…</p>
       </main>
     );
@@ -770,8 +779,9 @@ function SnlGraphInner({
       }}
     >
       <div style={{ padding: '0 0.75rem' }}>
-        <PanelNav
+        <PanelHeader
           vsApi={apiRef.current}
+          title={msg.title}
           back={{
             label: '← Infoview',
             title: 'Back to SNL Infoview',
@@ -789,7 +799,6 @@ function SnlGraphInner({
         }}
       >
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.1rem' }}>{msg.title}</h1>
           <div style={{ opacity: 0.7, fontSize: '0.8rem' }}>
             {displayedNodeCount} node{displayedNodeCount === 1 ? '' : 's'} ·{' '}
             {displayedEdgeCount} edge{displayedEdgeCount === 1 ? '' : 's'}

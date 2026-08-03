@@ -62,7 +62,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
@@ -901,10 +901,20 @@ export function CreateMacroApp(): React.ReactElement {
     const sourceStyles = hydratedMacroBaseRef.current?.styles ?? [];
     const styleList: ExtendedSnlMacroStyle[] = styles
       .filter((s) => s.style_name.trim().length > 0)
-      .map((style, index) => ({
-        ...(sourceStyles[index] ?? {}),
-        ...styleDraftToExtended(style, dynamicArity)
-      }));
+      .map((style, index) => {
+        // Preserve consumer extensions from Copy/edit, but never carry the
+        // previous discriminated-union fields across a mode conversion.
+        const {
+          mode: _sourceMode,
+          template: _sourceTemplate,
+          block_template_name: _sourceBlockTemplate,
+          ...sourceExtensions
+        } = sourceStyles[index] ?? {};
+        return {
+          ...sourceExtensions,
+          ...styleDraftToExtended(style, dynamicArity)
+        };
+      });
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
@@ -943,14 +953,11 @@ export function CreateMacroApp(): React.ReactElement {
       onInputCapture={() => { formDirtyRef.current = true; }}
       onClickCapture={() => { formDirtyRef.current = true; }}
     >
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={`${panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in ${titlePackage}`}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
-      <h1 style={{ margin: '0 0 1rem', fontSize: '1.35rem' }}>
-        {panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in{' '}
-        <code>{titlePackage}</code>
-      </h1>
 
       {/* --- Row 1: Name (1/4) | Kind (1/4) | Description (1/2) ------------- */}
       <div

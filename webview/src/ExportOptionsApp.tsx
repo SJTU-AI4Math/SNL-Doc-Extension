@@ -10,7 +10,7 @@
 import React, { useEffect, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { Button } from './components/Button';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { FormField, TextInput, Alert } from './components/FormControls';
 import { use_localized, type LocalizedString } from './runtime/useLocalized';
 
@@ -80,7 +80,6 @@ export function ExportOptionsApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  const heading = use_localized(ui('Export HTML', '导出 HTML'));
   const shapeLabel = use_localized(ui('Output shape', '输出形态'));
   const destLabel = use_localized(ui('Destination', '导出位置'));
   const browseLabel = use_localized(ui('Browse…', '浏览……'));
@@ -107,6 +106,15 @@ export function ExportOptionsApp(): React.ReactElement {
   if (!context) {
     return (
       <main style={PANEL_STYLE}>
+        <PanelHeader
+          vsApi={api}
+          title={ui('Export HTML', '导出 HTML')}
+          back={{
+            label: ui('Infoview', '信息视图'),
+            title: ui('Back to the Library Infoview', '返回文档库信息视图'),
+            message: { type: 'openInfoview' }
+          }}
+        />
         <p style={{ opacity: 0.7 }}>Loading export context…</p>
       </main>
     );
@@ -114,26 +122,16 @@ export function ExportOptionsApp(): React.ReactElement {
 
   return (
     <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={api}
+        title={ui('Export HTML', '导出 HTML')}
+        subtitle={`${context.title} · ${context.entryCount} entries · ${context.assetCount} image(s)`}
         back={{
           label: ui('← Infoview', '← 信息视图'),
           title: ui('Back to the Library Infoview', '返回文档库信息视图'),
           message: { type: 'openInfoview' }
         }}
       />
-
-      <h1 style={{ fontSize: '1.25rem', margin: '0 0 0.15rem' }}>{heading}</h1>
-      <div
-        style={{
-          opacity: 0.7,
-          fontSize: '0.85rem',
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          marginBottom: '1.25rem'
-        }}
-      >
-        {context.title} · {context.entryCount} entries · {context.assetCount} image(s)
-      </div>
 
       <FormField id="snl-export-shape" label={shapeLabel}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

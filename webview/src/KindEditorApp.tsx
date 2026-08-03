@@ -6,7 +6,7 @@ import { Alert } from './components/FormControls';
 import { ColorField, ColorPreview, KindTextField } from './components/KindFormFields';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { isEntityIdUnique } from './components/formValidation';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
 
@@ -96,8 +96,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   useSaveShortcut(() => submit(), canSubmit);
 
   return <main style={PANEL_STYLE}>
-    <PanelNav vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />
-    <h1 style={{ margin: '0 0 .5rem', fontSize: '1.25rem' }}>{mode === 'edit' ? 'Edit' : 'Create'} {descriptor.cap} Kind</h1>
+    <PanelHeader title={`${mode === 'edit' ? 'Edit' : 'Create'} ${descriptor.cap} Kind`} vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />
     <p style={{ opacity: .85 }}>Update <code>.SNL_Doc/config.json#{descriptor.configKey}</code>. IDs are unique and immutable.</p>
     {mode === 'edit' ? <KindTextField label="ID (readonly)" value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label="ID" entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={`e.g. ${domain === 'entry' ? 'theorem' : 'operator'}`} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}
     <KindTextField label="Display name" value={name} onChange={setName} />

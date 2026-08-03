@@ -18,9 +18,15 @@ describe('webview preference Reader runtime', () => {
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
       revision: 2,
-      preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'reduced' }
+      preferences: {
+        language: 'zh-CN',
+        language_preference: 'auto',
+        color_scheme: 'dark',
+        motion: 'reduced'
+      }
     })).toBe(true);
     expect(document.documentElement.lang).toBe('zh-CN');
+    expect(document.documentElement.dataset.snlLanguagePreference).toBe('auto');
     expect(document.documentElement.dataset.snlMotion).toBe('reduced');
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',

@@ -8,7 +8,7 @@ functions.
 ## Extension settings
 
 - `snlDoc.locale`: `auto | en | zh-CN`
-- `snlDoc.appearance.theme`: `auto | light | dark | high-contrast`
+- `snlDoc.appearance.theme`: `auto | light | dark | high-contrast | high-contrast-light`
 - `snlDoc.appearance.motion`: `auto | full | reduced`
 
 `auto` language follows `vscode.env.language`; supported Simplified Chinese
@@ -69,6 +69,92 @@ projection is never materialized as a translation for the current locale.
 Switching locale while an editor is open stores only an actually edited
 projection before loading the new one. Watcher refreshes do not overwrite dirty
 drafts, and destructive Text-to-Formula/Block conversion requires confirmation.
+
+## Shared panel header and language selection
+
+Every React webview entry renders the shared `PanelHeader`. The component owns:
+
+- the parameterized panel title and optional subtitle;
+- parent/Infoview navigation and panel-specific action slots;
+- the SJTU AI4Math logo/name watermark;
+- the built-in language selector.
+
+The selector currently exposes exactly two enabled choices, `zh-CN` and `en`.
+When the stored preference is `auto`, it shows a disabled “following VS Code”
+placeholder rather than pretending the effective locale was explicitly selected;
+choosing either enabled item creates an explicit override. Restore `auto` through
+VS Code Settings. The selector posts the global
+`snl.preferences/set-language` message; `PreferencesHost` validates the locale,
+updates `snlDoc.locale`, and the existing configuration broadcast updates every
+open panel. Logo Webview URIs are embedded in the initial `<html>` attributes by
+`buildPanelHtml`, avoiding a per-panel asset protocol.
+
+## Independent language packs (future)
+
+Mature desktop software normally gives a language pack a **declarative catalog
+format**: a versioned manifest plus one or more JSON message catalogs. UI source
+uses stable message IDs; the runtime loads the selected catalog, overlays it on
+the built-in English catalog, and falls back by locale (`zh-Hans-CN` → `zh-Hans`
+→ `en`) when a key is absent. Catalogs are schema-validated and isolated by
+application/API version.
+
+The container still matters: a third-party VS Code extension may declare
+`main`/`browser` and activation events, so installing it is not equivalent to
+installing inert data. SNL Doc's loader should never activate or call a pack API;
+it should only read validated JSON paths resolved beneath that extension's
+`extensionUri`. Validation must cap catalog bytes, message count and string size,
+reject path traversal/symlink escape, and ignore executable/resource URLs.
+
+For VS Code there are two separate localization surfaces:
+
+1. Static extension-manifest strings (`package.json` commands/settings) are
+   resolved by VS Code through `package.nls*.json` before this extension runs.
+   They cannot be replaced dynamically by the Webview runtime.
+2. Runtime Webview strings can use independent language-pack extensions. A pack
+   extension can advertise custom top-level `snlDocLanguagePack` metadata in
+   its `package.json`; SNL Doc can discover it through `vscode.extensions.all`,
+   inspect `extension.packageJSON`, read catalog JSON relative to the pack's
+   `extensionUri`, validate it, and broadcast the catalog and available-locale
+   metadata to open Webviews. This must **not** be invented as a new
+   `contributes.*` point: ordinary extensions cannot register arbitrary VS Code
+   contribution points.
+
+A proposed pack manifest is deliberately small:
+
+```json
+{
+  "locale": "fr-FR",
+  "displayName": "Français (France)",
+  "fallback": "en",
+  "catalogVersion": 1,
+  "messages": "locales/fr-FR.json"
+}
+```
+
+The dynamic settings enum should not be used as the catalog registry: VS Code
+configuration schemas are static. The shared header selector is the authoritative
+dynamic list; `snlDoc.locale` should eventually accept a validated locale string
+rather than enumerate only built-ins.
+
+Current readiness is uneven:
+
+There is **not yet a loadable third-party extension point**. The current work
+centralizes the built-in locale descriptors and all Panel selectors, which is a
+clean insertion point, but discovery and catalog transport still need building.
+
+- **Already reusable:** one host/Webview built-in language registry,
+  query-injected locale resolution, startup bootstrap,
+  revisioned hot broadcast, React subscription, `read_localized`, arbitrary
+  locale keys in serialized project-content I18n maps, and one shared selector
+  surface across all panels.
+- **Still required:** extension-pack discovery, catalog schema/version validation,
+  conflict policy, fallback-chain construction, host-to-Webview catalog messages,
+  dynamic locale typing/settings, and migration of remaining hard-coded UI text
+  to stable message IDs.
+- **Static limitation:** an external runtime pack cannot rename command-palette
+  commands/settings already localized by VS Code. Supporting those requires the
+  pack to participate in VS Code's own localization mechanism or shipping the
+  relevant `package.nls.<locale>.json` with SNL Doc itself.
 
 ## UI text
 

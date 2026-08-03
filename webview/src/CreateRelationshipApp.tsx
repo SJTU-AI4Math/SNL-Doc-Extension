@@ -6,7 +6,7 @@
 // createRelationshipPanel.ts for the message protocol.
 //
 // Layout (top → bottom):
-//   1. PanelNav — back to Dashboard
+//   1. PanelHeader — shared branding, language, and back to Dashboard
 //   2. ID       — string field; requireUnique in create, read-only in edit
 //   3. From     — EntityIdSearchBox against the entry pool (requireMatch)
 //   4. To       — EntityIdSearchBox against the entry pool (requireMatch)
@@ -20,7 +20,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import {
   EntityIdSearchBox,
@@ -263,6 +263,15 @@ export function CreateRelationshipApp(): React.ReactElement {
   if (!loaded) {
     return (
       <main style={PANEL_STYLE}>
+        <PanelHeader
+          vsApi={apiRef.current}
+          title={mode === 'edit' ? 'Edit Relationship' : 'Create Relationship'}
+          back={{
+            label: 'Dashboard',
+            title: 'Back to SNL Dashboard',
+            message: { type: 'nav.openDashboard' }
+          }}
+        />
         <p style={{ opacity: 0.7 }}>Loading relationship context…</p>
       </main>
     );
@@ -270,20 +279,17 @@ export function CreateRelationshipApp(): React.ReactElement {
 
   return (
     <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={mode === 'edit'
+          ? `Edit Relationship — ${trimmedId || id}`
+          : 'Create Relationship'}
         back={{
           label: '← Dashboard',
           title: 'Back to SNL Dashboard',
           message: { type: 'nav.openDashboard' }
         }}
       />
-
-      <h1 style={{ margin: '0 0 1rem', fontSize: '1.25rem' }}>
-        {mode === 'edit'
-          ? `Edit Relationship — ${trimmedId || id}`
-          : 'Create Relationship'}
-      </h1>
 
       <div style={ROW_STYLE}>
         <label htmlFor="rel-id" style={LABEL_STYLE}>

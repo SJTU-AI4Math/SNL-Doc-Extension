@@ -18,6 +18,7 @@ import {
 } from './render/macroKindPalette';
 import { Disclosure } from './components/Disclosure';
 import { Button } from './components/Button';
+import { PanelHeader } from './components/PanelHeader';
 import { EntryMacroSection } from './components/EntryMacroSection';
 import type { MacroKind, MacroPackageEntry } from './PackagePanelApp';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
@@ -116,40 +117,29 @@ export function EntryInfoviewApp(): React.ReactElement {
       markdownImageUrlTransform={markdownImageUrlTransform}
     >
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
+        <PanelHeader
+          vsApi={apiRef.current}
+          title={state?.entry.title || 'Entry Infoview'}
+          subtitle={state?.entry.id}
+          showRefresh={false}
+          actions={state ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => postMessage({ type: 'editEntry', entryId: state.entry.id })}
+              title="Open this entry in the Edit Entry panel"
+            >
+              ✎ Edit
+            </Button>
+          ) : null}
+        />
         {!loaded ? (
           <p style={{ opacity: 0.8 }}>Loading entry…</p>
         ) : !state ? (
           <p style={{ opacity: 0.8 }}>Entry not found in this workspace.</p>
         ) : (
           <>
-            {/* Cat 2026-07-10 §2: right-aligned Edit button. Positioned
-                absolute so it hovers over the top of the entry block
-                without stealing horizontal space from the render. */}
-            <Button
-              type="button"
-              onClick={() =>
-                postMessage({ type: 'editEntry', entryId: state.entry.id })
-              }
-              title="Open this entry in the Edit Entry panel"
-              style={{
-                position: 'absolute',
-                top: '0.6rem',
-                right: '0.8rem',
-                zIndex: 10,
-                padding: '0.25rem 0.7rem',
-                fontFamily: 'inherit',
-                fontSize: '0.8rem',
-                border:
-                  '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-                borderRadius: '3px',
-                background:
-                  'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-                color: 'inherit',
-                cursor: 'pointer'
-              }}
-            >
-              ✎ Edit
-            </Button>
+
             <EntrySurface
               entry={state.entry}
               kind={state.kind}

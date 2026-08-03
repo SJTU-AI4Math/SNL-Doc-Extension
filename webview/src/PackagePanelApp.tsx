@@ -36,7 +36,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
@@ -406,13 +406,11 @@ export function PackagePanelApp(): React.ReactElement {
   if (model.kind === 'loading') {
     return (
       <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title="SNL Macro Package"
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-          SNL Macro Package
-        </h1>
         <p style={{ opacity: 0.7 }}>Loading package…</p>
       </main>
     );
@@ -421,13 +419,11 @@ export function PackagePanelApp(): React.ReactElement {
   if (model.kind === 'noFile') {
     return (
       <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title="SNL Macro Package"
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-          SNL Macro Package
-        </h1>
         <p style={{ opacity: 0.85 }}>
           The package file <code>{model.file}</code> does not exist (yet).
         </p>
@@ -438,13 +434,11 @@ export function PackagePanelApp(): React.ReactElement {
   if (model.kind === 'error') {
     return (
       <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title="SNL Macro Package"
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-          SNL Macro Package
-        </h1>
         <p style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
           ❌ {model.message}
         </p>
@@ -457,8 +451,10 @@ export function PackagePanelApp(): React.ReactElement {
 
   return (
     <main style={PANEL_STYLE}>
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={pkg.name}
+        subtitle={`${file} · ${macros.length} macro${macros.length === 1 ? '' : 's'}`}
         back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
       />
       {toast ? <ToastBanner toast={toast} onDismiss={() => setToast(null)} /> : null}
@@ -472,21 +468,6 @@ export function PackagePanelApp(): React.ReactElement {
         }}
       >
         <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-          <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.4rem' }}>
-            {pkg.name}
-          </h1>
-          <p
-            style={{ margin: '0 0 0.5rem', opacity: 0.75, fontSize: '0.9rem' }}
-          >
-            <code
-              style={{
-                fontFamily: 'var(--vscode-editor-font-family, monospace)'
-              }}
-            >
-              {file}
-            </code>{' '}
-            · {macros.length} macro{macros.length === 1 ? '' : 's'}
-          </p>
           {pkg.description ? (
             <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
               {pkg.description}
@@ -671,7 +652,7 @@ export function MacroTable({
   macroKinds: MacroKind[];
   entryPoolIds: Set<string>;
   onEdit: (name: string) => void;
-  onCopy: (name: string) => void;
+  onCopy?: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selectedNames: Set<string>;
@@ -811,7 +792,7 @@ function MacroRowGroup({
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
-  onCopy: (name: string) => void;
+  onCopy?: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
@@ -929,7 +910,7 @@ function MacroStyleRow({
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
-  onCopy: (name: string) => void;
+  onCopy?: (name: string) => void;
   onDelete: (name: string) => void;
   selectMode: boolean;
   selected: boolean;
@@ -1119,18 +1100,20 @@ function MacroStyleRow({
       <td style={{ ...CELL, textAlign: 'center' }}>
         {showMacroLevel && !selectMode ? (
           <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
-            <Button
-              size="sm"
-              title={`Copy macro ${macro.name}`}
-              aria-label={`Copy macro ${macro.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopy(macro.name);
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
-            >
-              Copy
-            </Button>
+            {onCopy ? (
+              <Button
+                size="sm"
+                title={`Copy macro ${macro.name}`}
+                aria-label={`Copy macro ${macro.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopy?.(macro.name);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                Copy
+              </Button>
+            ) : null}
             <Button
               variant="destructive"
               size="sm"

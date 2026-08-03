@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { extension_preferences_runtime } from './preferences';
 import { register_preferences_webview } from './preferencesHost';
 import {
+  brand_html_attributes,
   escape_html_attribute,
   preference_html_attributes
 } from './panelHtml';
@@ -65,10 +66,20 @@ export function buildPanelHtml(
   register_preferences_webview(webview);
   const preferences = extension_preferences_runtime.query_environment();
   const htmlAttributes = preference_html_attributes(preferences);
+  const blackLogoUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'icons', 'logoCSS_black.svg')
+  );
+  const whiteLogoUri = webview.asWebviewUri(
+    vscode.Uri.joinPath(extensionUri, 'media', 'icons', 'logoCSS_white.svg')
+  );
+  const brandAttributes = brand_html_attributes(
+    blackLogoUri.toString(),
+    whiteLogoUri.toString()
+  );
   const safeTitle = escape_html_attribute(title);
 
   return `<!DOCTYPE html>
-<html ${htmlAttributes}>
+<html ${htmlAttributes} ${brandAttributes}>
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
@@ -191,7 +202,7 @@ export const SNL_DOC_WATCHED_PATH = new RegExp(
 
 /**
  * Shared handler for top-of-panel navigation messages posted by the
- * `PanelNav` webview component (cat 2026-07-09). Every editor / list
+ * `PanelHeader` webview component (cat 2026-07-09, unified 2026-08-03). Every editor / list
  * panel has a top-left back button and (where applicable) a right-side
  * "View in Infoview" button; the messages they post are all funneled
  * through this dispatcher so we don't repeat the 4 same case-branches
@@ -202,7 +213,7 @@ export const SNL_DOC_WATCHED_PATH = new RegExp(
  * when it's not a nav message and the caller should continue its own
  * switch.
  *
- * A `refresh` callback can be passed to opt into the shared PanelNav
+ * A `refresh` callback can be passed to opt into the shared PanelHeader
  * refresh button (cat 2026-07-13 '手动刷新键也没有'). When the webview
  * posts `{ type: 'nav.refresh' }` and a callback is supplied, we invoke
  * it and swallow the message; otherwise we hand it back to the caller

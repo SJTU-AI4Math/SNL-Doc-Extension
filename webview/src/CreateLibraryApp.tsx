@@ -18,7 +18,7 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { EmptyAction } from './components/EmptyAction';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
@@ -273,8 +273,9 @@ export function CreateLibraryApp(): React.ReactElement {
     <main style={PANEL_STYLE}>
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this library in the Infoview. */}
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={mode === 'edit' ? 'Edit Library' : 'Create Library'}
         back={{
           label: 'Dashboard',
           title: 'Back to Dashboard',
@@ -290,9 +291,6 @@ export function CreateLibraryApp(): React.ReactElement {
             : undefined
         }
       />
-      <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        {mode === 'edit' ? 'Edit Library' : 'Create Library'}
-      </h1>
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
           ? 'Update this library\u2019s display title and outline. The slug (directory name) is immutable — delete + recreate to rename.'

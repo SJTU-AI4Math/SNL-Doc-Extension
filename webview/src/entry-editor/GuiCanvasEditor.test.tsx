@@ -1405,7 +1405,7 @@ describe('GuiCanvasEditor', () => {
   it('can clear a missing Canvas Style from its only normal editing channel', async () => {
     function Harness(): React.ReactElement {
       const initial = { ...node('gone'), style_name: 'legacy' };
-      const [forest, setForest] = React.useState([initial]);
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([initial]);
       return (
         <>
           <output data-testid="missing-canvas-style">{forest[0]?.style_name ?? ''}</output>

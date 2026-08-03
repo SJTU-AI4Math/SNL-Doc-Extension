@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PANEL_STYLE } from './vscodeApi';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { Alert, FormField, Select } from './components/FormControls';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
@@ -63,8 +63,7 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
   };
 
   return <main style={PANEL_STYLE}>
-    <PanelNav vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />
-    <h1 style={{ margin: '0 0 .5rem', fontSize: '1.25rem' }}>{copy.title}</h1>
+    <PanelHeader title={copy.title} vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />
     {!loaded ? <p style={{ opacity: .7 }}>Loading presets…</p> : <>
       <p style={{ margin: '0 0 1rem', opacity: .85 }}>
         Seed <code>.SNL_Doc/config.json#{copy.configKey}</code> from a preset. Presets replace an empty catalog only.

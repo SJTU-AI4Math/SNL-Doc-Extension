@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { Button } from './components/Button';
+import { PanelHeader } from './components/PanelHeader';
 import {
   EntrySurface,
   type EntryOption,
@@ -780,45 +781,13 @@ function TopBar({
   subtitle?: string;
   actions?: React.ReactNode;
 }): React.ReactElement {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        gap: '1rem',
-        marginBottom: '1rem'
-      }}
-    >
-      <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-        <h1
-          style={{
-            margin: '0 0 0.15rem',
-            fontSize: '1.25rem',
-            wordBreak: 'break-word'
-          }}
-        >
-          {title}
-        </h1>
-        {subtitle ? (
-          <div
-            style={{
-              opacity: 0.7,
-              fontSize: '0.85rem',
-              fontFamily: 'var(--vscode-editor-font-family, monospace)'
-            }}
-          >
-            {subtitle}
-          </div>
-        ) : null}
-      </div>
-      {actions ? (
-        <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
-          {actions}
-        </div>
-      ) : null}
-    </div>
-  );
+  return <PanelHeader
+    vsApi={getVsCodeApi()}
+    title={title}
+    subtitle={subtitle}
+    actions={actions}
+    showRefresh={false}
+  />;
 }
 
 function ToolbarButton({

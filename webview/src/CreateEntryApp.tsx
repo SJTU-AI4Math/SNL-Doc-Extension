@@ -51,7 +51,7 @@ import {
   EntryRelationshipsSection,
   type EntryRelationshipRow
 } from './components/EntryRelationshipsSection';
-import { PanelNav } from './components/PanelNav';
+import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { Disclosure } from './components/Disclosure';
 import { MacroIdInput } from './components/MacroIdInput';
@@ -959,8 +959,9 @@ export function CreateEntryApp(): React.ReactElement {
     >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
-      <PanelNav
+      <PanelHeader
         vsApi={apiRef.current}
+        title={mode === 'edit' ? 'Edit Entry' : 'Create Entry'}
         back={{
           label: 'Dashboard',
           title: 'Back to Dashboard',
@@ -976,9 +977,6 @@ export function CreateEntryApp(): React.ReactElement {
             : undefined
         }
       />
-      <h1 style={{ margin: '0 0 0.75rem', fontSize: '1.35rem' }}>
-        {mode === 'edit' ? 'Edit Entry' : 'Create Entry'}
-      </h1>
 
       {noKinds ? (
         <div

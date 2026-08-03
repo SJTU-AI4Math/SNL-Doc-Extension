@@ -10,6 +10,8 @@ describe('preference plumbing architecture', () => {
     expect(source('src/extension.ts')).toContain('initialize_preferences_host(context)');
     expect(source('src/panelUtil.ts')).toContain('register_preferences_webview(webview)');
     expect(source('src/preferencesHost.ts')).toContain("snl.preferences/ready");
+    expect(source('src/preferencesHost.ts')).toContain("inspect<string>('locale')");
+    expect(source('src/preferencesHost.ts')).toContain("snl.preferences/error");
     expect(source('src/preferencesHost.ts')).toContain('WeakRef<vscode.Webview>');
     expect(source('webview/src/runtime/preferencesRuntime.ts')).toContain("snl.preferences/ready");
     expect(source('webview/src/DashboardApp.tsx')).toContain('use_preferences_revision');

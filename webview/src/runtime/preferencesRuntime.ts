@@ -9,6 +9,7 @@ import {
 
 interface WebviewPreferences {
   language: string;
+  language_preference?: string;
   color_scheme: string;
   motion: string;
 }
@@ -54,6 +55,7 @@ export function apply_preferences_snapshot(
   hostRevision = message.revision;
   const root = documentRoot;
   root.lang = message.preferences.language || 'en';
+  root.dataset.snlLanguagePreference = message.preferences.language_preference || 'auto';
   root.dataset.snlColorScheme = message.preferences.color_scheme;
   configuredMotion = message.preferences.motion;
   root.dataset.snlMotion = effective_motion(configuredMotion);

@@ -25,6 +25,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './components/Button';
+import { PanelHeader } from './components/PanelHeader';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import {
@@ -168,9 +169,7 @@ export function DashboardApp(): React.ReactElement {
   if (!loaded) {
     return (
       <main style={PANEL_STYLE}>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-          SNL Dashboard
-        </h1>
+        <PanelHeader vsApi={apiRef.current} title="SNL Dashboard" />
         <p style={{ opacity: 0.7 }}>Loading project overview…</p>
       </main>
     );
@@ -191,9 +190,7 @@ function NotInitialized({
 }): React.ReactElement {
   return (
     <main style={PANEL_STYLE}>
-      <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.25rem' }}>
-        SNL Dashboard
-      </h1>
+      <PanelHeader vsApi={api} title="SNL Dashboard" />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         This workspace does not have an <code>.SNL_Doc/</code> folder yet.
         Run <code>SNL: Init</code> to create the skeleton first.
@@ -232,59 +229,30 @@ function Initialized({
 
   return (
     <main style={PANEL_STYLE}>
-      <div
-        className="snl-responsive-row"
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          marginBottom: '1rem'
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: '1.4rem' }}>SNL Dashboard</h1>
-        <div style={{ display: 'flex', gap: '0.5rem', flex: '0 0 auto' }}>
-          <Button
-            type="button"
-            onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
-            title="Open the pool-wide relationship graph"
-            style={{
-              padding: '0.35rem 0.75rem',
-              fontFamily: 'inherit',
-              fontSize: '0.85rem',
-              border:
-                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-              borderRadius: '4px',
-              background:
-                'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-              color: 'inherit',
-              cursor: 'pointer'
-            }}
-          >
-            View Graph
-          </Button>
-          <Button
-            type="button"
-            onClick={() => api?.postMessage({ type: 'openInfoview' })}
-            title="Open the Infoview (reading surface)"
-            style={{
-              padding: '0.35rem 0.75rem',
-              fontFamily: 'inherit',
-              fontSize: '0.85rem',
-              border:
-                '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-              borderRadius: '4px',
-              background:
-                'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-              color: 'inherit',
-              cursor: 'pointer'
-            }}
-          >
-            Open Infoview →
-          </Button>
-        </div>
-      </div>
-
+      <PanelHeader
+        vsApi={api}
+        title="SNL Dashboard"
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
+              title="Open the pool-wide relationship graph"
+            >
+              View Graph
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => api?.postMessage({ type: 'openInfoview' })}
+              title="Open the Infoview (reading surface)"
+            >
+              Open Infoview →
+            </Button>
+          </>
+        }
+      />
       {/* === 1. Libraries ================================================== */}
       <CollapsibleSection
         title="Libraries"

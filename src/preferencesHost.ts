@@ -3,7 +3,8 @@ import { extension_preferences_runtime } from './preferences';
 import {
   is_supported_language,
   language_configuration_target,
-  type ExtensionPreferences
+  type ExtensionPreferences,
+  type LanguagePreference
 } from './preferences-core';
 
 export interface PreferencesSnapshotMessage {
@@ -50,7 +51,7 @@ export class PreferencesHost implements vscode.Disposable {
       }
       if (
         incoming?.type === 'snl.preferences/set-language' &&
-        is_supported_language(incoming.language)
+        (incoming.language === 'auto' || is_supported_language(incoming.language))
       ) {
         const target = ref.deref();
         if (target) void this.setLanguage(target, incoming.language);
@@ -60,7 +61,7 @@ export class PreferencesHost implements vscode.Disposable {
 
   private async setLanguage(
     webview: vscode.Webview,
-    language: 'en' | 'zh-CN'
+    language: LanguagePreference
   ): Promise<void> {
     const config = vscode.workspace.getConfiguration('snlDoc');
     const target = language_configuration_target(config.inspect<string>('locale')) === 'workspace'

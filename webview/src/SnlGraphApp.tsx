@@ -778,7 +778,12 @@ function SnlGraphInner({
         boxSizing: 'border-box'
       }}
     >
-      <div style={{ padding: '0 0.75rem' }}>
+      <div
+        style={{
+          padding: '0 0.75rem',
+          '--snl-panel-header-top': '0px'
+        } as React.CSSProperties}
+      >
         <PanelHeader
           vsApi={apiRef.current}
           title={msg.title}

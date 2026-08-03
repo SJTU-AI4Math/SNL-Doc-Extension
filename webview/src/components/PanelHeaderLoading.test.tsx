@@ -20,6 +20,6 @@ describe('PanelHeader loading-state coverage', () => {
 
     expect(view.getByRole('heading', { name: title })).toBeTruthy();
     expect(view.getByText('SJTU AI4Math')).toBeTruthy();
-    expect(view.getByRole('combobox', { name: 'Interface language' })).toBeTruthy();
+    expect(view.getByRole('button', { name: /Interface language/ })).toBeTruthy();
   });
 });

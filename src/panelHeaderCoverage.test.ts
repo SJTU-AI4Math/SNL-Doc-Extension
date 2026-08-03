@@ -38,4 +38,9 @@ describe('shared panel header coverage', () => {
       expect(source(`webview/src/${app}`), app).not.toContain("./components/PanelNav");
     }
   });
+
+  it('pins the sticky header at its initial panel padding instead of sliding upward', () => {
+    const css = source('webview/src/components/ui.css');
+    expect(css).toMatch(/\.snl-panel-header\s*\{[\s\S]*?position:sticky;[\s\S]*?top:var\(--snl-panel-header-top, 1\.5rem\);/);
+  });
 });

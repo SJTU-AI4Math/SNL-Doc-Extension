@@ -31,7 +31,7 @@ describe('PanelHeader', () => {
     expect(view.getByRole('navigation').getAttribute('aria-label')).toBe('面板导航');
   });
 
-  it('renders shared branding, a parameterized title, and the two language choices', () => {
+  it('renders font-independent SVG language icons and no Unicode flag glyphs', () => {
     document.documentElement.lang = 'en';
     document.documentElement.dataset.snlLanguagePreference = 'en';
     document.documentElement.dataset.snlLogoBlack = 'webview://logo-black.svg';
@@ -42,41 +42,88 @@ describe('PanelHeader', () => {
     expect(view.getByRole('heading', { name: 'Create Entry' })).toBeTruthy();
     expect(view.getByText('SJTU AI4Math')).toBeTruthy();
     expect(view.container.querySelector('.snl-panel-header__logo')).toBeTruthy();
-    const language = view.getByRole('combobox', { name: 'Interface language' });
-    expect(language.textContent).toContain('🇨🇳 简体中文（中国大陆）');
-    expect(language.textContent).toContain('🇺🇸 English (US)');
+    const trigger = view.getByRole('button', { name: /Interface language: English \(US\)/ });
+    expect(trigger.hasAttribute('disabled')).toBe(false);
+    expect(trigger.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    expect(view.container.textContent).not.toMatch(/🇨🇳|🇺🇸/);
+
+    fireEvent.click(trigger);
+    expect(view.getByRole('menuitemradio', { name: '简体中文（中国大陆）' })
+      .querySelector('svg[data-language-icon="zh-CN"]')).toBeTruthy();
+    expect(view.getByRole('menuitemradio', { name: 'English (US)' })
+      .querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    expect(view.getByRole('menuitemradio', { name: /Follow VS Code/ })
+      .querySelector('svg[data-language-icon="auto"]')).toBeTruthy();
+    expect(view.container.querySelector('[disabled]')).toBeNull();
   });
 
-  it('sends a global preference message when the language changes', () => {
+  it('sends explicit and Auto preferences from usable menu items', () => {
     document.documentElement.lang = 'en';
     document.documentElement.dataset.snlLanguagePreference = 'en';
     const postMessage = vi.fn();
     const api = { postMessage } as unknown as VsCodeApi;
     const view = render(<PanelHeader vsApi={api} title="Create Entry" back={back} />);
 
-    fireEvent.change(view.getByRole('combobox', { name: 'Interface language' }), {
-      target: { value: 'zh-CN' }
-    });
-    expect(postMessage).toHaveBeenCalledWith({
+    fireEvent.click(view.getByRole('button', { name: /Interface language/ }));
+    fireEvent.click(view.getByRole('menuitemradio', { name: '简体中文（中国大陆）' }));
+    expect(postMessage).toHaveBeenLastCalledWith({
       type: 'snl.preferences/set-language',
       language: 'zh-CN'
     });
+
+    fireEvent.click(view.getByRole('button', { name: /Interface language/ }));
+    fireEvent.click(view.getByRole('menuitemradio', { name: /Follow VS Code/ }));
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'snl.preferences/set-language',
+      language: 'auto'
+    });
   });
 
-  it('represents Auto honestly while keeping exactly two enabled language choices', () => {
+  it('uses roving menu focus and closes cleanly for keyboard users', () => {
+    document.documentElement.lang = 'en';
+    document.documentElement.dataset.snlLanguagePreference = 'en';
+    const api = { postMessage: vi.fn() } as unknown as VsCodeApi;
+    const view = render(<PanelHeader vsApi={api} title="Dashboard" />);
+    const trigger = view.getByRole('button', { name: /Interface language/ });
+
+    fireEvent.click(trigger);
+    const auto = view.getByRole('menuitemradio', { name: /Follow VS Code/ });
+    const chinese = view.getByRole('menuitemradio', { name: '简体中文（中国大陆）' });
+    const english = view.getByRole('menuitemradio', { name: 'English (US)' });
+    expect(document.activeElement).toBe(english);
+    expect(english.tabIndex).toBe(0);
+    expect(auto.tabIndex).toBe(-1);
+    expect(chinese.tabIndex).toBe(-1);
+
+    fireEvent.keyDown(english, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(auto);
+    expect(auto.tabIndex).toBe(0);
+    expect(english.tabIndex).toBe(-1);
+
+    fireEvent.keyDown(auto, { key: 'Escape' });
+    expect(view.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(view.getByRole('menuitemradio', { name: 'English (US)' }), { key: 'Tab' });
+    expect(view.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(view.getByRole('menuitemradio', { name: 'English (US)' }), {
+      key: 'Tab',
+      shiftKey: true
+    });
+    expect(view.queryByRole('menu')).toBeNull();
+  });
+
+  it('represents Auto as a usable menu choice', () => {
     document.documentElement.lang = 'en';
     document.documentElement.dataset.snlLanguagePreference = 'auto';
-    const postMessage = vi.fn();
-    const api = { postMessage } as unknown as VsCodeApi;
+    const api = { postMessage: vi.fn() } as unknown as VsCodeApi;
     const view = render(<PanelHeader vsApi={api} title="Dashboard" />);
-    const language = view.getByRole('combobox', { name: 'Interface language' }) as HTMLSelectElement;
 
-    expect(language.value).toBe('');
-    expect(Array.from(language.options).filter((option) => !option.disabled)).toHaveLength(2);
-    fireEvent.change(language, { target: { value: 'en' } });
-    expect(postMessage).toHaveBeenCalledWith({
-      type: 'snl.preferences/set-language',
-      language: 'en'
-    });
+    expect(view.getByRole('button', {
+      name: /Interface language: Follow VS Code \(English \(US\)\)/
+    })).toBeTruthy();
   });
 });

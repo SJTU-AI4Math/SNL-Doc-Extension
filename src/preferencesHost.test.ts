@@ -76,6 +76,16 @@ describe('PreferencesHost language writes', () => {
     host.dispose();
   });
 
+  it('writes Auto so the selector can restore VS Code following mode', async () => {
+    const host = new PreferencesHost();
+    const { receive } = register(host);
+
+    receive({ type: 'snl.preferences/set-language', language: 'auto' });
+    await vi.waitFor(() => expect(mocks.update).toHaveBeenCalled());
+    expect(mocks.update).toHaveBeenCalledWith('locale', 'auto', 1);
+    host.dispose();
+  });
+
   it('reports a rejected configuration write to VS Code and the source Webview', async () => {
     mocks.update.mockRejectedValue(new Error('read only'));
     const host = new PreferencesHost();

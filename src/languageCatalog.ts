@@ -2,12 +2,10 @@
 export const BUILT_IN_LANGUAGE_CATALOG = [
   {
     id: 'zh-CN',
-    flag: '🇨🇳',
     display_name: '简体中文（中国大陆）'
   },
   {
     id: 'en',
-    flag: '🇺🇸',
     display_name: 'English (US)'
   }
 ] as const;

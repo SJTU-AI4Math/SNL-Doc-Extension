@@ -79,11 +79,10 @@ Every React webview entry renders the shared `PanelHeader`. The component owns:
 - the SJTU AI4Math logo/name watermark;
 - the built-in language selector.
 
-The selector currently exposes exactly two enabled choices, `zh-CN` and `en`.
-When the stored preference is `auto`, it shows a disabled “following VS Code”
-placeholder rather than pretending the effective locale was explicitly selected;
-choosing either enabled item creates an explicit override. Restore `auto` through
-VS Code Settings. The selector posts the global
+The selector exposes `auto`, `zh-CN` and `en`. `auto` is a normal selectable
+menu item rather than a disabled placeholder, so the user can return to following
+VS Code without opening Settings. Country marks are inline SVG, not Unicode emoji,
+so their rendering does not depend on an emoji font. The selector posts the global
 `snl.preferences/set-language` message; `PreferencesHost` validates the locale,
 updates `snlDoc.locale`, and the existing configuration broadcast updates every
 open panel. Logo Webview URIs are embedded in the initial `<html>` attributes by

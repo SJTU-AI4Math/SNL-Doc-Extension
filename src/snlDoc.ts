@@ -70,7 +70,13 @@ async function assertWorkspaceWritableOnDisk(workspaceRoot: vscode.Uri): Promise
   return rawConfig;
 }
 
-const heldWriterIdentities = new AsyncLocalStorage<ReadonlySet<string>>();
+interface HeldInProcessWriterContext {
+  active: boolean;
+}
+
+const heldWriterIdentities = new AsyncLocalStorage<
+  ReadonlyMap<string, HeldInProcessWriterContext>
+>();
 const writerTails = new Map<string, Promise<void>>();
 
 function workspaceWriterIdentity(workspaceRoot: vscode.Uri): string {
@@ -85,7 +91,7 @@ async function withInProcessWriterLock<T>(
 ): Promise<T> {
   const identity = workspaceWriterIdentity(workspaceRoot);
   const held = heldWriterIdentities.getStore();
-  if (held?.has(identity)) return task();
+  if (held?.get(identity)?.active) return task();
 
   const previous = writerTails.get(identity) ?? Promise.resolve();
   let release!: () => void;
@@ -94,11 +100,13 @@ async function withInProcessWriterLock<T>(
   writerTails.set(identity, tail);
   await previous.catch(() => undefined);
 
-  const nextHeld = new Set(held ?? []);
-  nextHeld.add(identity);
+  const lockContext: HeldInProcessWriterContext = { active: true };
+  const nextHeld = new Map(held ?? []);
+  nextHeld.set(identity, lockContext);
   try {
     return await heldWriterIdentities.run(nextHeld, task);
   } finally {
+    lockContext.active = false;
     release();
     if (writerTails.get(identity) === tail) writerTails.delete(identity);
   }

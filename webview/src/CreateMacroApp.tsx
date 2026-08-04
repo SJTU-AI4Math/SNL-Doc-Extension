@@ -1924,11 +1924,13 @@ function DynamicArityTemplateRow({
   onSep: (v: string) => void;
   onRight: (v: string) => void;
 }): React.ReactElement {
-  const monoInput: React.CSSProperties = {
+  const monoField: React.CSSProperties = {
     ...inputStyle,
     fontFamily: 'var(--vscode-editor-font-family, monospace)',
     flex: 1,
-    minWidth: 0
+    minWidth: 0,
+    width: '100%',
+    resize: 'vertical'
   };
   return (
     <div
@@ -1940,39 +1942,42 @@ function DynamicArityTemplateRow({
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+        <label htmlFor="dynamic-arity-left" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
           Left delimiter
         </label>
-        <input
-          type="text"
+        <textarea
+          id="dynamic-arity-left"
           value={left}
           placeholder="e.g. \begin{pmatrix} or ["
           onChange={(e) => onLeft(e.target.value)}
-          style={monoInput}
+          rows={3}
+          style={monoField}
         />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+        <label htmlFor="dynamic-arity-separator" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
           Separator
         </label>
-        <input
-          type="text"
+        <textarea
+          id="dynamic-arity-separator"
           value={sep}
           placeholder="e.g. \\\\ or , "
           onChange={(e) => onSep(e.target.value)}
-          style={monoInput}
+          rows={3}
+          style={monoField}
         />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-        <label style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
+        <label htmlFor="dynamic-arity-right" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
           Right delimiter
         </label>
-        <input
-          type="text"
+        <textarea
+          id="dynamic-arity-right"
           value={right}
           placeholder="e.g. \end{pmatrix} or ]"
           onChange={(e) => onRight(e.target.value)}
-          style={monoInput}
+          rows={3}
+          style={monoField}
         />
       </div>
     </div>

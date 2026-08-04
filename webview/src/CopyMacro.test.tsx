@@ -64,6 +64,26 @@ const original = {
   ]
 };
 
+function sendMacroContext(mode: 'create' | 'edit'): void {
+  send({
+    type: 'context',
+    mode,
+    file: 'algebra.json',
+    packageName: 'Algebra',
+    existingNames: ['original'],
+    macroCandidates: [],
+    macroKinds: [{
+      id: 'operator',
+      name: 'Operator',
+      description: '',
+      coloring: { stroke: '#000', background: '#fff' }
+    }],
+    existing: mode === 'edit' ? original : null,
+    entries: [{ id: 'entry-a', title: 'Entry A', hasContent: true }],
+    prefill: mode === 'create' ? { macro: original } : undefined
+  });
+}
+
 describe('Copy Macro', () => {
   it('posts the copied macro name from the correct package-row action', () => {
     render(<PackagePanelApp />);
@@ -86,27 +106,21 @@ describe('Copy Macro', () => {
 
   it('hydrates every macro field in create mode while leaving the ID empty', () => {
     render(<CreateMacroApp />);
-    send({
-      type: 'context',
-      mode: 'create',
-      file: 'algebra.json',
-      packageName: 'Algebra',
-      existingNames: ['original'],
-      macroCandidates: [],
-      macroKinds: [{
-        id: 'operator',
-        name: 'Operator',
-        description: '',
-        coloring: { stroke: '#000', background: '#fff' }
-      }],
-      existing: null,
-      entries: [{ id: 'entry-a', title: 'Entry A', hasContent: true }],
-      prefill: { macro: original }
-    });
+    sendMacroContext('create');
 
     const name = document.getElementById('m-name') as HTMLInputElement;
     expect(name.value).toBe('');
     expect(name.readOnly).toBe(false);
+
+    for (const label of ['Left delimiter', 'Separator', 'Right delimiter']) {
+      const field = screen.getByLabelText(label) as HTMLTextAreaElement;
+      expect(field.tagName).toBe('TEXTAREA');
+      expect(field.rows).toBeGreaterThanOrEqual(2);
+      const previous = field.value;
+      fireEvent.change(field, { target: { value: 'first line\nsecond line' } });
+      expect(field.value).toBe('first line\nsecond line');
+      fireEvent.change(field, { target: { value: previous } });
+    }
 
     fireEvent.change(name, { target: { value: 'copy' } });
     fireEvent.click(screen.getByRole('button', { name: /Create Macro/ }));
@@ -117,5 +131,73 @@ describe('Copy Macro', () => {
         (message as { type?: string }).type === 'create'
     );
     expect(create?.macro).toEqual({ ...original, name: 'copy' });
+  });
+
+  it.each([
+    { mode: 'create' as const, messageType: 'create', button: /Create Macro/ },
+    { mode: 'edit' as const, messageType: 'update', button: /Update Macro/ }
+  ])('preserves multiline dynamic delimiters through $mode submission and style switches', ({
+    mode,
+    messageType,
+    button
+  }) => {
+    render(<CreateMacroApp />);
+    sendMacroContext(mode);
+    if (mode === 'create') {
+      fireEvent.change(document.getElementById('m-name')!, { target: { value: 'multiline-copy' } });
+    }
+
+    const defaultValues = {
+      left: '\\left(\n\\begin{aligned}',
+      separator: '\\\\\n&',
+      right: '\\end{aligned}\n\\right)'
+    };
+    fireEvent.change(screen.getByLabelText('Left delimiter'), {
+      target: { value: defaultValues.left }
+    });
+    fireEvent.change(screen.getByLabelText('Separator'), {
+      target: { value: defaultValues.separator }
+    });
+    fireEvent.change(screen.getByLabelText('Right delimiter'), {
+      target: { value: defaultValues.right }
+    });
+
+    fireEvent.click(screen.getAllByText(/^compact$/).find((element) => element.tagName === 'BUTTON')!);
+    const compactValues = {
+      left: 'compact\nleft',
+      separator: 'compact\nseparator',
+      right: 'compact\nright'
+    };
+    fireEvent.change(screen.getByLabelText('Left delimiter'), {
+      target: { value: compactValues.left }
+    });
+    fireEvent.change(screen.getByLabelText('Separator'), {
+      target: { value: compactValues.separator }
+    });
+    fireEvent.change(screen.getByLabelText('Right delimiter'), {
+      target: { value: compactValues.right }
+    });
+
+    fireEvent.click(screen.getAllByText(/default ★/).find((element) => element.tagName === 'BUTTON')!);
+    expect((screen.getByLabelText('Left delimiter') as HTMLTextAreaElement).value)
+      .toBe(defaultValues.left);
+    expect((screen.getByLabelText('Separator') as HTMLTextAreaElement).value)
+      .toBe(defaultValues.separator);
+    expect((screen.getByLabelText('Right delimiter') as HTMLTextAreaElement).value)
+      .toBe(defaultValues.right);
+
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    const submitted = posted.find(
+      (message): message is { type: string; macro: typeof original } =>
+        typeof message === 'object' && message !== null &&
+        (message as { type?: string }).type === messageType
+    );
+    expect(submitted).toBeDefined();
+    const defaultStyle = submitted!.macro.styles.find((style) => style.style_name === 'default')!;
+    const compactStyle = submitted!.macro.styles.find((style) => style.style_name === 'compact')!;
+    expect(defaultStyle.template).toBe(`${defaultValues.left}#*${defaultValues.right}`);
+    expect(defaultStyle.separator).toBe(defaultValues.separator);
+    expect(compactStyle.template).toBe(`${compactValues.left}#*${compactValues.right}`);
+    expect(compactStyle.separator).toBe(compactValues.separator);
   });
 });

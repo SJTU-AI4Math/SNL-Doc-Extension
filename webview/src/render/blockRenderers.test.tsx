@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
@@ -41,6 +43,89 @@ describe('extensionRenderers', () => {
       expect(typeof extensionRenderers[key]).toBe('function');
     }
     expect(extensionRenderers.collapsible).toBe(CollapsibleRenderer);
+  });
+
+  it('renders enumerate markers in a dedicated first-line grid column', () => {
+    const Enumerate = extensionRenderers.enumerate!;
+    const tree = blockNode([node('first'), node('second')], {
+      start: 3,
+      listStyle: 'lower-alpha'
+    });
+    const { container } = render(
+      <Enumerate
+        node={tree}
+        macro_data_driver={{} as never}
+        renderChild={(child) => (
+          <span style={{ display: 'inline-block' }}>
+            {child.macro_name}<br />continued
+          </span>
+        )}
+      />
+    );
+    const list = container.querySelector('ol.snl-block-enumerate') as HTMLOListElement;
+    expect(list.start).toBe(3);
+    expect(list.style.listStyleType).toBe('lower-alpha');
+    const items = list.querySelectorAll(':scope > li');
+    expect(items).toHaveLength(2);
+    for (const [index, item] of [...items].entries()) {
+      const marker = item.querySelector<HTMLElement>(':scope > .snl-enumerate-item-marker');
+      expect(marker?.getAttribute('aria-hidden')).toBe('true');
+      expect(marker?.style.counterSet).toBe(`list-item ${index + 3}`);
+      expect(item.querySelector(':scope > .snl-enumerate-item-content')).toBeTruthy();
+    }
+  });
+
+  it('leaves the default list style unset so themes can control it', () => {
+    const Enumerate = extensionRenderers.enumerate!;
+    const { container } = render(
+      <Enumerate
+        node={blockNode([node('first')])}
+        macro_data_driver={{} as never}
+        renderChild={renderChild}
+      />
+    );
+    const list = container.querySelector('ol.snl-block-enumerate') as HTMLOListElement;
+    expect(list.style.listStyleType).toBe('');
+    const marker = list.querySelector<HTMLElement>('.snl-enumerate-item-marker')!;
+    expect(marker.style.listStyleType).toBe('');
+  });
+
+  it('loads the real CSS contract that pins native markers to the first grid row', () => {
+    const style = document.createElement('style');
+    style.textContent = `${readFileSync(
+      resolve(__dirname, '../components/ui.css'),
+      'utf8'
+    )}\n.snl-block-enumerate { list-style-type: lower-roman; }`;
+    document.head.append(style);
+    try {
+      const Enumerate = extensionRenderers.enumerate!;
+      const { container } = render(
+        <Enumerate
+          node={blockNode([node('first')])}
+          macro_data_driver={{} as never}
+          renderChild={(child) => (
+            <span style={{ display: 'inline-block' }}>
+              {child.macro_name}<br />continued
+            </span>
+          )}
+        />
+      );
+      const item = container.querySelector<HTMLElement>('.snl-block-enumerate > li')!;
+      const marker = item.querySelector<HTMLElement>('.snl-enumerate-item-marker')!;
+      const content = item.querySelector<HTMLElement>('.snl-enumerate-item-content')!;
+      const itemStyle = getComputedStyle(item);
+      const markerStyle = getComputedStyle(marker);
+      const contentStyle = getComputedStyle(content);
+      expect(itemStyle.display).toBe('grid');
+      expect(itemStyle.gridTemplateColumns).toContain('max-content');
+      expect(markerStyle.display).toBe('list-item');
+      expect(markerStyle.listStylePosition).toBe('inside');
+      expect(markerStyle.listStyleType).toBe('lower-roman');
+      expect(markerStyle.gridColumn).toBe('1');
+      expect(contentStyle.gridColumn).toBe('2');
+    } finally {
+      style.remove();
+    }
   });
 });
 

@@ -156,6 +156,51 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
 };
 
 /**
+ * Ordered-list renderer with a block wrapper inside every `<li>`.
+ *
+ * A directly-rendered child may be an inline-block containing several visual
+ * lines. Native list markers align to that inline-block's baseline, i.e. its
+ * last line; adding another block wrapper does not change that baseline. The
+ * Extension therefore renders a dedicated native-marker element in one grid
+ * column and puts the child in the adjacent cell, both aligned to the first
+ * row. The marker element inherits `list-style-type`, so theme defaults and
+ * custom `@counter-style` prefix/suffix rules still work. The native `<ol>/<li>`
+ * structure remains intact for list semantics.
+ */
+export const EnumerateRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
+  const mdata = node.mdata && typeof node.mdata === 'object'
+    ? node.mdata as { start?: unknown; listStyle?: unknown }
+    : undefined;
+  const start = typeof mdata?.start === 'number' &&
+    Number.isFinite(mdata.start) && mdata.start >= 1
+    ? mdata.start
+    : undefined;
+  const listStyle = typeof mdata?.listStyle === 'string' && mdata.listStyle.length > 0
+    ? mdata.listStyle
+    : undefined;
+  const firstCounter = Math.trunc(start ?? 1);
+
+  return (
+    <ol
+      className="snl-block snl-block-enumerate"
+      start={start}
+      style={listStyle ? { listStyleType: listStyle } : undefined}
+    >
+      {node.children.map((child, index) => (
+        <li key={index}>
+          <span
+            className="snl-enumerate-item-marker"
+            aria-hidden="true"
+            style={{ counterSet: `list-item ${firstCounter + index}` }}
+          />
+          <div className="snl-enumerate-item-content">{renderChild(child)}</div>
+        </li>
+      ))}
+    </ol>
+  );
+};
+
+/**
  * The registry the Extension passes as `hooks.renderers`.
  *
  * MUST spread `defaultRenderers` — see the module header. Dropping the spread
@@ -163,5 +208,6 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
  */
 export const extensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
+  enumerate: EnumerateRenderer,
   collapsible: CollapsibleRenderer
 };

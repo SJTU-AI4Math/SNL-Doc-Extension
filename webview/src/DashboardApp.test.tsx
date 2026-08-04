@@ -30,7 +30,7 @@ describe('Dashboard library actions', () => {
     expect(await screen.findByRole('button', { name: 'Run SNL: Init' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Initialize Entry Kinds' }));
 
-    expect(screen.getByRole('status').textContent).toContain('Initializing SNL workspace');
+    expect(screen.getByRole('status', { name: 'SNL setup status' }).textContent).toContain('Initializing SNL workspace');
     for (const name of ['Run SNL: Init', 'Initialize Entry Kinds', 'Initialize Macro Kinds']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
@@ -75,6 +75,23 @@ describe('Dashboard library actions', () => {
     await screen.findByText('Entry Kinds');
     fireEvent.click(screen.getByText('Entry Kinds').closest('button') as HTMLButtonElement);
     fireEvent.click(screen.getByText('SNL Macro Kinds').closest('button') as HTMLButtonElement);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Initialize Entry Kinds' }));
+    expect(screen.getByRole('status', { name: 'SNL setup status' }).textContent).toContain('Initializing SNL workspace');
+    expect(
+      (screen.getByRole('button', { name: 'Initialize Entry Kinds' }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: 'Initialize Macro Kinds' }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'setupStatus', status: 'idle' }
+    }));
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('button', { name: 'Initialize Macro Kinds' }) as HTMLButtonElement).disabled
+      ).toBe(false);
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Entry Kind' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create Macro Kind' }));
@@ -167,7 +184,7 @@ describe('Dashboard library actions', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Repair / migrate data' }).hasAttribute('disabled')).toBe(true);
       expect(screen.getByRole('button', { name: 'Check data' }).hasAttribute('disabled')).toBe(true);
-      expect(screen.getByRole('status').textContent).toContain('Migration is running');
+      expect(screen.getByText(/Migration is running/).textContent).toContain('Migration is running');
     });
     await waitFor(() => {
       expect(postMessage).toHaveBeenCalledWith({ type: 'checkDataVersion' });

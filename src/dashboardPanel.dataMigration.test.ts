@@ -140,6 +140,20 @@ describe('Dashboard data migration host routing', () => {
     );
   });
 
+  it('releases setup busy accounting when the running status post fails', async () => {
+    mocks.postMessage.mockRejectedValueOnce(new Error('webview disposed'));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+
+    await expect(mocks.receive?.({ type: 'initEntryKinds' })).rejects.toThrow(
+      'webview disposed'
+    );
+    expect(mocks.initSnlDoc).not.toHaveBeenCalled();
+
+    await mocks.receive?.({ type: 'initEntryKinds' });
+    expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initEntryKinds');
+  });
+
   it('drops stale overview reads when a newer refresh finishes first', async () => {
     DashboardPanel.createOrShow({ path: '/ext' } as never);
     const fresh = {

@@ -578,33 +578,40 @@ async function initializeSnlDocSkeleton(
     }
     const termMacrosDir = termMacrosDirUri(workspaceRoot);
     const librariesDir = librariesDirUri(workspaceRoot);
-    await fsApi.createDirectory(termMacrosDir);
-    await fsApi.createDirectory(librariesDir);
-
     const entriesTarget = entriesUri(workspaceRoot);
-    if (!(await exists(entriesTarget))) {
-      await fsApi.writeFile(entriesTarget, jsonBytes([]));
-    } else if (!configExists) {
-      const entries = await readJson<unknown>(entriesTarget);
-      if (!Array.isArray(entries) || entries.length > 0) {
-        throw new Error(
-          'Cannot initialize: config.json is missing but entries.json contains data.'
-        );
-      }
-    }
+    const entriesExist = await exists(entriesTarget);
 
+    // Fail closed before creating any missing payload. A config-less tree with
+    // real user data is not a recoverable partial init and must remain byte-for-
+    // byte unchanged.
     if (!configExists) {
-      const packageFiles = (await fsApi.readDirectory(termMacrosDir))
-        .filter(([name, type]) =>
-          type === vscode.FileType.File && name.toLowerCase().endsWith('.json')
-        );
-      const libraryItems = (await fsApi.readDirectory(librariesDir))
-        .filter(([name]) => name !== '.gitkeep');
+      if (entriesExist) {
+        const entries = await readJson<unknown>(entriesTarget);
+        if (!Array.isArray(entries) || entries.length > 0) {
+          throw new Error(
+            'Cannot initialize: config.json is missing but entries.json contains data.'
+          );
+        }
+      }
+      const packageFiles = (await exists(termMacrosDir))
+        ? (await fsApi.readDirectory(termMacrosDir)).filter(([name, type]) =>
+            type === vscode.FileType.File && name.toLowerCase().endsWith('.json')
+          )
+        : [];
+      const libraryItems = (await exists(librariesDir))
+        ? (await fsApi.readDirectory(librariesDir)).filter(([name]) => name !== '.gitkeep')
+        : [];
       if (packageFiles.length > 0 || libraryItems.length > 0) {
         throw new Error(
           'Cannot initialize over existing Macro packages or Libraries without config.json.'
         );
       }
+    }
+
+    await fsApi.createDirectory(termMacrosDir);
+    await fsApi.createDirectory(librariesDir);
+    if (!entriesExist) {
+      await fsApi.writeFile(entriesTarget, jsonBytes([]));
     }
 
     const gitkeep = ENCODER.encode('');

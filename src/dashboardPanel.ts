@@ -439,13 +439,13 @@ export class DashboardPanel {
 
   private async runSetupOperation(task: () => Promise<void>): Promise<void> {
     this.setupOperationCount += 1;
-    if (this.setupOperationCount === 1) {
-      await this.panel.webview.postMessage({
-        type: 'setupStatus',
-        status: 'running'
-      });
-    }
     try {
+      if (this.setupOperationCount === 1) {
+        await this.panel.webview.postMessage({
+          type: 'setupStatus',
+          status: 'running'
+        });
+      }
       await task();
     } finally {
       this.setupOperationCount -= 1;

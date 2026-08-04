@@ -121,6 +121,8 @@ interface DataOperationStatus {
   message?: string;
 }
 
+type SetupMessageType = 'init' | 'initEntryKinds' | 'initMacroKinds';
+
 interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
@@ -203,6 +205,13 @@ export function DashboardApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  const startSetup = (type: SetupMessageType): void => {
+    const api = apiRef.current;
+    if (!api) return;
+    setSetupBusy(true);
+    api.postMessage({ type });
+  };
+
   if (!loaded) {
     return (
       <main style={PANEL_STYLE}>
@@ -217,12 +226,20 @@ export function DashboardApp(): React.ReactElement {
       <NotInitialized
         api={apiRef.current}
         busy={setupBusy}
-        onStart={() => setSetupBusy(true)}
+        onStart={startSetup}
       />
     );
   }
 
-  return <Initialized overview={overview} api={apiRef.current} dataOperation={dataOperation} />;
+  return (
+    <Initialized
+      overview={overview}
+      api={apiRef.current}
+      dataOperation={dataOperation}
+      setupBusy={setupBusy}
+      onStartSetup={startSetup}
+    />
+  );
 }
 
 /** Placeholder shown when `.SNL_Doc/` is missing. */
@@ -233,12 +250,8 @@ function NotInitialized({
 }: {
   api: VsCodeApi | undefined;
   busy: boolean;
-  onStart: () => void;
+  onStart: (type: SetupMessageType) => void;
 }): React.ReactElement {
-  const start = (type: 'init' | 'initEntryKinds' | 'initMacroKinds'): void => {
-    onStart();
-    api?.postMessage({ type });
-  };
   return (
     <main style={PANEL_STYLE} aria-busy={busy}>
       <PanelHeader vsApi={api} title="SNL Dashboard" />
@@ -250,7 +263,7 @@ function NotInitialized({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         <Button
           type="button"
-          onClick={() => start('init')}
+          onClick={() => onStart('init')}
           disabled={busy}
           variant="primary"
         >
@@ -258,7 +271,7 @@ function NotInitialized({
         </Button>
         <Button
           type="button"
-          onClick={() => start('initEntryKinds')}
+          onClick={() => onStart('initEntryKinds')}
           disabled={busy}
           variant="secondary"
         >
@@ -266,14 +279,14 @@ function NotInitialized({
         </Button>
         <Button
           type="button"
-          onClick={() => start('initMacroKinds')}
+          onClick={() => onStart('initMacroKinds')}
           disabled={busy}
           variant="secondary"
         >
           Initialize Macro Kinds
         </Button>
       </div>
-      <p role="status" aria-live="polite" style={{ minHeight: '1.25rem' }}>
+      <p role="status" aria-live="polite" aria-label="SNL setup status" style={{ minHeight: '1.25rem' }}>
         {busy ? 'Initializing SNL workspace…' : ''}
       </p>
     </main>
@@ -283,11 +296,15 @@ function NotInitialized({
 function Initialized({
   overview,
   api,
-  dataOperation
+  dataOperation,
+  setupBusy,
+  onStartSetup
 }: {
   overview: SnlOverview;
   api: VsCodeApi | undefined;
   dataOperation: DataOperationStatus;
+  setupBusy: boolean;
+  onStartSetup: (type: SetupMessageType) => void;
 }): React.ReactElement {
   // All sections default collapsed. State is local (per-mount) — cheap and
   // avoids workspaceState round-trips; users open what they care about.
@@ -305,7 +322,7 @@ function Initialized({
   const hasMacroKinds = overview.macroKinds.length > 0;
 
   return (
-    <main style={PANEL_STYLE}>
+    <main style={PANEL_STYLE} aria-busy={setupBusy}>
       <PanelHeader
         vsApi={api}
         title="SNL Dashboard"
@@ -330,6 +347,9 @@ function Initialized({
           </>
         }
       />
+      <p role="status" aria-live="polite" aria-label="SNL setup status" style={{ minHeight: '1.25rem' }}>
+        {setupBusy ? 'Initializing SNL workspace…' : ''}
+      </p>
       <CollapsibleSection
         title="Data maintenance"
         subtitle={`${overview.dataStatus.currentVersion ?? 'unknown'} → ${overview.dataStatus.targetVersion}`}
@@ -553,7 +573,8 @@ function Initialized({
         ) : (
           <AddBar
             label="Initialize Entry Kinds"
-            onActivate={() => api?.postMessage({ type: 'initEntryKinds' })}
+            disabled={setupBusy}
+            onActivate={() => onStartSetup('initEntryKinds')}
           />
         )}
         <AddBar
@@ -586,7 +607,8 @@ function Initialized({
         ) : (
           <AddBar
             label="Initialize Macro Kinds"
-            onActivate={() => api?.postMessage({ type: 'initMacroKinds' })}
+            disabled={setupBusy}
+            onActivate={() => onStartSetup('initMacroKinds')}
           />
         )}
         <AddBar
@@ -741,27 +763,23 @@ function HeaderActionButton({
   */
  function AddBar({
   label,
-  onActivate
+  onActivate,
+  disabled = false
 }: {
   label: string;
   onActivate: () => void;
+  disabled?: boolean;
 }): React.ReactElement {
   const [hover, setHover] = useState(false);
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
+      disabled={disabled}
       aria-label={label}
       onClick={onActivate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onActivate();
-        }
-      }}
-      onMouseEnter={() => setHover(true)}
+      onMouseEnter={() => { if (!disabled) setHover(true); }}
       onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
+      onFocus={() => { if (!disabled) setHover(true); }}
       onBlur={() => setHover(false)}
       style={{
         display: 'flex',
@@ -772,6 +790,7 @@ function HeaderActionButton({
         boxSizing: 'border-box',
         height: '3rem',
         marginTop: '0.5rem',
+        padding: 0,
         borderRadius: '6px',
         border: hover
           ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
@@ -780,14 +799,16 @@ function HeaderActionButton({
           ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
           : 'transparent',
         color: 'inherit',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        fontFamily: 'inherit',
         fontWeight: 600,
         userSelect: 'none'
       }}
     >
       <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
       <span>{label}</span>
-    </div>
+    </button>
   );
 }
 

@@ -241,6 +241,29 @@ async function main() {
     'refused init preserves unknown entries byte-for-byte'
   );
 
+  const packageConflictRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-package-conflict-'));
+  const packageConflictSnlRoot = nodePath.join(packageConflictRootPath, '.SNL_Doc');
+  const packageConflictDir = nodePath.join(packageConflictSnlRoot, 'term_macros');
+  await fs.mkdir(packageConflictDir, { recursive: true });
+  await fs.writeFile(nodePath.join(packageConflictDir, 'keep.json'), '{"keep":true}\n');
+  let packageConflictRejected = false;
+  try {
+    await initSnlDoc(Uri.file(packageConflictRootPath));
+  } catch {
+    packageConflictRejected = true;
+  }
+  assert(packageConflictRejected, 'init refuses Macro package data without config');
+  let packageConflictEntriesCreated = false;
+  try {
+    await fs.stat(nodePath.join(packageConflictSnlRoot, 'entries.json'));
+    packageConflictEntriesCreated = true;
+  } catch {}
+  assert(!packageConflictEntriesCreated, 'unknown-data rejection creates no entries payload');
+  assert(
+    await fs.readFile(nodePath.join(packageConflictDir, 'keep.json'), 'utf8') === '{"keep":true}\n',
+    'unknown-data rejection preserves Macro package bytes'
+  );
+
   const renameFailureRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-init-rename-'));
   failNextRename = true;
   let renameInitRejected = false;

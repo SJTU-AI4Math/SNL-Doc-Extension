@@ -4,7 +4,7 @@ import {
   readMacroPackage,
   readMacroPackages,
   resolveActiveMacroPackages,
-  setActiveMacroPackages,
+  setMacroPackageActive,
   batchDeleteMacros,
   batchMoveMacros,
   batchCopyMacros,
@@ -407,14 +407,7 @@ export class PackagePanel {
           return;
         }
         await this.runBatch(async (root) => {
-          const current = await resolveActiveMacroPackages(root);
-          const set = new Set(current);
-          if (active) {
-            set.add(this.file);
-          } else {
-            set.delete(this.file);
-          }
-          await setActiveMacroPackages(root, Array.from(set));
+          await setMacroPackageActive(root, this.file, active);
           return null;
         });
         return;

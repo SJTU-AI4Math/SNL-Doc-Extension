@@ -15,6 +15,8 @@
   "snlDoc.command.openEntryInfoview": "SNL：打开条目信息视图",
   "snlDoc.command.revealEntryPointer": "SNL：显示条目指针",
   "snlDoc.command.openDashboard": "SNL：打开仪表板",
+  "snlDoc.command.checkDataVersion": "SNL：检查数据版本",
+  "snlDoc.command.repairData": "SNL：修复 / 迁移数据",
   "snlDoc.command.init": "SNL：初始化",
   "snlDoc.command.createLibrary": "SNL：创建文档库",
   "snlDoc.command.initEntryKinds": "SNL：初始化条目类型",

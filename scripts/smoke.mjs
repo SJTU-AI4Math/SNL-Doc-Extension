@@ -25,6 +25,8 @@ const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
 class Uri {
   constructor(fsPath) {
     this.fsPath = fsPath;
+    this.path = fsPath;
+    this.scheme = 'file';
   }
   static file(p) {
     return new Uri(p);
@@ -132,7 +134,7 @@ async function main() {
     addMacro,
     updateMacro,
     readAllMacros,
-    setActiveMacroPackages,
+    setMacroPackageActive,
     createLibrary,
     updateLibrary,
     readLibraryGraph,
@@ -158,8 +160,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.3',
-    `config.version === "0.0.3" (got ${cfg.version})`
+    cfg.version === '0.0.4',
+    `config.version === "0.0.4" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -702,7 +704,7 @@ async function main() {
     'readAllMacros includes Foo.only while foo is active'
   );
   // Deactivate foo -> its macro disappears from readAllMacros.
-  await setActiveMacroPackages(root, ['test_pkg']);
+  await setMacroPackageActive(root, 'foo', false);
   const allFiltered = await readAllMacros(root);
   assert(
     !Object.prototype.hasOwnProperty.call(allFiltered, 'Foo.only'),
@@ -882,6 +884,10 @@ async function main() {
     recursive: true
   });
   const root3 = { fsPath: tmpRoot3, path: tmpRoot3, scheme: 'file' };
+  await fs.writeFile(
+    nodePath.join(tmpRoot3, '.SNL_Doc', 'config.json'),
+    JSON.stringify({ version: '0.0.4', entry_kinds: [], macro_kinds: [] }, null, 2)
+  );
   await fs.writeFile(
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'),
     JSON.stringify(v6Pkg, null, 2)
@@ -1503,6 +1509,28 @@ async function main() {
     'addEntry leaves corrupt entries.json byte-for-byte untouched'
   );
   await fs.rm(tmpRoot7, { recursive: true, force: true });
+
+  // --- [29] Future workspace schemas are read-only -------------------------
+  console.log('\n[29] ordinary writes refuse future workspace data versions');
+  const tmpRoot8 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-future-version-'));
+  const root8 = Uri.file(tmpRoot8);
+  await initSnlDoc(root8);
+  await applyEntryKindsPreset(root8, 'fulcrum-math-notes');
+  const futureConfigPath = nodePath.join(tmpRoot8, '.SNL_Doc', 'config.json');
+  const futureEntriesPath = nodePath.join(tmpRoot8, '.SNL_Doc', 'entries.json');
+  const futureConfig = JSON.parse(await fs.readFile(futureConfigPath, 'utf8'));
+  futureConfig.version = '9.0.0';
+  await fs.writeFile(futureConfigPath, JSON.stringify(futureConfig, null, 2));
+  const entriesBeforeFutureWrite = await fs.readFile(futureEntriesPath, 'utf8');
+  const futureWrite = await addEntry(root8, {
+    id: 'must-not-downgrade', kind: 'definition', title: 'Blocked', content: {}
+  });
+  assert(futureWrite.status === 'error', 'addEntry rejects a future workspace version');
+  assert(
+    (await fs.readFile(futureEntriesPath, 'utf8')) === entriesBeforeFutureWrite,
+    'future-version write leaves entries.json untouched'
+  );
+  await fs.rm(tmpRoot8, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

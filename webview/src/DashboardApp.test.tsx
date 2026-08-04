@@ -57,6 +57,54 @@ describe('Dashboard library actions', () => {
     expect(librariesToggle.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('shows data version health and routes check/repair actions to the host', async () => {
+    render(<DashboardApp />);
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: 'overview',
+          overview: {
+            hasSnlDoc: true,
+            totalEntryCount: 0,
+            entries: [],
+            libraries: [],
+            macroPackages: [],
+            allMacros: [],
+            metricMacroSources: {},
+            entryKinds: [],
+            macroKinds: [],
+            relationships: [],
+            dataStatus: {
+              status: 'needsMigration',
+              currentVersion: '0.0.3',
+              targetVersion: '0.0.4',
+              pendingCount: 1,
+              message: '1 migration step required.'
+            }
+          }
+        }
+      })
+    );
+
+    expect(await screen.findByText('Data maintenance')).toBeTruthy();
+    expect(screen.getByText('0.0.3 → 0.0.4')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Check data' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repair / migrate data' }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'dataMigrationStatus', status: 'running', operation: 'repair' }
+    }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Repair / migrate data' }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('button', { name: 'Check data' }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('status').textContent).toContain('Migration is running');
+    });
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith({ type: 'checkDataVersion' });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'repairData' });
+    });
+  });
+
   it('shows a single SNL Structural Index column for entries', async () => {
     render(<DashboardApp />);
 

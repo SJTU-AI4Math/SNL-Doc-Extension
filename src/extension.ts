@@ -20,6 +20,7 @@ import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 import { initialize_preferences_host } from './preferencesHost';
 import { installSnlDocContextKey } from './snlDocContext';
+import { checkDataVersion, repairData } from './dataMigrationCommands';
 
 // TODO: import SNL_render from snl-script lib
 
@@ -383,6 +384,15 @@ export function activate(context: vscode.ExtensionContext): void {
     () => {
       DashboardPanel.createOrShow(context.extensionUri);
     }
+  );
+
+  const checkDataVersionCommand = vscode.commands.registerCommand(
+    'snlDoc.checkDataVersion',
+    async () => checkDataVersion(firstWorkspaceFolder())
+  );
+  const repairDataCommand = vscode.commands.registerCommand(
+    'snlDoc.repairData',
+    async () => repairData(firstWorkspaceFolder())
   );
 
   // Panel timing diagnostics (cat 2026-07-25). Off by default; the command
@@ -766,6 +776,8 @@ export function activate(context: vscode.ExtensionContext): void {
     createLibrary,
     editLibrary,
     openDashboard,
+    checkDataVersionCommand,
+    repairDataCommand,
     toggleTrace,
     traceConfigWatcher,
     probeWebviewCost,

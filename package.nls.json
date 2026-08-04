@@ -15,6 +15,8 @@
   "snlDoc.command.openEntryInfoview": "SNL: Open Entry Infoview",
   "snlDoc.command.revealEntryPointer": "SNL: Reveal Entry Pointer",
   "snlDoc.command.openDashboard": "SNL: Open Dashboard",
+  "snlDoc.command.checkDataVersion": "SNL: Check Data Version",
+  "snlDoc.command.repairData": "SNL: Repair / Migrate Data",
   "snlDoc.command.init": "SNL: Init",
   "snlDoc.command.createLibrary": "SNL: Create Library",
   "snlDoc.command.initEntryKinds": "SNL: Initialize Entry Kinds",

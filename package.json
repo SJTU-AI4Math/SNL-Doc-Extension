@@ -67,6 +67,14 @@
         }
       },
       {
+        "command": "snlDoc.checkDataVersion",
+        "title": "%snlDoc.command.checkDataVersion%"
+      },
+      {
+        "command": "snlDoc.repairData",
+        "title": "%snlDoc.command.repairData%"
+      },
+      {
         "command": "snlDoc.toggleTrace",
         "title": "%snlDoc.command.toggleTrace%"
       },

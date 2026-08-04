@@ -7,6 +7,13 @@ import {
   template_placeholder_signature
 } from './localizedContent';
 import { slugify } from './slug';
+import { CURRENT_DATA_VERSION } from './dataMigrationCore';
+import {
+  assertJsonSnapshotUnchanged,
+  assertWorkspaceDataVersionNotRegressed,
+  assertWorkspaceDataWritable
+} from './dataMigrations';
+import { withWorkspaceDataLock } from './workspaceDataLock';
 
 /**
  * Filesystem helpers for the `.SNL_Doc/` tree.
@@ -47,6 +54,61 @@ async function exists(uri: vscode.Uri): Promise<boolean> {
 async function readJson<T>(uri: vscode.Uri): Promise<T> {
   const bytes = await vscode.workspace.fs.readFile(uri);
   return JSON.parse(DECODER.decode(bytes)) as T;
+}
+
+async function assertWorkspaceWritableOnDisk(workspaceRoot: vscode.Uri): Promise<unknown> {
+  let rawConfig: unknown;
+  try {
+    rawConfig = await readJson<unknown>(configUri(workspaceRoot));
+  } catch (error) {
+    throw new Error(
+      `Workspace data is not writable: config.json could not be read (${error instanceof Error ? error.message : String(error)}).`
+    );
+  }
+  assertWorkspaceDataWritable(rawConfig);
+  return rawConfig;
+}
+
+async function withExtensionWriterLock<T>(
+  workspaceRoot: vscode.Uri,
+  purpose: string,
+  task: () => Promise<T>
+): Promise<T> {
+  return workspaceRoot.scheme === 'file'
+    ? withWorkspaceDataLock(workspaceRoot, purpose, task)
+    : task();
+}
+
+const NO_EXPECTED_SNAPSHOT = Symbol('no-expected-snapshot');
+
+async function writeWorkspaceFile(
+  workspaceRoot: vscode.Uri,
+  uri: vscode.Uri,
+  bytes: Uint8Array,
+  expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT
+): Promise<void> {
+  await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
+    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot);
+    const writingConfig = uri.fsPath === configUri(workspaceRoot).fsPath;
+    if (expectedOriginal !== NO_EXPECTED_SNAPSHOT) {
+      const currentTarget = writingConfig
+        ? currentConfig
+        : (await exists(uri) ? await readJson<unknown>(uri) : null);
+      assertJsonSnapshotUnchanged(expectedOriginal, currentTarget, uri.fsPath);
+    }
+    if (writingConfig) {
+      let nextConfig: unknown;
+      try {
+        nextConfig = JSON.parse(DECODER.decode(bytes));
+      } catch (error) {
+        throw new Error(
+          `Refusing to write invalid config JSON: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      assertWorkspaceDataVersionNotRegressed(currentConfig, nextConfig);
+    }
+    await vscode.workspace.fs.writeFile(uri, bytes);
+  });
 }
 
 /**
@@ -448,7 +510,7 @@ export async function initSnlDoc(
   await fsApi.createDirectory(librariesDir);
 
   const config: SnlConfig = {
-    version: '0.0.3',
+    version: CURRENT_DATA_VERSION,
     entry_kinds: [],
     macro_kinds: []
   };
@@ -506,6 +568,7 @@ export async function createLibrary(
   if (await exists(libDir)) {
     return { status: 'duplicate', slug };
   }
+  await assertWorkspaceWritableOnDisk(workspaceRoot);
 
   // Create library tree.
   const documentsDir = vscode.Uri.joinPath(libDir, 'documents');
@@ -519,25 +582,29 @@ export async function createLibrary(
   await fsApi.createDirectory(latexDir);
   await fsApi.createDirectory(markdownDir);
 
-  await fsApi.writeFile(
+  await writeWorkspaceFile(workspaceRoot,
     libraryMetaUri(workspaceRoot, slug),
-    jsonBytes({ title: trimmedTitle } satisfies LibraryMetaFile)
+    jsonBytes({ title: trimmedTitle } satisfies LibraryMetaFile),
+    null
   );
-  await fsApi.writeFile(
+  await writeWorkspaceFile(workspaceRoot,
     libraryGraphUri(workspaceRoot, slug),
-    jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile)
+    jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile),
+    null
   );
-  await fsApi.writeFile(
+  await writeWorkspaceFile(workspaceRoot,
     libraryCountersUri(workspaceRoot, slug),
-    jsonBytes({ counters: [] } satisfies LibraryCountersFile)
+    jsonBytes({ counters: [] } satisfies LibraryCountersFile),
+    null
   );
 
   const gitkeep = ENCODER.encode('');
-  await fsApi.writeFile(vscode.Uri.joinPath(typstDir, '.gitkeep'), gitkeep);
-  await fsApi.writeFile(vscode.Uri.joinPath(latexDir, '.gitkeep'), gitkeep);
-  await fsApi.writeFile(
+  await writeWorkspaceFile(workspaceRoot, vscode.Uri.joinPath(typstDir, '.gitkeep'), gitkeep, null);
+  await writeWorkspaceFile(workspaceRoot, vscode.Uri.joinPath(latexDir, '.gitkeep'), gitkeep, null);
+  await writeWorkspaceFile(workspaceRoot,
     vscode.Uri.joinPath(markdownDir, '.gitkeep'),
-    gitkeep
+    gitkeep,
+    null
   );
 
   return { status: 'created', slug, title: trimmedTitle };
@@ -1235,7 +1302,7 @@ export async function createMacroPackage(
   try {
     // Ensure the term_macros/ directory exists first.
     await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
-    await fsApi.writeFile(target, jsonBytes(pkg));
+    await writeWorkspaceFile(workspaceRoot, target, jsonBytes(pkg), null);
   } catch (err) {
     return {
       status: 'error',
@@ -1246,8 +1313,7 @@ export async function createMacroPackage(
   // active set (migrating older configs to "all on disk") and persist it with
   // this package included, materializing the field on first create.
   try {
-    const active = await resolveActiveMacroPackages(workspaceRoot);
-    await setActiveMacroPackages(workspaceRoot, [...active, bare]);
+    await setMacroPackageActive(workspaceRoot, bare, true);
   } catch {
     // Config missing/unwritable — the package file was still created.
   }
@@ -1264,7 +1330,7 @@ export async function readMacroPackage(
   workspaceRoot: vscode.Uri,
   file: string
 ): Promise<
-  | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
+  | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[]; raw: unknown }
   | { status: 'noFile' }
   | { status: 'error'; message: string }
 > {
@@ -1284,7 +1350,8 @@ export async function readMacroPackage(
     };
   }
 
-  return buildMacroPackageResult(bare, raw);
+  const result = buildMacroPackageResult(bare, raw);
+  return result.status === 'ok' ? { ...result, raw } : result;
 }
 
 /**
@@ -1339,6 +1406,30 @@ function buildMacroPackageResult(
   }
 
   return { status: 'ok', pkg, macros };
+}
+
+/**
+ * Canonicalize any supported historical Macro package shape to the current v7
+ * wrapper while preserving wrapper-level extension fields. Used by explicit
+ * workspace data migrations; ordinary reads remain non-mutating.
+ */
+export function canonicalizeMacroPackageData(
+  file: string,
+  raw: unknown
+): MacroPackageFile & Record<string, unknown> {
+  const bare = stripJsonExt(file);
+  const result = buildMacroPackageResult(bare, raw);
+  if (result.status === 'error') {
+    throw new Error(`${file}: ${result.message}`);
+  }
+  const wrapper = raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    'macros' in (raw as Record<string, unknown>)
+    ? raw as Record<string, unknown>
+    : {};
+  return {
+    ...wrapper,
+    ...result.pkg
+  };
 }
 
 /**
@@ -1493,7 +1584,7 @@ async function listMacroPackageNames(
  * sorting for stability. Preserves every unrelated config field by
  * round-tripping the raw JSON. Bare names (any `.json` suffix is stripped).
  */
-export async function setActiveMacroPackages(
+async function setActiveMacroPackages(
   workspaceRoot: vscode.Uri,
   activeList: string[]
 ): Promise<void> {
@@ -1509,11 +1600,26 @@ export async function setActiveMacroPackages(
       }`
     );
   }
+  const original = structuredClone(raw);
   const normalized = Array.from(
     new Set((Array.isArray(activeList) ? activeList : []).map(stripJsonExt))
   ).sort((a, b) => a.localeCompare(b));
   raw.active_macro_packages = normalized;
-  await fsApi.writeFile(uri, jsonBytes(raw));
+  await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(raw), original);
+}
+
+export async function setMacroPackageActive(
+  workspaceRoot: vscode.Uri,
+  packageFile: string,
+  active: boolean
+): Promise<void> {
+  const bare = stripJsonExt(packageFile);
+  await withExtensionWriterLock(workspaceRoot, `set active Macro package ${bare}`, async () => {
+    const current = new Set(await resolveActiveMacroPackages(workspaceRoot));
+    if (active) current.add(bare);
+    else current.delete(bare);
+    await setActiveMacroPackages(workspaceRoot, Array.from(current));
+  });
 }
 
 /**
@@ -1539,7 +1645,10 @@ export async function deleteMacroPackage(
     return { status: 'noFile' };
   }
   try {
-    await fsApi.delete(target, { useTrash: false });
+    await withExtensionWriterLock(workspaceRoot, `delete ${target.fsPath}`, async () => {
+      await assertWorkspaceWritableOnDisk(workspaceRoot);
+      await fsApi.delete(target, { useTrash: false });
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -1547,13 +1656,7 @@ export async function deleteMacroPackage(
     };
   }
   try {
-    const active = await resolveActiveMacroPackages(workspaceRoot);
-    if (active.includes(bare)) {
-      await setActiveMacroPackages(
-        workspaceRoot,
-        active.filter((b) => b !== bare)
-      );
-    }
+    await setMacroPackageActive(workspaceRoot, bare, false);
   } catch {
     // Config missing/unwritable — the file delete already succeeded.
   }
@@ -1721,9 +1824,10 @@ export async function addMacro(
   };
 
   try {
-    await fsApi.writeFile(
+    await writeWorkspaceFile(workspaceRoot,
       macroPackageUri(workspaceRoot, file),
-      jsonBytes(next)
+      jsonBytes(next),
+      read.raw
     );
   } catch (err) {
     return {
@@ -2013,8 +2117,9 @@ async function writeEntryKinds(
       }`
     );
   }
+  const original = structuredClone(raw);
   raw.entry_kinds = kinds;
-  await fsApi.writeFile(uri, jsonBytes(raw));
+  await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(raw), original);
 }
 
 export type ApplyPresetResult =
@@ -2038,7 +2143,8 @@ export async function applyEntryKindsPreset(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const preset = ENTRY_KIND_PRESETS.find((p) => p.id === presetId);
+  return withExtensionWriterLock(workspaceRoot, 'apply entry kind preset', async () => {
+    const preset = ENTRY_KIND_PRESETS.find((p) => p.id === presetId);
   if (!preset) {
     return { status: 'unknownPreset', presetId };
   }
@@ -2055,8 +2161,9 @@ export async function applyEntryKindsPreset(
     defaultCounterName: k.defaultCounterName,
     style: k.style
   }));
-  await writeEntryKinds(workspaceRoot, kinds);
-  return { status: 'applied', count: kinds.length };
+    await writeEntryKinds(workspaceRoot, kinds);
+    return { status: 'applied', count: kinds.length };
+  });
 }
 
 export type CreateEntryKindResult =
@@ -2084,7 +2191,8 @@ export async function createEntryKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const id = (input.id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'create entry kind', async () => {
+    const id = (input.id ?? '').trim();
   const name = (input.name ?? '').trim();
   if (!id) {
     return { status: 'invalid', message: 'id is required' };
@@ -2106,8 +2214,9 @@ export async function createEntryKind(
     defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
-  await writeEntryKinds(workspaceRoot, [...existing, kind]);
-  return { status: 'created', kind };
+    await writeEntryKinds(workspaceRoot, [...existing, kind]);
+    return { status: 'created', kind };
+  });
 }
 
 /**
@@ -2163,8 +2272,9 @@ async function writeMacroKinds(
       }`
     );
   }
+  const original = structuredClone(raw);
   raw.macro_kinds = kinds;
-  await fsApi.writeFile(uri, jsonBytes(raw));
+  await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(raw), original);
 }
 
 export type ApplyMacroKindsPresetResult =
@@ -2185,7 +2295,8 @@ export async function applyMacroKindsPreset(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const preset = MACRO_KIND_PRESETS.find((p) => p.id === presetId);
+  return withExtensionWriterLock(workspaceRoot, 'apply Macro kind preset', async () => {
+    const preset = MACRO_KIND_PRESETS.find((p) => p.id === presetId);
   if (!preset) {
     return { status: 'unknownPreset', presetId };
   }
@@ -2199,8 +2310,9 @@ export async function applyMacroKindsPreset(
     description: k.description,
     coloring: { stroke: k.coloring.stroke, background: k.coloring.background }
   }));
-  await writeMacroKinds(workspaceRoot, kinds);
-  return { status: 'applied', count: kinds.length };
+    await writeMacroKinds(workspaceRoot, kinds);
+    return { status: 'applied', count: kinds.length };
+  });
 }
 
 export type CreateMacroKindResult =
@@ -2225,7 +2337,8 @@ export async function createMacroKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const id = (input.id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'create Macro kind', async () => {
+    const id = (input.id ?? '').trim();
   const name = (input.name ?? '').trim();
   if (!id) {
     return { status: 'invalid', message: 'id is required' };
@@ -2246,8 +2359,9 @@ export async function createMacroKind(
       background: (input.coloring?.background ?? '').trim() || '#eeeeee'
     }
   };
-  await writeMacroKinds(workspaceRoot, [...existing, kind]);
-  return { status: 'created', kind };
+    await writeMacroKinds(workspaceRoot, [...existing, kind]);
+    return { status: 'created', kind };
+  });
 }
 
 /**
@@ -2389,7 +2503,12 @@ export async function addEntry(
   }
 
   try {
-    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes([...pool, record]));
+    await writeWorkspaceFile(
+      workspaceRoot,
+      entriesUri(workspaceRoot),
+      jsonBytes([...pool, record]),
+      pool
+    );
   } catch (err) {
     return {
       status: 'error',
@@ -2713,7 +2832,8 @@ export async function updateEntryKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'update entry kind', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
@@ -2738,8 +2858,9 @@ export async function updateEntryKind(
   };
   const kinds = existing.slice();
   kinds[idx] = next;
-  await writeEntryKinds(workspaceRoot, kinds);
-  return { status: 'updated', kind: next };
+    await writeEntryKinds(workspaceRoot, kinds);
+    return { status: 'updated', kind: next };
+  });
 }
 
 export type UpdateMacroKindResult = UpdateResult<
@@ -2762,7 +2883,8 @@ export async function updateMacroKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'update Macro kind', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
@@ -2786,8 +2908,9 @@ export async function updateMacroKind(
   };
   const kinds = existing.slice();
   kinds[idx] = next;
-  await writeMacroKinds(workspaceRoot, kinds);
-  return { status: 'updated', kind: next };
+    await writeMacroKinds(workspaceRoot, kinds);
+    return { status: 'updated', kind: next };
+  });
 }
 
 export type UpdateLibraryResult = UpdateResult<
@@ -2839,7 +2962,12 @@ export async function updateLibrary(
   if (typeof input.description === 'string') {
     next.description = input.description;
   }
-  await fsApi.writeFile(libraryMetaUri(workspaceRoot, targetSlug), jsonBytes(next));
+  await writeWorkspaceFile(
+    workspaceRoot,
+    libraryMetaUri(workspaceRoot, targetSlug),
+    jsonBytes(next),
+    existing
+  );
   return { status: 'updated', slug: targetSlug, title };
 }
 
@@ -2919,7 +3047,7 @@ export async function updateEntry(
   const next = pool.slice();
   next[idx] = record;
   try {
-    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes(next));
+    await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(next), pool);
   } catch (err) {
     return {
       status: 'error',
@@ -2980,7 +3108,12 @@ export async function updateMacroPackage(
   }
 
   try {
-    await fsApi.writeFile(macroPackageUri(workspaceRoot, bare), jsonBytes(next));
+    await writeWorkspaceFile(
+      workspaceRoot,
+      macroPackageUri(workspaceRoot, bare),
+      jsonBytes(next),
+      read.raw
+    );
   } catch (err) {
     return {
       status: 'error',
@@ -3039,9 +3172,10 @@ export async function updateMacro(
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
 
   try {
-    await fsApi.writeFile(
+    await writeWorkspaceFile(workspaceRoot,
       macroPackageUri(workspaceRoot, file),
-      jsonBytes(next)
+      jsonBytes(next),
+      read.raw
     );
   } catch (err) {
     return {
@@ -3096,9 +3230,10 @@ export async function batchDeleteMacros(
 
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
   try {
-    await fsApi.writeFile(
+    await writeWorkspaceFile(workspaceRoot,
       macroPackageUri(workspaceRoot, sourceFile),
-      jsonBytes(next)
+      jsonBytes(next),
+      read.raw
     );
   } catch (err) {
     return {
@@ -3182,8 +3317,18 @@ export async function batchMoveMacros(
   try {
     // Write destination first: if the source write then fails the macros
     // exist in both places (recoverable) rather than being lost entirely.
-    await fsApi.writeFile(macroPackageUri(workspaceRoot, destBare), jsonBytes(nextDest));
-    await fsApi.writeFile(macroPackageUri(workspaceRoot, srcBare), jsonBytes(nextSrc));
+    await writeWorkspaceFile(
+      workspaceRoot,
+      macroPackageUri(workspaceRoot, destBare),
+      jsonBytes(nextDest),
+      destRead.raw
+    );
+    await writeWorkspaceFile(
+      workspaceRoot,
+      macroPackageUri(workspaceRoot, srcBare),
+      jsonBytes(nextSrc),
+      srcRead.raw
+    );
   } catch (err) {
     return {
       status: 'error',
@@ -3354,9 +3499,10 @@ export async function batchCopyMacros(
     macros: nextDestMacros
   };
   try {
-    await fsApi.writeFile(
+    await writeWorkspaceFile(workspaceRoot,
       macroPackageUri(workspaceRoot, destBare),
-      jsonBytes(nextDest)
+      jsonBytes(nextDest),
+      destRead.raw
     );
   } catch (err) {
     return {
@@ -3562,8 +3708,10 @@ export async function writeLibraryMeta(
 ): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
   const fsApi = vscode.workspace.fs;
   let existing: LibraryMetaFile = {};
+  let expectedOriginal: unknown = null;
   try {
     const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, slug));
+    expectedOriginal = raw;
     if (raw && typeof raw === 'object') {
       existing = raw as LibraryMetaFile;
     }
@@ -3572,9 +3720,10 @@ export async function writeLibraryMeta(
   }
   const merged: LibraryMetaFile = { ...existing, ...meta };
   try {
-    await fsApi.writeFile(
+    await writeWorkspaceFile(workspaceRoot,
       libraryMetaUri(workspaceRoot, slug),
-      jsonBytes(merged)
+      jsonBytes(merged),
+      expectedOriginal
     );
     return { status: 'ok' };
   } catch (err) {
@@ -3807,7 +3956,7 @@ export async function writeLibraryGraph(
     relationships: graph.relationships
   };
   try {
-    await fsApi.writeFile(libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
+    await writeWorkspaceFile(workspaceRoot, libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
     return { status: 'ok' };
   } catch (err) {
     return {
@@ -3879,7 +4028,8 @@ export async function writeLibraryCounters(
   slug: string,
   roots: CounterNode[]
 ): Promise<void> {
-  await vscode.workspace.fs.writeFile(
+  await writeWorkspaceFile(
+    workspaceRoot,
     libraryCountersUri(workspaceRoot, slug),
     jsonBytes({ counters: roots } satisfies LibraryCountersFile)
   );
@@ -4016,9 +4166,10 @@ export async function deleteEntry(
   } catch {
     // Best-effort — a broken relationships.json shouldn't block delete.
   }
+  const original = structuredClone(pool);
   pool.splice(idx, 1);
   try {
-    await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes(pool));
+    await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(pool), original);
   } catch (err) {
     return {
       status: 'error',
@@ -4053,7 +4204,8 @@ export async function deleteEntryKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'delete entry kind', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
@@ -4080,18 +4232,20 @@ export async function deleteEntryKind(
   } catch {
     // best-effort
   }
+  const original = structuredClone(cfg);
   const next = list.slice();
   next.splice(idx, 1);
   cfg.entry_kinds = next;
   try {
-    await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(cfg));
+    await writeWorkspaceFile(workspaceRoot, configUri(workspaceRoot), jsonBytes(cfg), original);
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', id: targetId, references };
+    return { status: 'ok', id: targetId, references };
+  });
 }
 
 /**
@@ -4118,7 +4272,8 @@ export async function deleteMacroKind(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'delete Macro kind', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
@@ -4152,18 +4307,20 @@ export async function deleteMacroKind(
   } catch {
     // best-effort
   }
+  const original = structuredClone(cfg);
   const next = list.slice();
   next.splice(idx, 1);
   cfg.macro_kinds = next;
   try {
-    await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(cfg));
+    await writeWorkspaceFile(workspaceRoot, configUri(workspaceRoot), jsonBytes(cfg), original);
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', id: targetId, references };
+    return { status: 'ok', id: targetId, references };
+  });
 }
 
 /**
@@ -4203,7 +4360,10 @@ export async function deleteLibrary(
     // can recover from the OS trash if they change their mind — a library
     // is a lot of typed content, worth being kinder than we are with a
     // single macro-package file.
-    await fsApi.delete(dir, { recursive: true, useTrash: true });
+    await withExtensionWriterLock(workspaceRoot, `delete ${dir.fsPath}`, async () => {
+      await assertWorkspaceWritableOnDisk(workspaceRoot);
+      await fsApi.delete(dir, { recursive: true, useTrash: true });
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -4289,14 +4449,24 @@ export async function readRelationships(
 /** Write the canonical `{ version, relationships }` shape to disk. */
 async function writeRelationships(
   workspaceRoot: vscode.Uri,
-  list: RelationshipData[]
+  list: RelationshipData[],
+  expectedOriginal: RelationshipData[]
 ): Promise<void> {
   const fsApi = vscode.workspace.fs;
   const payload: RelationshipsFile = {
     version: RELATIONSHIPS_FILE_VERSION,
     relationships: list
   };
-  await fsApi.writeFile(relationshipsUri(workspaceRoot), jsonBytes(payload));
+  const expectedPayload: RelationshipsFile | null =
+    (await exists(relationshipsUri(workspaceRoot))) || expectedOriginal.length > 0
+      ? { version: RELATIONSHIPS_FILE_VERSION, relationships: expectedOriginal }
+      : null;
+  await writeWorkspaceFile(
+    workspaceRoot,
+    relationshipsUri(workspaceRoot),
+    jsonBytes(payload),
+    expectedPayload
+  );
 }
 
 export type AddRelationshipResult =
@@ -4347,7 +4517,7 @@ export async function addRelationship(
     metadata: rel.metadata ?? null
   };
   try {
-    await writeRelationships(workspaceRoot, [...list, record]);
+    await writeRelationships(workspaceRoot, [...list, record], list);
   } catch (err) {
     return {
       status: 'error',
@@ -4399,7 +4569,7 @@ export async function updateRelationship(
   const next = list.slice();
   next[idx] = { id: targetId, from, to, label, metadata: input.metadata ?? null };
   try {
-    await writeRelationships(workspaceRoot, next);
+    await writeRelationships(workspaceRoot, next, list);
   } catch (err) {
     return {
       status: 'error',
@@ -4436,7 +4606,7 @@ export async function deleteRelationship(
   const next = list.slice();
   next.splice(idx, 1);
   try {
-    await writeRelationships(workspaceRoot, next);
+    await writeRelationships(workspaceRoot, next, list);
   } catch (err) {
     return {
       status: 'error',
@@ -4747,10 +4917,15 @@ export async function regenerateDependencyRelationships(
         (r.metadata as { isAtomic?: unknown }).isAtomic === true
     ).length;
 
-    const fsApi = vscode.workspace.fs;
-    await fsApi.writeFile(
-      relationshipsUri(workspaceRoot),
-      jsonBytes({ version: 1, relationships: merged })
+    const relationshipsFile = relationshipsUri(workspaceRoot);
+    const expectedRelationships: RelationshipsFile | null =
+      (await exists(relationshipsFile)) || existing.length > 0
+        ? { version: RELATIONSHIPS_FILE_VERSION, relationships: existing }
+        : null;
+    await writeWorkspaceFile(workspaceRoot,
+      relationshipsFile,
+      jsonBytes({ version: 1, relationships: merged }),
+      expectedRelationships
     );
 
     return {

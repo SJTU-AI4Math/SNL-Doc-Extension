@@ -107,6 +107,20 @@ interface RelationshipData {
   metadata: unknown;
 }
 
+interface DataStatusSummary {
+  status: 'missing' | 'invalid' | 'future' | 'current' | 'needsMigration';
+  currentVersion: string | null;
+  targetVersion: string;
+  pendingCount: number;
+  message: string;
+}
+
+interface DataOperationStatus {
+  status: 'idle' | 'running' | 'error';
+  operation?: 'check' | 'repair';
+  message?: string;
+}
+
 interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
@@ -120,6 +134,7 @@ interface SnlOverview {
   entryKinds: EntryKind[];
   macroKinds: MacroKind[];
   relationships: RelationshipData[];
+  dataStatus: DataStatusSummary;
 }
 
 const EMPTY: SnlOverview = {
@@ -133,12 +148,20 @@ const EMPTY: SnlOverview = {
   metricThresholds: DEFAULT_ENTRY_METRIC_THRESHOLDS,
   entryKinds: [],
   macroKinds: [],
-  relationships: []
+  relationships: [],
+  dataStatus: {
+    status: 'invalid',
+    currentVersion: null,
+    targetVersion: '—',
+    pendingCount: 0,
+    message: 'Data version has not been checked yet.'
+  }
 };
 
 export function DashboardApp(): React.ReactElement {
   use_preferences_revision();
   const [overview, setOverview] = useState<SnlOverview>(EMPTY);
+  const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
   const [loaded, setLoaded] = useState(false);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
@@ -148,10 +171,18 @@ export function DashboardApp(): React.ReactElement {
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
         | { type: 'overview'; overview: SnlOverview }
+        | ({ type: 'dataMigrationStatus' } & DataOperationStatus)
         | undefined;
-      if (!msg || msg.type !== 'overview') {
+      if (!msg) return;
+      if (msg.type === 'dataMigrationStatus') {
+        setDataOperation({
+          status: msg.status,
+          operation: msg.operation,
+          message: msg.message
+        });
         return;
       }
+      if (msg.type !== 'overview') return;
       setOverview({
         ...EMPTY,
         ...msg.overview,
@@ -179,7 +210,7 @@ export function DashboardApp(): React.ReactElement {
     return <NotInitialized api={apiRef.current} />;
   }
 
-  return <Initialized overview={overview} api={apiRef.current} />;
+  return <Initialized overview={overview} api={apiRef.current} dataOperation={dataOperation} />;
 }
 
 /** Placeholder shown when `.SNL_Doc/` is missing. */
@@ -208,10 +239,12 @@ function NotInitialized({
 
 function Initialized({
   overview,
-  api
+  api,
+  dataOperation
 }: {
   overview: SnlOverview;
   api: VsCodeApi | undefined;
+  dataOperation: DataOperationStatus;
 }): React.ReactElement {
   // All sections default collapsed. State is local (per-mount) — cheap and
   // avoids workspaceState round-trips; users open what they care about.
@@ -221,6 +254,7 @@ function Initialized({
   const [openMacros, setOpenMacros] = useState(false);
   const [openEntryKinds, setOpenEntryKinds] = useState(false);
   const [openMacroKinds, setOpenMacroKinds] = useState(false);
+  const [openDataMaintenance, setOpenDataMaintenance] = useState(false);
 
   const totalEntries =
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
@@ -253,6 +287,51 @@ function Initialized({
           </>
         }
       />
+      <CollapsibleSection
+        title="Data maintenance"
+        subtitle={`${overview.dataStatus.currentVersion ?? 'unknown'} → ${overview.dataStatus.targetVersion}`}
+        expanded={openDataMaintenance}
+        onToggle={() => setOpenDataMaintenance((value) => !value)}
+        headerActions={
+          <>
+            <HeaderActionButton
+              label="Check data"
+              title="Check data"
+              disabled={dataOperation.status === 'running'}
+              loading={dataOperation.status === 'running' && dataOperation.operation === 'check'}
+              onClick={() => api?.postMessage({ type: 'checkDataVersion' })}
+            />
+            <HeaderActionButton
+              label="Repair / migrate data"
+              title="Repair / migrate data"
+              disabled={dataOperation.status === 'running'}
+              loading={dataOperation.status === 'running' && dataOperation.operation === 'repair'}
+              onClick={() => api?.postMessage({ type: 'repairData' })}
+            />
+          </>
+        }
+      >
+        <p style={{ margin: 0 }}>{overview.dataStatus.message}</p>
+        {overview.dataStatus.pendingCount > 0 ? (
+          <p style={{ marginBottom: 0 }}>
+            {overview.dataStatus.pendingCount} pending migration step
+            {overview.dataStatus.pendingCount === 1 ? '' : 's'}.
+          </p>
+        ) : null}
+      </CollapsibleSection>
+      {dataOperation.status === 'running' ? (
+        <span
+          role="status"
+          aria-live="polite"
+          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
+        >
+          {dataOperation.operation === 'repair' ? 'Migration is running…' : 'Data check is running…'}
+        </span>
+      ) : dataOperation.status === 'error' ? (
+        <p role="alert" style={{ margin: '0.5rem 0', color: 'var(--vscode-errorForeground)' }}>
+          {dataOperation.message ?? 'Data operation failed.'}
+        </p>
+      ) : null}
       {/* === 1. Libraries ================================================== */}
       <CollapsibleSection
         title="Libraries"
@@ -568,11 +647,15 @@ function CollapsibleSection({
 function HeaderActionButton({
   label,
   title,
-  onClick
+  onClick,
+  disabled = false,
+  loading = false
 }: {
   label: string;
   title: string;
   onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
 }): React.ReactElement {
   return (
     <Button
@@ -582,6 +665,9 @@ function HeaderActionButton({
         onClick();
       }}
       title={title}
+      disabled={disabled}
+      loading={loading}
+      loadingLabel={loading ? `${label}…` : undefined}
       style={{
         padding: '0.25rem 0.65rem',
         fontSize: '0.82rem',

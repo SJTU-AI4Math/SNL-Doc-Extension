@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import {
   readOverview,
-  resolveActiveMacroPackages,
-  setActiveMacroPackages
+  setMacroPackageActive
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
+import { inspectWorkspaceDataVersion } from './vscodeDataMigration';
+import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 
 /**
  * Singleton manager for the `SNL: Open Dashboard` webview panel.
@@ -44,6 +45,7 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
+  private overviewGeneration = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Active;
@@ -144,21 +146,48 @@ export class DashboardPanel {
   }
 
   private async pushOverview(): Promise<void> {
+    const generation = ++this.overviewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'overview',
-        overview: { hasSnlDoc: false, totalEntryCount: null, libraries: [] }
+        overview: {
+          hasSnlDoc: false,
+          totalEntryCount: null,
+          libraries: [],
+          dataStatus: {
+            status: 'missing',
+            currentVersion: null,
+            targetVersion: CURRENT_DATA_VERSION,
+            pendingCount: 0,
+            message: 'No workspace folder is open.'
+          }
+        }
       });
       return;
     }
     try {
-      const overview = await readOverview(root);
+      const [overview, inspection] = await Promise.all([
+        readOverview(root),
+        inspectWorkspaceDataVersion(root)
+      ]);
+      if (generation !== this.overviewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'overview',
-        overview: { ...overview, metricThresholds: readEntryMetricThresholds() }
+        overview: {
+          ...overview,
+          metricThresholds: readEntryMetricThresholds(),
+          dataStatus: {
+            status: inspection.status,
+            currentVersion: inspection.currentVersion,
+            targetVersion: inspection.targetVersion,
+            pendingCount: inspection.pending?.length ?? 0,
+            message: inspection.message
+          }
+        }
       });
     } catch (err) {
+      if (generation !== this.overviewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(`SNL Dashboard refresh failed: ${text}`);
     }
@@ -172,6 +201,12 @@ export class DashboardPanel {
     switch (msg.type) {
       case 'ready':
         await this.pushOverview();
+        return;
+      case 'checkDataVersion':
+        await this.runDataOperation('check', 'snlDoc.checkDataVersion');
+        return;
+      case 'repairData':
+        await this.runDataOperation('repair', 'snlDoc.repairData');
         return;
       case 'createLibrary':
         await vscode.commands.executeCommand('snlDoc.createLibrary');
@@ -327,6 +362,34 @@ export class DashboardPanel {
     }
   }
 
+  private async runDataOperation(
+    operation: 'check' | 'repair',
+    command: 'snlDoc.checkDataVersion' | 'snlDoc.repairData'
+  ): Promise<void> {
+    await this.panel.webview.postMessage({
+      type: 'dataMigrationStatus',
+      status: 'running',
+      operation
+    });
+    try {
+      await vscode.commands.executeCommand(command);
+      await this.pushOverview();
+      await this.panel.webview.postMessage({
+        type: 'dataMigrationStatus',
+        status: 'idle',
+        operation
+      });
+    } catch (error) {
+      await this.panel.webview.postMessage({
+        type: 'dataMigrationStatus',
+        status: 'error',
+        operation,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      await this.pushOverview();
+    }
+  }
+
   /**
    * Add or remove a package from `config.json#active_macro_packages` and
    * re-push the overview so the Active column reflects the new state.
@@ -338,14 +401,7 @@ export class DashboardPanel {
     }
     const bare = file.replace(/\.json$/i, '');
     try {
-      const current = await resolveActiveMacroPackages(root);
-      const set = new Set(current);
-      if (active) {
-        set.add(bare);
-      } else {
-        set.delete(bare);
-      }
-      await setActiveMacroPackages(root, Array.from(set));
+      await setMacroPackageActive(root, bare, active);
       await this.pushOverview();
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

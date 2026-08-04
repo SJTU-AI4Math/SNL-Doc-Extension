@@ -178,6 +178,27 @@ async function main() {
   await fs.stat(nodePath.join(partialSnlRoot, 'libraries'));
   assert(true, 'partial init completes required directories');
 
+  const futureInitRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-future-init-'));
+  const futureInitSnlRoot = nodePath.join(futureInitRootPath, '.SNL_Doc');
+  await fs.mkdir(futureInitSnlRoot, { recursive: true });
+  await fs.writeFile(
+    nodePath.join(futureInitSnlRoot, 'config.json'),
+    JSON.stringify({ version: '999.0.0', entry_kinds: [], macro_kinds: [] })
+  );
+  let futureInitRejected = false;
+  try {
+    await initSnlDoc(Uri.file(futureInitRootPath));
+  } catch {
+    futureInitRejected = true;
+  }
+  assert(futureInitRejected, 'init rejects a future-version workspace');
+  let futureEntriesCreated = false;
+  try {
+    await fs.stat(nodePath.join(futureInitSnlRoot, 'entries.json'));
+    futureEntriesCreated = true;
+  } catch {}
+  assert(!futureEntriesCreated, 'rejected future-version init performs no repair writes');
+
   console.log('\n[1] initSnlDoc');
   const init = await initSnlDoc(root);
   assert(init.status === 'created', 'initSnlDoc -> created');

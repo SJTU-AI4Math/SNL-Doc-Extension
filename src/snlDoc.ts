@@ -526,6 +526,11 @@ async function initializeSnlDocSkeleton(
 
   return withExtensionWriterLock(workspaceRoot, 'initialize SNL Doc', async () => {
     const configExists = await exists(configTarget);
+    if (configExists) {
+      // Recovery may only add missing files to a workspace whose schema this
+      // extension understands. A corrupt or future config remains untouched.
+      await assertWorkspaceWritableOnDisk(workspaceRoot);
+    }
     const termMacrosDir = termMacrosDirUri(workspaceRoot);
     const librariesDir = librariesDirUri(workspaceRoot);
     await fsApi.createDirectory(termMacrosDir);

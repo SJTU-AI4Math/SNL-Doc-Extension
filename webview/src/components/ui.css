@@ -1,3 +1,5 @@
+html,body { margin:0; padding:0; }
+
 .snl-btn { font-family:inherit; border-radius:3px; cursor:pointer; white-space:nowrap; border:1px solid transparent; transition:background-color 100ms ease-in,border-color 100ms ease-in,color 100ms ease-in,transform 60ms ease-out,opacity 100ms ease-in; user-select:none; }
 .snl-btn:disabled,.snl-btn[aria-disabled='true'] { cursor:not-allowed; opacity:.55; }
 .snl-btn:focus-visible { outline:2px solid var(--vscode-focusBorder,#007fd4); outline-offset:1px; }
@@ -19,13 +21,16 @@
 
 .snl-panel-header {
   position:sticky;
-  top:var(--snl-panel-header-top, 1.5rem);
+  top:0;
   z-index:20;
   display:grid;
   grid-template-columns:auto minmax(10rem,1fr) auto;
   align-items:center;
   gap:.75rem;
-  margin:0 0 .9rem;
+  /* Pull through the shared panel's top padding. This makes the header start
+     at the true webview top while preserving that padding for page content.
+     Surfaces without the shared inset (Graph) override the variable to 0px. */
+  margin:calc(-1 * var(--snl-panel-header-top, 1.5rem)) 0 .9rem;
   padding:.5rem .65rem;
   border-bottom:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#333));
   background:var(--vscode-editor-background,var(--vscode-editorWidget-background,#1e1e1e));
@@ -75,7 +80,7 @@
 .snl-control--mono { font-family:var(--vscode-editor-font-family,monospace); }
 .snl-control:focus-visible { outline:2px solid var(--vscode-focusBorder,#007fd4); outline-offset:1px; }
 .snl-control[aria-invalid='true'] { border-color:var(--vscode-inputValidation-errorBorder,#be1100); background:var(--vscode-inputValidation-errorBackground,var(--vscode-input-background,#2a2a2a)); }
-.snl-control:disabled,.snl-control:read-only { opacity:.7; cursor:not-allowed; }
+.snl-control:disabled,.snl-control[readonly] { opacity:.7; cursor:not-allowed; }
 .snl-alert { padding:.6rem .8rem; margin:.5rem 0; border:1px solid; border-radius:4px; }
 .snl-alert--info { color:var(--vscode-notificationsInfoIcon-foreground,#75beff); }
 .snl-alert--success { color:var(--vscode-testing-iconPassed,#89d185); }

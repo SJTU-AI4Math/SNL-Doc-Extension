@@ -18,7 +18,7 @@
 // cross-entry highlight.
 
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
-import { extractExportedBinders } from '@sjtu-ai4math/snl-basics/entry';
+import { extractExportedBinders } from '@sjtu-ai4math/snl-basics/core';
 
 export { extractExportedBinders };
 

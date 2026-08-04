@@ -139,11 +139,19 @@ describe('VS Code workspace data migration adapter', () => {
     });
     const root = vscode.Uri.file('/ws');
     expect((await inspectWorkspaceDataVersion(root)).status).toBe('needsMigration');
-    const report = await migrateWorkspaceData(root, (_file, raw) => ({
-      ...(raw as Record<string, unknown>), version: '7'
+    const report = await migrateWorkspaceData(root, (_file, raw, version) => ({
+      ...(raw as Record<string, unknown>),
+      version,
+      macros: {
+        x: {
+          description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+          ...(version === '8' ? { default_style: { en: 'default' } } : {}),
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+        }
+      }
     }));
-    expect(report.to).toBe('0.0.4');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.4' });
-    expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '7' });
+    expect(report.to).toBe('0.0.5');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.5' });
+    expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 });

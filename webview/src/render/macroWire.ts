@@ -1,6 +1,6 @@
-import type { Localized, SnlMacro, SnlMacroStyle } from '@sjtu-ai4math/snl-basics';
+import type { SnlMacro, SnlMacroStyle } from '@sjtu-ai4math/snl-basics';
 
-/** Strict Macro v7 shape received from the host. */
+/** Strict Macro v8 shape received from the host. */
 interface WireMacroStyleBase {
   style_name: string;
   separator?: string;
@@ -14,7 +14,7 @@ export type WireMacroStyle =
     })
   | (WireMacroStyleBase & {
       mode: 'text';
-      template: Localized<string, string>;
+      template: string;
       block_template_name?: never;
     });
 export interface WireMacro {
@@ -23,6 +23,7 @@ export interface WireMacro {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
+  default_style: Record<string, string>;
   styles: WireMacroStyle[];
   tags: string[];
 }
@@ -64,6 +65,7 @@ export function wireMacroToRenderable(macro: WireMacro): SnlMacro {
     },
     ...(macro.kind ? { kind: macro.kind } : {}),
     dynamic_arity: !!macro.dynamic_arity,
+    default_style: { ...macro.default_style },
     tags: macro.tags,
     styles: styles.length > 0
       ? styles

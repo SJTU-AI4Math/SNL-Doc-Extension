@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import {
+  is_valid_i18n_string,
   macro_template_variants,
   normalize_entry_content,
-  normalize_macro_template,
-  template_placeholder_signature
+  normalize_macro_template
 } from './localizedContent';
 import { slugify } from './slug';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
@@ -729,7 +729,7 @@ export async function readMacroPackages(
  * `@sjtu-ai4math/snl-basics` for previews and keep their own extended copy for saves.
  */
 /**
- * One strict Macro v7 render style, extended with consumer-owned output
+ * One strict Macro v8 render style, extended with consumer-owned output
  * backends (typst / latex / markdown / text) which live per style.
  */
 interface MacroPackageStyleBase {
@@ -755,7 +755,7 @@ export interface InvariantMacroPackageStyle extends MacroPackageStyleBase {
 
 export interface TextMacroPackageStyle extends MacroPackageStyleBase {
   mode: 'text';
-  template: Localized<string, string>;
+  template: string;
   block_template_name?: never;
 }
 
@@ -768,7 +768,9 @@ export interface MacroPackageEntry {
   /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
   kind?: string;
   dynamic_arity: boolean;
-  /** Ordered styles; styles[0] is the implicit default. */
+  /** Language → implicit style name; renderer falls back through en then styles[0]. */
+  default_style: Record<string, string>;
+  /** Ordered styles; styles[0] is the final fallback. */
   styles: MacroPackageStyle[];
   /** Free-text labels attached to the macro itself (backslash forbidden). */
   tags: string[];
@@ -788,7 +790,7 @@ export interface MacroPackageFile {
 
 /** Bare filename regex for a macro package (no path, no extension). */
 const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+$/;
-const MACRO_PACKAGE_VERSION = '7';
+const MACRO_PACKAGE_VERSION = '8';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -1001,12 +1003,66 @@ function v5MacroToV6(entry: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((item) => typeof item === 'string');
+}
+
+/** v7 → v8: split localized text templates and add language default styles. */
+function v7MacroToV8(input: Record<string, unknown>): MacroPackageEntry {
+  const rawStyles = Array.isArray(input.styles)
+    ? input.styles.map((style) => ({ ...(style as Record<string, unknown>) }))
+    : [];
+  const styles: MacroPackageStyle[] = [];
+  const default_style = isStringRecord(input.default_style)
+    ? { ...input.default_style }
+    : {};
+
+  rawStyles.forEach((style, styleIndex) => {
+    const styleName = typeof style.style_name === 'string' ? style.style_name : `style${styleIndex}`;
+    if (is_valid_i18n_string(style.template)) {
+      throw new Error(
+        `style ${styleName} has a localized template; Macro v8 cannot preserve ` +
+        'language-dependent explicit [style] semantics. Split it manually before workspace migration.'
+      );
+    }
+    styles.push({
+      ...style,
+      style_name: styleName,
+      template: normalize_macro_template(
+        style.mode as 'formula_inline' | 'formula_display' | 'text' | 'block',
+        style.template
+      )
+    } as MacroPackageStyle);
+    if (styleIndex === 0 && Object.keys(default_style).length === 0) {
+      default_style.en = styleName;
+    }
+  });
+
+  return {
+    ...input,
+    name: typeof input.name === 'string' ? input.name : '',
+    description: typeof input.description === 'string' ? input.description : '',
+    source: {
+      entries: Array.isArray((input.source as { entries?: unknown } | undefined)?.entries)
+        ? (input.source as { entries: string[] }).entries : [],
+      urls: Array.isArray((input.source as { urls?: unknown } | undefined)?.urls)
+        ? (input.source as { urls: string[] }).urls : []
+    },
+    dynamic_arity: input.dynamic_arity === true,
+    default_style,
+    styles,
+    tags: Array.isArray(input.tags) && input.tags.every((tag) => typeof tag === 'string')
+      ? input.tags as string[] : []
+  };
+}
+
 /**
  * Explicit Macro v6 → v7 input migration. Legacy names are confined to this
- * boundary; every caller receives a strict v7 value. Unknown extension fields
- * and consumer-owned output backends survive the shallow copies.
+ * boundary; callers may then apply the explicit v7 → v8 migration.
+ * Unknown extension fields and consumer-owned output backends survive the shallow copies.
  */
-function v6MacroToV7(input: Record<string, unknown>): MacroPackageEntry {
+function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
   const rawStyles = Array.isArray(input.styles) ? input.styles : [];
   const styles = rawStyles.map((value, index): MacroPackageStyle => {
     const raw = { ...(value as Record<string, unknown>) };
@@ -1045,8 +1101,12 @@ function v6MacroToV7(input: Record<string, unknown>): MacroPackageEntry {
       ? {
           ...styleBase,
           mode,
-          template: dynamicTemplate ?? normalize_macro_template('text', raw.template)
-        }
+          template: dynamicTemplate ?? (
+            is_valid_i18n_string(raw.template)
+              ? raw.template
+              : normalize_macro_template('text', raw.template)
+          )
+        } as unknown as MacroPackageStyle
       : {
           ...styleBase,
           mode,
@@ -1120,7 +1180,7 @@ function v6MacroToV7(input: Record<string, unknown>): MacroPackageEntry {
  */
 function groupMacrosToStyles(
   collected: Array<Record<string, unknown>>
-): MacroPackageEntry[] {
+): Array<Record<string, unknown>> {
   try {
     // Intermediate map holds v5-shape records (or already-v6 pass-throughs).
     // We only cast to MacroPackageEntry at the end, after v5MacroToV6.
@@ -1181,7 +1241,7 @@ function groupMacrosToStyles(
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
       `[snlDoc] normalizeMacros: could not migrate legacy macros to the ` +
-        `v7 styles array (${reason}); normalizing entries independently`
+        `v8 styles array (${reason}); normalizing entries independently`
     );
     return collected.map((entry) => v6MacroToV7(v5MacroToV6(entry)));
   }
@@ -1197,7 +1257,7 @@ function groupMacrosToStyles(
  * Each element is passed through {@link migrateLegacyMacro} (0.4.0 field
  * renames) then grouped into the styles shape by {@link groupMacrosToStyles}.
  */
-function normalizeMacros(raw: unknown): MacroPackageEntry[] {
+function normalizeMacrosV7(raw: unknown): Array<Record<string, unknown>> {
   const collected: Array<Record<string, unknown>> = [];
   const pushKeyed = (map: Record<string, unknown>): void => {
     for (const [key, val] of Object.entries(map)) {
@@ -1246,6 +1306,10 @@ function normalizeMacros(raw: unknown): MacroPackageEntry[] {
     return groupMacrosToStyles(collected);
   }
   return [];
+}
+
+function normalizeMacros(raw: unknown): MacroPackageEntry[] {
+  return normalizeMacrosV7(raw).map((macro) => v7MacroToV8(macro));
 }
 
 /**
@@ -1409,23 +1473,47 @@ function buildMacroPackageResult(
 }
 
 /**
- * Canonicalize any supported historical Macro package shape to the current v7
+ * Canonicalize any supported historical Macro package shape to the current v8
  * wrapper while preserving wrapper-level extension fields. Used by explicit
  * workspace data migrations; ordinary reads remain non-mutating.
  */
 export function canonicalizeMacroPackageData(
   file: string,
-  raw: unknown
-): MacroPackageFile & Record<string, unknown> {
+  raw: unknown,
+  targetVersion: '7' | '8' = '8'
+): Record<string, unknown> {
   const bare = stripJsonExt(file);
-  const result = buildMacroPackageResult(bare, raw);
-  if (result.status === 'error') {
-    throw new Error(`${file}: ${result.message}`);
-  }
   const wrapper = raw && typeof raw === 'object' && !Array.isArray(raw) &&
     'macros' in (raw as Record<string, unknown>)
     ? raw as Record<string, unknown>
     : {};
+
+  if (targetVersion === '7') {
+    const macros = normalizeMacrosV7(raw);
+    const macrosMap: Record<string, unknown> = {};
+    for (const macro of macros) {
+      const name = typeof macro.name === 'string' ? macro.name : '';
+      const { name: _drop, ...rest } = macro;
+      macrosMap[name] = rest;
+    }
+    const rawObject = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    return {
+      ...wrapper,
+      version: '7',
+      name: typeof rawObject.name === 'string' && rawObject.name.trim() ? rawObject.name : bare,
+      ...(typeof rawObject.description === 'string' && rawObject.description.trim()
+        ? { description: rawObject.description }
+        : {}),
+      macros: macrosMap
+    };
+  }
+
+  const result = buildMacroPackageResult(bare, raw);
+  if (result.status === 'error') {
+    throw new Error(`${file}: ${result.message}`);
+  }
   return {
     ...wrapper,
     ...result.pkg
@@ -1438,7 +1526,7 @@ export function canonicalizeMacroPackageData(
  * matches how consumers merge multiple package files into a single lookup
  * for parsing / rendering).
  *
- * Result rows use the extended v7 on-disk shape (typst / latex / markdown /
+ * Result rows use the extended v8 on-disk shape (typst / latex / markdown /
  * text backends included). Webviews adapt these rows behind MacroDataDriver.
  *
  * Best-effort: individual packages that fail to load (missing file, JSON
@@ -1722,14 +1810,10 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       return `styles[${i}].template is invalid: ${error instanceof Error ? error.message : String(error)}`;
     }
     if (templates.length === 0 || templates.some((template) => template.trim().length === 0)) {
-      return `styles[${i}].template is required in every language`;
-    }
-    const signatures = new Set(templates.map(template_placeholder_signature));
-    if (signatures.size > 1) {
-      return `styles[${i}].template must use the same placeholders in every language`;
+      return `styles[${i}].template is required`;
     }
     if (macro.dynamic_arity && templates.some((template) => !template.includes('#*'))) {
-      return `styles[${i}].template must contain #* in every language for a dynamic macro`;
+      return `styles[${i}].template must contain #* for a dynamic macro`;
     }
     if (style.separator !== undefined && typeof style.separator !== 'string') {
       return `styles[${i}].separator must be a string`;
@@ -1743,11 +1827,20 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       'react_renderer_key', 'display'
     ]) {
       if (legacyKey in raw) {
-        return `styles[${i}].${legacyKey} is not valid in Macro v7`;
+        return `styles[${i}].${legacyKey} is not valid in Macro v8`;
       }
     }
   }
-  // Tags are required string arrays in v7; backslashes remain forbidden.
+  if (!isStringRecord(macro.default_style)) {
+    return 'default_style must be a language-to-style-name object';
+  }
+  for (const [language, styleName] of Object.entries(macro.default_style)) {
+    if (!language.trim()) return 'default_style language keys must be non-empty';
+    if (!seen.has(styleName)) {
+      return `default_style[${JSON.stringify(language)}] references unknown style "${styleName}"`;
+    }
+  }
+  // Tags are required string arrays in v8; backslashes remain forbidden.
   const macroTags = macro.tags;
   if (!Array.isArray(macroTags)) {
     return 'tags must be an array of strings';

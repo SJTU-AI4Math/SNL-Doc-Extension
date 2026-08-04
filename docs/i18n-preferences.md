@@ -50,7 +50,6 @@ available value. Empty/malformed maps are rejected at persistence boundaries.
 
 Supported project fields:
 
-- Text-mode Macro style `template`
 - Entry `content.typst`
 - Entry `content.latex`
 - Entry `content.markdown`
@@ -59,16 +58,26 @@ Supported project fields:
 Language-invariant fields remain strings:
 
 - Entry `content.snl`
-- Formula and block Macro templates
+- All Macro style templates, including text mode
 - IDs, slugs, Macro names, command IDs, paths, and schema keys
 
-Entry and Macro editors retain the complete language map. Editing changes the
+The Entry editor retains the complete language map. Editing changes the
 current language projection and merges it back into the original map on save;
 it does not flatten or delete the other translations. An unedited fallback
 projection is never materialized as a translation for the current locale.
-Switching locale while an editor is open stores only an actually edited
+Switching locale while an Entry editor is open stores only an actually edited
 projection before loading the new one. Watcher refreshes do not overwrite dirty
-drafts, and destructive Text-to-Formula/Block conversion requires confirmation.
+drafts.
+
+Macro localization uses a different model: each template is a plain string and
+each language can select an ordinary style through `macro.default_style`.
+Implicit rendering tries the current locale, then `en`, then `styles[0]`.
+Explicit source `[style]` selection always wins. The Macro editor preserves
+arbitrary locale keys and provides selectors for assigning them to style names.
+Old localized Macro templates are not silently split during workspace migration:
+an explicit `Macro[style]` reference used to localize that one style, which the
+v8 model intentionally cannot express. Split and rename those styles manually
+before migrating; Entry-content I18n remains unaffected.
 
 ## Shared panel header and language selection
 
@@ -174,6 +183,6 @@ The regression suite covers:
 - package NLS key parity;
 - malformed I18n rejection;
 - Entry add/update round trips without projection;
-- localized text Macro persistence and validation;
+- Macro v8 language-default migration, persistence, and validation;
 - strict TypeScript checks for host and webview;
 - all webview bundles and the filesystem smoke suite.

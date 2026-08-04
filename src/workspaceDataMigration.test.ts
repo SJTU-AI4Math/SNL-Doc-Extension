@@ -5,6 +5,18 @@ import {
   type DataMigrationStorage
 } from './workspaceDataMigration';
 
+const canonicalize = (_file: string, raw: unknown, version: '7' | '8'): unknown => ({
+  ...(raw as Record<string, unknown>),
+  version,
+  macros: {
+    x: {
+      description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+      ...(version === '8' ? { default_style: { en: 'default' } } : {}),
+      styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+    }
+  }
+});
+
 class MemoryStorage implements DataMigrationStorage {
   readonly values = new Map<string, unknown>();
   readonly writes: string[] = [];
@@ -55,7 +67,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -63,13 +75,13 @@ describe('stored workspace data migration', () => {
     const storage = legacyStorage();
     const report = await migrateStoredWorkspaceData(
       storage,
-      (_file, raw) => ({ ...(raw as Record<string, unknown>), version: '7' })
+      canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.4');
+    expect(report.to).toBe('0.0.5');
     expect(storage.writes).toEqual(['term_macros/Logic.json', 'config.json']);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.4');
-    expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('7');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.5');
+    expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
   it('rolls every already-written file back if the final config commit fails', async () => {
@@ -78,7 +90,7 @@ describe('stored workspace data migration', () => {
     storage.failOnceAt = 'config.json';
     await expect(migrateStoredWorkspaceData(
       storage,
-      (_file, raw) => ({ ...(raw as Record<string, unknown>), version: '7' })
+      canonicalize
     )).rejects.toThrow(/rolled back/);
     expect([...storage.values]).toEqual(before);
     expect(storage.writes).toEqual([
@@ -103,7 +115,7 @@ describe('stored workspace data migration', () => {
     const originalPackage = structuredClone(storage.values.get('term_macros/Logic.json'));
     await expect(migrateStoredWorkspaceData(
       storage,
-      (_file, raw) => ({ ...(raw as Record<string, unknown>), version: '7' })
+      canonicalize
     )).rejects.toThrow(/changed during migration/);
     expect(storage.values.get('config.json')).toMatchObject({
       version: '0.0.3', collaborator_edit: true
@@ -113,7 +125,7 @@ describe('stored workspace data migration', () => {
 
   it('does not rewrite a current workspace', async () => {
     const storage = legacyStorage();
-    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.4';
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.5';
     const report = await migrateStoredWorkspaceData(storage, (_file, raw) => raw);
     expect(report.applied).toEqual([]);
     expect(storage.writes).toEqual([]);

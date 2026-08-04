@@ -69,6 +69,7 @@ export interface MacroPackageEntry {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
+  default_style: Record<string, string>;
   styles: MacroPackageStyle[];
   tags: string[];
 }
@@ -149,6 +150,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
     dynamic_arity: false,
+    default_style: { en: 'default' },
     tags: [],
     styles: [
       {
@@ -180,7 +182,7 @@ function maxChildIndex(template: string): number {
 }
 
 /**
- * Convert an on-disk v7 {@link MacroPackageEntry} to the render-only lib shape
+ * Convert an on-disk v8 {@link MacroPackageEntry} to the render-only lib shape
  * `SnlMacro` (only the fields the view needs — drop typst/latex/markdown/text
  * backends; keep name/description/source/kind/dynamic_arity/styles).
  */
@@ -210,6 +212,7 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
     description: m.description ?? '',
     source: m.source ?? { entries: [], urls: [] },
     dynamic_arity: !!m.dynamic_arity,
+    default_style: { ...m.default_style },
     tags: m.tags,
     styles: styles.length > 0
       ? styles
@@ -625,13 +628,35 @@ const MONO: React.CSSProperties = {
  * the default template + 1). For dynamic-arity, show "dynamic". "0" (a
  * fixed nullary macro like `\LaTeX`) is a legitimate value.
  */
-function arityLabel(macro: MacroPackageEntry): string {
+export function defaultStyleForLanguage(
+  macro: MacroPackageEntry,
+  language: string
+): MacroPackageStyle | undefined {
+  const styles = Array.isArray(macro.styles) ? macro.styles : [];
+  if (styles.length === 0) return undefined;
+  const mappedName = macro.default_style?.[language] ?? macro.default_style?.en;
+  if (mappedName === undefined) return styles[0];
+  const mapped = styles.find((style) => style.style_name === mappedName);
+  if (!mapped) {
+    throw new Error(
+      `default style "${mappedName}" for language "${language}" does not exist on macro "${macro.name}"`
+    );
+  }
+  return mapped;
+}
+
+function arityLabel(
+  macro: MacroPackageEntry,
+  style = defaultStyleForLanguage(
+    macro,
+    webview_language_runtime.query_environment().language
+  )
+): string {
   if (macro.dynamic_arity) {
     return 'dynamic';
   }
-  const defaultStyle = macro.styles?.[0];
-  const template = defaultStyle
-    ? resolve_style_template(defaultStyle, webview_language_runtime)
+  const template = style
+    ? resolve_style_template(style, webview_language_runtime)
     : '';
   const count = Math.max(0, maxChildIndex(template) + 1);
   return String(count);
@@ -799,9 +824,16 @@ function MacroRowGroup({
   onToggleSelect: (name: string) => void;
 }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
+  use_preferences_revision();
   const styles = Array.isArray(macro.styles) ? macro.styles : [];
-  const defaultStyle = styles[0];
-  const extraStyles = styles.slice(1);
+  const language = webview_language_runtime.query_environment().language;
+  const defaultStyle = defaultStyleForLanguage(macro, language);
+  const defaultIndex = defaultStyle
+    ? Math.max(0, styles.findIndex((style) => style.style_name === defaultStyle.style_name))
+    : 0;
+  const extraStyles = styles
+    .map((style, index) => ({ style, index }))
+    .filter(({ index }) => index !== defaultIndex);
   // In multi-select mode a macro is one selectable unit — collapse the style
   // rows so each macro is a single checkbox row.
   const canExpand = !selectMode && extraStyles.length > 0;
@@ -810,7 +842,7 @@ function MacroRowGroup({
       <MacroStyleRow
         macro={macro}
         style={defaultStyle}
-        styleIndex={0}
+        styleIndex={defaultIndex}
         isDefault
         showMacroLevel
         expanded={expanded}
@@ -832,12 +864,12 @@ function MacroRowGroup({
         onToggleSelect={onToggleSelect}
       />
       {!selectMode && expanded
-        ? extraStyles.map((s, i) => (
+        ? extraStyles.map(({ style, index }) => (
             <MacroStyleRow
-              key={`${macro.name}::${s.style_name}::${i + 1}`}
+              key={`${macro.name}::${style.style_name}::${index}`}
               macro={macro}
-              style={s}
-              styleIndex={i + 1}
+              style={style}
+              styleIndex={index}
               isDefault={false}
               showMacroLevel={false}
               expanded={false}
@@ -1045,7 +1077,7 @@ function MacroStyleRow({
         </RowPrimaryButton>
       </td>
       {/* Arity: macro-level. */}
-      <td style={CELL}>{showMacroLevel ? arityLabel(macro) : <Dash />}</td>
+      <td style={CELL}>{showMacroLevel ? arityLabel(macro, style) : <Dash />}</td>
       {/* Src status: macro-level. Cat 2026-07-10 §2. */}
       <td style={{ ...CELL, textAlign: 'center' }}>
         {showMacroLevel ? (
@@ -1263,9 +1295,9 @@ function KindCell({
 /**
  * Real KaTeX preview of a macro applied to numbered argument placeholders.
  *
- * When `styleTag` is undefined the macro's default style (styles[0]) is
- * used — the tree omits `[style]` and the render pipeline falls through to
- * SnlMacro.styles[0]. When `styleTag` is provided, the tree carries that
+ * When `styleTag` is undefined the macro's language-default style is
+ * used — the tree omits `[style]` and the render pipeline resolves the current
+ * language, then English, then `styles[0]`. When `styleTag` is provided, the tree carries that
  * tag so the pipeline resolves to the matching non-default style. Arity is
  * derived from the RESOLVED style's template (max `#N` + 1); dynamic-arity
  * always uses VARIADIC_PREVIEW_ARGS. A macro with an empty template renders
@@ -1282,20 +1314,21 @@ function MacroPreview({
   kindPalette
 }: {
   macro: MacroPackageEntry;
-  /** Non-default style tag to preview. Undefined → use the default (styles[0]). */
+  /** Non-default style tag to preview. Undefined → use the language default. */
   styleTag: string | undefined;
   macroDataDriver: MacroDataDriver;
   hooks: SnlRenderHooks;
   kindPalette: KindPalette | undefined;
 }): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
-  // Locate the specific style being previewed (fall back to styles[0]).
+  const language = webview_language_runtime.query_environment().language;
+  // Locate the specific style being previewed (fall back through language defaults).
   const style = useMemo<MacroPackageStyle | undefined>(() => {
     if (!Array.isArray(macro.styles) || macro.styles.length === 0)
       return undefined;
-    if (styleTag == null) return macro.styles[0];
+    if (styleTag == null) return defaultStyleForLanguage(macro, language);
     return macro.styles.find((s) => s.style_name === styleTag) ?? macro.styles[0];
-  }, [macro.styles, styleTag]);
+  }, [macro, language, styleTag]);
   const resolvedTemplate = useMemo(
     () => style ? resolve_style_template(style, webview_language_runtime) : '',
     [style, preferencesRevision]
@@ -1320,8 +1353,8 @@ function MacroPreview({
       mdata: null,
       children
     };
-    // Only stamp `style` when the caller asked for a non-default style —
-    // omitting the field lets the render pipeline pick styles[0] cleanly.
+    // Only stamp `style` when the caller asked for a non-default style;
+    // omission lets the render pipeline use the language default.
     if (styleTag != null) node.style_name = styleTag;
     return node;
   }, [macro.name, argCount, styleTag]);

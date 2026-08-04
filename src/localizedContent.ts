@@ -1,6 +1,6 @@
 import type { I18n, Localized } from '@sjtu-ai4math/snl-basics';
 
-function is_valid_i18n_string(value: unknown): value is I18n<string, string> {
+export function is_valid_i18n_string(value: unknown): value is I18n<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (record.type !== 'i18n' || typeof record.default_language !== 'string') {
@@ -65,24 +65,13 @@ export function normalize_entry_content(value: unknown): LocalizedEntryContent {
 }
 
 export function normalize_macro_template(
-  mode: 'text',
-  value: unknown,
-  fallback?: string
-): Localized<string, string>;
-export function normalize_macro_template(
-  mode: 'formula_inline' | 'formula_display' | 'block',
-  value: unknown,
-  fallback?: string
-): string;
-export function normalize_macro_template(
   mode: 'formula_inline' | 'formula_display' | 'text' | 'block',
   value: unknown,
   fallback = ''
-): Localized<string, string> {
+): string {
   if (typeof value === 'string') return value;
   if (is_valid_i18n_string(value)) {
-    if (mode !== 'text') throw new Error('I18n templates are valid only for text Macro styles');
-    return value;
+    throw new Error(`I18n templates are not valid in Macro ${mode} styles; migrate each language to a separate style`);
   }
   if (typeof value === 'object' && value !== null) {
     throw new Error('invalid localized string');
@@ -104,12 +93,5 @@ export function macro_template_variants(
   mode: 'formula_inline' | 'formula_display' | 'text' | 'block',
   value: unknown
 ): string[] {
-  const normalized = mode === 'text'
-    ? normalize_macro_template('text', value)
-    : normalize_macro_template(mode, value);
-  return typeof normalized === 'string'
-    ? [normalized]
-    : Object.values(normalized.values).filter(
-        (item): item is string => typeof item === 'string'
-      );
+  return [normalize_macro_template(mode, value)];
 }

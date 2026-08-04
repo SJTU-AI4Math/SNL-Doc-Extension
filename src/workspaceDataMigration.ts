@@ -15,7 +15,11 @@ export interface DataMigrationStorage {
   writeJsonAtomic(path: string, value: unknown, expectedOriginal?: unknown): Promise<void>;
 }
 
-export type CanonicalizeMacroPackage = (file: string, raw: unknown) => unknown;
+export type CanonicalizeMacroPackage = (
+  file: string,
+  raw: unknown,
+  targetVersion: '7' | '8'
+) => unknown;
 
 export async function inspectStoredWorkspaceData(
   storage: DataMigrationStorage

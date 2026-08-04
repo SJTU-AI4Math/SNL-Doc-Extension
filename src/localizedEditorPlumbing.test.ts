@@ -13,10 +13,12 @@ describe('localized editor data-loss guards', () => {
     expect(entry).toContain('contentDirtyRef.current.has(format)');
   });
 
-  it('protects Macro drafts and confirms destructive mode conversion', () => {
+  it('protects Macro drafts while keeping templates invariant and defaults language-indexed', () => {
     const macro = source('webview/src/CreateMacroApp.tsx');
     expect(macro).toContain('sameDirtyDraft');
-    expect(macro).toContain('window.confirm');
-    expect(macro).toContain('template_dirty');
+    expect(macro).toContain('Default style by language');
+    expect(macro).toContain('default_style: { ...defaultStyle }');
+    expect(macro).not.toContain('template_i18n');
+    expect(macro).not.toContain('merge_localized_projection');
   });
 });

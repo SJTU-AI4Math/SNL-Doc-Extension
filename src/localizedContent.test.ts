@@ -32,15 +32,16 @@ describe('localized persistence boundaries', () => {
     expect(() => localized_string_or_undefined(localized, false)).toThrow(/language-invariant/);
   });
 
-  it('preserves I18n only for text Macro templates', () => {
-    expect(normalize_macro_template('text', localized)).toEqual(localized);
+  it('requires plain strings for every Macro template mode', () => {
     expect(normalize_macro_template('formula_inline', '#0')).toBe('#0');
-    expect(() => normalize_macro_template('formula_inline', localized)).toThrow(/text Macro/);
+    expect(normalize_macro_template('text', '#0 is a group')).toBe('#0 is a group');
+    expect(() => normalize_macro_template('text', localized)).toThrow(/separate style/);
+    expect(() => normalize_macro_template('formula_inline', localized)).toThrow(/separate style/);
   });
 
-  it('exposes every localized template variant for validation', () => {
-    expect(macro_template_variants('text', localized)).toEqual(['Group', '群']);
+  it('exposes the single invariant template for validation', () => {
     expect(macro_template_variants('formula_inline', '#0')).toEqual(['#0']);
+    expect(() => macro_template_variants('text', localized)).toThrow(/separate style/);
   });
 
   it('computes a stable placeholder signature', () => {

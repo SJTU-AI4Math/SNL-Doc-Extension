@@ -94,18 +94,23 @@ SNL-Basics checkout, then `npm run build:webview` here.
 ## Macro package schema
 
 The extension reads historical macro packages through an explicit migration
-boundary and exposes only Macro v7 values at runtime. In v7, styles use
+boundary and exposes only Macro v8 values at runtime. In v8, styles use
 `style_name`, dynamic templates contain `#*` with optional `separator`, block
-renderers use `block_template_name`, and macro/style `tags` are required arrays.
-Any package write emits version `7`; v6 input is upgraded without discarding
-consumer output backends or unknown extension fields.
+renderers use `block_template_name`, all templates are strings, and each macro
+has a language-to-style `default_style` map. Implicit selection is current
+language → English → `styles[0]`; explicit `[style]` always wins.
+Any package write emits version `8`; plain-string older input is upgraded
+without discarding consumer output backends or unknown extension fields. A v7
+localized Macro template requires manual splitting because v8 cannot preserve
+the language-dependent meaning of existing explicit `[style]` source.
 
 ## I18n and user preferences
 
 Locale, theme, and motion preferences are VS Code Extension Settings and are
 adapted to SNL-Basics through query-initialized `ReaderRuntime` instances.
-Text-mode Macro templates and non-SNL Entry content may be invariant strings or
-serialized language maps. See [docs/i18n-preferences.md](docs/i18n-preferences.md)
+Macro templates are invariant strings; natural-language variants are separate
+styles selected by `default_style`. Non-SNL Entry content may still be an
+invariant string or serialized language map. See [docs/i18n-preferences.md](docs/i18n-preferences.md)
 for the ownership boundary, schema, hot-update protocol, and verification rules.
 
 ## Macro naming rule (enforced by SNL-Basics parser)

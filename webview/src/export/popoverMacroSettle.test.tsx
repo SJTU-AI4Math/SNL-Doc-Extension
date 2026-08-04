@@ -8,6 +8,7 @@ const macro: SnlMacro = {
   source: { entries: [], urls: [] },
   kind: 'rule',
   dynamic_arity: false,
+  default_style: { en: 'default' },
   tags: [],
   styles: [{
     style_name: 'default',

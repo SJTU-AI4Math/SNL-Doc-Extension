@@ -26,6 +26,7 @@ describe('harvestLibraryHtml', () => {
           source: { entries: ['def-set'], urls: [] },
           kind: 'const',
           dynamic_arity: false,
+          default_style: { en: 'default' },
           tags: [],
           styles: [{ style_name: 'default', mode: 'formula_inline', template: 'Set(#0)', tags: [] }]
         },
@@ -35,6 +36,7 @@ describe('harvestLibraryHtml', () => {
           source: { entries: ['wrong'], urls: [] },
           kind: 'fvar',
           dynamic_arity: false,
+          default_style: { en: 'default' },
           tags: [],
           styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }]
         }

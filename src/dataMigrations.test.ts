@@ -9,6 +9,21 @@ import {
   type WorkspaceDataSnapshot
 } from './dataMigrations';
 
+const canonicalEntry = (version: '7' | '8'): Record<string, unknown> => ({
+  description: '',
+  source: { entries: [], urls: [] },
+  dynamic_arity: false,
+  tags: [],
+  ...(version === '8' ? { default_style: { en: 'default' } } : {}),
+  styles: [{ style_name: 'default', mode: 'formula_inline', template: 'old', tags: [] }]
+});
+
+const canonicalize = (_file: string, raw: unknown, version: '7' | '8'): unknown => ({
+  ...(raw as Record<string, unknown>),
+  version,
+  macros: { old: canonicalEntry(version) }
+});
+
 const snapshot = (version: string): WorkspaceDataSnapshot => ({
   config: {
     version,
@@ -37,13 +52,15 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData([]).status).toBe('invalid');
     expect(inspectWorkspaceData('bad').status).toBe('invalid');
     expect(inspectWorkspaceData({ version: '9.0.0' }).status).toBe('future');
-    expect(inspectWorkspaceData({ version: '0.0.4' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.4' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.0.5' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.1->0.0.2',
       '0.0.2->0.0.3',
-      '0.0.3->0.0.4'
+      '0.0.3->0.0.4',
+      '0.0.4->0.0.5'
     ]);
   });
 
@@ -83,15 +100,11 @@ describe('workspace data migrations', () => {
 
   it('chains every historical migration and preserves unknown config fields', async () => {
     const data = snapshot('0.0.1');
-    const canonicalizeMacroPackage = vi.fn((_file: string, raw: unknown) => ({
-      ...(raw as Record<string, unknown>),
-      version: '7',
-      macros: { old: { styles: [] } }
-    }));
+    const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
 
     expect(report.applied).toEqual(WORKSPACE_DATA_MIGRATIONS);
-    expect(data.config.version).toBe('0.0.4');
+    expect(data.config.version).toBe('0.0.5');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -113,11 +126,12 @@ describe('workspace data migrations', () => {
       custom: 7
     });
     expect(data.macroPackages.get('Logic.json')).toMatchObject({
-      version: '7',
+      version: '8',
       custom: 'package',
-      macros: { old: { styles: [] } }
+      macros: { old: { default_style: { en: 'default' } } }
     });
-    expect(canonicalizeMacroPackage).toHaveBeenCalledOnce();
+    expect(canonicalizeMacroPackage).toHaveBeenCalledTimes(2);
+    expect(canonicalizeMacroPackage.mock.calls.map((call) => call[2])).toEqual(['7', '8']);
   });
 
   it('rejects malformed catalogs and Macro packages instead of normalizing them to empty', async () => {
@@ -149,14 +163,59 @@ describe('workspace data migrations', () => {
     expect(duplicateCanonicalize).not.toHaveBeenCalled();
   });
 
+  it('validates both v7 input and v8 canonical output before committing 0.0.5', async () => {
+    const malformedV7 = snapshot('0.0.4');
+    malformedV7.macroPackages.set('Logic.json', {
+      version: '7', name: 'Logic', macros: {
+        old: { ...canonicalEntry('7'), styles: [] }
+      }
+    });
+    const inputCanonicalize = vi.fn(canonicalize);
+    await expect(migrateWorkspaceSnapshot(malformedV7, inputCanonicalize))
+      .rejects.toThrow(/styles must be non-empty/);
+    expect(inputCanonicalize).not.toHaveBeenCalled();
+    expect(malformedV7.config.version).toBe('0.0.4');
+
+    const invalidOutput = snapshot('0.0.4');
+    invalidOutput.macroPackages.set('Logic.json', {
+      version: '7', name: 'Logic', macros: { old: canonicalEntry('7') }
+    });
+    await expect(migrateWorkspaceSnapshot(invalidOutput, (_file, raw) => ({
+      ...(raw as Record<string, unknown>), version: '8',
+      macros: { old: { ...canonicalEntry('7') } }
+    }))).rejects.toThrow(/default_style must be an object/);
+    expect(invalidOutput.config.version).toBe('0.0.4');
+  });
+
+  it('checks identities per record in mixed legacy/current Macro packages', async () => {
+    const data = snapshot('0.0.3');
+    data.macroPackages.set('Mixed.json', {
+      version: '6', name: 'Mixed', macros: {
+        'Legacy.infix': { name: 'Legacy.infix', katex_react: { mode: 'formula' } },
+        WrongKey: { name: 'Different', styles: [] }
+      }
+    });
+    const mixedCanonicalize = vi.fn((file: string, raw: unknown, version: '7' | '8') => {
+      if (file === 'Logic.json') return canonicalize(file, raw, version);
+      return {
+        ...(raw as Record<string, unknown>),
+        version,
+        macros: version === '7'
+          ? { Legacy: canonicalEntry('7'), Different: canonicalEntry('7') }
+          : { Legacy: canonicalEntry('8'), Different: canonicalEntry('8') }
+      };
+    });
+    await expect(migrateWorkspaceSnapshot(data, mixedCanonicalize))
+      .rejects.toThrow(/WrongKey.*disagrees with internal name.*Different/);
+    expect(data.config.version).toBe('0.0.3');
+  });
+
   it('starts from the declared version and never reruns older transforms', async () => {
     const data = snapshot('0.0.3');
-    const canonicalize = vi.fn((_file: string, raw: unknown) => ({
-      ...(raw as Record<string, unknown>), version: '7'
-    }));
-    const report = await migrateWorkspaceSnapshot(data, canonicalize);
-    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3']);
-    expect(data.config.version).toBe('0.0.4');
+    const canonicalizeMacroPackage = vi.fn(canonicalize);
+    const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
+    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4']);
+    expect(data.config.version).toBe('0.0.5');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

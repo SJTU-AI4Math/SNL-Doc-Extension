@@ -16,7 +16,7 @@ export interface WorkspaceDataSnapshot {
 
 export interface WorkspaceMigrationContext {
   data: WorkspaceDataSnapshot;
-  canonicalizeMacroPackage(file: string, raw: unknown): unknown;
+  canonicalizeMacroPackage(file: string, raw: unknown, targetVersion: '7' | '8'): unknown;
 }
 
 export type WorkspaceDataInspection = {
@@ -44,6 +44,104 @@ function colorPair(value: Record<string, unknown>): { stroke: string; background
     stroke: typeof coloring.stroke === 'string' ? coloring.stroke : fallback,
     background: typeof coloring.background === 'string' ? coloring.background : fallback
   };
+}
+
+function assertStringArray(value: unknown, path: string): asserts value is string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new Error(`${path} must be an array of strings.`);
+  }
+}
+
+function assertCanonicalMacroPackage(
+  file: string,
+  raw: unknown,
+  version: '7' | '8'
+): asserts raw is Record<string, unknown> {
+  if (!isRecord(raw) || raw.version !== version || !isRecord(raw.macros)) {
+    throw new Error(`${file} must be a canonical v${version} keyed Macro package.`);
+  }
+  for (const [macroName, value] of Object.entries(raw.macros)) {
+    if (!isRecord(value)) throw new Error(`${file}#macros[${JSON.stringify(macroName)}] must be an object.`);
+    if (typeof value.description !== 'string' || typeof value.dynamic_arity !== 'boolean') {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}] has invalid required fields.`);
+    }
+    const source = value.source;
+    if (!isRecord(source)) throw new Error(`${file}#macros[${JSON.stringify(macroName)}].source is required.`);
+    assertStringArray(source.entries, `${file}#macros[${JSON.stringify(macroName)}].source.entries`);
+    assertStringArray(source.urls, `${file}#macros[${JSON.stringify(macroName)}].source.urls`);
+    assertStringArray(value.tags, `${file}#macros[${JSON.stringify(macroName)}].tags`);
+    if (!Array.isArray(value.styles) || value.styles.length === 0) {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].styles must be non-empty.`);
+    }
+    const names = new Set<string>();
+    value.styles.forEach((styleValue, index) => {
+      if (!isRecord(styleValue)) throw new Error(`${file} ${macroName} styles[${index}] must be an object.`);
+      const styleName = styleValue.style_name;
+      if (typeof styleName !== 'string' || !styleName.trim() || names.has(styleName)) {
+        throw new Error(`${file} ${macroName} styles[${index}].style_name is invalid or duplicated.`);
+      }
+      names.add(styleName);
+      if (!['formula_inline', 'formula_display', 'text', 'block'].includes(String(styleValue.mode))) {
+        throw new Error(`${file} ${macroName} styles[${index}].mode is invalid.`);
+      }
+      if (typeof styleValue.template !== 'string') {
+        throw new Error(
+          `${file} ${macroName} styles[${index}].template must be a string; ` +
+          'split localized Macro templates manually before migration.'
+        );
+      }
+      assertStringArray(styleValue.tags, `${file} ${macroName} styles[${index}].tags`);
+      if (styleValue.separator !== undefined && typeof styleValue.separator !== 'string') {
+        throw new Error(`${file} ${macroName} styles[${index}].separator must be a string.`);
+      }
+      if (styleValue.block_template_name !== undefined &&
+          (styleValue.mode !== 'block' || typeof styleValue.block_template_name !== 'string')) {
+        throw new Error(`${file} ${macroName} styles[${index}].block_template_name is invalid.`);
+      }
+    });
+    if (version === '8') {
+      if (!isRecord(value.default_style)) {
+        throw new Error(`${file} ${macroName}.default_style must be an object.`);
+      }
+      for (const [language, styleName] of Object.entries(value.default_style)) {
+        if (!language.trim() || typeof styleName !== 'string' || !names.has(styleName)) {
+          throw new Error(`${file} ${macroName}.default_style[${JSON.stringify(language)}] is invalid.`);
+        }
+      }
+    }
+  }
+}
+
+function expectedCanonicalMacroNames(
+  file: string,
+  source: Record<string, unknown>
+): string[] {
+  const names = new Set<string>();
+  for (const [key, value] of Object.entries(source)) {
+    if (!isRecord(value)) throw new Error(`${file} Macro ${JSON.stringify(key)} must be an object.`);
+    if (typeof value.name === 'string' && value.name !== key) {
+      throw new Error(
+        `${file} Macro identity ${JSON.stringify(key)} disagrees with internal name ${JSON.stringify(value.name)}.`
+      );
+    }
+    const isLegacySibling = 'katex_react' in value && !Array.isArray(value.styles);
+    const dot = key.lastIndexOf('.');
+    names.add(isLegacySibling && dot > 0 ? key.slice(0, dot) : key);
+  }
+  return [...names].sort();
+}
+
+function assertMacroIdentitiesPreserved(
+  file: string,
+  raw: unknown,
+  canonical: Record<string, unknown>
+): void {
+  if (!isRecord(raw) || !isRecord(raw.macros)) return;
+  const before = expectedCanonicalMacroNames(file, raw.macros);
+  const after = Object.keys(canonical.macros as Record<string, unknown>).sort();
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    throw new Error(`${file} Macro identities changed during canonicalization.`);
+  }
 }
 
 function migrate001To002(context: WorkspaceMigrationContext): void {
@@ -96,21 +194,19 @@ function migrate003To004(context: WorkspaceMigrationContext): void {
     return item;
   });
   for (const [file, raw] of context.data.macroPackages) {
-    const canonical = context.canonicalizeMacroPackage(file, raw);
-    if (!isRecord(canonical) || canonical.version !== '7' || !isRecord(canonical.macros)) {
-      throw new Error(`${file} did not canonicalize to a v7 keyed Macro package.`);
-    }
-    const source = isRecord(raw) && isRecord(raw.macros) ? raw.macros : null;
-    const containsLegacyStyleSiblings = source !== null && Object.values(source).some(
-      (value) => isRecord(value) && 'katex_react' in value && !Array.isArray(value.styles)
-    );
-    if (source && !containsLegacyStyleSiblings) {
-      const before = Object.keys(source).sort();
-      const after = Object.keys(canonical.macros).sort();
-      if (JSON.stringify(before) !== JSON.stringify(after)) {
-        throw new Error(`${file} Macro identities changed during canonicalization.`);
-      }
-    }
+    const canonical = context.canonicalizeMacroPackage(file, raw, '7');
+    assertCanonicalMacroPackage(file, canonical, '7');
+    assertMacroIdentitiesPreserved(file, raw, canonical);
+    context.data.macroPackages.set(file, canonical);
+  }
+}
+
+function migrate004To005(context: WorkspaceMigrationContext): void {
+  for (const [file, raw] of context.data.macroPackages) {
+    assertCanonicalMacroPackage(file, raw, '7');
+    const canonical = context.canonicalizeMacroPackage(file, raw, '8');
+    assertCanonicalMacroPackage(file, canonical, '8');
+    assertMacroIdentitiesPreserved(file, raw, canonical);
     context.data.macroPackages.set(file, canonical);
   }
 }
@@ -133,6 +229,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.4',
     description: 'Persist current kind fields and canonical Macro package v7 data.',
     migrate: async (context) => { migrate003To004(context); }
+  },
+  {
+    from: '0.0.4',
+    to: '0.0.5',
+    description: 'Canonicalize Macro package v8 language default styles.',
+    migrate: async (context) => { migrate004To005(context); }
   }
 ];
 
@@ -333,7 +435,11 @@ function cloneSnapshot(source: WorkspaceDataSnapshot): WorkspaceDataSnapshot {
 
 export async function migrateWorkspaceSnapshot(
   source: WorkspaceDataSnapshot,
-  canonicalizeMacroPackage: (file: string, raw: unknown) => unknown
+  canonicalizeMacroPackage: (
+    file: string,
+    raw: unknown,
+    targetVersion: '7' | '8'
+  ) => unknown
 ): Promise<DataMigrationReport<WorkspaceMigrationContext>> {
   const inspection = inspectWorkspaceData(source.config);
   if (inspection.status === 'current') {

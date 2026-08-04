@@ -42,9 +42,6 @@ import {
   tryParseSnlSyntaxTree,
   defaultRenderHooks,
   SnlSyntaxTreeView,
-  read_localized,
-  type I18n,
-  type Localized,
   type SnlMacro,
   type SnlMacroStyle,
   type SnlSyntaxTree,
@@ -68,7 +65,6 @@ import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
-import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   use_preferences_revision,
   webview_language_runtime
@@ -99,6 +95,7 @@ for (let i = 0; i < MAX_ARGS; i++) {
     description: `Argument placeholder ${i}`,
     source: { entries: [], urls: [] },
     dynamic_arity: false,
+    default_style: { en: 'default' },
     tags: [],
     styles: [
       {
@@ -121,6 +118,7 @@ const PREVIEW_PLACEHOLDER_MACRO: SnlMacro = {
   description: 'SNL preview placeholder',
   source: { entries: [], urls: [] },
   dynamic_arity: false,
+  default_style: { en: 'default' },
   tags: [],
   styles: [
     {
@@ -156,10 +154,6 @@ interface StyleDraft {
   style_name: string;
   mode: Mode;
   template: string;
-  /** Original multilingual map; `template` edits the current language projection. */
-  template_i18n?: I18n<string, string>;
-  /** Whether the current language projection was edited. */
-  template_dirty?: boolean;
   template_left: string;
   separator: string;
   template_right: string;
@@ -196,7 +190,7 @@ function newStyleDraft(styleName: string): StyleDraft {
   };
 }
 
-/** Serialize a draft to strict Macro v7 storage. */
+/** Serialize a draft to strict Macro v8 storage. */
 function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
   const templateString = dynamicArity
     ? `${s.template_left}#*${s.template_right}`
@@ -216,17 +210,7 @@ function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnl
     markdown: s.markdown,
     text: s.text
   };
-  if (s.mode === 'text') {
-    const template: Localized<string, string> = s.template_i18n
-      ? merge_localized_projection(
-          s.template_i18n,
-          templateString,
-          webview_language_runtime.query_environment().language,
-          !!s.template_dirty
-        )
-      : templateString;
-    return { ...common, mode: 'text', template };
-  }
+  if (s.mode === 'text') return { ...common, mode: 'text', template: templateString };
   return {
     ...common,
     mode: s.mode,
@@ -278,6 +262,7 @@ interface ExtendedSnlMacro {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
+  default_style: Record<string, string>;
   styles: ExtendedSnlMacroStyle[];
   tags: string[];
 }
@@ -405,7 +390,6 @@ function maxChildIndex(template: string): number {
 
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
-  const languageRef = useRef(webview_language_runtime.query_environment().language);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
   const editingNameRef = useRef('');
@@ -437,6 +421,7 @@ export function CreateMacroApp(): React.ReactElement {
   // implicit default (marked ★). `activeStyle` is the style currently being
   // edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
+  const [defaultStyle, setDefaultStyle] = useState<Record<string, string>>({ en: 'default' });
   const [activeStyle, setActiveStyle] = useState(0);
 
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
@@ -451,68 +436,14 @@ export function CreateMacroApp(): React.ReactElement {
   /** Patch a field on the currently-active style. */
   function patchStyle(patch: Partial<StyleDraft>): void {
     formDirtyRef.current = true;
-    const editsTemplate =
-      patch.template !== undefined ||
-      patch.template_left !== undefined ||
-      patch.template_right !== undefined;
     setStyles((prev) =>
-      prev.map((s, i) =>
-        i === activeStyle
-          ? { ...s, ...patch, ...(editsTemplate ? { template_dirty: true } : {}) }
-          : s
-      )
+      prev.map((s, i) => i === activeStyle ? { ...s, ...patch } : s)
     );
   }
 
   function changeStyleMode(mode: Mode): void {
-    if (current?.mode === 'text' && current.template_i18n && mode !== 'text') {
-      const confirmed = window.confirm(
-        webview_language_runtime.run_reader(read_localized<string, string>({
-          type: 'i18n',
-          default_language: 'en',
-          values: {
-            en: 'Changing this localized Text style to Formula/Block will discard its other language templates. Continue?',
-            'zh-CN': '将这个多语言文本样式改为公式/块样式会丢弃其他语言模板。是否继续？'
-          }
-        }))
-      );
-      if (!confirmed) return;
-      patchStyle({ mode, template_i18n: undefined, template_dirty: true });
-      return;
-    }
     patchStyle({ mode });
   }
-
-  useEffect(() => {
-    const nextLanguage = webview_language_runtime.query_environment().language;
-    const previousLanguage = languageRef.current;
-    if (nextLanguage === previousLanguage) return;
-    setStyles((previous) => previous.map((style) => {
-      if (!style.template_i18n) return style;
-      const currentTemplate = dynamicArity
-        ? `${style.template_left}#*${style.template_right}`
-        : style.template;
-      const template_i18n = merge_localized_projection(
-        style.template_i18n,
-        currentTemplate,
-        previousLanguage,
-        !!style.template_dirty
-      );
-      const template = webview_language_runtime.run_reader(
-        read_localized<string, string>(template_i18n)
-      );
-      const marker = template.indexOf('#*');
-      return {
-        ...style,
-        template_i18n,
-        template_dirty: false,
-        template,
-        template_left: marker >= 0 ? template.slice(0, marker) : '',
-        template_right: marker >= 0 ? template.slice(marker + 2) : ''
-      };
-    }));
-    languageRef.current = nextLanguage;
-  }, [preferencesRevision, dynamicArity]);
 
   /**
    * Load an existing extended macro (from the host, edit mode) into the form
@@ -526,6 +457,7 @@ export function CreateMacroApp(): React.ReactElement {
         entries: [...(existing.source?.entries ?? [])],
         urls: [...(existing.source?.urls ?? [])]
       },
+      default_style: { ...(existing.default_style ?? {}) },
       styles: (existing.styles ?? []).map((style) => ({ ...style })),
       tags: [...(existing.tags ?? [])]
     };
@@ -543,23 +475,19 @@ export function CreateMacroApp(): React.ReactElement {
     setDynamicArity(!!existing.dynamic_arity);
     setKind(existing.kind ?? '');
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
+    setDefaultStyle(
+      existing.default_style && typeof existing.default_style === 'object'
+        ? { ...existing.default_style }
+        : { en: existing.styles?.[0]?.style_name ?? 'default' }
+    );
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => {
-          const persistedTemplate = s.template;
-          const template = typeof persistedTemplate === 'string'
-            ? persistedTemplate
-            : webview_language_runtime.run_reader(
-                read_localized<string, string>(persistedTemplate)
-              );
+          const template = s.template;
           const marker = template.indexOf('#*');
           return {
         style_name: s.style_name || 'default',
         mode: s.mode,
         template,
-        template_dirty: false,
-        ...(typeof persistedTemplate === 'string'
-          ? {}
-          : { template_i18n: persistedTemplate }),
         template_left: marker >= 0 ? template.slice(0, marker) : '',
         separator: s.separator ?? '',
         template_right: marker >= 0 ? template.slice(marker + 2) : '',
@@ -648,18 +576,10 @@ export function CreateMacroApp(): React.ReactElement {
           // recognised as "the thing I am already editing".
           editingNameRef.current = msg.name;
           formDirtyRef.current = false;
-          setStyles((currentStyles) => currentStyles.map((style) => ({
-            ...style,
-            template_dirty: false
-          })));
           setStatus({ kind: 'created', name: msg.name, at: Date.now() });
           break;
         case 'updated':
           formDirtyRef.current = false;
-          setStyles((currentStyles) => currentStyles.map((style) => ({
-            ...style,
-            template_dirty: false
-          })));
           setStatus({ kind: 'updated', name: msg.name, at: Date.now() });
           break;
         case 'duplicate':
@@ -743,12 +663,12 @@ export function CreateMacroApp(): React.ReactElement {
           : {})
       };
     });
-    // Move the active style to index 0 so the preview always uses it as the
-    // implicit default (no `[style]` in the injected draft tree).
-    if (activeStyle > 0 && activeStyle < styleList.length) {
-      const [pick] = styleList.splice(activeStyle, 1);
-      styleList.unshift(pick);
-    }
+    const previewStyles = styleList.length > 0
+      ? styleList
+      : [{ style_name: 'default', mode: 'formula_inline' as const, template: '', tags: [] }];
+    const activeName = previewStyles[Math.min(activeStyle, previewStyles.length - 1)]?.style_name
+      ?? previewStyles[0].style_name;
+    const language = webview_language_runtime.query_environment().language;
     return {
       name: DRAFT_KEY,
       description: '',
@@ -756,12 +676,10 @@ export function CreateMacroApp(): React.ReactElement {
       dynamic_arity: dynamicArity,
       kind: kind || undefined,
       tags: [],
-      styles:
-        styleList.length > 0
-          ? styleList
-          : [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }]
+      default_style: { ...defaultStyle, en: defaultStyle.en ?? previewStyles[0].style_name, [language]: activeName },
+      styles: previewStyles
     };
-  }, [dynamicArity, kind, styles, activeStyle]);
+  }, [dynamicArity, kind, styles, activeStyle, defaultStyle, preferencesRevision]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
@@ -867,12 +785,17 @@ export function CreateMacroApp(): React.ReactElement {
   const tagList = styles.map((s) => s.style_name.trim());
   const hasEmptyTag = tagList.some((t) => t.length === 0);
   const hasDupTag = new Set(tagList).size !== tagList.length;
+  const styleNames = new Set(tagList);
+  const hasInvalidDefaultStyle = Object.values(defaultStyle).some(
+    (styleName) => !styleNames.has(styleName)
+  );
   const canCreate =
     trimmedName.length > 0 &&
     !isDuplicate &&
     !templateEmpty &&
     !hasEmptyTag &&
     !hasDupTag &&
+    !hasInvalidDefaultStyle &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
@@ -918,12 +841,6 @@ export function CreateMacroApp(): React.ReactElement {
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
-    setStyles((previous) => previous.map((style, index) => {
-      const persisted = styleList[index];
-      return persisted?.mode === 'text' && typeof persisted.template === 'object'
-        ? { ...style, template_i18n: persisted.template }
-        : style;
-    }));
     const macro: ExtendedSnlMacro = {
       ...(hydratedMacroBaseRef.current ?? {}),
       name: trimmedName,
@@ -934,6 +851,7 @@ export function CreateMacroApp(): React.ReactElement {
       },
       kind: kind || undefined,
       dynamic_arity: dynamicArity,
+      default_style: { ...defaultStyle },
       styles: styleList,
       tags: trimmedMacroTags
     };
@@ -1059,6 +977,8 @@ export function CreateMacroApp(): React.ReactElement {
         setActiveStyle={setActiveStyle}
         patchStyle={patchStyle}
         hasDupTag={hasDupTag}
+        defaultStyle={defaultStyle}
+        setDefaultStyle={setDefaultStyle}
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
@@ -2168,7 +2088,9 @@ function StylesEditor({
   activeStyle,
   setActiveStyle,
   patchStyle,
-  hasDupTag
+  hasDupTag,
+  defaultStyle,
+  setDefaultStyle
 }: {
   styles: StyleDraft[];
   setStyles: React.Dispatch<React.SetStateAction<StyleDraft[]>>;
@@ -2176,8 +2098,11 @@ function StylesEditor({
   setActiveStyle: (i: number) => void;
   patchStyle: (patch: Partial<StyleDraft>) => void;
   hasDupTag: boolean;
+  defaultStyle: Record<string, string>;
+  setDefaultStyle: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }): React.ReactElement {
   const current = styles[activeStyle] ?? styles[0];
+  const [newLanguage, setNewLanguage] = useState('');
 
   const addStyle = (): void => {
     const existing = new Set(styles.map((s) => s.style_name));
@@ -2196,7 +2121,14 @@ function StylesEditor({
       return;
     }
     const next = styles.filter((_, idx) => idx !== i);
+    const removedName = styles[i].style_name;
     setStyles(next);
+    setDefaultStyle((currentDefaults) => Object.fromEntries(
+      Object.entries(currentDefaults).map(([language, styleName]) => [
+        language,
+        styleName === removedName ? next[0].style_name : styleName
+      ])
+    ));
     const newActive = Math.min(activeStyle, next.length - 1);
     setActiveStyle(Math.max(newActive, 0));
   };
@@ -2214,7 +2146,14 @@ function StylesEditor({
 
   /** Commit a rename issued from a StyleSwitch's inline editor. */
   const renameStyleAt = (i: number, next: string): void => {
+    const previousName = styles[i].style_name;
     setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, style_name: next } : s)));
+    setDefaultStyle((currentDefaults) => Object.fromEntries(
+      Object.entries(currentDefaults).map(([language, styleName]) => [
+        language,
+        styleName === previousName ? next : styleName
+      ])
+    ));
   };
 
   return (
@@ -2256,10 +2195,52 @@ function StylesEditor({
       ) : null}
 
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
-        ★ = default style (used when SNL source omits <code>[style]</code>). Use{' '}
-        <strong>↑</strong> to make another style the default. Double-click a
-        style button to rename it.
+        ★ = final fallback (<code>styles[0]</code>). Implicit rendering first uses the current
+        language mapping, then English, then this fallback. Explicit <code>[style]</code> always wins.
       </p>
+
+      <div style={{ marginBottom: '0.75rem' }}>
+        <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+          Default style by language
+        </div>
+        {[...new Set(['en', 'zh-CN', ...Object.keys(defaultStyle)])].map((language) => (
+          <div key={language} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem' }}>
+            <code style={{ minWidth: '5rem' }}>{language}</code>
+            <select
+              value={defaultStyle[language] ?? ''}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDefaultStyle((currentDefaults) => {
+                  const next = { ...currentDefaults };
+                  if (value) next[language] = value;
+                  else delete next[language];
+                  return next;
+                });
+              }}
+              style={{ ...inputStyle, minWidth: '10rem' }}
+            >
+              <option value="">{language === 'en' ? 'Use styles[0]' : 'Use English / styles[0]'}</option>
+              {styles.map((style) => (
+                <option key={style.style_name} value={style.style_name}>{style.style_name}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+          <input
+            value={newLanguage}
+            placeholder="Language tag, e.g. fr"
+            onChange={(event) => setNewLanguage(event.target.value)}
+            style={{ ...inputStyle, width: '12rem' }}
+          />
+          <SmallButton onClick={() => {
+            const language = newLanguage.trim();
+            if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
+            setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
+            setNewLanguage('');
+          }}>+ Add language</SmallButton>
+        </div>
+      </div>
 
       {/* React renderer preset — only for `block` mode. Text mode goes
           through the LaTeX pipeline (\text{...} + nested $...$) and has

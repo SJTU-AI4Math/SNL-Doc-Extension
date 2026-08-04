@@ -324,7 +324,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
   /**
-   * User-authored macros indexed by name (strict v7 wire shape from the host).
+   * User-authored macros indexed by name (strict v8 wire shape from the host).
    * Merged over the bundled record via `macroDataDriver` below. Empty until the first
    * `context` message arrives — parse/render before that only sees the
    * bundled fixture.

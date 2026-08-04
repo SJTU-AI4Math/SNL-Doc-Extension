@@ -8,6 +8,7 @@ describe('wireMacroToRenderable', () => {
       description: '',
       kind: 'operator',
       dynamic_arity: false,
+      default_style: { en: 'default' },
       source: { entries: ['src'], urls: [] },
       styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
       tags: []
@@ -21,7 +22,7 @@ describe('wireMacroToRenderable', () => {
   it('supplies a renderable default style for malformed empty style arrays', () => {
     expect(wireMacroToRenderable({
       name: 'm', description: '', source: { entries: [], urls: [] },
-      dynamic_arity: false, styles: [], tags: []
+      dynamic_arity: false, default_style: { en: 'default' }, styles: [], tags: []
     }).styles).toHaveLength(1);
   });
 });

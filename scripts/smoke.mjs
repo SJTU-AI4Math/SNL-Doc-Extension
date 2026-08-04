@@ -21,18 +21,25 @@ import { pathToFileURL } from 'node:url';
 // ---------------------------------------------------------------------------
 
 const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 };
+let beforeWriteHook = null;
+let failNextRename = false;
+const fsEvents = [];
 
 class Uri {
-  constructor(fsPath) {
+  constructor(fsPath, scheme = 'file', authority = '') {
     this.fsPath = fsPath;
     this.path = fsPath;
-    this.scheme = 'file';
+    this.scheme = scheme;
+    this.authority = authority;
   }
   static file(p) {
     return new Uri(p);
   }
   static joinPath(base, ...segments) {
-    return new Uri(nodePath.join(base.fsPath, ...segments));
+    return new Uri(nodePath.join(base.fsPath, ...segments), base.scheme, base.authority);
+  }
+  toString() {
+    return `${this.scheme}://${this.authority}${this.fsPath}`;
   }
 }
 
@@ -51,6 +58,8 @@ const workspace = {
       return new Uint8Array(await fs.readFile(uri.fsPath));
     },
     async writeFile(uri, data) {
+      fsEvents.push(`write:${uri.fsPath}`);
+      if (beforeWriteHook) await beforeWriteHook(uri);
       await fs.mkdir(nodePath.dirname(uri.fsPath), { recursive: true });
       await fs.writeFile(uri.fsPath, Buffer.from(data));
     },
@@ -58,6 +67,11 @@ const workspace = {
       await fs.mkdir(uri.fsPath, { recursive: true });
     },
     async rename(source, target, options = {}) {
+      fsEvents.push(`rename:${source.fsPath}->${target.fsPath}`);
+      if (failNextRename) {
+        failNextRename = false;
+        throw new Error('injected rename failure');
+      }
       if (!options.overwrite) {
         try {
           await fs.stat(target.fsPath);
@@ -198,6 +212,97 @@ async function main() {
     futureEntriesCreated = true;
   } catch {}
   assert(!futureEntriesCreated, 'rejected future-version init performs no repair writes');
+
+  const concurrentRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-concurrent-init-'));
+  const concurrentRoot = Uri.file(concurrentRootPath);
+  const concurrentResults = await Promise.all([
+    initSnlDoc(concurrentRoot),
+    initSnlDoc(concurrentRoot)
+  ]);
+  assert(
+    concurrentResults.every((result) => result.status === 'created'),
+    'concurrent init callers share one successful initialization'
+  );
+
+  const conflictingRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-conflicting-init-'));
+  const conflictingSnlRoot = nodePath.join(conflictingRootPath, '.SNL_Doc');
+  await fs.mkdir(conflictingSnlRoot, { recursive: true });
+  const conflictingEntries = '[{"id":"keep-me"}]\n';
+  await fs.writeFile(nodePath.join(conflictingSnlRoot, 'entries.json'), conflictingEntries);
+  let conflictingInitRejected = false;
+  try {
+    await initSnlDoc(Uri.file(conflictingRootPath));
+  } catch {
+    conflictingInitRejected = true;
+  }
+  assert(conflictingInitRejected, 'init refuses non-empty entries without config');
+  assert(
+    await fs.readFile(nodePath.join(conflictingSnlRoot, 'entries.json'), 'utf8') === conflictingEntries,
+    'refused init preserves unknown entries byte-for-byte'
+  );
+
+  const renameFailureRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-init-rename-'));
+  failNextRename = true;
+  let renameInitRejected = false;
+  try {
+    await initSnlDoc(Uri.file(renameFailureRootPath));
+  } catch {
+    renameInitRejected = true;
+  }
+  const renameFailureFiles = await fs.readdir(nodePath.join(renameFailureRootPath, '.SNL_Doc'));
+  assert(renameInitRejected, 'atomic config publish failure rejects init');
+  assert(!renameFailureFiles.includes('config.json'), 'failed publish leaves no config completion marker');
+  assert(
+    renameFailureFiles.every((name) => !name.startsWith('.config.init-')),
+    'failed publish removes its temporary config file'
+  );
+  assert(
+    (await initSnlDoc(Uri.file(renameFailureRootPath))).status === 'created',
+    'init retries successfully after atomic publish failure'
+  );
+
+  const remoteRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-remote-writer-'));
+  const remoteRoot = new Uri(remoteRootPath, 'vscode-remote', 'ssh-remote+test');
+  let releaseRemoteWrite;
+  let announceRemoteWrite;
+  const remoteWriteEntered = new Promise((resolve) => { announceRemoteWrite = resolve; });
+  const remoteWriteRelease = new Promise((resolve) => { releaseRemoteWrite = resolve; });
+  beforeWriteHook = async (uri) => {
+    if (uri.fsPath === nodePath.join(remoteRootPath, '.SNL_Doc', 'entries.json')) {
+      announceRemoteWrite();
+      await remoteWriteRelease;
+    }
+  };
+  const remoteInit = initSnlDoc(remoteRoot);
+  await remoteWriteEntered;
+  let remoteKindSettled = false;
+  const remoteKind = createEntryKind(remoteRoot, {
+    id: 'remote-kind',
+    name: 'Remote Kind',
+    stroke: '#123456',
+    background: '#abcdef',
+    defaultCounterName: '',
+    style: ''
+  }).then((result) => {
+    remoteKindSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert(!remoteKindSettled, 'remote mutation waits for in-process init writer lock');
+  releaseRemoteWrite();
+  beforeWriteHook = null;
+  assert((await remoteInit).status === 'created', 'remote init completes after release');
+  assert((await remoteKind).status === 'created', 'queued remote mutation runs after init');
+
+  fsEvents.length = 0;
+  const atomicOrderRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-init-order-'));
+  await initSnlDoc(Uri.file(atomicOrderRootPath));
+  const entriesWriteIndex = fsEvents.findIndex((event) => event.endsWith('/.SNL_Doc/entries.json'));
+  const configRenameIndex = fsEvents.findIndex((event) => event.includes('->') && event.endsWith('/.SNL_Doc/config.json'));
+  assert(
+    entriesWriteIndex >= 0 && configRenameIndex > entriesWriteIndex,
+    'config completion marker is atomically renamed after payload writes'
+  );
 
   console.log('\n[1] initSnlDoc');
   const init = await initSnlDoc(root);

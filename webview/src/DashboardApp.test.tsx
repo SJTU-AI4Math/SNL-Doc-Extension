@@ -29,6 +29,20 @@ describe('Dashboard library actions', () => {
 
     expect(await screen.findByRole('button', { name: 'Run SNL: Init' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Initialize Entry Kinds' }));
+
+    expect(screen.getByRole('status').textContent).toContain('Initializing SNL workspace');
+    for (const name of ['Run SNL: Init', 'Initialize Entry Kinds', 'Initialize Macro Kinds']) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'setupStatus', status: 'idle' }
+    }));
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('button', { name: 'Initialize Macro Kinds' }) as HTMLButtonElement).disabled
+      ).toBe(false);
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Initialize Macro Kinds' }));
 
     await waitFor(() => {

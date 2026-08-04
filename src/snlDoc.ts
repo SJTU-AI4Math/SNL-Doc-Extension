@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import {
   is_valid_i18n_string,
@@ -69,14 +70,50 @@ async function assertWorkspaceWritableOnDisk(workspaceRoot: vscode.Uri): Promise
   return rawConfig;
 }
 
+const heldWriterIdentities = new AsyncLocalStorage<ReadonlySet<string>>();
+const writerTails = new Map<string, Promise<void>>();
+
+function workspaceWriterIdentity(workspaceRoot: vscode.Uri): string {
+  // Uri#toString includes scheme + authority. fsPath alone does not: two
+  // remote authorities can legitimately expose the same path.
+  return workspaceRoot.toString(true);
+}
+
+async function withInProcessWriterLock<T>(
+  workspaceRoot: vscode.Uri,
+  task: () => Promise<T>
+): Promise<T> {
+  const identity = workspaceWriterIdentity(workspaceRoot);
+  const held = heldWriterIdentities.getStore();
+  if (held?.has(identity)) return task();
+
+  const previous = writerTails.get(identity) ?? Promise.resolve();
+  let release!: () => void;
+  const marker = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.catch(() => undefined).then(() => marker);
+  writerTails.set(identity, tail);
+  await previous.catch(() => undefined);
+
+  const nextHeld = new Set(held ?? []);
+  nextHeld.add(identity);
+  try {
+    return await heldWriterIdentities.run(nextHeld, task);
+  } finally {
+    release();
+    if (writerTails.get(identity) === tail) writerTails.delete(identity);
+  }
+}
+
 async function withExtensionWriterLock<T>(
   workspaceRoot: vscode.Uri,
   purpose: string,
   task: () => Promise<T>
 ): Promise<T> {
-  return workspaceRoot.scheme === 'file'
-    ? withWorkspaceDataLock(workspaceRoot, purpose, task)
-    : task();
+  return withInProcessWriterLock(workspaceRoot, () =>
+    workspaceRoot.scheme === 'file'
+      ? withWorkspaceDataLock(workspaceRoot, purpose, task)
+      : task()
+  );
 }
 
 const NO_EXPECTED_SNAPSHOT = Symbol('no-expected-snapshot');
@@ -497,7 +534,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
 export async function initSnlDoc(
   workspaceRoot: vscode.Uri
 ): Promise<InitResult> {
-  const key = workspaceRoot.fsPath || workspaceRoot.toString();
+  const key = workspaceWriterIdentity(workspaceRoot);
   const active = initializationInFlight.get(key);
   if (active) return active;
 

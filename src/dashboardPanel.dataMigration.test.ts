@@ -118,6 +118,14 @@ describe('Dashboard data migration host routing', () => {
     expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initMacroKinds');
     expect(mocks.executeCommand).not.toHaveBeenCalledWith('snlDoc.init');
     expect(mocks.showInformationMessage).toHaveBeenCalled();
+    expect(
+      mocks.postMessage.mock.calls
+        .map(([message]) => message)
+        .filter((message) => (message as { type?: string }).type === 'setupStatus')
+    ).toEqual([
+      { type: 'setupStatus', status: 'running' },
+      { type: 'setupStatus', status: 'idle' }
+    ]);
   });
 
   it('does not open a Kind preset panel when skeleton initialization fails', async () => {

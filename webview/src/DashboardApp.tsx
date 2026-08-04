@@ -162,6 +162,7 @@ export function DashboardApp(): React.ReactElement {
   use_preferences_revision();
   const [overview, setOverview] = useState<SnlOverview>(EMPTY);
   const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
+  const [setupBusy, setSetupBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
 
@@ -172,6 +173,7 @@ export function DashboardApp(): React.ReactElement {
       const msg = event.data as
         | { type: 'overview'; overview: SnlOverview }
         | ({ type: 'dataMigrationStatus' } & DataOperationStatus)
+        | { type: 'setupStatus'; status: 'idle' | 'running' }
         | undefined;
       if (!msg) return;
       if (msg.type === 'dataMigrationStatus') {
@@ -180,6 +182,10 @@ export function DashboardApp(): React.ReactElement {
           operation: msg.operation,
           message: msg.message
         });
+        return;
+      }
+      if (msg.type === 'setupStatus') {
+        setSetupBusy(msg.status === 'running');
         return;
       }
       if (msg.type !== 'overview') return;
@@ -207,7 +213,13 @@ export function DashboardApp(): React.ReactElement {
   }
 
   if (!overview.hasSnlDoc) {
-    return <NotInitialized api={apiRef.current} />;
+    return (
+      <NotInitialized
+        api={apiRef.current}
+        busy={setupBusy}
+        onStart={() => setSetupBusy(true)}
+      />
+    );
   }
 
   return <Initialized overview={overview} api={apiRef.current} dataOperation={dataOperation} />;
@@ -215,12 +227,20 @@ export function DashboardApp(): React.ReactElement {
 
 /** Placeholder shown when `.SNL_Doc/` is missing. */
 function NotInitialized({
-  api
+  api,
+  busy,
+  onStart
 }: {
   api: VsCodeApi | undefined;
+  busy: boolean;
+  onStart: () => void;
 }): React.ReactElement {
+  const start = (type: 'init' | 'initEntryKinds' | 'initMacroKinds'): void => {
+    onStart();
+    api?.postMessage({ type });
+  };
   return (
-    <main style={PANEL_STYLE}>
+    <main style={PANEL_STYLE} aria-busy={busy}>
       <PanelHeader vsApi={api} title="SNL Dashboard" />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         This workspace does not have an <code>.SNL_Doc/</code> folder yet.
@@ -230,26 +250,32 @@ function NotInitialized({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         <Button
           type="button"
-          onClick={() => api?.postMessage({ type: 'init' })}
+          onClick={() => start('init')}
+          disabled={busy}
           variant="primary"
         >
           Run SNL: Init
         </Button>
         <Button
           type="button"
-          onClick={() => api?.postMessage({ type: 'initEntryKinds' })}
+          onClick={() => start('initEntryKinds')}
+          disabled={busy}
           variant="secondary"
         >
           Initialize Entry Kinds
         </Button>
         <Button
           type="button"
-          onClick={() => api?.postMessage({ type: 'initMacroKinds' })}
+          onClick={() => start('initMacroKinds')}
+          disabled={busy}
           variant="secondary"
         >
           Initialize Macro Kinds
         </Button>
       </div>
+      <p role="status" aria-live="polite" style={{ minHeight: '1.25rem' }}>
+        {busy ? 'Initializing SNL workspace…' : ''}
+      </p>
     </main>
   );
 }

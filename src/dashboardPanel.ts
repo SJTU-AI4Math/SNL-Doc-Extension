@@ -49,6 +49,7 @@ export class DashboardPanel {
   private disposables: vscode.Disposable[] = [];
   private overviewGeneration = 0;
   private skeletonInitialization: Promise<InitResult> | undefined;
+  private setupOperationCount = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Active;
@@ -222,7 +223,9 @@ export class DashboardPanel {
         return;
       }
       case 'initEntryKinds':
-        await this.openKindsInitializer('snlDoc.initEntryKinds');
+        await this.runSetupOperation(() =>
+          this.openKindsInitializer('snlDoc.initEntryKinds')
+        );
         return;
       case 'createEntryKind':
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
@@ -235,7 +238,9 @@ export class DashboardPanel {
         return;
       }
       case 'initMacroKinds':
-        await this.openKindsInitializer('snlDoc.initMacroKinds');
+        await this.runSetupOperation(() =>
+          this.openKindsInitializer('snlDoc.initMacroKinds')
+        );
         return;
       case 'createMacroKind':
         await vscode.commands.executeCommand('snlDoc.createMacroKind');
@@ -275,7 +280,7 @@ export class DashboardPanel {
         return;
       }
       case 'init':
-        await this.runDashboardInit();
+        await this.runSetupOperation(() => this.runDashboardInit());
         return;
       case 'openSnoogL': {
         // Cat 2026-07-13: Dashboard headers now carry TWO SNoogL entry
@@ -429,6 +434,27 @@ export class DashboardPanel {
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`SNL Init failed: ${text}`);
+    }
+  }
+
+  private async runSetupOperation(task: () => Promise<void>): Promise<void> {
+    this.setupOperationCount += 1;
+    if (this.setupOperationCount === 1) {
+      await this.panel.webview.postMessage({
+        type: 'setupStatus',
+        status: 'running'
+      });
+    }
+    try {
+      await task();
+    } finally {
+      this.setupOperationCount -= 1;
+      if (this.setupOperationCount === 0) {
+        await this.panel.webview.postMessage({
+          type: 'setupStatus',
+          status: 'idle'
+        });
+      }
     }
   }
 

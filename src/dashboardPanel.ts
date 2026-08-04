@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import {
   initSnlDoc,
   readOverview,
-  setMacroPackageActive
+  setMacroPackageActive,
+  type InitResult
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
@@ -47,7 +48,7 @@ export class DashboardPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private overviewGeneration = 0;
-  private skeletonInitialization: Promise<void> | undefined;
+  private skeletonInitialization: Promise<InitResult> | undefined;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Active;
@@ -274,7 +275,7 @@ export class DashboardPanel {
         return;
       }
       case 'init':
-        await vscode.commands.executeCommand('snlDoc.init');
+        await this.runDashboardInit();
         return;
       case 'openSnoogL': {
         // Cat 2026-07-13: Dashboard headers now carry TWO SNoogL entry
@@ -380,27 +381,54 @@ export class DashboardPanel {
       return;
     }
     try {
-      if (!this.skeletonInitialization) {
-        const pending = initSnlDoc(root).then(() => undefined);
-        this.skeletonInitialization = pending;
-        void pending.then(
-          () => {
-            if (this.skeletonInitialization === pending) {
-              this.skeletonInitialization = undefined;
-            }
-          },
-          () => {
-            if (this.skeletonInitialization === pending) {
-              this.skeletonInitialization = undefined;
-            }
-          }
-        );
-      }
-      await this.skeletonInitialization;
+      await this.initializeSkeleton(root);
       await vscode.commands.executeCommand(command);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Kind initialization failed: ${text}`);
+    }
+  }
+
+  private initializeSkeleton(root: vscode.Uri): Promise<InitResult> {
+    if (!this.skeletonInitialization) {
+      const pending = initSnlDoc(root);
+      this.skeletonInitialization = pending;
+      void pending.then(
+        () => {
+          if (this.skeletonInitialization === pending) {
+            this.skeletonInitialization = undefined;
+          }
+        },
+        () => {
+          if (this.skeletonInitialization === pending) {
+            this.skeletonInitialization = undefined;
+          }
+        }
+      );
+    }
+    return this.skeletonInitialization;
+  }
+
+  private async runDashboardInit(): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      vscode.window.showErrorMessage('SNL Init requires an open folder / workspace.');
+      return;
+    }
+    try {
+      const result = await this.initializeSkeleton(root);
+      if (result.status === 'exists') {
+        vscode.window.showWarningMessage(
+          '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.'
+        );
+      } else {
+        vscode.window.showInformationMessage(
+          'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.'
+        );
+      }
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`SNL Init failed: ${text}`);
     }
   }
 

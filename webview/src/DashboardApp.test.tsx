@@ -27,7 +27,8 @@ describe('Dashboard library actions', () => {
       }
     }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Initialize Entry Kinds' }));
+    expect(await screen.findByRole('button', { name: 'Run SNL: Init' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Initialize Entry Kinds' }));
     fireEvent.click(screen.getByRole('button', { name: 'Initialize Macro Kinds' }));
 
     await waitFor(() => {

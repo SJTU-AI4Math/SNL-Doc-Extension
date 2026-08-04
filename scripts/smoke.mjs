@@ -57,6 +57,22 @@ const workspace = {
     async createDirectory(uri) {
       await fs.mkdir(uri.fsPath, { recursive: true });
     },
+    async rename(source, target, options = {}) {
+      if (!options.overwrite) {
+        try {
+          await fs.stat(target.fsPath);
+          const error = new Error('Target already exists');
+          error.code = 'EEXIST';
+          throw error;
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+      }
+      await fs.rename(source.fsPath, target.fsPath);
+    },
+    async delete(uri, options = {}) {
+      await fs.rm(uri.fsPath, { recursive: options.recursive ?? false, force: false });
+    },
     async readDirectory(uri) {
       const dirents = await fs.readdir(uri.fsPath, { withFileTypes: true });
       return dirents.map((d) => [
@@ -148,6 +164,19 @@ async function main() {
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
   const root = Uri.file(tmpRoot);
   console.log(`temp workspace: ${tmpRoot}`);
+
+  console.log('\n[0] initSnlDoc repairs a partial skeleton without replacing files');
+  const partialRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-partial-'));
+  const partialSnlRoot = nodePath.join(partialRootPath, '.SNL_Doc');
+  await fs.mkdir(partialSnlRoot, { recursive: true });
+  await fs.writeFile(nodePath.join(partialSnlRoot, 'entries.json'), '[]\n');
+  const partialInit = await initSnlDoc(Uri.file(partialRootPath));
+  assert(partialInit.status === 'created', 'partial init is repaired as created');
+  assert((await readConfig(partialRootPath)).version === '0.0.5', 'partial init writes config marker');
+  assert((await readEntries(partialRootPath)).length === 0, 'partial init preserves existing empty entries pool');
+  await fs.stat(nodePath.join(partialSnlRoot, 'term_macros'));
+  await fs.stat(nodePath.join(partialSnlRoot, 'libraries'));
+  assert(true, 'partial init completes required directories');
 
   console.log('\n[1] initSnlDoc');
   const init = await initSnlDoc(root);

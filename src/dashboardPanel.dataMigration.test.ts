@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   postMessage: vi.fn(async (_message: unknown) => true),
   executeCommand: vi.fn(async () => undefined),
   initSnlDoc: vi.fn(async () => ({ status: 'created' as const })),
+  showInformationMessage: vi.fn(),
+  showWarningMessage: vi.fn(),
+  showErrorMessage: vi.fn(),
   readOverview: vi.fn(async () => ({
     hasSnlDoc: true, totalEntryCount: 0, entries: [], libraries: [], macroPackages: [],
     allMacros: [], metricMacroSources: {}, entryKinds: [], macroKinds: [], relationships: []
@@ -34,7 +37,9 @@ vi.mock('vscode', () => ({
       onDidDispose: () => ({ dispose() {} }),
       dispose() {}
     }),
-    showErrorMessage: vi.fn()
+    showInformationMessage: mocks.showInformationMessage,
+    showWarningMessage: mocks.showWarningMessage,
+    showErrorMessage: mocks.showErrorMessage
   },
   workspace: {
     createFileSystemWatcher: () => ({
@@ -93,7 +98,7 @@ describe('Dashboard data migration host routing', () => {
     );
   });
 
-  it('shares one skeleton initialization across concurrent Kind setup clicks', async () => {
+  it('shares one skeleton initialization across all concurrent initial setup clicks', async () => {
     let releaseInit!: () => void;
     mocks.initSnlDoc.mockImplementationOnce(() => new Promise((resolve) => {
       releaseInit = () => resolve({ status: 'created' as const });
@@ -101,15 +106,30 @@ describe('Dashboard data migration host routing', () => {
     DashboardPanel.createOrShow({ path: '/ext' } as never);
 
     const entrySetup = mocks.receive?.({ type: 'initEntryKinds' });
+    const plainSetup = mocks.receive?.({ type: 'init' });
     const macroSetup = mocks.receive?.({ type: 'initMacroKinds' });
     await Promise.resolve();
 
     expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1);
     expect(mocks.executeCommand).not.toHaveBeenCalled();
     releaseInit();
-    await Promise.all([entrySetup, macroSetup]);
+    await Promise.all([entrySetup, plainSetup, macroSetup]);
     expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initEntryKinds');
     expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initMacroKinds');
+    expect(mocks.executeCommand).not.toHaveBeenCalledWith('snlDoc.init');
+    expect(mocks.showInformationMessage).toHaveBeenCalled();
+  });
+
+  it('does not open a Kind preset panel when skeleton initialization fails', async () => {
+    mocks.initSnlDoc.mockRejectedValueOnce(new Error('disk failed'));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+
+    await mocks.receive?.({ type: 'initEntryKinds' });
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('disk failed')
+    );
   });
 
   it('drops stale overview reads when a newer refresh finishes first', async () => {

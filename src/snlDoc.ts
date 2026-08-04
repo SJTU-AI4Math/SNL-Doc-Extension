@@ -338,6 +338,8 @@ export interface LibraryGraphFile {
 /** Init / Create results returned to panels for UI feedback. */
 export type InitResult = { status: 'created' } | { status: 'exists' };
 
+const initializationInFlight = new Map<string, Promise<InitResult>>();
+
 export type CreateLibraryResult =
   | { status: 'created'; slug: string; title: string }
   | { status: 'noSnlDoc' }
@@ -495,42 +497,106 @@ function normalizeEntryKind(raw: unknown): EntryKind {
 export async function initSnlDoc(
   workspaceRoot: vscode.Uri
 ): Promise<InitResult> {
+  const key = workspaceRoot.fsPath || workspaceRoot.toString();
+  const active = initializationInFlight.get(key);
+  if (active) return active;
+
+  const pending = initializeSnlDocSkeleton(workspaceRoot);
+  initializationInFlight.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (initializationInFlight.get(key) === pending) {
+      initializationInFlight.delete(key);
+    }
+  }
+}
+
+async function initializeSnlDocSkeleton(
+  workspaceRoot: vscode.Uri
+): Promise<InitResult> {
   const fsApi = vscode.workspace.fs;
   const root = snlRootUri(workspaceRoot);
+  const configTarget = configUri(workspaceRoot);
 
-  if (await exists(root)) {
-    return { status: 'exists' };
-  }
-
-  const termMacrosDir = termMacrosDirUri(workspaceRoot);
-  const librariesDir = librariesDirUri(workspaceRoot);
-
+  // The disk lock lives inside `.SNL_Doc`, so create only the directory before
+  // acquiring it. Directory creation is idempotent and is not a completion
+  // marker; config.json is written atomically as the final step below.
   await fsApi.createDirectory(root);
-  await fsApi.createDirectory(termMacrosDir);
-  await fsApi.createDirectory(librariesDir);
 
-  const config: SnlConfig = {
-    version: CURRENT_DATA_VERSION,
-    entry_kinds: [],
-    macro_kinds: []
-  };
-  await fsApi.writeFile(configUri(workspaceRoot), jsonBytes(config));
+  return withExtensionWriterLock(workspaceRoot, 'initialize SNL Doc', async () => {
+    const configExists = await exists(configTarget);
+    const termMacrosDir = termMacrosDirUri(workspaceRoot);
+    const librariesDir = librariesDirUri(workspaceRoot);
+    await fsApi.createDirectory(termMacrosDir);
+    await fsApi.createDirectory(librariesDir);
 
-  // Shared entry pool — lives at .SNL_Doc/ top level.
-  await fsApi.writeFile(entriesUri(workspaceRoot), jsonBytes([]));
+    const entriesTarget = entriesUri(workspaceRoot);
+    if (!(await exists(entriesTarget))) {
+      await fsApi.writeFile(entriesTarget, jsonBytes([]));
+    } else if (!configExists) {
+      const entries = await readJson<unknown>(entriesTarget);
+      if (!Array.isArray(entries) || entries.length > 0) {
+        throw new Error(
+          'Cannot initialize: config.json is missing but entries.json contains data.'
+        );
+      }
+    }
 
-  // .gitkeep placeholders so empty dirs survive `git add`.
-  const gitkeep = ENCODER.encode('');
-  await fsApi.writeFile(
-    vscode.Uri.joinPath(termMacrosDir, '.gitkeep'),
-    gitkeep
-  );
-  await fsApi.writeFile(
-    vscode.Uri.joinPath(librariesDir, '.gitkeep'),
-    gitkeep
-  );
+    if (!configExists) {
+      const packageFiles = (await fsApi.readDirectory(termMacrosDir))
+        .filter(([name, type]) =>
+          type === vscode.FileType.File && name.toLowerCase().endsWith('.json')
+        );
+      const libraryItems = (await fsApi.readDirectory(librariesDir))
+        .filter(([name]) => name !== '.gitkeep');
+      if (packageFiles.length > 0 || libraryItems.length > 0) {
+        throw new Error(
+          'Cannot initialize over existing Macro packages or Libraries without config.json.'
+        );
+      }
+    }
 
-  return { status: 'created' };
+    const gitkeep = ENCODER.encode('');
+    const termMacrosGitkeep = vscode.Uri.joinPath(termMacrosDir, '.gitkeep');
+    const librariesGitkeep = vscode.Uri.joinPath(librariesDir, '.gitkeep');
+    if (!(await exists(termMacrosGitkeep))) {
+      await fsApi.writeFile(termMacrosGitkeep, gitkeep);
+    }
+    if (!(await exists(librariesGitkeep))) {
+      await fsApi.writeFile(librariesGitkeep, gitkeep);
+    }
+
+    if (configExists) {
+      return { status: 'exists' };
+    }
+
+    const config: SnlConfig = {
+      version: CURRENT_DATA_VERSION,
+      entry_kinds: [],
+      macro_kinds: []
+    };
+    const configTemporary = vscode.Uri.joinPath(
+      root,
+      `.config.init-${process.pid}-${Date.now()}.tmp`
+    );
+    try {
+      await fsApi.writeFile(configTemporary, jsonBytes(config));
+      await fsApi.rename(configTemporary, configTarget, { overwrite: false });
+    } catch (error) {
+      try {
+        if (await exists(configTemporary)) {
+          await fsApi.delete(configTemporary, { recursive: false, useTrash: false });
+        }
+      } catch {
+        // Preserve the initialization error. A temporary file is never a
+        // completion marker and a later retry remains safe.
+      }
+      throw error;
+    }
+
+    return { status: 'created' };
+  });
 }
 
 /**

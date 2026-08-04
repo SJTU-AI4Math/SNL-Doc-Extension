@@ -224,8 +224,8 @@ function NotInitialized({
       <PanelHeader vsApi={api} title="SNL Dashboard" />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         This workspace does not have an <code>.SNL_Doc/</code> folder yet.
-        Create the skeleton, then initialize a standard Kind catalog or start
-        with individual Kinds.
+        Create the skeleton alone, or initialize a standard Kind catalog as
+        part of setup.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         <Button

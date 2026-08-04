@@ -93,6 +93,25 @@ describe('Dashboard data migration host routing', () => {
     );
   });
 
+  it('shares one skeleton initialization across concurrent Kind setup clicks', async () => {
+    let releaseInit!: () => void;
+    mocks.initSnlDoc.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseInit = () => resolve({ status: 'created' as const });
+    }));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+
+    const entrySetup = mocks.receive?.({ type: 'initEntryKinds' });
+    const macroSetup = mocks.receive?.({ type: 'initMacroKinds' });
+    await Promise.resolve();
+
+    expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+    releaseInit();
+    await Promise.all([entrySetup, macroSetup]);
+    expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initEntryKinds');
+    expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.initMacroKinds');
+  });
+
   it('drops stale overview reads when a newer refresh finishes first', async () => {
     DashboardPanel.createOrShow({ path: '/ext' } as never);
     const fresh = {

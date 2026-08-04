@@ -47,6 +47,7 @@ export class DashboardPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private overviewGeneration = 0;
+  private skeletonInitialization: Promise<void> | undefined;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     const column = vscode.ViewColumn.Active;
@@ -379,7 +380,23 @@ export class DashboardPanel {
       return;
     }
     try {
-      await initSnlDoc(root);
+      if (!this.skeletonInitialization) {
+        const pending = initSnlDoc(root).then(() => undefined);
+        this.skeletonInitialization = pending;
+        void pending.then(
+          () => {
+            if (this.skeletonInitialization === pending) {
+              this.skeletonInitialization = undefined;
+            }
+          },
+          () => {
+            if (this.skeletonInitialization === pending) {
+              this.skeletonInitialization = undefined;
+            }
+          }
+        );
+      }
+      await this.skeletonInitialization;
       await vscode.commands.executeCommand(command);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);

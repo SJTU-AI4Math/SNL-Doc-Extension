@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import {
+  initSnlDoc,
   readOverview,
   setMacroPackageActive
 } from './snlDoc';
@@ -219,7 +220,7 @@ export class DashboardPanel {
         return;
       }
       case 'initEntryKinds':
-        await vscode.commands.executeCommand('snlDoc.initEntryKinds');
+        await this.openKindsInitializer('snlDoc.initEntryKinds');
         return;
       case 'createEntryKind':
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
@@ -232,7 +233,7 @@ export class DashboardPanel {
         return;
       }
       case 'initMacroKinds':
-        await vscode.commands.executeCommand('snlDoc.initMacroKinds');
+        await this.openKindsInitializer('snlDoc.initMacroKinds');
         return;
       case 'createMacroKind':
         await vscode.commands.executeCommand('snlDoc.createMacroKind');
@@ -359,6 +360,30 @@ export class DashboardPanel {
         return;
       default:
         return;
+    }
+  }
+
+  /**
+   * Kind initialization is also offered on the pre-init Dashboard. Ensure the
+   * workspace skeleton exists before opening either preset picker; on an
+   * initialized workspace `initSnlDoc` is an idempotent no-op.
+   */
+  private async openKindsInitializer(
+    command: 'snlDoc.initEntryKinds' | 'snlDoc.initMacroKinds'
+  ): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      vscode.window.showErrorMessage(
+        'Kind initialization requires an open folder / workspace.'
+      );
+      return;
+    }
+    try {
+      await initSnlDoc(root);
+      await vscode.commands.executeCommand(command);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Kind initialization failed: ${text}`);
     }
   }
 

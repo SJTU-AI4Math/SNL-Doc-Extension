@@ -17,6 +17,61 @@ afterEach(() => {
 });
 
 describe('Dashboard library actions', () => {
+  it('offers Entry and Macro Kind initialization from the initial setup panel', async () => {
+    render(<DashboardApp />);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: { hasSnlDoc: false }
+      }
+    }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Initialize Entry Kinds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Initialize Macro Kinds' }));
+
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith({ type: 'initEntryKinds' });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'initMacroKinds' });
+    });
+  });
+
+  it('offers Create as well as Initialize when both Kind catalogs are empty', async () => {
+    render(<DashboardApp />);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: {
+          hasSnlDoc: true,
+          totalEntryCount: 0,
+          entries: [],
+          libraries: [],
+          macroPackages: [],
+          allMacros: [],
+          metricMacroSources: {},
+          entryKinds: [],
+          macroKinds: [],
+          relationships: []
+        }
+      }
+    }));
+
+    await screen.findByText('Entry Kinds');
+    fireEvent.click(screen.getByText('Entry Kinds').closest('button') as HTMLButtonElement);
+    fireEvent.click(screen.getByText('SNL Macro Kinds').closest('button') as HTMLButtonElement);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Entry Kind' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Macro Kind' }));
+
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith({ type: 'createEntryKind' });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'createMacroKind' });
+    });
+    expect(screen.getByRole('button', { name: 'Initialize Entry Kinds' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Initialize Macro Kinds' })).toBeTruthy();
+  });
+
   it('creates a library from the collapsed Libraries section header', async () => {
     render(<DashboardApp />);
 

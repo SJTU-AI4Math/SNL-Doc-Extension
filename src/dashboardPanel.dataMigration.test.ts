@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   receive: undefined as ((message: unknown) => Promise<void>) | undefined,
   postMessage: vi.fn(async (_message: unknown) => true),
   executeCommand: vi.fn(async () => undefined),
+  initSnlDoc: vi.fn(async () => ({ status: 'created' as const })),
   readOverview: vi.fn(async () => ({
     hasSnlDoc: true, totalEntryCount: 0, entries: [], libraries: [], macroPackages: [],
     allMacros: [], metricMacroSources: {}, entryKinds: [], macroKinds: [], relationships: []
@@ -44,6 +45,7 @@ vi.mock('vscode', () => ({
 }));
 
 vi.mock('./snlDoc', () => ({
+  initSnlDoc: mocks.initSnlDoc,
   readOverview: mocks.readOverview,
   resolveActiveMacroPackages: vi.fn(async () => []),
   setActiveMacroPackages: vi.fn(async () => undefined)
@@ -75,6 +77,20 @@ describe('Dashboard data migration host routing', () => {
       expect.objectContaining({ type: 'overview' }),
       { type: 'dataMigrationStatus', status: 'idle', operation: 'repair' }
     ]);
+  });
+
+  it.each([
+    ['initEntryKinds', 'snlDoc.initEntryKinds'],
+    ['initMacroKinds', 'snlDoc.initMacroKinds']
+  ])('creates the SNL skeleton before routing %s from initial setup', async (messageType, command) => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: messageType });
+
+    expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.executeCommand).toHaveBeenCalledWith(command);
+    expect(mocks.initSnlDoc.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.executeCommand.mock.invocationCallOrder[0]
+    );
   });
 
   it('drops stale overview reads when a newer refresh finishes first', async () => {

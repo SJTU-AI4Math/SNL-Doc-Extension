@@ -224,15 +224,32 @@ function NotInitialized({
       <PanelHeader vsApi={api} title="SNL Dashboard" />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         This workspace does not have an <code>.SNL_Doc/</code> folder yet.
-        Run <code>SNL: Init</code> to create the skeleton first.
+        Create the skeleton, then initialize a standard Kind catalog or start
+        with individual Kinds.
       </p>
-      <Button
-        type="button"
-        onClick={() => api?.postMessage({ type: 'init' })}
-        variant="primary"
-      >
-        Run SNL: Init
-      </Button>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <Button
+          type="button"
+          onClick={() => api?.postMessage({ type: 'init' })}
+          variant="primary"
+        >
+          Run SNL: Init
+        </Button>
+        <Button
+          type="button"
+          onClick={() => api?.postMessage({ type: 'initEntryKinds' })}
+          variant="secondary"
+        >
+          Initialize Entry Kinds
+        </Button>
+        <Button
+          type="button"
+          onClick={() => api?.postMessage({ type: 'initMacroKinds' })}
+          variant="secondary"
+        >
+          Initialize Macro Kinds
+        </Button>
+      </div>
     </main>
   );
 }
@@ -498,29 +515,27 @@ function Initialized({
         onToggle={() => setOpenEntryKinds((v) => !v)}
       >
         {hasKinds ? (
-          <>
-            <EntryKindsTable
-              kinds={overview.entryKinds}
-              onOpen={(id) =>
-                api?.postMessage({ type: 'editEntryKind', id })
-              }
-              onDelete={(id) =>
-                api?.postMessage({ type: 'deleteEntryKind', id })
-              }
-            />
-            <AddBar
-              label="Create Entry Kind"
-              onActivate={() =>
-                api?.postMessage({ type: 'createEntryKind' })
-              }
-            />
-          </>
+          <EntryKindsTable
+            kinds={overview.entryKinds}
+            onOpen={(id) =>
+              api?.postMessage({ type: 'editEntryKind', id })
+            }
+            onDelete={(id) =>
+              api?.postMessage({ type: 'deleteEntryKind', id })
+            }
+          />
         ) : (
           <AddBar
             label="Initialize Entry Kinds"
             onActivate={() => api?.postMessage({ type: 'initEntryKinds' })}
           />
         )}
+        <AddBar
+          label="Create Entry Kind"
+          onActivate={() =>
+            api?.postMessage({ type: 'createEntryKind' })
+          }
+        />
       </CollapsibleSection>
 
       {/* === 5. Macro Kinds =============================================== */}
@@ -533,29 +548,27 @@ function Initialized({
         onToggle={() => setOpenMacroKinds((v) => !v)}
       >
         {hasMacroKinds ? (
-          <>
-            <MacroKindsTable
-              kinds={overview.macroKinds}
-              onOpen={(id) =>
-                api?.postMessage({ type: 'editMacroKind', id })
-              }
-              onDelete={(id) =>
-                api?.postMessage({ type: 'deleteMacroKind', id })
-              }
-            />
-            <AddBar
-              label="Create Macro Kind"
-              onActivate={() =>
-                api?.postMessage({ type: 'createMacroKind' })
-              }
-            />
-          </>
+          <MacroKindsTable
+            kinds={overview.macroKinds}
+            onOpen={(id) =>
+              api?.postMessage({ type: 'editMacroKind', id })
+            }
+            onDelete={(id) =>
+              api?.postMessage({ type: 'deleteMacroKind', id })
+            }
+          />
         ) : (
           <AddBar
             label="Initialize Macro Kinds"
             onActivate={() => api?.postMessage({ type: 'initMacroKinds' })}
           />
         )}
+        <AddBar
+          label="Create Macro Kind"
+          onActivate={() =>
+            api?.postMessage({ type: 'createMacroKind' })
+          }
+        />
       </CollapsibleSection>
     </main>
   );

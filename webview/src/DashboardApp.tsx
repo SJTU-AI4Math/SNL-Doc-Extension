@@ -801,7 +801,10 @@ function HeaderActionButton({
         color: 'inherit',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
+        appearance: 'none',
         fontFamily: 'inherit',
+        fontSize: 'inherit',
+        lineHeight: 'inherit',
         fontWeight: 600,
         userSelect: 'none'
       }}

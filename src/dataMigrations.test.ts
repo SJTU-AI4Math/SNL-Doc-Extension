@@ -4,6 +4,7 @@ import {
   assertWorkspaceDataWritable,
   assertWorkspaceDataVersionNotRegressed,
   assertJsonSnapshotUnchanged,
+  cloneWorkspaceDataSnapshot,
   inspectWorkspaceData,
   migrateWorkspaceSnapshot,
   type WorkspaceDataSnapshot
@@ -49,6 +50,23 @@ const snapshot = (version: string): WorkspaceDataSnapshot => ({
 });
 
 describe('workspace data migrations', () => {
+  it('deep-clones every workspace snapshot field and map value', () => {
+    const source = snapshot('0.0.1');
+    source.packageManifests.set('packages/p.json', { nested: ['package'] } as never);
+    source.entryEntities.set('entries/e.json', { nested: ['entry'] } as never);
+    source.macroEntities.set('macros/m.json', { nested: ['macro'] } as never);
+
+    const cloned = cloneWorkspaceDataSnapshot(source);
+    expect(cloned).toEqual(source);
+    expect(cloned).not.toBe(source);
+    expect(cloned.config).not.toBe(source.config);
+    expect(cloned.macroPackages).not.toBe(source.macroPackages);
+    expect(cloned.macroPackages.get('Logic.json')).not.toBe(source.macroPackages.get('Logic.json'));
+    expect(cloned.packageManifests.get('packages/p.json')).not.toBe(source.packageManifests.get('packages/p.json'));
+    expect(cloned.entryEntities.get('entries/e.json')).not.toBe(source.entryEntities.get('entries/e.json'));
+    expect(cloned.macroEntities.get('macros/m.json')).not.toBe(source.macroEntities.get('macros/m.json'));
+  });
+
   it('reports missing, invalid, future, current and migratable workspace states', () => {
     expect(inspectWorkspaceData(null).status).toBe('missing');
     expect(inspectWorkspaceData({}).status).toBe('needsMigration');

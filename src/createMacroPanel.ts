@@ -23,7 +23,12 @@ import {
   type EntryData,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import {
+  buildPanelHtml,
+  firstWorkspaceFolder,
+  handlePanelNavMessage,
+  installSnlDocWatcher
+} from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
 import { stripJsonExt } from './macroPackageName';
 
@@ -208,34 +213,7 @@ export class CreateMacroPanel {
       this.disposables
     );
 
-    const root = firstWorkspaceFolder();
-    if (root) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const refresh = (): void => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          timer = undefined;
-          void this.pushContext();
-        }, 120);
-      };
-      this.disposables.push({ dispose: () => { if (timer) clearTimeout(timer); } });
-      for (const pattern of [
-        '.SNL_Doc/config.json',
-        '.SNL_Doc/entries.json',
-        '.SNL_Doc/entries/*.json',
-        '.SNL_Doc/term_macros/*.json',
-        '.SNL_Doc/packages/*.json',
-        '.SNL_Doc/macros/*.json'
-      ]) {
-        const watcher = vscode.workspace.createFileSystemWatcher(
-          new vscode.RelativePattern(root, pattern)
-        );
-        watcher.onDidCreate(refresh, null, this.disposables);
-        watcher.onDidChange(refresh, null, this.disposables);
-        watcher.onDidDelete(refresh, null, this.disposables);
-        this.disposables.push(watcher);
-      }
-    }
+    installSnlDocWatcher(this.disposables, () => this.pushContext());
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }

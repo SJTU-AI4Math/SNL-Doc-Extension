@@ -3,8 +3,8 @@
 //
 // Run as part of the build (see package.json `build:export-runtime`). Bundles
 // SNL-Basics's DOM-only hover implementation and concatenates the Extension's
-// own wiring + collapse logic. See src/exportHoverRuntime.ts for why this is a
-// build step rather than something done when the user hits Export.
+// own wiring + collapse logic. This is a build step so exported documents can
+// inline a self-contained runtime without bundling when the user hits Export.
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';

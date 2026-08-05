@@ -59,7 +59,6 @@ function estimateSize(payload: unknown): string {
  *        | `{ type: 'create', entry: EntryData }`
  *        | `{ type: 'update', entry: Omit<EntryData,'id'> }` (id is the panel key)
  *  - out : `{ type: 'context', mode, kinds, existing? }`
- *        | `{ type: 'kinds', kinds }` (legacy path kept for `ready` without context)
  *        | `{ type: 'created' | 'updated' | 'duplicate' | 'unknownKind'
  *            | 'notFound' | 'invalid' | 'noSnlDoc' | 'noWorkspace'
  *            | 'error', ... }`
@@ -265,7 +264,20 @@ export class CreateEntryPanel {
     this.openTrace = undefined;
     const root = firstWorkspaceFolder();
     if (!root) {
-      void this.panel.webview.postMessage({ type: 'kinds', kinds: [] });
+      void this.panel.webview.postMessage({
+        type: 'context',
+        mode: this.mode,
+        id: this.id || undefined,
+        seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
+        kinds: [],
+        macros: {},
+        macroKinds: [],
+        macroOrigin: {},
+        existing: null,
+        entryPackages: ['_unpackaged'],
+        existingIds: [],
+        relationships: []
+      });
       return;
     }
     trace.mark('read:start');
@@ -332,9 +344,6 @@ export class CreateEntryPanel {
         `kinds=${kinds.length}`
     );
     if (generation !== this.contextGeneration) return;
-    // Legacy `kinds` payload for backward compat with the current webview code;
-    // `context` carries the same info plus mode + existing entry + macros.
-    void this.panel.webview.postMessage({ type: 'kinds', kinds });
     const payload = {
       type: 'context',
       mode: this.mode,

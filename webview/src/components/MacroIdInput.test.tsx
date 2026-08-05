@@ -61,7 +61,7 @@ describe('MacroIdInput', () => {
         <MacroIdInput
           value={value}
           onChange={setValue}
-          macroIds={['FOL.forall', 'Foo.bar', 'Add.add']}
+          macroCandidates={['FOL.forall', 'Foo.bar', 'Add.add'].map((id) => ({ id, labels: [] }))}
           aria-label="Autocomplete Macro ID"
         />
       );
@@ -83,7 +83,7 @@ describe('MacroIdInput', () => {
         <MacroIdInput
           value={value}
           onChange={setValue}
-          macroIds={['Foo.macro', 'Bar.macro']}
+          macroCandidates={['Foo.macro', 'Bar.macro'].map((id) => ({ id, labels: [] }))}
           aria-label="Multi-token Macro ID"
         />
       );
@@ -119,7 +119,7 @@ describe('MacroIdInput', () => {
         <MacroIdInput
           value={value}
           onChange={setValue}
-          macroIds={['FOL.forall', 'Foo.bar', 'Add.add']}
+          macroCandidates={['FOL.forall', 'Foo.bar', 'Add.add'].map((id) => ({ id, labels: [] }))}
           aria-label="SNoogL Macro ID"
         />
       );
@@ -144,7 +144,7 @@ describe('MacroIdInput', () => {
       <MacroIdInput
         value=""
         onChange={() => undefined}
-        macroIds={['FOL.forall']}
+        macroCandidates={[{ id: 'FOL.forall', labels: [] }]}
         aria-label="Macro ID"
       />
     );
@@ -184,7 +184,7 @@ describe('MacroIdInput', () => {
         readOnly
         value="Fixed.name"
         onChange={() => undefined}
-        macroIds={['Other.name']}
+        macroCandidates={[{ id: 'Other.name', labels: [] }]}
         aria-label="Read-only Macro ID"
       />
     );

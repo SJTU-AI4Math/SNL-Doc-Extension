@@ -25,10 +25,6 @@ import type { MacroRecord } from './macroData';
 import { extensionRenderers } from './blockRenderers';
 import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
 
-export function mergeMacroDb(userMacros: MacroRecord | undefined | null): MacroRecord {
-  return userMacros ? { ...userMacros } : {};
-}
-
 export interface EntryOption {
   id: string;
   title: string;

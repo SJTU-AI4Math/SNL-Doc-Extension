@@ -133,6 +133,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(context.seedId).toBeUndefined();
     expect(context.existing?.id).toBe('thm-new');
     expect(context.entryPackages).toContain('_unpackaged');
+    expect(posted.some((message) => message?.type === 'kinds')).toBe(false);
     // `created` must precede the context so the webview can mark the target.
     expect(posted.indexOf(created)).toBeLessThan(posted.indexOf(context));
   });

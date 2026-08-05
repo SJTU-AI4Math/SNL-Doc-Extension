@@ -7,6 +7,7 @@ import {
 } from './entityStorageIo';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
+  cloneWorkspaceDataSnapshot,
   inspectWorkspaceData,
   makeEntityStorageReceipt,
   migrateWorkspaceSnapshot,
@@ -241,23 +242,7 @@ export async function migrateStoredWorkspaceData(
   }
 
   const source = await loadSnapshot(storage);
-  const originals = {
-    config: structuredClone(source.config),
-    macroPackages: new Map(
-      [...source.macroPackages].map(([file, raw]) => [file, structuredClone(raw)])
-    ),
-    relationships: structuredClone(source.relationships),
-    entries: structuredClone(source.entries),
-    packageManifests: new Map(
-      [...source.packageManifests].map(([path, value]) => [path, structuredClone(value)])
-    ),
-    entryEntities: new Map(
-      [...source.entryEntities].map(([path, value]) => [path, structuredClone(value)])
-    ),
-    macroEntities: new Map(
-      [...source.macroEntities].map(([path, value]) => [path, structuredClone(value)])
-    )
-  };
+  const originals = cloneWorkspaceDataSnapshot(source);
   const report = await migrateWorkspaceSnapshot(source, canonicalizeMacroPackage);
 
   const writes: Array<{ path: string; value: unknown; original: unknown }> = [];

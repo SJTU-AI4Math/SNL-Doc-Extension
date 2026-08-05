@@ -561,9 +561,7 @@ export function CreateEntryApp(): React.ReactElement {
   // editor" button in the GUI editor. Pushed by the host on `context`.
   const [macroOrigin, setMacroOrigin] = useState<Record<string, string>>({});
 
-  // User-only DB (for EntryRender.userMacros, which merges over the core
-  // internally via mergeMacroDb) AND merged DB (for the GUI editor which
-  // wants a flat lookup).
+  // User-only DB for EntryRender and the GUI editor's flat lookup.
   const userMacros: MacroRecord = useMemo(() => {
     const userDb: MacroRecord = {};
     for (const [name, m] of Object.entries(wireMacros)) {
@@ -721,7 +719,6 @@ export function CreateEntryApp(): React.ReactElement {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
-        | { type: 'kinds'; kinds: EntryKind[] }
         | { type: 'retarget'; mode: Mode; id?: string }
         | {
             type: 'context';
@@ -752,14 +749,6 @@ export function CreateEntryApp(): React.ReactElement {
         return;
       }
       switch (msg.type) {
-        case 'kinds':
-          setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
-          setKindsLoaded(true);
-          setSelectedKind((prev) => {
-            if (prev) return prev;
-            return msg.kinds && msg.kinds.length > 0 ? msg.kinds[0].id : '';
-          });
-          break;
         case 'retarget': {
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous

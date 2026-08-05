@@ -5896,15 +5896,6 @@ export function extractSnlReferences(
   return { macros: Array.from(macros), contextSrcs: Array.from(contextSrcs) };
 }
 
-/**
- * @deprecated Prefer {@link extractSnlReferences} which also returns the
- * `x@foo` context-src target set. Retained for callers only interested
- * in macro names.
- */
-export function extractMacroNamesFromSnl(snl: string): string[] {
-  return extractSnlReferences(snl).macros;
-}
-
 /** Report from {@link regenerateDependencyRelationships}. */
 export interface DependencyGenReport {
   added: number;

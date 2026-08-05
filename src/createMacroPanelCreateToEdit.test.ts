@@ -18,6 +18,7 @@ const posted: unknown[] = [];
 let revealCount = 0;
 let handlers: Array<(e: unknown) => void> = [];
 let configurationHandlers: Array<(event: { affectsConfiguration(key: string): boolean }) => void> = [];
+let watcherCount = 0;
 
 vi.mock('vscode', () => ({
   Uri: {
@@ -68,12 +69,15 @@ vi.mock('vscode', () => ({
     },
     workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws' } }],
     getConfiguration: () => ({ get: () => undefined }),
-    createFileSystemWatcher: () => ({
+    createFileSystemWatcher: () => {
+      watcherCount += 1;
+      return {
       onDidCreate: () => undefined,
       onDidChange: () => undefined,
       onDidDelete: () => undefined,
       dispose: () => undefined
-    })
+      };
+    }
   }
 }));
 
@@ -125,12 +129,19 @@ function reset(): void {
   configurationHandlers = [];
   revealCount = 0;
   macros.length = 0;
+  watcherCount = 0;
 }
 
 describe('macro panel create -> edit flip', () => {
   beforeEach(() => {
     reset();
     vi.resetModules();
+  });
+
+  it('installs the shared SNL document watcher once per panel', async () => {
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+    CreateMacroPanel.createOrShow(extUri, 'watcher.json');
+    expect(watcherCount).toBe(1);
   });
 
   it('opens Copy Macro in a separate Create panel instead of reusing a dirty blank form', async () => {

@@ -34,7 +34,6 @@ const MESSAGES = defineUiMessages(
   }
 );
 
-const EMPTY_MACRO_IDS: readonly string[] = [];
 const EMPTY_MACRO_CANDIDATES: readonly SnooglSearchCandidate[] = [];
 
 export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'binder' | 'context';
@@ -131,8 +130,6 @@ interface MacroIdInputBaseProps {
   onChange: (value: string) => void;
   autoSize?: boolean;
   macroCandidates?: readonly SnooglSearchCandidate[];
-  /** @deprecated Pass structured `macroCandidates` so SNoogL can search labels/tags. */
-  macroIds?: readonly string[];
   /** Open the embedded SNoogL Macro picker as soon as this control mounts. */
   openSnooglOnMount?: boolean;
   /**
@@ -166,7 +163,6 @@ export const MacroIdInput = forwardRef<
     multiline = false,
     autoSize = false,
     macroCandidates = EMPTY_MACRO_CANDIDATES,
-    macroIds = EMPTY_MACRO_IDS,
     openSnooglOnMount = false,
     snooglInsertsMacroId = false,
     selectAllOnMount = false,
@@ -195,10 +191,12 @@ export const MacroIdInput = forwardRef<
     (props as React.InputHTMLAttributes<HTMLInputElement>).disabled
   );
   useImperativeHandle(forwardedRef, () => controlRef.current!, [multiline]);
-  const searchCandidates = useMemo(() => Array.from(new Map<string, SnooglSearchCandidate>([
-    ...macroIds.map((id) => [id, { id, labels: [] as readonly string[] }] as const),
-    ...macroCandidates.map((candidate) => [candidate.id, candidate] as const)
-  ]).values()), [macroIds, macroCandidates]);
+  const searchCandidates = useMemo(
+    () => Array.from(new Map(
+      macroCandidates.map((candidate) => [candidate.id, candidate] as const)
+    ).values()),
+    [macroCandidates]
+  );
   const searchIndex = useMemo(() => new SnooglSearchIndex(
     searchCandidates.map((candidate) => createSnooglSearchDocument({
       id: candidate.id,

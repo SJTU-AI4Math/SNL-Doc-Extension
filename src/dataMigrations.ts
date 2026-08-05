@@ -642,7 +642,7 @@ function preflightWorkspaceSnapshot(source: WorkspaceDataSnapshot): void {
   }
 }
 
-function cloneSnapshot(source: WorkspaceDataSnapshot): WorkspaceDataSnapshot {
+export function cloneWorkspaceDataSnapshot(source: WorkspaceDataSnapshot): WorkspaceDataSnapshot {
   return {
     config: structuredClone(source.config),
     macroPackages: new Map(
@@ -682,7 +682,7 @@ export async function migrateWorkspaceSnapshot(
     throw new Error(inspection.message);
   }
   preflightWorkspaceSnapshot(source);
-  const working = cloneSnapshot(source);
+  const working = cloneWorkspaceDataSnapshot(source);
   const context: WorkspaceMigrationContext = { data: working, canonicalizeMacroPackage };
   const report = await runDataMigrationChain(
     context,

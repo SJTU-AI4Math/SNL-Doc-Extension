@@ -24,15 +24,3 @@ export function createMacroDataDriver(...records: Array<MacroRecord | null | und
     }
   });
 }
-
-/** Synchronous projection for Extension-local metadata/UI behavior. */
-export function lookupMacro(
-  macroName: string,
-  ...records: Array<MacroRecord | null | undefined>
-): SnlMacro | undefined {
-  for (let i = records.length - 1; i >= 0; i -= 1) {
-    const macro = records[i]?.[macroName];
-    if (macro) return macro;
-  }
-  return undefined;
-}

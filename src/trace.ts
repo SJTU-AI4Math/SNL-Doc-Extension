@@ -159,12 +159,3 @@ export function startTrace(label: string, detail?: string): Trace {
     }
   };
 }
-
-/**
- * Record a stage the WEBVIEW reported, folding it into the same timeline as
- * the host-side marks. The webview measures with `performance.now()` relative
- * to its own script start, so it sends deltas we can append verbatim.
- */
-export function traceFromWebview(trace: Trace, stage: string, ms: number): void {
-  trace.mark(stage, `webview-clock=${ms.toFixed(1)}ms`);
-}

@@ -9,6 +9,43 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { inspectWorkspaceDataVersion } from './vscodeDataMigration';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { extension_preferences_runtime } from './preferences';
+
+const DASHBOARD_HOST_MESSAGES = defineHostMessages(
+  {
+    title: 'SNL Dashboard',
+    noWorkspaceOverview: 'No workspace folder is open.',
+    refreshFailed: 'SNL Dashboard refresh failed: {error}',
+    kindInitRequiresWorkspace: 'Kind initialization requires an open folder / workspace.',
+    kindInitFailed: 'Kind initialization failed: {error}',
+    initRequiresWorkspace: 'SNL Init requires an open folder / workspace.',
+    alreadyExists: '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.',
+    initialized: 'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.',
+    initFailed: 'SNL Init failed: {error}',
+    activePackagesFailed: 'SNL Dashboard: failed to update active packages: {error}'
+  },
+  {
+    title: 'SNL 仪表板',
+    noWorkspaceOverview: '未打开工作区文件夹。',
+    refreshFailed: 'SNL 仪表板刷新失败：{error}',
+    kindInitRequiresWorkspace: '初始化类型需要打开文件夹或工作区。',
+    kindInitFailed: '初始化类型失败：{error}',
+    initRequiresWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
+    alreadyExists: '.SNL_Doc 已存在——请使用“SNL: 创建库”添加库。',
+    initialized: 'SNL Doc 框架已初始化。请使用“SNL: 创建库”添加第一个库。',
+    initFailed: 'SNL 初始化失败：{error}',
+    activePackagesFailed: 'SNL 仪表板：更新活动包失败：{error}'
+  }
+);
+
+export function createDashboardHostTranslator(language: string) {
+  return createHostTranslator(language, DASHBOARD_HOST_MESSAGES);
+}
+
+function dashboardT() {
+  return createDashboardHostTranslator(extension_preferences_runtime.query_environment().language);
+}
 
 /**
  * Singleton manager for the `SNL: Open Dashboard` webview panel.
@@ -61,7 +98,7 @@ export class DashboardPanel {
 
     const panel = vscode.window.createWebviewPanel(
       DashboardPanel.viewType,
-      'SNL Dashboard',
+      dashboardT()('title'),
       column,
       {
         enableScripts: true,
@@ -81,7 +118,7 @@ export class DashboardPanel {
       this.extensionUri,
       this.panel.webview,
       'dashboard',
-      'SNL Dashboard'
+      dashboardT()('title')
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -173,7 +210,7 @@ export class DashboardPanel {
             currentVersion: null,
             targetVersion: CURRENT_DATA_VERSION,
             pendingCount: 0,
-            message: 'No workspace folder is open.'
+            message: dashboardT()('noWorkspaceOverview')
           }
         }
       });
@@ -202,7 +239,7 @@ export class DashboardPanel {
     } catch (err) {
       if (generation !== this.overviewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Dashboard refresh failed: ${text}`);
+      vscode.window.showErrorMessage(dashboardT()('refreshFailed', { error: text }));
     }
   }
 
@@ -389,9 +426,7 @@ export class DashboardPanel {
   ): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
-      vscode.window.showErrorMessage(
-        'Kind initialization requires an open folder / workspace.'
-      );
+      vscode.window.showErrorMessage(dashboardT()('kindInitRequiresWorkspace'));
       return;
     }
     try {
@@ -399,7 +434,7 @@ export class DashboardPanel {
       await vscode.commands.executeCommand(command);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
-      vscode.window.showErrorMessage(`Kind initialization failed: ${text}`);
+      vscode.window.showErrorMessage(dashboardT()('kindInitFailed', { error: text }));
     }
   }
 
@@ -426,23 +461,23 @@ export class DashboardPanel {
   private async runDashboardInit(): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
-      vscode.window.showErrorMessage('SNL Init requires an open folder / workspace.');
+      vscode.window.showErrorMessage(dashboardT()('initRequiresWorkspace'));
       return;
     }
     try {
       const result = await this.initializeSkeleton(root);
       if (result.status === 'exists') {
         vscode.window.showWarningMessage(
-          '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.'
+          dashboardT()('alreadyExists')
         );
       } else {
         vscode.window.showInformationMessage(
-          'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.'
+          dashboardT()('initialized')
         );
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
-      vscode.window.showErrorMessage(`SNL Init failed: ${text}`);
+      vscode.window.showErrorMessage(dashboardT()('initFailed', { error: text }));
     }
   }
 
@@ -511,7 +546,7 @@ export class DashboardPanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Dashboard: failed to update active packages: ${text}`
+        dashboardT()('activePackagesFailed', { error: text })
       );
     }
   }

@@ -18,6 +18,59 @@ import {
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 import { packageManifestPath } from './entityStorage';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { extension_preferences_runtime } from './preferences';
+
+const PACKAGE_HOST_MESSAGES = defineHostMessages(
+  {
+    title: 'SNL Macros — {file}',
+    deletePrompt: { arg: 'count', one: 'Delete {count} macro from this package?', other: 'Delete {count} macros from this package?' },
+    deleteDetail: 'This cannot be undone. The package JSON is rewritten with these macros removed.',
+    deleteAction: 'Delete',
+    invalidNames: '{operation}: macroNames must be a string array',
+    packageNotFound: 'Package file not found.',
+    invalidMode: "batchTransfer: mode must be 'copy' or 'move'",
+    invalidTarget: "batchTransfer: target must be 'existing' or 'new'",
+    destinationRequired: 'batchTransfer: destFile is required when target=existing',
+    moveOperation: 'Move',
+    copyOperation: 'Copy',
+    destinationConflict: '{operation} refused — the destination package already has: {names}. Rename or remove the conflicts first.',
+    destinationNotFound: 'Destination package not found.',
+    sourceNotFound: 'Source package not found.',
+    newFileRequired: 'batchTransfer: newFile is required when target=new',
+    duplicatePackage: 'A package named "{file}" already exists.',
+    invalidActive: 'setPackageActive: active must be a boolean',
+    noWorkspace: 'No workspace folder open.'
+  },
+  {
+    title: 'SNL 宏 — {file}',
+    deletePrompt: '要从此包中删除 {count} 个宏吗？',
+    deleteDetail: '此操作无法撤销。将重写包 JSON 并移除这些宏。',
+    deleteAction: '删除',
+    invalidNames: '{operation}：macroNames 必须是字符串数组',
+    packageNotFound: '找不到包文件。',
+    invalidMode: "batchTransfer：mode 必须是 'copy' 或 'move'",
+    invalidTarget: "batchTransfer：target 必须是 'existing' 或 'new'",
+    destinationRequired: 'batchTransfer：target=existing 时必须指定 destFile',
+    moveOperation: '移动',
+    copyOperation: '复制',
+    destinationConflict: '拒绝{operation}——目标包中已存在：{names}。请先重命名或移除冲突项。',
+    destinationNotFound: '找不到目标包。',
+    sourceNotFound: '找不到源包。',
+    newFileRequired: 'batchTransfer：target=new 时必须指定 newFile',
+    duplicatePackage: '名为“{file}”的包已存在。',
+    invalidActive: 'setPackageActive：active 必须是布尔值',
+    noWorkspace: '未打开工作区文件夹。'
+  }
+);
+
+export function createPackageHostTranslator(language: string) {
+  return createHostTranslator(language, PACKAGE_HOST_MESSAGES);
+}
+
+function packageT() {
+  return createPackageHostTranslator(extension_preferences_runtime.query_environment().language);
+}
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -75,7 +128,7 @@ export class PackagePanel {
 
     const panel = vscode.window.createWebviewPanel(
       PackagePanel.viewType,
-      `SNL Macros — ${bare}`,
+      packageT()('title', { file: bare }),
       column,
       {
         enableScripts: true,
@@ -103,7 +156,7 @@ export class PackagePanel {
       this.extensionUri,
       this.panel.webview,
       'packagePanel',
-      `SNL Macros — ${this.file}`
+      packageT()('title', { file: this.file })
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -289,29 +342,28 @@ export class PackagePanel {
       case 'batchDelete': {
         const names = toStringArray((msg as { macroNames?: unknown }).macroNames);
         if (!names) {
-          void this.postError('batchDelete: macroNames must be a string array');
+          void this.postError(packageT()('invalidNames', { operation: 'batchDelete' }));
           return;
         }
         // Host-side modal (cat 2026-07-09) — window.confirm is CSP-blocked
         // in webviews. The previous webview-side confirm was a silent no-op.
-        const noun = `${names.length} macro${names.length === 1 ? '' : 's'}`;
+        const t = packageT();
         const confirmed = await vscode.window.showWarningMessage(
-          `Delete ${noun} from this package?`,
+          t('deletePrompt', { count: names.length }),
           {
             modal: true,
-            detail:
-              'This cannot be undone. The package JSON is rewritten with these macros removed.'
+            detail: t('deleteDetail')
           },
-          'Delete'
+          t('deleteAction')
         );
-        if (confirmed !== 'Delete') {
+        if (confirmed !== t('deleteAction')) {
           void this.panel.webview.postMessage({ type: 'batchCancelled' });
           return;
         }
         await this.runBatch(async (root) => {
           const res = await batchDeleteMacros(root, this.file, names);
           if (res.status === 'ok') return null;
-          if (res.status === 'noFile') return 'Package file not found.';
+          if (res.status === 'noFile') return packageT()('packageNotFound');
           return res.message;
         });
         return;
@@ -337,31 +389,25 @@ export class PackagePanel {
         };
         const names = toStringArray(m.macroNames);
         if (!names) {
-          void this.postError(
-            'batchTransfer: macroNames must be a string array'
-          );
+          void this.postError(packageT()('invalidNames', { operation: 'batchTransfer' }));
           return;
         }
         const mode = m.mode === 'move' ? 'move' : m.mode === 'copy' ? 'copy' : null;
         if (!mode) {
-          void this.postError("batchTransfer: mode must be 'copy' or 'move'");
+          void this.postError(packageT()('invalidMode'));
           return;
         }
         const target =
           m.target === 'new' ? 'new' : m.target === 'existing' ? 'existing' : null;
         if (!target) {
-          void this.postError(
-            "batchTransfer: target must be 'existing' or 'new'"
-          );
+          void this.postError(packageT()('invalidTarget'));
           return;
         }
 
         if (target === 'existing') {
           const destFile = m.destFile;
           if (typeof destFile !== 'string' || !destFile) {
-            void this.postError(
-              'batchTransfer: destFile is required when target=existing'
-            );
+            void this.postError(packageT()('destinationRequired'));
             return;
           }
           await this.runBatch(async (root) => {
@@ -371,16 +417,17 @@ export class PackagePanel {
                 : await batchCopyMacros(root, this.file, destFile, names);
             if (res.status === 'ok') return null;
             if (res.status === 'conflict') {
-              return (
-                `${mode === 'move' ? 'Move' : 'Copy'} refused — the destination package already has: ` +
-                res.conflictNames.join(', ') +
-                '. Rename or remove the conflicts first.'
-              );
+              return packageT()('destinationConflict', {
+                operation: mode === 'move'
+                  ? packageT()('moveOperation')
+                  : packageT()('copyOperation'),
+                names: res.conflictNames.join(', ')
+              });
             }
             if (res.status === 'noFile') {
               return res.which === 'dest'
-                ? 'Destination package not found.'
-                : 'Source package not found.';
+                ? packageT()('destinationNotFound')
+                : packageT()('sourceNotFound');
             }
             return res.message;
           });
@@ -389,9 +436,7 @@ export class PackagePanel {
 
         // target === 'new'
         if (typeof m.newFile !== 'string' || !m.newFile) {
-          void this.postError(
-            'batchTransfer: newFile is required when target=new'
-          );
+          void this.postError(packageT()('newFileRequired'));
           return;
         }
         const newFile = m.newFile;
@@ -420,9 +465,9 @@ export class PackagePanel {
                 );
           if (res.status === 'ok') return null;
           if (res.status === 'duplicate') {
-            return `A package named "${res.file}" already exists.`;
+            return packageT()('duplicatePackage', { file: res.file });
           }
-          if (res.status === 'noFile') return 'Source package not found.';
+          if (res.status === 'noFile') return packageT()('sourceNotFound');
           if (res.status === 'invalid') return res.reason;
           return res.message;
         });
@@ -431,7 +476,7 @@ export class PackagePanel {
       case 'setPackageActive': {
         const active = (msg as { active?: unknown }).active;
         if (typeof active !== 'boolean') {
-          void this.postError('setPackageActive: active must be a boolean');
+          void this.postError(packageT()('invalidActive'));
           return;
         }
         await this.runBatch(async (root) => {
@@ -458,7 +503,7 @@ export class PackagePanel {
   ): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
-      void this.postError('No workspace folder open.');
+      void this.postError(packageT()('noWorkspace'));
       return;
     }
     try {

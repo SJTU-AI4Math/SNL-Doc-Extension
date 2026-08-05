@@ -23,6 +23,91 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { extension_preferences_runtime } from './preferences';
+
+const LIBRARY_HOST_MESSAGES = defineHostMessages(
+  {
+    createTitle: 'SNL Create Library',
+    editTitle: 'SNL Edit Library — {slug}',
+    noWorkspace: 'No workspace folder open.',
+    graphMissingWarning: 'graph.json does not exist; will be created on first edit',
+    editorRequiresWorkspace: 'SNL Library editor requires an open folder / workspace.',
+    libraryUpdated: 'Library "{slug}" title updated to "{title}".',
+    libraryConflict: 'Library "{slug}" changed after this editor opened. Reload before saving.',
+    libraryNotFound: 'Library "{slug}" no longer exists.',
+    noSnlDoc: '.SNL_Doc does not exist yet. Run "SNL: Init" first.',
+    libraryDuplicate: 'Library "{slug}" already exists.',
+    libraryCreated: 'Library "{title}" created (slug: {slug}).',
+    editorFailed: 'SNL Library editor failed: {error}',
+    graphEditOnly: 'graphOp only valid in edit mode',
+    graphMissingOp: 'graphOp: missing op field',
+    parentNotFound: 'addNode: parent "{parent}" not found',
+    entryNotFound: 'addNode: entry "{entry}" not found in shared pool. Leave the id field empty to create a new entry.',
+    kindRequired: 'addNode: kind is required when creating a new entry',
+    unknownKind: 'kind "{kind}" is not registered',
+    entryCollision: 'entry id collision ({id}) — retry',
+    snlDocNotFound: '.SNL_Doc/ not found',
+    unknownError: 'unknown',
+    addEntryFailed: 'addNode: shared-pool addEntry failed: {error}',
+    deleteNodeRequired: 'deleteNode: nodeId is required',
+    outlineHasChildren: 'Cannot delete: this node has children.',
+    outlineHasChildrenDetail: 'Move or delete each child first, then delete the parent. This prevents accidental subtree loss.',
+    outlineRemovePrompt: 'Remove "{node}" from this library\'s outline?',
+    outlineRemoveDetail: 'The underlying shared-pool entry is NOT deleted — only this outline node and its branch edges. Use the Dashboard’s Entries table if you want to delete the entry itself.',
+    outlineRemoveAction: 'Remove',
+    moveRequired: 'moveSibling: nodeId + direction required',
+    indentRequired: 'indent: nodeId required',
+    outdentRequired: 'outdent: nodeId required',
+    updateNodeRequired: 'updateNodeProps: nodeId is required',
+    updateNodeNotFound: 'updateNodeProps: node "{node}" not found',
+    unknownGraphOp: 'unknown graphOp: {op}'
+  },
+  {
+    createTitle: 'SNL 创建库',
+    editTitle: 'SNL 编辑库 — {slug}',
+    noWorkspace: '未打开工作区文件夹。',
+    graphMissingWarning: 'graph.json 不存在；首次编辑时将创建该文件',
+    editorRequiresWorkspace: 'SNL 库编辑器需要打开文件夹或工作区。',
+    libraryUpdated: '库“{slug}”的标题已更新为“{title}”。',
+    libraryConflict: '库“{slug}”在此编辑器打开后已更改。请重新加载后再保存。',
+    libraryNotFound: '库“{slug}”已不存在。',
+    noSnlDoc: '.SNL_Doc 尚不存在。请先运行“SNL: 初始化”。',
+    libraryDuplicate: '库“{slug}”已存在。',
+    libraryCreated: '已创建库“{title}”（标识：{slug}）。',
+    editorFailed: 'SNL 库编辑器失败：{error}',
+    graphEditOnly: 'graphOp 仅在编辑模式下有效',
+    graphMissingOp: 'graphOp：缺少 op 字段',
+    parentNotFound: 'addNode：找不到父节点“{parent}”',
+    entryNotFound: 'addNode：共享池中找不到条目“{entry}”。将 ID 字段留空可创建新条目。',
+    kindRequired: 'addNode：创建新条目时必须指定类型',
+    unknownKind: '类型“{kind}”尚未注册',
+    entryCollision: '条目 ID 冲突（{id}）——请重试',
+    snlDocNotFound: '找不到 .SNL_Doc/',
+    unknownError: '未知错误',
+    addEntryFailed: 'addNode：添加共享池条目失败：{error}',
+    deleteNodeRequired: 'deleteNode：必须指定 nodeId',
+    outlineHasChildren: '无法删除：此节点包含子节点。',
+    outlineHasChildrenDetail: '请先移动或删除每个子节点，然后再删除父节点，以防意外丢失子树。',
+    outlineRemovePrompt: '要从此库的大纲中移除“{node}”吗？',
+    outlineRemoveDetail: '不会删除底层共享池条目，只会删除此大纲节点及其分支边。若要删除条目本身，请使用仪表板的“条目”表格。',
+    outlineRemoveAction: '移除',
+    moveRequired: 'moveSibling：必须指定 nodeId 和 direction',
+    indentRequired: 'indent：必须指定 nodeId',
+    outdentRequired: 'outdent：必须指定 nodeId',
+    updateNodeRequired: 'updateNodeProps：必须指定 nodeId',
+    updateNodeNotFound: 'updateNodeProps：找不到节点“{node}”',
+    unknownGraphOp: '未知 graphOp：{op}'
+  }
+);
+
+export function createLibraryHostTranslator(language: string) {
+  return createHostTranslator(language, LIBRARY_HOST_MESSAGES);
+}
+
+function libraryT() {
+  return createLibraryHostTranslator(extension_preferences_runtime.query_environment().language);
+}
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Library editor panel.
@@ -96,7 +181,7 @@ export class CreateLibraryPanel {
     }
 
     const title =
-      mode === 'edit' ? `SNL Edit Library — ${slug}` : 'SNL Create Library';
+      mode === 'edit' ? libraryT()('editTitle', { slug }) : libraryT()('createTitle');
     const panel = vscode.window.createWebviewPanel(
       CreateLibraryPanel.viewType,
       title,
@@ -129,7 +214,7 @@ export class CreateLibraryPanel {
       this.extensionUri,
       this.panel.webview,
       'createLibrary',
-      mode === 'edit' ? `SNL Edit Library — ${slug}` : 'SNL Create Library'
+      mode === 'edit' ? libraryT()('editTitle', { slug }) : libraryT()('createTitle')
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -226,7 +311,7 @@ export class CreateLibraryPanel {
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'graphError',
-        message: 'No workspace folder open.'
+        message: libraryT()('noWorkspace')
       });
       return;
     }
@@ -243,7 +328,7 @@ export class CreateLibraryPanel {
       } else if (gResult.status === 'noFile') {
         // No graph.json → treat as empty graph so the outline editor can
         // start populating one.
-        warnings = ['graph.json does not exist; will be created on first edit'];
+        warnings = [libraryT()('graphMissingWarning')];
       } else {
         void this.panel.webview.postMessage({
           type: 'graphError',
@@ -349,7 +434,7 @@ export class CreateLibraryPanel {
 
     const workspaceRoot = firstWorkspaceFolder();
     if (!workspaceRoot) {
-      const text = 'SNL Library editor requires an open folder / workspace.';
+      const text = libraryT()('editorRequiresWorkspace');
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -371,7 +456,7 @@ export class CreateLibraryPanel {
         switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
-              `Library "${result.slug}" title updated to "${result.title}".`
+              libraryT()('libraryUpdated', { slug: result.slug, title: result.title })
             );
             await this.panel.webview.postMessage({
               type: 'updated',
@@ -381,13 +466,13 @@ export class CreateLibraryPanel {
             await this.pushContext();
             return;
           case 'conflict': {
-            const text = `Library "${result.id}" changed after this editor opened. Reload before saving.`;
+            const text = libraryT()('libraryConflict', { slug: result.id });
             vscode.window.showWarningMessage(text);
             void this.panel.webview.postMessage({ type: 'conflict', slug: result.id, message: text });
             return;
           }
           case 'notFound': {
-            const text = `Library "${result.id}" no longer exists.`;
+            const text = libraryT()('libraryNotFound', { slug: result.id });
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'notFound',
@@ -397,7 +482,7 @@ export class CreateLibraryPanel {
             return;
           }
           case 'noSnlDoc': {
-            const text = '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            const text = libraryT()('noSnlDoc');
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'noSnlDoc',
@@ -423,8 +508,7 @@ export class CreateLibraryPanel {
       const result = await createLibrary(workspaceRoot, title);
       switch (result.status) {
         case 'noSnlDoc': {
-          const text =
-            '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+          const text = libraryT()('noSnlDoc');
           vscode.window.showErrorMessage(text);
           void this.panel.webview.postMessage({
             type: 'noSnlDoc',
@@ -433,7 +517,7 @@ export class CreateLibraryPanel {
           return;
         }
         case 'duplicate': {
-          const text = `Library "${result.slug}" already exists.`;
+          const text = libraryT()('libraryDuplicate', { slug: result.slug });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'duplicate',
@@ -444,7 +528,7 @@ export class CreateLibraryPanel {
         }
         case 'created':
           vscode.window.showInformationMessage(
-            `Library "${result.title}" created (slug: ${result.slug}).`
+            libraryT()('libraryCreated', { title: result.title, slug: result.slug })
           );
           void this.panel.webview.postMessage({
             type: 'created',
@@ -455,7 +539,7 @@ export class CreateLibraryPanel {
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Library editor failed: ${text}`);
+      vscode.window.showErrorMessage(libraryT()('editorFailed', { error: text }));
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
@@ -503,7 +587,7 @@ export class CreateLibraryPanel {
     if (this.mode !== 'edit') {
       void this.panel.webview.postMessage({
         type: 'graphError',
-        message: 'graphOp only valid in edit mode'
+        message: libraryT()('graphEditOnly')
       });
       return;
     }
@@ -511,7 +595,7 @@ export class CreateLibraryPanel {
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'graphError',
-        message: 'No workspace folder open.'
+        message: libraryT()('noWorkspace')
       });
       return;
     }
@@ -519,7 +603,7 @@ export class CreateLibraryPanel {
     if (!op || typeof op.op !== 'string') {
       void this.panel.webview.postMessage({
         type: 'graphError',
-        message: 'graphOp: missing op field'
+        message: libraryT()('graphMissingOp')
       });
       return;
     }
@@ -562,7 +646,7 @@ export class CreateLibraryPanel {
           if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: `addNode: parent "${parentId}" not found`
+              message: libraryT()('parentNotFound', { parent: parentId })
             });
             return;
           }
@@ -577,7 +661,7 @@ export class CreateLibraryPanel {
               if (!pool.some((e) => e && e.id === rawEntryId)) {
                 void this.panel.webview.postMessage({
                   type: 'graphError',
-                  message: `addNode: entry "${rawEntryId}" not found in shared pool. Leave the id field empty to create a new entry.`
+                  message: libraryT()('entryNotFound', { entry: rawEntryId })
                 });
                 return;
               }
@@ -588,7 +672,7 @@ export class CreateLibraryPanel {
             if (!kind) {
               void this.panel.webview.postMessage({
                 type: 'graphError',
-                message: 'addNode: kind is required when creating a new entry'
+                message: libraryT()('kindRequired')
               });
               return;
             }
@@ -606,15 +690,15 @@ export class CreateLibraryPanel {
                 addRes.status === 'invalid'
                   ? addRes.reason
                   : addRes.status === 'unknownKind'
-                    ? `kind "${addRes.kind}" is not registered`
+                    ? libraryT()('unknownKind', { kind: addRes.kind })
                     : addRes.status === 'duplicate'
-                      ? `entry id collision (${addRes.id}) — retry`
+                      ? libraryT()('entryCollision', { id: addRes.id })
                       : addRes.status === 'noSnlDoc'
-                        ? '.SNL_Doc/ not found'
-                        : 'error' in addRes ? addRes.message : 'unknown';
+                        ? libraryT()('snlDocNotFound')
+                        : 'error' in addRes ? addRes.message : libraryT()('unknownError');
               void this.panel.webview.postMessage({
                 type: 'graphError',
-                message: `addNode: shared-pool addEntry failed: ${message}`
+                message: libraryT()('addEntryFailed', { error: message })
               });
               return;
             }
@@ -660,7 +744,7 @@ export class CreateLibraryPanel {
           if (!nodeId) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: 'deleteNode: nodeId is required'
+              message: libraryT()('deleteNodeRequired')
             });
             return;
           }
@@ -675,11 +759,10 @@ export class CreateLibraryPanel {
             // Modal (not just a webview banner) — cat 2026-07-09 wants
             // clear "why can't I delete this" feedback.
             void vscode.window.showWarningMessage(
-              'Cannot delete: this node has children.',
+              libraryT()('outlineHasChildren'),
               {
                 modal: true,
-                detail:
-                  'Move or delete each child first, then delete the parent. This prevents accidental subtree loss.'
+                detail: libraryT()('outlineHasChildrenDetail')
               }
             );
             return;
@@ -691,15 +774,14 @@ export class CreateLibraryPanel {
           const nodeLabel =
             nodes.find((n) => n.id === nodeId)?.props?.entryId ?? nodeId;
           const confirmed = await vscode.window.showWarningMessage(
-            `Remove "${nodeLabel}" from this library's outline?`,
+            libraryT()('outlineRemovePrompt', { node: String(nodeLabel) }),
             {
               modal: true,
-              detail:
-                'The underlying shared-pool entry is NOT deleted — only this outline node and its branch edges. Use the Dashboard\u2019s Entries table if you want to delete the entry itself.'
+              detail: libraryT()('outlineRemoveDetail')
             },
-            'Remove'
+            libraryT()('outlineRemoveAction')
           );
-          if (confirmed !== 'Remove') {
+          if (confirmed !== libraryT()('outlineRemoveAction')) {
             return;
           }
           nodes = nodes.filter((n) => n.id !== nodeId);
@@ -714,7 +796,7 @@ export class CreateLibraryPanel {
           if (!nodeId || !direction) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: 'moveSibling: nodeId + direction required'
+              message: libraryT()('moveRequired')
             });
             return;
           }
@@ -746,7 +828,7 @@ export class CreateLibraryPanel {
           if (!nodeId) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: 'indent: nodeId required'
+              message: libraryT()('indentRequired')
             });
             return;
           }
@@ -820,7 +902,7 @@ export class CreateLibraryPanel {
           if (!nodeId) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: 'outdent: nodeId required'
+              message: libraryT()('outdentRequired')
             });
             return;
           }
@@ -857,7 +939,7 @@ export class CreateLibraryPanel {
           if (!nodeId) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: 'updateNodeProps: nodeId is required'
+              message: libraryT()('updateNodeRequired')
             });
             return;
           }
@@ -865,7 +947,7 @@ export class CreateLibraryPanel {
           if (nodeIdx < 0) {
             void this.panel.webview.postMessage({
               type: 'graphError',
-              message: `updateNodeProps: node "${nodeId}" not found`
+              message: libraryT()('updateNodeNotFound', { node: nodeId })
             });
             return;
           }
@@ -880,7 +962,7 @@ export class CreateLibraryPanel {
         default:
           void this.panel.webview.postMessage({
             type: 'graphError',
-            message: `unknown graphOp: ${op.op}`
+            message: libraryT()('unknownGraphOp', { op: op.op })
           });
           return;
       }

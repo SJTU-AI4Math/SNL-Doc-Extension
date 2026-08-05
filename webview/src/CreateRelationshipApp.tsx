@@ -29,6 +29,39 @@ import {
 } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
 import { useSaveShortcut } from './components/draftState';
+import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'relationshipEditor',
+  {
+    created: 'Created relationship "{id}".', updated: 'Updated relationship "{id}".',
+    endpoint: '{message} (endpoint: {endpoint})', invalid: 'Invalid: {reason}',
+    metadataInvalid: 'Metadata is not valid JSON: {error}', edit: 'Edit Relationship',
+    create: 'Create Relationship', dashboard: 'Dashboard', back: 'Back to SNL Dashboard',
+    loading: 'Loading relationship context…', editTitle: 'Edit Relationship — {id}',
+    idReadonly: 'ID (read-only)', idRequired: 'ID (required, unique)',
+    idPlaceholder: 'e.g. depends.contMul.mulComm', duplicate: 'Id "{id}" already exists.',
+    from: 'From (source entry)', fromPlaceholder: 'Pick a source entry id',
+    to: 'To (target entry)', toPlaceholder: 'Pick a target entry id',
+    label: 'Label (required)', labelPlaceholder: 'e.g. depends-on, generalizes, proves',
+    metadata: 'Metadata (optional, raw JSON — empty ⇒ null)', jsonError: 'JSON parse error: {error}',
+    saving: 'Saving…', saveChanges: 'Save Changes'
+  },
+  {
+    created: '已创建关系“{id}”。', updated: '已更新关系“{id}”。',
+    endpoint: '{message}（端点：{endpoint}）', invalid: '无效：{reason}',
+    metadataInvalid: '元数据不是有效的 JSON：{error}', edit: '编辑关系',
+    create: '创建关系', dashboard: '仪表板', back: '返回 SNL 仪表板',
+    loading: '正在加载关系上下文…', editTitle: '编辑关系 — {id}',
+    idReadonly: 'ID（只读）', idRequired: 'ID（必填且唯一）',
+    idPlaceholder: '例如 depends.contMul.mulComm', duplicate: 'ID“{id}”已存在。',
+    from: '起点（源条目）', fromPlaceholder: '选择源条目 ID',
+    to: '终点（目标条目）', toPlaceholder: '选择目标条目 ID',
+    label: '标签（必填）', labelPlaceholder: '例如 depends-on、generalizes、proves',
+    metadata: '元数据（可选，原始 JSON；留空 ⇒ null）', jsonError: 'JSON 解析错误：{error}',
+    saving: '正在保存…', saveChanges: '保存更改'
+  }
+);
 
 interface RelationshipData {
   id: string;
@@ -115,6 +148,9 @@ function parseMetadata(raw: string): unknown {
 }
 
 export function CreateRelationshipApp(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
+  const tRef = useRef(t);
+  tRef.current = t;
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
@@ -136,6 +172,7 @@ export function CreateRelationshipApp(): React.ReactElement {
     function onMessage(event: MessageEvent): void {
       const msg = event.data as IncomingMessage | undefined;
       if (!msg) return;
+      const translate = tRef.current;
       switch (msg.type) {
         case 'context': {
           setMode(msg.mode);
@@ -167,12 +204,12 @@ export function CreateRelationshipApp(): React.ReactElement {
         }
         case 'created':
           dirtyRef.current = false;
-          setBanner({ kind: 'ok', text: `Created relationship "${msg.id}".` });
+          setBanner({ kind: 'ok', text: translate('created', { id: msg.id }) });
           setBusy(false);
           return;
         case 'updated':
           dirtyRef.current = false;
-          setBanner({ kind: 'ok', text: `Updated relationship "${msg.id}".` });
+          setBanner({ kind: 'ok', text: translate('updated', { id: msg.id }) });
           setBusy(false);
           return;
         case 'duplicate':
@@ -182,7 +219,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         case 'unknownEndpoint':
           setBanner({
             kind: 'warn',
-            text: `${msg.message} (endpoint: ${msg.endpoint})`
+            text: translate('endpoint', { message: msg.message, endpoint: msg.endpoint })
           });
           setBusy(false);
           return;
@@ -195,7 +232,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           setBusy(false);
           return;
         case 'invalid':
-          setBanner({ kind: 'error', text: `Invalid: ${msg.reason}` });
+          setBanner({ kind: 'error', text: translate('invalid', { reason: msg.reason }) });
           setBusy(false);
           return;
       }
@@ -250,7 +287,7 @@ export function CreateRelationshipApp(): React.ReactElement {
     } catch (err) {
       setBanner({
         kind: 'error',
-        text: `Metadata is not valid JSON: ${err instanceof Error ? err.message : String(err)}`
+        text: t('metadataInvalid', { error: err instanceof Error ? err.message : String(err) })
       });
       return;
     }
@@ -275,14 +312,14 @@ export function CreateRelationshipApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
         <PanelHeader
           vsApi={apiRef.current}
-          title={mode === 'edit' ? 'Edit Relationship' : 'Create Relationship'}
+          title={t(mode === 'edit' ? 'edit' : 'create')}
           back={{
-            label: 'Dashboard',
-            title: 'Back to SNL Dashboard',
+            label: t('dashboard'),
+            title: t('back'),
             message: { type: 'nav.openDashboard' }
           }}
         />
-        <p style={{ opacity: 0.7 }}>Loading relationship context…</p>
+        <p style={{ opacity: 0.7 }}>{t('loading')}</p>
       </main>
     );
   }
@@ -292,18 +329,18 @@ export function CreateRelationshipApp(): React.ReactElement {
       <PanelHeader
         vsApi={apiRef.current}
         title={mode === 'edit'
-          ? `Edit Relationship — ${trimmedId || id}`
-          : 'Create Relationship'}
+          ? t('editTitle', { id: trimmedId || id })
+          : t('create')}
         back={{
-          label: '← Dashboard',
-          title: 'Back to SNL Dashboard',
+          label: t('dashboard'),
+          title: t('back'),
           message: { type: 'nav.openDashboard' }
         }}
       />
 
       <div style={ROW_STYLE}>
         <label htmlFor="rel-id" style={LABEL_STYLE}>
-          ID {mode === 'edit' ? '(read-only)' : '(required, unique)'}
+          {t(mode === 'edit' ? 'idReadonly' : 'idRequired')}
         </label>
         <input
           id="rel-id"
@@ -311,7 +348,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           value={id}
           readOnly={mode === 'edit'}
           onChange={(e) => { dirtyRef.current = true; setId(e.target.value); }}
-          placeholder="e.g. depends.contMul.mulComm"
+          placeholder={t('idPlaceholder')}
           style={{
             ...MONO_INPUT_STYLE,
             opacity: mode === 'edit' ? 0.7 : 1,
@@ -328,58 +365,58 @@ export function CreateRelationshipApp(): React.ReactElement {
               color: 'var(--vscode-errorForeground, #f14c4c)'
             }}
           >
-            Id "{trimmedId}" already exists.
+            {t('duplicate', { id: trimmedId })}
           </div>
         ) : null}
       </div>
 
       <div style={ROW_STYLE}>
         <EntityIdSearchBox
-          label="From (source entry)"
+          label={t('from')}
           entries={entryPool}
           value={from}
           onChange={(value) => { dirtyRef.current = true; setFrom(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
-          placeholder="Pick a source entry id"
+          placeholder={t('fromPlaceholder')}
           idPrefix="rel-from"
         />
       </div>
 
       <div style={ROW_STYLE}>
         <EntityIdSearchBox
-          label="To (target entry)"
+          label={t('to')}
           entries={entryPool}
           value={to}
           onChange={(value) => { dirtyRef.current = true; setTo(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
-          placeholder="Pick a target entry id"
+          placeholder={t('toPlaceholder')}
           idPrefix="rel-to"
         />
       </div>
 
       <div style={ROW_STYLE}>
         <label htmlFor="rel-label" style={LABEL_STYLE}>
-          Label (required)
+          {t('label')}
         </label>
         <input
           id="rel-label"
           type="text"
           value={label}
           onChange={(e) => { dirtyRef.current = true; setLabel(e.target.value); }}
-          placeholder="e.g. depends-on, generalizes, proves"
+          placeholder={t('labelPlaceholder')}
           style={INPUT_STYLE}
         />
       </div>
 
       <div style={ROW_STYLE}>
         <label htmlFor="rel-metadata" style={LABEL_STYLE}>
-          Metadata (optional, raw JSON — empty ⇒ null)
+          {t('metadata')}
         </label>
         <textarea
           id="rel-metadata"
           value={metadata}
           onChange={(e) => { dirtyRef.current = true; setMetadata(e.target.value); }}
-          placeholder='{"weight": 1, "note": "..."}'
+          placeholder={invariantText('{"weight": 1, "note": "..."}', 'protocol-token')}
           rows={8}
           style={{
             ...MONO_INPUT_STYLE,
@@ -397,7 +434,7 @@ export function CreateRelationshipApp(): React.ReactElement {
               color: 'var(--vscode-errorForeground, #f14c4c)'
             }}
           >
-            JSON parse error: {metadataError}
+            {t('jsonError', { error: metadataError })}
           </div>
         ) : null}
       </div>
@@ -410,10 +447,10 @@ export function CreateRelationshipApp(): React.ReactElement {
           variant="primary"
         >
           {busy
-            ? 'Saving…'
+            ? t('saving')
             : mode === 'edit'
-              ? 'Save Changes'
-              : 'Create Relationship'}
+              ? t('saveChanges')
+              : t('create')}
         </Button>
         {banner ? (
           <span

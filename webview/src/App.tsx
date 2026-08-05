@@ -28,7 +28,7 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
-import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml } from './export/htmlExport';
 import { createEntryDetailLoader } from './export/entryDetailBridge';
@@ -376,7 +376,7 @@ function LibrariesLayer({
       />
       {libraries.length === 0 ? (
         <p style={{ opacity: 0.8 }}>
-          {t('noLibrariesPrefix')} <code>SNL: Create Library</code>{' '}
+          {t('noLibrariesPrefix')} <code>{invariantText('SNL: Create Library', 'protocol-token')}</code>{' '}
           {t('noLibrariesMiddle')}{' '}
           <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> {t('noLibrariesSuffix')}
         </p>

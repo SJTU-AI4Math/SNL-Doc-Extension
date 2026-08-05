@@ -4,11 +4,11 @@ import { read_extension_preferences } from './preferences';
 
 const UI_MESSAGES = defineHostMessages(
   {
-    pickCount: 'How many empty webviews to time?', timing: 'Timing {count} empty webviews…',
+    pickCount: 'How many empty webviews to time?', probeTitle: 'SNL probe {index}', timing: 'Timing {count} empty webviews…',
     result: 'Webview cost: {verdict} — first {first}ms, rest ~{rest}ms. See "SNL Trace" output.'
   },
   {
-    pickCount: '要测量多少个空 Webview？', timing: '正在测量 {count} 个空 Webview…',
+    pickCount: '要测量多少个空 Webview？', probeTitle: 'SNL 探针 {index}', timing: '正在测量 {count} 个空 Webview…',
     result: 'Webview 开销：{verdict}；首个 {first}ms，其余约 {rest}ms。详情见“SNL Trace”输出。'
   }
 );
@@ -169,11 +169,11 @@ function nonce(): string {
  * The panel is always disposed, including on timeout, so a hung probe cannot
  * leak a tab.
  */
-async function timeOneWebview(index: number): Promise<ProbeSample> {
+async function timeOneWebview(index: number, title: string): Promise<ProbeSample> {
   const started = Date.now();
   const panel = vscode.window.createWebviewPanel(
     'snlDoc.webviewCostProbe',
-    `SNL probe ${index}`,
+    title,
     // Beside, so the probe never steals the editor the author is looking at.
     { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
     { enableScripts: true, retainContextWhenHidden: false }
@@ -207,7 +207,8 @@ async function timeOneWebview(index: number): Promise<ProbeSample> {
  */
 export async function runWebviewCostProbe(
   count: number,
-  out: vscode.OutputChannel
+  out: vscode.OutputChannel,
+  panelTitle: (index: number) => string
 ): Promise<ProbeSample[]> {
   const samples: ProbeSample[] = [];
   out.show(true);
@@ -218,7 +219,7 @@ export async function runWebviewCostProbe(
     '    (no bundle, no CSS, no data reads — pure createWebviewPanel cost)'
   );
   for (let i = 1; i <= count; i++) {
-    const sample = await timeOneWebview(i);
+    const sample = await timeOneWebview(i, panelTitle(i));
     samples.push(sample);
     out.appendLine(`    panel #${i}: ${sample.ms.toFixed(0)}ms`);
   }
@@ -251,7 +252,7 @@ export function registerWebviewCostProbe(
           location: vscode.ProgressLocation.Notification,
           title: t('timing', { count })
         },
-        () => runWebviewCostProbe(count, out)
+        () => runWebviewCostProbe(count, out, (index) => t('probeTitle', { index }))
       );
       const verdict = classifyProbe(samples);
       void vscode.window.showInformationMessage(

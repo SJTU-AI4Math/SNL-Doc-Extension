@@ -1,4 +1,3 @@
-import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,13 +16,15 @@ const posted: unknown[] = [];
 
 vi.mock('./vscodeApi', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./vscodeApi');
+  const api = {
+    postMessage: (m: unknown) => { posted.push(m); },
+    getState: () => undefined,
+    setState: () => undefined
+  };
   return {
     ...actual,
-    getVsCodeApi: () => ({
-      postMessage: (m: unknown) => { posted.push(m); },
-      getState: () => undefined,
-      setState: () => undefined
-    })
+    getVsCodeApi: () => api,
+    useVsCodeApiRef: () => ({ current: api })
   };
 });
 

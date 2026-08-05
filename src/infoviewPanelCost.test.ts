@@ -26,6 +26,7 @@ let maxConcurrent = 0;
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
 const commands: Array<{ command: string; args: unknown[] }> = [];
+let dashboardGate: Promise<void> | null = null;
 /** The panel's `onDidReceiveMessage` handler, captured at construction. */
 let onMessage: ((message: unknown) => unknown) | null = null;
 let panelTitle = '';
@@ -105,6 +106,9 @@ vi.mock('vscode', () => {
     commands: {
       executeCommand: async (command: string, ...args: unknown[]) => {
         commands.push({ command, args });
+        if (command === 'snlDoc.openDashboard' && dashboardGate) {
+          await dashboardGate;
+        }
       }
     },
     window: {
@@ -191,6 +195,7 @@ function reset(): void {
   maxConcurrent = 0;
   posted.length = 0;
   commands.length = 0;
+  dashboardGate = null;
   onMessage = null;
   panelTitle = '';
   configurationHandlers = [];
@@ -286,6 +291,23 @@ describe('infoview panel read cost', () => {
     await send({ type: 'requestEntryDetails', entryId: 'e1' });
     expect(posted.some((m) => m.type === 'popoverEntryDetails')).toBe(true);
     expect(maxConcurrent).toBeGreaterThan(1);
+  });
+
+  it('waits for the Dashboard before opening the Entry editor', async () => {
+    const send = await openBrowser();
+    let releaseDashboard!: () => void;
+    dashboardGate = new Promise<void>((resolve) => { releaseDashboard = resolve; });
+
+    const navigation = send({ type: 'openDashboardForEntry', entryId: 'e1' });
+    await Promise.resolve();
+    expect(commands.map(({ command }) => command)).toEqual(['snlDoc.openDashboard']);
+
+    releaseDashboard();
+    await navigation;
+    expect(commands.map(({ command }) => command)).toEqual([
+      'snlDoc.openDashboard',
+      'snlDoc.editEntry'
+    ]);
   });
 
   it('reads each macro package once when resolving a macro owner', async () => {

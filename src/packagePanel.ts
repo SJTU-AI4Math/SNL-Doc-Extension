@@ -19,6 +19,7 @@ import {
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 import { packageManifestPath } from './entityStorage';
+import { stripJsonExt } from './macroPackageName';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
 
@@ -71,11 +72,6 @@ export function createPackageHostTranslator(language: string) {
 
 function packageT() {
   return createPackageHostTranslator(extension_preferences_runtime.query_environment().language);
-}
-
-/** Strip a trailing `.json` (case-insensitive) from a package file argument. */
-function stripJsonExt(file: string): string {
-  return file.replace(/\.json$/i, '');
 }
 
 /** Coerce an unknown into a non-empty `string[]`, or return null if invalid. */

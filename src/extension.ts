@@ -156,8 +156,6 @@ function hostMessage<Key extends keyof typeof UI_MESSAGES.en & string>(
   return hostTranslator()(key, ...args);
 }
 
-// TODO: import SNL_render from snl-script lib
-
 /** Regex for safe bare package filenames (path-traversal guard). */
 const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+(\.json)?$/;
 

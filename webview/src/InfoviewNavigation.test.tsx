@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +10,8 @@ const api = vi.hoisted(() => ({
 
 vi.mock('./vscodeApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./vscodeApi')>()),
-  getVsCodeApi: () => api
+  getVsCodeApi: () => api,
+  useVsCodeApiRef: () => ({ current: api })
 }));
 
 import { App } from './App';

@@ -21,11 +21,11 @@ import {
   readMacroPackage,
   updateMacro,
   type EntryData,
-  type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
+import { stripJsonExt } from './macroPackageName';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -54,11 +54,6 @@ function toEntryOption(e: EntryData): EntryOption {
   const hasContent =
     typeof content.snl === 'string' && content.snl.trim().length > 0;
   return { id: e.id, title: e.title ?? '', hasContent };
-}
-
-/** Strip a trailing `.json` (case-insensitive) from a package file argument. */
-function stripJsonExt(file: string): string {
-  return file.replace(/\.json$/i, '');
 }
 
 /**

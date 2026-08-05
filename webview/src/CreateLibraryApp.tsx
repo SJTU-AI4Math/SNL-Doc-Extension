@@ -14,9 +14,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSaveShortcut } from './components/draftState';
 import {
-  getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
@@ -181,12 +180,12 @@ export function CreateLibraryApp(): React.ReactElement {
   const [graph, setGraph] = useState<GraphState | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const [counterError, setCounterError] = useState<string | null>(null);
+  const apiRef = useVsCodeApiRef();
   const titleDirtyRef = useRef(false);
   const libraryRevisionRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
@@ -290,10 +289,10 @@ export function CreateLibraryApp(): React.ReactElement {
         case 'countersLoaded':
         case 'countersPushed':
           setCounters(Array.isArray(msg.counters) ? msg.counters : []);
+          setCounterError(null);
           break;
         case 'countersError':
-          // Non-fatal: keep the last-known tree on screen. Log for triage.
-          console.warn('[snl] counter op failed:', msg.message);
+          setCounterError(msg.message);
           break;
         default:
           break;
@@ -499,7 +498,11 @@ export function CreateLibraryApp(): React.ReactElement {
       <StatusLine status={status} />
 
       {mode === 'edit' ? (
-        <CountersSection counters={counters} onCounterOp={postCounterOp} />
+        <CountersSection
+          counters={counters}
+          error={counterError}
+          onCounterOp={postCounterOp}
+        />
       ) : null}
 
       {mode === 'edit' ? (
@@ -540,9 +543,11 @@ function countCounterTree(nodes: CounterNode[]): number {
  */
 function CountersSection({
   counters,
+  error,
   onCounterOp
 }: {
   counters: CounterNode[];
+  error: string | null;
   onCounterOp: (op: Record<string, unknown>) => void;
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
@@ -657,6 +662,12 @@ function CountersSection({
           {t('counters', { count: total })}
         </h2>
       </div>
+
+      {error ? (
+        <p role="alert" style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
+          Counter update failed: {error}
+        </p>
+      ) : null}
 
       {collapsed ? null : (
         <>

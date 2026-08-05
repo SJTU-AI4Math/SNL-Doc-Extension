@@ -52,7 +52,10 @@ export function installSnlDocContextKey(
   disposables: vscode.Disposable[]
 ): void {
   void refreshSnlDocContext();
-  const watcher = vscode.workspace.createFileSystemWatcher('**/.SNL_Doc/**');
+  // Watch the sentinel directory itself. Watching `.SNL_Doc/**` caused every
+  // entity temp-file create/delete to re-stat all workspace folders and issue
+  // a redundant setContext command.
+  const watcher = vscode.workspace.createFileSystemWatcher('**/.SNL_Doc');
   const bump = (): void => {
     void refreshSnlDocContext();
   };

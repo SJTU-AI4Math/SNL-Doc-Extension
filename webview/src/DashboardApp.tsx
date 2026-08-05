@@ -23,7 +23,7 @@
 // dashed "+" bar (`AddBar`) that dispatches the section's create/init
 // message; when the list is empty the section shows only that bar.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from './components/Button';
 import { PanelHeader } from './components/PanelHeader';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
@@ -37,7 +37,7 @@ import {
   type SnlMacroSourceLookup
 } from './components/EntryMetrics';
 import {
-  getVsCodeApi,
+  useVsCodeApiRef,
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
@@ -200,10 +200,9 @@ export function DashboardApp(): React.ReactElement {
   const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
   const [setupBusy, setSetupBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as

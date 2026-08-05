@@ -39,6 +39,7 @@ import {
 } from './dataMigrations';
 import { inspectStoredWorkspaceData } from './workspaceDataMigration';
 import { withWorkspaceDataLock } from './workspaceDataLock';
+import { stripJsonExt } from './macroPackageName';
 
 /**
  * Filesystem helpers for the `.SNL_Doc/` tree.
@@ -1282,11 +1283,6 @@ export interface MacroPackageFile {
 const MACRO_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MACRO_PACKAGE_VERSION = '8';
 
-/** Strip a trailing `.json` (case-insensitive) from a package file argument. */
-function stripJsonExt(file: string): string {
-  return file.replace(/\.json$/i, '');
-}
-
 /** URI of a package file given a bare-or-suffixed filename. */
 function macroPackageUri(
   workspaceRoot: vscode.Uri,
@@ -2394,7 +2390,6 @@ async function setActiveMacroPackages(
   workspaceRoot: vscode.Uri,
   activeList: string[]
 ): Promise<void> {
-  const fsApi = vscode.workspace.fs;
   const uri = configUri(workspaceRoot);
   let raw: Record<string, unknown>;
   try {
@@ -2668,7 +2663,6 @@ export async function addMacro(
   | { status: 'invalid'; reason: string }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
 
   const reason = validateMacro(macro);
   if (reason) {
@@ -3004,7 +2998,6 @@ async function writeEntryKinds(
   workspaceRoot: vscode.Uri,
   kinds: EntryKind[]
 ): Promise<void> {
-  const fsApi = vscode.workspace.fs;
   const uri = configUri(workspaceRoot);
   let raw: Record<string, unknown>;
   try {
@@ -3156,7 +3149,6 @@ async function writeMacroKinds(
   workspaceRoot: vscode.Uri,
   kinds: MacroKind[]
 ): Promise<void> {
-  const fsApi = vscode.workspace.fs;
   const uri = configUri(workspaceRoot);
   let raw: Record<string, unknown>;
   try {
@@ -3323,7 +3315,6 @@ export async function addEntry(
   workspaceRoot: vscode.Uri,
   entry: EntryData
 ): Promise<AddEntryResult> {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -3963,7 +3954,6 @@ export async function updateEntry(
   entry: Omit<EntryData, 'id'>,
   expectedRevision?: string
 ): Promise<UpdateEntryResult> {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -4117,7 +4107,6 @@ export async function updateMacroPackage(
   input: { name: string; description: string },
   expectedRevision?: string
 ): Promise<UpdateMacroPackageResult> {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -4186,7 +4175,6 @@ export async function updateMacro(
   macro: MacroPackageEntry,
   expectedRevision?: string
 ): Promise<UpdateMacroResult> {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -4254,7 +4242,6 @@ export async function batchDeleteMacros(
   | { status: 'noFile' }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   const wanted = new Set(
     (Array.isArray(names) ? names : []).filter(
       (n) => typeof n === 'string' && n.length > 0
@@ -4308,7 +4295,6 @@ export async function batchMoveMacros(
   | { status: 'noFile'; which: 'source' | 'dest' }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   const srcBare = stripJsonExt(sourceFile);
   const destBare = stripJsonExt(destFile);
   if (srcBare === destBare) {
@@ -4581,7 +4567,6 @@ export async function batchCopyMacros(
   | { status: 'noFile'; which: 'source' | 'dest' }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   const srcBare = stripJsonExt(sourceFile);
   const destBare = stripJsonExt(destFile);
   if (srcBare === destBare) {
@@ -4849,7 +4834,6 @@ export async function writeLibraryMeta(
   slug: string,
   meta: LibraryMetaFile
 ): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
-  const fsApi = vscode.workspace.fs;
   let existing: LibraryMetaFile = {};
   let expectedOriginal: unknown = null;
   try {
@@ -5093,7 +5077,6 @@ export async function writeLibraryGraph(
   slug: string,
   graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] }
 ): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
-  const fsApi = vscode.workspace.fs;
   const file: LibraryGraphFile = {
     nodes: graph.nodes,
     relationships: graph.relationships
@@ -5229,7 +5212,6 @@ export async function deleteEntry(
   | { status: 'invalid'; message: string }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -5359,7 +5341,6 @@ export async function deleteEntryKind(
   | { status: 'invalid'; message: string }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -5427,7 +5408,6 @@ export async function deleteMacroKind(
   | { status: 'invalid'; message: string }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -5621,7 +5601,6 @@ async function writeRelationships(
   list: RelationshipData[],
   expectedOriginal: RelationshipData[]
 ): Promise<void> {
-  const fsApi = vscode.workspace.fs;
   const payload: RelationshipsFile = {
     version: RELATIONSHIPS_FILE_VERSION,
     relationships: list

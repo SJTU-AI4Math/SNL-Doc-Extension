@@ -1,4 +1,3 @@
-import React from 'react';
 import { readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';

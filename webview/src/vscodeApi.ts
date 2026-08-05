@@ -1,5 +1,5 @@
 // Tiny helpers shared by every SNL webview entry.
-import type React from 'react';
+import React from 'react';
 import './components/ui.css';
 
 /**
@@ -39,6 +39,17 @@ export function getVsCodeApi(): VsCodeApi | undefined {
     return vscodeApi;
   }
   return undefined;
+}
+
+/**
+ * Return the cached VS Code API during the first render, not one effect later.
+ * Header controls are interactive immediately, before the host's initial
+ * context response causes another render.
+ */
+export function useVsCodeApiRef(): React.MutableRefObject<VsCodeApi | undefined> {
+  const ref = React.useRef<VsCodeApi | undefined>(undefined);
+  if (ref.current === undefined) ref.current = getVsCodeApi();
+  return ref;
 }
 
 /** Shared style tokens — keep panels visually aligned with VS Code themes. */

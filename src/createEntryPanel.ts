@@ -299,7 +299,7 @@ export class CreateEntryPanel {
         timed('macros', readAllMacrosWithOrigin(root)),
         timed('macroKinds', readMacroKinds(root)),
         timed('entries', readEntries(root)),
-        timed('relationships', readRelationships(root).catch(() => [])),
+        timed('relationships', readRelationships(root)),
         timed('entryPackages', readMacroPackages(root, true))
       ]);
     } catch (error) {

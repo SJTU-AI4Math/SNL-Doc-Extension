@@ -16,7 +16,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import { useVsCodeApiRef, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
@@ -512,11 +512,6 @@ interface Viewport {
   scale: number;
 }
 
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max - 1) + '…';
-}
-
 /**
  * Compute an SVG path for an edge, routing through any waypoints
  * (dummy-node centres inserted at intermediate layers). Segments between
@@ -555,12 +550,11 @@ function edgePath(
 }
 
 export function SnlGraphApp(): React.ReactElement {
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const [msg, setMsg] = useState<GraphMessage | null>(null);
   const [graphError, setGraphError] = useState<GraphErrorMessage | null>(null);
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
     function onMessage(event: MessageEvent): void {
       const m = event.data as GraphHostMessage | undefined;
       if (!m) return;

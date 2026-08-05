@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import { useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import {
@@ -81,7 +81,7 @@ type Incoming =
 
 export function SnooglApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const [mode, setMode] = useState<Mode>('entry');
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState<Filters>({});
@@ -106,7 +106,6 @@ export function SnooglApp(): React.ReactElement {
   // Send `query` messages on every change. Trivially debounced via a
   // 120ms timer so a burst of typing doesn't spam postMessage.
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
     const onMessage = (ev: MessageEvent): void => {
       const msg = ev.data as Incoming;
       if (!msg || typeof msg.type !== 'string') return;

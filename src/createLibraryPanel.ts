@@ -14,8 +14,6 @@ import {
   writeLibraryCounters,
   writeLibraryGraph,
   type CounterNode,
-  type EntryData,
-  type EntryKind,
   type GraphNodeDto,
   type GraphRelationshipDto
 } from './snlDoc';

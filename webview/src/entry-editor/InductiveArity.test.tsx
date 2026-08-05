@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';

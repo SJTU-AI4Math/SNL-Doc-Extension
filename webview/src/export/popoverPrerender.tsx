@@ -29,7 +29,6 @@
 // A timeout is not fatal: we fall back to a title-only fragment. An export
 // that shows a slightly poorer popover beats an export that fails.
 
-import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';

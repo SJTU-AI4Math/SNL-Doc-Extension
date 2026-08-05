@@ -1,4 +1,3 @@
-import React from 'react';
 import { fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup } from '@testing-library/react';

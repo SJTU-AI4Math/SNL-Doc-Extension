@@ -1,4 +1,3 @@
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Alert, EmptyState, FormField, Select, TextArea, TextInput } from './FormControls';

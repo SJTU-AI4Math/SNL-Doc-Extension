@@ -43,8 +43,8 @@ import {
 } from '@sjtu-ai4math/snl-basics';
 import {
   getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { traceFirstPaint, traceMark } from './runtime/trace';
 import {
@@ -78,7 +78,6 @@ import { extensionRenderers } from './render/blockRenderers';
 import {
   attachCanvasRoot,
   canPersistCanvasForest,
-  createCanvasHole,
   deleteCanvasTarget,
   detachCanvasSubtree,
   isCanvasHole,
@@ -554,9 +553,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   /**
    * User-authored macros indexed by name (strict v8 wire shape from the host).
-   * Merged over the bundled record via `macroDataDriver` below. Empty until the first
-   * `context` message arrives — parse/render before that only sees the
-   * bundled fixture.
+   * Empty until the first `context` message arrives.
    */
   const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
@@ -645,7 +642,7 @@ export function CreateEntryApp(): React.ReactElement {
   /** Rows for the Relationships section; replaced wholesale on every push. */
   const [relationships, setRelationships] = useState<EntryRelationshipRow[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
   /**
    * Mirror of `formDirtyRef` as real state.
@@ -721,7 +718,6 @@ export function CreateEntryApp(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
@@ -1065,10 +1061,8 @@ export function CreateEntryApp(): React.ReactElement {
   // so a single shared key would restore entry A's unsaved text over entry
   // B the moment you navigated between them.
   const draftKey = `createEntry:${mode}:${mode === 'edit' ? id : ''}`;
-  // Resolved eagerly rather than read off `apiRef`: a ref written in an effect
-  // is still undefined during the first render, and writing it never triggers
-  // one, so the persist hook would keep the stale undefined forever.
-  // `getVsCodeApi` caches internally, so this is the same object as apiRef.
+  // Draft persistence takes the API value rather than the ref wrapper. Both
+  // paths resolve to the same cached handle.
   const draftApi = getVsCodeApi();
   // Re-runs when the panel is retargeted at a different entry, so the new
   // entry gets ITS stash rather than keeping the previous one's.

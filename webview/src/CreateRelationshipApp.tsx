@@ -16,9 +16,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
@@ -151,7 +150,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const tRef = useRef(t);
   tRef.current = t;
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
@@ -167,7 +166,6 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [banner, setBanner] = useState<Banner | null>(null);
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as IncomingMessage | undefined;

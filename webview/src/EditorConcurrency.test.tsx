@@ -1,4 +1,3 @@
-import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CreateRelationshipApp } from './CreateRelationshipApp';

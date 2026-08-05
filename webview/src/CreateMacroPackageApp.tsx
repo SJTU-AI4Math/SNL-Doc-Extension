@@ -9,9 +9,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSaveShortcut } from './components/draftState';
 import {
-  getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
@@ -105,12 +104,11 @@ export function CreateMacroPackageApp(): React.ReactElement {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const packageRevisionRef = useRef<string | undefined>(undefined);
   const formDirtyRef = useRef(false);
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as

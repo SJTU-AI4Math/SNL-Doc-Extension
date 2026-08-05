@@ -12,7 +12,7 @@
 // Back button that walks the stack up one step.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import { getVsCodeApi, useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { Button } from './components/Button';
 import { PanelHeader } from './components/PanelHeader';
 import {
@@ -128,10 +128,9 @@ export function App(): React.ReactElement {
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const [assetBaseUri, setAssetBaseUri] = useState('');
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as Incoming;
@@ -867,18 +866,4 @@ const LIBRARY_CARD_STYLE: React.CSSProperties = {
   cursor: 'pointer',
   fontFamily: 'inherit',
   fontSize: '1rem'
-};
-
-const TOOLBAR_BUTTON_STYLE: React.CSSProperties = {
-  flex: '0 0 auto',
-  padding: '0.35rem 0.75rem',
-  fontFamily: 'inherit',
-  fontSize: '0.85rem',
-  border:
-    '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-  borderRadius: '4px',
-  background:
-    'var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06))',
-  color: 'inherit',
-  cursor: 'pointer'
 };

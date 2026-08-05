@@ -1,4 +1,3 @@
-import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CreateEntryApp } from '../CreateEntryApp';

@@ -5,7 +5,7 @@
 // styles / description columns.
 //
 // Preview strategy: build ONE preview macro DB per package load
-// (bundled macros + argument placeholders + package macros) and
+// (workspace macros + shared argument placeholders + package macros) and
 // pass it to every row. Each row constructs a syntax tree `{ macro.name,
 // [placeholder_0, placeholder_1, ...] }` sized by max #N in the default
 // style's template (fixed arity) or a fixed count (variadic). Row-level
@@ -19,7 +19,6 @@ import {
   defaultRenderHooks,
   SnlSyntaxTreeView,
   resolve_style_template,
-  type SnlMacro,
   type SnlMacroStyle,
   type MacroDataDriver,
   type SnlSyntaxTree,
@@ -30,10 +29,16 @@ import {
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
+import { wireMacroToRenderable } from './render/macroWire';
 import {
-  getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  MACRO_PREVIEW_ARGUMENTS,
+  MAX_MACRO_PREVIEW_ARGS,
+  macroPreviewArgumentNode,
+  maxMacroTemplateChildIndex
+} from './render/macroPreviewPlaceholders';
+import {
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
@@ -160,93 +165,7 @@ type ActiveModal = 'transfer' | null;
 // preview matches what the user sees while editing that macro.
 // ---------------------------------------------------------------------------
 
-const MAX_ARGS = 8;
 const VARIADIC_PREVIEW_ARGS = 3;
-
-/** One placeholder macro per index — a rounded translucent numbered box.
- *  Uses the same `\mathord{\htmlClass{...}}` shape as CreateMacroApp so
- *  KaTeX emits the trailing atom-spacing OUTSIDE the frame — otherwise a
- *  placeholder followed by `+` shows an empty right gap inside its border. */
-const ARG_PLACEHOLDER_MACROS: MacroRecord = {};
-for (let i = 0; i < MAX_ARGS; i++) {
-  ARG_PLACEHOLDER_MACROS[`_snl_arg_${i}`] = {
-    name: `_snl_arg_${i}`,
-    description: `Argument placeholder ${i}`,
-    source: { entries: [], urls: [] },
-    dynamic_arity: false,
-    default_style: { en: 'default' },
-    tags: [],
-    styles: [
-      {
-        style_name: 'default',
-        mode: 'formula_inline',
-        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`,
-        tags: []
-      }
-    ]
-  };
-}
-
-function placeholderNode(i: number): SnlSyntaxTree {
-  return { macro_name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
-}
-
-/** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
-function maxChildIndex(template: string): number {
-  let max = -1;
-  const re = /(?<!\\)#(\d+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(template)) !== null) {
-    const idx = Number(m[1]);
-    if (Number.isFinite(idx) && idx > max) {
-      max = idx;
-    }
-  }
-  return max;
-}
-
-/**
- * Convert an on-disk v8 {@link MacroPackageEntry} to the render-only lib shape
- * `SnlMacro` (only the fields the view needs — drop typst/latex/markdown/text
- * backends; keep name/description/source/kind/dynamic_arity/styles).
- */
-function macroToLibShape(m: MacroPackageEntry): SnlMacro {
-  const styles: SnlMacroStyle[] = Array.isArray(m.styles)
-    ? m.styles.map((s): SnlMacroStyle => {
-        const base = {
-          style_name: s.style_name,
-          ...(s.separator !== undefined ? { separator: s.separator } : {}),
-          tags: s.tags
-        };
-        if (s.mode === 'text') {
-          return { ...base, mode: 'text', template: s.template };
-        }
-        return {
-          ...base,
-          mode: s.mode,
-          template: s.template,
-          ...(s.mode === 'block' && s.block_template_name
-            ? { block_template_name: s.block_template_name }
-            : {})
-        };
-      })
-    : [];
-  const lib: SnlMacro = {
-    name: m.name,
-    description: m.description ?? '',
-    source: m.source ?? { entries: [], urls: [] },
-    dynamic_arity: !!m.dynamic_arity,
-    default_style: { ...m.default_style },
-    tags: m.tags,
-    styles: styles.length > 0
-      ? styles
-      : [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }]
-  };
-  if (m.kind) {
-    lib.kind = m.kind;
-  }
-  return lib;
-}
 
 export function PackagePanelApp(): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
@@ -256,7 +175,7 @@ export function PackagePanelApp(): React.ReactElement {
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<Toast | null>(null);
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   // A pending batch action awaits either a fresh 'package' push (success) or
   // an 'error' message (failure) from the host so we can toast the outcome.
   const pendingActionRef = useRef<string | null>(null);
@@ -271,7 +190,6 @@ export function PackagePanelApp(): React.ReactElement {
   };
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as Incoming;
@@ -688,7 +606,7 @@ function arityLabel(
   const template = style
     ? resolve_style_template(style, webview_language_runtime)
     : '';
-  const count = Math.max(0, maxChildIndex(template) + 1);
+  const count = Math.max(0, maxMacroTemplateChildIndex(template) + 1);
   return String(count);
 }
 
@@ -736,12 +654,12 @@ export function MacroTable({
   const previewMacroRecord: MacroRecord = useMemo(() => {
     const packageMacros: MacroRecord = {};
     for (const [name, macro] of Object.entries(workspaceMacros)) {
-      packageMacros[name] = macroToLibShape(macro);
+      packageMacros[name] = wireMacroToRenderable(macro);
     }
     for (const m of macros) {
-      packageMacros[m.name] = macroToLibShape(m);
+      packageMacros[m.name] = wireMacroToRenderable(m);
     }
-    return { ...packageMacros, ...ARG_PLACEHOLDER_MACROS };
+    return { ...packageMacros, ...MACRO_PREVIEW_ARGUMENTS };
   }, [macros, workspaceMacros]);
 
   const previewMacroDataDriver = useMemo(
@@ -804,7 +722,6 @@ export function MacroTable({
             kindById={kindById}
             kindPalette={kindPalette}
             entryPoolIds={entryPoolIds}
-            previewMacroRecord={previewMacroRecord}
             previewMacroDataDriver={previewMacroDataDriver}
             previewHooks={previewHooks}
             onEdit={onEdit}
@@ -835,7 +752,6 @@ function MacroRowGroup({
   kindById,
   kindPalette,
   entryPoolIds,
-  previewMacroRecord,
   previewMacroDataDriver,
   previewHooks,
   onEdit,
@@ -849,7 +765,6 @@ function MacroRowGroup({
   kindById: Map<string, MacroKind>;
   kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
-  previewMacroRecord: MacroRecord;
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
@@ -878,7 +793,6 @@ function MacroRowGroup({
       <MacroStyleRow
         macro={macro}
         style={defaultStyle}
-        styleIndex={defaultIndex}
         isDefault
         showMacroLevel
         expanded={expanded}
@@ -889,7 +803,6 @@ function MacroRowGroup({
         kindById={kindById}
         kindPalette={kindPalette}
         entryPoolIds={entryPoolIds}
-        previewMacroRecord={previewMacroRecord}
         previewMacroDataDriver={previewMacroDataDriver}
         previewHooks={previewHooks}
         onEdit={onEdit}
@@ -905,7 +818,6 @@ function MacroRowGroup({
               key={`${macro.name}::${style.style_name}::${index}`}
               macro={macro}
               style={style}
-              styleIndex={index}
               isDefault={false}
               showMacroLevel={false}
               expanded={false}
@@ -914,7 +826,6 @@ function MacroRowGroup({
               kindById={kindById}
               kindPalette={kindPalette}
               entryPoolIds={entryPoolIds}
-              previewMacroRecord={previewMacroRecord}
               previewMacroDataDriver={previewMacroDataDriver}
               previewHooks={previewHooks}
               onEdit={onEdit}
@@ -943,7 +854,6 @@ function MacroRowGroup({
 function MacroStyleRow({
   macro,
   style,
-  styleIndex,
   isDefault,
   showMacroLevel,
   expanded,
@@ -952,7 +862,6 @@ function MacroStyleRow({
   kindById,
   kindPalette,
   entryPoolIds,
-  previewMacroRecord,
   previewMacroDataDriver,
   previewHooks,
   onEdit,
@@ -964,7 +873,6 @@ function MacroStyleRow({
 }: {
   macro: MacroPackageEntry;
   style: MacroPackageStyle | undefined;
-  styleIndex: number;
   isDefault: boolean;
   /** If true, render Name / Arity / Kind / Macro Tags / Description; else `—`. */
   showMacroLevel: boolean;
@@ -974,7 +882,6 @@ function MacroStyleRow({
   kindById: Map<string, MacroKind>;
   kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
-  previewMacroRecord: MacroRecord;
   previewMacroDataDriver: MacroDataDriver;
   previewHooks: SnlRenderHooks;
   onEdit: (name: string) => void;
@@ -1375,16 +1282,16 @@ function MacroPreview({
 
   const argCount = useMemo(() => {
     if (macro.dynamic_arity) {
-      return Math.min(VARIADIC_PREVIEW_ARGS, MAX_ARGS);
+      return Math.min(VARIADIC_PREVIEW_ARGS, MAX_MACRO_PREVIEW_ARGS);
     }
-    const derived = maxChildIndex(resolvedTemplate) + 1;
-    return Math.min(Math.max(derived, 0), MAX_ARGS);
+    const derived = maxMacroTemplateChildIndex(resolvedTemplate) + 1;
+    return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
   }, [macro.dynamic_arity, resolvedTemplate]);
 
   const tree: SnlSyntaxTree = useMemo(() => {
     const children: SnlSyntaxTree[] = [];
     for (let i = 0; i < argCount; i++) {
-      children.push(placeholderNode(i));
+      children.push(macroPreviewArgumentNode(i));
     }
     const node: SnlSyntaxTree = {
       macro_name: macro.name,

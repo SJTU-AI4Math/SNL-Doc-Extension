@@ -55,9 +55,8 @@ import {
 } from './render/macroData';
 import { extensionRenderers } from './render/blockRenderers';
 import {
-  getVsCodeApi,
-  PANEL_STYLE,
-  type VsCodeApi
+  useVsCodeApiRef,
+  PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
@@ -293,43 +292,18 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     errorStatus: '❌ 错误：{message}'
   }
 );
-
+import {
+  MACRO_PREVIEW_ARGUMENTS,
+  MAX_MACRO_PREVIEW_ARGS,
+  macroPreviewArgumentNode,
+  maxMacroTemplateChildIndex
+} from './render/macroPreviewPlaceholders';
 // ---------------------------------------------------------------------------
 // Preview constants
 // ---------------------------------------------------------------------------
 
 const DRAFT_KEY = '_snl_draft';
 const PREVIEW_PLACEHOLDER_KEY = '_snl_preview_placeholder';
-const MAX_ARGS = 8;
-
-/** One placeholder macro per index — a rounded translucent numbered box.
- *
- * The `\mathord{...}` wrap is REQUIRED: without it, KaTeX writes the trailing
- * atom-spacing (`\mspace`) as a child of the `\htmlClass` span, so the
- * placeholder's CSS frame visibly extends past the digit into empty right
- * padding whenever a `+` / operator follows (bug 猫猫 flagged 2026-07-04).
- * `\mathord` promotes the wrapper to its own atom so the spacing lands
- * OUTSIDE the frame, adjacent to the following `\mbin`.
- */
-const ARG_PLACEHOLDER_MACROS: Record<string, SnlMacro> = {};
-for (let i = 0; i < MAX_ARGS; i++) {
-  ARG_PLACEHOLDER_MACROS[`_snl_arg_${i}`] = {
-    name: `_snl_arg_${i}`,
-    description: `Argument placeholder ${i}`,
-    source: { entries: [], urls: [] },
-    dynamic_arity: false,
-    default_style: { en: 'default' },
-    tags: [],
-    styles: [
-      {
-        style_name: 'default',
-        mode: 'formula_inline',
-        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${i}}}`,
-        tags: []
-      }
-    ]
-  };
-}
 
 /**
  * Empty-state preview macro. Used when the current style's template is empty
@@ -353,10 +327,6 @@ function previewPlaceholderMacro(label: string): SnlMacro {
       }
     ]
   };
-}
-
-function placeholderNode(i: number): SnlSyntaxTree {
-  return { macro_name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -619,20 +589,6 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600
 };
 
-/** Max `#N` child index in a template, or -1 when none. Ignores escaped `\#`. */
-function maxChildIndex(template: string): number {
-  let max = -1;
-  const re = /(?<!\\)#(\d+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(template)) !== null) {
-    const idx = Number(m[1]);
-    if (Number.isFinite(idx) && idx > max) {
-      max = idx;
-    }
-  }
-  return max;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -640,7 +596,7 @@ function maxChildIndex(template: string): number {
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
   const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
@@ -796,7 +752,6 @@ export function CreateMacroApp(): React.ReactElement {
   }
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
     function onMessage(event: MessageEvent): void {
       const msg = event.data as Incoming;
       if (!msg || typeof msg.type !== 'string') {
@@ -994,9 +949,8 @@ export function CreateMacroApp(): React.ReactElement {
   const previewMacroRecord: MacroRecord = useMemo(
     () => ({
       ...workspaceMacros,
-      ...ARG_PLACEHOLDER_MACROS,
-      [PREVIEW_PLACEHOLDER_KEY]: previewPlaceholderMacro(t('macroPreview')),
-      [DRAFT_KEY]: draftMacro
+      ...MACRO_PREVIEW_ARGUMENTS,
+      [PREVIEW_PLACEHOLDER_KEY]: previewPlaceholderMacro(t('macroPreview')),      [DRAFT_KEY]: draftMacro
     }),
     [draftMacro, workspaceMacros, t]
   );
@@ -1018,10 +972,10 @@ export function CreateMacroApp(): React.ReactElement {
 
   const argCount = useMemo(() => {
     if (dynamicArity) {
-      return Math.min(Math.max(variadicArgCount, 0), MAX_ARGS);
+      return Math.min(Math.max(variadicArgCount, 0), MAX_MACRO_PREVIEW_ARGS);
     }
-    const derived = maxChildIndex(current?.template ?? '') + 1;
-    return Math.min(Math.max(derived, 0), MAX_ARGS);
+    const derived = maxMacroTemplateChildIndex(current?.template ?? '') + 1;
+    return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
   }, [dynamicArity, variadicArgCount, current]);
 
   const parseErrors = useMemo(() => {
@@ -1054,9 +1008,9 @@ export function CreateMacroApp(): React.ReactElement {
       const src = previewArgs[i]?.trim();
       if (src) {
         const parsed = tryParseSnlSyntaxTree(src);
-        children.push(parsed.ok ? parsed.tree : placeholderNode(i));
+        children.push(parsed.ok ? parsed.tree : macroPreviewArgumentNode(i));
       } else {
-        children.push(placeholderNode(i));
+        children.push(macroPreviewArgumentNode(i));
       }
     }
     return { macro_name: DRAFT_KEY, kind: '', mdata: null, children };
@@ -1483,7 +1437,7 @@ export function CreateMacroApp(): React.ReactElement {
               <>
                 <SmallButton
                   onClick={() =>
-                    setVariadicArgCount((n) => Math.min(n + 1, MAX_ARGS))
+                    setVariadicArgCount((n) => Math.min(n + 1, MAX_MACRO_PREVIEW_ARGS))
                   }
                 >
                   {t('addArg')}

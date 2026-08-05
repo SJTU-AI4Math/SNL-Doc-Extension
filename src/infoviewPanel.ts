@@ -23,7 +23,6 @@ import {
   readMacroKinds,
   readAllMacrosWithOrigin,
   readRelationships,
-  resolveActiveMacroPackages,
   type EntryData,
   type EntryKind,
   type LibraryEntry,
@@ -445,15 +444,12 @@ export class InfoviewPanel {
         }
         return;
       case 'openDashboardForEntry':
-        // Open the Dashboard and then jump to editing THIS entry (per cat
-        // 2026-07-06 spec §"编辑界面也应有一个保存并回到浏览的按钮"). The Dashboard
-        // command is what materializes the per-entry editor; we go through
-        // its editEntry command so the two panels' UX matches.
+        // Materialize the Dashboard first, then open the Entry editor. Running
+        // both commands concurrently made the slower panel win focus
+        // nondeterministically.
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
-          void vscode.commands.executeCommand(
-            'snlDoc.openDashboard'
-          );
-          void vscode.commands.executeCommand(
+          await vscode.commands.executeCommand('snlDoc.openDashboard');
+          await vscode.commands.executeCommand(
             'snlDoc.editEntry',
             msg.entryId.trim()
           );
@@ -902,46 +898,42 @@ export class InfoviewPanel {
           isAtomic: boolean | null;
         }>;
       } = { context: [], dependencies: [] };
-      try {
-        const rels = await readRelationships(root);
-        const byId = new Map(entries.map((e) => [e.id, e]));
-        const ctxRows: typeof relatedEntries.context = [];
-        const depRows: typeof relatedEntries.dependencies = [];
-        const seenCtx = new Set<string>();
-        const seenDep = new Set<string>();
-        for (const r of rels) {
-          if (r.from !== id) continue;
-          const target = byId.get(r.to);
-          if (!target) continue;
-          if (r.label === 'uses_context' && !seenCtx.has(r.to)) {
-            seenCtx.add(r.to);
-            ctxRows.push({
-              id: target.id,
-              title: target.title ?? '',
-              kindId: target.kind
-            });
-          } else if (r.label === 'depends' && !seenDep.has(r.to)) {
-            seenDep.add(r.to);
-            const isAtomic =
-              r.metadata &&
-              typeof r.metadata === 'object' &&
-              typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'
-                ? (r.metadata as { isAtomic: boolean }).isAtomic
-                : null;
-            depRows.push({
-              id: target.id,
-              title: target.title ?? '',
-              kindId: target.kind,
-              isAtomic
-            });
-          }
+      const rels = await readRelationships(root);
+      const byId = new Map(entries.map((e) => [e.id, e]));
+      const ctxRows: typeof relatedEntries.context = [];
+      const depRows: typeof relatedEntries.dependencies = [];
+      const seenCtx = new Set<string>();
+      const seenDep = new Set<string>();
+      for (const r of rels) {
+        if (r.from !== id) continue;
+        const target = byId.get(r.to);
+        if (!target) continue;
+        if (r.label === 'uses_context' && !seenCtx.has(r.to)) {
+          seenCtx.add(r.to);
+          ctxRows.push({
+            id: target.id,
+            title: target.title ?? '',
+            kindId: target.kind
+          });
+        } else if (r.label === 'depends' && !seenDep.has(r.to)) {
+          seenDep.add(r.to);
+          const isAtomic =
+            r.metadata &&
+            typeof r.metadata === 'object' &&
+            typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'
+              ? (r.metadata as { isAtomic: boolean }).isAtomic
+              : null;
+          depRows.push({
+            id: target.id,
+            title: target.title ?? '',
+            kindId: target.kind,
+            isAtomic
+          });
         }
-        ctxRows.sort((a, b) => a.title.localeCompare(b.title));
-        depRows.sort((a, b) => a.title.localeCompare(b.title));
-        relatedEntries = { context: ctxRows, dependencies: depRows };
-      } catch {
-        // relationships.json missing/malformed → empty lists, no crash.
       }
+      ctxRows.sort((a, b) => a.title.localeCompare(b.title));
+      depRows.sort((a, b) => a.title.localeCompare(b.title));
+      relatedEntries = { context: ctxRows, dependencies: depRows };
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
@@ -956,7 +948,12 @@ export class InfoviewPanel {
     } catch (err) {
       if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(
+      void this.panel.webview.postMessage({
+        type: 'entryDetailsError',
+        entryId: id,
+        message: text
+      });
+      void vscode.window.showErrorMessage(
         hostText()('loadEntryFailed', { error: text })
       );
     }

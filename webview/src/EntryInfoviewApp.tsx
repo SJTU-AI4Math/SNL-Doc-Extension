@@ -2,8 +2,8 @@
 // renders exactly one Entry — the host sends its details (plus the full entry
 // pool for macro-source resolution) after we announce readiness.
 
-import React, { useEffect, useRef, useState } from 'react';
-import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import React, { useEffect, useState } from 'react';
+import { useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import {
   EntrySurface,
   type EntryOption,
@@ -27,6 +27,7 @@ import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 const MESSAGES = defineUiMessages('entryInfoview', {
   title: 'Entry Infoview', edit: '✎ Edit', editTitle: 'Open this entry in the Edit Entry panel',
   loading: 'Loading entry…', notFound: 'Entry not found in this workspace.',
+  loadError: 'Could not load entry data: {message}',
   context: 'Context', contextDescription: 'Entries providing bindings this one uses (via x@srcEntry).',
   contextEmpty: "No context bindings — this entry doesn't reference any x@srcEntry.",
   dependencies: 'Dependencies',
@@ -39,6 +40,7 @@ const MESSAGES = defineUiMessages('entryInfoview', {
 }, {
   title: '条目信息视图', edit: '✎ 编辑', editTitle: '在“编辑条目”面板中打开此条目',
   loading: '正在加载条目……', notFound: '在此工作区中找不到该条目。',
+  loadError: '无法加载条目数据：{message}',
   context: '上下文', contextDescription: '提供此条目所用绑定的条目（通过 x@srcEntry）。',
   contextEmpty: '无上下文绑定——此条目未引用任何 x@srcEntry。', dependencies: '依赖项',
   dependenciesDescription: '此条目依赖的条目（通过来源可在条目池中解析的宏）。按标题排序；仅关系图视图保证下方条目依赖上方条目。',
@@ -73,11 +75,13 @@ type Incoming =
       relatedEntries?: RelatedEntries | null;
       assetBaseUri?: string;
     }
+  | { type: 'entryDetailsError'; entryId: string; message: string }
   | undefined;
 
 export function EntryInfoviewApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<{
     entry: EntryData;
     kind: EntryKind | null;
@@ -88,18 +92,24 @@ export function EntryInfoviewApp(): React.ReactElement {
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   const [assetBaseUri, setAssetBaseUri] = useState('');
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as Incoming;
       if (!msg || typeof msg.type !== 'string') {
         return;
       }
+      if (msg.type === 'entryDetailsError') {
+        setLoaded(true);
+        setState(null);
+        setLoadError(msg.message);
+        return;
+      }
       if (msg.type === 'entryDetails') {
         setLoaded(true);
+        setLoadError(null);
         if (msg.macros && typeof msg.macros === 'object') {
           setUserMacros(msg.macros);
         }
@@ -161,7 +171,10 @@ export function EntryInfoviewApp(): React.ReactElement {
         />
         {!loaded ? (
           <p style={{ opacity: 0.8 }}>{t('loading')}</p>
-        ) : !state ? (
+        ) : loadError ? (
+          <p role="alert" style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
+            {t('loadError', { message: loadError })}
+          </p>        ) : !state ? (
           <p style={{ opacity: 0.8 }}>{t('notFound')}</p>
         ) : (
           <>

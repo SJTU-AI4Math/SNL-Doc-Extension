@@ -14,6 +14,7 @@ describe('Entry panel relationships plumbing', () => {
       source.indexOf('const macros = macroBundle.macros;')
     );
     expect(fanout).toContain('readRelationships(root)');
+    expect(fanout).not.toContain('readRelationships(root).catch');
     // A serial `await readRelationships(...)` outside the fan-out would
     // re-add the latency the concurrency exists to remove.
     expect(source).not.toMatch(/await\s+readRelationships\(/);

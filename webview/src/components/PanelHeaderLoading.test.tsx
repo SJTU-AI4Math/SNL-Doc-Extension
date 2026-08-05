@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import React from 'react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CreateRelationshipApp } from '../CreateRelationshipApp';

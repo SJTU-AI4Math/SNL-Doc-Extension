@@ -40,4 +40,11 @@ describe('buildExportDocument', () => {
     });
     expect(doc).not.toContain('<script');
   });
+
+  it('emits the selected Chinese locale and localized watermark accessibility copy', () => {
+    const doc = buildExportDocument({ title: 'T', locale: 'zh-CN', css: '', body: '' });
+    expect(doc).toContain('<html lang="zh-CN">');
+    expect(doc).toContain('aria-label="GitHub 上的 SNL-Basics"');
+    expect(doc).toContain('由上海交通大学 AI4Math 团队 Fulcrum 的 SNL 提供交互式公式支持');
+  });
 });

@@ -22,6 +22,7 @@ const MESSAGES = defineHostMessages(
 /** Harvested payload handed over by the Infoview, held until the user commits. */
 export interface ExportPayload {
   slug: string;
+  locale?: string;
   title: string;
   subtitle?: string;
   body: string;
@@ -253,6 +254,7 @@ export class ExportOptionsPanel {
         buildDocument: (input) =>
           buildExportDocument({
             ...input,
+            locale: this.payload.locale,
             // Dropped when the reader asked for a static document: without the
             // runtime nothing would read the payload anyway.
             scriptSources: runtimeJs ? input.scriptSources : [],

@@ -211,6 +211,7 @@ export function App(): React.ReactElement {
       for (const asset of extraAssets) if (!merged.has(asset.path)) merged.set(asset.path, asset);
       postMessage({
         type: 'exportLibraryHtml',
+        locale: document.documentElement.lang || 'en',
         slug,
         title,
         subtitle: `${t('entries', { count: entryCount })} · ${slug}`,

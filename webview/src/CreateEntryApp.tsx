@@ -2678,9 +2678,17 @@ export function GuiCanvasEditor({
         )
     );
 
+  const insideRenderedSnl = (node: Node | null): boolean =>
+    Boolean(node && (node as HTMLElement).closest?.('.katex-html'));
+
   const handleCanvasClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (insideOpenEditor(event.target as Node)) return;
     if (insideContextMenu(event.target as Node)) return;
+    // SnlSyntaxTreeView's reading interaction deliberately resolves `partial`
+    // nodes through to a non-partial ancestor. Canvas owns click semantics, so
+    // stop the inner delegated click while still resolving/focusing the exact
+    // tree path in this capture handler.
+    if (insideRenderedSnl(event.target as Node)) event.stopPropagation();
     if (suppressCanvasClickRef.current) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -3085,6 +3093,11 @@ export function GuiCanvasEditor({
         aria-label="GUI Editor canvas"
         tabIndex={0}
         onClickCapture={handleCanvasClick}
+        onMouseMoveCapture={(event) => {
+          // Block SnlSyntaxTreeView's reading hover/highlight before its own
+          // bubble handler can resolve a partial node to an ancestor.
+          if (insideRenderedSnl(event.target as Node)) event.stopPropagation();
+        }}
         onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenu={handleCanvasContextMenu}
         onKeyDown={handleCanvasKeyDown}

@@ -10,6 +10,9 @@ import {
 } from '../CreateEntryApp';
 import { createCanvasHole } from './canvasForest';
 
+let readingHoverCount = 0;
+let readingClickCount = 0;
+
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sjtu-ai4math/snl-basics')>();
   const ReactModule = await import('react');
@@ -35,7 +38,15 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   };
   return {
     ...actual,
-    SnlSyntaxTreeView: ({ tree }: { tree: SnlSyntaxTree }) => renderNode(tree)
+    SnlSyntaxTreeView: ({ tree }: { tree: SnlSyntaxTree }) => ReactModule.createElement(
+      'div',
+      {
+        className: 'katex-html',
+        onMouseMove: () => { readingHoverCount += 1; },
+        onClick: () => { readingClickCount += 1; }
+      },
+      renderNode(tree)
+    )
   };
 });
 
@@ -60,6 +71,8 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  readingHoverCount = 0;
+  readingClickCount = 0;
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'elementsFromPoint');
 });
@@ -71,6 +84,25 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('owns interactions so partial nodes cannot fall through to reading-surface ancestors', async () => {
+    const partial = { ...node('partial-fragment', [node('child')]), kind: 'partial' };
+    const view = render(
+      <GuiCanvasEditor
+        forest={[partial]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const partialElement = view.container.querySelector<HTMLElement>('[data-kind="partial"]')!;
+    fireEvent.mouseMove(partialElement);
+    fireEvent.click(partialElement, { ctrlKey: true });
+    expect(readingHoverCount).toBe(0);
+    expect(readingClickCount).toBe(0);
+    await waitFor(() => expect(partialElement.classList.contains('snl-canvas-focused')).toBe(true));
+  });
+
   it('expands the canvas bounds for blocks wider and taller than the viewport', () => {
     expect(canvasExtentForBlocks(
       { width: 800, height: 512 },

@@ -1,0 +1,35 @@
+.snl-entry-overflow-surface {
+  width: 100%;
+  min-width: 0;
+}
+
+.snl-entry-overflow-surface > [data-entry-id] {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Entry bodies may contain wide KaTeX, tables, code, or custom blocks. Keep
+   that overflow local to the Entry instead of widening the whole Infoview. */
+.snl-entry-overflow-surface [data-entry-body] {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Basics gives Markdown code blocks their own horizontal scroller. Firefox
+   cannot hide one scrollbar axis independently, so scope `none` to that known
+   horizontal surface rather than every descendant/custom vertical scroller. */
+.snl-entry-overflow-surface [data-entry-body] .snl-markdown-body pre {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Chromium (including VS Code) can hide only the horizontal axis, preserving
+   any vertical scrollbar owned by a custom Entry renderer. */
+.snl-entry-overflow-surface [data-entry-body]::-webkit-scrollbar:horizontal,
+.snl-entry-overflow-surface [data-entry-body] *::-webkit-scrollbar:horizontal {
+  display: none;
+  height: 0;
+}

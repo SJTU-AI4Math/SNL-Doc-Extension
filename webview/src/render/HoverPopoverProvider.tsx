@@ -21,6 +21,21 @@ import {
 } from './EntrySurface';
 import type { MacroRecord } from './macroData';
 import { popoverFrameStyle } from './popoverFrame';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'hoverPopover',
+  {
+    loading: 'Loading…',
+    notFoundPrefix: 'Entry ',
+    notFoundSuffix: ' not found in the shared pool.'
+  },
+  {
+    loading: '正在加载…',
+    notFoundPrefix: '条目 ',
+    notFoundSuffix: ' 不在共享池中。'
+  }
+);
 
 export type PopoverInstance = HoverPopover<string>;
 export type HoverPopoverContextValue = HoverPopoverApi<string>;
@@ -73,17 +88,18 @@ function EntryPopoverContent({
   kindPalette?: KindPalette;
   markdownImageUrlTransform?: (source: string) => string;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   useEffect(() => {
     if (detail === undefined) requestDetails(entryId);
   }, [detail, entryId, requestDetails]);
 
   if (detail === undefined) {
-    return <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>Loading…</div>;
+    return <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>{t('loading')}</div>;
   }
   if (detail.entry === null) {
     return (
       <div style={{ padding: '0.6rem 0.8rem', color: '#333', fontStyle: 'italic' }}>
-        Entry <code>{entryId}</code> not found in the shared pool.
+        {t('notFoundPrefix')}<code>{entryId}</code>{t('notFoundSuffix')}
       </div>
     );
   }

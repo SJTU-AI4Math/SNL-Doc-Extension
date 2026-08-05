@@ -26,7 +26,42 @@ export function defineHostMessages<const Messages extends HostMessageCatalog>(
   english: Messages,
   chinese: { readonly [Key in keyof Messages]: HostMessageTemplate }
 ): HostMessages<Messages> {
+  for (const key of Object.keys(english) as Array<keyof Messages & string>) {
+    const enTemplate = english[key];
+    const zhTemplate = chinese[key];
+    if (zhTemplate === undefined) throw new Error(`Missing zh-CN host message: ${key}`);
+    const enPlural = typeof enTemplate !== 'string';
+    const zhPlural = typeof zhTemplate !== 'string';
+    if (enPlural !== zhPlural ||
+        (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg)) {
+      throw new Error(`Host message ${key} has incompatible plural arguments`);
+    }
+    const enParams = hostPlaceholderNames(enTemplate);
+    const zhParams = hostPlaceholderNames(zhTemplate);
+    const missing = [...enParams].filter((name) => !zhParams.has(name));
+    const extra = [...zhParams].filter((name) => !enParams.has(name));
+    if (missing.length || extra.length) {
+      throw new Error(
+        `Host message ${key} placeholder mismatch: missing [${missing.join(', ')}], ` +
+        `extra [${extra.join(', ')}]`
+      );
+    }
+  }
   return { en: english, 'zh-CN': chinese };
+}
+
+function hostPlaceholderNames(template: HostMessageTemplate): Set<string> {
+  const names = new Set<string>();
+  const strings = typeof template === 'string'
+    ? [template]
+    : [template.zero, template.one, template.two, template.few, template.many, template.other];
+  for (const value of strings) {
+    if (!value) continue;
+    for (const match of value.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+      names.add(match[1]);
+    }
+  }
+  return names;
 }
 
 export function formatHostMessage(

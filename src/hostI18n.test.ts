@@ -32,4 +32,11 @@ describe('host UI localization runtime', () => {
     expect(createHostTranslator('fr', messages)('done', { name: 'A' })).toBe('Created A.');
     expect(() => formatHostMessage('Created {name}.', {})).toThrow(/name/);
   });
+
+  it('rejects translated host templates that drop dynamic parameters', () => {
+    expect(() => defineHostMessages(
+      { done: 'Created {name}.' },
+      { done: '已创建。' }
+    )).toThrow(/done.*name/i);
+  });
 });

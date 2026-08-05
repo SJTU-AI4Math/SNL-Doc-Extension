@@ -8,11 +8,13 @@ import { read_extension_preferences } from './preferences';
 
 const MESSAGES = defineHostMessages(
   {
+    panelTitle: 'SNL Export HTML',
     noWorkspace: 'No workspace folder is open.', chooseDestination: 'Choose a destination first.',
     runtimeMissing: 'Interactive runtime not found (run `npm run build:export-runtime`); exporting a static document instead.',
     done: 'Exported {count} file(s) to {path}'
   },
   {
+    panelTitle: 'SNL 导出 HTML',
     noWorkspace: '没有打开的工作区文件夹。', chooseDestination: '请先选择导出位置。',
     runtimeMissing: '未找到交互运行时（请运行 `npm run build:export-runtime`）；将改为导出静态文档。',
     done: '已将 {count} 个文件导出到 {path}'
@@ -63,9 +65,10 @@ export class ExportOptionsPanel {
       return;
     }
 
+    const t = createHostTranslator(payload.locale ?? read_extension_preferences().language, MESSAGES);
     const panel = vscode.window.createWebviewPanel(
       ExportOptionsPanel.viewType,
-      'SNL Export HTML',
+      t('panelTitle'),
       column,
       {
         enableScripts: true,

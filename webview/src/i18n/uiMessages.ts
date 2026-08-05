@@ -42,8 +42,7 @@ export function defineUiMessages<const Messages extends UiCatalog>(
     }
     const enPlural = typeof enTemplate !== 'string';
     const zhPlural = typeof zhTemplate !== 'string';
-    if (enPlural !== zhPlural ||
-        (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg)) {
+    if (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg) {
       throw new Error(`UI message ${namespace}.${key} has incompatible plural arguments`);
     }
     const enParams = placeholderNames(enTemplate);

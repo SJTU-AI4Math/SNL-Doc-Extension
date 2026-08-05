@@ -26,6 +26,10 @@ export function defineHostMessages<const Messages extends HostMessageCatalog>(
   english: Messages,
   chinese: { readonly [Key in keyof Messages]: HostMessageTemplate }
 ): HostMessages<Messages> {
+  const extraKeys = Object.keys(chinese).filter((key) => !(key in english));
+  if (extraKeys.length > 0) {
+    throw new Error(`Extra zh-CN host messages: ${extraKeys.join(', ')}`);
+  }
   for (const key of Object.keys(english) as Array<keyof Messages & string>) {
     const enTemplate = english[key];
     const zhTemplate = chinese[key];

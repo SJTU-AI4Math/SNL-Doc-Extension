@@ -38,5 +38,9 @@ describe('host UI localization runtime', () => {
       { done: 'Created {name}.' },
       { done: '已创建。' }
     )).toThrow(/done.*name/i);
+    expect(() => defineHostMessages(
+      { title: 'Title' },
+      { title: '标题', obsolete: '旧文案' } as never
+    )).toThrow(/extra.*obsolete/i);
   });
 });

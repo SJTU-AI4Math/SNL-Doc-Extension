@@ -67,5 +67,10 @@ describe('UI message runtime', () => {
       { count: { arg: 'count', other: '{count} items' } },
       { count: { arg: 'total', other: '{total} 项' } }
     )).toThrow(/count.*plural/i);
+    expect(() => defineUiMessages(
+      'bad.extra',
+      { title: 'Title' },
+      { title: '标题', obsolete: '旧文案' } as never
+    )).toThrow(/extra.*obsolete/i);
   });
 });

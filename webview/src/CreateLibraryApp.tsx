@@ -32,6 +32,60 @@ import {
   type SnlMacroSourceLookup
 } from './components/EntryMetrics';
 import type { EntryOption } from './render/EntryRender';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const LIBRARY_MESSAGES = defineUiMessages(
+  'libraryEditor',
+  {
+    editLibrary: 'Edit Library', createLibrary: 'Create Library', dashboard: 'Dashboard',
+    backDashboard: 'Back to Dashboard', viewInfoview: 'View in Infoview',
+    openInfoview: 'Open library "{slug}" in the Infoview reading surface',
+    editHelp: 'Update this library’s display title and outline. The slug (directory name) is immutable — delete + recreate to rename.',
+    createHelp: 'Add a new library to the existing .SNL_Doc/. The title is written to libraries/<slug>/meta.json; the slug (directory name) is derived from the title.',
+    slugReadonly: 'Slug (readonly)', slugImmutable: 'IDs / slugs are immutable; delete + recreate to rename',
+    libraryTitle: 'Library title', titlePlaceholder: 'e.g. Real Analysis', updating: 'Updating…',
+    creating: 'Creating…', updateTitle: 'Update Title',
+    expandCounters: 'Expand counters', collapseCounters: 'Collapse counters', expand: 'Expand', collapse: 'Collapse',
+    counters: 'Counters ({count})', addFirstCounter: '+ Add first counter', addRootCounter: '+ Add root counter',
+    counterName: 'Counter name', counterNamePlaceholder: 'name', counterDsl: 'Counter numbering DSL',
+    counterDslPlaceholder: 'numbering', duplicateCounterHelp: 'Another counter in this library shares this name; name-lookup picks the first depth-first match.',
+    duplicateName: '(duplicate name)', created: '✅ Created library "{title}" (slug: {slug}).',
+    updated: '✅ Updated library "{title}" (slug: {slug}).', invalid: '❌ Invalid: {message}', error: '❌ Error: {message}',
+    outline: 'Outline', loadingOutline: 'Loading outline…', nodeCount: { arg: 'count', one: '{count} node', other: '{count} nodes' },
+    branchCount: { arg: 'count', one: '{count} branch edge', other: '{count} branch edges' },
+    noEntries: 'No entries yet — click "Add root entry" below.', addRootEntry: '+ Add root entry', untitled: '(untitled)',
+    openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
+    noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
+    defaultCounter: '<default>', copyEntryId: 'Click to copy entry id\n{id}', entryId: 'Entry id',
+    entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
+    referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
+    emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
+    graphWarnings: { arg: 'count', one: '⚠️ {count} graph warning', other: '⚠️ {count} graph warnings' },
+    moreWarnings: '… {count} more'
+  },
+  {
+    editLibrary: '编辑文库', createLibrary: '创建文库', dashboard: '仪表板', backDashboard: '返回仪表板',
+    viewInfoview: '在信息视图中查看', openInfoview: '在信息视图阅读界面中打开文库“{slug}”',
+    editHelp: '更新此文库的显示标题和大纲。标识（目录名）不可更改；如需重命名，请删除后重新创建。',
+    createHelp: '向现有 .SNL_Doc/ 添加新文库。标题将写入 libraries/<slug>/meta.json；标识（目录名）根据标题生成。',
+    slugReadonly: '标识（只读）', slugImmutable: 'ID 和标识不可更改；如需重命名，请删除后重新创建',
+    libraryTitle: '文库标题', titlePlaceholder: '例如：实分析', updating: '正在更新…', creating: '正在创建…', updateTitle: '更新标题',
+    expandCounters: '展开计数器', collapseCounters: '折叠计数器', expand: '展开', collapse: '折叠',
+    counters: '计数器（{count}）', addFirstCounter: '+ 添加第一个计数器', addRootCounter: '+ 添加根计数器',
+    counterName: '计数器名称', counterNamePlaceholder: '名称', counterDsl: '计数器编号 DSL', counterDslPlaceholder: '编号规则',
+    duplicateCounterHelp: '此文库中的另一个计数器使用了相同名称；按名称查找时会选择深度优先遍历中的第一个匹配项。', duplicateName: '（名称重复）',
+    created: '✅ 已创建文库“{title}”（标识：{slug}）。', updated: '✅ 已更新文库“{title}”（标识：{slug}）。',
+    invalid: '❌ 无效：{message}', error: '❌ 错误：{message}', outline: '大纲', loadingOutline: '正在加载大纲…',
+    nodeCount: '{count} 个节点', branchCount: '{count} 条分支边', noEntries: '还没有条目 — 请点击下方的“添加根条目”。',
+    addRootEntry: '+ 添加根条目', untitled: '（无标题）', openEntry: '打开“编辑条目”：{id}\n类型：{kind}',
+    pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
+    pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
+    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
+    counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
+    noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
+    graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条'
+  }
+);
 
 type Mode = 'create' | 'edit';
 
@@ -119,6 +173,7 @@ function flattenCounters(roots: CounterNode[]): CounterNode[] {
 }
 
 export function CreateLibraryApp(): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   const [mode, setMode] = useState<Mode>('create');
   const [slug, setSlug] = useState('');
   const [title, setTitle] = useState('');
@@ -284,17 +339,17 @@ export function CreateLibraryApp(): React.ReactElement {
           jump to this library in the Infoview. */}
       <PanelHeader
         vsApi={apiRef.current}
-        title={mode === 'edit' ? 'Edit Library' : 'Create Library'}
+        title={mode === 'edit' ? t('editLibrary') : t('createLibrary')}
         back={{
-          label: 'Dashboard',
-          title: 'Back to Dashboard',
+          label: t('dashboard'),
+          title: t('backDashboard'),
           message: { type: 'nav.openDashboard' }
         }}
         viewInInfoview={
           mode === 'edit' && slug
             ? {
-                label: 'View in Infoview',
-                title: `Open library "${slug}" in the Infoview reading surface`,
+                label: t('viewInfoview'),
+                title: t('openInfoview', { slug }),
                 message: { type: 'nav.openInfoview', slug }
               }
             : undefined
@@ -302,8 +357,8 @@ export function CreateLibraryApp(): React.ReactElement {
       />
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
-          ? 'Update this library\u2019s display title and outline. The slug (directory name) is immutable — delete + recreate to rename.'
-          : 'Add a new library to the existing .SNL_Doc/. The title is written to libraries/<slug>/meta.json; the slug (directory name) is derived from the title.'}
+          ? t('editHelp')
+          : t('createHelp')}
       </p>
 
       {mode === 'edit' ? (
@@ -328,14 +383,14 @@ export function CreateLibraryApp(): React.ReactElement {
                 fontWeight: 600
               }}
             >
-              Slug (readonly)
+              {t('slugReadonly')}
             </label>
             <input
               id="snl-library-slug"
               type="text"
               value={slug}
               readOnly
-              title="IDs / slugs are immutable; delete + recreate to rename"
+              title={t('slugImmutable')}
               style={{
                 width: '100%',
                 boxSizing: 'border-box',
@@ -361,13 +416,13 @@ export function CreateLibraryApp(): React.ReactElement {
                 fontWeight: 600
               }}
             >
-              Library title
+              {t('libraryTitle')}
             </label>
             <input
               id="snl-library-title"
               type="text"
               value={title}
-              placeholder="e.g. Real Analysis"
+              placeholder={t('titlePlaceholder')}
               onChange={(e) => { titleDirtyRef.current = true; setTitle(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -401,13 +456,13 @@ export function CreateLibraryApp(): React.ReactElement {
               fontWeight: 600
             }}
           >
-            Library title
+            {t('libraryTitle')}
           </label>
           <input
             id="snl-library-title"
             type="text"
             value={title}
-            placeholder="e.g. Real Analysis"
+            placeholder={t('titlePlaceholder')}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -437,8 +492,8 @@ export function CreateLibraryApp(): React.ReactElement {
         disabled={!canSubmit}
       >
         {status.kind === 'creating'
-          ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
-          : mode === 'edit' ? 'Update Title' : 'Create Library'}
+          ? mode === 'edit' ? t('updating') : t('creating')
+          : mode === 'edit' ? t('updateTitle') : t('createLibrary')}
       </Button>
 
       <StatusLine status={status} />
@@ -490,6 +545,7 @@ function CountersSection({
   counters: CounterNode[];
   onCounterOp: (op: Record<string, unknown>) => void;
 }): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   const [collapsed, setCollapsed] = useState(false);
   const total = useMemo(() => countCounterTree(counters), [counters]);
 
@@ -580,8 +636,8 @@ function CountersSection({
         <Button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand counters' : 'Collapse counters'}
-          title={collapsed ? 'Expand' : 'Collapse'}
+          aria-label={collapsed ? t('expandCounters') : t('collapseCounters')}
+          title={collapsed ? t('expand') : t('collapse')}
           style={{
             width: '1.2rem',
             height: '1.2rem',
@@ -598,7 +654,7 @@ function CountersSection({
           {collapsed ? '▶' : '▼'}
         </Button>
         <h2 style={{ ...SECTION_HEADING_STYLE, margin: 0 }}>
-          Counters ({total})
+          {t('counters', { count: total })}
         </h2>
       </div>
 
@@ -612,7 +668,7 @@ function CountersSection({
             onOp={handleTreeOp}
             emptyState={
               <AddBar
-                label="+ Add first counter"
+                label={t('addFirstCounter')}
                 onActivate={() =>
                   onCounterOp({
                     op: 'addRoot',
@@ -635,7 +691,7 @@ function CountersSection({
               }
               style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
             >
-              + Add root counter
+              {t('addRootCounter')}
             </Button>
           ) : null}
         </>
@@ -659,6 +715,7 @@ function CounterRowContent({
   isDuplicate: boolean;
   onUpdateFields: (patch: { name?: string; numbering?: string }) => void;
 }): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   const [name, setName] = useState(node.name);
   const [numbering, setNumbering] = useState(node.numbering);
 
@@ -698,8 +755,8 @@ function CounterRowContent({
       <input
         type="text"
         value={name}
-        aria-label="Counter name"
-        placeholder="name"
+        aria-label={t('counterName')}
+        placeholder={t('counterNamePlaceholder')}
         onChange={(e) => setName(e.target.value)}
         onBlur={commitName}
         onKeyDown={(e) => {
@@ -711,8 +768,8 @@ function CounterRowContent({
       <input
         type="text"
         value={numbering}
-        aria-label="Counter numbering DSL"
-        placeholder="numbering"
+        aria-label={t('counterDsl')}
+        placeholder={t('counterDslPlaceholder')}
         onChange={(e) => setNumbering(e.target.value)}
         onBlur={commitNumbering}
         onKeyDown={(e) => {
@@ -727,7 +784,7 @@ function CounterRowContent({
       />
       {isDuplicate ? (
         <span
-          title="Another counter in this library shares this name; name-lookup picks the first depth-first match."
+          title={t('duplicateCounterHelp')}
           style={{
             flexShrink: 0,
             fontSize: '0.72rem',
@@ -739,7 +796,7 @@ function CounterRowContent({
             fontWeight: 600
           }}
         >
-          (duplicate name)
+          {t('duplicateName')}
         </span>
       ) : null}
     </span>
@@ -756,6 +813,7 @@ function StatusLine({
 }: {
   status: Status;
 }): React.ReactElement | null {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   if (status.kind === 'idle' || status.kind === 'creating') {
     return null;
   }
@@ -763,10 +821,10 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `\u2705 Created library "${status.title}" (slug: ${status.slug}).`;
+    text = t('created', { title: status.title, slug: status.slug });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'updated') {
-    text = `\u2705 Updated library "${status.title}" (slug: ${status.slug}).`;
+    text = t('updated', { title: status.title, slug: status.slug });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'duplicate') {
     text = `\u26a0\ufe0f ${status.message}`;
@@ -781,10 +839,10 @@ function StatusLine({
     text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'invalid') {
-    text = `\u274c Invalid: ${status.message}`;
+    text = t('invalid', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'error') {
-    text = `\u274c Error: ${status.message}`;
+    text = t('error', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 
@@ -836,6 +894,7 @@ function OutlineEditor({
   onOpenCreateEntry,
   counters
 }: OutlineEditorProps): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   // Optional "adding" mode: which parent is currently being extended, and
   // just the entryId the user is typing (cat 2026-07-06: reference-only,
   // create-mode is routed to the CreateEntry panel instead).
@@ -988,8 +1047,8 @@ function OutlineEditor({
   if (!graph) {
     return (
       <section style={{ marginTop: '2rem' }}>
-        <h2 style={SECTION_HEADING_STYLE}>Outline</h2>
-        <p style={{ opacity: 0.7 }}>{error ?? 'Loading outline…'}</p>
+        <h2 style={SECTION_HEADING_STYLE}>{t('outline')}</h2>
+        <p style={{ opacity: 0.7 }}>{error ?? t('loadingOutline')}</p>
       </section>
     );
   }
@@ -1107,11 +1166,10 @@ function OutlineEditor({
           marginBottom: '0.5rem'
         }}
       >
-        <h2 style={{ ...SECTION_HEADING_STYLE, margin: 0 }}>Outline</h2>
+        <h2 style={{ ...SECTION_HEADING_STYLE, margin: 0 }}>{t('outline')}</h2>
         <span style={{ opacity: 0.65, fontSize: '0.85rem' }}>
-          {graph.nodes.length} node{graph.nodes.length === 1 ? '' : 's'} ·{' '}
-          {graph.relationships.filter((r) => r.label === 'branch').length} branch edge
-          {graph.relationships.filter((r) => r.label === 'branch').length === 1 ? '' : 's'}
+          {t('nodeCount', { count: graph.nodes.length })} ·{' '}
+          {t('branchCount', { count: graph.relationships.filter((r) => r.label === 'branch').length })}
         </span>
       </div>
 
@@ -1128,7 +1186,7 @@ function OutlineEditor({
         onOp={handleTreeOp}
         emptyState={
           <div style={{ opacity: 0.75, fontStyle: 'italic', marginBottom: '0.75rem' }}>
-            No entries yet — click "Add root entry" below.
+            {t('noEntries')}
           </div>
         }
       />
@@ -1151,7 +1209,7 @@ function OutlineEditor({
           onClick={() => startAdd(null, null)}
           style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
         >
-          + Add root entry
+          {t('addRootEntry')}
         </Button>
       )}
     </section>
@@ -1186,6 +1244,7 @@ function OutlineRowContent({
   onOpenEntry,
   onUpdateNodeCounter
 }: OutlineRowContentProps): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
@@ -1204,7 +1263,7 @@ function OutlineRowContent({
 
   const title = entry?.title ?? '';
   const displayTitle =
-    title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>(untitled)</em>;
+    title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>{t('untitled')}</em>;
 
   return (
     <>
@@ -1247,7 +1306,7 @@ function OutlineRowContent({
             textDecoration: 'none'
           }}
           className="snl-outline-row-title"
-          title={`Open Edit Entry: ${entry.id}\nkind: ${entry.kind}`}
+          title={t('openEntry', { id: entry.id, kind: entry.kind })}
         >
           {displayTitle}
         </span>
@@ -1264,8 +1323,8 @@ function OutlineRowContent({
           }}
           title={
             isStub
-              ? `pending entry — "${node.props.entryId}" not in the pool yet (finish it in the Create Entry panel)`
-              : `no entryId assigned (node ${node.id})`
+              ? t('pendingHelp', { id: node.props.entryId ?? '' })
+              : t('noEntryId', { id: node.id })
           }
         >
           {isStub ? (
@@ -1282,7 +1341,7 @@ function OutlineRowContent({
                     '1px solid var(--vscode-inputValidation-warningBorder, #b89500)'
                 }}
               >
-                ⚠ pending
+                {t('pending')}
               </span>
               <code style={{ fontSize: '0.8rem' }}>{node.props.entryId}</code>
             </>
@@ -1311,7 +1370,7 @@ function OutlineRowContent({
             e.stopPropagation();
             onUpdateNodeCounter(node.id, e.target.value);
           }}
-          title="Counter override for this entry (default = kind's default counter name)"
+          title={t('counterOverride')}
           style={{
             flexShrink: 0,
             fontSize: '0.7rem',
@@ -1323,7 +1382,7 @@ function OutlineRowContent({
             borderRadius: '2px'
           }}
         >
-          <option value="">&lt;default&gt;</option>
+          <option value="">{t('defaultCounter')}</option>
           {flatCounters.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -1337,7 +1396,7 @@ function OutlineRowContent({
       {entry ? (
         <Button
           type="button"
-          title={`Click to copy entry id\n${entry.id}`}
+          title={t('copyEntryId', { id: entry.id })}
           onClick={() => {
             const id = entry.id;
             void (async () => {
@@ -1440,6 +1499,7 @@ function AddNodeForm({
     } | null
   ) => void;
 }): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   const entryIdTrimmed = state.entryId.trim();
   const isEmpty = entryIdTrimmed.length === 0;
   const referencedEntry = !isEmpty ? entriesById.get(entryIdTrimmed) : undefined;
@@ -1455,7 +1515,7 @@ function AddNodeForm({
   type Mode = 'empty' | 'matched' | 'nomatch';
   const mode: Mode = isEmpty ? 'empty' : referencedEntry ? 'matched' : 'nomatch';
 
-  const buttonLabel = mode === 'matched' ? 'Reference' : 'Create';
+  const buttonLabel = mode === 'matched' ? t('reference') : t('create');
 
   const borderColor =
     mode === 'matched'
@@ -1497,7 +1557,7 @@ function AddNodeForm({
             paddingTop: '0.4rem'
           }}
         >
-          Entry id
+          {t('entryId')}
         </label>
         <div style={{ flex: '1 1 auto' }}>
           {/* Cat 2026-07-09: replace the bare paste-uuid input with an
@@ -1515,7 +1575,7 @@ function AddNodeForm({
             hideResolvedChip
             autoFocus
             idPrefix="snl-outline-entryid"
-            placeholder="Search existing entry, or type a new id and click Create"
+            placeholder={t('entryPlaceholder')}
             onChange={(next) =>
               onUpdate({
                 parentId: state.parentId,
@@ -1558,7 +1618,7 @@ function AddNodeForm({
             htmlFor="snl-outline-counter"
             style={{ fontSize: '0.8rem', opacity: 0.75 }}
           >
-            Counter
+            {t('counter')}
           </label>
           <select
             id="snl-outline-counter"
@@ -1580,7 +1640,7 @@ function AddNodeForm({
               borderRadius: '2px'
             }}
           >
-            <option value="">&lt;default&gt;</option>
+            <option value="">{t('defaultCounter')}</option>
             {flatCounters.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -1605,16 +1665,19 @@ function AddNodeForm({
           }}
         >
           {mode === 'matched'
-            ? `Reference: "${referencedEntry?.title || '(untitled)'}" — kind: ${referencedEntry?.kind}`
+            ? t('referenceStatus', {
+                title: referencedEntry?.title || t('untitled'),
+                kind: referencedEntry?.kind ?? ''
+              })
             : mode === 'nomatch'
-              ? `No entry with id "${entryIdTrimmed}" — Create will add a new one`
-              : 'Empty — Create will open the Create Entry panel'}
+              ? t('noMatchStatus', { id: entryIdTrimmed })
+              : t('emptyStatus')}
         </span>
         <Button onClick={onCommit} style={toolbarButtonStyle(true)}>
           {buttonLabel}
         </Button>
         <Button onClick={onCancel} style={toolbarButtonStyle(false)}>
-          Cancel
+          {t('cancel')}
         </Button>
       </div>
     </div>
@@ -1647,6 +1710,7 @@ function WarningBanner({
 }: {
   warnings: string[];
 }): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
   return (
     <div
       role="status"
@@ -1662,14 +1726,14 @@ function WarningBanner({
       }}
     >
       <div style={{ marginBottom: '0.25rem', fontWeight: 600 }}>
-        ⚠️ {warnings.length} graph warning{warnings.length === 1 ? '' : 's'}
+        {t('graphWarnings', { count: warnings.length })}
       </div>
       <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
         {warnings.slice(0, 5).map((w, i) => (
           <li key={i}>{w}</li>
         ))}
         {warnings.length > 5 ? (
-          <li style={{ opacity: 0.7 }}>… {warnings.length - 5} more</li>
+          <li style={{ opacity: 0.7 }}>{t('moreWarnings', { count: warnings.length - 5 })}</li>
         ) : null}
       </ul>
     </div>

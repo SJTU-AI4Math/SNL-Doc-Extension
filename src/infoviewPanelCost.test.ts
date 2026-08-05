@@ -211,6 +211,21 @@ describe('infoview panel read cost', () => {
     expect(posted.some((message) => message.type === 'libraries')).toBe(false);
   });
 
+  it('clears direct Library navigation when the Infoview goes back', async () => {
+    const send = await openBrowser(LIBRARY);
+    await send({ type: 'ready' });
+    reset();
+
+    await send({ type: 'back' });
+    expect(posted.some((message) => message.type === 'libraries')).toBe(true);
+    expect(posted.some((message) => message.type === 'libraryEntries')).toBe(false);
+
+    reset();
+    await send({ type: 'ready' });
+    expect(posted.some((message) => message.type === 'libraries')).toBe(true);
+    expect(posted.some((message) => message.type === 'libraryEntries')).toBe(false);
+  });
+
   it('reads no file twice when pushing a library outline', async () => {
     const send = await openBrowser();
     reset();

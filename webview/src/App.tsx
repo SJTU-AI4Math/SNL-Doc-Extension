@@ -242,8 +242,10 @@ export function App(): React.ReactElement {
 
   const goBack = (): void => {
     if (view.kind === 'library') {
-      // Back from library → libraries root.
-      postMessage({ type: 'ready' });
+      // `ready` preserves a host-seeded Library slug so direct navigation can
+      // survive the first handshake. Back is an explicit state transition:
+      // clear that slug on the host and request the Libraries root.
+      postMessage({ type: 'back' });
     }
   };
 

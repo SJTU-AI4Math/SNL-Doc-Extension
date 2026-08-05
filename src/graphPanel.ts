@@ -231,29 +231,26 @@ export class GraphPanel {
       return;
     }
     const warnings: string[] = [];
-    let entries: EntryData[] = [];
-    let kinds: EntryKind[] = [];
-    let rels: RelationshipData[] = [];
+    let entries: EntryData[];
+    let kinds: EntryKind[];
+    let rels: RelationshipData[];
     try {
-      entries = await readEntries(root);
+      [entries, kinds, rels] = await Promise.all([
+        readEntries(root),
+        readEntryKinds(root),
+        readRelationships(root)
+      ]);
     } catch (err) {
-      warnings.push(
-        `Failed to read entries.json: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-    try {
-      kinds = await readEntryKinds(root);
-    } catch (err) {
-      warnings.push(
-        `Failed to read entry kinds: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-    try {
-      rels = await readRelationships(root);
-    } catch (err) {
-      warnings.push(
-        `Failed to read relationships.json: ${err instanceof Error ? err.message : String(err)}`
-      );
+      if (generation !== this.graphGeneration) return;
+      const message = `SNL graph refresh failed: ${err instanceof Error ? err.message : String(err)}`;
+      void this.panel.webview.postMessage({
+        type: 'graphError',
+        scope: this.scope,
+        title: this.scope.mode === 'pool' ? 'Relationship Graph' : `Graph — ${this.scope.slug}`,
+        message
+      });
+      void vscode.window.showErrorMessage(message);
+      return;
     }
 
     // Scope filter: for a library, restrict endpoints to that library's
@@ -263,33 +260,50 @@ export class GraphPanel {
     if (this.scope.mode === 'library') {
       const scopeSlug = this.scope.slug;
       displayTitle = `Graph — ${scopeSlug}`;
-      const libraries = await listLibraries(root);
-      const lib = libraries.find((l) => l.slug === scopeSlug);
-      if (!lib) {
-        warnings.push(`Library "${scopeSlug}" not found.`);
+      try {
+        const libraries = await listLibraries(root);
         if (generation !== this.graphGeneration) return;
-        void this.panel.webview.postMessage({
-          type: 'graph',
-          scope: this.scope,
-          title: displayTitle,
-          nodes: [],
-          edges: [],
-          warnings
-        });
-        return;
-      }
-      displayTitle = `Graph — ${lib.title}`;
-      const graphResult = await readLibraryGraph(root, scopeSlug);
-      allowedIds = new Set<string>();
-      if (graphResult.status === 'ok') {
-        for (const node of graphResult.result.graph.nodes) {
-          if (node.label !== 'Entry') continue;
-          const eid = (node.props as { entryId?: unknown } | undefined)
-            ?.entryId;
-          if (typeof eid === 'string' && eid) allowedIds.add(eid);
+        const lib = libraries.find((l) => l.slug === scopeSlug);
+        if (!lib) {
+          warnings.push(`Library "${scopeSlug}" not found.`);
+          void this.panel.webview.postMessage({
+            type: 'graph',
+            scope: this.scope,
+            title: displayTitle,
+            nodes: [],
+            edges: [],
+            warnings
+          });
+          return;
         }
-      } else if (graphResult.status === 'error') {
-        warnings.push(graphResult.message);
+        displayTitle = `Graph — ${lib.title}`;
+        const graphResult = await readLibraryGraph(root, scopeSlug);
+        if (generation !== this.graphGeneration) return;
+        if (graphResult.status === 'error') {
+          const message = `SNL graph refresh failed: ${graphResult.message}`;
+          void this.panel.webview.postMessage({
+            type: 'graphError', scope: this.scope, title: displayTitle, message
+          });
+          void vscode.window.showErrorMessage(message);
+          return;
+        }
+        allowedIds = new Set<string>();
+        if (graphResult.status === 'ok') {
+          for (const node of graphResult.result.graph.nodes) {
+            if (node.label !== 'Entry') continue;
+            const eid = (node.props as { entryId?: unknown } | undefined)
+              ?.entryId;
+            if (typeof eid === 'string' && eid) allowedIds.add(eid);
+          }
+        }
+      } catch (error) {
+        if (generation !== this.graphGeneration) return;
+        const message = `SNL graph refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+        void this.panel.webview.postMessage({
+          type: 'graphError', scope: this.scope, title: displayTitle, message
+        });
+        void vscode.window.showErrorMessage(message);
+        return;
       }
     } else {
       displayTitle = 'Relationship Graph';
@@ -371,9 +385,11 @@ export class GraphPanel {
       ]);
     } catch (error) {
       if (generation !== this.graphGeneration) return;
-      vscode.window.showErrorMessage(
-        `SNL Graph could not load entity storage: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const message = `SNL Graph could not load entity storage: ${error instanceof Error ? error.message : String(error)}`;
+      void this.panel.webview.postMessage({
+        type: 'graphError', scope: this.scope, title: displayTitle, message
+      });
+      void vscode.window.showErrorMessage(message);
       return;
     }
     if (generation !== this.graphGeneration) return;

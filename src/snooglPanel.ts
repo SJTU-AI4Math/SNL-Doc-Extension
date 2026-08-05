@@ -69,6 +69,7 @@ export class SnoogLPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
+  private queryGeneration = 0;
 
   public static open(
     extensionUri: vscode.Uri,
@@ -184,9 +185,11 @@ export class SnoogLPanel {
     mode: 'entry' | 'macro';
     filters: SnoogLFilters;
   }): Promise<void> {
+    const generation = ++this.queryGeneration;
     try {
       const root = firstWorkspaceFolder();
       if (!root) {
+        if (generation !== this.queryGeneration) return;
         void this.panel.webview.postMessage({
           type: 'error',
           message: 'Open a folder / workspace to search.'
@@ -235,6 +238,7 @@ export class SnoogLPanel {
           return out;
         })()
       ]);
+      if (generation !== this.queryGeneration) return;
       const kindsByMode = {
         entry: uniqueSorted(entries.map((e) => e.kind).filter(Boolean) as string[]),
         macro: uniqueSorted(
@@ -255,6 +259,7 @@ export class SnoogLPanel {
       // huge payloads over postMessage on every keystroke is wasteful.
       results = results.slice(0, 100);
 
+      if (generation !== this.queryGeneration) return;
       void this.panel.webview.postMessage({
         type: 'results',
         query,
@@ -262,6 +267,7 @@ export class SnoogLPanel {
         kindsByMode
       });
     } catch (err) {
+      if (generation !== this.queryGeneration) return;
       void this.panel.webview.postMessage({
         type: 'error',
         message: `Search failed: ${err instanceof Error ? err.message : String(err)}`

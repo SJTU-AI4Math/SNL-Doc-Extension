@@ -159,12 +159,14 @@ async function main() {
     applyEntryKindsPreset,
     createEntryKind,
     updateEntryKind,
+    readEntryKinds,
     readMacroKinds,
     applyMacroKindsPreset,
     createMacroKind,
     addEntry,
     updateEntry,
     entityRevision,
+    macroPackageMetadataRevision,
     readEntries: readEntriesApi,
     readOverview,
     createMacroPackage,
@@ -413,6 +415,10 @@ async function main() {
     cfg.entry_kinds.every((k) => !('numbering' in k)),
     'no entry_kinds[i].numbering field written by writeConfig'
   );
+  const kindsConfigPath = nodePath.join(tmpRoot, '.SNL_Doc', 'config.json');
+  const kindsConfigWithExtension = JSON.parse(await fs.readFile(kindsConfigPath, 'utf8'));
+  kindsConfigWithExtension.entry_kinds.find((kind) => kind.id === 'definition').vendor_kind = { keep: true };
+  await fs.writeFile(kindsConfigPath, JSON.stringify(kindsConfigWithExtension, null, 2));
 
   console.log('\n[3] addEntryKind (createEntryKind) fresh id');
   const created = await createEntryKind(root, {
@@ -426,12 +432,24 @@ async function main() {
   assert(created.status === 'created', 'createEntryKind -> created');
   const cfg2 = await readConfig(tmpRoot);
   assert(cfg2.entry_kinds.length === 17, 'entry_kinds now 17 after append');
-  const staleKindRevision = entityRevision(created.kind);
+  assert(cfg2.entry_kinds.find((kind) => kind.id === 'definition').vendor_kind?.keep === true,
+    'Entry Kind create preserves unknown fields on untouched catalog records');
+  const cfg2Raw = JSON.parse(await fs.readFile(kindsConfigPath, 'utf8'));
+  const scratchWithExtension = cfg2Raw.entry_kinds.find((kind) => kind.id === 'scratch-note');
+  scratchWithExtension.vendor_kind = { editedRecord: true };
+  await fs.writeFile(kindsConfigPath, JSON.stringify(cfg2Raw, null, 2));
+  const scratchRevisionRecord = (await readEntryKinds(root)).find((kind) => kind.id === 'scratch-note');
+  const staleKindRevision = entityRevision(scratchRevisionRecord);
   const newerKind = await updateEntryKind(root, 'scratch-note', {
     name: 'Scratch Note Newer', stroke: '#123456', background: '#abcdef',
     defaultCounterName: 'scratch', style: ''
-  });
+  }, staleKindRevision);
   assert(newerKind.status === 'updated', 'concurrent Entry Kind edit fixture succeeds');
+  const cfgAfterKindUpdate = await readConfig(tmpRoot);
+  assert(cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'definition').vendor_kind?.keep === true,
+    'Entry Kind update preserves unknown fields on untouched catalog records');
+  assert(cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'scratch-note').vendor_kind?.editedRecord === true,
+    'Entry Kind update overlays managed fields onto unknown fields of the edited record');
   assert((await updateEntryKind(root, 'scratch-note', {
     name: 'Scratch Note Stale', stroke: '#123456', background: '#abcdef',
     defaultCounterName: 'scratch', style: ''
@@ -533,7 +551,7 @@ async function main() {
         values: { en: 'Axiom', 'zh-CN': '公理' }
       }
     }
-  });
+  }, entityRevision(localizedEntry));
   assert(updateLocalized.status === 'updated', 'updateEntry accepts I18n content');
   const afterLocalizedUpdate = await readEntriesApi(root);
   assert(
@@ -558,7 +576,7 @@ async function main() {
   const movedEntry = await updateEntry(root, entry.id, {
     ...entryBeforeMove,
     package: 'test_pkg'
-  });
+  }, entityRevision(entryBeforeMove));
   assert(movedEntry.status === 'updated', `updateEntry moves an Entry between Packages (${JSON.stringify(movedEntry)})`);
   const entryAfterMove = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
   assert(entryAfterMove?.package === 'test_pkg', 'moved Entry round-trips with its new Package');
@@ -579,7 +597,7 @@ async function main() {
   const preserveUnknown = await updateEntry(root, entry.id, {
     ...extendedBeforeUpdate,
     title: 'Group with extensions'
-  });
+  }, entityRevision(extendedBeforeUpdate));
   assert(preserveUnknown.status === 'updated', 'updateEntry accepts a migrated Entry with unknown fields');
   const extendedAfterUpdate = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
   assert(
@@ -612,7 +630,14 @@ async function main() {
   assert(dupPkg.status === 'duplicate', 'createMacroPackage dup -> duplicate');
   const dottedPkg = await createMacroPackage(root, 'logic.extra', 'Dotted Package');
   assert(dottedPkg.status === 'ok', 'dotted Package ID can be created');
-  const dottedUpdate = await updateMacroPackage(root, 'logic.extra', { name: 'Dotted Updated' });
+  const dottedRead = await readMacroPackage(root, 'logic.extra');
+  assert(dottedRead.status === 'ok', 'dotted Package fixture can be read for revision');
+  const dottedUpdate = await updateMacroPackage(
+    root,
+    'logic.extra',
+    { name: 'Dotted Updated', description: '' },
+    macroPackageMetadataRevision(dottedRead.raw)
+  );
   assert(dottedUpdate.status === 'updated',
     `dotted Package ID can be updated (${JSON.stringify(dottedUpdate)})`);
   assert((await deleteMacroPackage(root, 'logic.extra')).status === 'ok',
@@ -1133,9 +1158,23 @@ async function main() {
   assert((await updateMacroPackage(root, 'batch_move', {
     name: batchMovePackage.pkg.name,
     description: batchMovePackage.pkg.description ?? ''
-  })).status === 'updated', 'Package metadata edit succeeds with Macro envelope extensions');
+  }, macroPackageMetadataRevision(batchMovePackage.raw))).status === 'updated', 'Package metadata edit succeeds with Macro envelope extensions');
   assert(JSON.parse(await fs.readFile(extensionMacroPath, 'utf8')).vendor_envelope?.keep === true,
     'Package metadata edit preserves unknown Macro envelope fields');
+  assert((await batchMoveMacros(root, 'batch_move', 'batch_dest', ['Group.prose'])).status === 'ok',
+    'Macro move fixture succeeds with an envelope extension');
+  let movedMacroEnvelope;
+  for (const name of await fs.readdir(macroDirPath)) {
+    try {
+      const envelope = JSON.parse(await fs.readFile(nodePath.join(macroDirPath, name), 'utf8'));
+      if (envelope.package === 'batch_dest' && envelope.macro?.name === 'Group.prose') {
+        movedMacroEnvelope = envelope;
+        break;
+      }
+    } catch { /* ignore non-JSON residue fixtures */ }
+  }
+  assert(movedMacroEnvelope?.vendor_envelope?.keep === true,
+    'moving a Macro to an existing Package preserves source envelope extensions');
 
   const originalWriteFile = workspace.fs.writeFile;
   const originalDeleteFile = workspace.fs.delete;
@@ -1362,7 +1401,7 @@ async function main() {
       migratedV6.styles[0].typst.built_in === 'legacy',
     'v6→v8 preserves macro/style extension fields and output backends'
   );
-  const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6);
+  const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6, entityRevision(migratedV6));
   assert(rewriteV7.status === 'updated', 'updating migrated macro writes strict v8');
   const writtenV7 = JSON.parse(await fs.readFile(
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
@@ -1842,17 +1881,19 @@ async function main() {
   assert(noMetaEntry.hasMeta === false, 'hasMeta false when meta.json missing');
 
   // updateLibrary edits meta.json in place.
+  const pastedBeforeUpdate = await readLibraryMeta(root5, 'pasted-lib');
+  assert(pastedBeforeUpdate.status === 'ok', 'Library fixture loads with a revision');
   const upd = await updateLibrary(root5, 'pasted-lib', {
     title: 'Renamed Library',
     description: 'renamed via updateLibrary'
-  });
+  }, entityRevision(pastedBeforeUpdate.meta));
   assert(upd.status === 'updated', 'updateLibrary -> updated');
   const readMeta = await readLibraryMeta(root5, 'pasted-lib');
   assert(readMeta.status === 'ok', 'readLibraryMeta -> ok');
   assert(readMeta.meta.title === 'Renamed Library', 'title changed on disk');
   assert(readMeta.meta.description === 'renamed via updateLibrary', 'description changed on disk');
   const staleLibraryRevision = entityRevision(readMeta.meta);
-  assert((await updateLibrary(root5, 'pasted-lib', { title: 'Newer Library' })).status === 'updated',
+  assert((await updateLibrary(root5, 'pasted-lib', { title: 'Newer Library' }, staleLibraryRevision)).status === 'updated',
     'concurrent Library metadata edit fixture succeeds');
   assert((await updateLibrary(root5, 'pasted-lib', { title: 'Stale Library' }, staleLibraryRevision)).status === 'conflict',
     'stale Library editor revision is rejected');
@@ -2082,9 +2123,37 @@ async function main() {
   assert(JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8')).name === 'Legacy',
     'invalid legacy active config leaves Package bytes unchanged');
   await fs.writeFile(legacyConfigPath, legacyConfigValid);
+  const malformedKindsConfig = JSON.stringify({
+    ...JSON.parse(legacyConfigValid), entry_kinds: { vendor: true }
+  });
+  await fs.writeFile(legacyConfigPath, malformedKindsConfig);
+  let malformedKindsRejected = false;
+  try {
+    const result = await createEntryKind(root10, {
+      id: 'must-not-save', name: 'Must Not Save', stroke: '#000', background: '#fff',
+      defaultCounterName: '', style: ''
+    });
+    malformedKindsRejected = result.status === 'error';
+  } catch { malformedKindsRejected = true; }
+  assert(malformedKindsRejected, 'legacy mutation rejects malformed present entry_kinds');
+  assert(await fs.readFile(legacyConfigPath, 'utf8') === malformedKindsConfig,
+    'malformed entry_kinds remains byte-preserving');
+  const malformedManagedKindConfig = JSON.stringify({
+    ...JSON.parse(legacyConfigValid),
+    entry_kinds: [{ id: 'definition', name: 7, coloring: { stroke: 42, background: '#fff' } }]
+  });
+  await fs.writeFile(legacyConfigPath, malformedManagedKindConfig);
+  let malformedManagedKindRejected = false;
+  try { await readEntryKinds(root10); } catch { malformedManagedKindRejected = true; }
+  assert(malformedManagedKindRejected, 'malformed managed Kind fields are rejected before normalization');
+  assert(await fs.readFile(legacyConfigPath, 'utf8') === malformedManagedKindConfig,
+    'malformed managed Kind fields remain byte-preserving');
+  await fs.writeFile(legacyConfigPath, legacyConfigValid);
+  const legacyPackageBeforeUpdate = await readMacroPackage(root10, 'legacy.ext');
+  assert(legacyPackageBeforeUpdate.status === 'ok', 'legacy Package fixture loads with a revision');
   const legacyUpdated = await updateMacroPackage(root10, 'legacy.ext', {
     name: 'Legacy Updated', description: 'after'
-  });
+  }, macroPackageMetadataRevision(legacyPackageBeforeUpdate.raw));
   assert(legacyUpdated.status === 'updated',
     `legacy dotted Package metadata update succeeds (${JSON.stringify(legacyUpdated)})`);
   const legacyWrapperAfter = JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8'));
@@ -2096,9 +2165,10 @@ async function main() {
     id: 'legacy-created', kind: 'definition', title: 'Created', content: {}
   });
   assert(legacyEntryCreated.status === 'ok', 'legacy Entry create remains writable before migration');
+  const legacyEntryBeforeUpdate = (await readEntriesApi(root10)).find((item) => item.id === 'legacy-entry');
   const legacyEntryUpdated = await updateEntry(root10, 'legacy-entry', {
     id: 'legacy-entry', kind: 'definition', title: 'After', content: {}
-  });
+  }, entityRevision(legacyEntryBeforeUpdate));
   assert(legacyEntryUpdated.status === 'updated', 'legacy Entry update remains writable before migration');
   const legacyEntriesAfter = JSON.parse(
     await fs.readFile(nodePath.join(legacyDataDir, 'entries.json'), 'utf8')
@@ -2109,15 +2179,35 @@ async function main() {
     id: 'legacy-rel', from: 'legacy-entry', to: 'legacy-created', label: 'depends', metadata: null
   });
   assert(relationshipCreated.status === 'ok', 'Relationship fixture created for revision conflict test');
+  const relationshipsPath = nodePath.join(tmpRoot10, '.SNL_Doc', 'relationships.json');
+  const relationshipsWithExtension = JSON.parse(await fs.readFile(relationshipsPath, 'utf8'));
+  relationshipsWithExtension.relationships[0].vendor_relationship = { keep: true };
+  await fs.writeFile(relationshipsPath, JSON.stringify(relationshipsWithExtension, null, 2));
   const originalRelationship = (await readRelationships(root10)).find((item) => item.id === 'legacy-rel');
   const staleRelationshipRevision = entityRevision(originalRelationship);
   assert((await updateRelationship(root10, 'legacy-rel', {
     from: 'legacy-entry', to: 'legacy-created', label: 'newer', metadata: null
-  })).status === 'updated', 'concurrent Relationship edit fixture succeeds');
+  }, staleRelationshipRevision)).status === 'updated', 'concurrent Relationship edit fixture succeeds');
+  const relationshipAfterUpdate = (await readRelationships(root10)).find((item) => item.id === 'legacy-rel');
+  assert(relationshipAfterUpdate.vendor_relationship?.keep === true,
+    'Relationship update preserves unknown record-level fields');
   assert((await updateRelationship(root10, 'legacy-rel', {
     from: 'legacy-entry', to: 'legacy-created', label: 'stale overwrite', metadata: null
   }, staleRelationshipRevision)).status === 'conflict',
     'stale Relationship editor revision is rejected');
+  const canonicalRelationships = await fs.readFile(relationshipsPath, 'utf8');
+  for (const [payload, label] of [
+    ['{not-json', 'malformed Relationship JSON is rejected'],
+    [JSON.stringify({ version: 1 }), 'wrong Relationship wrapper shape is rejected'],
+    [JSON.stringify({ version: 1, relationships: [{ id: 7, from: 'a', to: 'b', label: 'x' }] }),
+      'invalid Relationship record is rejected']
+  ]) {
+    await fs.writeFile(relationshipsPath, payload);
+    let rejected = false;
+    try { await readRelationships(root10); } catch { rejected = true; }
+    assert(rejected, label);
+  }
+  await fs.writeFile(relationshipsPath, canonicalRelationships);
   await fs.rm(tmpRoot10, { recursive: true, force: true });
 
   // --- [32] Initialization is config-last and retryable ---------------------

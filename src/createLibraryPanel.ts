@@ -66,6 +66,9 @@ export class CreateLibraryPanel {
   private readonly slug: string;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
+  private graphGeneration = 0;
+  private counterGeneration = 0;
+  private mutationTail: Promise<void> = Promise.resolve();
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     CreateLibraryPanel.open(extensionUri, 'create', '');
@@ -197,12 +200,13 @@ export class CreateLibraryPanel {
       });
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
-      await this.pushGraph();
+      await this.pushGraph(generation);
+      if (generation !== this.contextGeneration) return;
       // Counters live in a separate file (libraries/<slug>/counters.json);
       // push them alongside the graph so the Counters section renders in the
       // same paint. The .SNL_Doc/** watcher re-invokes pushContext on any
       // external counters.json edit, keeping the tree fresh.
-      await this.pushCounters('countersLoaded');
+      await this.pushCounters('countersLoaded', generation);
     } catch (err) {
       if (generation !== this.contextGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
@@ -212,7 +216,11 @@ export class CreateLibraryPanel {
 
   /** Push the current graph + entry pool + kinds to the webview so the
    *  outline editor can re-render. */
-  private async pushGraph(): Promise<void> {
+  private async pushGraph(parentGeneration?: number): Promise<void> {
+    const generation = ++this.graphGeneration;
+    const isStale = (): boolean =>
+      generation !== this.graphGeneration ||
+      (parentGeneration !== undefined && parentGeneration !== this.contextGeneration);
     if (this.mode !== 'edit') return;
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -224,6 +232,7 @@ export class CreateLibraryPanel {
     }
     try {
       const gResult = await readLibraryGraph(root, this.slug);
+      if (isStale()) return;
       let nodes: GraphNodeDto[] = [];
       let relationships: GraphRelationshipDto[] = [];
       let warnings: string[] = [];
@@ -251,6 +260,7 @@ export class CreateLibraryPanel {
       const metricMacroSources = Object.fromEntries(
         Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
       );
+      if (isStale()) return;
       void this.panel.webview.postMessage({
         type: 'graph',
         nodes,
@@ -262,12 +272,19 @@ export class CreateLibraryPanel {
         warnings
       });
     } catch (err) {
+      if (isStale()) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({
         type: 'graphError',
         message: text
       });
     }
+  }
+
+  private enqueueMutation(task: () => Promise<void>): Promise<void> {
+    const next = this.mutationTail.then(task, task);
+    this.mutationTail = next.catch(() => undefined);
+    return next;
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -293,11 +310,11 @@ export class CreateLibraryPanel {
       return;
     }
     if (msg.type === 'graphOp') {
-      await this.handleGraphOp(msg.op);
+      await this.enqueueMutation(() => this.handleGraphOp(msg.op));
       return;
     }
     if (msg.type === 'counterOp') {
-      await this.handleCounterOp(msg.op);
+      await this.enqueueMutation(() => this.handleCounterOp(msg.op));
       return;
     }
     if (msg.type === 'openCreateEntry') {
@@ -897,13 +914,20 @@ export class CreateLibraryPanel {
    * local tree), but the split keeps the protocol self-documenting.
    */
   private async pushCounters(
-    type: 'countersLoaded' | 'countersPushed'
+    type: 'countersLoaded' | 'countersPushed',
+    parentGeneration?: number
   ): Promise<void> {
+    if (parentGeneration !== undefined && parentGeneration !== this.contextGeneration) return;
+    const generation = ++this.counterGeneration;
+    const isStale = (): boolean =>
+      generation !== this.counterGeneration ||
+      (parentGeneration !== undefined && parentGeneration !== this.contextGeneration);
     if (this.mode !== 'edit') return;
     const root = firstWorkspaceFolder();
     if (!root) return;
     try {
       const counters = await readLibraryCounters(root, this.slug);
+      if (isStale()) return;
       void this.panel.webview.postMessage({ type, counters });
     } catch {
       // readLibraryCounters already tolerates missing/malformed files by

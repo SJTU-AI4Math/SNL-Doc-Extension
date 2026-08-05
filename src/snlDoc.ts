@@ -629,8 +629,70 @@ function normalizeConfig(raw: unknown): SnlConfig {
     macro_kinds?: unknown;
     active_macro_packages?: unknown;
   };
+  const hasEntryKindsField = !!raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    Object.prototype.hasOwnProperty.call(raw, 'entry_kinds');
+  const hasMacroKindsField = !!raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    Object.prototype.hasOwnProperty.call(raw, 'macro_kinds');
+  if (hasEntryKindsField && !Array.isArray(cfg.entry_kinds)) {
+    throw new Error('config.json#entry_kinds must be an array.');
+  }
+  if (hasMacroKindsField && !Array.isArray(cfg.macro_kinds)) {
+    throw new Error('config.json#macro_kinds must be an array.');
+  }
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
+  for (const [field, records] of [
+    ['entry_kinds', rawKinds],
+    ['macro_kinds', rawMacroKinds]
+  ] as const) {
+    const ids = new Set<string>();
+    for (const record of records) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) {
+        throw new Error(`config.json#${field} must contain JSON objects.`);
+      }
+      const id = (record as { id?: unknown }).id;
+      if (typeof id !== 'string' || !id || id.trim() !== id) {
+        throw new Error(`config.json#${field} records require canonical non-empty string ids.`);
+      }
+      if (ids.has(id)) throw new Error(`config.json#${field} contains duplicate id ${JSON.stringify(id)}.`);
+      ids.add(id);
+      const managed = record as unknown as Record<string, unknown>;
+      if ('name' in managed && typeof managed.name !== 'string') {
+        throw new Error(`config.json#${field}[${JSON.stringify(id)}].name must be a string.`);
+      }
+      if ('coloring' in managed) {
+        const coloring = managed.coloring;
+        if (!coloring || typeof coloring !== 'object' || Array.isArray(coloring)) {
+          throw new Error(`config.json#${field}[${JSON.stringify(id)}].coloring must be an object.`);
+        }
+        for (const colorField of ['stroke', 'background'] as const) {
+          if (colorField in coloring && typeof (coloring as Record<string, unknown>)[colorField] !== 'string') {
+            throw new Error(`config.json#${field}[${JSON.stringify(id)}].coloring.${colorField} must be a string.`);
+          }
+        }
+      }
+      if ('color' in managed && typeof managed.color !== 'string') {
+        throw new Error(`config.json#${field}[${JSON.stringify(id)}].color must be a string.`);
+      }
+      if (field === 'entry_kinds') {
+        if ('defaultCounterName' in managed && typeof managed.defaultCounterName !== 'string') {
+          throw new Error(`config.json#entry_kinds[${JSON.stringify(id)}].defaultCounterName must be a string.`);
+        }
+        if ('style' in managed && typeof managed.style !== 'string') {
+          throw new Error(`config.json#entry_kinds[${JSON.stringify(id)}].style must be a string.`);
+        }
+        if ('numbering' in managed) {
+          const numbering = managed.numbering;
+          if (typeof numbering !== 'string' &&
+              (!numbering || typeof numbering !== 'object' || Array.isArray(numbering))) {
+            throw new Error(`config.json#entry_kinds[${JSON.stringify(id)}].numbering must be a legacy string or object.`);
+          }
+        }
+      } else if ('description' in managed && typeof managed.description !== 'string') {
+        throw new Error(`config.json#macro_kinds[${JSON.stringify(id)}].description must be a string.`);
+      }
+    }
+  }
   // Migration note (2026-07-16): flag legacy `entry_kinds[i].numbering`
   // fields (the pre-rename DSL) exactly once per read. The value is NOT
   // carried into `defaultCounterName` (a DSL is not a counter name); it is
@@ -704,7 +766,16 @@ function normalizeMacroKind(raw: unknown): MacroKind {
     background = obj.color;
   }
 
+  const {
+    id: _id,
+    name: _name,
+    description: _description,
+    coloring: _coloring,
+    color: _legacyColor,
+    ...extensions
+  } = obj;
   return {
+    ...extensions,
     id,
     name,
     description,
@@ -758,7 +829,18 @@ function normalizeEntryKind(raw: unknown): EntryKind {
 
   const style = typeof obj.style === 'string' ? obj.style : '';
 
+  const {
+    id: _id,
+    name: _name,
+    coloring: _coloring,
+    color: _legacyColor,
+    numbering: _legacyNumbering,
+    defaultCounterName: _defaultCounterName,
+    style: _style,
+    ...extensions
+  } = obj;
   return {
+    ...extensions,
     id,
     name,
     coloring: { stroke, background },
@@ -846,7 +928,26 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
     await fsApi.createDirectory(librariesDir);
 
     if (!unpackagedExists) {
-      await fsApi.writeFile(unpackagedUri, jsonBytes(unpackagedManifest));
+      const manifestTemporary = vscode.Uri.joinPath(
+        packageDir,
+        `.${UNPACKAGED_PACKAGE_ID}.init-${process.pid}-${Date.now()}.tmp`
+      );
+      try {
+        await fsApi.writeFile(manifestTemporary, jsonBytes(unpackagedManifest));
+        await fsApi.rename(manifestTemporary, unpackagedUri, { overwrite: false });
+      } catch (error) {
+        try {
+          if (await exists(manifestTemporary)) {
+            await fsApi.delete(manifestTemporary, { recursive: false, useTrash: false });
+          }
+        } catch { /* preserve the publish error */ }
+        if (await exists(unpackagedUri) &&
+            JSON.stringify(await readJson<unknown>(unpackagedUri)) === JSON.stringify(unpackagedManifest)) {
+          // An external initializer published the identical immutable manifest.
+        } else {
+          throw error;
+        }
+      }
     }
 
     const gitkeep = ENCODER.encode('');
@@ -2875,12 +2976,9 @@ export async function readOverview(
 export async function readEntryKinds(
   workspaceRoot: vscode.Uri
 ): Promise<EntryKind[]> {
-  try {
-    const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
-    return cfg.entry_kinds ?? [];
-  } catch {
-    return [];
-  }
+  if (!(await exists(configUri(workspaceRoot)))) return [];
+  const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
+  return cfg.entry_kinds ?? [];
 }
 
 /**
@@ -3031,12 +3129,9 @@ export async function listEntryKinds(
 export async function readMacroKinds(
   workspaceRoot: vscode.Uri
 ): Promise<MacroKind[]> {
-  try {
-    const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
-    return cfg.macro_kinds ?? [];
-  } catch {
-    return [];
-  }
+  if (!(await exists(configUri(workspaceRoot)))) return [];
+  const cfg = normalizeConfig(await readJson<unknown>(configUri(workspaceRoot)));
+  return cfg.macro_kinds ?? [];
 }
 
 /**
@@ -3699,10 +3794,11 @@ export async function updateEntryKind(
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
   }
-  if (typeof expectedRevision === 'string' && entityRevision(existing[idx]) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || entityRevision(existing[idx]) !== expectedRevision) {
     return { status: 'conflict', id: targetId };
   }
   const next: EntryKind = {
+    ...existing[idx],
     id: targetId,
     name,
     coloring: {
@@ -3755,10 +3851,11 @@ export async function updateMacroKind(
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
   }
-  if (typeof expectedRevision === 'string' && entityRevision(existing[idx]) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || entityRevision(existing[idx]) !== expectedRevision) {
     return { status: 'conflict', id: targetId };
   }
   const next: MacroKind = {
+    ...existing[idx],
     id: targetId,
     name,
     description: (input.description ?? '').trim(),
@@ -3820,7 +3917,7 @@ export async function updateLibrary(
     existing = raw as LibraryMetaFile;
     expected = raw;
   }
-  if (typeof expectedRevision === 'string' && entityRevision(expected) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || entityRevision(expected) !== expectedRevision) {
     return { status: 'conflict', id: targetSlug };
   }
   const next: LibraryMetaFile = {
@@ -3894,7 +3991,7 @@ export async function updateEntry(
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
   }
-  if (expectedRevision && entityRevision(pool[idx]) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || entityRevision(pool[idx]) !== expectedRevision) {
     return {
       status: 'error',
       message: `Entry ${JSON.stringify(targetId)} changed after this editor loaded; refresh before saving.`
@@ -4032,7 +4129,7 @@ export async function updateMacroPackage(
   if (read.status === 'error') {
     return { status: 'error', message: read.message };
   }
-  if (expectedRevision && macroPackageMetadataRevision(read.raw) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || macroPackageMetadataRevision(read.raw) !== expectedRevision) {
     return {
       status: 'error',
       message: `Macro Package ${JSON.stringify(bare)} changed after this editor loaded; refresh before saving.`
@@ -4100,7 +4197,7 @@ export async function updateMacro(
     return { status: 'notFound', id: name };
   }
   const currentMacro = read.macros.find((candidate) => candidate.name === name);
-  if (expectedRevision && (!currentMacro || entityRevision(currentMacro) !== expectedRevision)) {
+  if (typeof expectedRevision !== 'string' || !currentMacro || entityRevision(currentMacro) !== expectedRevision) {
     return {
       status: 'error',
       message: `Macro ${JSON.stringify(name)} changed after this editor loaded; refresh before saving.`
@@ -5469,32 +5566,42 @@ const RELATIONSHIPS_FILE_VERSION = 1;
 
 /**
  * Read the pool-wide relationships list from `.SNL_Doc/relationships.json`.
- * Missing / corrupt / wrong-shape → `[]` (defensive, matches readEntries).
+ * A missing file is an empty pool. Existing data is strict: malformed JSON,
+ * a wrong wrapper/version, invalid records, and duplicate ids all throw so
+ * callers cannot mistake corruption for a valid graph with missing edges.
  */
 export async function readRelationships(
   workspaceRoot: vscode.Uri
 ): Promise<RelationshipData[]> {
-  try {
-    const raw = await readJson<unknown>(relationshipsUri(workspaceRoot));
-    // Accept both `{ relationships: [...] }` (canonical) and a bare array
-    // (defensive — a hand-edited file might drop the wrapper).
-    const list = Array.isArray(raw)
-      ? raw
-      : Array.isArray((raw as RelationshipsFile | null)?.relationships)
-        ? (raw as RelationshipsFile).relationships!
-        : [];
-    return list.filter(
-      (r): r is RelationshipData =>
-        r !== null &&
-        typeof r === 'object' &&
-        typeof (r as RelationshipData).id === 'string' &&
-        typeof (r as RelationshipData).from === 'string' &&
-        typeof (r as RelationshipData).to === 'string' &&
-        typeof (r as RelationshipData).label === 'string'
-    );
-  } catch {
-    return [];
+  const uri = relationshipsUri(workspaceRoot);
+  if (!(await exists(uri))) return [];
+  const raw = await readJson<unknown>(uri);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('relationships.json must be an object wrapper.');
   }
+  const wrapper = raw as RelationshipsFile;
+  if (wrapper.version !== RELATIONSHIPS_FILE_VERSION) {
+    throw new Error(`relationships.json#version must be ${RELATIONSHIPS_FILE_VERSION}.`);
+  }
+  if (!Array.isArray(wrapper.relationships)) {
+    throw new Error('relationships.json#relationships must be an array.');
+  }
+  const ids = new Set<string>();
+  return wrapper.relationships.map((record, index) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error(`relationships.json#relationships[${index}] must be an object.`);
+    }
+    const rel = record as RelationshipData;
+    for (const field of ['id', 'from', 'to', 'label'] as const) {
+      const value = rel[field];
+      if (typeof value !== 'string' || !value || value.trim() !== value) {
+        throw new Error(`relationships.json#relationships[${index}].${field} must be a canonical non-empty string.`);
+      }
+    }
+    if (ids.has(rel.id)) throw new Error(`relationships.json contains duplicate id ${JSON.stringify(rel.id)}.`);
+    ids.add(rel.id);
+    return rel;
+  });
 }
 
 /** Write the canonical `{ version, relationships }` shape to disk. */
@@ -5618,12 +5725,19 @@ export async function updateRelationship(
   const list = await readRelationships(workspaceRoot);
   const idx = list.findIndex((r) => r.id === targetId);
   if (idx < 0) return { status: 'notFound', id: targetId };
-  if (typeof expectedRevision === 'string' && entityRevision(list[idx]) !== expectedRevision) {
+  if (typeof expectedRevision !== 'string' || entityRevision(list[idx]) !== expectedRevision) {
     return { status: 'conflict', id: targetId };
   }
 
   const next = list.slice();
-  next[idx] = { id: targetId, from, to, label, metadata: input.metadata ?? null };
+  next[idx] = {
+    ...list[idx],
+    id: targetId,
+    from,
+    to,
+    label,
+    metadata: input.metadata ?? null
+  };
   try {
     await writeRelationships(workspaceRoot, next, list);
   } catch (err) {

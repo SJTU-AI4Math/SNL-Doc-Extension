@@ -82,6 +82,7 @@ const FILES: Record<string, string> = {
     macro_kinds: [{ id: 'mk1', label: 'Op' }]
   }),
   [`${SNL}/relationships.json`]: JSON.stringify({
+    version: 1,
     relationships: [
       { id: 'r1', from: 'e1', to: 'e2', label: 'implies' }
     ]

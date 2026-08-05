@@ -61,6 +61,15 @@ interface GraphMessage {
   macroKinds?: MacroKindPaletteSource[];
 }
 
+interface GraphErrorMessage {
+  type: 'graphError';
+  scope: Scope;
+  title: string;
+  message: string;
+}
+
+type GraphHostMessage = GraphMessage | GraphErrorMessage;
+
 // ---------------------------------------------------------------------------
 // Layout
 // ---------------------------------------------------------------------------
@@ -517,13 +526,20 @@ function edgePath(
 export function SnlGraphApp(): React.ReactElement {
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const [msg, setMsg] = useState<GraphMessage | null>(null);
+  const [graphError, setGraphError] = useState<GraphErrorMessage | null>(null);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
     function onMessage(event: MessageEvent): void {
-      const m = event.data as GraphMessage | undefined;
-      if (!m || m.type !== 'graph') return;
-      setMsg(m);
+      const m = event.data as GraphHostMessage | undefined;
+      if (!m) return;
+      if (m.type === 'graph') {
+        setMsg(m);
+        setGraphError(null);
+      } else if (m.type === 'graphError') {
+        // Preserve the last valid snapshot, but make the stale state explicit.
+        setGraphError(m);
+      }
     }
     window.addEventListener('message', onMessage);
     apiRef.current?.postMessage({ type: 'ready' });
@@ -547,17 +563,19 @@ export function SnlGraphApp(): React.ReactElement {
       userMacros={msg?.macros ?? {}}
       kindPalette={kindPalette}
     >
-      <SnlGraphInner msg={msg} post={post} apiRef={apiRef} />
+      <SnlGraphInner msg={msg} graphError={graphError} post={post} apiRef={apiRef} />
     </HoverPopoverProvider>
   );
 }
 
 function SnlGraphInner({
   msg,
+  graphError,
   post,
   apiRef
 }: {
   msg: GraphMessage | null;
+  graphError: GraphErrorMessage | null;
   post: (m: unknown) => void;
   apiRef: React.MutableRefObject<VsCodeApi | undefined>;
 }): React.ReactElement {
@@ -705,14 +723,16 @@ function SnlGraphInner({
       <main style={PANEL_STYLE}>
         <PanelHeader
           vsApi={apiRef.current}
-          title="SNL Relationship Graph"
+          title={graphError?.title ?? 'SNL Relationship Graph'}
           back={{
             label: 'Infoview',
             title: 'Back to SNL Infoview',
             message: { type: 'nav.openInfoview' }
           }}
         />
-        <p style={{ opacity: 0.7 }}>Loading graph…</p>
+        <p style={{ color: graphError ? 'var(--vscode-errorForeground)' : undefined, opacity: graphError ? 1 : 0.7 }}>
+          {graphError?.message ?? 'Loading graph…'}
+        </p>
       </main>
     );
   }
@@ -822,6 +842,19 @@ function SnlGraphInner({
           </div>
         </div>
       </div>
+      {graphError ? (
+        <div
+          role="alert"
+          style={{
+            margin: '0 0.75rem 0.5rem', padding: '0.4rem 0.6rem',
+            border: '1px solid var(--vscode-inputValidation-errorBorder, #be1100)',
+            background: 'var(--vscode-inputValidation-errorBackground, rgba(190,17,0,0.12))',
+            color: 'var(--vscode-errorForeground)'
+          }}
+        >
+          Refresh failed; showing the last valid graph. {graphError.message}
+        </div>
+      ) : null}
       {msg.warnings.length > 0 ? (
         <div
           style={{

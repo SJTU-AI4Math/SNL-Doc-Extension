@@ -118,6 +118,7 @@ export class DashboardPanel {
     const patterns: vscode.GlobPattern[] = [
       new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/entries/*.json'),
       new vscode.RelativePattern(
         root,
         '.SNL_Doc/libraries/*/graph.json'
@@ -131,17 +132,25 @@ export class DashboardPanel {
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
       // Macro packages: watch the whole term_macros tree (one file per pkg).
       new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/packages/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json'),
       // Pool-wide relationships file (cat 2026-07-10).
       new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
       // Catch `.SNL_Doc/` itself appearing/disappearing.
       new vscode.RelativePattern(root, '.SNL_Doc')
     ];
 
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (): void => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void this.pushOverview();
+      }, 120);
+    };
+    this.disposables.push({ dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
     for (const pattern of patterns) {
       const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-      const refresh = (): void => {
-        void this.pushOverview();
-      };
       watcher.onDidCreate(refresh, null, this.disposables);
       watcher.onDidChange(refresh, null, this.disposables);
       watcher.onDidDelete(refresh, null, this.disposables);

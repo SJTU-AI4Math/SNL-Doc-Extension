@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import {
   createMacroPackage,
+  macroPackageMetadataRevision,
   readMacroPackage,
   updateMacroPackage
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
-  installSnlDocWatcher
-} from './panelUtil';
+import { packageManifestPath } from './entityStorage';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 
 /**
  * Per-mode-and-identity singleton manager for the SNL Macro Package editor
@@ -36,6 +36,7 @@ export class CreateMacroPackagePanel {
   /** Bare filename (no `.json`); only meaningful in edit mode. */
   private readonly file: string;
   private disposables: vscode.Disposable[] = [];
+  private contextGeneration = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     CreateMacroPackagePanel.open(extensionUri, 'create', '');
@@ -110,12 +111,38 @@ export class CreateMacroPackagePanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, () => this.pushContext());
+    if (mode === 'edit') {
+      const root = firstWorkspaceFolder();
+      if (root) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const refresh = (): void => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => {
+            timer = undefined;
+            void this.pushContext();
+          }, 120);
+        };
+        this.disposables.push({ dispose: () => { if (timer) clearTimeout(timer); } });
+        for (const pattern of [
+          `.SNL_Doc/term_macros/${this.file}.json`,
+          `.SNL_Doc/${packageManifestPath(this.file)}`
+        ]) {
+          const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(root, pattern)
+          );
+          watcher.onDidCreate(refresh, null, this.disposables);
+          watcher.onDidChange(refresh, null, this.disposables);
+          watcher.onDidDelete(refresh, null, this.disposables);
+          this.disposables.push(watcher);
+        }
+      }
+    }
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
   private async pushContext(): Promise<void> {
+    const generation = ++this.contextGeneration;
     if (this.mode === 'create') {
       void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
       return;
@@ -131,16 +158,25 @@ export class CreateMacroPackagePanel {
       return;
     }
     const read = await readMacroPackage(root, this.file);
+    if (generation !== this.contextGeneration) return;
     if (read.status === 'ok') {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
         file: this.file,
+        packageRevision: macroPackageMetadataRevision(read.raw),
         existing: {
           file: this.file,
           name: read.pkg.name,
           description: read.pkg.description ?? ''
         }
+      });
+      return;
+    }
+    if (read.status === 'error') {
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Could not load Macro Package ${JSON.stringify(this.file)}: ${read.message}`
       });
       return;
     }
@@ -161,7 +197,7 @@ export class CreateMacroPackagePanel {
       return;
     }
     const msg = message as
-      | { type?: string; file?: string; name?: string; description?: string }
+      | { type?: string; file?: string; name?: string; description?: string; expectedRevision?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -195,7 +231,7 @@ export class CreateMacroPackagePanel {
         const result = await updateMacroPackage(workspaceRoot, this.file, {
           name,
           description
-        });
+        }, typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined);
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(

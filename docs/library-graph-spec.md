@@ -36,7 +36,7 @@ Axiom-across-chapters (globally-numbered entries that live physically inside cha
 - Only `label` value is `"Entry"`. Unknown labels are read as-is (warning); they don't affect numbering.
 - Only `label` value on relationships is `"branch"`. Unknown labels are ignored (warning).
 - `nodes.id` is unique **within this library** — a stable local handle. It is NOT the shared-pool entryId.
-- `props.entryId` optionally references `.SNL_Doc/entries.json`; unset = a placeholder node (no title / content / kind yet).
+- `props.entryId` optionally references the live shared Entry pool (`.SNL_Doc/entries/*.json` in workspace `0.0.6`; legacy workspaces used `.SNL_Doc/entries.json`); unset = a placeholder node (no title / content / kind yet).
 
 ## 2. Branch is the outline
 
@@ -100,7 +100,7 @@ Same target as v1 spec §6.
 - `theorem.numbering = "A"` (or any kind whose first child is B-worthy)
 - `remark.numbering = ".1"`
 
-**Shared pool** (`.SNL_Doc/entries.json`):
+**Shared pool** (live `.SNL_Doc/entries/*.json` entities in `0.0.6`; shown here keyed by Entry ID):
 - `uuid-chap1: { title: "Chapter 1", kind: "chapter" }`
 - `uuid-1_1: { title: "…", kind: "section" }`
 - `uuid-1_2: { title: "…", kind: "section" }`

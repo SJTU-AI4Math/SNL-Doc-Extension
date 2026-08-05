@@ -117,6 +117,8 @@ export class InfoviewPanel {
    */
   private currentLibrarySlug: string | null = null;
   private disposables: vscode.Disposable[] = [];
+  private viewGeneration = 0;
+  private popoverGeneration = 0;
 
   /** Open (or reveal) the singleton browser panel. */
   /**
@@ -276,17 +278,26 @@ export class InfoviewPanel {
     const patterns: vscode.GlobPattern[] = [
       new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/entries/*.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/graph.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*/meta.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/libraries/*'),
       new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/packages/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json'),
       new vscode.RelativePattern(root, '.SNL_Doc')
     ];
 
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = (): void => {
-      void this.refresh();
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void this.refresh();
+      }, 120);
     };
+    this.disposables.push({ dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
 
     for (const pattern of patterns) {
       const watcher = vscode.workspace.createFileSystemWatcher(pattern);
@@ -519,6 +530,7 @@ export class InfoviewPanel {
 
   /** Send the top-level Libraries list (layer 1 of 3). */
   private async pushLibraries(): Promise<void> {
+    const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({ type: 'libraries', libraries: [] });
@@ -526,8 +538,10 @@ export class InfoviewPanel {
     }
     try {
       const libraries = await listLibraries(root);
+      if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({ type: 'libraries', libraries });
     } catch (err) {
+      if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to list libraries: ${text}`
@@ -550,6 +564,7 @@ export class InfoviewPanel {
    * feed into the `warnings` list.
    */
   private async pushLibraryEntries(slug: string): Promise<void> {
+    const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -679,6 +694,7 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
+      if (generation !== this.viewGeneration) return;
 
       void this.panel.webview.postMessage({
         type: 'libraryEntries',
@@ -693,6 +709,7 @@ export class InfoviewPanel {
         warnings
       });
     } catch (err) {
+      if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to load library "${slug}": ${text}`
@@ -726,27 +743,19 @@ export class InfoviewPanel {
     ExportOptionsPanel.show(this.extensionUri, request);
   }
 
-  /**
-   * Load the flat name→macro map from `.SNL_Doc/term_macros/*.json`. Best
-   * effort: returns `{}` when the workspace is missing or `readAllMacros`
-   * throws (individual broken packages are already swallowed inside it).
-   */
+  /** Load the flat name→macro map. Strict entity-storage errors propagate to
+   *  the caller so Infoview can display its existing error state. */
   private async readMacroDb(): Promise<Record<string, MacroPackageEntry>> {
     const root = firstWorkspaceFolder();
-    if (!root) {
-      return {};
-    }
-    try {
-      return await readAllMacros(root);
-    } catch {
-      return {};
-    }
+    if (!root) return {};
+    return readAllMacros(root);
   }
 
   /** Look up one entry by id + resolve its kind, and send back the details.
    *  Includes the full entry pool + macros so the render can link between
    *  entries via macro popovers. */
   private async pushEntryDetails(id: string): Promise<void> {
+    const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       return;
@@ -778,6 +787,7 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
+      if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         entry,
@@ -788,6 +798,7 @@ export class InfoviewPanel {
         assetBaseUri: this.assetBaseUri(root)
       });
     } catch (err) {
+      if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to load entry: ${text}`
@@ -801,6 +812,7 @@ export class InfoviewPanel {
    * Also refreshes the tab title to the resolved entry title.
    */
   private async pushEntryDetailsForEntry(id: string): Promise<void> {
+    const generation = ++this.viewGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -832,6 +844,7 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
+      if (generation !== this.viewGeneration) return;
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         void this.panel.webview.postMessage({
@@ -904,6 +917,7 @@ export class InfoviewPanel {
       } catch {
         // relationships.json missing/malformed → empty lists, no crash.
       }
+      if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         entry,
@@ -915,6 +929,7 @@ export class InfoviewPanel {
         relatedEntries
       });
     } catch (err) {
+      if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
         `SNL Infoview: failed to load entry: ${text}`
@@ -928,6 +943,7 @@ export class InfoviewPanel {
    * `entryDetails` so it never disturbs the browser's main selection.
    */
   private async pushPopoverEntryDetails(id: string): Promise<void> {
+    const generation = ++this.popoverGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       return;
@@ -940,6 +956,7 @@ export class InfoviewPanel {
         readEntries(root),
         readEntryKinds(root)
       ]);
+      if (generation !== this.popoverGeneration) return;
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         // Cat 2026-07-10: cross-library hover should still resolve

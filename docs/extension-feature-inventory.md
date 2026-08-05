@@ -39,10 +39,14 @@
 | 31 | `snlDoc.deleteMacroPackage` | SNL: Delete Macro Package | 删除 macro package（弹确认） | 删除 |
 | 32 | `snlDoc.deleteRelationship` | SNL: Delete Relationship | 删除 relationship（弹确认） | 删除 |
 | 33 | `snlDoc.regenerateDependencies` | SNL: Regenerate Dependency Relationships | 扫全部 entries 重建 `dependency` 关系 | 关系图 |
+| 34 | `snlDoc.checkDataVersion` | SNL: Check Data Version | 严格检查 workspace 数据版本与 topology，不写入 | 数据维护 |
+| 35 | `snlDoc.repairData` | SNL: Repair / Migrate Data | 执行确认后的相邻 migration chain | 数据维护 |
+| 36 | `snlDoc.toggleTrace` | SNL: Toggle Performance Trace | 切换 Panel 性能追踪 | 诊断 |
+| 37 | `snlDoc.probeWebviewCost` | SNL: Probe Webview Cost | 探测 Webview 加载成本 | 诊断 |
 
-**分类小计：** 概览 6、关系图 3、搜索 1、初始化 3、创建 7、编辑 7、删除 6。**合计 33。**
+**分类小计：** 原 33 条功能命令 + 数据维护 2 + 诊断 2。**合计 37。**
 
-（Palette 通过 `when` 过滤只暴露 11 条；其余走 Dashboard / Infoview 按钮触发。）
+（`menus.commandPalette` 通过 `when: "false"` 隐藏 11 条仅供 UI 调用的命令；其余 26 条可从 Palette 触发。）
 
 ---
 
@@ -198,10 +202,10 @@
 | Panel | 单元 label/文字 | 类型 | 作用 | 触发的 command / message | 状态/校验 |
 |---|---|---|---|---|---|
 | CreateMacroPackage | Dashboard (← back) | button | 返回 Dashboard | `nav.openDashboard` | — |
-| CreateMacroPackage | File name / File name (readonly) | text-input | 包 JSON 文件名 | local state only；Enter 触发提交 | 必填，正则 `[A-Za-z0-9_-]+`；edit 只读 |
+| CreateMacroPackage | File name / File name (readonly) | text-input | Package ID / 文件 stem | local state only；Enter 触发提交 | 必填，正则 `[A-Za-z0-9][A-Za-z0-9._-]*`，且不得以 `.json` 结尾；edit 只读 |
 | CreateMacroPackage | Display name | text-input | 包显示名 | local state only；Enter 触发提交 | 必填 |
 | CreateMacroPackage | Description (optional) | textarea | 包描述 | local state only | — |
-| CreateMacroPackage | Create Package / Update Package | button | 在 term_macros/ 下创建或更新包 | `create` / `update` | fileValid + name 非空 + 非 creating |
+| CreateMacroPackage | Create Package / Update Package | button | `0.0.6` 在 `packages/` 写 manifest（Macro 实体在 `macros/`）；legacy workspace 使用 `term_macros/` | `create` / `update` | fileValid + name 非空 + 非 creating |
 
 ### 2.10 CreateRelationship (`CreateRelationshipApp.tsx`)
 

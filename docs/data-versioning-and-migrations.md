@@ -5,7 +5,7 @@
 SNL Doc has intentionally separate version domains:
 
 - **Extension release**: `package.json#version` (currently `0.0.1`). This is the VS Code Marketplace/package release and never drives workspace migration.
-- **Workspace data schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.5`; this is the only version used to plan workspace migrations.
+- **Workspace data schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.6`; this is the only version used to plan workspace migrations.
 - **Macro package format**: each Macro package's `version` (currently string generation `"8"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
 - **Relationships file format**: `relationships.json#version` (currently numeric generation `1`). It is likewise subordinate to the workspace data version.
 - Library `meta.json`, `graph.json`, `counters.json`, and the legacy aggregate `entries.json` currently have no independent version field. Their supported shapes are determined by the workspace data version.
@@ -13,6 +13,8 @@ SNL Doc has intentionally separate version domains:
 Before `0.0.4`, these domains were not consistently governed: config used SemVer-like strings, Macro packages used string generations, relationships used a number, and several schema changes only normalized in memory without bumping config. Version `0.0.4` establishes the workspace-wide convention and persists those deferred repairs.
 
 ## Workspace SemVer policy
+
+While the workspace schema is pre-`1.0`, every adjacent `0.0.x` increment may carry a coordinated, migration-required topology change. The explicit migration registry, not SemVer compatibility inference, governs support. After `1.0.0`, the intended policy is:
 
 - **PATCH**: compatible field/schema repair or canonicalization that does not change entity identity or storage topology.
 - **MINOR**: storage topology, identity, or reference changes that require coordinated reader/writer migration.
@@ -34,6 +36,7 @@ The registry is intentionally explicit; SemVer arithmetic does not invent missin
 - `0.0.2 -> 0.0.3`: normalize kind coloring and legacy numbering shapes.
 - `0.0.3 -> 0.0.4`: persist `defaultCounterName`, current kind records, and canonical Macro package v7 data.
 - `0.0.4 -> 0.0.5`: validate canonical Macro v7 input, canonicalize plain-string packages to v8, and add `default_style.en`. Localized Macro templates block automatic migration because splitting them would silently change explicit `[style]` source semantics.
+- `0.0.5 -> 0.0.6`: validate canonical Macro v8 input, then split aggregate Entries and Macros into stable per-entity Package storage; legacy aggregates remain frozen backups at `0.0.5`.
 
 Unknown future versions are rejected by migration and treated as read-only by ordinary data writers, preventing an older Extension from rewriting a newer schema.
 

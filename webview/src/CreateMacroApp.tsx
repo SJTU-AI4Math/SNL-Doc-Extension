@@ -151,6 +151,11 @@ const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'
 
 /** Editable current-schema style plus split controls for authoring `#*`. */
 interface StyleDraft {
+  extensions: Record<string, unknown>;
+  typst_extensions: Record<string, unknown>;
+  typst_synthesis_extensions: Record<string, unknown>;
+  latex_extensions: Record<string, unknown>;
+  latex_synthesis_extensions: Record<string, unknown>;
   style_name: string;
   mode: Mode;
   template: string;
@@ -171,6 +176,11 @@ interface StyleDraft {
 
 function newStyleDraft(styleName: string): StyleDraft {
   return {
+    extensions: {},
+    typst_extensions: {},
+    typst_synthesis_extensions: {},
+    latex_extensions: {},
+    latex_synthesis_extensions: {},
     style_name: styleName,
     mode: 'formula_inline',
     template: '',
@@ -196,16 +206,27 @@ function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnl
     ? `${s.template_left}#*${s.template_right}`
     : (s.template || (s.mode === 'block' ? '#*' : ''));
   const common = {
+    ...s.extensions,
     style_name: s.style_name.trim(),
     ...(dynamicArity ? { separator: s.separator } : {}),
     tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0),
     typst: {
+      ...s.typst_extensions,
       built_in: s.typst_built_in,
-      synthesis: { mode: s.typst_synthesis_mode, macro: s.typst_synthesis }
+      synthesis: {
+        ...s.typst_synthesis_extensions,
+        mode: s.typst_synthesis_mode,
+        macro: s.typst_synthesis
+      }
     },
     latex: {
+      ...s.latex_extensions,
       built_in: s.latex_built_in,
-      synthesis: { mode: s.latex_synthesis_mode, macro: s.latex_synthesis }
+      synthesis: {
+        ...s.latex_synthesis_extensions,
+        mode: s.latex_synthesis_mode,
+        macro: s.latex_synthesis
+      }
     },
     markdown: s.markdown,
     text: s.text
@@ -257,9 +278,10 @@ type ExtendedSnlMacroStyle =
  * save-to-disk path uses this shape.
  */
 interface ExtendedSnlMacro {
+  [key: string]: unknown;
   name: string;
   description: string;
-  source: { entries: string[]; urls: string[] };
+  source: { [key: string]: unknown; entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
   default_style: Record<string, string>;
@@ -292,6 +314,7 @@ interface ContextMsg {
   macroCandidates?: SnooglSearchCandidate[];
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
+  macroRevision?: string;
   /**
    * Entry pool for the source.entries picker (EntityIdSearchBox). Pushed
    * on initial context so the picker has options as soon as the panel
@@ -392,6 +415,7 @@ export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
+  const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
   // Preserve consumer/backend extension fields that this editor does not know
   // how to project into controls. Copy and edit submissions overlay the known
@@ -454,6 +478,7 @@ export function CreateMacroApp(): React.ReactElement {
     hydratedMacroBaseRef.current = {
       ...existing,
       source: {
+        ...(existing.source ?? {}),
         entries: [...(existing.source?.entries ?? [])],
         urls: [...(existing.source?.urls ?? [])]
       },
@@ -482,9 +507,40 @@ export function CreateMacroApp(): React.ReactElement {
     );
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => {
+          const raw = s as unknown as Record<string, unknown>;
+          const {
+            style_name: _styleName,
+            mode: _mode,
+            template: _template,
+            separator: _separator,
+            block_template_name: _blockTemplateName,
+            tags: _tags,
+            typst: _typst,
+            latex: _latex,
+            markdown: _markdown,
+            text: _text,
+            ...extensions
+          } = raw;
+          const typstRaw = s.typst && typeof s.typst === 'object'
+            ? s.typst as unknown as Record<string, unknown> : {};
+          const { built_in: _typstBuiltIn, synthesis: _typstSynthesis, ...typstExtensions } = typstRaw;
+          const typstSynthesisRaw = s.typst?.synthesis && typeof s.typst.synthesis === 'object'
+            ? s.typst.synthesis as unknown as Record<string, unknown> : {};
+          const { mode: _typstMode, macro: _typstMacro, ...typstSynthesisExtensions } = typstSynthesisRaw;
+          const latexRaw = s.latex && typeof s.latex === 'object'
+            ? s.latex as unknown as Record<string, unknown> : {};
+          const { built_in: _latexBuiltIn, synthesis: _latexSynthesis, ...latexExtensions } = latexRaw;
+          const latexSynthesisRaw = s.latex?.synthesis && typeof s.latex.synthesis === 'object'
+            ? s.latex.synthesis as unknown as Record<string, unknown> : {};
+          const { mode: _latexMode, macro: _latexMacro, ...latexSynthesisExtensions } = latexSynthesisRaw;
           const template = s.template;
           const marker = template.indexOf('#*');
           return {
+        extensions,
+        typst_extensions: typstExtensions,
+        typst_synthesis_extensions: typstSynthesisExtensions,
+        latex_extensions: latexExtensions,
+        latex_synthesis_extensions: latexSynthesisExtensions,
         style_name: s.style_name || 'default',
         mode: s.mode,
         template,
@@ -537,6 +593,9 @@ export function CreateMacroApp(): React.ReactElement {
           if (msg.mode === 'edit' && msg.existing) {
             const sameDirtyDraft =
               formDirtyRef.current && editingNameRef.current === msg.existing.name;
+            if (!sameDirtyDraft || !macroRevisionRef.current) {
+              macroRevisionRef.current = msg.macroRevision;
+            }
             if (!sameDirtyDraft) hydrateFromExisting(msg.existing);
           } else if (msg.mode === 'create' && msg.prefill && !formDirtyRef.current) {
             // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
@@ -821,23 +880,9 @@ export function CreateMacroApp(): React.ReactElement {
     if (!canCreate) {
       return;
     }
-    const sourceStyles = hydratedMacroBaseRef.current?.styles ?? [];
     const styleList: ExtendedSnlMacroStyle[] = styles
       .filter((s) => s.style_name.trim().length > 0)
-      .map((style, index) => {
-        // Preserve consumer extensions from Copy/edit, but never carry the
-        // previous discriminated-union fields across a mode conversion.
-        const {
-          mode: _sourceMode,
-          template: _sourceTemplate,
-          block_template_name: _sourceBlockTemplate,
-          ...sourceExtensions
-        } = sourceStyles[index] ?? {};
-        return {
-          ...sourceExtensions,
-          ...styleDraftToExtended(style, dynamicArity)
-        };
-      });
+      .map((style) => styleDraftToExtended(style, dynamicArity));
     const trimmedMacroTags = macroTags
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
@@ -846,6 +891,7 @@ export function CreateMacroApp(): React.ReactElement {
       name: trimmedName,
       description: description.trim(),
       source: {
+        ...(hydratedMacroBaseRef.current?.source ?? {}),
         entries: sourceEntries.map((s) => s.trim()).filter((s) => s.length > 0),
         urls: sourceUrls.map((s) => s.trim()).filter((s) => s.length > 0)
       },
@@ -858,7 +904,8 @@ export function CreateMacroApp(): React.ReactElement {
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
       type: panelMode === 'edit' ? 'update' : 'create',
-      macro
+      macro,
+      expectedRevision: panelMode === 'edit' ? macroRevisionRef.current : undefined
     });
   }
 

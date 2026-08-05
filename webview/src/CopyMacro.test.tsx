@@ -31,7 +31,11 @@ function send(message: unknown): void {
 const original = {
   name: 'original',
   description: 'Full description',
-  source: { entries: ['entry-a'], urls: ['https://example.com/source'] },
+  source: {
+    entries: ['entry-a'],
+    urls: ['https://example.com/source'],
+    vendor_source: { provenance: 'keep-me' }
+  },
   kind: 'operator',
   dynamic_arity: true,
   default_style: { en: 'default', 'zh-CN': 'compact' },
@@ -44,7 +48,11 @@ const original = {
       template: '\\left(#*\\right)',
       separator: ', ',
       tags: ['style-tag'],
-      typst: { built_in: 'sum', synthesis: { mode: 'formula', macro: 'sum(#*)' } },
+      typst: {
+        built_in: 'sum',
+        synthesis: { mode: 'formula', macro: 'sum(#*)', vendor_synthesis: 'keep-me' },
+        vendor_backend: { engine: 'typst-x' }
+      },
       latex: { built_in: '\\sum', synthesis: { mode: 'text', macro: 'sum #*' } },
       markdown: '**#***',
       text: 'items: #*',
@@ -59,7 +67,8 @@ const original = {
       typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
       latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
       markdown: '',
-      text: 'compact'
+      text: 'compact',
+      custom_renderer: { engine: 'consumer-y', options: { compact: true } }
     }
   ]
 };
@@ -199,5 +208,27 @@ describe('Copy Macro', () => {
     expect(defaultStyle.separator).toBe(defaultValues.separator);
     expect(compactStyle.template).toBe(`${compactValues.left}#*${compactValues.right}`);
     expect(compactStyle.separator).toBe(compactValues.separator);
+  });
+
+  it('keeps opaque style fields attached to their logical style after reordering', () => {
+    render(<CreateMacroApp />);
+    sendMacroContext('create');
+    fireEvent.change(document.getElementById('m-name')!, { target: { value: 'reordered-copy' } });
+    fireEvent.click(screen.getByTitle('Move earlier (toward default)'));
+    fireEvent.click(screen.getByRole('button', { name: /Create Macro/ }));
+
+    const submitted = posted.find(
+      (message): message is { type: string; macro: typeof original } =>
+        typeof message === 'object' && message !== null &&
+        (message as { type?: string }).type === 'create'
+    );
+    expect(submitted).toBeDefined();
+    expect(submitted!.macro.styles.map((style) => style.style_name)).toEqual(['compact', 'default']);
+    expect(submitted!.macro.styles[0].custom_renderer).toEqual({
+      engine: 'consumer-y', options: { compact: true }
+    });
+    expect(submitted!.macro.styles[1].custom_renderer).toEqual({
+      engine: 'consumer-x', options: { compact: false }
+    });
   });
 });

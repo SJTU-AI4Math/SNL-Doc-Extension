@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
@@ -8,12 +9,31 @@ import {
   normalize_macro_template
 } from './localizedContent';
 import { slugify } from './slug';
-import { CURRENT_DATA_VERSION } from './dataMigrationCore';
+import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
+import {
+  UNPACKAGED_PACKAGE_ID,
+  assertPackageId,
+  entryEntityPath,
+  macroEntityPath,
+  makeEntryEnvelope,
+  makeMacroEnvelope,
+  makePackageManifest,
+  packageManifestPath,
+  type MacroEnvelope
+} from './entityStorage';
+import {
+  readEntryEntityRecords,
+  readMacroEntityRecords,
+  readPackageManifestRecords,
+  type EntityReadStorage
+} from './entityStorageIo';
 import {
   assertJsonSnapshotUnchanged,
   assertWorkspaceDataVersionNotRegressed,
-  assertWorkspaceDataWritable
+  assertWorkspaceDataWritable,
+  makeEntityStorageReceipt
 } from './dataMigrations';
+import { inspectStoredWorkspaceData } from './workspaceDataMigration';
 import { withWorkspaceDataLock } from './workspaceDataLock';
 
 /**
@@ -43,6 +63,16 @@ function jsonBytes(value: unknown): Uint8Array {
   return ENCODER.encode(JSON.stringify(value, null, 2) + '\n');
 }
 
+export function entityRevision(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+export function macroPackageMetadataRevision(raw: unknown): string {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return entityRevision(raw);
+  const { macros: _macros, ...metadata } = raw as Record<string, unknown>;
+  return entityRevision(metadata);
+}
+
 async function exists(uri: vscode.Uri): Promise<boolean> {
   try {
     await vscode.workspace.fs.stat(uri);
@@ -57,7 +87,10 @@ async function readJson<T>(uri: vscode.Uri): Promise<T> {
   return JSON.parse(DECODER.decode(bytes)) as T;
 }
 
-async function assertWorkspaceWritableOnDisk(workspaceRoot: vscode.Uri): Promise<unknown> {
+async function assertWorkspaceWritableOnDisk(
+  workspaceRoot: vscode.Uri,
+  validateTopology = true
+): Promise<unknown> {
   let rawConfig: unknown;
   try {
     rawConfig = await readJson<unknown>(configUri(workspaceRoot));
@@ -67,6 +100,28 @@ async function assertWorkspaceWritableOnDisk(workspaceRoot: vscode.Uri): Promise
     );
   }
   assertWorkspaceDataWritable(rawConfig);
+  if (
+    rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
+    (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
+  ) {
+    const currentConfig = rawConfig as Record<string, unknown>;
+    if (!Array.isArray(currentConfig.entry_kinds)) {
+      throw new Error('Workspace data is not writable: current config.json entry_kinds must be an array.');
+    }
+    if (!Array.isArray(currentConfig.macro_kinds)) {
+      throw new Error('Workspace data is not writable: current config.json macro_kinds must be an array.');
+    }
+  }
+  if (
+    validateTopology &&
+    rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
+    (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
+  ) {
+    const topology = await inspectStoredWorkspaceData(entityReadStorage(workspaceRoot));
+    if (topology.status !== 'current') {
+      throw new Error(`Workspace data is not writable: ${topology.message}`);
+    }
+  }
   return rawConfig;
 }
 
@@ -130,10 +185,11 @@ async function writeWorkspaceFile(
   workspaceRoot: vscode.Uri,
   uri: vscode.Uri,
   bytes: Uint8Array,
-  expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT
+  expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT,
+  validateTopology = true
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
-    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot);
+    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology);
     const writingConfig = uri.fsPath === configUri(workspaceRoot).fsPath;
     if (expectedOriginal !== NO_EXPECTED_SNAPSHOT) {
       const currentTarget = writingConfig
@@ -153,6 +209,111 @@ async function writeWorkspaceFile(
       assertWorkspaceDataVersionNotRegressed(currentConfig, nextConfig);
     }
     await vscode.workspace.fs.writeFile(uri, bytes);
+  });
+}
+
+async function deleteWorkspaceJsonFile(
+  workspaceRoot: vscode.Uri,
+  uri: vscode.Uri,
+  expectedOriginal: unknown,
+  validateTopology = true
+): Promise<void> {
+  await withExtensionWriterLock(workspaceRoot, `delete ${uri.fsPath}`, async () => {
+    await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology);
+    const current = await readJson<unknown>(uri);
+    assertJsonSnapshotUnchanged(expectedOriginal, current, uri.fsPath);
+    await vscode.workspace.fs.delete(uri, { recursive: false, useTrash: false });
+  });
+}
+
+interface JsonFileWriteOperation {
+  kind: 'write';
+  uri: vscode.Uri;
+  value: unknown;
+  expected: unknown;
+}
+
+interface JsonFileDeleteOperation {
+  kind: 'delete';
+  uri: vscode.Uri;
+  expected: unknown;
+}
+
+type JsonFileOperation = JsonFileWriteOperation | JsonFileDeleteOperation;
+
+async function applyJsonFileOperations(
+  workspaceRoot: vscode.Uri,
+  purpose: string,
+  operations: readonly JsonFileOperation[]
+): Promise<void> {
+  await withExtensionWriterLock(workspaceRoot, purpose, async () => {
+    await assertWorkspaceWritableOnDisk(workspaceRoot);
+    const completed: JsonFileOperation[] = [];
+    try {
+      for (const operation of operations) {
+        if (operation.kind === 'write') {
+          await writeWorkspaceFile(
+            workspaceRoot,
+            operation.uri,
+            jsonBytes(operation.value),
+            operation.expected,
+            false
+          );
+        } else {
+          await deleteWorkspaceJsonFile(
+            workspaceRoot,
+            operation.uri,
+            operation.expected,
+            false
+          );
+        }
+        completed.push(operation);
+      }
+    } catch (error) {
+      const rollbackErrors: string[] = [];
+      for (const operation of completed.reverse()) {
+        try {
+          if (operation.kind === 'write') {
+            if (operation.expected === null) {
+              await deleteWorkspaceJsonFile(
+                workspaceRoot,
+                operation.uri,
+                operation.value,
+                false
+              );
+            } else {
+              await writeWorkspaceFile(
+                workspaceRoot,
+                operation.uri,
+                jsonBytes(operation.expected),
+                operation.value,
+                false
+              );
+            }
+          } else {
+            await writeWorkspaceFile(
+              workspaceRoot,
+              operation.uri,
+              jsonBytes(operation.expected),
+              null,
+              false
+            );
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(
+            `${operation.uri.fsPath}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+          );
+        }
+      }
+      if (rollbackErrors.length > 0) {
+        const original = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${original}; transaction rollback was incomplete and workspace data may be inconsistent: ` +
+          rollbackErrors.join('; ')
+        );
+      }
+      throw error;
+    }
   });
 }
 
@@ -206,6 +367,63 @@ export function relationshipsUri(workspaceRoot: vscode.Uri): vscode.Uri {
 
 export function termMacrosDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'term_macros');
+}
+
+export function packageManifestsDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
+  return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'packages');
+}
+
+export function entryEntitiesDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
+  return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'entries');
+}
+
+export function macroEntitiesDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
+  return vscode.Uri.joinPath(snlRootUri(workspaceRoot), 'macros');
+}
+
+function snlRelativeUri(workspaceRoot: vscode.Uri, path: string): vscode.Uri {
+  return vscode.Uri.joinPath(snlRootUri(workspaceRoot), ...path.split('/'));
+}
+
+function entityReadStorage(workspaceRoot: vscode.Uri): EntityReadStorage {
+  return {
+    async directoryExists(directory): Promise<boolean> {
+      return exists(snlRelativeUri(workspaceRoot, directory));
+    },
+    async listJsonFiles(directory): Promise<string[]> {
+      const uri = snlRelativeUri(workspaceRoot, directory);
+      if (!(await exists(uri))) return [];
+      return (await vscode.workspace.fs.readDirectory(uri))
+        .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.json'))
+        .map(([name]) => name)
+        .sort((left, right) => left.localeCompare(right));
+    },
+    async readJson(path): Promise<unknown | null> {
+      const uri = snlRelativeUri(workspaceRoot, path);
+      return await exists(uri) ? readJson<unknown>(uri) : null;
+    }
+  };
+}
+
+async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
+  const uri = configUri(workspaceRoot);
+  if (!(await exists(uri))) return false;
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(uri);
+  } catch (error) {
+    throw new Error(`Could not read config.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('config.json must be a JSON object.');
+  }
+  const version = (raw as Record<string, unknown>).version;
+  if (typeof version !== 'string') throw new Error('config.json#version must be a string.');
+  const relation = compareDataVersions(version, CURRENT_DATA_VERSION);
+  if (relation > 0) {
+    throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
+  }
+  return relation === 0;
 }
 
 export function librariesDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
@@ -350,6 +568,12 @@ export interface SnlConfig {
    * (backwards-compat auto-migration).
    */
   active_macro_packages?: string[];
+  entity_storage?: {
+    version: 1;
+    legacy_backup_version: '0.0.5';
+    entry_default_package: typeof UNPACKAGED_PACKAGE_ID;
+    receipt: ReturnType<typeof makeEntityStorageReceipt>;
+  };
 }
 
 /**
@@ -423,10 +647,20 @@ function normalizeConfig(raw: unknown): SnlConfig {
     );
   }
   const rawActive = cfg.active_macro_packages;
-  const activeMacroPackages =
-    Array.isArray(rawActive) && rawActive.every((v) => typeof v === 'string')
-      ? (rawActive as string[])
-      : undefined;
+  const hasActiveField = !!raw && typeof raw === 'object' && !Array.isArray(raw) &&
+    Object.prototype.hasOwnProperty.call(raw, 'active_macro_packages');
+  if (
+    hasActiveField &&
+    (!Array.isArray(rawActive) || !rawActive.every((value) => typeof value === 'string'))
+  ) {
+    throw new Error('config.json#active_macro_packages must be an array of Package ID strings.');
+  }
+  if (Array.isArray(rawActive)) {
+    for (const packageId of rawActive as string[]) assertPackageId(packageId);
+  }
+  const activeMacroPackages = Array.isArray(rawActive)
+    ? rawActive as string[]
+    : undefined;
   const out: SnlConfig = {
     version: typeof cfg.version === 'string' ? cfg.version : '0.0.1',
     entry_kinds: rawKinds.map(normalizeEntryKind),
@@ -545,98 +779,93 @@ export async function initSnlDoc(
   const key = workspaceWriterIdentity(workspaceRoot);
   const active = initializationInFlight.get(key);
   if (active) return active;
-
   const pending = initializeSnlDocSkeleton(workspaceRoot);
   initializationInFlight.set(key, pending);
   try {
     return await pending;
   } finally {
-    if (initializationInFlight.get(key) === pending) {
-      initializationInFlight.delete(key);
-    }
+    if (initializationInFlight.get(key) === pending) initializationInFlight.delete(key);
   }
 }
 
-async function initializeSnlDocSkeleton(
-  workspaceRoot: vscode.Uri
-): Promise<InitResult> {
+async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<InitResult> {
   const fsApi = vscode.workspace.fs;
   const root = snlRootUri(workspaceRoot);
   const configTarget = configUri(workspaceRoot);
-
-  // The disk lock lives inside `.SNL_Doc`, so create only the directory before
-  // acquiring it. Directory creation is idempotent and is not a completion
-  // marker; config.json is written atomically as the final step below.
   await fsApi.createDirectory(root);
 
   return withExtensionWriterLock(workspaceRoot, 'initialize SNL Doc', async () => {
-    const configExists = await exists(configTarget);
-    if (configExists) {
-      // Recovery may only add missing files to a workspace whose schema this
-      // extension understands. A corrupt or future config remains untouched.
+    if (await exists(configTarget)) {
       await assertWorkspaceWritableOnDisk(workspaceRoot);
+      return { status: 'exists' };
     }
-    const termMacrosDir = termMacrosDirUri(workspaceRoot);
+    const packageDir = packageManifestsDirUri(workspaceRoot);
+    const entryDir = entryEntitiesDirUri(workspaceRoot);
+    const macroDir = macroEntitiesDirUri(workspaceRoot);
     const librariesDir = librariesDirUri(workspaceRoot);
-    const entriesTarget = entriesUri(workspaceRoot);
-    const entriesExist = await exists(entriesTarget);
-
-    // Fail closed before creating any missing payload. A config-less tree with
-    // real user data is not a recoverable partial init and must remain byte-for-
-    // byte unchanged.
-    if (!configExists) {
-      if (entriesExist) {
-        const entries = await readJson<unknown>(entriesTarget);
-        if (!Array.isArray(entries) || entries.length > 0) {
-          throw new Error(
-            'Cannot initialize: config.json is missing but entries.json contains data.'
-          );
+    const unpackagedPath = packageManifestPath(UNPACKAGED_PACKAGE_ID);
+    const unpackagedUri = snlRelativeUri(workspaceRoot, unpackagedPath);
+    // Fail closed before the first repair write. Existing schema-owned data
+    // without config.json may belong to another/legacy topology.
+    for (const [directory, allowed] of [
+      [entryDir, new Set<string>()],
+      [macroDir, new Set<string>()],
+      [packageDir, new Set([unpackagedPath.split('/').at(-1)!])]
+    ] as const) {
+      if (!(await exists(directory))) continue;
+      for (const [name, type] of await fsApi.readDirectory(directory)) {
+        if (type === vscode.FileType.File && name.toLowerCase().endsWith('.json') && !allowed.has(name)) {
+          throw new Error(`Cannot initialize: config.json is missing but ${name} already exists.`);
         }
       }
-      const packageFiles = (await exists(termMacrosDir))
-        ? (await fsApi.readDirectory(termMacrosDir)).filter(([name, type]) =>
-            type === vscode.FileType.File && name.toLowerCase().endsWith('.json')
-          )
-        : [];
-      const libraryItems = (await exists(librariesDir))
-        ? (await fsApi.readDirectory(librariesDir)).filter(([name]) => name !== '.gitkeep')
-        : [];
-      if (packageFiles.length > 0 || libraryItems.length > 0) {
-        throw new Error(
-          'Cannot initialize over existing Macro packages or Libraries without config.json.'
-        );
+    }
+    const libraryItems = await exists(librariesDir)
+      ? (await fsApi.readDirectory(librariesDir)).filter(([name]) => name !== '.gitkeep')
+      : [];
+    if (libraryItems.length > 0 || await exists(entriesUri(workspaceRoot)) || await exists(termMacrosDirUri(workspaceRoot))) {
+      throw new Error('Cannot initialize over legacy or unrelated data without config.json.');
+    }
+
+    const unpackagedManifest = makePackageManifest(
+      UNPACKAGED_PACKAGE_ID,
+      'Unpackaged',
+      'Entries without an assigned package.'
+    );
+    const unpackagedExists = await exists(unpackagedUri);
+    if (unpackagedExists) {
+      const current = await readJson<unknown>(unpackagedUri);
+      if (JSON.stringify(current) !== JSON.stringify(unpackagedManifest)) {
+        throw new Error('Cannot retry initialization: the existing _unpackaged manifest conflicts.');
       }
     }
 
-    await fsApi.createDirectory(termMacrosDir);
+    await fsApi.createDirectory(packageDir);
+    await fsApi.createDirectory(entryDir);
+    await fsApi.createDirectory(macroDir);
     await fsApi.createDirectory(librariesDir);
-    if (!entriesExist) {
-      await fsApi.writeFile(entriesTarget, jsonBytes([]));
+
+    if (!unpackagedExists) {
+      await fsApi.writeFile(unpackagedUri, jsonBytes(unpackagedManifest));
     }
 
     const gitkeep = ENCODER.encode('');
-    const termMacrosGitkeep = vscode.Uri.joinPath(termMacrosDir, '.gitkeep');
-    const librariesGitkeep = vscode.Uri.joinPath(librariesDir, '.gitkeep');
-    if (!(await exists(termMacrosGitkeep))) {
-      await fsApi.writeFile(termMacrosGitkeep, gitkeep);
-    }
-    if (!(await exists(librariesGitkeep))) {
-      await fsApi.writeFile(librariesGitkeep, gitkeep);
-    }
-
-    if (configExists) {
-      return { status: 'exists' };
+    for (const directory of [entryDir, macroDir, librariesDir]) {
+      const placeholder = vscode.Uri.joinPath(directory, '.gitkeep');
+      if (!(await exists(placeholder))) await fsApi.writeFile(placeholder, gitkeep);
     }
 
     const config: SnlConfig = {
       version: CURRENT_DATA_VERSION,
       entry_kinds: [],
-      macro_kinds: []
+      macro_kinds: [],
+      entity_storage: {
+        version: 1,
+        legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt([], new Map(), false)
+      }
     };
-    const configTemporary = vscode.Uri.joinPath(
-      root,
-      `.config.init-${process.pid}-${Date.now()}.tmp`
-    );
+    const configTemporary = vscode.Uri.joinPath(root, `.config.init-${process.pid}-${Date.now()}.tmp`);
     try {
       await fsApi.writeFile(configTemporary, jsonBytes(config));
       await fsApi.rename(configTemporary, configTarget, { overwrite: false });
@@ -646,12 +875,10 @@ async function initializeSnlDocSkeleton(
           await fsApi.delete(configTemporary, { recursive: false, useTrash: false });
         }
       } catch {
-        // Preserve the initialization error. A temporary file is never a
-        // completion marker and a later retry remains safe.
+        // Preserve the original initialization failure; retry residue is safe.
       }
       throw error;
     }
-
     return { status: 'created' };
   });
 }
@@ -792,8 +1019,33 @@ export interface MacroPackageSummary {
  * propagating the error.
  */
 export async function readMacroPackages(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  includeSystemPackages = false
 ): Promise<MacroPackageSummary[]> {
+  if (await usesEntityStorage(workspaceRoot)) {
+    try {
+      const storage = entityReadStorage(workspaceRoot);
+      const [packages, macros] = await Promise.all([
+        readPackageManifestRecords(storage),
+        readMacroEntityRecords(storage)
+      ]);
+      const counts = new Map<string, number>();
+      for (const { envelope } of macros) {
+        counts.set(envelope.package, (counts.get(envelope.package) ?? 0) + 1);
+      }
+      return packages
+        .filter(({ manifest }) => includeSystemPackages || manifest.id !== UNPACKAGED_PACKAGE_ID)
+        .map(({ manifest }) => ({
+          file: `${manifest.id}.json`,
+          macroCount: counts.get(manifest.id) ?? 0
+        }))
+        .sort((left, right) => left.file.localeCompare(right.file));
+    } catch (error) {
+      throw new Error(
+        `Could not read per-entity Package storage: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
   const fsApi = vscode.workspace.fs;
   const dir = termMacrosDirUri(workspaceRoot);
   if (!(await exists(dir))) {
@@ -912,7 +1164,7 @@ export interface MacroPackageFile {
 }
 
 /** Bare filename regex for a macro package (no path, no extension). */
-const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+$/;
+const MACRO_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MACRO_PACKAGE_VERSION = '8';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
@@ -1162,15 +1414,17 @@ function v7MacroToV8(input: Record<string, unknown>): MacroPackageEntry {
     }
   });
 
+  const source = input.source && typeof input.source === 'object' && !Array.isArray(input.source)
+    ? input.source as Record<string, unknown>
+    : {};
   return {
     ...input,
     name: typeof input.name === 'string' ? input.name : '',
     description: typeof input.description === 'string' ? input.description : '',
     source: {
-      entries: Array.isArray((input.source as { entries?: unknown } | undefined)?.entries)
-        ? (input.source as { entries: string[] }).entries : [],
-      urls: Array.isArray((input.source as { urls?: unknown } | undefined)?.urls)
-        ? (input.source as { urls: string[] }).urls : []
+      ...source,
+      entries: Array.isArray(source.entries) ? source.entries as string[] : [],
+      urls: Array.isArray(source.urls) ? source.urls as string[] : []
     },
     dynamic_arity: input.dynamic_arity === true,
     default_style,
@@ -1258,6 +1512,9 @@ function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
     name: typeof input.name === 'string' ? input.name : '',
     description: typeof input.description === 'string' ? input.description : '',
     source: {
+      ...(input.source && typeof input.source === 'object' && !Array.isArray(input.source)
+        ? input.source as Record<string, unknown>
+        : {}),
       entries: Array.isArray((input.source as { entries?: unknown } | undefined)?.entries)
         ? (input.source as { entries: string[] }).entries
         : [],
@@ -1458,12 +1715,12 @@ export async function createMacroPackage(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-
-  const bare = typeof file === 'string' ? stripJsonExt(file.trim()) : '';
+  return withExtensionWriterLock(workspaceRoot, 'create Macro package', async () => {
+    const bare = typeof file === 'string' ? file.trim() : '';
   if (!MACRO_FILE_RE.test(bare)) {
     return {
       status: 'invalid',
-      reason: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+      reason: 'file must be a Windows-safe Package ID ([A-Za-z0-9][A-Za-z0-9._-]*)'
     };
   }
   const name = typeof displayName === 'string' ? displayName.trim() : '';
@@ -1471,7 +1728,34 @@ export async function createMacroPackage(
     return { status: 'invalid', reason: 'displayName is required' };
   }
 
-  const target = macroPackageUri(workspaceRoot, bare);
+  const entityMode = await usesEntityStorage(workspaceRoot);
+  if (!entityMode) {
+    try {
+      await resolveActiveMacroPackages(workspaceRoot);
+    } catch (error) {
+      return { status: 'error', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  if (entityMode) {
+    try {
+      const manifests = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
+      const collision = manifests.find(({ manifest }) =>
+        manifest.id.toLowerCase() === bare.toLowerCase()
+      );
+      if (collision) return { status: 'duplicate', file: `${collision.manifest.id}.json` };
+    } catch (error) {
+      return { status: 'error', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  let manifestPath: string;
+  try {
+    manifestPath = packageManifestPath(bare);
+  } catch (error) {
+    return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
+  }
+  const target = entityMode
+    ? snlRelativeUri(workspaceRoot, manifestPath)
+    : macroPackageUri(workspaceRoot, bare);
   if (await exists(target)) {
     return { status: 'duplicate', file: `${bare}.json` };
   }
@@ -1487,9 +1771,43 @@ export async function createMacroPackage(
   }
 
   try {
-    // Ensure the term_macros/ directory exists first.
-    await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
-    await writeWorkspaceFile(workspaceRoot, target, jsonBytes(pkg), null);
+    if (entityMode) {
+      await fsApi.createDirectory(packageManifestsDirUri(workspaceRoot));
+      const configRaw = await readJson<unknown>(configUri(workspaceRoot));
+      if (!configRaw || typeof configRaw !== 'object' || Array.isArray(configRaw)) {
+        throw new Error('config.json must be an object');
+      }
+      const manifests = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
+      const active = new Set(resolveActiveFromConfig(
+        manifests
+          .map(({ manifest }) => manifest.id)
+          .filter((id) => id !== UNPACKAGED_PACKAGE_ID),
+        normalizeConfig(configRaw)
+      ));
+      active.add(bare);
+      const nextConfig = {
+        ...configRaw,
+        active_macro_packages: [...active].sort((left, right) => left.localeCompare(right))
+      };
+      await applyJsonFileOperations(workspaceRoot, `create Package ${bare}`, [
+        {
+          kind: 'write',
+          uri: target,
+          value: makePackageManifest(bare, name, desc),
+          expected: null
+        },
+        {
+          kind: 'write',
+          uri: configUri(workspaceRoot),
+          value: nextConfig,
+          expected: configRaw
+        }
+      ]);
+      return { status: 'ok', file: `${bare}.json` } as const;
+    } else {
+      await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
+      await writeWorkspaceFile(workspaceRoot, target, jsonBytes(pkg), null);
+    }
   } catch (err) {
     return {
       status: 'error',
@@ -1504,7 +1822,8 @@ export async function createMacroPackage(
   } catch {
     // Config missing/unwritable — the package file was still created.
   }
-  return { status: 'ok', file: `${bare}.json` };
+    return { status: 'ok', file: `${bare}.json` };
+  });
 }
 
 /**
@@ -1522,6 +1841,35 @@ export async function readMacroPackage(
   | { status: 'error'; message: string }
 > {
   const bare = typeof file === 'string' ? stripJsonExt(file) : '';
+  if (await usesEntityStorage(workspaceRoot)) {
+    try {
+      const storage = entityReadStorage(workspaceRoot);
+      const [packages, macroRecords] = await Promise.all([
+        readPackageManifestRecords(storage),
+        readMacroEntityRecords(storage)
+      ]);
+      const packageRecord = packages.find(({ manifest }) => manifest.id === bare);
+      if (!packageRecord) return { status: 'noFile' };
+      const { format: _format, version: _version, id: _id, name, description, ...extensions } =
+        packageRecord.manifest;
+      const macros: Record<string, unknown> = {};
+      for (const record of macroRecords.filter(({ envelope }) => envelope.package === bare)) {
+        const { name: macroName, ...macro } = record.macro;
+        macros[macroName] = macro;
+      }
+      const raw: Record<string, unknown> = {
+        ...extensions,
+        version: MACRO_PACKAGE_VERSION,
+        name,
+        macros
+      };
+      if (description) raw.description = description;
+      const result = buildMacroPackageResult(bare, raw);
+      return result.status === 'ok' ? { ...result, raw } : result;
+    } catch (err) {
+      return { status: 'error', message: err instanceof Error ? err.message : String(err) };
+    }
+  }
   const target = macroPackageUri(workspaceRoot, bare);
   if (!(await exists(target))) {
     return { status: 'noFile' };
@@ -1583,7 +1931,20 @@ function buildMacroPackageResult(
     macrosMap[name] = rest;
   }
 
+  const wrapperExtensions: Record<string, unknown> = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) &&
+      'macros' in (raw as Record<string, unknown>)) {
+    const {
+      version: _version,
+      name: _name,
+      description: _description,
+      macros: _macros,
+      ...extensions
+    } = raw as Record<string, unknown>;
+    Object.assign(wrapperExtensions, extensions);
+  }
   const pkg: MacroPackageFile = {
+    ...wrapperExtensions,
     version: MACRO_PACKAGE_VERSION,
     name: pkgName,
     macros: macrosMap
@@ -1641,6 +2002,106 @@ export function canonicalizeMacroPackageData(
     ...wrapper,
     ...result.pkg
   };
+}
+
+async function buildMacroPackageOperations(
+  workspaceRoot: vscode.Uri,
+  bare: string,
+  next: MacroPackageFile,
+  expectedRaw: unknown,
+  fallbackEnvelopes: ReadonlyMap<string, MacroEnvelope> = new Map()
+): Promise<JsonFileOperation[]> {
+  const current = await readMacroPackage(workspaceRoot, bare);
+  if (current.status !== 'ok') throw new Error(`Macro package ${bare} disappeared.`);
+  assertJsonSnapshotUnchanged(expectedRaw, current.raw, `${bare}.json`);
+
+  const storage = entityReadStorage(workspaceRoot);
+  const [packages, macroRecords] = await Promise.all([
+    readPackageManifestRecords(storage),
+    readMacroEntityRecords(storage)
+  ]);
+  const packageRecord = packages.find(({ manifest }) => manifest.id === bare);
+  if (!packageRecord) throw new Error(`Macro package ${bare} manifest disappeared.`);
+  const currentMacros = new Map(
+    macroRecords
+      .filter(({ envelope }) => envelope.package === bare)
+      .map((record) => [record.macro.name, record])
+  );
+  const operations: JsonFileOperation[] = [];
+  for (const [macroName, macroValue] of Object.entries(next.macros)) {
+    const existing = currentMacros.get(macroName);
+    const envelope = {
+      ...(existing?.envelope ?? fallbackEnvelopes.get(macroName) ?? {}),
+      ...makeMacroEnvelope(bare, {
+        ...(macroValue as unknown as Record<string, unknown>),
+        name: macroName
+      })
+    };
+    if (JSON.stringify(existing?.envelope) !== JSON.stringify(envelope)) {
+      operations.push({
+        kind: 'write',
+        uri: snlRelativeUri(workspaceRoot, macroEntityPath(bare, macroName)),
+        value: envelope,
+        expected: existing?.envelope ?? null
+      });
+    }
+    currentMacros.delete(macroName);
+  }
+  for (const record of currentMacros.values()) {
+    operations.push({
+      kind: 'delete',
+      uri: snlRelativeUri(workspaceRoot, record.path),
+      expected: record.envelope
+    });
+  }
+
+  const {
+    format: _manifestFormat,
+    version: _manifestVersion,
+    id: _manifestId,
+    name: _manifestName,
+    description: _manifestDescription,
+    ...extensions
+  } = packageRecord.manifest;
+  const manifest = {
+    ...extensions,
+    ...makePackageManifest(
+      bare,
+      next.name || bare,
+      typeof next.description === 'string' ? next.description : ''
+    )
+  };
+  if (JSON.stringify(manifest) !== JSON.stringify(packageRecord.manifest)) {
+    operations.push({
+      kind: 'write',
+      uri: snlRelativeUri(workspaceRoot, packageRecord.path),
+      value: manifest,
+      expected: packageRecord.manifest
+    });
+  }
+  return operations;
+}
+
+async function persistMacroPackage(
+  workspaceRoot: vscode.Uri,
+  bare: string,
+  next: MacroPackageFile,
+  expectedRaw: unknown
+): Promise<void> {
+  if (!(await usesEntityStorage(workspaceRoot))) {
+    await writeWorkspaceFile(
+      workspaceRoot,
+      macroPackageUri(workspaceRoot, bare),
+      jsonBytes(next),
+      expectedRaw
+    );
+    return;
+  }
+
+  await withExtensionWriterLock(workspaceRoot, `update Macro package ${bare}`, async () => {
+    const operations = await buildMacroPackageOperations(workspaceRoot, bare, next, expectedRaw);
+    await applyJsonFileOperations(workspaceRoot, `persist Macro package ${bare}`, operations);
+  });
 }
 
 /**
@@ -1708,7 +2169,13 @@ export async function readAllMacrosWithOrigin(
   );
 
   for (const { bare, read } of loaded) {
-    if (read.status !== 'ok') continue;
+    if (read.status !== 'ok') {
+      throw new Error(
+        read.status === 'error'
+          ? `Could not read Macro Package ${JSON.stringify(bare)}: ${read.message}`
+          : `Macro Package ${JSON.stringify(bare)} disappeared while loading Macros.`
+      );
+    }
     for (const macro of read.macros) {
       if (typeof macro.name === 'string' && macro.name.length > 0) {
         if (Object.prototype.hasOwnProperty.call(out, macro.name)) {
@@ -1746,7 +2213,6 @@ export async function resolveActiveMacroPackages(
     listMacroPackageNames(workspaceRoot),
     readJson<unknown>(configUri(workspaceRoot))
       .then((raw) => normalizeConfig(raw))
-      .catch((): SnlConfig | null => null)
   ]);
   return resolveActiveFromConfig(onDisk, cfg);
 }
@@ -1772,8 +2238,23 @@ function resolveActiveFromConfig(
 
 /** Bare names of the macro-package files on disk, without reading them. */
 async function listMacroPackageNames(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  knownEntityMode?: boolean,
+  strict = false
 ): Promise<string[]> {
+  const entityMode = knownEntityMode ?? await usesEntityStorage(workspaceRoot);
+  if (entityMode) {
+    try {
+      return (await readPackageManifestRecords(entityReadStorage(workspaceRoot)))
+        .map(({ manifest }) => manifest.id)
+        .filter((id) => id !== UNPACKAGED_PACKAGE_ID)
+        .sort((a, b) => a.localeCompare(b));
+    } catch (error) {
+      throw new Error(
+        `Could not list per-entity Macro Packages: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
   const dir = termMacrosDirUri(workspaceRoot);
   if (!(await exists(dir))) return [];
   try {
@@ -1785,7 +2266,8 @@ async function listMacroPackageNames(
         !name.startsWith('.')
       )
       .map(([name]) => stripJsonExt(name));
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -1826,9 +2308,16 @@ export async function setMacroPackageActive(
 ): Promise<void> {
   const bare = stripJsonExt(packageFile);
   await withExtensionWriterLock(workspaceRoot, `set active Macro package ${bare}`, async () => {
-    const current = new Set(await resolveActiveMacroPackages(workspaceRoot));
-    if (active) current.add(bare);
-    else current.delete(bare);
+    const entityMode = await usesEntityStorage(workspaceRoot);
+    const packageNames = await listMacroPackageNames(workspaceRoot, entityMode, true);
+    const configRaw = await readJson<unknown>(configUri(workspaceRoot));
+    const current = new Set(resolveActiveFromConfig(packageNames, normalizeConfig(configRaw)));
+    if (active) {
+      if (!packageNames.includes(bare)) throw new Error(`Macro Package ${bare} does not exist.`);
+      current.add(bare);
+    } else {
+      current.delete(bare);
+    }
     await setActiveMacroPackages(workspaceRoot, Array.from(current));
   });
 }
@@ -1851,7 +2340,67 @@ export async function deleteMacroPackage(
   if (!MACRO_FILE_RE.test(bare)) {
     return { status: 'error', message: 'invalid package file name' };
   }
-  const target = macroPackageUri(workspaceRoot, bare);
+  if (bare === UNPACKAGED_PACKAGE_ID) {
+    return { status: 'error', message: 'the _unpackaged system Package cannot be deleted' };
+  }
+  return withExtensionWriterLock(workspaceRoot, `delete Macro package ${bare}`, async () => {
+    if (await usesEntityStorage(workspaceRoot)) {
+      try {
+        const storage = entityReadStorage(workspaceRoot);
+        const [packages, macros, entries] = await Promise.all([
+          readPackageManifestRecords(storage),
+          readMacroEntityRecords(storage),
+          readEntryEntityRecords(storage)
+        ]);
+        const packageRecord = packages.find(({ manifest }) => manifest.id === bare);
+        if (!packageRecord) return { status: 'noFile' } as const;
+        const entryCount = entries.filter(({ envelope }) => envelope.package === bare).length;
+        if (entryCount > 0) {
+          return {
+            status: 'error',
+            message: `Package ${JSON.stringify(bare)} still contains ${entryCount} ${entryCount === 1 ? 'Entry' : 'Entries'}; move them before deleting the Package.`
+          } as const;
+        }
+        const configRaw = await readJson<unknown>(configUri(workspaceRoot));
+        if (!configRaw || typeof configRaw !== 'object' || Array.isArray(configRaw)) {
+          throw new Error('config.json must be an object');
+        }
+        const packageNames = packages
+          .map(({ manifest }) => manifest.id)
+          .filter((id) => id !== UNPACKAGED_PACKAGE_ID);
+        const activePackages = new Set(resolveActiveFromConfig(packageNames, normalizeConfig(configRaw)));
+        activePackages.delete(bare);
+        const nextConfig = {
+          ...configRaw,
+          active_macro_packages: [...activePackages].sort((left, right) => left.localeCompare(right))
+        };
+        const operations: JsonFileOperation[] = macros
+          .filter(({ envelope }) => envelope.package === bare)
+          .map((record) => ({
+            kind: 'delete' as const,
+            uri: snlRelativeUri(workspaceRoot, record.path),
+            expected: record.envelope
+          }));
+        operations.push(
+          {
+            kind: 'delete',
+            uri: snlRelativeUri(workspaceRoot, packageRecord.path),
+            expected: packageRecord.manifest
+          },
+          {
+            kind: 'write',
+            uri: configUri(workspaceRoot),
+            value: nextConfig,
+            expected: configRaw
+          }
+        );
+        await applyJsonFileOperations(workspaceRoot, `delete Macro package ${bare}`, operations);
+        return { status: 'ok', file: `${bare}.json` } as const;
+      } catch (err) {
+        return { status: 'error', message: err instanceof Error ? err.message : String(err) } as const;
+      }
+    }
+    const target = macroPackageUri(workspaceRoot, bare);
   if (!(await exists(target))) {
     return { status: 'noFile' };
   }
@@ -1871,7 +2420,8 @@ export async function deleteMacroPackage(
   } catch {
     // Config missing/unwritable — the file delete already succeeded.
   }
-  return { status: 'ok', file: `${bare}.json` };
+    return { status: 'ok', file: `${bare}.json` };
+  });
 }
 
 /** Validate the structural invariants of a single {@link MacroPackageEntry}. */
@@ -2040,11 +2590,7 @@ export async function addMacro(
   };
 
   try {
-    await writeWorkspaceFile(workspaceRoot,
-      macroPackageUri(workspaceRoot, file),
-      jsonBytes(next),
-      read.raw
-    );
+    await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
   } catch (err) {
     return {
       status: 'error',
@@ -2143,22 +2689,19 @@ export async function readOverview(
   // macro packages), each of which itself awaited in a loop. Cat 2026-07-25:
   // "所有 Dashboard 相关的基本都慢,具体 Library 的 Infoview 不慢" — the
   // Dashboard is the hot path precisely because it fans out the widest.
-  const [entries, config, discovered, packageNames, relationships] =
-    await Promise.all([
-      readEntries(workspaceRoot),
-      readJson<unknown>(configUri(workspaceRoot))
-        .then((raw) => normalizeConfig(raw))
-        .catch((): SnlConfig | null => null),
-      // Discover libraries by scanning the on-disk `libraries/` tree (per cat
-      // 2026-07-06: config is no longer the source of truth). `listLibraries`
-      // reads each meta.json (falling back to the slug when missing) and
-      // hands us back {slug, title} pairs.
-      listLibraries(workspaceRoot),
-      // Names only — we read each package's bytes exactly once below and
-      // derive BOTH the summary (macroCount) and the macro rows from it.
-      listMacroPackageNames(workspaceRoot),
-      readRelationships(workspaceRoot)
-    ]);
+  const configPromise = readJson<unknown>(configUri(workspaceRoot))
+    .then((raw) => normalizeConfig(raw));
+  const discoveredPromise = listLibraries(workspaceRoot);
+  const relationshipsPromise = readRelationships(workspaceRoot);
+  const config = await configPromise;
+  const entityMode = typeof config?.version === 'string' &&
+    compareDataVersions(config.version, CURRENT_DATA_VERSION) === 0;
+  const [entries, discovered, packageNames, relationships] = await Promise.all([
+    readEntries(workspaceRoot, entityMode),
+    discoveredPromise,
+    listMacroPackageNames(workspaceRoot, entityMode),
+    relationshipsPromise
+  ]);
   const totalEntryCount: number | null = entries.length;
 
   // Per-library counts. Concurrent, but the summaries are assembled in
@@ -2204,22 +2747,60 @@ export async function readOverview(
   // through `readMacroPackages` (which parsed the file only to infer a
   // macroCount) and once more through `readMacroPackage` for the actual macro
   // rows. Both products come from the same bytes, so we take them together.
-  const loaded = await Promise.all(
-    packageNames.map(async (bare) => {
-      const file = `${bare}.json`;
-      try {
-        const raw = await readJson<unknown>(
-          macroPackageUri(workspaceRoot, bare)
-        );
-        return { file, raw, ok: true as const };
-      } catch {
-        // Unreadable / corrupt JSON: summary still appears with a null count,
-        // and it contributes no macros. Matches the old best-effort split of
-        // `readMacroPackages` + `readMacroPackage`.
-        return { file, raw: undefined, ok: false as const };
+  const loaded: Array<{ file: string; raw: unknown; ok: boolean }> = [];
+  if (entityMode) {
+    try {
+      const storage = entityReadStorage(workspaceRoot);
+      const [packageRecords, macroRecords] = await Promise.all([
+        readPackageManifestRecords(storage),
+        readMacroEntityRecords(storage)
+      ]);
+      for (const bare of packageNames) {
+        const packageRecord = packageRecords.find(({ manifest }) => manifest.id === bare);
+        if (!packageRecord) continue;
+        const {
+          format: _format,
+          version: _version,
+          id: _id,
+          name,
+          description,
+          ...extensions
+        } = packageRecord.manifest;
+        const macros: Record<string, unknown> = {};
+        for (const record of macroRecords.filter(({ envelope }) => envelope.package === bare)) {
+          const { name: macroName, ...macro } = record.macro;
+          macros[macroName] = macro;
+        }
+        loaded.push({
+          file: `${bare}.json`,
+          raw: {
+            ...extensions,
+            version: MACRO_PACKAGE_VERSION,
+            name,
+            ...(description ? { description } : {}),
+            macros
+          },
+          ok: true
+        });
       }
-    })
-  );
+    } catch (error) {
+      throw new Error(
+        `Could not read per-entity Macro storage for Dashboard: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } else {
+    loaded.push(...await Promise.all(
+      packageNames.map(async (bare) => {
+        const file = `${bare}.json`;
+        try {
+          const raw = await readJson<unknown>(macroPackageUri(workspaceRoot, bare));
+          return { file, raw, ok: true };
+        } catch {
+          return { file, raw: undefined, ok: false };
+        }
+      })
+    ));
+  }
   // Fold in FILE-name order regardless of which read settled first, so
   // `macroPackages` ordering, `allMacros` ordering, and every last-write-wins
   // resolution stay byte-identical to the serial version. Note file order and
@@ -2605,6 +3186,8 @@ export async function listMacroKinds(
  */
 export interface EntryData {
   id: string;
+  /** Immutable Package identity for per-entity storage; defaults to `_unpackaged`. */
+  package?: string;
   kind: string;
   title: string;
   content: {
@@ -2645,8 +3228,12 @@ export async function addEntry(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-
-  const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+  try {
+    return await withExtensionWriterLock(workspaceRoot, 'add Entry', async () => {
+    // Establish writable schema/version mode before business-field validation;
+    // future or malformed configs must never masquerade as unknownKind/invalid.
+    await assertWorkspaceWritableOnDisk(workspaceRoot);
+    const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
   // Title is optional as of 2026-07-06 (cat: "支持无标题或无内容的 entry").
   // We keep the field always present in on-disk shape but accept the empty
@@ -2663,7 +3250,12 @@ export async function addEntry(
   // `{ snl: '' }` so the on-disk row always parses.
 
   // kind must reference an existing entry kind.
-  const kinds = await readEntryKinds(workspaceRoot);
+  let kinds: EntryKind[];
+  try {
+    kinds = await readEntryKinds(workspaceRoot);
+  } catch (error) {
+    return { status: 'error', message: error instanceof Error ? error.message : String(error) };
+  }
   if (!kinds.some((k) => k.id === kind)) {
     return { status: 'unknownKind', kind };
   }
@@ -2671,8 +3263,19 @@ export async function addEntry(
   // Refuse to write over a malformed existing pool. Missing is a valid empty
   // workspace state; corrupt/non-array JSON is not.
   let pool: EntryData[] = [];
+  const entityMode = await usesEntityStorage(workspaceRoot);
   const poolUri = entriesUri(workspaceRoot);
-  if (await exists(poolUri)) {
+  if (entityMode) {
+    try {
+      const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+      pool = records.map(({ entry: current }) => current as unknown as EntryData);
+    } catch (error) {
+      return {
+        status: 'invalid',
+        reason: `Entry entity storage is malformed: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  } else if (await exists(poolUri)) {
     let raw: unknown;
     try {
       raw = await readJson<unknown>(poolUri);
@@ -2701,8 +3304,23 @@ export async function addEntry(
       reason: error instanceof Error ? error.message : String(error)
     };
   }
+  const packageId = typeof entry.package === 'string' && entry.package.trim()
+    ? entry.package.trim()
+    : UNPACKAGED_PACKAGE_ID;
+  let entityPath: string | null = null;
+  if (entityMode) {
+    try {
+      entityPath = entryEntityPath(packageId, id);
+      if (!(await exists(snlRelativeUri(workspaceRoot, packageManifestPath(packageId))))) {
+        return { status: 'invalid', reason: `Unknown Entry package: ${packageId}` };
+      }
+    } catch (error) {
+      return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
   const record: EntryData = {
     id,
+    ...(entityMode ? { package: packageId } : {}),
     kind,
     title,
     content: normalizedContent,
@@ -2719,38 +3337,62 @@ export async function addEntry(
   }
 
   try {
-    await writeWorkspaceFile(
-      workspaceRoot,
-      entriesUri(workspaceRoot),
-      jsonBytes([...pool, record]),
-      pool
-    );
+    if (entityMode && entityPath) {
+      await vscode.workspace.fs.createDirectory(entryEntitiesDirUri(workspaceRoot));
+      await writeWorkspaceFile(
+        workspaceRoot,
+        snlRelativeUri(workspaceRoot, entityPath),
+        jsonBytes(makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>)),
+        null
+      );
+    } else {
+      await writeWorkspaceFile(
+        workspaceRoot,
+        entriesUri(workspaceRoot),
+        jsonBytes([...pool, record]),
+        pool
+      );
+    }
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', id };
+      return { status: 'ok', id };
+    });
+  } catch (error) {
+    return { status: 'error', message: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /**
  * Read the shared entry pool from `.SNL_Doc/entries.json`.
  *
- * Returns the parsed array of {@link EntryData}. On a missing or corrupt file
- * (or a non-array top level) returns `[]`. Non-object items are filtered out
- * defensively so a partially hand-edited pool can't crash the dashboard.
+ * Returns the parsed array of {@link EntryData}. Per-entity storage is strict:
+ * malformed envelopes throw instead of masquerading as an empty workspace.
+ * Legacy aggregate reads retain their best-effort `[]` fallback.
  */
 export async function readEntries(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  knownEntityMode?: boolean
 ): Promise<EntryData[]> {
+  const entityMode = knownEntityMode ?? await usesEntityStorage(workspaceRoot);
+  if (entityMode) {
+    try {
+      const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+      return records.map(({ entry }) => entry as unknown as EntryData);
+    } catch (error) {
+      throw new Error(
+        `Could not read per-entity Entry storage: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
   try {
     const raw = await readJson<unknown>(entriesUri(workspaceRoot));
-    if (!Array.isArray(raw)) {
-      return [];
-    }
+    if (!Array.isArray(raw)) return [];
     return raw.filter(
-      (e): e is EntryData => e !== null && typeof e === 'object'
+      (entry): entry is EntryData => entry !== null && typeof entry === 'object'
     );
   } catch {
     return [];
@@ -3027,7 +3669,8 @@ type UpdateResult<Ok, Extra = never> =
   | Extra;
 
 export type UpdateEntryKindResult = UpdateResult<
-  { status: 'updated'; kind: EntryKind }
+  { status: 'updated'; kind: EntryKind },
+  { status: 'conflict'; id: string }
 >;
 
 /**
@@ -3043,7 +3686,8 @@ export async function updateEntryKind(
     background: string;
     defaultCounterName: string;
     style: string;
-  }
+  },
+  expectedRevision?: string
 ): Promise<UpdateEntryKindResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
@@ -3061,6 +3705,9 @@ export async function updateEntryKind(
   const idx = existing.findIndex((k) => k.id === targetId);
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
+  }
+  if (typeof expectedRevision === 'string' && entityRevision(existing[idx]) !== expectedRevision) {
+    return { status: 'conflict', id: targetId };
   }
   const next: EntryKind = {
     id: targetId,
@@ -3080,7 +3727,8 @@ export async function updateEntryKind(
 }
 
 export type UpdateMacroKindResult = UpdateResult<
-  { status: 'updated'; kind: MacroKind }
+  { status: 'updated'; kind: MacroKind },
+  { status: 'conflict'; id: string }
 >;
 
 /**
@@ -3094,7 +3742,8 @@ export async function updateMacroKind(
     name: string;
     description: string;
     coloring: { stroke: string; background: string };
-  }
+  },
+  expectedRevision?: string
 ): Promise<UpdateMacroKindResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
@@ -3113,6 +3762,9 @@ export async function updateMacroKind(
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
   }
+  if (typeof expectedRevision === 'string' && entityRevision(existing[idx]) !== expectedRevision) {
+    return { status: 'conflict', id: targetId };
+  }
   const next: MacroKind = {
     id: targetId,
     name,
@@ -3130,7 +3782,8 @@ export async function updateMacroKind(
 }
 
 export type UpdateLibraryResult = UpdateResult<
-  { status: 'updated'; slug: string; title: string }
+  { status: 'updated'; slug: string; title: string },
+  { status: 'conflict'; id: string }
 >;
 
 /**
@@ -3142,7 +3795,8 @@ export type UpdateLibraryResult = UpdateResult<
 export async function updateLibrary(
   workspaceRoot: vscode.Uri,
   slug: string,
-  input: { title: string; description?: string }
+  input: { title: string; description?: string },
+  expectedRevision?: string
 ): Promise<UpdateLibraryResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
@@ -3160,16 +3814,21 @@ export async function updateLibrary(
     return { status: 'notFound', id: targetSlug };
   }
 
-  const fsApi = vscode.workspace.fs;
-  // Merge into existing meta if present so we preserve unknown fields.
+  // Merge into existing meta if present so we preserve unknown fields. Missing
+  // may initialize; malformed or unreadable bytes must fail closed.
+  const metaUri = libraryMetaUri(workspaceRoot, targetSlug);
   let existing: LibraryMetaFile = {};
-  try {
-    const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, targetSlug));
-    if (raw && typeof raw === 'object') {
-      existing = raw as LibraryMetaFile;
+  let expected: unknown = null;
+  if (await exists(metaUri)) {
+    const raw = await readJson<unknown>(metaUri);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`libraries/${targetSlug}/meta.json must be a JSON object.`);
     }
-  } catch {
-    // File missing or unreadable: start fresh.
+    existing = raw as LibraryMetaFile;
+    expected = raw;
+  }
+  if (typeof expectedRevision === 'string' && entityRevision(expected) !== expectedRevision) {
+    return { status: 'conflict', id: targetSlug };
   }
   const next: LibraryMetaFile = {
     ...existing,
@@ -3180,9 +3839,9 @@ export async function updateLibrary(
   }
   await writeWorkspaceFile(
     workspaceRoot,
-    libraryMetaUri(workspaceRoot, targetSlug),
+    metaUri,
     jsonBytes(next),
-    existing
+    expected
   );
   return { status: 'updated', slug: targetSlug, title };
 }
@@ -3200,13 +3859,15 @@ export type UpdateEntryResult = UpdateResult<
 export async function updateEntry(
   workspaceRoot: vscode.Uri,
   id: string,
-  entry: Omit<EntryData, 'id'>
+  entry: Omit<EntryData, 'id'>,
+  expectedRevision?: string
 ): Promise<UpdateEntryResult> {
   const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'update Entry', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
@@ -3221,18 +3882,30 @@ export async function updateEntry(
     return { status: 'unknownKind', kind };
   }
 
+  const entityMode = await usesEntityStorage(workspaceRoot);
+  let entityRecord: Awaited<ReturnType<typeof readEntryEntityRecords>>[number] | undefined;
   let pool: EntryData[] = [];
-  try {
-    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
-    if (Array.isArray(raw)) {
-      pool = raw as EntryData[];
+  if (entityMode) {
+    const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+    entityRecord = records.find(({ entry: current }) => current.id === targetId);
+    pool = records.map(({ entry: current }) => current as unknown as EntryData);
+  } else {
+    try {
+      const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+      if (Array.isArray(raw)) pool = raw as EntryData[];
+    } catch {
+      pool = [];
     }
-  } catch {
-    pool = [];
   }
   const idx = pool.findIndex((e) => e && typeof e === 'object' && e.id === targetId);
   if (idx < 0) {
     return { status: 'notFound', id: targetId };
+  }
+  if (expectedRevision && entityRevision(pool[idx]) !== expectedRevision) {
+    return {
+      status: 'error',
+      message: `Entry ${JSON.stringify(targetId)} changed after this editor loaded; refresh before saving.`
+    };
   }
 
   let normalizedContent: EntryData['content'];
@@ -3244,11 +3917,35 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
+  const currentPackageId = pool[idx].package ?? UNPACKAGED_PACKAGE_ID;
+  const packageId = entityMode && typeof entry.package === 'string' && entry.package.trim()
+    ? entry.package.trim()
+    : currentPackageId;
+  if (entityMode) {
+    try {
+      packageManifestPath(packageId);
+      const manifests = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
+      if (!manifests.some(({ manifest }) => manifest.id === packageId)) {
+        return { status: 'invalid', message: `Package ${JSON.stringify(packageId)} does not exist` };
+      }
+    } catch (error) {
+      return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  const mergedContent = {
+    ...(pool[idx].content as Record<string, unknown>)
+  } as Record<string, unknown>;
+  for (const key of ['snl', 'typst', 'latex', 'markdown', 'text'] as const) {
+    if (normalizedContent[key] === undefined) delete mergedContent[key];
+    else mergedContent[key] = normalizedContent[key];
+  }
   const record: EntryData = {
+    ...pool[idx],
     id: targetId,
+    ...(entityMode ? { package: packageId } : {}),
     kind,
     title,
-    content: normalizedContent,
+    content: mergedContent as EntryData['content'],
     contribution_info: entry.contribution_info ?? null,
     pointer: entry.pointer ?? null
   };
@@ -3263,14 +3960,44 @@ export async function updateEntry(
   const next = pool.slice();
   next[idx] = record;
   try {
-    await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(next), pool);
+    if (entityMode && entityRecord) {
+      const nextEnvelope = {
+        ...entityRecord.envelope,
+        ...makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>)
+      };
+      if (packageId === currentPackageId) {
+        await writeWorkspaceFile(
+          workspaceRoot,
+          snlRelativeUri(workspaceRoot, entityRecord.path),
+          jsonBytes(nextEnvelope),
+          entityRecord.envelope
+        );
+      } else {
+        await applyJsonFileOperations(workspaceRoot, `move Entry ${targetId}`, [
+          {
+            kind: 'write',
+            uri: snlRelativeUri(workspaceRoot, entryEntityPath(packageId, targetId)),
+            value: nextEnvelope,
+            expected: null
+          },
+          {
+            kind: 'delete',
+            uri: snlRelativeUri(workspaceRoot, entityRecord.path),
+            expected: entityRecord.envelope
+          }
+        ]);
+      }
+    } else {
+      await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(next), pool);
+    }
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'updated', id: targetId };
+    return { status: 'updated', id: targetId };
+  });
 }
 
 export type UpdateMacroPackageResult = UpdateResult<
@@ -3286,7 +4013,8 @@ export type UpdateMacroPackageResult = UpdateResult<
 export async function updateMacroPackage(
   workspaceRoot: vscode.Uri,
   file: string,
-  input: { name: string; description: string }
+  input: { name: string; description: string },
+  expectedRevision?: string
 ): Promise<UpdateMacroPackageResult> {
   const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
@@ -3296,7 +4024,7 @@ export async function updateMacroPackage(
   if (!MACRO_FILE_RE.test(bare)) {
     return {
       status: 'invalid',
-      message: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+      message: 'file must be a Windows-safe Package ID ([A-Za-z0-9][A-Za-z0-9._-]*)'
     };
   }
   const name = (input.name ?? '').trim();
@@ -3311,6 +4039,12 @@ export async function updateMacroPackage(
   if (read.status === 'error') {
     return { status: 'error', message: read.message };
   }
+  if (expectedRevision && macroPackageMetadataRevision(read.raw) !== expectedRevision) {
+    return {
+      status: 'error',
+      message: `Macro Package ${JSON.stringify(bare)} changed after this editor loaded; refresh before saving.`
+    };
+  }
 
   const next: MacroPackageFile = {
     ...read.pkg,
@@ -3324,12 +4058,7 @@ export async function updateMacroPackage(
   }
 
   try {
-    await writeWorkspaceFile(
-      workspaceRoot,
-      macroPackageUri(workspaceRoot, bare),
-      jsonBytes(next),
-      read.raw
-    );
+    await persistMacroPackage(workspaceRoot, bare, next, read.raw);
   } catch (err) {
     return {
       status: 'error',
@@ -3353,7 +4082,8 @@ export type UpdateMacroResult = UpdateResult<
 export async function updateMacro(
   workspaceRoot: vscode.Uri,
   file: string,
-  macro: MacroPackageEntry
+  macro: MacroPackageEntry,
+  expectedRevision?: string
 ): Promise<UpdateMacroResult> {
   const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
@@ -3376,6 +4106,13 @@ export async function updateMacro(
   if (!Object.prototype.hasOwnProperty.call(read.pkg.macros, name)) {
     return { status: 'notFound', id: name };
   }
+  const currentMacro = read.macros.find((candidate) => candidate.name === name);
+  if (expectedRevision && (!currentMacro || entityRevision(currentMacro) !== expectedRevision)) {
+    return {
+      status: 'error',
+      message: `Macro ${JSON.stringify(name)} changed after this editor loaded; refresh before saving.`
+    };
+  }
 
   // Rebuild the map preserving insertion order — plain object iteration in
   // V8 preserves insertion order for string keys, so simply replacing the
@@ -3388,11 +4125,7 @@ export async function updateMacro(
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
 
   try {
-    await writeWorkspaceFile(workspaceRoot,
-      macroPackageUri(workspaceRoot, file),
-      jsonBytes(next),
-      read.raw
-    );
+    await persistMacroPackage(workspaceRoot, stripJsonExt(file), next, read.raw);
   } catch (err) {
     return {
       status: 'error',
@@ -3446,11 +4179,7 @@ export async function batchDeleteMacros(
 
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
   try {
-    await writeWorkspaceFile(workspaceRoot,
-      macroPackageUri(workspaceRoot, sourceFile),
-      jsonBytes(next),
-      read.raw
-    );
+    await persistMacroPackage(workspaceRoot, stripJsonExt(sourceFile), next, read.raw);
   } catch (err) {
     return {
       status: 'error',
@@ -3531,20 +4260,40 @@ export async function batchMoveMacros(
   const nextSrc: MacroPackageFile = { ...srcRead.pkg, macros: nextSrcMacros };
   const nextDest: MacroPackageFile = { ...destRead.pkg, macros: nextDestMacros };
   try {
-    // Write destination first: if the source write then fails the macros
-    // exist in both places (recoverable) rather than being lost entirely.
-    await writeWorkspaceFile(
-      workspaceRoot,
-      macroPackageUri(workspaceRoot, destBare),
-      jsonBytes(nextDest),
-      destRead.raw
-    );
-    await writeWorkspaceFile(
-      workspaceRoot,
-      macroPackageUri(workspaceRoot, srcBare),
-      jsonBytes(nextSrc),
-      srcRead.raw
-    );
+    await withExtensionWriterLock(workspaceRoot, `move Macros ${srcBare} to ${destBare}`, async () => {
+      const entityMode = await usesEntityStorage(workspaceRoot);
+      const sourceEnvelopes = entityMode
+        ? new Map((await readMacroEntityRecords(entityReadStorage(workspaceRoot)))
+            .filter(({ envelope }) => envelope.package === srcBare)
+            .map(({ macro, envelope }) => [macro.name, envelope]))
+        : new Map<string, MacroEnvelope>();
+      const operations = entityMode
+        ? [
+            ...await buildMacroPackageOperations(
+              workspaceRoot,
+              destBare,
+              nextDest,
+              destRead.raw,
+              sourceEnvelopes
+            ),
+            ...await buildMacroPackageOperations(workspaceRoot, srcBare, nextSrc, srcRead.raw)
+          ]
+        : [
+            {
+              kind: 'write' as const,
+              uri: macroPackageUri(workspaceRoot, destBare),
+              value: nextDest,
+              expected: destRead.raw
+            },
+            {
+              kind: 'write' as const,
+              uri: macroPackageUri(workspaceRoot, srcBare),
+              value: nextSrc,
+              expected: srcRead.raw
+            }
+          ];
+      await applyJsonFileOperations(workspaceRoot, `move Macros ${srcBare} to ${destBare}`, operations);
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -3567,7 +4316,8 @@ export async function batchPackageAsNew(
   names: string[],
   newFile: string,
   newDisplayName?: string,
-  newDescription?: string
+  newDescription?: string,
+  moveSource = false
 ): Promise<
   | { status: 'ok'; file: string; copiedCount: number }
   | { status: 'noFile' }
@@ -3593,55 +4343,122 @@ export async function batchPackageAsNew(
     return { status: 'invalid', reason: 'no matching macros selected' };
   }
 
-  const bare = typeof newFile === 'string' ? stripJsonExt(newFile.trim()) : '';
+  const bare = typeof newFile === 'string' ? newFile.trim() : '';
   if (!MACRO_FILE_RE.test(bare)) {
     return {
       status: 'invalid',
-      reason: 'file must match [a-zA-Z0-9_-]+ (no path, no dots)'
+      reason: 'file must be a Windows-safe Package ID ([A-Za-z0-9][A-Za-z0-9._-]*)'
     };
   }
   const displayName =
     (typeof newDisplayName === 'string' && newDisplayName.trim()) || bare;
 
-  const created = await createMacroPackage(
-    workspaceRoot,
-    bare,
-    displayName,
-    typeof newDescription === 'string' ? newDescription : undefined
-  );
-  if (created.status === 'duplicate') {
-    return { status: 'duplicate', file: created.file };
-  }
-  if (created.status === 'invalid') {
-    return { status: 'invalid', reason: created.reason };
-  }
-  if (created.status === 'noSnlDoc') {
-    return { status: 'error', message: '.SNL_Doc/ not found' };
-  }
-  if (created.status === 'error') {
-    return { status: 'error', message: created.message };
-  }
-
-  let copiedCount = 0;
-  for (const macro of selected) {
-    const added = await addMacro(workspaceRoot, bare, macro);
-    if (added.status === 'ok') {
-      copiedCount += 1;
-    } else if (added.status !== 'duplicate') {
-      // A duplicate inside a freshly-created package is impossible, but be
-      // defensive: any other failure aborts and surfaces the reason.
-      return {
-        status: 'error',
-        message:
-          added.status === 'invalid'
-            ? added.reason
-            : added.status === 'error'
-              ? added.message
-              : `failed to copy macro "${macro.name}" (${added.status})`
+  try {
+    await withExtensionWriterLock(workspaceRoot, `copy Macros into new Package ${bare}`, async () => {
+      const currentSource = await readMacroPackage(workspaceRoot, sourceFile);
+      if (currentSource.status !== 'ok') throw new Error('source Macro Package changed or disappeared');
+      assertJsonSnapshotUnchanged(read.raw, currentSource.raw, `${sourceFile}.json`);
+      const configRaw = await readJson<unknown>(configUri(workspaceRoot));
+      if (!configRaw || typeof configRaw !== 'object' || Array.isArray(configRaw)) {
+        throw new Error('config.json must be an object');
+      }
+      const entityMode = await usesEntityStorage(workspaceRoot);
+      const packageNames = await listMacroPackageNames(workspaceRoot, entityMode, true);
+      const foldedCollision = packageNames.find((name) => name.toLowerCase() === bare.toLowerCase());
+      if (foldedCollision) throw new Error(`Macro Package ${foldedCollision} already exists.`);
+      const active = new Set(resolveActiveFromConfig(packageNames, normalizeConfig(configRaw)));
+      active.add(bare);
+      const nextConfig = {
+        ...configRaw,
+        active_macro_packages: [...active].sort((left, right) => left.localeCompare(right))
       };
-    }
+      const operations: JsonFileOperation[] = [];
+      if (entityMode) {
+        const sourceBare = stripJsonExt(sourceFile);
+        const sourceRecords = await readMacroEntityRecords(entityReadStorage(workspaceRoot));
+        const sourceEnvelopes = new Map(
+          sourceRecords
+            .filter(({ envelope }) => envelope.package === sourceBare)
+            .map(({ macro, envelope }) => [macro.name, envelope])
+        );
+        operations.push({
+          kind: 'write',
+          uri: snlRelativeUri(workspaceRoot, packageManifestPath(bare)),
+          value: makePackageManifest(
+            bare,
+            displayName,
+            typeof newDescription === 'string' ? newDescription.trim() : ''
+          ),
+          expected: null
+        });
+        for (const macro of selected) {
+          operations.push({
+            kind: 'write',
+            uri: snlRelativeUri(workspaceRoot, macroEntityPath(bare, macro.name)),
+            value: {
+              ...(sourceEnvelopes.get(macro.name) ?? {}),
+              ...makeMacroEnvelope(bare, macro as unknown as Record<string, unknown>)
+            },
+            expected: null
+          });
+        }
+      } else {
+        const macros: Record<string, MacroPackageEntryWithoutName> = {};
+        for (const macro of selected) {
+          const { name, ...value } = macro;
+          macros[name] = value;
+        }
+        operations.push({
+          kind: 'write',
+          uri: macroPackageUri(workspaceRoot, bare),
+          value: {
+            version: MACRO_PACKAGE_VERSION,
+            name: displayName,
+            ...(typeof newDescription === 'string' && newDescription.trim()
+              ? { description: newDescription.trim() }
+              : {}),
+            macros
+          },
+          expected: null
+        });
+      }
+      if (moveSource) {
+        const selectedNames = new Set(selected.map((macro) => macro.name));
+        const remainingMacros: Record<string, MacroPackageEntryWithoutName> = {};
+        for (const [name, value] of Object.entries(currentSource.pkg.macros)) {
+          if (!selectedNames.has(name)) remainingMacros[name] = value;
+        }
+        const nextSource: MacroPackageFile = { ...currentSource.pkg, macros: remainingMacros };
+        if (entityMode) {
+          operations.push(...await buildMacroPackageOperations(
+            workspaceRoot,
+            stripJsonExt(sourceFile),
+            nextSource,
+            currentSource.raw
+          ));
+        } else {
+          operations.push({
+            kind: 'write',
+            uri: macroPackageUri(workspaceRoot, stripJsonExt(sourceFile)),
+            value: nextSource,
+            expected: currentSource.raw
+          });
+        }
+      }
+      operations.push({
+        kind: 'write',
+        uri: configUri(workspaceRoot),
+        value: nextConfig,
+        expected: configRaw
+      });
+      await applyJsonFileOperations(workspaceRoot, `copy Macros into new Package ${bare}`, operations);
+    });
+    return { status: 'ok', file: `${bare}.json`, copiedCount: selected.length };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already exists/i.test(message)) return { status: 'duplicate', file: `${bare}.json` };
+    return { status: 'error', message };
   }
-  return { status: 'ok', file: created.file, copiedCount };
 }
 
 /**
@@ -3715,11 +4532,33 @@ export async function batchCopyMacros(
     macros: nextDestMacros
   };
   try {
-    await writeWorkspaceFile(workspaceRoot,
-      macroPackageUri(workspaceRoot, destBare),
-      jsonBytes(nextDest),
-      destRead.raw
-    );
+    await withExtensionWriterLock(workspaceRoot, `copy Macros ${srcBare} to ${destBare}`, async () => {
+      const currentSource = await readMacroPackage(workspaceRoot, srcBare);
+      if (currentSource.status !== 'ok') throw new Error('source Macro Package changed or disappeared');
+      assertJsonSnapshotUnchanged(srcRead.raw, currentSource.raw, `${srcBare}.json`);
+      if (await usesEntityStorage(workspaceRoot)) {
+        const sourceEnvelopes = new Map(
+          (await readMacroEntityRecords(entityReadStorage(workspaceRoot)))
+            .filter(({ envelope }) => envelope.package === srcBare)
+            .map(({ macro, envelope }) => [macro.name, envelope])
+        );
+        const operations = await buildMacroPackageOperations(
+          workspaceRoot,
+          destBare,
+          nextDest,
+          destRead.raw,
+          sourceEnvelopes
+        );
+        await applyJsonFileOperations(workspaceRoot, `copy Macros ${srcBare} to ${destBare}`, operations);
+      } else {
+        await applyJsonFileOperations(workspaceRoot, `copy Macros ${srcBare} to ${destBare}`, [{
+          kind: 'write',
+          uri: macroPackageUri(workspaceRoot, destBare),
+          value: nextDest,
+          expected: destRead.raw
+        }]);
+      }
+    });
   } catch (err) {
     return {
       status: 'error',
@@ -3756,24 +4595,11 @@ export async function batchMoveToNewPackage(
     names,
     newFile,
     newDisplayName,
-    newDescription
+    newDescription,
+    true
   );
   if (created.status !== 'ok') {
     return created;
-  }
-  // Now remove the successfully-copied macros from the source. We use the
-  // ORIGINAL names[] input rather than derived counts so partial success on
-  // the copy side (a name absent from source silently skipped) does not turn
-  // into a source-side error.
-  const deleted = await batchDeleteMacros(workspaceRoot, sourceFile, names);
-  if (deleted.status !== 'ok') {
-    return {
-      status: 'error',
-      message:
-        deleted.status === 'noFile'
-          ? `Copied ${created.copiedCount} macro(s) into "${created.file}", but the source package vanished before removal.`
-          : `Copied ${created.copiedCount} macro(s) into "${created.file}", but source-side removal failed: ${deleted.message}`
-    };
   }
   return {
     status: 'ok',
@@ -3894,8 +4720,8 @@ export async function readLibraryMeta(
 > {
   try {
     const raw = await readJson<unknown>(libraryMetaUri(workspaceRoot, slug));
-    if (!raw || typeof raw !== 'object') {
-      return { status: 'ok', meta: {} };
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { status: 'error', message: 'meta.json must be a JSON object.' };
     }
     return { status: 'ok', meta: raw as LibraryMetaFile };
   } catch (err) {
@@ -4306,18 +5132,25 @@ export async function deleteEntry(
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
-  const targetId = (id ?? '').trim();
+  return withExtensionWriterLock(workspaceRoot, 'delete Entry', async () => {
+    const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
   }
+  const entityMode = await usesEntityStorage(workspaceRoot);
+  let entityRecord: Awaited<ReturnType<typeof readEntryEntityRecords>>[number] | undefined;
   let pool: EntryData[] = [];
-  try {
-    const raw = await readJson<unknown>(entriesUri(workspaceRoot));
-    if (Array.isArray(raw)) {
-      pool = raw as EntryData[];
+  if (entityMode) {
+    const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+    entityRecord = records.find(({ entry }) => entry.id === targetId);
+    pool = records.map(({ entry }) => entry as unknown as EntryData);
+  } else {
+    try {
+      const raw = await readJson<unknown>(entriesUri(workspaceRoot));
+      if (Array.isArray(raw)) pool = raw as EntryData[];
+    } catch {
+      pool = [];
     }
-  } catch {
-    pool = [];
   }
   const idx = pool.findIndex(
     (e) => e && typeof e === 'object' && e.id === targetId
@@ -4385,14 +5218,23 @@ export async function deleteEntry(
   const original = structuredClone(pool);
   pool.splice(idx, 1);
   try {
-    await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(pool), original);
+    if (entityMode && entityRecord) {
+      await deleteWorkspaceJsonFile(
+        workspaceRoot,
+        snlRelativeUri(workspaceRoot, entityRecord.path),
+        entityRecord.envelope
+      );
+    } else {
+      await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(pool), original);
+    }
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', id: targetId, references };
+    return { status: 'ok', id: targetId, references };
+  });
 }
 
 /**
@@ -4747,6 +5589,7 @@ export type UpdateRelationshipResult =
   | { status: 'updated'; id: string }
   | { status: 'noSnlDoc' }
   | { status: 'notFound'; id: string }
+  | { status: 'conflict'; id: string }
   | { status: 'invalid'; message: string }
   | { status: 'unknownEndpoint'; endpoint: 'from' | 'to'; id: string }
   | { status: 'error'; message: string };
@@ -4759,7 +5602,8 @@ export type UpdateRelationshipResult =
 export async function updateRelationship(
   workspaceRoot: vscode.Uri,
   id: string,
-  input: Omit<RelationshipData, 'id'>
+  input: Omit<RelationshipData, 'id'>,
+  expectedRevision?: string
 ): Promise<UpdateRelationshipResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
@@ -4781,6 +5625,9 @@ export async function updateRelationship(
   const list = await readRelationships(workspaceRoot);
   const idx = list.findIndex((r) => r.id === targetId);
   if (idx < 0) return { status: 'notFound', id: targetId };
+  if (typeof expectedRevision === 'string' && entityRevision(list[idx]) !== expectedRevision) {
+    return { status: 'conflict', id: targetId };
+  }
 
   const next = list.slice();
   next[idx] = { id: targetId, from, to, label, metadata: input.metadata ?? null };

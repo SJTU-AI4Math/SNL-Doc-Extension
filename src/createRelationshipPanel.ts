@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   addRelationship,
+  entityRevision,
   readEntries,
   readRelationships,
   updateRelationship,
@@ -39,6 +40,7 @@ export class CreateRelationshipPanel {
   private readonly mode: 'create' | 'edit';
   private readonly id: string;
   private disposables: vscode.Disposable[] = [];
+  private contextGeneration = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     CreateRelationshipPanel.open(extensionUri, 'create', '');
@@ -116,35 +118,41 @@ export class CreateRelationshipPanel {
   }
 
   private async pushContext(): Promise<void> {
+    const generation = ++this.contextGeneration;
     const root = firstWorkspaceFolder();
     let existing: RelationshipData | null = null;
+    let relationshipRevision: string | undefined;
     let entryPool: Array<{ id: string; title: string }> = [];
     let existingIds: string[] = [];
     if (root) {
       try {
-        const entries = await readEntries(root);
-        entryPool = entries.map((e) => ({
-          id: e.id,
-          title: e.title ?? ''
-        }));
-      } catch {
-        entryPool = [];
-      }
-      try {
-        const rels = await readRelationships(root);
+        const [entries, rels] = await Promise.all([
+          readEntries(root),
+          readRelationships(root)
+        ]);
+        if (generation !== this.contextGeneration) return;
+        entryPool = entries.map((e) => ({ id: e.id, title: e.title ?? '' }));
         existingIds = rels.map((r) => r.id);
         if (this.mode === 'edit') {
           existing = rels.find((r) => r.id === this.id) ?? null;
+          relationshipRevision = existing ? entityRevision(existing) : undefined;
         }
-      } catch {
-        existingIds = [];
+      } catch (error) {
+        if (generation !== this.contextGeneration) return;
+        void this.panel.webview.postMessage({
+          type: 'error',
+          message: `Could not load Relationship editor data: ${error instanceof Error ? error.message : String(error)}`
+        });
+        return;
       }
     }
+    if (generation !== this.contextGeneration) return;
     void this.panel.webview.postMessage({
       type: 'context',
       mode: this.mode,
       id: this.id || undefined,
       existing,
+      relationshipRevision,
       entryPool,
       existingIds
     });
@@ -153,7 +161,7 @@ export class CreateRelationshipPanel {
   private async handleMessage(message: unknown): Promise<void> {
     if (await handlePanelNavMessage(message, () => this.pushContext())) return;
     const msg = message as
-      | { type?: string; relationship?: RelationshipData }
+      | { type?: string; relationship?: RelationshipData; expectedRevision?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') return;
 
@@ -187,17 +195,24 @@ export class CreateRelationshipPanel {
           to: rel.to,
           label: rel.label,
           metadata: rel.metadata
-        });
+        }, msg.expectedRevision);
         switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Relationship "${result.id}" updated.`
             );
-            void this.panel.webview.postMessage({
+            await this.panel.webview.postMessage({
               type: 'updated',
               id: result.id
             });
+            await this.pushContext();
             return;
+          case 'conflict': {
+            const text = `Relationship "${result.id}" changed after this editor opened. Reload before saving.`;
+            vscode.window.showWarningMessage(text);
+            void this.panel.webview.postMessage({ type: 'conflict', id: result.id, message: text });
+            return;
+          }
           case 'notFound': {
             const text = `Relationship "${result.id}" no longer exists.`;
             vscode.window.showErrorMessage(text);

@@ -45,6 +45,7 @@ vi.mock('vscode', () => {
   );
 
   const config = JSON.stringify({
+    version: '0.0.4',
     active_macro_packages: Array.from({ length: PACKAGES }, (_, i) => `pkg${i}`),
     entry_kinds: [{ id: 'theorem', name: 'Theorem' }],
     macro_kinds: [{ id: 'term', name: 'Term' }]

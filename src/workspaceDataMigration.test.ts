@@ -22,6 +22,7 @@ class MemoryStorage implements DataMigrationStorage {
   readonly writes: string[] = [];
   failOnceAt: string | null = null;
   beforeWrite: ((path: string) => void) | null = null;
+  afterWrite: ((path: string) => void) | null = null;
 
   async readJson(path: string): Promise<unknown | null> {
     return this.values.has(path) ? structuredClone(this.values.get(path)) : null;
@@ -36,7 +37,8 @@ class MemoryStorage implements DataMigrationStorage {
   async writeJsonAtomic(path: string, value: unknown, expected?: unknown): Promise<void> {
     this.writes.push(path);
     this.beforeWrite?.(path);
-    if (expected !== undefined && JSON.stringify(this.values.get(path)) !== JSON.stringify(expected)) {
+    const current = this.values.has(path) ? this.values.get(path) : null;
+    if (expected !== undefined && JSON.stringify(current) !== JSON.stringify(expected)) {
       throw new Error(`${path} changed during migration`);
     }
     if (this.failOnceAt === path) {
@@ -44,6 +46,14 @@ class MemoryStorage implements DataMigrationStorage {
       throw new Error(`cannot write ${path}`);
     }
     this.values.set(path, structuredClone(value));
+    this.afterWrite?.(path);
+  }
+  async deleteJsonAtomic(path: string, expected: unknown): Promise<void> {
+    this.writes.push(`delete:${path}`);
+    if (JSON.stringify(this.values.get(path)) !== JSON.stringify(expected)) {
+      throw new Error(`${path} changed during migration`);
+    }
+    this.values.delete(path);
   }
 }
 
@@ -58,6 +68,17 @@ function legacyStorage(): MemoryStorage {
     version: '6', name: 'Logic', macros: { x: { styles: [] } }
   });
   storage.values.set('relationships.json', { version: 1, relationships: [] });
+  storage.values.set('entries.json', [{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);
+  return storage;
+}
+
+function macroV8Storage(): MemoryStorage {
+  const storage = legacyStorage();
+  (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.5';
+  storage.values.set(
+    'term_macros/Logic.json',
+    canonicalize('Logic.json', storage.values.get('term_macros/Logic.json'), '8')
+  );
   return storage;
 }
 
@@ -67,7 +88,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -78,9 +99,16 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.5');
-    expect(storage.writes).toEqual(['term_macros/Logic.json', 'config.json']);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.5');
+    expect(report.to).toBe('0.0.6');
+    expect(storage.writes).toEqual([
+      'term_macros/Logic.json',
+      'packages/_unpackaged-60979c6e210d0e2a20cb.json',
+      'packages/Logic-277a664e3d2332d369d7.json',
+      'entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'macros/Logic-dd2136b29efc47b38142.json',
+      'config.json'
+    ]);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.6');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
@@ -95,7 +123,15 @@ describe('stored workspace data migration', () => {
     expect([...storage.values]).toEqual(before);
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
+      'packages/_unpackaged-60979c6e210d0e2a20cb.json',
+      'packages/Logic-277a664e3d2332d369d7.json',
+      'entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'macros/Logic-dd2136b29efc47b38142.json',
       'config.json',
+      'delete:macros/Logic-dd2136b29efc47b38142.json',
+      'delete:entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'delete:packages/Logic-277a664e3d2332d369d7.json',
+      'delete:packages/_unpackaged-60979c6e210d0e2a20cb.json',
       'term_macros/Logic.json'
     ]);
   });
@@ -123,9 +159,136 @@ describe('stored workspace data migration', () => {
     expect(storage.values.get('term_macros/Logic.json')).toEqual(originalPackage);
   });
 
+  it('rejects external edits to unchanged legacy sources before the config commit', async () => {
+    for (const target of ['entries', 'macro'] as const) {
+      const storage = macroV8Storage();
+      let injected = false;
+      storage.afterWrite = (path) => {
+        if (injected || !path.startsWith('macros/')) return;
+        injected = true;
+        if (target === 'entries') {
+          storage.values.set('entries.json', [
+            ...(storage.values.get('entries.json') as unknown[]),
+            { id: 'external', kind: 'theorem', title: 'External' }
+          ]);
+        } else {
+          const pkg = storage.values.get('term_macros/Logic.json') as Record<string, unknown>;
+          storage.values.set('term_macros/Logic.json', { ...pkg, external: true });
+        }
+      };
+      await expect(migrateStoredWorkspaceData(storage, canonicalize))
+        .rejects.toThrow(/legacy source.*changed/i);
+      expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.5');
+    }
+  });
+
+  it('re-reads and verifies the entity tree before committing config', async () => {
+    const storage = legacyStorage();
+    let corrupted = false;
+    storage.afterWrite = (path) => {
+      if (!corrupted && path.startsWith('macros/')) {
+        corrupted = true;
+        const entryPath = [...storage.values.keys()].find((candidate) => candidate.startsWith('entries/'))!;
+        storage.values.set(entryPath, { corrupt: true });
+      }
+    };
+    await expect(migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    )).rejects.toThrow(/verif|changed/i);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
+  });
+
+  it('rejects a manually bumped 0.0.6 workspace with no entity topology', async () => {
+    const storage = legacyStorage();
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.6';
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/entity|package|topology/i);
+  });
+
+  it('validates the immutable migration receipt against frozen legacy backups', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    );
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    const entityStorage = config.entity_storage as Record<string, unknown>;
+    const receipt = entityStorage.receipt;
+    delete entityStorage.receipt;
+    expect((await inspectStoredWorkspaceData(storage)).status).toBe('invalid');
+    entityStorage.receipt = receipt;
+    storage.values.set('entries.json', [
+      ...(storage.values.get('entries.json') as unknown[]),
+      { id: 'tampered', kind: 'theorem', title: 'Tampered' }
+    ]);
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/receipt|backup/i);
+  });
+
+  it('rejects a current workspace with a missing entity directory', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    );
+    const strictStorage = storage as MemoryStorage & {
+      directoryExists(directory: string): Promise<boolean>;
+    };
+    strictStorage.directoryExists = async (directory) => directory !== 'entries';
+    const inspection = await inspectStoredWorkspaceData(strictStorage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/missing.*entries/i);
+  });
+
+  it('rejects malformed active package configuration in a current workspace', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    );
+    (storage.values.get('config.json') as Record<string, unknown>).active_macro_packages = 'Logic';
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/active_macro_packages/i);
+  });
+
+  it('rejects non-canonical or missing active Package identities', async () => {
+    for (const active of [[' Logic '], ['bad/name'], ['Missing']]) {
+      const storage = legacyStorage();
+      await migrateStoredWorkspaceData(
+        storage,
+        canonicalize
+      );
+      (storage.values.get('config.json') as Record<string, unknown>).active_macro_packages = active;
+      const inspection = await inspectStoredWorkspaceData(storage);
+      expect(inspection.status).toBe('invalid');
+      expect(inspection.message).toMatch(/Package|active_macro_packages/i);
+    }
+  });
+
+  it('detects deletion of an empty frozen entries.json backup', async () => {
+    const storage = legacyStorage();
+    storage.values.set('entries.json', []);
+    await migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    );
+    storage.values.delete('entries.json');
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/receipt|backup/i);
+  });
+
   it('does not rewrite a current workspace', async () => {
     const storage = legacyStorage();
-    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.5';
+    await migrateStoredWorkspaceData(
+      storage,
+      canonicalize
+    );
+    storage.writes.length = 0;
     const report = await migrateStoredWorkspaceData(storage, (_file, raw) => raw);
     expect(report.applied).toEqual([]);
     expect(storage.writes).toEqual([]);

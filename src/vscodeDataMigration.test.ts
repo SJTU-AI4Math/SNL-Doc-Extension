@@ -42,6 +42,7 @@ vi.mock('vscode', () => {
           if (mocks.writeGate) await mocks.writeGate;
           mocks.files.set(uri.path, bytes);
         },
+        createDirectory: async (uri: Uri) => { mocks.directories.add(uri.path); },
         rename: async (from: Uri, to: Uri) => {
           mocks.rename(from.path, to.path);
           const bytes = mocks.files.get(from.path) ?? missing();
@@ -137,6 +138,9 @@ describe('VS Code workspace data migration adapter', () => {
     put('/ws/.SNL_Doc/term_macros/Logic.json', {
       version: '6', name: 'Logic', macros: { x: { styles: [] } }
     });
+    put('/ws/.SNL_Doc/entries.json', [
+      { id: 'Set.mem', kind: 'theorem', title: 'Membership' }
+    ]);
     const root = vscode.Uri.file('/ws');
     expect((await inspectWorkspaceDataVersion(root)).status).toBe('needsMigration');
     const report = await migrateWorkspaceData(root, (_file, raw, version) => ({
@@ -150,8 +154,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.0.5');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.5' });
+    expect(report.to).toBe('0.0.6');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.6' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 });

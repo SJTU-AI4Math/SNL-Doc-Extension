@@ -41,6 +41,10 @@ export function createVscodeDataMigrationStorage(
 ): DataMigrationStorage {
   const root = snlRootUri(workspaceRoot);
   return {
+    async directoryExists(directory): Promise<boolean> {
+      return exists(relativeUri(root, directory));
+    },
+
     async readJson(path): Promise<unknown | null> {
       const uri = relativeUri(root, path);
       if (!(await exists(uri))) return null;
@@ -52,6 +56,14 @@ export function createVscodeDataMigrationStorage(
       const uri = relativeUri(root, directory);
       if (!(await exists(uri))) return [];
       const entries = await vscode.workspace.fs.readDirectory(uri);
+      const unsafeJsonEntry = entries.find(([name, type]) =>
+        name.toLowerCase().endsWith('.json') && type !== vscode.FileType.File
+      );
+      if (unsafeJsonEntry) {
+        throw new Error(
+          `${directory}/${unsafeJsonEntry[0]} is not a regular JSON file; refusing unsafe migration.`
+        );
+      }
       return entries
         .filter(([name, type]) =>
           type === vscode.FileType.File && name.toLowerCase().endsWith('.json')
@@ -62,6 +74,10 @@ export function createVscodeDataMigrationStorage(
 
     async writeJsonAtomic(path, value, expectedOriginal): Promise<void> {
       const target = relativeUri(root, path);
+      const parentParts = path.split('/').slice(0, -1);
+      if (parentParts.length > 0) {
+        await vscode.workspace.fs.createDirectory(relativeUri(root, parentParts.join('/')));
+      }
       if (expectedOriginal !== undefined) {
         const current = await this.readJson(path);
         if (JSON.stringify(current) !== JSON.stringify(expectedOriginal)) {
@@ -88,6 +104,17 @@ export function createVscodeDataMigrationStorage(
         }
         throw error;
       }
+    },
+
+    async deleteJsonAtomic(path, expectedOriginal): Promise<void> {
+      const current = await this.readJson(path);
+      if (JSON.stringify(current) !== JSON.stringify(expectedOriginal)) {
+        throw new Error(`${path} changed during migration; refusing unsafe rollback deletion.`);
+      }
+      await vscode.workspace.fs.delete(relativeUri(root, path), {
+        recursive: false,
+        useTrash: false
+      });
     }
   };
 }

@@ -75,6 +75,7 @@ vi.mock('vscode', () => ({
 const macros: Array<{ name: string; styles: unknown[] }> = [];
 
 vi.mock('./snlDoc', () => ({
+  entityRevision: () => 'test-revision',
   addMacro: async (_r: unknown, _f: string, macro: { name: string }) => {
     macros.push({ name: macro.name, styles: [] });
     return { status: 'ok', name: macro.name };

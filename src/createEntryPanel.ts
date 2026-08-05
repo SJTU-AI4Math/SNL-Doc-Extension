@@ -3,6 +3,7 @@ import { toEntryOption } from './entryPoolOption';
 import { selectEntryRelationships } from './entryRelationships';
 import {
   addEntry,
+  entityRevision,
   listEntryKinds,
   readAllMacrosWithOrigin,
   readEntries,
@@ -82,6 +83,7 @@ export class CreateEntryPanel {
    */
   private seedId: string;
   private disposables: vscode.Disposable[] = [];
+  private contextGeneration = 0;
   /**
    * Trace for the in-flight open, handed down from `open()` so the panel's
    * own stages land on one timeline. Cleared after the first context push.
@@ -236,6 +238,7 @@ export class CreateEntryPanel {
   }
 
   private async pushContext(): Promise<void> {
+    const generation = ++this.contextGeneration;
     // Reuse the open trace for the first push; later pushes (watcher-driven
     // refreshes) get their own so a slow refresh is visible too.
     const trace = this.openTrace ?? startTrace('entryPanel:refresh');
@@ -261,14 +264,33 @@ export class CreateEntryPanel {
         trace.mark(`read:${name}`);
         return value;
       });
-    const [kinds, macroBundle, macroKinds, allEntriesResult, relationships] =
-      await Promise.all([
+    let contextReads: [
+      Awaited<ReturnType<typeof listEntryKinds>>,
+      Awaited<ReturnType<typeof readAllMacrosWithOrigin>>,
+      Awaited<ReturnType<typeof readMacroKinds>>,
+      EntryData[],
+      Awaited<ReturnType<typeof readRelationships>>,
+      Awaited<ReturnType<typeof readMacroPackages>>
+    ];
+    try {
+      contextReads = await Promise.all([
         timed('entryKinds', listEntryKinds(root)),
         timed('macros', readAllMacrosWithOrigin(root)),
         timed('macroKinds', readMacroKinds(root)),
-        timed('entries', readEntries(root).catch((): EntryData[] => [])),
-        timed('relationships', readRelationships(root).catch(() => []))
+        timed('entries', readEntries(root)),
+        timed('relationships', readRelationships(root).catch(() => [])),
+        timed('entryPackages', readMacroPackages(root, true))
       ]);
+    } catch (error) {
+      if (generation !== this.contextGeneration) return;
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Could not load Entry editor data: ${error instanceof Error ? error.message : String(error)}`
+      });
+      return;
+    }
+    const [kinds, macroBundle, macroKinds, allEntriesResult, relationships, entryPackages] =
+      contextReads;
     const macros = macroBundle.macros;
     const macroOrigin = macroBundle.origin;
     const allEntries: EntryData[] = allEntriesResult;
@@ -289,6 +311,7 @@ export class CreateEntryPanel {
       `macros=${Object.keys(macros).length} entries=${allEntries.length} ` +
         `kinds=${kinds.length}`
     );
+    if (generation !== this.contextGeneration) return;
     // Legacy `kinds` payload for backward compat with the current webview code;
     // `context` carries the same info plus mode + existing entry + macros.
     void this.panel.webview.postMessage({ type: 'kinds', kinds });
@@ -302,6 +325,11 @@ export class CreateEntryPanel {
       macroKinds,
       macroOrigin,
       existing,
+      entryRevision: existing ? entityRevision(existing) : undefined,
+      entryPackages: Array.from(new Set([
+        '_unpackaged',
+        ...entryPackages.map(({ file }) => file.replace(/\.json$/i, ''))
+      ])),
       existingIds: allEntries.map(toEntryOption),
       relationships: relationshipRows
     };
@@ -351,7 +379,7 @@ export class CreateEntryPanel {
       return;
     }
     const msg = message as
-      | { type?: string; entry?: EntryData }
+      | { type?: string; entry?: EntryData; expectedRevision?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -407,11 +435,12 @@ export class CreateEntryPanel {
       if (msg.type === 'update' || this.mode === 'edit') {
         const result = await updateEntry(root, this.id, {
           kind: entry.kind,
+          package: entry.package,
           title: entry.title,
           content: entry.content,
           contribution_info: entry.contribution_info,
           pointer: entry.pointer
-        });
+        }, typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined);
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(

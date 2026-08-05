@@ -68,6 +68,7 @@ vi.mock('vscode', () => ({
 const stored: any[] = [];
 
 vi.mock('./snlDoc', () => ({
+  entityRevision: () => 'test-revision',
   addEntry: vi.fn(async (_root: unknown, entry: any) => {
     stored.push({ ...entry });
     return { status: 'ok', id: entry.id };
@@ -130,6 +131,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(context.id).toBe('thm-new');
     expect(context.seedId).toBeUndefined();
     expect(context.existing?.id).toBe('thm-new');
+    expect(context.entryPackages).toContain('_unpackaged');
     // `created` must precede the context so the webview can mark the target.
     expect(posted.indexOf(created)).toBeLessThan(posted.indexOf(context));
   });

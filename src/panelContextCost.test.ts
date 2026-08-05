@@ -25,7 +25,7 @@ vi.mock('vscode', () => {
   const encoder = new TextEncoder();
   const payloadFor = (name: string): string => {
     if (name === 'config.json') {
-      return JSON.stringify({ active_macro_packages: [...PACKAGES, ...COLLIDING] });
+      return JSON.stringify({ version: '0.0.4', active_macro_packages: [...PACKAGES, ...COLLIDING] });
     }
     const bare = name.replace(/\.json$/, '');
     if (COLLIDING.includes(bare)) {

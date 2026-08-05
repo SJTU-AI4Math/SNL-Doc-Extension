@@ -138,6 +138,7 @@ type Mode = 'create' | 'edit';
 
 interface ExistingEntry {
   id: string;
+  package?: string;
   kind: string;
   title: string;
   content: {
@@ -379,6 +380,8 @@ export function CreateEntryApp(): React.ReactElement {
   // suppressed but the pool would enable future reference features
   // without another host roundtrip. Cat 2026-07-09.
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
+  const [entryPackages, setEntryPackages] = useState<string[]>(['_unpackaged']);
+  const [selectedPackage, setSelectedPackage] = useState<string>('_unpackaged');
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
@@ -449,6 +452,7 @@ export function CreateEntryApp(): React.ReactElement {
    * `preserveDraft` computation in the `context` handler.
    */
   const justCreatedIdRef = useRef<string | null>(null);
+  const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     contribution_info: unknown;
     pointer: unknown;
@@ -508,6 +512,8 @@ export function CreateEntryApp(): React.ReactElement {
             macroKinds?: MacroKindPaletteSource[];
             macroOrigin?: Record<string, string>;
             existing?: ExistingEntry | null;
+            entryRevision?: string;
+            entryPackages?: string[];
             existingIds?: EntryOption[];
             relationships?: EntryRelationshipRow[];
           }
@@ -540,10 +546,12 @@ export function CreateEntryApp(): React.ReactElement {
           // dirty/draft bookkeeping that belonged to the old target.
           restoredDraftIdRef.current = null;
           editingIdRef.current = '';
+          entryRevisionRef.current = undefined;
           contentDirtyRef.current.clear();
           markFormDirty(false);
           setStatus({ kind: 'idle' });
           setTitle('');
+          setSelectedPackage('_unpackaged');
           setSelectedKind('');
           setContentI18n({});
           setPointerDraft({ ...EMPTY_POINTER_DRAFT });
@@ -573,6 +581,13 @@ export function CreateEntryApp(): React.ReactElement {
               : {},
           );
           setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
+          const packages = Array.isArray(msg.entryPackages) && msg.entryPackages.length > 0
+            ? msg.entryPackages
+            : ['_unpackaged'];
+          setEntryPackages(packages);
+          setSelectedPackage((previous) =>
+            formDirtyRef.current || packages.includes(previous) ? previous : '_unpackaged'
+          );
           if (msg.mode === 'edit') {
             const incomingId = msg.id ?? msg.existing?.id ?? '';
             // Cat 2026-07-27: the context that immediately follows our own
@@ -589,6 +604,9 @@ export function CreateEntryApp(): React.ReactElement {
               // being hidden; the host's copy is by definition older.
               (restoredDraftIdRef.current !== null &&
                 restoredDraftIdRef.current === incomingId);
+            if (!preserveDraft || justCreated) {
+              entryRevisionRef.current = msg.entryRevision;
+            }
             if (msg.id) {
               setId(msg.id);
             }
@@ -616,6 +634,7 @@ export function CreateEntryApp(): React.ReactElement {
               if (!preserveDraft) {
                 editingIdRef.current = incomingId;
                 setTitle(msg.existing.title || '');
+                setSelectedPackage(msg.existing.package || '_unpackaged');
                 setSelectedKind(msg.existing.kind || '');
                 setPointerDraft(pointerDraftFrom(msg.existing.pointer));
                 pointerDirtyRef.current = false;
@@ -750,6 +769,8 @@ export function CreateEntryApp(): React.ReactElement {
     trimmedId.length > 0 &&
     isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
+    selectedPackage.length > 0 &&
+    entryPackages.includes(selectedPackage) &&
     editablePointerError === null &&
     canPersistCanvasForest(canvasForest) &&
     status.kind !== 'creating';
@@ -789,6 +810,7 @@ export function CreateEntryApp(): React.ReactElement {
     });
     const entry = {
       id: trimmedId,
+      package: selectedPackage,
       kind: selectedKind,
       title: trimmedTitle,
       content: {
@@ -804,7 +826,8 @@ export function CreateEntryApp(): React.ReactElement {
     };
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
-      entry
+      entry,
+      expectedRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     });
   }
 
@@ -829,14 +852,17 @@ export function CreateEntryApp(): React.ReactElement {
       id: string;
       title: string;
       selectedKind: string;
+      selectedPackage?: string;
       content: Record<ContentFormat, string>;
       activeFormat: ContentFormat;
       snlMode: 'text' | 'gui' | 'canvas';
       canvasForest?: SnlSyntaxTree[];
       pointerDraft?: PointerDraft;
+      entryRevision?: string;
     }>(draftApi, draftKey);
     if (!restored) return;
     restoredDraftIdRef.current = restored.id;
+    entryRevisionRef.current = restored.entryRevision ?? '__snl_restored_draft_without_revision__';
     markFormDirty(true);
     // The stash records no per-format edit history, so treat every format it
     // carries as edited. Without this `persist` returns the host's original
@@ -850,6 +876,7 @@ export function CreateEntryApp(): React.ReactElement {
     setId(restored.id);
     setTitle(restored.title);
     setSelectedKind(restored.selectedKind);
+    setSelectedPackage(restored.selectedPackage || '_unpackaged');
     setContent(restored.content);
     setActiveFormat(restored.activeFormat);
     setSnlMode(restored.snlMode);
@@ -877,11 +904,13 @@ export function CreateEntryApp(): React.ReactElement {
       id,
       title,
       selectedKind,
+      selectedPackage,
       content,
       activeFormat,
       snlMode,
       canvasForest,
-      pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined
+      pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined,
+      entryRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     },
     formDirty && status.kind !== 'created' && status.kind !== 'updated'
   );
@@ -914,6 +943,9 @@ export function CreateEntryApp(): React.ReactElement {
       return `Cannot save yet — the id "${trimmedId}" is already taken.`;
     }
     if (!selectedKind) return 'Cannot save yet — pick a kind first.';
+    if (!selectedPackage || !entryPackages.includes(selectedPackage)) {
+      return 'Cannot save yet — pick an existing Package first.';
+    }
     if (editablePointerError) return `Cannot save yet — ${editablePointerError}`;
     return canvasBlockingReason() ?? 'Cannot save yet.';
   }
@@ -947,6 +979,7 @@ export function CreateEntryApp(): React.ReactElement {
     setActiveFormat('snl');
     setSnlMode('text');
     setStatus({ kind: 'idle' });
+    setSelectedPackage('_unpackaged');
     setSelectedKind(kinds.length > 0 ? kinds[0].id : '');
   }
 
@@ -1101,7 +1134,40 @@ export function CreateEntryApp(): React.ReactElement {
           </div>
         </div>
 
-        {/* 2. Kind dropdown ============================================ */}
+        {/* 2. Package + Kind =========================================== */}
+        <div style={{ marginBottom: '1rem' }}>
+          <Label htmlFor="snl-entry-package">Package</Label>
+          <select
+            id="snl-entry-package"
+            value={selectedPackage}
+            onChange={(e) => {
+              markFormDirty(true);
+              setSelectedPackage(e.target.value);
+            }}
+            style={inputStyle}
+          >
+            {!entryPackages.includes(selectedPackage) && selectedPackage ? (
+              <option value={selectedPackage} disabled>
+                {selectedPackage} (missing; choose another Package)
+              </option>
+            ) : null}
+            {entryPackages.map((packageId) => (
+              <option key={packageId} value={packageId}>
+                {packageId === '_unpackaged' ? 'Unpackaged (_unpackaged)' : packageId}
+              </option>
+            ))}
+          </select>
+          {!entryPackages.includes(selectedPackage) && selectedPackage ? (
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
+              The selected Package no longer exists. Your draft was preserved; choose another Package before saving.
+            </p>
+          ) : (
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
+              Package membership may be changed later; moving an Entry preserves its ID and references.
+            </p>
+          )}
+        </div>
+
         <div style={{ marginBottom: '1rem' }}>
           <Label htmlFor="snl-entry-kind">Kind</Label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>

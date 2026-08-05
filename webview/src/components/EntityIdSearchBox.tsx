@@ -50,6 +50,40 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { EntryOption } from '../render/EntryRender';
 import { entitySearchKeyAction } from './interactionModel';
+import {
+  createUiTranslator,
+  defineUiMessages,
+  useUiMessages
+} from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'entityIdSearch',
+  {
+    noEntryWithId: 'No entry with this id in the current pool.',
+    duplicateId: 'Id "{id}" already exists.',
+    newId: 'New id — will be created on submit.',
+    untitled: '(untitled)',
+    stubTitle: 'Entry exists but has no content yet (stub)',
+    stub: 'stub',
+    noMatch: 'No matching entry.',
+    keepNew: 'Press Enter to keep this as a new value.'
+  },
+  {
+    noEntryWithId: '当前条目池中没有此 ID 对应的条目。',
+    duplicateId: 'ID“{id}”已存在。',
+    newId: '新 ID — 提交时将创建对应条目。',
+    untitled: '（无标题）',
+    stubTitle: '条目已存在，但尚无内容（存根）',
+    stub: '存根',
+    noMatch: '没有匹配的条目。',
+    keepNew: '按 Enter 保留为新值。'
+  }
+);
+
+function entityMessageTranslator() {
+  const language = typeof document === 'undefined' ? 'en' : document.documentElement.lang;
+  return createUiTranslator(language, MESSAGES);
+}
 
 /**
  * Verdict returned by a {@link EntityValidateFn}.
@@ -111,7 +145,7 @@ export const ENTRY_VALIDATE_RULES: {
     if (matched) return { status: 'ok' };
     return {
       status: 'error',
-      message: 'No entry with this id in the current pool.'
+      message: entityMessageTranslator()('noEntryWithId')
     };
   },
   requireUnique: (value, matched) => {
@@ -119,7 +153,7 @@ export const ENTRY_VALIDATE_RULES: {
     if (!matched) return { status: 'ok' };
     return {
       status: 'error',
-      message: `Id "${value}" already exists.`
+      message: entityMessageTranslator()('duplicateId', { id: value })
     };
   },
   permitNew: (value, matched) => {
@@ -127,7 +161,7 @@ export const ENTRY_VALIDATE_RULES: {
     if (matched) return { status: 'ok' };
     return {
       status: 'info',
-      message: 'New id — will be created on submit.'
+      message: entityMessageTranslator()('newId')
     };
   }
 };
@@ -200,6 +234,7 @@ export function EntityIdSearchBox(
     idPrefix,
     hideResolvedChip = false
   } = props;
+  const t = useUiMessages(MESSAGES);
 
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
@@ -414,10 +449,10 @@ export function EntityIdSearchBox(
             {resolved.id}
           </span>
           <span>→</span>
-          <span style={{ fontWeight: 500 }}>{resolved.title || '(untitled)'}</span>
+          <span style={{ fontWeight: 500 }}>{resolved.title || t('untitled')}</span>
           {resolved.hasContent ? null : (
             <span
-              title="Entry exists but has no content yet (stub)"
+              title={t('stubTitle')}
               style={{
                 fontSize: '0.7rem',
                 padding: '0 0.3rem',
@@ -426,7 +461,7 @@ export function EntityIdSearchBox(
                 color: 'var(--vscode-badge-foreground, white)'
               }}
             >
-              stub
+              {t('stub')}
             </span>
           )}
         </div>
@@ -500,7 +535,7 @@ export function EntityIdSearchBox(
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {e.title || '(untitled)'}
+                  {e.title || t('untitled')}
                 </span>
                 {e.hasContent ? null : (
                   <span
@@ -514,7 +549,7 @@ export function EntityIdSearchBox(
                       flexShrink: 0
                     }}
                   >
-                    stub
+                    {t('stub')}
                   </span>
                 )}
               </li>
@@ -542,10 +577,10 @@ export function EntityIdSearchBox(
             opacity: 0.75
           }}
         >
-          No matching entry.
+          {t('noMatch')}
           {verdict?.status === 'error'
             ? ''
-            : ' Press Enter to keep this as a new value.'}
+            : ` ${t('keepNew')}`}
         </div>
       ) : null}
     </div>

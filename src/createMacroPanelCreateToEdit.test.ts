@@ -85,7 +85,7 @@ vi.mock('./snlDoc', () => ({
     name: macro.name
   }),
   readEntries: async () => [],
-  readAllMacros: async () => ({}),
+  readAllMacros: async () => ({ activeDependency: { name: 'activeDependency', tags: [], styles: [] } }),
   readMacroKinds: async () => [],
   readMacroPackage: async () => ({
     status: 'ok',
@@ -102,6 +102,7 @@ type Ctx = {
   existing?: unknown;
   existingNames?: string[];
   prefill?: unknown;
+  workspaceMacros?: Record<string, unknown>;
 };
 
 function contexts(): Ctx[] {
@@ -146,6 +147,10 @@ describe('macro panel create -> edit flip', () => {
     await handlers[1]({ type: 'ready' });
     expect(contexts().at(-1)?.prefill).toEqual({
       macro: { ...source, name: '' }
+    });
+    expect(contexts().at(-1)?.workspaceMacros).toMatchObject({
+      activeDependency: { name: 'activeDependency' },
+      source: { name: 'source' }
     });
   });
 

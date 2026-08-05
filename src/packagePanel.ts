@@ -17,7 +17,7 @@ import {
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
-import { macroEntityPath, packageManifestPath } from './entityStorage';
+import { packageManifestPath } from './entityStorage';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -61,7 +61,7 @@ export class PackagePanel {
   private readonly file: string;
   private disposables: vscode.Disposable[] = [];
   private packageGeneration = 0;
-  private ownedMacroUris = new Set<string>();
+
 
   public static createOrShow(extensionUri: vscode.Uri, file: string): void {
     const bare = stripJsonExt(file);
@@ -157,22 +157,9 @@ export class PackagePanel {
     const macroWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json')
     );
-    const refreshOwnedMacro = async (uri: vscode.Uri): Promise<void> => {
-      try {
-        const raw = JSON.parse(new TextDecoder('utf-8').decode(
-          await vscode.workspace.fs.readFile(uri)
-        )) as { package?: unknown };
-        if (raw?.package === this.file) refresh();
-      } catch {
-        // A transient or malformed file is handled by the strict package read.
-        refresh();
-      }
-    };
-    macroWatcher.onDidCreate((uri) => { void refreshOwnedMacro(uri); }, null, this.disposables);
-    macroWatcher.onDidChange((uri) => { void refreshOwnedMacro(uri); }, null, this.disposables);
-    macroWatcher.onDidDelete((uri) => {
-      if (this.ownedMacroUris.has(uri.toString())) refresh();
-    }, null, this.disposables);
+    macroWatcher.onDidCreate(refresh, null, this.disposables);
+    macroWatcher.onDidChange(refresh, null, this.disposables);
+    macroWatcher.onDidDelete(refresh, null, this.disposables);
     this.disposables.push(macroWatcher);
     install('.SNL_Doc/entries.json');
     install('.SNL_Doc/entries/*.json');
@@ -207,10 +194,7 @@ export class PackagePanel {
       }
       const pkg: MacroPackageFile = result.pkg;
       const macros: MacroPackageEntry[] = result.macros;
-      this.ownedMacroUris = new Set(macros.map((macro) =>
-        vscode.Uri.joinPath(root, '.SNL_Doc', ...macroEntityPath(this.file, macro.name).split('/'))
-          .toString()
-      ));
+
       const [macroKinds, workspaceMacros]: [MacroKind[], Record<string, MacroPackageEntry>] = await Promise.all([
         readMacroKinds(root),
         readAllMacros(root)

@@ -294,6 +294,10 @@ export class CreateMacroPanel {
       const prefill = copySource
         ? { macro: { ...copySource, name: '' } }
         : this.prefill;
+      const previewMacros = {
+        ...allMacros,
+        ...Object.fromEntries(read.macros.map((macro) => [macro.name, macro]))
+      };
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
@@ -301,7 +305,7 @@ export class CreateMacroPanel {
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
         macroCandidates,
-        workspaceMacros: allMacros,
+        workspaceMacros: previewMacros,
         macroKinds,
         existing,
         macroRevision: existing ? entityRevision(existing) : undefined,

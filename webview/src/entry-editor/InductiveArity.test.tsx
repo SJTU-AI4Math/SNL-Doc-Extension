@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';
 import { GuiInductiveEditor, withContextEntryId } from '../CreateEntryApp';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.lang = 'en';
+});
 
 const macro = (name: string, dynamic: boolean, template: string): never => ({
   name,
@@ -66,6 +69,23 @@ function renderEditor(
 }
 
 describe('Inductive editor arity auto-fill', () => {
+  it('localizes Inductive inputs, Style states, helper copy, and parse errors in Simplified Chinese', async () => {
+    document.documentElement.lang = 'zh-CN';
+    const localized = renderEditor('styled@missing-entry', [
+      { id: 'entry-a', title: 'Entry A', hasContent: true }
+    ]);
+    expect(await localized.view.findByRole('combobox', { name: '上下文条目 ID' })).toBeTruthy();
+    expect(localized.view.getByPlaceholderText('条目 ID')).toBeTruthy();
+    expect(localized.view.getByRole('combobox', { name: 'styled 的 Macro 样式' }).getAttribute('title'))
+      .toBe('默认样式（隐式）：[default]');
+    expect(localized.view.getByText('当前条目池中没有此 ID 对应的条目。')).toBeTruthy();
+
+    cleanup();
+    const invalid = renderEditor('root(');
+    expect(invalid.view.getByText(/文本模式 SNL 无法解析/).textContent)
+      .toContain('当前树反映上次成功解析的结果');
+  });
+
   it('updates or clears mdata.src without dropping consumer-owned metadata', () => {
     const node = createSnlSyntaxTreeNode('styled');
     node.mdata = { src: 'entry-a', consumerFlag: { keep: true } };

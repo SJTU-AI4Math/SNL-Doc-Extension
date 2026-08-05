@@ -71,6 +71,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  document.documentElement.lang = 'en';
   readingHoverCount = 0;
   readingClickCount = 0;
   vi.unstubAllGlobals();
@@ -84,6 +85,63 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('localizes Canvas controls, Macro actions, styles, and context menus in Simplified Chinese', async () => {
+    document.documentElement.lang = 'zh-CN';
+    const localizedDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) =>
+          macro_name === 'list'
+            ? ({
+                name: 'list',
+                description: '',
+                source: { entries: [], urls: [] },
+                tags: [],
+                dynamic_arity: true,
+                styles: [
+                  { style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] },
+                  { style_name: 'compact', mode: 'formula_inline', template: '#*', tags: [] }
+                ]
+              } as never)
+            : null
+      }
+    });
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('list', [node('a')]), node('loose')]}
+        macroDataDriver={localizedDriver}
+        macroCandidates={[{ id: 'list', labels: [], styles: ['default', 'compact'] }]}
+        macroOrigin={{ list: 'macros.json' }}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+
+    const canvas = view.getByLabelText('GUI 编辑器 Canvas');
+    expect(view.getByRole('button', { name: '从 SNL 重置 Canvas' })).toBeTruthy();
+    canvas.focus();
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    expect(await view.findByRole('textbox', { name: '插入 Canvas 根 Macro' })).toBeTruthy();
+    fireEvent.keyDown(view.getByRole('textbox', { name: '插入 Canvas 根 Macro' }), { key: 'Escape' });
+
+    const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    fireEvent.click(root);
+    const argumentsControl = await view.findByLabelText('参数数量');
+    expect(within(argumentsControl).getByLabelText('移除参数')).toBeTruthy();
+    expect(within(argumentsControl).getByLabelText('参数数量值').textContent).toBe('1');
+    expect(within(argumentsControl).getByLabelText('添加参数')).toBeTruthy();
+    expect(view.getByRole('combobox', { name: 'Macro 样式' }).getAttribute('title'))
+      .toBe('选择 Macro 样式');
+    expect(view.getByRole('button', { name: '编辑 Macro' })).toBeTruthy();
+
+    fireEvent.contextMenu(root);
+    const menu = await view.findByRole('menu', { name: 'Canvas 块操作' });
+    expect(within(menu).getByRole('menuitem', { name: /编辑 Macro/ })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: /添加参数/ })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: /移除参数/ })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: /删除/ })).toBeTruthy();
+  });
+
   it('owns interactions so partial nodes cannot fall through to reading-surface ancestors', async () => {
     const partial = { ...node('partial-fragment', [node('child')]), kind: 'partial' };
     const view = render(

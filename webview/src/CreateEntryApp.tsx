@@ -2327,6 +2327,7 @@ export function GuiCanvasEditor({
   onForestChange: (next: SnlSyntaxTree[]) => void;
   onResetFromSnl: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
   const [canvasExtent, setCanvasExtent] = React.useState<CanvasExtent>({ width: 0, height: 0 });
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
@@ -3169,7 +3170,7 @@ export function GuiCanvasEditor({
       const head = editingNode.value.trim();
       if (head.includes('(') || head.includes(',')) {
         setEditingNode((previous) => previous
-          ? { ...previous, error: 'Macro edit accepts a single macro id; use Ctrl+F2 to edit the subtree.' }
+          ? { ...previous, error: t('macroEditSingleId') }
           : null);
         return;
       }
@@ -3180,7 +3181,7 @@ export function GuiCanvasEditor({
       }
       if (parsedHead.tree.style_name !== undefined) {
         setEditingNode((previous) => previous
-          ? { ...previous, error: 'Macro edit accepts a Macro name only; use the Style dropdown.' }
+          ? { ...previous, error: t('macroEditNameOnly') }
           : null);
         return;
       }
@@ -3318,7 +3319,7 @@ export function GuiCanvasEditor({
       <div
         ref={canvasRef}
         data-entry-gui-canvas
-        aria-label="GUI Editor canvas"
+        aria-label={t('canvasAria')}
         tabIndex={0}
         onClickCapture={handleCanvasClick}
         onMouseMoveCapture={(event) => {
@@ -3400,7 +3401,7 @@ export function GuiCanvasEditor({
             autoSize
             autoFocus
             className="snl-canvas-node-input"
-            aria-label="Edit focused SNL"
+            aria-label={t('editFocusedSnl')}
             selectAllOnMount
             macroCandidates={macroCandidates}
             snooglInsertsMacroId={editingNode.scope === 'subtree'}
@@ -3424,8 +3425,8 @@ export function GuiCanvasEditor({
             title={
               editingNode.error ??
               (editingNode.scope === 'macro'
-                ? 'Edit this block\u2019s Macro; Enter commits, Shift+Enter adds a line'
-                : 'Enter SNL DSL; Enter commits, Shift+Enter adds a line')
+                ? t('editMacroInput')
+                : t('enterSnlDsl'))
             }
             style={{
               position: 'absolute',
@@ -3444,7 +3445,7 @@ export function GuiCanvasEditor({
             ref={addRootRef}
             autoFocus
             openSnooglOnMount
-            aria-label="Insert Canvas root Macro"
+            aria-label={t('insertCanvasRoot')}
             macroCandidates={macroCandidates}
             value=""
             onChange={(value) => {
@@ -3505,7 +3506,7 @@ export function GuiCanvasEditor({
           <div
             data-canvas-macro-control
             data-canvas-arity-control={focusedMacroControl.dynamic ? true : undefined}
-            aria-label={focusedMacroControl.dynamic ? 'Argument count' : 'Macro actions'}
+            aria-label={focusedMacroControl.dynamic ? t('argumentCount') : t('macroActions')}
             onPointerDown={(event) => event.stopPropagation()}
             style={{
               position: 'absolute',
@@ -3526,19 +3527,19 @@ export function GuiCanvasEditor({
                 <Button
                   variant="secondary"
                   size="sm"
-                  aria-label="Remove an argument"
+                  aria-label={t('removeArgument')}
                   disabled={focusedMacroControl.count === 0}
                   onClick={() => changeDynamicArity(focusedMacroControl.target, -1)}
                 >
                   −
                 </Button>
-                <span aria-label="Argument count value" style={{ minWidth: '1.2rem', textAlign: 'center' }}>
+                <span aria-label={t('argumentCountValue')} style={{ minWidth: '1.2rem', textAlign: 'center' }}>
                   {focusedMacroControl.count}
                 </span>
                 <Button
                   variant="secondary"
                   size="sm"
-                  aria-label="Add argument"
+                  aria-label={t('addArgument')}
                   onClick={() => changeDynamicArity(focusedMacroControl.target, 1)}
                 >
                   +
@@ -3557,7 +3558,7 @@ export function GuiCanvasEditor({
                 <>
                   {styleNames.length > 0 || explicitStyleMissing ? (
                     <select
-                      aria-label="Macro style"
+                      aria-label={t('macroStyle')}
                       value={selectedStyle}
                       onChange={(event) =>
                         changeCanvasStyle(
@@ -3567,7 +3568,7 @@ export function GuiCanvasEditor({
                         )
                       }
                       onKeyDown={(event) => event.stopPropagation()}
-                      title="Select Macro style"
+                      title={t('selectMacroStyle')}
                       style={{
                         maxWidth: '9rem',
                         padding: '0.15rem 0.3rem',
@@ -3577,14 +3578,14 @@ export function GuiCanvasEditor({
                       }}
                     >
                       {explicitStyleMissing && styleNames.length === 0 ? (
-                        <option value="">(clear style)</option>
+                        <option value="">{t('clearStyle')}</option>
                       ) : null}
                       {explicitStyleMissing ? (
-                        <option value={node.style_name}>{node.style_name} (missing)</option>
+                        <option value={node.style_name}>{node.style_name} {t('missing')}</option>
                       ) : null}
                       {styleNames.map((style, index) => (
                         <option key={style} value={style}>
-                          {style}{index === 0 ? ' (default)' : ''}
+                          {style}{index === 0 ? t('defaultSuffix') : ''}
                         </option>
                       ))}
                     </select>
@@ -3592,11 +3593,11 @@ export function GuiCanvasEditor({
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={known ? 'Edit macro' : 'Create macro'}
+                    aria-label={known ? t('editMacro') : t('createMacro')}
                     title={
                       known
-                        ? `Open Edit Macro: ${name} (${macroOrigin[name]})`
-                        : `Open Create Macro (prefill id "${name}")`
+                        ? t('openEditMacro', { name, origin: macroOrigin[name] })
+                        : t('openCreateMacroPrefill', { name })
                     }
                     onClick={() =>
                       onOpenMacroEditor({
@@ -3681,7 +3682,7 @@ export function GuiCanvasEditor({
               onResetFromSnl();
             }}
           >
-            Reset Canvas from SNL
+            {t('resetCanvas')}
           </Button>
         </div>
       ) : null}
@@ -3723,22 +3724,23 @@ function CanvasContextMenuView({
   onDelete: () => void;
   onClose: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const onBlankSpace = menu.rootIndex < 0;
   const isRoot = menu.path.length === 0;
   const isHole = isCanvasHole(node);
   const items: Array<{ label: string; hint?: string; disabled?: boolean; run: () => void }> =
     onBlankSpace
-      ? [{ label: 'Add root Macro', hint: 'Ctrl+F', run: onAddRoot }]
+      ? [{ label: t('addRootMacro'), hint: 'Ctrl+F', run: onAddRoot }]
       : [
-          { label: 'Edit Macro', hint: 'F2', disabled: isHole, run: onEditMacro },
-          { label: 'Edit subtree as SNL', hint: 'Ctrl+F2', run: onEditSubtree },
+          { label: t('editMacroMenu'), hint: 'F2', disabled: isHole, run: onEditMacro },
+          { label: t('editSubtreeSnl'), hint: 'Ctrl+F2', run: onEditSubtree },
           // Only a variadic Macro owns its argument count; a fixed-arity one
           // gets it from the template and must not be edited by hand.
           ...(isDynamic
             ? [
-                { label: 'Add argument', hint: '+', run: onAddArgument },
+                { label: t('addArgument'), hint: '+', run: onAddArgument },
                 {
-                  label: 'Remove an argument',
+                  label: t('removeArgument'),
                   hint: '-',
                   disabled: (node?.children.length ?? 0) === 0,
                   run: onRemoveArgument
@@ -3746,17 +3748,17 @@ function CanvasContextMenuView({
               ]
             : []),
           {
-            label: 'Detach into its own block',
+            label: t('detachBlock'),
             disabled: isRoot || isHole,
             run: onDetach
           },
-          { label: 'Delete', hint: 'Del', disabled: isHole, run: onDelete }
+          { label: t('delete'), hint: 'Del', disabled: isHole, run: onDelete }
         ];
   return (
     <div
       role="menu"
       data-canvas-menu
-      aria-label="Canvas block actions"
+      aria-label={t('canvasBlockActions')}
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
       style={{
@@ -4082,6 +4084,7 @@ export function GuiInductiveEditor({
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const [tree, setTree] = useState<SnlSyntaxTree>(() => {
     const initial = parseOrDefault(snl);
     ensureTreeIdentity(initial);
@@ -4261,9 +4264,7 @@ export function GuiInductiveEditor({
             fontSize: '0.78rem'
           }}
         >
-          Text-mode SNL is not parseable ({parseError}). Tree shown reflects
-          the last successful parse; editing here will overwrite the Text
-          content on next change.
+          {t('unparseableSnl', { error: parseError })}
         </div>
       ) : null}
 
@@ -4293,10 +4294,7 @@ export function GuiInductiveEditor({
           fontStyle: 'italic'
         }}
       >
-        Inductive editor — hover a row for the action dial. Delimited
-        forms are recognized: <code>$foo$</code>, <code>$$x+y$$</code>,{' '}
-        <code>%text%</code>, <code>@$x$</code>. A suffix <code>@</code> opens
-        the Context Entry ID input. Choose Style from the adjacent dropdown.
+        {t('inductiveHelp')}
       </p>
     </div>
   );
@@ -4604,6 +4602,7 @@ function InductiveNode({
     path: string
   ) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const nodeId = treeIdentity(node);
   const [rawInput, setRawInput] = React.useState<string>(() =>
     stringifyLeafHead(node)
@@ -4713,7 +4712,7 @@ function InductiveNode({
     window.requestAnimationFrame(() => {
       const row = Array.from(document.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
         .find((candidate) => candidate.dataset.snlTreeNodeId === nodeId);
-      row?.querySelector<HTMLButtonElement>('[aria-label="Choose add position"]')?.focus();
+      row?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')?.focus();
     });
   };
   const updateChild = (i: number, next: SnlSyntaxTree): void => {
@@ -4843,8 +4842,8 @@ function InductiveNode({
             type="button"
             onClick={() => onToggleCollapsed(nodeId)}
             style={chevronButtonStyle}
-            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
-            title={isCollapsed ? 'Expand' : 'Collapse'}
+            aria-label={isCollapsed ? t('expandNode') : t('collapseNode')}
+            title={isCollapsed ? t('expandNode') : t('collapseNode')}
           >
             {isCollapsed ? '▶' : '▼'}
           </Button>
@@ -4874,7 +4873,7 @@ function InductiveNode({
           value={rawInput}
           macroCandidates={macroCandidates}
           onChange={commitRaw}
-          placeholder={depth === 0 ? 'root macro' : 'name / $expr$ / %text% / @…'}
+          placeholder={depth === 0 ? t('rootMacroPlaceholder') : t('leafPlaceholder')}
           spellCheck={false}
           style={{
             ...inputStyle,
@@ -4889,8 +4888,8 @@ function InductiveNode({
           }}
           title={
             macroMatched
-              ? `kind: ${effectiveKind}${macroEntry ? '' : ' (from env_mode)'}`
-              : 'name does not match any macro in the current DB'
+              ? t('kindTooltip', { kind: effectiveKind, source: macroEntry ? '' : t('envModeSource') })
+              : t('macroNotFound')
           }
         />
 
@@ -4928,7 +4927,7 @@ function InductiveNode({
           >
             <label
               htmlFor={`snl-context-entry-${nodeId}`}
-              title="Context Entry ID"
+              title={t('contextEntryId')}
               style={{ paddingTop: '0.3rem', fontFamily: 'monospace' }}
             >
               <span aria-hidden="true">@</span>
@@ -4945,7 +4944,7 @@ function InductiveNode({
                   border: 0
                 }}
               >
-                Context Entry ID
+                {t('contextEntryId')}
               </span>
             </label>
             <EntityIdSearchBox
@@ -4955,7 +4954,7 @@ function InductiveNode({
               hideResolvedChip
               autoFocus={contextAutoFocusRequestedRef.current}
               idPrefix={`snl-context-entry-${nodeId}`}
-              placeholder="Entry ID"
+              placeholder={t('entryId')}
               onChange={(value) => {
                 contextDraftOpenRef.current = value.trim() === '';
                 onChange({ ...node, mdata: withContextEntryId(node, value) });
@@ -4975,15 +4974,15 @@ function InductiveNode({
           value={styleDisplay}
           disabled={!styleSelectable}
           onChange={(event) => commitStyle(event.target.value)}
-          aria-label={`Macro style for ${node.macro_name || 'unresolved Macro'}`}
+          aria-label={t('macroStyleFor', { name: node.macro_name || t('unresolvedMacro') })}
           title={
             explicitStyleMissing
-              ? `Style [${node.style_name}] is missing; choose clear or a declared Style`
+              ? t('missingStyle', { style: node.style_name! })
               : !styleAvailable
-                ? 'Style unavailable — name does not match a Macro with styles'
+                ? t('styleUnavailable')
                 : styleIsExplicit
-                  ? `explicit style: [${node.style_name}]`
-                  : `default style (implicit): [${defaultStyleTag}]`
+                  ? t('explicitStyle', { style: node.style_name! })
+                  : t('implicitStyle', { style: defaultStyleTag })
           }
           style={{
             ...inputStyle,
@@ -5004,10 +5003,10 @@ function InductiveNode({
           }}
         >
           {!styleAvailable ? (
-            <option value="">{explicitStyleMissing ? '(clear style)' : 'style'}</option>
+            <option value="">{explicitStyleMissing ? t('clearStyle') : t('macroStyle')}</option>
           ) : null}
           {explicitStyleMissing ? (
-            <option value={node.style_name}>{node.style_name} (missing)</option>
+            <option value={node.style_name}>{node.style_name} {t('missing')}</option>
           ) : null}
           {styleTags.map((style, index) => (
             <option key={style} value={style}>
@@ -5024,16 +5023,16 @@ function InductiveNode({
             const trimmed = node.macro_name.trim();
             const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
             const title = known
-              ? `Open Edit Macro: ${trimmed} (${macroOrigin[trimmed]})`
+              ? t('openEditMacro', { name: trimmed, origin: macroOrigin[trimmed] })
               : node.env_mode === 'text'
-                ? `Open Create Macro (text mode, prefill "${trimmed}")`
+                ? t('openCreateMacroText', { name: trimmed })
                 : node.env_mode === 'formula_inline'
-                  ? `Open Create Macro (formula_inline, prefill "${trimmed}")`
+                  ? t('openCreateMacroInline', { name: trimmed })
                   : node.env_mode === 'formula_display'
-                    ? `Open Create Macro (formula_display, prefill "${trimmed}")`
+                    ? t('openCreateMacroDisplay', { name: trimmed })
                     : trimmed === ''
-                      ? 'Open Create Macro (blank)'
-                      : `Open Create Macro (prefill id "${trimmed}")`;
+                      ? t('openCreateMacroBlank')
+                      : t('openCreateMacroPrefill', { name: trimmed });
             return (
               <Button
                 variant="ghost"
@@ -5047,7 +5046,7 @@ function InductiveNode({
                   })
                 }
                 title={title}
-                aria-label={known ? 'Edit macro' : 'Create macro'}
+                aria-label={known ? t('editMacro') : t('createMacro')}
                 style={{
                   color: known
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
@@ -5074,8 +5073,8 @@ function InductiveNode({
                     className="snl-tree-dial-action snl-tree-dial-action--up"
                     onClick={() => canMoveUp && treeOp('moveUp', path)}
                     disabled={!canMoveUp}
-                    title={canMoveUp ? 'Move up — swap with preceding sibling' : 'Cannot move up — already first'}
-                    aria-label="Move up"
+                    title={canMoveUp ? t('moveUpAvailable') : t('moveUpUnavailable')}
+                    aria-label={t('moveUp')}
                   >
                     ↑
                   </Button>
@@ -5085,8 +5084,8 @@ function InductiveNode({
                     className="snl-tree-dial-action snl-tree-dial-action--outdent"
                     onClick={() => canOutdent && treeOp('outdent', path)}
                     disabled={!canOutdent}
-                    title={canOutdent ? 'Outdent — move up one level' : 'Cannot outdent — already at top-level'}
-                    aria-label="Outdent"
+                    title={canOutdent ? t('outdentAvailable') : t('outdentUnavailable')}
+                    aria-label={t('outdent')}
                   >
                     ←
                   </Button>
@@ -5095,8 +5094,9 @@ function InductiveNode({
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--add"
                     onClick={() => setAddMenuOpen((open) => !open)}
-                    title="Choose where to add a node"
-                    aria-label="Choose add position"
+                    title={t('chooseAddPosition')}
+                    aria-label={t('chooseAddPositionAria')}
+                    data-snl-add-position-trigger
                     aria-haspopup="menu"
                     aria-expanded={addMenuOpen}
                     aria-controls={addMenuOpen ? addMenuId : undefined}
@@ -5109,8 +5109,8 @@ function InductiveNode({
                     className="snl-tree-dial-action snl-tree-dial-action--indent"
                     onClick={() => canIndent && treeOp('indent', path)}
                     disabled={!canIndent}
-                    title={canIndent ? 'Indent — become child of preceding sibling' : 'Cannot indent — no preceding sibling'}
-                    aria-label="Indent"
+                    title={canIndent ? t('indentAvailable') : t('indentUnavailable')}
+                    aria-label={t('indent')}
                   >
                     →
                   </Button>
@@ -5120,8 +5120,8 @@ function InductiveNode({
                     className="snl-tree-dial-action snl-tree-dial-action--down"
                     onClick={() => canMoveDown && treeOp('moveDown', path)}
                     disabled={!canMoveDown}
-                    title={canMoveDown ? 'Move down — swap with following sibling' : 'Cannot move down — already last'}
-                    aria-label="Move down"
+                    title={canMoveDown ? t('moveDownAvailable') : t('moveDownUnavailable')}
+                    aria-label={t('moveDown')}
                   >
                     ↓
                   </Button>
@@ -5129,7 +5129,7 @@ function InductiveNode({
                     <div
                       id={addMenuId}
                       role="menu"
-                      aria-label="Add node position"
+                      aria-label={t('addNodePosition')}
                       className="snl-tree-add-menu"
                       onBlur={(event) => {
                         const next = event.relatedTarget as Node | null;
@@ -5142,7 +5142,7 @@ function InductiveNode({
                           event.stopPropagation();
                           setAddMenuOpen(false);
                           addControlRef.current
-                            ?.querySelector<HTMLButtonElement>('[aria-label="Choose add position"]')
+                            ?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')
                             ?.focus();
                           return;
                         }
@@ -5156,9 +5156,9 @@ function InductiveNode({
                         items[(current + step + items.length) % items.length]?.focus();
                       }}
                     >
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add parent" onClick={() => chooseAddPosition('parent')} title="Add a parent around this node">parent</Button>
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add child" onClick={() => chooseAddPosition('child')} title="Add a child under this node">child</Button>
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label="Add sibling" disabled={path === ''} onClick={() => chooseAddPosition('sibling')} title={path === '' ? 'Root cannot have a sibling' : 'Add a sibling after this node'}>sibling</Button>
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addParent')} onClick={() => chooseAddPosition('parent')} title={t('addParentTitle')}>{t('parent')}</Button>
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addChild')} onClick={() => chooseAddPosition('child')} title={t('addChildTitle')}>{t('child')}</Button>
+                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addSibling')} disabled={path === ''} onClick={() => chooseAddPosition('sibling')} title={path === '' ? t('rootNoSibling') : t('addSiblingTitle')}>{t('sibling')}</Button>
                     </div>
                   ) : null}
                 </div>
@@ -5168,8 +5168,8 @@ function InductiveNode({
                     size="sm"
                     className="snl-tree-compact-action snl-tree-delete-action"
                     onClick={onDelete}
-                    title="Delete this subtree"
-                    aria-label="Delete subtree"
+                    title={t('deleteSubtreeTitle')}
+                    aria-label={t('deleteSubtree')}
                   >
                     ×
                   </Button>

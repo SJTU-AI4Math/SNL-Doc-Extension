@@ -31,9 +31,36 @@ function rowForInput(input: HTMLElement): HTMLElement {
   return row;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.lang = 'en';
+});
 
 describe('Inductive node action dial', () => {
+  it('localizes Inductive actions, tooltips, accessibility, and add-position menus in Simplified Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    const { view } = renderEditor();
+    expect(view.getByText(/归纳式编辑器/)).toBeTruthy();
+    const childRow = rowForInput(view.getAllByRole('textbox')[1]);
+    expect(within(childRow).getByRole('button', { name: '上移' }).getAttribute('title'))
+      .toBe('无法上移——已是第一个');
+    expect(within(childRow).getByRole('button', { name: '减少缩进' })).toBeTruthy();
+    expect(within(childRow).getByRole('button', { name: '增加缩进' })).toBeTruthy();
+    expect(within(childRow).getByRole('button', { name: '下移' })).toBeTruthy();
+    expect(within(childRow).getByRole('button', { name: '删除子树' }).getAttribute('title'))
+      .toBe('删除此子树');
+
+    fireEvent.click(within(childRow).getByRole('button', { name: '选择添加位置' }));
+    const menu = within(childRow).getByRole('menu', { name: '添加节点位置' });
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      '父节点',
+      '子节点',
+      '同级节点'
+    ]);
+    expect(within(menu).getByRole('menuitem', { name: '添加父节点' }).getAttribute('title'))
+      .toBe('在此节点外添加父节点');
+  });
+
   it('uses a compact directional dial and keeps the Macro and delete actions', () => {
     const { view, onOpenMacroEditor } = renderEditor();
     const rootRow = rowForInput(view.getAllByRole('textbox')[0]);

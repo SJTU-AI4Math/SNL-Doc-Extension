@@ -9,6 +9,23 @@ import {
   buildContextIndex,
   type EntryPoolItemForLookup
 } from '../render/contextSrcLookup';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'entryMetrics',
+  {
+    noContent: 'This entry has no SNL content.', parseError: 'Cannot compute metrics because the SNL tree does not parse: {error}',
+    index: 'SNL Structural Index: {value}', strong: 'Strong semantic freedom: {value}',
+    weak: 'Weak semantic freedom: {value}', weightedStrong: 'Weighted strong freedom: {value}',
+    weightedWeak: 'Weighted weak freedom: {value}', weightedTotal: 'Weighted total: {value}'
+  },
+  {
+    noContent: '此条目没有 SNL 内容。', parseError: '无法计算指标，因为 SNL 树解析失败：{error}',
+    index: 'SNL 结构索引：{value}', strong: '强语义自由度：{value}',
+    weak: '弱语义自由度：{value}', weightedStrong: '加权强自由度：{value}',
+    weightedWeak: '加权弱自由度：{value}', weightedTotal: '加权总量：{value}'
+  }
+);
 
 export interface EntryMetricThresholds {
   structuralIndexRedBelow: number;
@@ -22,7 +39,8 @@ export const DEFAULT_ENTRY_METRIC_THRESHOLDS: EntryMetricThresholds = {
 
 export type EntryMetricResult =
   | { kind: 'ok'; metrics: SnlStructuralMetrics }
-  | { kind: 'unavailable'; reason: string };
+  | { kind: 'unavailable'; reason: 'noContent' }
+  | { kind: 'unavailable'; reason: 'parseError'; error: string };
 
 export interface SnlStructuralMetrics {
   /** Unsourced non-catalog nodes, excluding numeric literals. */
@@ -230,13 +248,14 @@ export function computeEntryMetrics(
   context: EntryMetricContext
 ): EntryMetricResult {
   if (typeof snl !== 'string' || snl.trim().length === 0) {
-    return { kind: 'unavailable', reason: 'This entry has no SNL content.' };
+    return { kind: 'unavailable', reason: 'noContent' };
   }
   const parsed = tryParseSnlSyntaxTree(snl);
   if (!parsed.ok) {
     return {
       kind: 'unavailable',
-      reason: `Cannot compute metrics because the SNL tree does not parse: ${parsed.error}`
+      reason: 'parseError',
+      error: parsed.error
     };
   }
   applyContextSrcLookup(parsed.tree, context.contextIndex);
@@ -297,9 +316,13 @@ export function EntryMetricValue({
   thresholds: EntryMetricThresholds;
   compact?: boolean;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   if (result.kind === 'unavailable') {
+    const reason = result.reason === 'noContent'
+      ? t('noContent')
+      : t('parseError', { error: result.error });
     return (
-      <span title={result.reason} style={{ opacity: 0.5 }}>
+      <span title={reason} style={{ opacity: 0.5 }}>
         —
       </span>
     );
@@ -309,12 +332,12 @@ export function EntryMetricValue({
   const value = metrics.structuralIndex.toFixed(2);
   const displayedValue = compact ? `SSI ${value}` : value;
   const tooltip = [
-    `SNL Structural Index: ${value}`,
-    `Strong semantic freedom: ${metrics.strongSemanticFreedom}`,
-    `Weak semantic freedom: ${metrics.weakSemanticFreedom}`,
-    `Weighted strong freedom: ${metrics.weightedStrongSemanticFreedom.toFixed(2)}`,
-    `Weighted weak freedom: ${metrics.weightedWeakSemanticFreedom.toFixed(2)}`,
-    `Weighted total: ${metrics.weightedTotal.toFixed(2)}`
+    t('index', { value }),
+    t('strong', { value: metrics.strongSemanticFreedom }),
+    t('weak', { value: metrics.weakSemanticFreedom }),
+    t('weightedStrong', { value: metrics.weightedStrongSemanticFreedom.toFixed(2) }),
+    t('weightedWeak', { value: metrics.weightedWeakSemanticFreedom.toFixed(2) }),
+    t('weightedTotal', { value: metrics.weightedTotal.toFixed(2) })
   ].join('\n');
   return (
     <span

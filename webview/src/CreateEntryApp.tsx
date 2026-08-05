@@ -70,7 +70,6 @@ import {
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
 import {
-  bundledMacros,
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
@@ -348,7 +347,7 @@ export function CreateEntryApp(): React.ReactElement {
   }, [wireMacros]);
 
   const macroDataDriver = useMemo(
-    () => createMacroDataDriver(bundledMacros, userMacros),
+    () => createMacroDataDriver(userMacros),
     [userMacros]
   );
   const macroCandidates = useMemo(
@@ -356,9 +355,6 @@ export function CreateEntryApp(): React.ReactElement {
       const candidates = new Map<string, SnooglSearchCandidate>();
       const styleNames = (macro: { styles?: readonly { style_name: string }[] }): string[] =>
         (macro.styles ?? []).map((style) => style.style_name).filter(Boolean);
-      for (const [name, macro] of Object.entries(bundledMacros)) {
-        candidates.set(name, { id: name, labels: macro.tags ?? [], styles: styleNames(macro) });
-      }
       for (const [name, macro] of Object.entries(wireMacros)) {
         candidates.set(name, { id: name, labels: macro.tags ?? [], styles: styleNames(macro) });
       }

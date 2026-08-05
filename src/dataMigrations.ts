@@ -53,6 +53,7 @@ export function makeEntityStorageReceipt(
     macro_packages_digest: semanticDigest(packages)
   };
 }
+import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
 
 export interface WorkspaceDataSnapshot {
   config: Record<string, unknown>;
@@ -112,6 +113,9 @@ function assertCanonicalMacroPackage(
     throw new Error(`${file} must be a canonical v${version} keyed Macro package.`);
   }
   for (const [macroName, value] of Object.entries(raw.macros)) {
+    if (!isSnlIdentifier(macroName)) {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}] is not a valid SNL identifier.`);
+    }
     if (!isRecord(value)) throw new Error(`${file}#macros[${JSON.stringify(macroName)}] must be an object.`);
     if (typeof value.description !== 'string' || typeof value.dynamic_arity !== 'boolean') {
       throw new Error(`${file}#macros[${JSON.stringify(macroName)}] has invalid required fields.`);
@@ -128,7 +132,7 @@ function assertCanonicalMacroPackage(
     value.styles.forEach((styleValue, index) => {
       if (!isRecord(styleValue)) throw new Error(`${file} ${macroName} styles[${index}] must be an object.`);
       const styleName = styleValue.style_name;
-      if (typeof styleName !== 'string' || !styleName.trim() || names.has(styleName)) {
+      if (typeof styleName !== 'string' || !isSnlIdentifier(styleName) || names.has(styleName)) {
         throw new Error(`${file} ${macroName} styles[${index}].style_name is invalid or duplicated.`);
       }
       names.add(styleName);

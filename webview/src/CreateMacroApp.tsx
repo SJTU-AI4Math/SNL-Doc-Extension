@@ -40,6 +40,7 @@ import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
 import {
   tryParseSnlSyntaxTree,
+  isSnlIdentifier,
   defaultRenderHooks,
   SnlSyntaxTreeView,
   type SnlMacro,
@@ -49,7 +50,6 @@ import {
   type KindPalette
 } from '@sjtu-ai4math/snl-basics';
 import {
-  bundledMacros,
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
@@ -207,7 +207,7 @@ function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnl
     : (s.template || (s.mode === 'block' ? '#*' : ''));
   const common = {
     ...s.extensions,
-    style_name: s.style_name.trim(),
+    style_name: s.style_name,
     ...(dynamicArity ? { separator: s.separator } : {}),
     tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0),
     typst: {
@@ -312,6 +312,7 @@ interface ContextMsg {
   packageName: string;
   existingNames: string[];
   macroCandidates?: SnooglSearchCandidate[];
+  workspaceMacros?: MacroRecord;
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
   macroRevision?: string;
@@ -427,6 +428,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
   const [macroCandidates, setMacroCandidates] = useState<SnooglSearchCandidate[]>([]);
+  const [workspaceMacros, setWorkspaceMacros] = useState<MacroRecord>({});
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
@@ -585,6 +587,9 @@ export function CreateMacroApp(): React.ReactElement {
               ? msg.macroCandidates
               : (msg.existingNames ?? []).map((id) => ({ id, labels: [] }))
           );
+          setWorkspaceMacros(msg.workspaceMacros && typeof msg.workspaceMacros === 'object'
+            ? msg.workspaceMacros
+            : {});
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
           if (msg.mode === 'create' && !msg.prefill?.macro) {
@@ -762,12 +767,12 @@ export function CreateMacroApp(): React.ReactElement {
 
   const previewMacroRecord: MacroRecord = useMemo(
     () => ({
-      ...bundledMacros,
+      ...workspaceMacros,
       ...ARG_PLACEHOLDER_MACROS,
       [PREVIEW_PLACEHOLDER_KEY]: PREVIEW_PLACEHOLDER_MACRO,
       [DRAFT_KEY]: draftMacro
     }),
-    [draftMacro]
+    [draftMacro, workspaceMacros]
   );
 
   const previewMacroDataDriver = useMemo(
@@ -833,26 +838,29 @@ export function CreateMacroApp(): React.ReactElement {
 
   // --- Validation ----------------------------------------------------------
 
-  const trimmedName = name.trim();
-  // In edit mode, `trimmedName` is the identity of the macro being edited, so
+  const exactName = name;
+  // In edit mode, `exactName` is the identity of the macro being edited, so
   // its own presence in existingNames must NOT count as a duplicate. Only a
   // create-mode collision blocks submission.
   const isDuplicate =
-    panelMode === 'edit' ? false : existingNames.includes(trimmedName);
+    panelMode === 'edit' ? false : existingNames.includes(exactName);
   const defaultStyleDraft = styles[0];
   const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
-  const tagList = styles.map((s) => s.style_name.trim());
+  const tagList = styles.map((s) => s.style_name);
   const hasEmptyTag = tagList.some((t) => t.length === 0);
+  const hasInvalidTag = tagList.some((t) => !isSnlIdentifier(t));
   const hasDupTag = new Set(tagList).size !== tagList.length;
   const styleNames = new Set(tagList);
   const hasInvalidDefaultStyle = Object.values(defaultStyle).some(
     (styleName) => !styleNames.has(styleName)
   );
   const canCreate =
-    trimmedName.length > 0 &&
+    exactName.length > 0 &&
+    isSnlIdentifier(exactName) &&
     !isDuplicate &&
     !templateEmpty &&
     !hasEmptyTag &&
+    !hasInvalidTag &&
     !hasDupTag &&
     !hasInvalidDefaultStyle &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
@@ -888,7 +896,7 @@ export function CreateMacroApp(): React.ReactElement {
       .filter((t) => t.length > 0);
     const macro: ExtendedSnlMacro = {
       ...(hydratedMacroBaseRef.current ?? {}),
-      name: trimmedName,
+      name: exactName,
       description: description.trim(),
       source: {
         ...(hydratedMacroBaseRef.current?.source ?? {}),
@@ -1432,7 +1440,7 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
 //     rule, we reject and keep the pre-edit value.
 //   * An empty non-last chip is deleted (namespace segments must be non-empty).
 //     The last chip is never deleted (a macro without a name is meaningless).
-//   * Illegal characters (`@#$%` in ASCII, or spaces) fail validation with a
+//   * Characters outside the shared SNL identifier policy fail validation with a
 //     red border + error text; the invalid value is kept in state so the user
 //     can fix it, and the parent's `onChange` gets the invalid joined string
 //     (upstream validators will trip).
@@ -1440,34 +1448,9 @@ function SectionHeader({ title }: { title: string }): React.ReactElement {
 // Rendered as a single input when the name has no `.` at all (spec: "如果
 // name 里没有 `.`，那么效果等同于这个功能不存在").
 
-/**
- * Character rules for a name/namespace segment. Backslash / space / and the
- * four reserved punctuation `@#$%` are forbidden. Kept LAX to allow Unicode
- * (CJK, Greek, etc.) so users can write formal-math syntax trees in their
- * native language — cf. 猫猫's stance "定的比较松是因为我希望它能广泛支持
- * Unicode 命名".
- */
-/**
- * ASCII characters forbidden in a macro name / namespace segment. Reserved
- * by the SNL parser:
- *   @ # $ %                — env_mode / binder delimiters
- *   whitespace             — token separator
- *   ( ) [ ]                — application / style bracket
- *   { }                    — reserved for future SNL syntax; also breaks the
- *                            \htmlData{name=…} attribute the view emits.
- *
- * Everything else (including backslash, dots, Unicode letters, digits,
- * emoji) is fair game. Rule intentionally permissive so authors can name
- * macros in their native language — cf. 猫猫's stance "定的比较松是因为我
- * 希望它能广泛支持 Unicode 命名". Kept in sync with snlDoc.ts's
- * validateMacro().
- */
-const NAME_FORBIDDEN_CHARS = /[@#$%\s(){}\[\]]/;
-
 /** True if a single name/namespace segment is legal. Empty is NOT legal here. */
-function isValidNameSegment(seg: string): boolean {
-  if (seg.length === 0) return false;
-  return !NAME_FORBIDDEN_CHARS.test(seg);
+export function isValidNameSegment(seg: string): boolean {
+  return isSnlIdentifier(seg) && !seg.includes('.');
 }
 
 /** Split a dotted name string into segments. Empty string → `['']` (one empty chip). */

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import {
+  readAllMacros,
   readMacroKinds,
   readMacroPackage,
   readMacroPackages,
@@ -210,7 +211,10 @@ export class PackagePanel {
         vscode.Uri.joinPath(root, '.SNL_Doc', ...macroEntityPath(this.file, macro.name).split('/'))
           .toString()
       ));
-      const macroKinds: MacroKind[] = await readMacroKinds(root);
+      const [macroKinds, workspaceMacros]: [MacroKind[], Record<string, MacroPackageEntry>] = await Promise.all([
+        readMacroKinds(root),
+        readAllMacros(root)
+      ]);
 
       // Bootstrap the "Move to package" dropdown with OTHER active packages
       // (bare file + display name). Best-effort: a package that fails to read
@@ -242,6 +246,7 @@ export class PackagePanel {
         pkg,
         file: `${this.file}.json`,
         macros,
+        workspaceMacros,
         macroKinds,
         otherPackages,
         active: active.includes(this.file),

@@ -319,6 +319,41 @@ describe('workspace data migrations', () => {
     expect(invalidOutput.config.version).toBe('0.0.4');
   });
 
+  it('accepts Unicode identifiers and rejects stray ASCII punctuation in canonical packages', async () => {
+    const unicode = snapshot('0.0.4');
+    unicode.macroPackages.clear();
+    const unicodeEntry7 = {
+      ...canonicalEntry('7'),
+      styles: [{ style_name: '默认🐈', mode: 'formula_inline', template: 'old', tags: [] }]
+    };
+    unicode.macroPackages.set('Unicode.json', {
+      version: '7', name: 'Unicode', macros: { '群.是群🐈': unicodeEntry7 }
+    });
+    const unicodeCanonicalize = vi.fn((file: string, raw: unknown, version: '7' | '8') => {
+      if (file === 'Logic.json') return canonicalize(file, raw, version);
+      return {
+        ...(raw as Record<string, unknown>), version,
+        macros: {
+          '群.是群🐈': {
+            ...unicodeEntry7,
+            ...(version === '8' ? { default_style: { en: '默认🐈' } } : {})
+          }
+        }
+      };
+    });
+    await migrateWorkspaceSnapshot(unicode, unicodeCanonicalize);
+    expect((unicode.macroPackages.get('Unicode.json') as any).macros['群.是群🐈']
+      .styles[0].style_name).toBe('默认🐈');
+
+    const invalid = snapshot('0.0.4');
+    invalid.macroPackages.clear();
+    invalid.macroPackages.set('Invalid.json', {
+      version: '7', name: 'Invalid', macros: { 'bad!name': canonicalEntry('7') }
+    });
+    await expect(migrateWorkspaceSnapshot(invalid, canonicalize))
+      .rejects.toThrow(/bad!name.*not a valid SNL identifier/);
+  });
+
   it('checks identities per record in mixed legacy/current Macro packages', async () => {
     const data = snapshot('0.0.3');
     data.macroPackages.set('Mixed.json', {

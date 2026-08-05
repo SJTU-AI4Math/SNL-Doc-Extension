@@ -21,12 +21,12 @@ import {
   use_preferences_revision,
   webview_language_runtime
 } from '../runtime/preferencesRuntime';
-import { bundledMacros, type MacroRecord } from './macroData';
+import type { MacroRecord } from './macroData';
 import { extensionRenderers } from './blockRenderers';
 import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
 
 export function mergeMacroDb(userMacros: MacroRecord | undefined | null): MacroRecord {
-  return userMacros ? { ...bundledMacros, ...userMacros } : bundledMacros;
+  return userMacros ? { ...userMacros } : {};
 }
 
 export interface EntryOption {
@@ -159,7 +159,7 @@ export function EntryRender({
           if (signal?.aborted) {
             throw signal.reason ?? new DOMException('Aborted', 'AbortError');
           }
-          return userMacros?.[macro_name] ?? bundledMacros[macro_name] ?? null;
+          return userMacros?.[macro_name] ?? null;
         }
       }
     }),

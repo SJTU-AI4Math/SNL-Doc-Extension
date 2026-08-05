@@ -27,7 +27,6 @@ import {
   type KindPalette
 } from '@sjtu-ai4math/snl-basics';
 import {
-  bundledMacros,
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
@@ -94,6 +93,7 @@ type Incoming =
       pkg: MacroPackageFile;
       file: string;
       macros: MacroPackageEntry[];
+      workspaceMacros?: Record<string, MacroPackageEntry>;
       macroKinds?: MacroKind[];
       otherPackages?: Array<{ file: string; name: string }>;
       active?: boolean;
@@ -111,6 +111,7 @@ type Model =
       pkg: MacroPackageFile;
       file: string;
       macros: MacroPackageEntry[];
+      workspaceMacros: Record<string, MacroPackageEntry>;
       macroKinds: MacroKind[];
       otherPackages: Array<{ file: string; name: string }>;
       active: boolean;
@@ -260,6 +261,9 @@ export function PackagePanelApp(): React.ReactElement {
             pkg: msg.pkg,
             file: msg.file,
             macros: Array.isArray(msg.macros) ? msg.macros : [],
+            workspaceMacros: msg.workspaceMacros && typeof msg.workspaceMacros === 'object'
+              ? msg.workspaceMacros
+              : {},
             macroKinds: Array.isArray(msg.macroKinds) ? msg.macroKinds : [],
             otherPackages: Array.isArray(msg.otherPackages)
               ? msg.otherPackages
@@ -449,7 +453,7 @@ export function PackagePanelApp(): React.ReactElement {
     );
   }
 
-  const { pkg, file, macros, macroKinds, otherPackages, active, entryPoolIds } = model;
+  const { pkg, file, macros, workspaceMacros, macroKinds, otherPackages, active, entryPoolIds } = model;
   const selectMode = mode === 'multiselect';
 
   return (
@@ -507,6 +511,7 @@ export function PackagePanelApp(): React.ReactElement {
       {macros.length > 0 ? (
         <MacroTable
           macros={macros}
+          workspaceMacros={workspaceMacros}
           macroKinds={macroKinds}
           entryPoolIds={entryPoolIds}
           onEdit={editMacro}
@@ -664,6 +669,7 @@ function arityLabel(
 
 export function MacroTable({
   macros,
+  workspaceMacros,
   macroKinds,
   entryPoolIds,
   onEdit,
@@ -674,6 +680,7 @@ export function MacroTable({
   onToggleSelect
 }: {
   macros: MacroPackageEntry[];
+  workspaceMacros: Record<string, MacroPackageEntry>;
   macroKinds: MacroKind[];
   entryPoolIds: Set<string>;
   onEdit: (name: string) => void;
@@ -695,18 +702,21 @@ export function MacroTable({
     [macroKinds]
   );
 
-  // Build ONE preview macro record for the whole table: bundled data (background
-  // math) + argument placeholders + all macros in THIS package (so a macro
-  // referencing another sibling macro in the same package still renders). We
+  // Build ONE preview macro record for the whole table: all active workspace
+  // packages, argument placeholders, then THIS package for deterministic local
+  // precedence. This supports cross-package Macro composition.
   // memoize by the macros array identity — parent's onMessage handler creates
   // a fresh array whenever the package file changes.
   const previewMacroRecord: MacroRecord = useMemo(() => {
     const packageMacros: MacroRecord = {};
+    for (const [name, macro] of Object.entries(workspaceMacros)) {
+      packageMacros[name] = macroToLibShape(macro);
+    }
     for (const m of macros) {
       packageMacros[m.name] = macroToLibShape(m);
     }
-    return { ...bundledMacros, ...ARG_PLACEHOLDER_MACROS, ...packageMacros };
-  }, [macros]);
+    return { ...packageMacros, ...ARG_PLACEHOLDER_MACROS };
+  }, [macros, workspaceMacros]);
 
   const previewMacroDataDriver = useMemo(
     () => createMacroDataDriver(previewMacroRecord),

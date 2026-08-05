@@ -1,11 +1,20 @@
 import React from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { NameEditor } from './CreateMacroApp';
+import { NameEditor, isValidNameSegment } from './CreateMacroApp';
 
 afterEach(cleanup);
 
 describe('Create Macro NameEditor draft synchronization', () => {
+  it('shares the Parser Unicode identifier boundary', () => {
+    for (const name of ['中文名', 'Ελληνικά', 'Théorie', '默认🐈']) {
+      expect(isValidNameSegment(name)).toBe(true);
+    }
+    for (const name of ['bad!name', 'bad/name', 'bad name', 'bad\u200bname', 'foo.bar']) {
+      expect(isValidNameSegment(name)).toBe(false);
+    }
+  });
+
   it('updates parent validation state while keeping dotted typing flat until blur', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');

@@ -92,6 +92,7 @@ export function EntryMacroSection({
           {usedMacros.length > 0 ? (
             <MacroTable
               macros={usedMacros}
+              workspaceMacros={Object.fromEntries(usedMacros.map((macro) => [macro.name, macro]))}
               macroKinds={macroKinds}
               entryPoolIds={entryPoolIds}
               onEdit={(name) => postMessage({ type: 'editMacro', name })}

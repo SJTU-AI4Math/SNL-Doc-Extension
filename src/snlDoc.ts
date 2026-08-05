@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
+import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
 import {
   is_valid_i18n_string,
   macro_template_variants,
@@ -2426,22 +2427,12 @@ export async function deleteMacroPackage(
 
 /** Validate the structural invariants of a single {@link MacroPackageEntry}. */
 function validateMacro(macro: MacroPackageEntry): string | null {
-  const name = typeof macro?.name === 'string' ? macro.name.trim() : '';
+  const name = typeof macro?.name === 'string' ? macro.name : '';
   if (!name) {
     return 'name is required';
   }
-  // Naming rule (2026-07-04-late 猫猫 spec 1 + spec 3-update):
-  //   ASCII-forbidden set: @ # $ % whitespace ( ) [ ] { }
-  //   Everything else — including backslash, dots, Unicode letters, digits,
-  //   emoji — is allowed. The forbidden characters are all reserved by the
-  //   SNL syntax (delimiters / bracket forms) or would produce ambiguous
-  //   parses; everything else is fair game for user naming.
-  const forbidden = /[@#$%\s(){}\[\]]/;
-  if (forbidden.test(name)) {
-    return (
-      'name may not contain @ # $ % whitespace ( ) [ ] { } — ' +
-      'these characters are reserved by the SNL parser'
-    );
+  if (!isSnlIdentifier(name)) {
+    return 'name is not a valid SNL identifier';
   }
   if (typeof macro.dynamic_arity !== 'boolean') {
     return "dynamic_arity must be a boolean";
@@ -2459,10 +2450,12 @@ function validateMacro(macro: MacroPackageEntry): string | null {
     if (!style || typeof style !== 'object') {
       return `styles[${i}] must be an object`;
     }
-    const styleName =
-      typeof style.style_name === 'string' ? style.style_name.trim() : '';
+    const styleName = typeof style.style_name === 'string' ? style.style_name : '';
     if (!styleName) {
       return `styles[${i}].style_name is required`;
+    }
+    if (!isSnlIdentifier(styleName)) {
+      return `styles[${i}].style_name is not a valid SNL identifier`;
     }
     if (seen.has(styleName)) {
       return `styles[${i}].style_name "${styleName}" is duplicated`;

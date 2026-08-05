@@ -711,8 +711,15 @@ async function main() {
   );
 
   console.log('\n[17c] addMacro forbidden-char names -> invalid');
-  // 2026-07-04-late 猫猫 naming rule: forbid @ # $ % whitespace ( ) [ ] { }.
-  for (const badName of ['bad@name', 'bad#name', 'bad$name', 'bad%name', 'bad name', 'bad(name)', 'bad[name]', 'bad{name}']) {
+  // Shared SNL identifier rule: ASCII is allow-listed; visible Unicode is broad.
+  for (const badName of [
+    'bad@name', 'bad#name', 'bad$name', 'bad%name', 'bad name', ' bad', 'bad ',
+    'bad(name)', 'bad[name]', 'bad{name}',
+    'bad!name', 'bad&name', 'bad+name', 'bad,name', 'bad/name',
+    'bad:name', 'bad;name', 'bad=name', 'bad?name', 'bad^name',
+    'bad`name', 'bad|name', 'bad~name', 'bad\\name',
+    `bad\u200bname`, `bad\u202ename`,
+  ]) {
     const r = await addMacro(root, 'test_pkg', { ...validMacro, name: badName });
     assert(r.status === 'invalid', `addMacro rejects reserved char in name: ${JSON.stringify(badName)}`);
   }
@@ -729,6 +736,12 @@ async function main() {
     styles: [{ mode: 'formula_inline', template: '#0', tags: [] }]
   });
   assert(noTagMacro.status === 'invalid', 'addMacro missing style_name -> invalid');
+  const spacedStyleName = await addMacro(root, 'test_pkg', {
+    ...validMacro,
+    name: 'BadStyleName',
+    styles: [{ ...validMacro.styles[0], style_name: 'default ' }]
+  });
+  assert(spacedStyleName.status === 'invalid', 'addMacro rejects a whitespace-normalized style_name');
 
   console.log('\n[17d] addMacro with duplicate style tags -> invalid');
   const dupTagMacro = await addMacro(root, 'test_pkg', {
@@ -1173,58 +1186,23 @@ async function main() {
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
 
-  console.log('\n[21] SNL-Basics package DB uses the v8 styles-array shape');
-  const macroDb = JSON.parse(
+  console.log('\n[21] SNL-Basics does not ship a Macro database');
+  const basicsPackage = JSON.parse(
     await fs.readFile(
-      nodePath.resolve(
-        process.cwd(),
-        'node_modules/@sjtu-ai4math/snl-basics/dist-lib/snl-macro-db.json'
-      ),
+      nodePath.resolve(process.cwd(), 'node_modules/@sjtu-ai4math/snl-basics/package.json'),
       'utf8'
     )
   );
-  assert(macroDb['FOL.implies'], 'FOL.implies macro should exist');
   assert(
-    Array.isArray(macroDb['FOL.implies'].styles),
-    'FOL.implies styles is a v8 array'
+    basicsPackage.exports?.['./snl-macro-db.json'] === undefined,
+    'SNL-Basics has no ./snl-macro-db.json package export'
   );
-  assert(
-    macroDb['FOL.implies'].dynamic_arity === false,
-    'FOL.implies v8: dynamic_arity boolean present'
+  await fs.access(
+    nodePath.resolve(process.cwd(), 'node_modules/@sjtu-ai4math/snl-basics/dist-lib/snl-macro-db.json')
+  ).then(
+    () => assert(false, 'SNL-Basics tarball must not contain dist-lib/snl-macro-db.json'),
+    () => assert(true, 'SNL-Basics tarball contains no bundled Macro DB')
   );
-  assert(
-    macroDb['FOL.implies'].styles.some((s) => s.style_name === 'double'),
-    'FOL.implies has a double (⇒) style'
-  );
-  assert(
-    macroDb['FOL.implies'].styles[0].style_name === 'infix',
-    'FOL.implies default (styles[0]) is infix'
-  );
-  assert(macroDb['FOL.implies'].default_style.en === 'infix', 'FOL.implies English default is infix');
-  assert(
-    macroDb['FOL.implies'].styles[0].mode === 'formula_inline',
-    'FOL.implies infix style v8: mode is formula_inline'
-  );
-  assert(
-    !('display' in macroDb['FOL.implies'].styles[0]),
-    'v8: display axis absent from bundled DB'
-  );
-  // The typed binders stay separate macros (different arity).
-  assert(macroDb['FOL.forall.typed'], 'forall.typed macro should exist');
-  assert(macroDb['FOL.exists.typed'], 'exists.typed macro should exist');
-  // Ordinary arithmetic operators belong to downstream macro packages.
-  for (const name of ['Add.add', 'Sub.sub', 'Mul.mul', 'DivRing.div']) {
-    assert(!macroDb[name], `${name} should not be bundled`);
-  }
-  // Legacy top-level macro shape must be fully gone.
-  assert(
-    macroDb['FOL.implies'].mode === undefined &&
-      macroDb['FOL.implies'].defaultStyle === undefined,
-    'v5 macros drop top-level mode / defaultStyle'
-  );
-  // Old dotted-style macro names no longer exist as top-level entries.
-  assert(!macroDb['DivRing.div.inlineDiv'], 'old DivRing.div.inlineDiv should not exist');
-  assert(!macroDb['FOL.forall.binderTyped'], 'old forall.binderTyped should not exist');
 
   console.log('\n[22] v5/v6 package input auto-migrates to strict v8 on read');
   // A fresh temp workspace so we can drop a v5-shape file straight to disk

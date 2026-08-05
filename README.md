@@ -100,7 +100,10 @@ renderers use `block_template_name`, all templates are strings, and each macro
 has a language-to-style `default_style` map. Implicit selection is current
 language → English → `styles[0]`; explicit `[style]` always wins.
 Any package write emits version `8`; plain-string older input is upgraded
-without discarding consumer output backends or unknown extension fields. A v7
+without discarding consumer output backends or unknown extension fields. Macro
+and style names use SNL-Basics' shared Unicode identifier policy: visible
+non-ASCII is accepted broadly, while ASCII punctuation outside the grammar
+allow-list and invisible Unicode controls are rejected. A v7
 localized Macro template requires manual splitting because v8 cannot preserve
 the language-dependent meaning of existing explicit `[style]` source.
 

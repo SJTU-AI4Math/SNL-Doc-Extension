@@ -16,4 +16,18 @@ describe('shared kind form fields', () => {
     expect(color).toContain('type="color"');
     expect(color).toContain('snl-control');
   });
+
+  it('localizes readonly and color accessibility copy', () => {
+    document.documentElement.lang = 'zh-CN';
+    const text = renderToStaticMarkup(
+      <KindTextField label="ID" value="x" onChange={() => {}} readOnly />
+    );
+    const color = renderToStaticMarkup(
+      <ColorField label="描边" value="#123456" onChange={() => {}} />
+    );
+    expect(text).toContain('ID 不可修改');
+    expect(color).toContain('描边颜色选择器');
+    expect(color).toContain('描边颜色值');
+    document.documentElement.lang = 'en';
+  });
 });

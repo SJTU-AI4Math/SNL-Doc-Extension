@@ -1,5 +1,22 @@
 import React from 'react';
 import { FormField, TextInput } from './FormControls';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'kind.fields',
+  {
+    immutableId: 'IDs are immutable; delete + recreate to rename',
+    colorPicker: '{label} color picker',
+    colorValue: '{label} color value',
+    preview: '{name} preview'
+  },
+  {
+    immutableId: 'ID 不可修改；如需重命名，请删除后重新创建',
+    colorPicker: '{label}颜色选择器',
+    colorValue: '{label}颜色值',
+    preview: '{name}预览'
+  }
+);
 
 export function sanitizeForColorInput(value: string): string {
   const trimmed = value.trim();
@@ -14,6 +31,7 @@ export function KindTextField({ label, value, onChange, placeholder, mono, readO
   mono?: boolean;
   readOnly?: boolean;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return <FormField label={label}>
     <TextInput
       type="text"
@@ -22,7 +40,7 @@ export function KindTextField({ label, value, onChange, placeholder, mono, readO
       onChange={(event) => onChange(event.target.value)}
       readOnly={readOnly}
       mono={mono}
-      title={readOnly ? 'IDs are immutable; delete + recreate to rename' : undefined}
+      title={readOnly ? t('immutableId') : undefined}
     />
   </FormField>;
 }
@@ -32,12 +50,13 @@ export function ColorField({ label, value, onChange }: {
   value: string;
   onChange: (value: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return <div className="snl-field" style={{ flex: 1 }}>
     <label className="snl-field__label">{label}</label>
     <div style={{ display: 'flex', gap: '.4rem', alignItems: 'stretch' }}>
       <input
         type="color"
-        aria-label={`${label} color picker`}
+        aria-label={t('colorPicker', { label })}
         value={sanitizeForColorInput(value)}
         onChange={(event) => onChange(event.target.value)}
         className="snl-control"
@@ -45,7 +64,7 @@ export function ColorField({ label, value, onChange }: {
       />
       <TextInput
         value={value}
-        aria-label={`${label} color value`}
+        aria-label={t('colorValue', { label })}
         onChange={(event) => onChange(event.target.value)}
         mono
         style={{ flex: 1 }}
@@ -59,7 +78,8 @@ export function ColorPreview({ stroke, background, name }: {
   background: string;
   name: string;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return <div style={{ marginBottom: '.9rem', padding: '.55rem .75rem', border: `2px solid ${stroke}`, background, color: '#000', borderRadius: 3, fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '.9rem' }}>
-    {name} preview
+    {t('preview', { name })}
   </div>;
 }

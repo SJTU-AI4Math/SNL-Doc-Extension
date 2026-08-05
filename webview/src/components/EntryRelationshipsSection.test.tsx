@@ -93,4 +93,17 @@ describe('EntryRelationshipsSection', () => {
     expand();
     expect(q.getAllByRole('listitem')).toHaveLength(2);
   });
+
+  it('renders the relationship section and empty state in Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    const { container } = render(
+      <EntryRelationshipsSection relationships={[]} />,
+      { container: document.body.appendChild(document.createElement('div')) }
+    );
+    const q = within(container);
+    const toggle = q.getByRole('button', { name: /^关系（0）/ });
+    fireEvent.click(toggle);
+    expect(q.getByText(/尚无关系/)).toBeTruthy();
+    document.documentElement.lang = 'en';
+  });
 });

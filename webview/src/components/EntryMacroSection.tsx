@@ -6,6 +6,21 @@ import {
   type MacroKind,
   type MacroPackageEntry
 } from '../PackagePanelApp';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'entry.macros',
+  {
+    heading: 'Macros',
+    accessibleTitle: 'Macros ({count}) — macros used by this Entry',
+    empty: 'No registered macros are used by this Entry.'
+  },
+  {
+    heading: '宏',
+    accessibleTitle: '宏（{count}）— 此条目使用的宏',
+    empty: '此条目没有使用已注册的宏。'
+  }
+);
 
 export function selectUsedMacros(
   snl: string,
@@ -41,6 +56,7 @@ export function EntryMacroSection({
   postMessage: (message: unknown) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const t = useUiMessages(MESSAGES);
   const sectionId = useId();
   const usedMacros = useMemo(
     () => selectUsedMacros(snl, macros),
@@ -62,7 +78,7 @@ export function EntryMacroSection({
         expanded={open}
         controls={panelId}
         onToggle={() => setOpen((value) => !value)}
-        aria-label={`Macros (${usedMacros.length})`}
+        aria-label={t('accessibleTitle', { count: usedMacros.length })}
         style={{
           cursor: 'pointer',
           display: 'flex',
@@ -77,13 +93,13 @@ export function EntryMacroSection({
           font: 'inherit',
           textAlign: 'left'
         }}
-        title="Macros used by this Entry"
+        title={t('accessibleTitle', { count: usedMacros.length })}
       >
         <span style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
           {open ? '▾' : '▸'}
         </span>
         <span role="heading" aria-level={2} style={{ fontSize: '1rem', fontWeight: 600 }}>
-          Macros
+          {t('heading')}
         </span>
         <span style={{ opacity: 0.55, fontSize: '0.8rem' }}>({usedMacros.length})</span>
       </Disclosure>
@@ -103,7 +119,7 @@ export function EntryMacroSection({
             />
           ) : (
             <p style={{ opacity: 0.55, fontSize: '0.85rem', margin: 0, fontStyle: 'italic' }}>
-              No registered macros are used by this Entry.
+              {t('empty')}
             </p>
           )}
         </div>

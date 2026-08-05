@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   EntryMacroSection,
@@ -67,5 +67,24 @@ describe('EntryMacroSection', () => {
     fireEvent.click(screen.getByRole('button', { name: /Macros/ }));
     expect(screen.getByText('alpha')).toBeTruthy();
     expect(screen.queryByText('beta')).toBeNull();
+  });
+
+  it('renders its accessible section copy in Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    const { container } = render(
+      <EntryMacroSection
+        snl=""
+        macros={{}}
+        macroKinds={[] as MacroKind[]}
+        entryPoolIds={new Set<string>()}
+        postMessage={() => undefined}
+      />,
+      { container: document.body.appendChild(document.createElement('div')) }
+    );
+    const q = within(container);
+    expect(q.getByRole('heading', { name: '宏' })).toBeTruthy();
+    fireEvent.click(q.getByRole('button', { name: /宏/ }));
+    expect(q.getByText(/没有使用已注册的宏/)).toBeTruthy();
+    document.documentElement.lang = 'en';
   });
 });

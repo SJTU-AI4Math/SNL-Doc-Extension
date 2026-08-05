@@ -1,5 +1,22 @@
 import React, { useId, useState } from 'react';
 import { Disclosure } from './Disclosure';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'entry.relationships',
+  {
+    heading: 'Relationships',
+    accessibleTitle: 'Relationships ({count}) — entries related to this Entry; entries that depend on it are not listed',
+    openEntry: 'Open entry "{id}"',
+    empty: 'This Entry has no relationships yet (entries that depend on it are not listed here).'
+  },
+  {
+    heading: '关系',
+    accessibleTitle: '关系（{count}）— 与此条目相关的条目；依赖它的条目不在此列出',
+    openEntry: '打开条目“{id}”',
+    empty: '此条目尚无关系（依赖它的条目不在此列出）。'
+  }
+);
 
 /**
  * A relationship row as shipped by the host (see src/entryRelationships.ts).
@@ -39,6 +56,7 @@ export function EntryRelationshipsSection({
   onOpenEntry?: (entryId: string) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
+  const t = useUiMessages(MESSAGES);
   const sectionId = useId();
   const panelId = `entry-relationships-${sectionId.replace(/[^a-z0-9_-]+/gi, '-')}`;
 
@@ -72,16 +90,13 @@ export function EntryRelationshipsSection({
         }}
         // `Disclosure` publishes `title` as the button's accessible name,
         // so the count has to live here to be reachable by assistive tech.
-        title={
-          `Relationships (${relationships.length}) — entries related to this ` +
-          `Entry; entries that depend on it are not listed`
-        }
+        title={t('accessibleTitle', { count: relationships.length })}
       >
         <span style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
           {open ? '▾' : '▸'}
         </span>
         <span role="heading" aria-level={2} style={{ fontSize: '1rem', fontWeight: 600 }}>
-          Relationships
+          {t('heading')}
         </span>
         <span style={{ opacity: 0.55, fontSize: '0.8rem' }}>
           ({relationships.length})
@@ -128,7 +143,7 @@ export function EntryRelationshipsSection({
                     <button
                       type="button"
                       onClick={() => onOpenEntry(row.otherId)}
-                      title={`Open entry "${row.otherId}"`}
+                      title={t('openEntry', { id: row.otherId })}
                       style={{
                         padding: 0,
                         border: 0,
@@ -165,8 +180,7 @@ export function EntryRelationshipsSection({
                 fontStyle: 'italic'
               }}
             >
-              This Entry has no relationships yet (entries that depend on it
-              are not listed here).
+              {t('empty')}
             </p>
           )}
         </div>

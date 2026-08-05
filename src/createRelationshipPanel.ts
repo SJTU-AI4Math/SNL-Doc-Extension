@@ -1,4 +1,12 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  { createTitle: 'SNL Create Relationship', editTitle: 'SNL Edit Relationship — {id}', loadFailed: 'Could not load Relationship editor data: {error}', noWorkspace: 'SNL Relationship editor requires an open folder / workspace.', noPayload: 'No relationship payload was provided.', updated: 'Relationship “{id}” updated.', conflict: 'Relationship “{id}” changed after this editor opened. Reload before saving.', notFound: 'Relationship “{id}” no longer exists.', unknownEndpoint: 'Unknown {endpoint} entry: “{id}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Relationship “{id}” created.', duplicate: 'Relationship id “{id}” already exists.', editorFailed: 'SNL Relationship editor failed: {error}' },
+  { createTitle: 'SNL 创建关系', editTitle: 'SNL 编辑关系 — {id}', loadFailed: '无法加载关系编辑器数据：{error}', noWorkspace: 'SNL 关系编辑器需要打开文件夹或工作区。', noPayload: '未提供关系数据。', updated: '关系“{id}”已更新。', conflict: '关系“{id}”在此编辑器打开后发生了变化。请重新加载后再保存。', notFound: '关系“{id}”已不存在。', unknownEndpoint: '未知的{endpoint}条目：“{id}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '关系“{id}”已创建。', duplicate: '关系 ID“{id}”已存在。', editorFailed: 'SNL 关系编辑器失败：{error}' }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   addRelationship,
   entityRevision,
@@ -65,10 +73,7 @@ export class CreateRelationshipPanel {
       return;
     }
 
-    const title =
-      mode === 'edit'
-        ? `SNL Edit Relationship — ${id}`
-        : 'SNL Create Relationship';
+    const title = mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle');
     const panel = vscode.window.createWebviewPanel(
       CreateRelationshipPanel.viewType,
       title,
@@ -101,9 +106,7 @@ export class CreateRelationshipPanel {
       this.extensionUri,
       this.panel.webview,
       'createRelationship',
-      mode === 'edit'
-        ? `SNL Edit Relationship — ${id}`
-        : 'SNL Create Relationship'
+      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle')
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -141,7 +144,7 @@ export class CreateRelationshipPanel {
         if (generation !== this.contextGeneration) return;
         void this.panel.webview.postMessage({
           type: 'error',
-          message: `Could not load Relationship editor data: ${error instanceof Error ? error.message : String(error)}`
+          message: hostText()('loadFailed', { error: error instanceof Error ? error.message : String(error) })
         });
         return;
       }
@@ -173,7 +176,7 @@ export class CreateRelationshipPanel {
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Relationship editor requires an open folder / workspace.';
+      const text = hostText()('noWorkspace');
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({ type: 'noWorkspace', message: text });
       return;
@@ -183,7 +186,7 @@ export class CreateRelationshipPanel {
     if (!rel || typeof rel !== 'object') {
       void this.panel.webview.postMessage({
         type: 'invalid',
-        reason: 'no relationship payload'
+        reason: hostText()('noPayload')
       });
       return;
     }
@@ -199,7 +202,7 @@ export class CreateRelationshipPanel {
         switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
-              `Relationship "${result.id}" updated.`
+              hostText()('updated', { id: result.id })
             );
             await this.panel.webview.postMessage({
               type: 'updated',
@@ -208,13 +211,13 @@ export class CreateRelationshipPanel {
             await this.pushContext();
             return;
           case 'conflict': {
-            const text = `Relationship "${result.id}" changed after this editor opened. Reload before saving.`;
+            const text = hostText()('conflict', { id: result.id });
             vscode.window.showWarningMessage(text);
             void this.panel.webview.postMessage({ type: 'conflict', id: result.id, message: text });
             return;
           }
           case 'notFound': {
-            const text = `Relationship "${result.id}" no longer exists.`;
+            const text = hostText()('notFound', { id: result.id });
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'notFound',
@@ -224,7 +227,7 @@ export class CreateRelationshipPanel {
             return;
           }
           case 'unknownEndpoint': {
-            const text = `Unknown ${result.endpoint} entry: "${result.id}".`;
+            const text = hostText()('unknownEndpoint', { endpoint: result.endpoint, id: result.id });
             vscode.window.showWarningMessage(text);
             void this.panel.webview.postMessage({
               type: 'unknownEndpoint',
@@ -241,8 +244,7 @@ export class CreateRelationshipPanel {
             });
             return;
           case 'noSnlDoc': {
-            const text =
-              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            const text = hostText()('initFirst');
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'noSnlDoc',
@@ -264,7 +266,7 @@ export class CreateRelationshipPanel {
       switch (result.status) {
         case 'ok':
           vscode.window.showInformationMessage(
-            `Relationship "${result.id}" created.`
+            hostText()('created', { id: result.id })
           );
           void this.panel.webview.postMessage({
             type: 'created',
@@ -272,7 +274,7 @@ export class CreateRelationshipPanel {
           });
           return;
         case 'duplicate': {
-          const text = `Relationship id "${result.id}" already exists.`;
+          const text = hostText()('duplicate', { id: result.id });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'duplicate',
@@ -299,7 +301,7 @@ export class CreateRelationshipPanel {
           });
           return;
         case 'noSnlDoc': {
-          const text = '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+          const text = hostText()('initFirst');
           vscode.window.showErrorMessage(text);
           void this.panel.webview.postMessage({
             type: 'noSnlDoc',
@@ -316,7 +318,7 @@ export class CreateRelationshipPanel {
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Relationship editor failed: ${text}`);
+      vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }

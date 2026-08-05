@@ -1,4 +1,16 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  {
+    createTitle: 'SNL Create Macro — {file}', editTitle: 'SNL Edit Macro — {name} ({file})', loadFailed: 'Could not load Macro editor data: {error}', loadPackageFailed: 'Could not load Macro Package {file}: {error}', noWorkspace: 'SNL Macro editor requires an open folder / workspace.', noPayload: 'No macro payload was provided.', updated: 'Macro “{name}” in {file}.json updated.', notFound: 'Macro “{name}” no longer exists in {file}.json.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Macro “{name}” added to {file}.json.', duplicate: 'Macro “{name}” already exists in this package.', noFile: 'Package {file}.json no longer exists.', editorFailed: 'SNL Macro editor failed: {error}'
+  },
+  {
+    createTitle: 'SNL 创建宏 — {file}', editTitle: 'SNL 编辑宏 — {name}（{file}）', loadFailed: '无法加载宏编辑器数据：{error}', loadPackageFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏编辑器需要打开文件夹或工作区。', noPayload: '未提供宏数据。', updated: '宏“{name}”已在 {file}.json 中更新。', notFound: '宏“{name}”已不在 {file}.json 中。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '宏“{name}”已添加到 {file}.json。', duplicate: '宏“{name}”已存在于此包中。', noFile: '包 {file}.json 已不存在。', editorFailed: 'SNL 宏编辑器失败：{error}'
+  }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   addMacro,
   entityRevision,
@@ -144,10 +156,9 @@ export class CreateMacroPanel {
       return;
     }
 
-    const title =
-      mode === 'edit'
-        ? `SNL Edit Macro — ${macroName} (${file})`
-        : `SNL Create Macro — ${file}`;
+    const title = mode === 'edit'
+      ? hostText()('editTitle', { name: macroName, file })
+      : hostText()('createTitle', { file });
 
     const panel = vscode.window.createWebviewPanel(
       CreateMacroPanel.viewType,
@@ -183,10 +194,9 @@ export class CreateMacroPanel {
     this.prefill = prefill;
     this.instanceKey = instanceKey;
 
-    const title =
-      mode === 'edit'
-        ? `SNL Edit Macro — ${macroName} (${file})`
-        : `SNL Create Macro — ${file}`;
+    const title = mode === 'edit'
+      ? hostText()('editTitle', { name: macroName, file })
+      : hostText()('createTitle', { file });
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
       this.panel.webview,
@@ -270,7 +280,7 @@ export class CreateMacroPanel {
       if (generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({
         type: 'error',
-        message: `Could not load Macro editor data: ${error instanceof Error ? error.message : String(error)}`
+        message: hostText()('loadFailed', { error: error instanceof Error ? error.message : String(error) })
       });
       return;
     }
@@ -317,7 +327,7 @@ export class CreateMacroPanel {
     if (read.status === 'error') {
       void this.panel.webview.postMessage({
         type: 'error',
-        message: `Could not load Macro Package ${JSON.stringify(this.file)}: ${read.message}`
+        message: hostText()('loadPackageFailed', { file: JSON.stringify(this.file), error: read.message })
       });
       return;
     }
@@ -382,7 +392,7 @@ export class CreateMacroPanel {
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Macro editor requires an open folder / workspace.';
+      const text = hostText()('noWorkspace');
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -395,7 +405,7 @@ export class CreateMacroPanel {
     if (!macro || typeof macro !== 'object') {
       void this.panel.webview.postMessage({
         type: 'invalid',
-        reason: 'no macro payload'
+        reason: hostText()('noPayload')
       });
       return;
     }
@@ -413,7 +423,7 @@ export class CreateMacroPanel {
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
-              `Macro "${result.name}" in ${this.file}.json updated.`
+              hostText()('updated', { name: result.name, file: this.file })
             );
             void this.panel.webview.postMessage({
               type: 'updated',
@@ -422,7 +432,7 @@ export class CreateMacroPanel {
             await this.pushContext();
             return;
           case 'notFound': {
-            const text = `Macro "${result.id}" no longer exists in ${this.file}.json.`;
+            const text = hostText()('notFound', { name: result.id, file: this.file });
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'notFound',
@@ -432,8 +442,7 @@ export class CreateMacroPanel {
             return;
           }
           case 'noSnlDoc': {
-            const text =
-              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            const text = hostText()('initFirst');
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'noSnlDoc',
@@ -460,7 +469,7 @@ export class CreateMacroPanel {
       switch (result.status) {
         case 'ok':
           vscode.window.showInformationMessage(
-            `Macro "${result.name}" added to ${this.file}.json.`
+            hostText()('created', { name: result.name, file: this.file })
           );
           void this.panel.webview.postMessage({
             type: 'created',
@@ -477,7 +486,7 @@ export class CreateMacroPanel {
           await this.pushContext();
           return;
         case 'duplicate': {
-          const text = `Macro "${result.name}" already exists in this package.`;
+          const text = hostText()('duplicate', { name: result.name });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'duplicate',
@@ -487,7 +496,7 @@ export class CreateMacroPanel {
           return;
         }
         case 'noFile': {
-          const text = `Package ${this.file}.json no longer exists.`;
+          const text = hostText()('noFile', { file: this.file });
           vscode.window.showErrorMessage(text);
           void this.panel.webview.postMessage({
             type: 'noFile',
@@ -510,7 +519,7 @@ export class CreateMacroPanel {
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Macro editor failed: ${text}`);
+      vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
@@ -538,7 +547,7 @@ export class CreateMacroPanel {
     }
     this.instanceKey = newKey;
     CreateMacroPanel.instances.set(newKey, this);
-    this.panel.title = `SNL Edit Macro — ${this.macroName} (${this.file})`;
+    this.panel.title = hostText()('editTitle', { name: this.macroName, file: this.file });
   }
 
   public dispose(): void {

@@ -11,6 +11,9 @@ vi.mock('vscode', () => ({
   window: { showErrorMessage: vi.fn() },
   commands: { executeCommand: vi.fn() }
 }));
+vi.mock('./preferences', () => ({
+  read_extension_preferences: () => ({ language: 'en' })
+}));
 vi.mock('./snlDoc', () => ({
   readEntries: vi.fn(async () => { if (reads.entryError) throw reads.entryError; return []; }),
   readEntryKinds: async () => [],

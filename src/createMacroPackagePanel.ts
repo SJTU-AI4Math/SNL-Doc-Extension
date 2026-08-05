@@ -1,4 +1,12 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  { createTitle: 'SNL Create Macro Package', editTitle: 'SNL Edit Macro Package — {file}', loadFailed: 'Could not load Macro Package {file}: {error}', noWorkspace: 'SNL Macro Package editor requires an open folder / workspace.', updated: 'Macro package “{file}” updated.', notFound: 'Macro package “{file}” no longer exists.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Macro package “{file}” created.', duplicate: 'Macro package “{file}” already exists.', editorFailed: 'SNL Macro Package editor failed: {error}' },
+  { createTitle: 'SNL 创建宏包', editTitle: 'SNL 编辑宏包 — {file}', loadFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏包编辑器需要打开文件夹或工作区。', updated: '宏包“{file}”已更新。', notFound: '宏包“{file}”已不存在。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '宏包“{file}”已创建。', duplicate: '宏包“{file}”已存在。', editorFailed: 'SNL 宏包编辑器失败：{error}' }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   createMacroPackage,
   macroPackageMetadataRevision,
@@ -64,10 +72,7 @@ export class CreateMacroPackagePanel {
       return;
     }
 
-    const title =
-      mode === 'edit'
-        ? `SNL Edit Macro Package — ${file}`
-        : 'SNL Create Macro Package';
+    const title = mode === 'edit' ? hostText()('editTitle', { file }) : hostText()('createTitle');
     const panel = vscode.window.createWebviewPanel(
       CreateMacroPackagePanel.viewType,
       title,
@@ -100,9 +105,7 @@ export class CreateMacroPackagePanel {
       this.extensionUri,
       this.panel.webview,
       'createMacroPackage',
-      mode === 'edit'
-        ? `SNL Edit Macro Package — ${file}`
-        : 'SNL Create Macro Package'
+      mode === 'edit' ? hostText()('editTitle', { file }) : hostText()('createTitle')
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -176,7 +179,7 @@ export class CreateMacroPackagePanel {
     if (read.status === 'error') {
       void this.panel.webview.postMessage({
         type: 'error',
-        message: `Could not load Macro Package ${JSON.stringify(this.file)}: ${read.message}`
+        message: hostText()('loadFailed', { file: JSON.stringify(this.file), error: read.message })
       });
       return;
     }
@@ -212,8 +215,7 @@ export class CreateMacroPackagePanel {
 
     const workspaceRoot = firstWorkspaceFolder();
     if (!workspaceRoot) {
-      const text =
-        'SNL Macro Package editor requires an open folder / workspace.';
+      const text = hostText()('noWorkspace');
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -235,7 +237,7 @@ export class CreateMacroPackagePanel {
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
-              `Macro package "${result.file}" updated.`
+              hostText()('updated', { file: result.file })
             );
             void this.panel.webview.postMessage({
               type: 'updated',
@@ -244,7 +246,7 @@ export class CreateMacroPackagePanel {
             });
             return;
           case 'notFound': {
-            const text = `Macro package "${result.id}" no longer exists.`;
+            const text = hostText()('notFound', { file: result.id });
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'notFound',
@@ -254,8 +256,7 @@ export class CreateMacroPackagePanel {
             return;
           }
           case 'noSnlDoc': {
-            const text =
-              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            const text = hostText()('initFirst');
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'noSnlDoc',
@@ -288,7 +289,7 @@ export class CreateMacroPackagePanel {
       switch (result.status) {
         case 'ok':
           vscode.window.showInformationMessage(
-            `Macro package "${result.file}" created.`
+            hostText()('created', { file: result.file })
           );
           void this.panel.webview.postMessage({
             type: 'created',
@@ -301,7 +302,7 @@ export class CreateMacroPackagePanel {
           );
           return;
         case 'duplicate': {
-          const text = `Macro package "${result.file}" already exists.`;
+          const text = hostText()('duplicate', { file: result.file });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'duplicate',
@@ -311,7 +312,7 @@ export class CreateMacroPackagePanel {
           return;
         }
         case 'noSnlDoc': {
-          const text = '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+          const text = hostText()('initFirst');
           vscode.window.showErrorMessage(text);
           void this.panel.webview.postMessage({
             type: 'noSnlDoc',
@@ -335,7 +336,7 @@ export class CreateMacroPackagePanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Macro Package editor failed: ${text}`
+        hostText()('editorFailed', { error: text })
       );
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }

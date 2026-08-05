@@ -1,4 +1,16 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  {
+    createTitle: 'SNL Create Entry', editTitle: 'SNL Edit Entry — {id}', loadFailed: 'Could not load Entry editor data: {error}', noWorkspace: 'SNL Entry editor requires an open folder / workspace.', noPayload: 'No entry payload was provided.', updated: 'Entry “{title}” ({id}) updated.', notFound: 'Entry “{id}” no longer exists.', unknownKind: 'Unknown entry kind: “{kind}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Entry “{title}” ({id}) created.', duplicate: 'Entry id “{id}” already exists.', editorFailed: 'SNL Entry editor failed: {error}', macroNoWorkspace: 'Cannot open the Macro editor: no workspace / folder is open.', createPackage: '＋ Create new package…', createPackageDescription: 'Open the Create Macro Package panel', chooseNamedPackage: 'Create macro “{name}” — choose target package', choosePackage: 'Create macro — choose target package', selectOrCreate: 'Select an existing package or create a new one', noActivePackages: 'No active packages yet — create one to hold this macro', selectPackageFile: 'Select the .SNL_Doc/term_macros/*.json to add it to', openMacroFailed: 'Failed to open Macro editor: {error}'
+  },
+  {
+    createTitle: 'SNL 创建条目', editTitle: 'SNL 编辑条目 — {id}', loadFailed: '无法加载条目编辑器数据：{error}', noWorkspace: 'SNL 条目编辑器需要打开文件夹或工作区。', noPayload: '未提供条目数据。', updated: '条目“{title}”（{id}）已更新。', notFound: '条目“{id}”已不存在。', unknownKind: '未知条目类型：“{kind}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '条目“{title}”（{id}）已创建。', duplicate: '条目 ID“{id}”已存在。', editorFailed: 'SNL 条目编辑器失败：{error}', macroNoWorkspace: '无法打开宏编辑器：当前未打开工作区或文件夹。', createPackage: '＋ 创建新包…', createPackageDescription: '打开“创建宏包”面板', chooseNamedPackage: '创建宏“{name}”——选择目标包', choosePackage: '创建宏——选择目标包', selectOrCreate: '选择现有包或创建新包', noActivePackages: '尚无活动包——请创建一个用于存放此宏', selectPackageFile: '选择要添加到的 .SNL_Doc/term_macros/*.json', openMacroFailed: '无法打开宏编辑器：{error}'
+  }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import { toEntryOption } from './entryPoolOption';
 import { selectEntryRelationships } from './entryRelationships';
 import {
@@ -138,8 +150,9 @@ export class CreateEntryPanel {
       return;
     }
 
-    const title =
-      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry';
+    const title = mode === 'edit'
+      ? hostText()('editTitle', { id })
+      : hostText()('createTitle');
     const panel = vscode.window.createWebviewPanel(
       CreateEntryPanel.viewType,
       title,
@@ -183,8 +196,9 @@ export class CreateEntryPanel {
     if (mode === 'create' && seedId) {
       this.seedId = seedId;
     }
-    this.panel.title =
-      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry';
+    this.panel.title = mode === 'edit'
+      ? hostText()('editTitle', { id })
+      : hostText()('createTitle');
     this.panel.reveal(column);
     if (sameTarget) {
       // Re-opening what is already shown: leave the author's in-progress
@@ -220,7 +234,7 @@ export class CreateEntryPanel {
       this.extensionUri,
       this.panel.webview,
       'createEntry',
-      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry'
+      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle')
     );
     // The webview now starts fetching + parsing its bundle on its own clock;
     // `webview:*` marks below come back from inside it.
@@ -285,7 +299,7 @@ export class CreateEntryPanel {
       if (generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({
         type: 'error',
-        message: `Could not load Entry editor data: ${error instanceof Error ? error.message : String(error)}`
+        message: hostText()('loadFailed', { error: error instanceof Error ? error.message : String(error) })
       });
       return;
     }
@@ -413,7 +427,7 @@ export class CreateEntryPanel {
 
     const root = firstWorkspaceFolder();
     if (!root) {
-      const text = 'SNL Entry editor requires an open folder / workspace.';
+      const text = hostText()('noWorkspace');
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
@@ -426,7 +440,7 @@ export class CreateEntryPanel {
     if (!entry || typeof entry !== 'object') {
       void this.panel.webview.postMessage({
         type: 'invalid',
-        reason: 'no entry payload'
+        reason: hostText()('noPayload')
       });
       return;
     }
@@ -444,7 +458,7 @@ export class CreateEntryPanel {
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
-              `Entry "${entry.title}" (${result.id}) updated.`
+              hostText()('updated', { title: entry.title, id: result.id })
             );
             await this.panel.webview.postMessage({
               type: 'updated',
@@ -453,7 +467,7 @@ export class CreateEntryPanel {
             await this.pushContext();
             return;
           case 'notFound': {
-            const text = `Entry "${result.id}" no longer exists.`;
+            const text = hostText()('notFound', { id: result.id });
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'notFound',
@@ -463,7 +477,7 @@ export class CreateEntryPanel {
             return;
           }
           case 'unknownKind': {
-            const text = `Unknown entry kind: "${result.kind}".`;
+            const text = hostText()('unknownKind', { kind: result.kind });
             vscode.window.showWarningMessage(text);
             void this.panel.webview.postMessage({
               type: 'unknownKind',
@@ -479,8 +493,7 @@ export class CreateEntryPanel {
             });
             return;
           case 'noSnlDoc': {
-            const text =
-              '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+            const text = hostText()('initFirst');
             vscode.window.showErrorMessage(text);
             void this.panel.webview.postMessage({
               type: 'noSnlDoc',
@@ -501,7 +514,7 @@ export class CreateEntryPanel {
       switch (result.status) {
         case 'ok':
           vscode.window.showInformationMessage(
-            `Entry "${entry.title}" (${result.id}) created.`
+            hostText()('created', { title: entry.title, id: result.id })
           );
           void this.panel.webview.postMessage({
             type: 'created',
@@ -516,11 +529,11 @@ export class CreateEntryPanel {
           this.mode = 'edit';
           this.id = result.id;
           this.seedId = '';
-          this.panel.title = `SNL Edit Entry — ${result.id}`;
+          this.panel.title = hostText()('editTitle', { id: result.id });
           await this.pushContext();
           return;
         case 'duplicate': {
-          const text = `Entry id "${result.id}" already exists.`;
+          const text = hostText()('duplicate', { id: result.id });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'duplicate',
@@ -530,7 +543,7 @@ export class CreateEntryPanel {
           return;
         }
         case 'unknownKind': {
-          const text = `Unknown entry kind: "${result.kind}".`;
+          const text = hostText()('unknownKind', { kind: result.kind });
           vscode.window.showWarningMessage(text);
           void this.panel.webview.postMessage({
             type: 'unknownKind',
@@ -546,7 +559,7 @@ export class CreateEntryPanel {
           });
           return;
         case 'noSnlDoc': {
-          const text = '.SNL_Doc does not exist yet. Run "SNL: Init" first.';
+          const text = hostText()('initFirst');
           vscode.window.showErrorMessage(text);
           void this.panel.webview.postMessage({
             type: 'noSnlDoc',
@@ -563,7 +576,7 @@ export class CreateEntryPanel {
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`SNL Entry editor failed: ${text}`);
+      vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
@@ -585,7 +598,7 @@ export class CreateEntryPanel {
     const root = firstWorkspaceFolder();
     if (!root) {
       vscode.window.showErrorMessage(
-        'Cannot open the Macro editor: no workspace / folder is open.'
+        hostText()('macroNoWorkspace')
       );
       return;
     }
@@ -629,8 +642,8 @@ export class CreateEntryPanel {
         pkg: bare
       }));
       items.push({
-        label: '＋ Create new package…',
-        description: 'Open the Create Macro Package panel',
+        label: hostText()('createPackage'),
+        description: hostText()('createPackageDescription'),
         pkg: CREATE_NEW_SENTINEL
       });
       let target: string | undefined;
@@ -640,20 +653,20 @@ export class CreateEntryPanel {
         // an auto-accept). Cat 2026-07-15.
         const chosen = await vscode.window.showQuickPick(items, {
           title: name
-            ? `Create macro "${name}" — choose target package`
-            : 'Create macro — choose target package',
-          placeHolder: 'Select an existing package or create a new one'
+            ? hostText()('chooseNamedPackage', { name })
+            : hostText()('choosePackage'),
+          placeHolder: hostText()('selectOrCreate')
         });
         target = chosen?.pkg;
       } else {
         const chosen = await vscode.window.showQuickPick(items, {
           title: name
-            ? `Create macro "${name}" — choose target package`
-            : 'Create macro — choose target package',
+            ? hostText()('chooseNamedPackage', { name })
+            : hostText()('choosePackage'),
           placeHolder:
             activeList.length === 0
-              ? 'No active packages yet — create one to hold this macro'
-              : 'Select the .SNL_Doc/term_macros/*.json to add it to'
+              ? hostText()('noActivePackages')
+              : hostText()('selectPackageFile')
         });
         target = chosen?.pkg;
       }
@@ -689,9 +702,7 @@ export class CreateEntryPanel {
       );
     } catch (err) {
       vscode.window.showErrorMessage(
-        `Failed to open Macro editor: ${
-          err instanceof Error ? err.message : String(err)
-        }`
+        hostText()('openMacroFailed', { error: err instanceof Error ? err.message : String(err) })
       );
     }
   }

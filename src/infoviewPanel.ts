@@ -1,4 +1,16 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  {
+    browserTitle: 'SNL Infoview', entryTitle: 'SNL — {id}', deleteMacro: 'Delete macro “{name}” from package “{file}”?', cannotUndo: 'This cannot be undone.', delete: 'Delete', deleteMacroFailed: 'Delete macro failed: {error}', listLibrariesFailed: 'SNL Infoview: failed to list libraries: {error}', loadLibraryFailed: 'SNL Infoview: failed to load library “{slug}”: {error}', counterMissing: 'Entry node “{nodeId}” pins counterId “{counterId}” which is not in the counter tree; falling back to the kind’s default counter', loadEntryFailed: 'SNL Infoview: failed to load entry: {error}', loadPopoverFailed: 'SNL Infoview: failed to load popover entry: {error}', sharedEntryMissing: 'Entry “{entryId}” referenced by node “{nodeId}” not found in shared pool'
+  },
+  {
+    browserTitle: 'SNL 信息视图', entryTitle: 'SNL — {id}', deleteMacro: '要从包“{file}”中删除宏“{name}”吗？', cannotUndo: '此操作无法撤销。', delete: '删除', deleteMacroFailed: '删除宏失败：{error}', listLibrariesFailed: 'SNL 信息视图：无法列出库：{error}', loadLibraryFailed: 'SNL 信息视图：无法加载库“{slug}”：{error}', counterMissing: '条目节点“{nodeId}”指定的计数器 ID“{counterId}”不在计数器树中；将回退到该类型的默认计数器', loadEntryFailed: 'SNL 信息视图：无法加载条目：{error}', loadPopoverFailed: 'SNL 信息视图：无法加载弹出条目：{error}', sharedEntryMissing: '节点“{nodeId}”引用的条目“{entryId}”未在共享池中找到'
+  }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   batchDeleteMacros,
   listLibraries,
@@ -154,7 +166,7 @@ export class InfoviewPanel {
 
     const panel = vscode.window.createWebviewPanel(
       InfoviewPanel.browserViewType,
-      'SNL Infoview',
+      hostText()('browserTitle'),
       column,
       {
         enableScripts: true,
@@ -169,7 +181,7 @@ export class InfoviewPanel {
       extensionUri,
       null,
       'main',
-      'SNL Infoview'
+      hostText()('browserTitle')
     );
     instance.openTrace = trace;
     InfoviewPanel.browserPanel = instance;
@@ -199,7 +211,7 @@ export class InfoviewPanel {
 
     const panel = vscode.window.createWebviewPanel(
       `snlInfoview.entry.${entryId}`,
-      `SNL — ${entryId}`,
+      hostText()('entryTitle', { id: entryId }),
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -213,7 +225,7 @@ export class InfoviewPanel {
       extensionUri,
       entryId,
       'entryInfoview',
-      `SNL — ${entryId}`
+      hostText()('entryTitle', { id: entryId })
     );
 
     InfoviewPanel.panels.set(entryId, instance);
@@ -483,17 +495,17 @@ export class InfoviewPanel {
         const file = await this.findActiveMacroPackage(name);
         if (!file) return;
         const confirmed = await vscode.window.showWarningMessage(
-          `Delete macro "${name}" from package "${file}"?`,
-          { modal: true, detail: 'This cannot be undone.' },
-          'Delete'
+          hostText()('deleteMacro', { name, file }),
+          { modal: true, detail: hostText()('cannotUndo') },
+          hostText()('delete')
         );
-        if (confirmed !== 'Delete') return;
+        if (confirmed !== hostText()('delete')) return;
         const root = firstWorkspaceFolder();
         if (!root) return;
         const result = await batchDeleteMacros(root, file, [name]);
         if (result.status !== 'ok') {
           vscode.window.showErrorMessage(
-            `Delete macro failed: ${'message' in result ? result.message : result.status}`
+            hostText()('deleteMacroFailed', { error: 'message' in result ? result.message : result.status })
           );
           return;
         }
@@ -548,7 +560,7 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to list libraries: ${text}`
+        hostText()('listLibrariesFailed', { error: text })
       );
       void this.panel.webview.postMessage({ type: 'libraries', libraries: [] });
     }
@@ -637,7 +649,7 @@ export class InfoviewPanel {
         const cid = node.props?.counterId;
         if (typeof cid === 'string' && cid && !counterIdSet.has(cid)) {
           warnings.push(
-            `Entry node "${node.id}" pins counterId "${cid}" which is not in the counter tree; falling back to the kind's default counter`
+            hostText()('counterMissing', { nodeId: node.id, counterId: cid })
           );
         }
       }
@@ -716,7 +728,7 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to load library "${slug}": ${text}`
+        hostText()('loadLibraryFailed', { slug, error: text })
       );
       void this.panel.webview.postMessage({
         type: 'libraryEntries',
@@ -805,7 +817,7 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to load entry: ${text}`
+        hostText()('loadEntryFailed', { error: text })
       );
     }
   }
@@ -862,7 +874,7 @@ export class InfoviewPanel {
         });
         return;
       }
-      this.panel.title = `SNL — ${entry.title}`;
+      this.panel.title = hostText()('entryTitle', { id: entry.title });
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
@@ -936,7 +948,7 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to load entry: ${text}`
+        hostText()('loadEntryFailed', { error: text })
       );
     }
   }
@@ -986,7 +998,7 @@ export class InfoviewPanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Infoview: failed to load popover entry: ${text}`
+        hostText()('loadPopoverFailed', { error: text })
       );
     }
   }
@@ -1099,7 +1111,7 @@ export function buildOutline(
         kind = kindsById.get(resolved.kind) ?? null;
       } else {
         warnings.push(
-          `Entry "${entryId}" referenced by node "${nodeId}" not found in shared pool`
+          hostText()('sharedEntryMissing', { entryId, nodeId })
         );
       }
     }

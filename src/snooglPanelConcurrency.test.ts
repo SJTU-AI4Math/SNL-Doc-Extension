@@ -46,6 +46,9 @@ vi.mock('./panelUtil', () => ({
   firstWorkspaceFolder: () => ({ path: '/workspace', fsPath: '/workspace' }),
   handlePanelNavMessage: async () => false
 }));
+vi.mock('./preferences', () => ({
+  read_extension_preferences: () => ({ language: 'en' })
+}));
 
 describe('SNoogLPanel query ordering', () => {
   it('never lets an older slower query replace the newest results', async () => {

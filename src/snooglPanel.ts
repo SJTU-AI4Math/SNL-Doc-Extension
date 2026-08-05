@@ -1,4 +1,12 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  { title: 'SNoogL — Search', noWorkspace: 'Open a folder / workspace to search.', packageReadFailed: 'Could not read Macro Package {file}: {error}', searchFailed: 'Search failed: {error}' },
+  { title: 'SNoogL — 搜索', noWorkspace: '请打开文件夹或工作区以进行搜索。', packageReadFailed: '无法读取宏包 {file}：{error}', searchFailed: '搜索失败：{error}' }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   readAllMacros,
   readEntries,
@@ -88,7 +96,7 @@ export class SnoogLPanel {
     }
     const panel = vscode.window.createWebviewPanel(
       SnoogLPanel.viewType,
-      'SNoogL — Search',
+      hostText()('title'),
       column,
       {
         enableScripts: true,
@@ -111,7 +119,7 @@ export class SnoogLPanel {
       this.extensionUri,
       this.panel.webview,
       'snoogl',
-      'SNoogL — Search'
+      hostText()('title')
     );
 
     this.panel.webview.onDidReceiveMessage(
@@ -192,7 +200,7 @@ export class SnoogLPanel {
         if (generation !== this.queryGeneration) return;
         void this.panel.webview.postMessage({
           type: 'error',
-          message: 'Open a folder / workspace to search.'
+          message: hostText()('noWorkspace')
         });
         return;
       }
@@ -219,7 +227,7 @@ export class SnoogLPanel {
           const out: SnoogLHitMacro[] = [];
           for (const { bare, read } of loaded) {
             if (read.status === 'error') {
-              throw new Error(`Could not read Macro Package ${bare}: ${read.message}`);
+              throw new Error(hostText()('packageReadFailed', { file: bare, error: read.message }));
             }
             if (read.status === 'noFile') continue;
             for (const m of read.macros) {
@@ -270,7 +278,7 @@ export class SnoogLPanel {
       if (generation !== this.queryGeneration) return;
       void this.panel.webview.postMessage({
         type: 'error',
-        message: `Search failed: ${err instanceof Error ? err.message : String(err)}`
+        message: hostText()('searchFailed', { error: err instanceof Error ? err.message : String(err) })
       });
     }
   }

@@ -1,4 +1,12 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  { panelPoolTitle: 'SNL Relationship Graph', panelLibraryTitle: 'SNL Graph — {slug}', poolTitle: 'Relationship Graph', libraryTitle: 'Graph — {name}', noWorkspace: 'No workspace folder open.', refreshFailed: 'SNL graph refresh failed: {error}', libraryMissing: 'Library “{slug}” not found.', storageFailed: 'SNL Graph could not load entity storage: {error}', untitled: '(untitled)', unknown: 'unknown', popoverFailed: 'SNL Graph: failed to load popover entry: {error}' },
+  { panelPoolTitle: 'SNL 关系图', panelLibraryTitle: 'SNL 图谱 — {slug}', poolTitle: '关系图', libraryTitle: '图谱 — {name}', noWorkspace: '未打开工作区文件夹。', refreshFailed: 'SNL 图谱刷新失败：{error}', libraryMissing: '未找到库“{slug}”。', storageFailed: 'SNL 图谱无法加载实体存储：{error}', untitled: '（无标题）', unknown: '未知', popoverFailed: 'SNL 图谱：无法加载弹出条目：{error}' }
+);
+const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
   listLibraries,
   readAllMacros,
@@ -86,10 +94,9 @@ export class GraphPanel {
       void existing.pushGraph();
       return;
     }
-    const title =
-      scope.mode === 'pool'
-        ? 'SNL Relationship Graph'
-        : `SNL Graph — ${scope.slug}`;
+    const title = scope.mode === 'pool'
+      ? hostText()('panelPoolTitle')
+      : hostText()('panelLibraryTitle', { slug: scope.slug });
     const panel = vscode.window.createWebviewPanel(
       GraphPanel.viewType,
       title,
@@ -112,10 +119,9 @@ export class GraphPanel {
     this.extensionUri = extensionUri;
     this.scope = scope;
 
-    const title =
-      scope.mode === 'pool'
-        ? 'SNL Relationship Graph'
-        : `SNL Graph — ${scope.slug}`;
+    const title = scope.mode === 'pool'
+      ? hostText()('panelPoolTitle')
+      : hostText()('panelLibraryTitle', { slug: scope.slug });
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -222,11 +228,11 @@ export class GraphPanel {
         scope: this.scope,
         title:
           this.scope.mode === 'pool'
-            ? 'Relationship Graph'
-            : `Graph — ${this.scope.slug}`,
+            ? hostText()('poolTitle')
+            : hostText()('libraryTitle', { name: this.scope.slug }),
         nodes: [],
         edges: [],
-        warnings: ['No workspace folder open.']
+        warnings: [hostText()('noWorkspace')]
       });
       return;
     }
@@ -242,11 +248,11 @@ export class GraphPanel {
       ]);
     } catch (err) {
       if (generation !== this.graphGeneration) return;
-      const message = `SNL graph refresh failed: ${err instanceof Error ? err.message : String(err)}`;
+      const message = hostText()('refreshFailed', { error: err instanceof Error ? err.message : String(err) });
       void this.panel.webview.postMessage({
         type: 'graphError',
         scope: this.scope,
-        title: this.scope.mode === 'pool' ? 'Relationship Graph' : `Graph — ${this.scope.slug}`,
+        title: this.scope.mode === 'pool' ? hostText()('poolTitle') : hostText()('libraryTitle', { name: this.scope.slug }),
         message
       });
       void vscode.window.showErrorMessage(message);
@@ -259,13 +265,13 @@ export class GraphPanel {
     let displayTitle: string;
     if (this.scope.mode === 'library') {
       const scopeSlug = this.scope.slug;
-      displayTitle = `Graph — ${scopeSlug}`;
+      displayTitle = hostText()('libraryTitle', { name: scopeSlug });
       try {
         const libraries = await listLibraries(root);
         if (generation !== this.graphGeneration) return;
         const lib = libraries.find((l) => l.slug === scopeSlug);
         if (!lib) {
-          warnings.push(`Library "${scopeSlug}" not found.`);
+          warnings.push(hostText()('libraryMissing', { slug: scopeSlug }));
           void this.panel.webview.postMessage({
             type: 'graph',
             scope: this.scope,
@@ -276,11 +282,11 @@ export class GraphPanel {
           });
           return;
         }
-        displayTitle = `Graph — ${lib.title}`;
+        displayTitle = hostText()('libraryTitle', { name: lib.title });
         const graphResult = await readLibraryGraph(root, scopeSlug);
         if (generation !== this.graphGeneration) return;
         if (graphResult.status === 'error') {
-          const message = `SNL graph refresh failed: ${graphResult.message}`;
+          const message = hostText()('refreshFailed', { error: graphResult.message });
           void this.panel.webview.postMessage({
             type: 'graphError', scope: this.scope, title: displayTitle, message
           });
@@ -298,7 +304,7 @@ export class GraphPanel {
         }
       } catch (error) {
         if (generation !== this.graphGeneration) return;
-        const message = `SNL graph refresh failed: ${error instanceof Error ? error.message : String(error)}`;
+        const message = hostText()('refreshFailed', { error: error instanceof Error ? error.message : String(error) });
         void this.panel.webview.postMessage({
           type: 'graphError', scope: this.scope, title: displayTitle, message
         });
@@ -306,7 +312,7 @@ export class GraphPanel {
         return;
       }
     } else {
-      displayTitle = 'Relationship Graph';
+      displayTitle = hostText()('poolTitle');
     }
 
     // Build filtered edge set + participating node set. "Isolated" here
@@ -355,8 +361,8 @@ export class GraphPanel {
       const kind = e ? kindById.get(e.kind) : undefined;
       nodes.push({
         id,
-        title: e ? e.title || '(untitled)' : `⚠ ${id}`,
-        kind: kind ? kind.name : e ? e.kind : 'unknown',
+        title: e ? e.title || hostText()('untitled') : `⚠ ${id}`,
+        kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',
         color: kind ? kind.coloring.stroke : '#888888',
         background: kind ? kind.coloring.background : 'transparent'
@@ -385,7 +391,7 @@ export class GraphPanel {
       ]);
     } catch (error) {
       if (generation !== this.graphGeneration) return;
-      const message = `SNL Graph could not load entity storage: ${error instanceof Error ? error.message : String(error)}`;
+      const message = hostText()('storageFailed', { error: error instanceof Error ? error.message : String(error) });
       void this.panel.webview.postMessage({
         type: 'graphError', scope: this.scope, title: displayTitle, message
       });
@@ -433,7 +439,7 @@ export class GraphPanel {
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(
-        `SNL Graph: failed to load popover entry: ${text}`
+        hostText()('popoverFailed', { error: text })
       );
     }
   }

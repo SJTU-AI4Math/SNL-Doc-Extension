@@ -37,18 +37,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+const ENTITY_READ_CONCURRENCY = 8;
+
+type ReadOutcome =
+  | { ok: true; value: unknown | null }
+  | { ok: false; error: unknown };
+
 async function readDirectory(
   storage: EntityReadStorage,
   directory: string
 ): Promise<Array<{ path: string; value: unknown }>> {
-  const records: Array<{ path: string; value: unknown }> = [];
-  for (const file of await storage.listJsonFiles(directory)) {
-    const path = `${directory}/${file}`;
-    const value = await storage.readJson(path);
-    if (value === null) throw new Error(`Entity file disappeared while reading: ${path}.`);
-    records.push({ path, value });
-  }
-  return records;
+  const files = await storage.listJsonFiles(directory);
+  const paths = files.map((file) => `${directory}/${file}`);
+  const outcomes = new Array<ReadOutcome>(paths.length);
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < paths.length) {
+      const index = nextIndex++;
+      try {
+        outcomes[index] = { ok: true, value: await storage.readJson(paths[index]) };
+      } catch (error) {
+        outcomes[index] = { ok: false, error };
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(ENTITY_READ_CONCURRENCY, paths.length) }, () => worker())
+  );
+
+  return outcomes.map((outcome, index) => {
+    if (!outcome.ok) throw outcome.error;
+    const path = paths[index];
+    if (outcome.value === null) {
+      throw new Error(`Entity file disappeared while reading: ${path}.`);
+    }
+    return { path, value: outcome.value };
+  });
 }
 
 function assertExpectedPath(actual: string, expected: string): void {

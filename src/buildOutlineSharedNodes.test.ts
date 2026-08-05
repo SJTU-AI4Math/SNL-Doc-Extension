@@ -124,6 +124,45 @@ describe('buildOutline: every graph node reaches the outline', () => {
     expect(all.length).toBeLessThan(10);
   });
 
+  it('indexes the graph once while numbering the whole outline', () => {
+    let nodeWalks = 0;
+    let relationshipWalks = 0;
+    const counted = <T>(values: T[], walked: () => void): T[] => new Proxy(values, {
+      get(target, property, receiver) {
+        if (property === Symbol.iterator) walked();
+        return Reflect.get(target, property, receiver);
+      }
+    });
+    const graph: LibraryGraph = {
+      nodes: counted([
+        { id: 'r', label: 'Entry', props: { entryId: 'R' } },
+        { id: 'c1', label: 'Entry', props: { entryId: 'C1' } },
+        { id: 'c2', label: 'Entry', props: { entryId: 'C2' } }
+      ], () => { nodeWalks += 1; }),
+      relationships: counted([
+        { from: 'r', to: 'c1', label: 'branch' },
+        { from: 'r', to: 'c2', label: 'branch' }
+      ], () => { relationshipWalks += 1; })
+    };
+    const entriesById = new Map<string, EntryData>(
+      ['R', 'C1', 'C2'].map((id) => [id, entry(id)])
+    );
+    const warnings: string[] = [];
+
+    const outline = buildOutline(
+      graph,
+      entriesById,
+      new Map(),
+      new Map(['R', 'C1', 'C2'].map((id) => [id, { kind: 'k' }])),
+      new Map([['k', { defaultCounterName: 'main' }]]),
+      [{ id: 'counter', name: 'main', numbering: '1.', children: [] }],
+      warnings
+    );
+
+    expect(ids(outline)).toEqual(['r', 'c1', 'c2']);
+    expect({ nodeWalks, relationshipWalks }).toEqual({ nodeWalks: 4, relationshipWalks: 1 });
+  });
+
   it('emits every Entry node exactly once when the graph is a plain tree', () => {
     const graph: LibraryGraph = {
       nodes: [

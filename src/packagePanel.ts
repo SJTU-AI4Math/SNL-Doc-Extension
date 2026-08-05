@@ -4,7 +4,6 @@ import {
   readAllMacros,
   readMacroKinds,
   readMacroPackage,
-  readMacroPackages,
   resolveActiveMacroPackages,
   setMacroPackageActive,
   batchDeleteMacros,
@@ -245,33 +244,43 @@ export class PackagePanel {
       const pkg: MacroPackageFile = result.pkg;
       const macros: MacroPackageEntry[] = result.macros;
 
-      const [macroKinds, workspaceMacros]: [MacroKind[], Record<string, MacroPackageEntry>] = await Promise.all([
+      const [macroKinds, workspaceMacros, active, entryPool]: [
+        MacroKind[],
+        Record<string, MacroPackageEntry>,
+        string[],
+        Awaited<ReturnType<typeof readEntries>>
+      ] = await Promise.all([
         readMacroKinds(root),
-        readAllMacros(root)
+        readAllMacros(root),
+        resolveActiveMacroPackages(root),
+        readEntries(root)
       ]);
 
       // Bootstrap the "Move to package" dropdown with OTHER active packages
-      // (bare file + display name). Best-effort: a package that fails to read
-      // is simply omitted from the list.
-      const active = await resolveActiveMacroPackages(root);
-      const summaries = await readMacroPackages(root);
+      // (bare file + display name). Missing packages are omitted; malformed
+      // packages retain the historical bare-name fallback.
+      // The active list already identifies every candidate. Reading a full
+      // package summary pass first parsed all package files only to parse the
+      // active ones again here (an N+1), and the second pass was serial.
+      const candidates = [...new Set(active)].filter((bare) => bare !== this.file);
+      const loadedPackages = await Promise.all(
+        candidates.map(async (bare) => ({ bare, result: await readMacroPackage(root, bare) }))
+      );
       const otherPackages: Array<{ file: string; name: string }> = [];
-      for (const summary of summaries) {
-        const bare = summary.file.replace(/\.json$/i, '');
-        if (bare === this.file) continue;
-        if (!active.includes(bare)) continue;
-        const other = await readMacroPackage(root, bare);
+      for (const { bare, result: other } of loadedPackages) {
+        if (other.status === 'noFile') continue;
         otherPackages.push({
           file: bare,
           name: other.status === 'ok' ? other.pkg.name : bare
         });
       }
-      otherPackages.sort((a, b) => a.name.localeCompare(b.name));
+      otherPackages.sort(
+        (a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file)
+      );
 
       // Ship the entry-pool id set so the macro table can render each
       // row's src status (green/yellow/red) without an extra round-trip.
       // Cat 2026-07-10 §2.
-      const entryPool = await readEntries(root);
       const entryPoolIds = entryPool.map((e) => e.id);
       if (generation !== this.packageGeneration) return;
 

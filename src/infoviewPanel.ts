@@ -32,10 +32,10 @@ import { buildPanelHtml, firstWorkspaceFolder, handleWebviewTraceMessage } from 
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
-  numberFor,
+  indexLibraryGraph,
+  numberForIndexed,
   type CounterNode,
-  type LibraryGraph,
-  type GraphNode
+  type LibraryGraph
 } from './libraryGraph';
 
 /**
@@ -1074,24 +1074,8 @@ export function buildOutline(
   counters: CounterNode[],
   warnings: string[]
 ): OutlineNode[] {
-  const nodesById = new Map<string, GraphNode>();
-  for (const n of graph.nodes) {
-    nodesById.set(n.id, n);
-  }
-  const childrenOf = new Map<string, string[]>();
-  const parentOf = new Map<string, string>();
-  for (const r of graph.relationships) {
-    if (r.label !== 'branch') continue;
-    const list = childrenOf.get(r.from);
-    if (list) {
-      list.push(r.to);
-    } else {
-      childrenOf.set(r.from, [r.to]);
-    }
-    if (!parentOf.has(r.to)) {
-      parentOf.set(r.to, r.from);
-    }
-  }
+  const graphIndex = indexLibraryGraph(graph);
+  const { nodesById, childrenOf, parentOf } = graphIndex;
 
   // Cycle guard. This tracks the nodes on the CURRENT path, not every node
   // ever seen: a node legitimately appears under more than one parent when
@@ -1126,8 +1110,8 @@ export function buildOutline(
       }
     }
 
-    const counterLabel = numberFor(
-      graph,
+    const counterLabel = numberForIndexed(
+      graphIndex,
       nodeId,
       entryKindRefById,
       kindCounterById,

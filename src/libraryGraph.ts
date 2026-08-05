@@ -161,7 +161,7 @@ function toRoman(k: number, lower: boolean): string {
 // ---------------------------------------------------------------------------
 
 /** Precomputed indices used by numberFor / readingOrder. */
-interface GraphIndex {
+export interface LibraryGraphIndex {
   nodesById: Map<string, GraphNode>;
   /** For each node id, the ordered list of its CHILDREN via branch edges in
    *  the order those edges appear in relationships[]. */
@@ -172,7 +172,7 @@ interface GraphIndex {
   roots: string[];
 }
 
-function indexGraph(graph: LibraryGraph): GraphIndex {
+export function indexLibraryGraph(graph: LibraryGraph): LibraryGraphIndex {
   const nodesById = new Map<string, GraphNode>();
   for (const n of graph.nodes) {
     nodesById.set(n.id, n);
@@ -318,7 +318,23 @@ export function numberFor(
   kindsById: Map<string, KindCounterRef>,
   counters: CounterNode[]
 ): string | null {
-  const idx = indexGraph(graph);
+  return numberForIndexed(
+    indexLibraryGraph(graph),
+    nodeId,
+    entriesById,
+    kindsById,
+    counters
+  );
+}
+
+/** Compute a node number using a graph index shared by a larger operation. */
+export function numberForIndexed(
+  idx: LibraryGraphIndex,
+  nodeId: string,
+  entriesById: Map<string, EntryKindRef>,
+  kindsById: Map<string, KindCounterRef>,
+  counters: CounterNode[]
+): string | null {
   const targetNode = idx.nodesById.get(nodeId);
   if (!targetNode) return null;
 
@@ -389,7 +405,7 @@ export function numberFor(
  * at the end so no entry is silently dropped.
  */
 export function readingOrder(graph: LibraryGraph): string[] {
-  const idx = indexGraph(graph);
+  const idx = indexLibraryGraph(graph);
   const out: string[] = [];
   const visited = new Set<string>();
 

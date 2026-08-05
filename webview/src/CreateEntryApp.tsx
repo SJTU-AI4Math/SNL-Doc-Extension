@@ -3171,10 +3171,7 @@ export function GuiCanvasEditor({
             })}
             onKeyDown={(event) => {
               event.stopPropagation();
-              if (
-                event.key === 'Enter' &&
-                (editingNode.scope === 'macro' || event.ctrlKey || event.metaKey)
-              ) {
+              if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 commitNodeEdit();
               } else if (event.key === 'Escape') {
@@ -3186,8 +3183,8 @@ export function GuiCanvasEditor({
             title={
               editingNode.error ??
               (editingNode.scope === 'macro'
-                ? 'Edit this block\u2019s Macro and press Enter'
-                : 'Enter SNL DSL; Enter adds a line, Ctrl/Cmd+Enter commits')
+                ? 'Edit this block\u2019s Macro; Enter commits, Shift+Enter adds a line'
+                : 'Enter SNL DSL; Enter commits, Shift+Enter adds a line')
             }
             style={{
               position: 'absolute',

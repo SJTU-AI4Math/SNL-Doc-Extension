@@ -538,7 +538,7 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
     const enterCommitted = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.change(enterCommitted, { target: { value: 'new(child)' } });
-    fireEvent.keyDown(enterCommitted, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(enterCommitted, { key: 'Enter' });
 
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
     const newTarget = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
@@ -571,11 +571,14 @@ describe('GuiCanvasEditor', () => {
       view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement
     );
 
-    // Plain Enter belongs to the multiline textarea; it must not submit.
-    expect(fireEvent.keyDown(editor, { key: 'Enter' })).toBe(true);
+    // Shift+Enter belongs to the multiline textarea; it must not submit.
+    expect(fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })).toBe(true);
     fireEvent.change(editor, { target: { value: 'root(\n  branch\n)' } });
     expect(view.getByRole('textbox', { name: 'Edit focused SNL' })).toBe(editor);
     expect(editor.value).toBe('root(\n  branch\n)');
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
   });
 
   it('keeps Canvas editing active while embedded SNoogL fills the focused editor', async () => {

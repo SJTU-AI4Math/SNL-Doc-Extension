@@ -186,11 +186,11 @@ function reset(): void {
 }
 
 /** Open the singleton browser panel fresh and return its message pump. */
-async function openBrowser(): Promise<(message: unknown) => Promise<void>> {
+async function openBrowser(initialLibrarySlug?: string): Promise<(message: unknown) => Promise<void>> {
   const { InfoviewPanel } = await loadPanel();
   // The browser panel is a singleton; drop any instance a prior test left.
   (InfoviewPanel as unknown as { browserPanel: unknown }).browserPanel = undefined;
-  InfoviewPanel.createOrShow(extensionUri);
+  InfoviewPanel.createOrShow(extensionUri, initialLibrarySlug);
   const handler = onMessage;
   if (!handler) throw new Error('panel did not register a message handler');
   return async (message: unknown) => {
@@ -201,6 +201,14 @@ async function openBrowser(): Promise<(message: unknown) => Promise<void>> {
 describe('infoview panel read cost', () => {
   beforeEach(() => {
     reset();
+  });
+
+  it('opens a requested Library directly on first ready', async () => {
+    const send = await openBrowser(LIBRARY);
+    reset();
+    await send({ type: 'ready' });
+    expect(posted.some((message) => message.type === 'libraryEntries' && message.slug === LIBRARY)).toBe(true);
+    expect(posted.some((message) => message.type === 'libraries')).toBe(false);
   });
 
   it('reads no file twice when pushing a library outline', async () => {

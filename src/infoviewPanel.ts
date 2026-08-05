@@ -376,7 +376,11 @@ export class InfoviewPanel {
     switch (msg.type) {
       case 'ready':
         if (this.entryId === null) {
-          await this.pushLibraries();
+          if (this.currentLibrarySlug) {
+            await this.pushLibraryEntries(this.currentLibrarySlug);
+          } else {
+            await this.pushLibraries();
+          }
         } else {
           await this.pushEntryDetailsForEntry(this.entryId);
         }

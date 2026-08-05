@@ -111,6 +111,7 @@ describe('the exported runtime, executed', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    document.documentElement.lang = 'en';
   });
 
   it('builds a toggle for every collapsible host, on both surfaces', () => {
@@ -154,6 +155,20 @@ describe('the exported runtime, executed', () => {
     expect(toggleOf(byId('block')).title).toBe('Expand 2 parts');
     expect(toggleOf(byId('nested')).title).toBe('Collapse 1 part');
     expect(toggleOf(byId('outline')).title).toBe('Collapse 2 sub-entries');
+  });
+
+  it('localizes generated toggle titles and accessibility names from the exported document locale', () => {
+    document.body.innerHTML = `<main class="snl-export">${HARVESTED}</main>`;
+    document.documentElement.lang = 'zh-CN';
+    byId('block').setAttribute('data-snl-collapse-noun', '个部分');
+    byId('nested').setAttribute('data-snl-collapse-noun', '个部分');
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    expect(toggleOf(byId('block')).title).toBe('展开 2 个部分');
+    expect(toggleOf(byId('block')).getAttribute('aria-label')).toBe('展开');
+    expect(toggleOf(byId('outline')).title).toBe('收起 2 个子条目');
+    expect(toggleOf(byId('outline')).getAttribute('aria-label')).toBe('收起');
   });
 
   it('keeps a nested collapsible independent of its parent', () => {

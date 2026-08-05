@@ -1,4 +1,17 @@
 import * as vscode from 'vscode';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const UI_MESSAGES = defineHostMessages(
+  {
+    pickCount: 'How many empty webviews to time?', timing: 'Timing {count} empty webviews…',
+    result: 'Webview cost: {verdict} — first {first}ms, rest ~{rest}ms. See "SNL Trace" output.'
+  },
+  {
+    pickCount: '要测量多少个空 Webview？', timing: '正在测量 {count} 个空 Webview…',
+    result: 'Webview 开销：{verdict}；首个 {first}ms，其余约 {rest}ms。详情见“SNL Trace”输出。'
+  }
+);
 
 /**
  * Measure what a bare `createWebviewPanel` costs, N times in a row.
@@ -226,23 +239,27 @@ export function registerWebviewCostProbe(
   return vscode.commands.registerCommand(
     'snlDoc.probeWebviewCost',
     async () => {
+      const t = createHostTranslator(read_extension_preferences().language, UI_MESSAGES);
       const picked = await vscode.window.showQuickPick(
         ['3', '5', '8'],
-        { title: 'How many empty webviews to time?', placeHolder: '5' }
+        { title: t('pickCount'), placeHolder: '5' }
       );
       if (!picked) return;
       const count = Number.parseInt(picked, 10);
       const samples = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Timing ${count} empty webviews…`
+          title: t('timing', { count })
         },
         () => runWebviewCostProbe(count, out)
       );
       const verdict = classifyProbe(samples);
       void vscode.window.showInformationMessage(
-        `Webview cost: ${verdict.verdict} — first ${verdict.first.toFixed(0)}ms, ` +
-          `rest ~${verdict.restMedian.toFixed(0)}ms. See "SNL Trace" output.`
+        t('result', {
+          verdict: verdict.verdict,
+          first: verdict.first.toFixed(0),
+          rest: verdict.restMedian.toFixed(0)
+        })
       );
     }
   );

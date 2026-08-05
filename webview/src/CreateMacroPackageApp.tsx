@@ -15,6 +15,39 @@ import {
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
+import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'macroPackageEditor',
+  {
+    editTitle: 'Edit Macro Package', createTitle: 'Create Macro Package', dashboard: 'Dashboard',
+    back: 'Back to Dashboard', editIntro: 'Update this package’s display name and description. The file name is immutable — renaming means delete + recreate.',
+    createIntro: 'Create an empty macro Package. Workspace 0.0.5 stores its manifest under .SNL_Doc/packages/; its immutable ID determines the canonical filename.',
+    fileReadonly: 'File name (readonly)', file: 'File name', filePlaceholder: 'e.g. mathlib_basic',
+    immutable: 'File names are immutable; delete + recreate to rename',
+    invalidFilePrefix: 'Package IDs start with a letter or digit and may also contain ', separator: ', ', separatorLast: ', and ',
+    invalidFileSuffix: '; no slashes and no .json suffix.', packageId: 'Package ID: ',
+    displayName: 'Display name', namePlaceholder: 'e.g. Mathlib Basic', description: 'Description',
+    optional: '(optional)', descriptionPlaceholder: 'What this package is for…', updating: 'Updating…',
+    creating: 'Creating…', update: 'Update Package', create: 'Create Package',
+    created: '✅ Created package "{file}".', updated: '✅ Updated package "{file}" (name: {name}).',
+    invalid: '❌ Invalid: {reason}', error: '❌ Error: {message}'
+  },
+  {
+    editTitle: '编辑宏包', createTitle: '创建宏包', dashboard: '仪表板',
+    back: '返回仪表板', editIntro: '更新此宏包的显示名称和说明。文件名不可修改；重命名需要删除后重新创建。',
+    createIntro: '创建空宏包。工作区 0.0.5 将清单存储在 .SNL_Doc/packages/ 下；不可修改的 ID 决定规范文件名。',
+    fileReadonly: '文件名（只读）', file: '文件名', filePlaceholder: '例如 mathlib_basic',
+    immutable: '文件名不可修改；如需重命名，请删除后重新创建',
+    invalidFilePrefix: '宏包 ID 必须以字母或数字开头，还可以包含 ', separator: '、', separatorLast: '、',
+    invalidFileSuffix: '；不能包含斜杠，也不能以 .json 结尾。', packageId: '宏包 ID：',
+    displayName: '显示名称', namePlaceholder: '例如 Mathlib Basic', description: '说明',
+    optional: '（可选）', descriptionPlaceholder: '说明此宏包的用途…', updating: '正在更新…',
+    creating: '正在创建…', update: '更新宏包', create: '创建宏包',
+    created: '✅ 已创建宏包“{file}”。', updated: '✅ 已更新宏包“{file}”（名称：{name}）。',
+    invalid: '❌ 无效：{reason}', error: '❌ 错误：{message}'
+  }
+);
 
 type Mode = 'create' | 'edit';
 
@@ -66,6 +99,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export function CreateMacroPackageApp(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [mode, setMode] = useState<Mode>('create');
   const [file, setFile] = useState('');
   const [name, setName] = useState('');
@@ -187,24 +221,24 @@ export function CreateMacroPackageApp(): React.ReactElement {
     <main style={PANEL_STYLE}>
       <PanelHeader
         vsApi={apiRef.current}
-        title={mode === 'edit' ? 'Edit Macro Package' : 'Create Macro Package'}
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        title={t(mode === 'edit' ? 'editTitle' : 'createTitle')}
+        back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }}
       />
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
-          ? 'Update this package\u2019s display name and description. The file name is immutable \u2014 renaming means delete + recreate.'
-          : 'Create an empty macro Package. Workspace 0.0.5 stores its manifest under .SNL_Doc/packages/; its immutable ID determines the canonical filename.'}
+          ? t('editIntro')
+          : t('createIntro')}
       </p>
 
       <label htmlFor="pkg-file" style={labelStyle}>
-        {mode === 'edit' ? 'File name (readonly)' : 'File name'}
+        {t(mode === 'edit' ? 'fileReadonly' : 'file')}
       </label>
       <input
         id="pkg-file"
         type="text"
         value={file}
         readOnly={mode === 'edit'}
-        placeholder="e.g. mathlib_basic"
+        placeholder={t('filePlaceholder')}
         onChange={(e) => {
           formDirtyRef.current = true;
           setFile(e.target.value);
@@ -216,7 +250,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
         }}
         title={
           mode === 'edit'
-            ? 'File names are immutable; delete + recreate to rename'
+            ? t('immutable')
             : undefined
         }
         style={{
@@ -236,26 +270,26 @@ export function CreateMacroPackageApp(): React.ReactElement {
             color: 'var(--vscode-errorForeground, #f48771)'
           }}
         >
-          Package IDs start with a letter or digit and may also contain{' '}
-          <code>_</code>, <code>-</code>, and <code>.</code>; no slashes and no{' '}
-          <code>.json</code> suffix.
+          {t('invalidFilePrefix')}
+          <code>_</code>{t('separator')}<code>-</code>{t('separatorLast')}<code>.</code>
+          <code>.json</code>{t('invalidFileSuffix')}
         </p>
       ) : mode !== 'edit' ? (
         <p style={{ margin: '0 0 0.6rem', fontSize: '0.85rem', opacity: 0.7 }}>
-          Package ID: <code>{fileValid ? trimmedFile : '<package-id>'}</code>
+          {t('packageId')}<code>{fileValid ? trimmedFile : '<package-id>'}</code>
         </p>
       ) : (
         <div style={{ height: '0.6rem' }} />
       )}
 
       <label htmlFor="pkg-name" style={labelStyle}>
-        Display name
+        {t('displayName')}
       </label>
       <input
         id="pkg-name"
         type="text"
         value={name}
-        placeholder="e.g. Mathlib Basic"
+        placeholder={t('namePlaceholder')}
         onChange={(e) => {
           formDirtyRef.current = true;
           setName(e.target.value);
@@ -269,12 +303,12 @@ export function CreateMacroPackageApp(): React.ReactElement {
       />
 
       <label htmlFor="pkg-desc" style={labelStyle}>
-        Description <span style={{ opacity: 0.6 }}>(optional)</span>
+        {t('description')} <span style={{ opacity: 0.6 }}>{t('optional')}</span>
       </label>
       <textarea
         id="pkg-desc"
         value={description}
-        placeholder="What this package is for\u2026"
+        placeholder={t('descriptionPlaceholder')}
         rows={3}
         onChange={(e) => {
           formDirtyRef.current = true;
@@ -289,19 +323,21 @@ export function CreateMacroPackageApp(): React.ReactElement {
         disabled={!canSubmit}
       >
         {status.kind === 'creating'
-          ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
-          : mode === 'edit' ? 'Update Package' : 'Create Package'}
+          ? t(mode === 'edit' ? 'updating' : 'creating')
+          : t(mode === 'edit' ? 'update' : 'create')}
       </Button>
 
-      <StatusLine status={status} />
+      <StatusLine status={status} t={t} />
     </main>
   );
 }
 
 function StatusLine({
-  status
+  status,
+  t
 }: {
   status: Status;
+  t: UiTranslator<typeof MESSAGES.catalogs.en>;
 }): React.ReactElement | null {
   if (status.kind === 'idle' || status.kind === 'creating') {
     return null;
@@ -310,16 +346,16 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `\u2705 Created package "${status.file}".`;
+    text = t('created', { file: status.file });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'updated') {
-    text = `\u2705 Updated package "${status.file}" (name: ${status.name}).`;
+    text = t('updated', { file: status.file, name: status.name });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'duplicate' || status.kind === 'notFound') {
     text = `\u26a0\ufe0f ${status.message}`;
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'invalid') {
-    text = `\u274c Invalid: ${status.reason}`;
+    text = t('invalid', { reason: status.reason });
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (
     status.kind === 'noSnlDoc' ||
@@ -328,7 +364,7 @@ function StatusLine({
     text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'error') {
-    text = `\u274c Error: ${status.message}`;
+    text = t('error', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

@@ -7,6 +7,7 @@ import {
   type LocalizedString
 } from '../runtime/useLocalized';
 import { BUILT_IN_LANGUAGE_CATALOG } from '../../../src/languageCatalog';
+import { invariantText } from '../i18n/uiMessages';
 
 export interface PanelHeaderAction {
   /** Text on the button. Kept terse. */
@@ -111,7 +112,9 @@ export function PanelHeader({
         ) : null}
         <div className="snl-panel-header__brand">
           <img className="snl-panel-header__logo" src={logo} alt="" aria-hidden="true" />
-          <span className="snl-panel-header__watermark">SJTU AI4Math</span>
+          <span className="snl-panel-header__watermark">
+            {invariantText('SJTU AI4Math', 'brand')}
+          </span>
         </div>
       </div>
 

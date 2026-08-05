@@ -9,6 +9,31 @@ import { isEntityIdUnique } from './components/formValidation';
 import { PanelHeader } from './components/PanelHeader';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
+import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'kindEditor',
+  {
+    entryKind: 'Entry Kind', macroKind: 'Macro Kind', edit: 'Edit {kind}', create: 'Create {kind}',
+    dashboard: 'Dashboard', back: 'Back to Dashboard', updateConfig: 'Update ',
+    immutable: '. IDs are unique and immutable.', unknownError: 'Unknown error',
+    idReadonly: 'ID (readonly)', id: 'ID', entryIdExample: 'e.g. theorem', macroIdExample: 'e.g. operator',
+    displayName: 'Display name', description: 'Description', defaultCounter: 'Default counter name',
+    styleTag: 'Style tag', stroke: 'Stroke', background: 'Background', preview: 'preview',
+    updating: 'Updating…', creating: 'Creating…', updateKind: 'Update {kind}', createKind: 'Create {kind}',
+    created: 'Created “{name}” ({id}).', updated: 'Updated “{name}” ({id}).'
+  },
+  {
+    entryKind: '条目类型', macroKind: '宏类型', edit: '编辑{kind}', create: '创建{kind}',
+    dashboard: '仪表板', back: '返回仪表板', updateConfig: '更新 ',
+    immutable: '。ID 必须唯一且不可修改。', unknownError: '未知错误',
+    idReadonly: 'ID（只读）', id: 'ID', entryIdExample: '例如 theorem', macroIdExample: '例如 operator',
+    displayName: '显示名称', description: '说明', defaultCounter: '默认计数器名称',
+    styleTag: '样式标签', stroke: '描边', background: '背景', preview: '预览',
+    updating: '正在更新…', creating: '正在创建…', updateKind: '更新{kind}', createKind: '创建{kind}',
+    created: '已创建“{name}”（{id}）。', updated: '已更新“{name}”（{id}）。'
+  }
+);
 
 export type KindEditorDomain = 'entry' | 'macro';
 type Mode = 'create' | 'edit';
@@ -29,6 +54,8 @@ export function kindEditorDescriptor(domain: KindEditorDomain) {
 
 export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.ReactElement {
   const descriptor = kindEditorDescriptor(domain);
+  const t = useUiMessages(MESSAGES);
+  const kindName = t(domain === 'entry' ? 'entryKind' : 'macroKind');
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
   const [mode, setMode] = useState<Mode>('create');
@@ -73,7 +100,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       dirtyRef.current = false;
       setStatus({ kind: msg.type, id: msg.kind.id, name: msg.kind.name });
     } else if (['duplicate', 'notFound', 'conflict', 'invalid', 'noSnlDoc', 'noWorkspace', 'error'].includes(msg.type)) {
-      setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? 'Unknown error' });
+      setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? t('unknownError') });
     }
   });
 
@@ -106,24 +133,24 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   useSaveShortcut(() => submit(), canSubmit);
 
   return <main style={PANEL_STYLE} onChangeCapture={() => { dirtyRef.current = true; }}>
-    <PanelHeader title={`${mode === 'edit' ? 'Edit' : 'Create'} ${descriptor.cap} Kind`} vsApi={apiRef.current} back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }} />
-    <p style={{ opacity: .85 }}>Update <code>.SNL_Doc/config.json#{descriptor.configKey}</code>. IDs are unique and immutable.</p>
-    {mode === 'edit' ? <KindTextField label="ID (readonly)" value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label="ID" entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={`e.g. ${domain === 'entry' ? 'theorem' : 'operator'}`} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}
-    <KindTextField label="Display name" value={name} onChange={setName} />
-    {domain === 'macro' ? <KindTextField label="Description" value={description} onChange={setDescription} /> : <>
-      <KindTextField label="Default counter name" value={defaultCounterName} onChange={setDefaultCounterName} mono />
-      <KindTextField label="Style tag" value={style} onChange={setStyle} mono />
+    <PanelHeader title={t(mode === 'edit' ? 'edit' : 'create', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />
+    <p style={{ opacity: .85 }}>{t('updateConfig')}<code>.SNL_Doc/config.json#{descriptor.configKey}</code>{t('immutable')}</p>
+    {mode === 'edit' ? <KindTextField label={t('idReadonly')} value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label={t('id')} entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={t(domain === 'entry' ? 'entryIdExample' : 'macroIdExample')} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}
+    <KindTextField label={t('displayName')} value={name} onChange={setName} />
+    {domain === 'macro' ? <KindTextField label={t('description')} value={description} onChange={setDescription} /> : <>
+      <KindTextField label={t('defaultCounter')} value={defaultCounterName} onChange={setDefaultCounterName} mono />
+      <KindTextField label={t('styleTag')} value={style} onChange={setStyle} mono />
     </>}
-    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label="Stroke" value={stroke} onChange={setStroke} /><ColorField label="Background" value={background} onChange={setBackground} /></div>
-    <ColorPreview stroke={stroke} background={background} name={trimmedName || 'preview'} />
-    <Button variant="primary" onClick={submit} disabled={!canSubmit} loading={status.kind === 'creating'} loadingLabel={mode === 'edit' ? 'Updating…' : 'Creating…'}>{mode === 'edit' ? `Update ${descriptor.cap} Kind` : `Create ${descriptor.cap} Kind`}</Button>
-    <KindStatus status={status} />
+    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label={t('stroke')} value={stroke} onChange={setStroke} /><ColorField label={t('background')} value={background} onChange={setBackground} /></div>
+    <ColorPreview stroke={stroke} background={background} name={trimmedName || t('preview')} />
+    <Button variant="primary" onClick={submit} disabled={!canSubmit} loading={status.kind === 'creating'} loadingLabel={t(mode === 'edit' ? 'updating' : 'creating')}>{t(mode === 'edit' ? 'updateKind' : 'createKind', { kind: kindName })}</Button>
+    <KindStatus status={status} t={t} />
   </main>;
 }
 
-function KindStatus({ status }: { status: Status }): React.ReactElement | null {
+function KindStatus({ status, t }: { status: Status; t: UiTranslator<typeof MESSAGES.catalogs.en> }): React.ReactElement | null {
   if (status.kind === 'idle' || status.kind === 'creating') return null;
-  if (status.kind === 'created' || status.kind === 'updated') return <Alert severity="success">{status.kind === 'created' ? 'Created' : 'Updated'} “{status.name}” ({status.id}).</Alert>;
+  if (status.kind === 'created' || status.kind === 'updated') return <Alert severity="success">{t(status.kind, { name: status.name, id: status.id })}</Alert>;
   const warning = status.kind === 'duplicate' || status.kind === 'notFound' || status.kind === 'invalid';
   return 'message' in status
     ? <Alert severity={warning ? 'warning' : 'error'}>{status.message}</Alert>

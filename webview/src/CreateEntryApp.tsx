@@ -17,10 +17,10 @@
 // "Entry 编辑器的 SNL parser 几乎等于没实装 ... 先把它做成能正常根据项目
 // 中已有的 Macro 来进行 Parse 和渲染的模式."
 //
-// GUI Editor (Inductive) wraps @sjtu-ai4math/snl-basics's SnlSyntaxTreeEditor with
+// {t('guiInductive')} wraps @sjtu-ai4math/snl-basics's SnlSyntaxTreeEditor with
 // a Add-child / Remove-node control layer, and syncs bidirectionally with
 // the SNL text via parse/serialize round-trips. 猫猫 spec 3: "把 SNL-Basics
-// 里的 Syntax Tree Editor 先给它搬过来，变成 GUI Editor (Inductive)".
+// 里的 Syntax Tree Editor 先给它搬过来，变成 {t('guiInductive')}".
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'katex/dist/katex.min.css';
@@ -98,6 +98,234 @@ import {
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
+import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+
+
+const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
+  chooseProjectFile: 'Choose a project-relative file.',
+  relativeProjectPath: 'The file path must be relative to the project root.',
+  pathCannotLeaveRoot: 'The file path cannot leave the project root.',
+  positiveStartLine: 'Start line must be a positive integer.',
+  validEndLine: 'End line must be a positive integer at or after the start line.',
+  regexRequired: 'Regex pattern cannot be empty.',
+  invalidRegex: 'Invalid regular expression: {message}',
+  positiveOccurrence: 'Occurrence must be a positive integer.',
+  cannotSaveNoKinds: 'Cannot save yet — no Entry kinds are defined.',
+  cannotSaveTitle: 'Cannot save yet — the title is empty.',
+  cannotSaveId: 'Cannot save yet — the id is empty.',
+  cannotSaveDuplicateId: 'Cannot save yet — the id "{id}" is already taken.',
+  cannotSaveKind: 'Cannot save yet — pick a kind first.',
+  cannotSavePackage: 'Cannot save yet — pick an existing Package first.',
+  cannotSaveReason: 'Cannot save yet — {reason}',
+  cannotSave: 'Cannot save yet.',
+  cannotSaveLooseCanvas: 'Cannot save yet — the Canvas has several loose blocks. Attach them first.',
+  cannotSaveCanvasSlot: 'Cannot save yet — a Macro has a single unfilled slot, which cannot be written to SNL.',
+  editEntry: 'Edit Entry',
+  createEntry: 'Create Entry',
+  dashboard: 'Dashboard',
+  backDashboard: 'Back to Dashboard',
+  viewInfoview: 'View in Infoview',
+  openEntryInfoview: 'Open entry "{id}" in the Infoview reading surface',
+  noKindsBefore: 'No entry kinds defined — run',
+  initializeKinds: 'Initialize Entry Kinds',
+  noKindsAfter: 'first. The form is disabled until at least one kind exists.',
+  title: 'Title',
+  titlePlaceholder: 'e.g. Pythagorean Theorem',
+  idReadonly: 'ID (readonly)',
+  id: 'ID',
+  idPlaceholder: 'e.g. pythagorean-theorem',
+  immutableIdTitle: 'IDs are immutable; delete + recreate to rename',
+  overwriteUuidTitle: 'Overwrite the ID with a fresh UUID v4 (tolerated but not preferred — semantic ids are strongly preferred)',
+  fillUuidTitle: 'Fill the ID with a fresh UUID v4 (only when no meaningful semantic id fits)',
+  regenerateUuid: 'Regenerate UUID',
+  useUuid: 'Use UUID instead',
+  immutableIdHint: 'IDs are stable references used by relationship links; they cannot be edited here.',
+  semanticIdHint: "Prefer a semantic id like 'pythagorean-theorem' or 'context-linalg-vars' — human-readable ids render better in cross-entry references (macro sources, library graph nodes, bvar `x@<id>` context refs). The UUID button is a fallback for when no meaningful name fits. IDs are immutable once created.",
+  package: 'Package',
+  missingPackageOption: '{packageId} (missing; choose another Package)',
+  unpackaged: 'Unpackaged (_unpackaged)',
+  missingPackage: 'The selected Package no longer exists. Your draft was preserved; choose another Package before saving.',
+  packageHint: 'Package membership may be changed later; moving an Entry preserves its ID and references.',
+  kind: 'Kind',
+  kindColors: 'stroke {stroke} / background {background}',
+  livePreview: 'Live Preview',
+  newEntryId: '(new-entry)',
+  content: 'Content',
+  textFormat: 'Text',
+  guiCanvas: 'GUI Editor (Canvas)',
+  guiInductive: 'GUI Editor (Inductive)',
+  textEditor: 'Text Editor',
+  sourcePlaceholder: '{format} source…',
+  monacoPlanned: 'Monaco editor integration planned; for now a plain textarea.',
+  contributor: 'Contributor',
+  contributorDeferred: 'Not implemented yet — deferred until the contribution_info schema is defined.',
+  pointer: 'Pointer',
+  canvasMultipleRoots: 'Save is disabled while the Canvas syntax forest has multiple roots. Attach the loose blocks or reset the Canvas.',
+  canvasSingleSlot: 'Save is disabled because a Macro has a single unfilled slot, which cannot be written to SNL — an empty slot needs a comma, so give that Macro another argument or fill the slot.',
+  updating: 'Updating…',
+  creating: 'Creating…',
+  updateEntry: 'Update Entry',
+  resetBanner: 'Reset banner',
+  cancel: 'Cancel',
+  sectionToggle: '{title} — {action} section',
+  collapse: 'collapse',
+  expand: 'expand',
+  bindSource: 'Bind this Entry to a source location',
+  projectRelativeFile: 'Project-relative file',
+  projectFilePlaceholder: 'e.g. src/theorems/pythagorean.ts',
+  mode: 'Mode',
+  lineRange: 'Line range',
+  regularExpression: 'Regular expression',
+  startLine: 'Start line',
+  endLine: 'End line (optional)',
+  sameAsStart: 'same as start',
+  regexPattern: 'Regex pattern',
+  regexPlaceholder: 'e.g. function\\s+provePythagorean',
+  regexFlags: 'Regex flags (optional)',
+  exampleIm: 'e.g. im',
+  occurrence: 'Occurrence (optional)',
+  pointerHint: 'Paths are resolved from the project root. Line numbers and regex occurrences are 1-indexed.',
+  noPointer: 'No source location is attached. Enable the binding to choose a file and addressing mode.',
+  canvasAria: 'GUI Editor canvas',
+  editFocusedSnl: 'Edit focused SNL',
+  editMacroInput: 'Edit this block’s Macro; Enter commits, Shift+Enter adds a line',
+  enterSnlDsl: 'Enter SNL DSL; Enter commits, Shift+Enter adds a line',
+  insertCanvasRoot: 'Insert Canvas root Macro',
+  argumentCount: 'Argument count',
+  macroActions: 'Macro actions',
+  removeArgument: 'Remove an argument',
+  argumentCountValue: 'Argument count value',
+  addArgument: 'Add argument',
+  macroStyle: 'Macro style',
+  selectMacroStyle: 'Select Macro style',
+  clearStyle: '(clear style)',
+  missing: '(missing)',
+  defaultSuffix: ' (default)',
+  editMacro: 'Edit macro',
+  createMacro: 'Create macro',
+  openEditMacro: 'Open Edit Macro: {name} ({origin})',
+  openCreateMacroPrefill: 'Open Create Macro (prefill id "{name}")',
+  resetCanvas: 'Reset Canvas from SNL',
+  addRootMacro: 'Add root Macro',
+  editMacroMenu: 'Edit Macro',
+  editSubtreeSnl: 'Edit subtree as SNL',
+  detachBlock: 'Detach into its own block',
+  delete: 'Delete',
+  canvasBlockActions: 'Canvas block actions',
+  macroEditSingleId: 'Macro edit accepts a single macro id; use Ctrl+F2 to edit the subtree.',
+  macroEditNameOnly: 'Macro edit accepts a Macro name only; use the Style dropdown.',
+  unparseableSnl: 'Text-mode SNL is not parseable ({error}). Tree shown reflects the last successful parse; editing here will overwrite the Text content on next change.',
+  inductiveHelp: 'Inductive editor — hover a row for the action dial. Delimited forms are recognized: $foo$, $$x+y$$, %text%, @$x$. A suffix @ opens the Context Entry ID input. Choose Style from the adjacent dropdown.',
+  expandNode: 'Expand',
+  collapseNode: 'Collapse',
+  rootMacroPlaceholder: 'root macro',
+  leafPlaceholder: 'name / $expr$ / %text% / @…',
+  kindTooltip: 'kind: {kind}{source}',
+  envModeSource: ' (from env_mode)',
+  macroNotFound: 'name does not match any macro in the current DB',
+  contextEntryId: 'Context Entry ID',
+  entryId: 'Entry ID',
+  unresolvedMacro: 'unresolved Macro',
+  macroStyleFor: 'Macro style for {name}',
+  missingStyle: 'Style [{style}] is missing; choose clear or a declared Style',
+  styleUnavailable: 'Style unavailable — name does not match a Macro with styles',
+  explicitStyle: 'explicit style: [{style}]',
+  implicitStyle: 'default style (implicit): [{style}]',
+  openCreateMacroText: 'Open Create Macro (text mode, prefill "{name}")',
+  openCreateMacroInline: 'Open Create Macro (formula_inline, prefill "{name}")',
+  openCreateMacroDisplay: 'Open Create Macro (formula_display, prefill "{name}")',
+  openCreateMacroBlank: 'Open Create Macro (blank)',
+  moveUpAvailable: 'Move up — swap with preceding sibling',
+  moveUpUnavailable: 'Cannot move up — already first',
+  moveUp: 'Move up',
+  outdentAvailable: 'Outdent — move up one level',
+  outdentUnavailable: 'Cannot outdent — already at top-level',
+  outdent: 'Outdent',
+  chooseAddPosition: 'Choose where to add a node',
+  chooseAddPositionAria: 'Choose add position',
+  indentAvailable: 'Indent — become child of preceding sibling',
+  indentUnavailable: 'Cannot indent — no preceding sibling',
+  indent: 'Indent',
+  moveDownAvailable: 'Move down — swap with following sibling',
+  moveDownUnavailable: 'Cannot move down — already last',
+  moveDown: 'Move down',
+  addNodePosition: 'Add node position',
+  addParent: 'Add parent',
+  addParentTitle: 'Add a parent around this node',
+  parent: 'parent',
+  addChild: 'Add child',
+  addChildTitle: 'Add a child under this node',
+  child: 'child',
+  addSibling: 'Add sibling',
+  rootNoSibling: 'Root cannot have a sibling',
+  addSiblingTitle: 'Add a sibling after this node',
+  sibling: 'sibling',
+  deleteSubtreeTitle: 'Delete this subtree',
+  deleteSubtree: 'Delete subtree',
+  createdStatus: '✅ Created entry (id: {id}).',
+  updatedStatus: '✅ Updated entry (id: {id}).',
+  warningStatus: '⚠️ {message}',
+  errorStatus: '❌ {message}',
+  invalidStatus: '❌ Invalid: {message}'
+}, {
+  chooseProjectFile: '请选择项目相对路径文件。',
+  relativeProjectPath: '文件路径必须相对于项目根目录。',
+  pathCannotLeaveRoot: '文件路径不能超出项目根目录。',
+  positiveStartLine: '起始行必须是正整数。',
+  validEndLine: '结束行必须是大于或等于起始行的正整数。',
+  regexRequired: '正则表达式不能为空。',
+  invalidRegex: '无效的正则表达式：{message}',
+  positiveOccurrence: '匹配序号必须是正整数。',
+  cannotSaveNoKinds: '尚无法保存——未定义任何条目种类。',
+  cannotSaveTitle: '尚无法保存——标题为空。',
+  cannotSaveId: '尚无法保存——ID 为空。',
+  cannotSaveDuplicateId: '尚无法保存——ID“{id}”已被占用。',
+  cannotSaveKind: '尚无法保存——请先选择种类。',
+  cannotSavePackage: '尚无法保存——请先选择现有 Package。',
+  cannotSaveReason: '尚无法保存——{reason}',
+  cannotSave: '尚无法保存。',
+  cannotSaveLooseCanvas: '尚无法保存——Canvas 中有多个未连接的块。请先将其连接。',
+  cannotSaveCanvasSlot: '尚无法保存——某个 Macro 仅有一个未填槽位，无法写入 SNL。',
+  editEntry: '编辑条目', createEntry: '创建条目', dashboard: '仪表板', backDashboard: '返回仪表板',
+  viewInfoview: '在 Infoview 中查看', openEntryInfoview: '在 Infoview 阅读界面中打开条目“{id}”',
+  noKindsBefore: '未定义条目种类——请先运行', initializeKinds: '初始化条目种类', noKindsAfter: '。在至少存在一种条目种类之前，表单将被禁用。',
+  title: '标题', titlePlaceholder: '例如：勾股定理', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
+  immutableIdTitle: 'ID 不可变；如需重命名，请删除后重新创建',
+  overwriteUuidTitle: '用新的 UUID v4 覆盖 ID（允许但不推荐——强烈建议使用语义化 ID）',
+  fillUuidTitle: '用新的 UUID v4 填充 ID（仅当没有合适的语义化 ID 时使用）', regenerateUuid: '重新生成 UUID', useUuid: '改用 UUID',
+  immutableIdHint: 'ID 是关系链接使用的稳定引用，无法在此处编辑。',
+  semanticIdHint: "建议使用 'pythagorean-theorem' 或 'context-linalg-vars' 等语义化 ID——人类可读的 ID 在跨条目引用（Macro 源、库图节点、bvar `x@<id>` 上下文引用）中显示效果更好。没有合适名称时才使用 UUID 按钮。ID 创建后不可变。",
+  package: 'Package', missingPackageOption: '{packageId}（已丢失；请选择其他 Package）', unpackaged: '未归入 Package（_unpackaged）',
+  missingPackage: '所选 Package 已不存在。草稿已保留；保存前请选择其他 Package。', packageHint: '以后可以更改 Package 归属；移动条目会保留其 ID 和引用。',
+  kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
+  guiCanvas: 'GUI 编辑器（Canvas）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
+  monacoPlanned: '计划集成 Monaco 编辑器；目前暂用普通文本框。', contributor: '贡献者', contributorDeferred: '尚未实现——待 contribution_info 模式定义后再实现。', pointer: '指针',
+  canvasMultipleRoots: 'Canvas 语法森林有多个根节点时无法保存。请连接未附着的块或重置 Canvas。',
+  canvasSingleSlot: '某个 Macro 只有一个未填槽位，无法写入 SNL，因此无法保存——空槽位需要逗号；请为该 Macro 再添加一个参数或填充此槽位。',
+  updating: '正在更新…', creating: '正在创建…', updateEntry: '更新条目', resetBanner: '重置横幅', cancel: '取消',
+  sectionToggle: '{title}——{action}分区', collapse: '折叠', expand: '展开', bindSource: '将此条目绑定到源代码位置', projectRelativeFile: '项目相对路径文件',
+  projectFilePlaceholder: '例如：src/theorems/pythagorean.ts', mode: '模式', lineRange: '行范围', regularExpression: '正则表达式', startLine: '起始行', endLine: '结束行（可选）',
+  sameAsStart: '与起始行相同', regexPattern: '正则表达式', regexPlaceholder: '例如：function\\s+provePythagorean', regexFlags: '正则标志（可选）', exampleIm: '例如：im', occurrence: '匹配序号（可选）',
+  pointerHint: '路径从项目根目录解析。行号和正则匹配序号均从 1 开始。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
+  canvasAria: 'GUI 编辑器 Canvas', editFocusedSnl: '编辑聚焦的 SNL', editMacroInput: '编辑此块的 Macro；按 Enter 提交，按 Shift+Enter 添加新行', enterSnlDsl: '输入 SNL DSL；按 Enter 提交，按 Shift+Enter 添加新行',
+  insertCanvasRoot: '插入 Canvas 根 Macro', argumentCount: '参数数量', macroActions: 'Macro 操作', removeArgument: '移除参数', argumentCountValue: '参数数量值', addArgument: '添加参数',
+  macroStyle: 'Macro 样式', selectMacroStyle: '选择 Macro 样式', clearStyle: '（清除样式）', missing: '（缺失）', defaultSuffix: '（默认）', editMacro: '编辑 Macro', createMacro: '创建 Macro',
+  openEditMacro: '打开“编辑 Macro”：{name}（{origin}）', openCreateMacroPrefill: '打开“创建 Macro”（预填 ID“{name}”）', resetCanvas: '从 SNL 重置 Canvas',
+  addRootMacro: '添加根 Macro', editMacroMenu: '编辑 Macro', editSubtreeSnl: '将子树作为 SNL 编辑', detachBlock: '拆分为独立块', delete: '删除', canvasBlockActions: 'Canvas 块操作',
+  macroEditSingleId: 'Macro 编辑仅接受单个 Macro ID；请使用 Ctrl+F2 编辑子树。', macroEditNameOnly: 'Macro 编辑仅接受 Macro 名称；请使用“样式”下拉框。',
+  unparseableSnl: '文本模式 SNL 无法解析（{error}）。当前树反映上次成功解析的结果；下次在此编辑时将覆盖文本内容。',
+  inductiveHelp: '归纳式编辑器——将鼠标悬停在行上可显示操作盘。支持分隔形式：$foo$、$$x+y$$、%text%、@$x$。后缀 @ 会打开“上下文条目 ID”输入框。可从相邻下拉框选择样式。',
+  expandNode: '展开', collapseNode: '折叠', rootMacroPlaceholder: '根 Macro', leafPlaceholder: '名称 / $expr$ / %text% / @…', kindTooltip: '种类：{kind}{source}', envModeSource: '（来自 env_mode）',
+  macroNotFound: '名称与当前数据库中的任何 Macro 都不匹配', contextEntryId: '上下文条目 ID', entryId: '条目 ID', unresolvedMacro: '未解析的 Macro', macroStyleFor: '{name} 的 Macro 样式',
+  missingStyle: '样式 [{style}] 缺失；请选择清除或已声明的样式', styleUnavailable: '样式不可用——名称与任何带样式的 Macro 都不匹配', explicitStyle: '显式样式：[{style}]', implicitStyle: '默认样式（隐式）：[{style}]',
+  openCreateMacroText: '打开“创建 Macro”（文本模式，预填“{name}”）', openCreateMacroInline: '打开“创建 Macro”（formula_inline，预填“{name}”）', openCreateMacroDisplay: '打开“创建 Macro”（formula_display，预填“{name}”）', openCreateMacroBlank: '打开“创建 Macro”（空白）',
+  moveUpAvailable: '上移——与前一个同级节点交换', moveUpUnavailable: '无法上移——已是第一个', moveUp: '上移', outdentAvailable: '减少缩进——上移一级', outdentUnavailable: '无法减少缩进——已在顶层', outdent: '减少缩进',
+  chooseAddPosition: '选择添加节点的位置', chooseAddPositionAria: '选择添加位置', indentAvailable: '增加缩进——成为前一个同级节点的子节点', indentUnavailable: '无法增加缩进——没有前一个同级节点', indent: '增加缩进',
+  moveDownAvailable: '下移——与后一个同级节点交换', moveDownUnavailable: '无法下移——已是最后一个', moveDown: '下移', addNodePosition: '添加节点位置', addParent: '添加父节点', addParentTitle: '在此节点外添加父节点', parent: '父节点',
+  addChild: '添加子节点', addChildTitle: '在此节点下添加子节点', child: '子节点', addSibling: '添加同级节点', rootNoSibling: '根节点不能有同级节点', addSiblingTitle: '在此节点后添加同级节点', sibling: '同级节点', deleteSubtreeTitle: '删除此子树', deleteSubtree: '删除子树',
+  createdStatus: '✅ 已创建条目（ID：{id}）。', updatedStatus: '✅ 已更新条目（ID：{id}）。', warningStatus: '⚠️ {message}', errorStatus: '❌ {message}', invalidStatus: '❌ 无效：{message}'
+});
+type CreateEntryTranslator = UiTranslator<typeof CREATE_ENTRY_MESSAGES.catalogs.en>;
 
 // ---------------------------------------------------------------------------
 // Macro DB merge
@@ -213,41 +441,41 @@ function positiveInteger(value: string): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
-function pointerDraftError(draft: PointerDraft): string | null {
+function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): string | null {
   if (!draft.enabled) return null;
   const file = draft.file.trim().replace(/\\/g, '/');
-  if (!file) return 'Choose a project-relative file.';
+  if (!file) return t('chooseProjectFile');
   if (file.startsWith('/') || /^[A-Za-z]:\//.test(file)) {
-    return 'The file path must be relative to the project root.';
+    return t('relativeProjectPath');
   }
   if (file.split('/').some((segment) => segment === '..')) {
-    return 'The file path cannot leave the project root.';
+    return t('pathCannotLeaveRoot');
   }
   if (draft.mode === 'lines') {
     const line = positiveInteger(draft.line);
-    if (line === null) return 'Start line must be a positive integer.';
+    if (line === null) return t('positiveStartLine');
     if (draft.endLine) {
       const endLine = positiveInteger(draft.endLine);
       if (endLine === null || endLine < line) {
-        return 'End line must be a positive integer at or after the start line.';
+        return t('validEndLine');
       }
     }
     return null;
   }
-  if (!draft.pattern) return 'Regex pattern cannot be empty.';
+  if (!draft.pattern) return t('regexRequired');
   try {
     void new RegExp(draft.pattern, draft.flags);
   } catch (error) {
-    return `Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`;
+    return t('invalidRegex', { message: error instanceof Error ? error.message : String(error) });
   }
   if (draft.occurrence && positiveInteger(draft.occurrence) === null) {
-    return 'Occurrence must be a positive integer.';
+    return t('positiveOccurrence');
   }
   return null;
 }
 
-function pointerFromDraft(draft: PointerDraft): EntryPointer | null {
-  if (!draft.enabled || pointerDraftError(draft)) return null;
+function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator): EntryPointer | null {
+  if (!draft.enabled || pointerDraftError(draft, t)) return null;
   const file = draft.file.trim().replace(/\\/g, '/');
   if (draft.mode === 'lines') {
     const pointer: EntryPointer = {
@@ -317,6 +545,7 @@ function newUuid(): string {
 // <title>" without a mock digit.
 
 export function CreateEntryApp(): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const preferencesRevision = use_preferences_revision();
   const languageRef = useRef(webview_language_runtime.query_environment().language);
   const [mode, setMode] = useState<Mode>('create');
@@ -758,7 +987,7 @@ export function CreateEntryApp(): React.ReactElement {
   const editablePointerError =
     mode === 'edit' && !pointerDirtyRef.current
       ? null
-      : pointerDraftError(pointerDraft);
+      : pointerDraftError(pointerDraft, t);
   const canCreate =
     kinds.length > 0 &&
     trimmedTitle.length > 0 &&
@@ -818,7 +1047,7 @@ export function CreateEntryApp(): React.ReactElement {
       pointer:
         mode === 'edit' && !pointerDirtyRef.current
           ? existingMetadataRef.current.pointer
-          : pointerFromDraft(pointerDraft)
+          : pointerFromDraft(pointerDraft, t)
     };
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
@@ -932,26 +1161,26 @@ export function CreateEntryApp(): React.ReactElement {
 
   /** The most specific reason the save button is currently disabled. */
   function saveBlockingReason(): string {
-    if (kinds.length === 0) return 'Cannot save yet — no Entry kinds are defined.';
-    if (!trimmedTitle) return 'Cannot save yet — the title is empty.';
-    if (!trimmedId) return 'Cannot save yet — the id is empty.';
+    if (kinds.length === 0) return t('cannotSaveNoKinds');
+    if (!trimmedTitle) return t('cannotSaveTitle');
+    if (!trimmedId) return t('cannotSaveId');
     if (!isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined)) {
-      return `Cannot save yet — the id "${trimmedId}" is already taken.`;
+      return t('cannotSaveDuplicateId', { id: trimmedId });
     }
-    if (!selectedKind) return 'Cannot save yet — pick a kind first.';
+    if (!selectedKind) return t('cannotSaveKind');
     if (!selectedPackage || !entryPackages.includes(selectedPackage)) {
-      return 'Cannot save yet — pick an existing Package first.';
+      return t('cannotSavePackage');
     }
-    if (editablePointerError) return `Cannot save yet — ${editablePointerError}`;
-    return canvasBlockingReason() ?? 'Cannot save yet.';
+    if (editablePointerError) return t('cannotSaveReason', { reason: editablePointerError });
+    return canvasBlockingReason() ?? t('cannotSave');
   }
 
   /** Why the Canvas is blocking a save, if it is. */
   function canvasBlockingReason(): string | null {
     if (canPersistCanvasForest(canvasForest)) return null;
     return canvasForest.length > 1
-      ? 'Cannot save yet — the Canvas has several loose blocks. Attach them first.'
-      : 'Cannot save yet — a Macro has a single unfilled slot, which cannot be written to SNL.';
+      ? t('cannotSaveLooseCanvas')
+      : t('cannotSaveCanvasSlot');
   }
 
   function handleCancel(): void {
@@ -990,17 +1219,17 @@ export function CreateEntryApp(): React.ReactElement {
           jump to this entry's per-entry Infoview. */}
       <PanelHeader
         vsApi={apiRef.current}
-        title={mode === 'edit' ? 'Edit Entry' : 'Create Entry'}
+        title={mode === 'edit' ? t('editEntry') : t('createEntry')}
         back={{
-          label: 'Dashboard',
-          title: 'Back to Dashboard',
+          label: t('dashboard'),
+          title: t('backDashboard'),
           message: { type: 'nav.openDashboard' }
         }}
         viewInInfoview={
           mode === 'edit' && id
             ? {
-                label: 'View in Infoview',
-                title: `Open entry "${id}" in the Infoview reading surface`,
+                label: t('viewInfoview'),
+                title: t('openEntryInfoview', { id }),
                 message: { type: 'nav.openInfoview', entryId: id }
               }
             : undefined
@@ -1018,8 +1247,8 @@ export function CreateEntryApp(): React.ReactElement {
             color: 'var(--vscode-editorWarning-foreground, #cca700)'
           }}
         >
-          No entry kinds defined — run <strong>Initialize Entry Kinds</strong>{' '}
-          first. The form is disabled until at least one kind exists.
+          {t('noKindsBefore')} <strong>{t('initializeKinds')}</strong>{' '}
+          {t('noKindsAfter')}
         </div>
       ) : null}
 
@@ -1042,19 +1271,19 @@ export function CreateEntryApp(): React.ReactElement {
           }}
         >
           <div style={{ flex: '2 1 16rem' }}>
-            <Label htmlFor="snl-entry-title">Title</Label>
+            <Label htmlFor="snl-entry-title">{t('title')}</Label>
             <input
               id="snl-entry-title"
               type="text"
               value={title}
-              placeholder="e.g. Pythagorean Theorem"
+              placeholder={t('titlePlaceholder')}
               onChange={(e) => setTitle(e.target.value)}
               style={inputStyle}
             />
           </div>
           <div style={{ flex: '3 1 20rem' }}>
             <Label htmlFor="snl-entry-id">
-              {mode === 'edit' ? 'ID (readonly)' : 'ID'}
+              {mode === 'edit' ? t('idReadonly') : t('id')}
             </Label>
             {mode === 'edit' ? (
               <div style={{ display: 'flex', gap: '0.4rem' }}>
@@ -1062,10 +1291,10 @@ export function CreateEntryApp(): React.ReactElement {
                   id="snl-entry-id"
                   type="text"
                   value={id}
-                  placeholder="e.g. pythagorean-theorem"
+                  placeholder={t('idPlaceholder')}
                   onChange={(e) => setId(e.target.value)}
                   readOnly
-                  title="IDs are immutable; delete + recreate to rename"
+                  title={t('immutableIdTitle')}
                   style={{
                     ...inputStyle,
                     ...monoStyle,
@@ -1092,7 +1321,7 @@ export function CreateEntryApp(): React.ReactElement {
                     validate={ENTRY_VALIDATE_RULES.requireUnique}
                     hideResolvedChip
                     idPrefix="snl-entry-id"
-                    placeholder="e.g. pythagorean-theorem"
+                    placeholder={t('idPlaceholder')}
                     onChange={setId}
                     inputStyle={{ ...monoStyle, marginBottom: 0 }}
                   />
@@ -1103,12 +1332,12 @@ export function CreateEntryApp(): React.ReactElement {
                   onClick={() => setId(newUuid())}
                   title={
                     trimmedId
-                      ? 'Overwrite the ID with a fresh UUID v4 (tolerated but not preferred — semantic ids are strongly preferred)'
-                      : 'Fill the ID with a fresh UUID v4 (only when no meaningful semantic id fits)'
+                      ? t('overwriteUuidTitle')
+                      : t('fillUuidTitle')
                   }
                   style={{ whiteSpace: 'nowrap', opacity: 0.75 }}
                 >
-                  {trimmedId ? 'Regenerate UUID' : 'Use UUID instead'}
+                  {trimmedId ? t('regenerateUuid') : t('useUuid')}
                 </Button>
               </div>
             )}
@@ -1121,18 +1350,15 @@ export function CreateEntryApp(): React.ReactElement {
               }}
             >
               {mode === 'edit'
-                ? 'IDs are stable references used by relationship links; they cannot be edited here.'
-                : "Prefer a semantic id like " +
-                  "'pythagorean-theorem' or 'context-linalg-vars' — human-readable ids " +
-                  "render better in cross-entry references (macro sources, library graph nodes, bvar `x@<id>` context refs). " +
-                  "The UUID button is a fallback for when no meaningful name fits. IDs are immutable once created."}
+                ? t('immutableIdHint')
+                : t('semanticIdHint')}
             </p>
           </div>
         </div>
 
         {/* 2. Package + Kind =========================================== */}
         <div style={{ marginBottom: '1rem' }}>
-          <Label htmlFor="snl-entry-package">Package</Label>
+          <Label htmlFor="snl-entry-package">{t('package')}</Label>
           <select
             id="snl-entry-package"
             value={selectedPackage}
@@ -1144,28 +1370,28 @@ export function CreateEntryApp(): React.ReactElement {
           >
             {!entryPackages.includes(selectedPackage) && selectedPackage ? (
               <option value={selectedPackage} disabled>
-                {selectedPackage} (missing; choose another Package)
+                {t('missingPackageOption', { packageId: selectedPackage })}
               </option>
             ) : null}
             {entryPackages.map((packageId) => (
               <option key={packageId} value={packageId}>
-                {packageId === '_unpackaged' ? 'Unpackaged (_unpackaged)' : packageId}
+                {packageId === '_unpackaged' ? t('unpackaged') : packageId}
               </option>
             ))}
           </select>
           {!entryPackages.includes(selectedPackage) && selectedPackage ? (
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
-              The selected Package no longer exists. Your draft was preserved; choose another Package before saving.
+              {t('missingPackage')}
             </p>
           ) : (
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
-              Package membership may be changed later; moving an Entry preserves its ID and references.
+              {t('packageHint')}
             </p>
           )}
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
-          <Label htmlFor="snl-entry-kind">Kind</Label>
+          <Label htmlFor="snl-entry-kind">{t('kind')}</Label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <select
               id="snl-entry-kind"
@@ -1181,7 +1407,7 @@ export function CreateEntryApp(): React.ReactElement {
             </select>
             {kind ? (
               <span
-                title={`stroke ${kind.coloring.stroke} / background ${kind.coloring.background}`}
+                title={t('kindColors', { stroke: kind.coloring.stroke, background: kind.coloring.background })}
                 style={{
                   display: 'inline-block',
                   width: '2.5rem',
@@ -1197,10 +1423,10 @@ export function CreateEntryApp(): React.ReactElement {
         </div>
 
         {/* 3. Live preview ============================================= */}
-        <CollapsibleEntrySection title="Live Preview">
+        <CollapsibleEntrySection title={t('livePreview')}>
           <LivePreview
             kind={kind}
-            entryId={trimmedId || '(new-entry)'}
+            entryId={trimmedId || t('newEntryId')}
             title={trimmedTitle}
             content={content}
             entries={existingIds}
@@ -1212,7 +1438,7 @@ export function CreateEntryApp(): React.ReactElement {
 
         {/* 4. Content tabs ============================================= */}
         <div style={{ marginBottom: '1rem' }}>
-          <Label>Content</Label>
+          <Label>{t('content')}</Label>
           <div
             style={{
               display: 'flex',
@@ -1227,7 +1453,7 @@ export function CreateEntryApp(): React.ReactElement {
                 active={activeFormat === tab.id}
                 onClick={() => setActiveFormat(tab.id)}
               >
-                {tab.label}
+                {tab.id === 'text' ? t('textFormat') : tab.label}
               </TabButton>
             ))}
           </div>
@@ -1244,19 +1470,19 @@ export function CreateEntryApp(): React.ReactElement {
                 active={snlMode === 'canvas'}
                 onClick={() => setSnlMode('canvas')}
               >
-                GUI Editor (Canvas)
+                {t('guiCanvas')}
               </SubTabButton>
               <SubTabButton
                 active={snlMode === 'gui'}
                 onClick={() => setSnlMode('gui')}
               >
-                GUI Editor (Inductive)
+                {t('guiInductive')}
               </SubTabButton>
               <SubTabButton
                 active={snlMode === 'text'}
                 onClick={() => setSnlMode('text')}
               >
-                Text Editor
+                {t('textEditor')}
               </SubTabButton>
             </div>
           ) : null}
@@ -1325,7 +1551,7 @@ export function CreateEntryApp(): React.ReactElement {
                   }));
                 }}
                 rows={8}
-                placeholder={`${activeFormat.toUpperCase()} source…`}
+                placeholder={t('sourcePlaceholder', { format: activeFormat.toUpperCase() })}
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
@@ -1349,7 +1575,7 @@ export function CreateEntryApp(): React.ReactElement {
                   fontStyle: 'italic'
                 }}
               >
-                Monaco editor integration planned; for now a plain textarea.
+                {t('monacoPlanned')}
               </p>
             </>
           )}
@@ -1372,12 +1598,12 @@ export function CreateEntryApp(): React.ReactElement {
         ) : null}
 
         {/* 6. Contributor ============================================= */}
-        <CollapsibleEntrySection title="Contributor">
-          <PlaceholderBox text="Not implemented yet — deferred until the contribution_info schema is defined." />
+        <CollapsibleEntrySection title={t('contributor')}>
+          <PlaceholderBox text={t('contributorDeferred')} />
         </CollapsibleEntrySection>
 
         {/* 7. Pointer ================================================= */}
-        <CollapsibleEntrySection title="Pointer">
+        <CollapsibleEntrySection title={t('pointer')}>
           <PointerEditor
             value={pointerDraft}
             onChange={(next) => {
@@ -1399,8 +1625,8 @@ export function CreateEntryApp(): React.ReactElement {
             }}
           >
             {canvasForest.length > 1
-              ? 'Save is disabled while the Canvas syntax forest has multiple roots. Attach the loose blocks or reset the Canvas.'
-              : 'Save is disabled because a Macro has a single unfilled slot, which cannot be written to SNL — an empty slot needs a comma, so give that Macro another argument or fill the slot.'}
+              ? t('canvasMultipleRoots')
+              : t('canvasSingleSlot')}
           </p>
         ) : null}
         <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
@@ -1410,14 +1636,14 @@ export function CreateEntryApp(): React.ReactElement {
             disabled={!canCreate}
           >
             {status.kind === 'creating'
-              ? mode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
-              : mode === 'edit' ? 'Update Entry' : 'Create Entry'}
+              ? mode === 'edit' ? t('updating') : t('creating')
+              : mode === 'edit' ? t('updateEntry') : t('createEntry')}
           </Button>
           <Button
             variant="secondary"
             onClick={handleCancel}
           >
-            {mode === 'edit' ? 'Reset banner' : 'Cancel'}
+            {mode === 'edit' ? t('resetBanner') : t('cancel')}
           </Button>
         </div>
 
@@ -1534,6 +1760,7 @@ function CollapsibleEntrySection({
   title: string;
   children: React.ReactNode;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const [open, setOpen] = useState(false);
   const reactId = React.useId();
   const panelId = `entry-section-${reactId.replace(/[^a-z0-9_-]+/gi, '-')}`;
@@ -1549,7 +1776,7 @@ function CollapsibleEntrySection({
         expanded={open}
         controls={panelId}
         onToggle={() => setOpen((value) => !value)}
-        title={`${title} — ${open ? 'collapse' : 'expand'} section`}
+        title={t('sectionToggle', { title, action: open ? t('collapse') : t('expand') })}
         style={{
           display: 'flex',
           width: '100%',
@@ -1582,19 +1809,20 @@ function PointerEditor({
   value: PointerDraft;
   onChange: (next: PointerDraft) => void;
 }): React.ReactElement {
-  const error = pointerDraftError(value);
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
+  const error = pointerDraftError(value, t);
   const errorId = 'snl-entry-pointer-error';
   const describedBy = value.enabled ? errorId : undefined;
   const fileInvalid = !!error && (
-    error.startsWith('Choose a project-relative file') || error.startsWith('The file path')
+    error.startsWith(t('chooseProjectFile').replace(/\.$/, '')) || error.startsWith(t('relativeProjectPath').replace(/\.$/, '')) || error.startsWith(t('pathCannotLeaveRoot').replace(/\.$/, ''))
   );
   const lineInvalid = !!error && (
-    error.startsWith('Start line') || error.startsWith('End line')
+    error.startsWith(t('positiveStartLine').replace(/\.$/, '')) || error.startsWith(t('validEndLine').replace(/\.$/, ''))
   );
   const regexInvalid = !!error && (
-    error.startsWith('Regex pattern') || error.startsWith('Invalid regular expression')
+    error.startsWith(t('regexRequired').replace(/\.$/, '')) || error.startsWith(t('invalidRegex', { message: '' }).split(/[：:]/)[0])
   );
-  const occurrenceInvalid = !!error && error.startsWith('Occurrence');
+  const occurrenceInvalid = !!error && error.startsWith(t('positiveOccurrence').replace(/\.$/, ''));
   const update = (patch: Partial<PointerDraft>): void => onChange({ ...value, ...patch });
   return (
     <div data-testid="entry-pointer-editor">
@@ -1604,11 +1832,11 @@ function PointerEditor({
           checked={value.enabled}
           onChange={(event) => update({ enabled: event.target.checked })}
         />
-        Bind this Entry to a source location
+        {t('bindSource')}
       </label>
       {value.enabled ? (
         <>
-          <Label htmlFor="snl-entry-pointer-file">Project-relative file</Label>
+          <Label htmlFor="snl-entry-pointer-file">{t('projectRelativeFile')}</Label>
           <input
             id="snl-entry-pointer-file"
             type="text"
@@ -1616,10 +1844,10 @@ function PointerEditor({
             onChange={(event) => update({ file: event.target.value })}
             aria-invalid={fileInvalid || undefined}
             aria-describedby={describedBy}
-            placeholder="e.g. src/theorems/pythagorean.ts"
+            placeholder={t('projectFilePlaceholder')}
             style={{ ...inputStyle, ...monoStyle }}
           />
-          <Label htmlFor="snl-entry-pointer-mode">Mode</Label>
+          <Label htmlFor="snl-entry-pointer-mode">{t('mode')}</Label>
           <select
             id="snl-entry-pointer-mode"
             value={value.mode}
@@ -1627,13 +1855,13 @@ function PointerEditor({
             aria-describedby={describedBy}
             style={inputStyle}
           >
-            <option value="lines">Line range</option>
-            <option value="regex">Regular expression</option>
+            <option value="lines">{t('lineRange')}</option>
+            <option value="regex">{t('regularExpression')}</option>
           </select>
           {value.mode === 'lines' ? (
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 10rem' }}>
-                <Label htmlFor="snl-entry-pointer-line">Start line</Label>
+                <Label htmlFor="snl-entry-pointer-line">{t('startLine')}</Label>
                 <input
                   id="snl-entry-pointer-line"
                   type="number"
@@ -1647,7 +1875,7 @@ function PointerEditor({
                 />
               </div>
               <div style={{ flex: '1 1 10rem' }}>
-                <Label htmlFor="snl-entry-pointer-end-line">End line (optional)</Label>
+                <Label htmlFor="snl-entry-pointer-end-line">{t('endLine')}</Label>
                 <input
                   id="snl-entry-pointer-end-line"
                   type="number"
@@ -1657,14 +1885,14 @@ function PointerEditor({
                   onChange={(event) => update({ endLine: event.target.value })}
                   aria-invalid={lineInvalid || undefined}
                   aria-describedby={describedBy}
-                  placeholder="same as start"
+                  placeholder={t('sameAsStart')}
                   style={inputStyle}
                 />
               </div>
             </div>
           ) : (
             <>
-              <Label htmlFor="snl-entry-pointer-pattern">Regex pattern</Label>
+              <Label htmlFor="snl-entry-pointer-pattern">{t('regexPattern')}</Label>
               <input
                 id="snl-entry-pointer-pattern"
                 type="text"
@@ -1672,12 +1900,12 @@ function PointerEditor({
                 onChange={(event) => update({ pattern: event.target.value })}
                 aria-invalid={regexInvalid || undefined}
                 aria-describedby={describedBy}
-                placeholder="e.g. function\\s+provePythagorean"
+                placeholder={t('regexPlaceholder')}
                 style={{ ...inputStyle, ...monoStyle }}
               />
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 10rem' }}>
-                  <Label htmlFor="snl-entry-pointer-flags">Regex flags (optional)</Label>
+                  <Label htmlFor="snl-entry-pointer-flags">{t('regexFlags')}</Label>
                   <input
                     id="snl-entry-pointer-flags"
                     type="text"
@@ -1685,12 +1913,12 @@ function PointerEditor({
                     onChange={(event) => update({ flags: event.target.value })}
                     aria-invalid={regexInvalid || undefined}
                     aria-describedby={describedBy}
-                    placeholder="e.g. im"
+                    placeholder={t('exampleIm')}
                     style={{ ...inputStyle, ...monoStyle }}
                   />
                 </div>
                 <div style={{ flex: '1 1 10rem' }}>
-                  <Label htmlFor="snl-entry-pointer-occurrence">Occurrence (optional)</Label>
+                  <Label htmlFor="snl-entry-pointer-occurrence">{t('occurrence')}</Label>
                   <input
                     id="snl-entry-pointer-occurrence"
                     type="number"
@@ -1713,12 +1941,12 @@ function PointerEditor({
             aria-live="polite"
             style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', opacity: error ? 1 : 0.65, color: error ? 'var(--vscode-errorForeground, #f48771)' : undefined }}
           >
-            {error ?? 'Paths are resolved from the project root. Line numbers and regex occurrences are 1-indexed.'}
+            {error ?? t('pointerHint')}
           </p>
         </>
       ) : (
         <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.65 }}>
-          No source location is attached. Enable the binding to choose a file and addressing mode.
+          {t('noPointer')}
         </p>
       )}
     </div>
@@ -1834,7 +2062,7 @@ function PlaceholderBox({ text }: { text: string }): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// GUI Editor (Canvas) — DOM/SVG canvas shell
+// {t('guiCanvas')} — DOM/SVG canvas shell
 // ---------------------------------------------------------------------------
 
 interface CanvasBlockPosition {
@@ -3462,7 +3690,7 @@ export function GuiCanvasEditor({
 }
 
 // ---------------------------------------------------------------------------
-// GUI Editor (Inductive) — library-outline-styled tree editor
+// {t('guiInductive')} — library-outline-styled tree editor
 // ---------------------------------------------------------------------------
 
 /**
@@ -5023,6 +5251,7 @@ function StatusLine({
 }: {
   status: Status;
 }): React.ReactElement | null {
+  const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   if (status.kind === 'idle' || status.kind === 'creating') {
     return null;
   }
@@ -5030,29 +5259,29 @@ function StatusLine({
   let text = '';
   let color = 'var(--vscode-foreground, #ddd)';
   if (status.kind === 'created') {
-    text = `\u2705 Created entry (id: ${status.id}).`;
+    text = t('createdStatus', { id: status.id });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'updated') {
-    text = `\u2705 Updated entry (id: ${status.id}).`;
+    text = t('updatedStatus', { id: status.id });
     color = 'var(--vscode-testing-iconPassed, #89d185)';
   } else if (status.kind === 'duplicate') {
-    text = `\u26a0\ufe0f ${status.message}`;
+    text = t('warningStatus', { message: status.message });
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'notFound') {
-    text = `\u274c ${status.message}`;
+    text = t('errorStatus', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'unknownKind') {
-    text = `\u26a0\ufe0f ${status.message}`;
+    text = t('warningStatus', { message: status.message });
     color = 'var(--vscode-editorWarning-foreground, #cca700)';
   } else if (status.kind === 'invalid') {
-    text = `\u274c Invalid: ${status.message}`;
+    text = t('invalidStatus', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (
     status.kind === 'noSnlDoc' ||
     status.kind === 'noWorkspace' ||
     status.kind === 'error'
   ) {
-    text = `\u274c ${status.message}`;
+    text = t('errorStatus', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   }
 

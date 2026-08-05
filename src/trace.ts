@@ -55,6 +55,12 @@ export function traceChannel(): vscode.OutputChannel | null {
   return output();
 }
 
+export function disposeTraceResources(): void {
+  channel?.dispose();
+  channel = null;
+  panelsThisSession = 0;
+}
+
 /** Lazily create the channel; degrade to a no-op outside the extension host. */
 function output(): vscode.OutputChannel | null {
   if (channel) return channel;

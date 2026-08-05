@@ -354,6 +354,11 @@ function macrosOutput(): vscode.OutputChannel | null {
   return null;
 }
 
+export function disposeSnlDocResources(): void {
+  snlMacrosOutput?.dispose();
+  snlMacrosOutput = null;
+}
+
 /** Path helpers (all relative to a workspace root). */
 export function snlRootUri(workspaceRoot: vscode.Uri): vscode.Uri {
   return vscode.Uri.joinPath(workspaceRoot, '.SNL_Doc');

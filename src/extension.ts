@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
-import { isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace, traceChannel } from './trace';
+import { disposeTraceResources, isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace, traceChannel } from './trace';
 import { registerWebviewCostProbe } from './webviewCostProbe';
 import { InitEntryKindsPanel } from './initEntryKindsPanel';
 import { CreateEntryKindPanel } from './createEntryKindPanel';
@@ -243,6 +243,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const t = hostMessage;
   // Drives the `when` clause of the editor-title 🐱 Dashboard button.
   installSnlDocContextKey(context.subscriptions);
+  context.subscriptions.push({
+    dispose: () => {
+      disposeTraceResources();
+      InfoviewPanel.disposeOutput();
+      snlDoc.disposeSnlDocResources();
+    }
+  });
   const openInfoview = vscode.commands.registerCommand(
     'snlDoc.openInfoview',
     (initialLibrarySlug?: unknown) => {

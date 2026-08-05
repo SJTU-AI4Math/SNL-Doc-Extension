@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { getVsCodeApi, type VsCodeApi } from '../vscodeApi';
+import { useVsCodeApiRef, type VsCodeApi } from '../vscodeApi';
 
 interface MessageTarget {
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
@@ -23,11 +23,10 @@ export function useVsCodeBridge<T>(
   onMessage: (message: T) => void,
   sendReady = true
 ): { apiRef: React.MutableRefObject<VsCodeApi | undefined>; post: (message: unknown) => void } {
-  const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const apiRef = useVsCodeApiRef();
   const handlerRef = useRef(onMessage);
   handlerRef.current = onMessage;
   useEffect(() => {
-    apiRef.current = getVsCodeApi();
     return bindMessageBridge<T>(
       window,
       apiRef.current,

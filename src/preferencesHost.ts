@@ -51,7 +51,11 @@ export class PreferencesHost implements vscode.Disposable {
     const ref = new WeakRef(webview);
     this.webviewRefs.set(webview, ref);
     this.webviews.add(ref);
-    this.disposables.push(webview.onDidReceiveMessage((message: unknown) => {
+    // Do not retain this disposable in the host-wide list: that would keep one
+    // listener subscription alive for every panel ever opened until extension
+    // deactivation. The subscription is owned by the Webview emitter itself;
+    // all host-side references to the Webview remain weak.
+    webview.onDidReceiveMessage((message: unknown) => {
       const incoming = message as { type?: unknown; language?: unknown } | null;
       if (incoming?.type === 'snl.preferences/ready') {
         const target = ref.deref();
@@ -62,16 +66,12 @@ export class PreferencesHost implements vscode.Disposable {
         incoming?.type === 'snl.preferences/set-language' &&
         (incoming.language === 'auto' || is_supported_language(incoming.language))
       ) {
-        const target = ref.deref();
-        if (target) void this.setLanguage(target, incoming.language);
+        void this.setLanguage(incoming.language);
       }
-    }));
+    });
   }
 
-  private async setLanguage(
-    webview: vscode.Webview,
-    language: LanguagePreference
-  ): Promise<void> {
+  private async setLanguage(language: LanguagePreference): Promise<void> {
     const config = vscode.workspace.getConfiguration('snlDoc');
     const target = language_configuration_target(config.inspect<string>('locale')) === 'workspace'
       ? vscode.ConfigurationTarget.Workspace
@@ -87,11 +87,6 @@ export class PreferencesHost implements vscode.Disposable {
         error: error instanceof Error ? error.message : String(error)
       });
       void vscode.window.showErrorMessage(message);
-      try {
-        await webview.postMessage({ type: 'snl.preferences/error', message });
-      } catch {
-        // The panel may have closed while the configuration write was pending.
-      }
     }
   }
 

@@ -371,6 +371,11 @@ export class InfoviewPanel {
     return InfoviewPanel.output;
   }
 
+  public static disposeOutput(): void {
+    InfoviewPanel.output?.dispose();
+    InfoviewPanel.output = undefined;
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     // Timing marks reported by the webview itself, folded into the open
     // trace so the Infoview and the editor panels are directly comparable.

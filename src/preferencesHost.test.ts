@@ -54,17 +54,19 @@ describe('PreferencesHost language writes', () => {
   function register(host: PreferencesHost): {
     receive: (message: unknown) => void;
     postMessage: ReturnType<typeof vi.fn>;
+    listenerDispose: ReturnType<typeof vi.fn>;
   } {
     let receive = (_message: unknown): void => undefined;
     const postMessage = vi.fn().mockResolvedValue(true);
+    const listenerDispose = vi.fn();
     host.register({
       onDidReceiveMessage: (listener: (message: unknown) => void) => {
         receive = listener;
-        return { dispose: vi.fn() };
+        return { dispose: listenerDispose };
       },
       postMessage
     } as never);
-    return { receive: (message) => receive(message), postMessage };
+    return { receive: (message) => receive(message), postMessage, listenerDispose };
   }
 
   it('writes at workspace scope when a workspace override is effective', async () => {
@@ -88,17 +90,24 @@ describe('PreferencesHost language writes', () => {
     host.dispose();
   });
 
-  it('reports a rejected configuration write to VS Code and the source Webview', async () => {
+  it('does not retain every Webview listener until extension deactivation', () => {
+    const host = new PreferencesHost();
+    const { listenerDispose } = register(host);
+
+    host.dispose();
+    expect(listenerDispose).not.toHaveBeenCalled();
+  });
+
+  it('reports a rejected configuration write through the VS Code error UI', async () => {
     mocks.update.mockRejectedValue(new Error('read only'));
     const host = new PreferencesHost();
     const { receive, postMessage } = register(host);
 
     receive({ type: 'snl.preferences/set-language', language: 'en' });
-    await vi.waitFor(() => expect(mocks.showErrorMessage).toHaveBeenCalled());
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'snl.preferences/error',
-      message: expect.stringContaining('read only')
-    }));
+    await vi.waitFor(() => expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('read only')
+    ));
+    expect(postMessage).not.toHaveBeenCalled();
     host.dispose();
   });
 

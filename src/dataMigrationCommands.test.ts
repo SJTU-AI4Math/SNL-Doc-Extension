@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  language: 'en',
   showInformationMessage: vi.fn(),
   showWarningMessage: vi.fn(),
   showErrorMessage: vi.fn(),
@@ -26,11 +27,16 @@ vi.mock('./vscodeDataMigration', () => ({
   migrateWorkspaceData: mocks.migrate
 }));
 
+vi.mock('./preferences', () => ({
+  read_extension_preferences: () => ({ language: mocks.language })
+}));
+
 import { checkDataVersion, repairData } from './dataMigrationCommands';
 
 describe('data migration commands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.language = 'en';
   });
 
   it('reports the current version and complete pending chain without writing', async () => {
@@ -119,5 +125,13 @@ describe('data migration commands', () => {
     mocks.showWarningMessage.mockResolvedValue(undefined);
     await repairData({ path: '/ws' } as never);
     expect(mocks.migrate).not.toHaveBeenCalled();
+  });
+
+  it('uses the effective Chinese locale for host notifications', async () => {
+    mocks.language = 'zh-CN';
+    await checkDataVersion(undefined);
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      '检查 SNL 数据需要打开文件夹或工作区。'
+    );
   });
 });

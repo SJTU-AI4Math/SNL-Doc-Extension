@@ -39,6 +39,8 @@ describe('collapse toggle: one contract, two drivers', () => {
     expect(collapseToggleTitle(false, 2)).toBe('Collapse 2 sub-entries');
     expect(collapseToggleTitle(true, 1)).toBe('Expand 1 sub-entry');
     expect(collapseToggleAriaLabel(true)).toBe('Expand');
+    expect(collapseToggleTitle(false, 2, 'zh-CN')).toBe('收起 2 个子条目');
+    expect(collapseToggleAriaLabel(true, 'zh-CN')).toBe('展开');
   });
 });
 
@@ -46,7 +48,7 @@ describe('the live panel consumes the contract', () => {
   it('does not hard-code glyphs, geometry, or label strings', () => {
     expect(LIVE_TOGGLE).toContain('COLLAPSE_GLYPH');
     expect(LIVE_TOGGLE).toContain('COLLAPSE_TOGGLE_STYLE');
-    expect(LIVE_TOGGLE).toContain('collapseToggleTitle');
+    expect(LIVE_TOGGLE).toContain('collapseChildren');
     // The literals that used to be inlined must be gone.
     expect(LIVE_TOGGLE).not.toContain("'▶'");
     expect(LIVE_TOGGLE).not.toContain("'▼'");
@@ -75,6 +77,8 @@ describe('the exported runtime consumes the same contract', () => {
       `${open ? 'Collapse ' : 'Expand '}${count} sub-entr${count === 1 ? 'y' : 'ies'}`;
     expect(built(true, 2)).toBe(collapseToggleTitle(false, 2));
     expect(built(false, 1)).toBe(collapseToggleTitle(true, 1));
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain("zh ? '收起' : 'Collapse'");
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain("zh ? '展开' : 'Expand'");
   });
 
   it('leaves no placeholder unsubstituted', () => {

@@ -29,9 +29,21 @@ import {
 import {
   COLLAPSE_GLYPH,
   COLLAPSE_TOGGLE_CLASS,
-  COLLAPSE_TOGGLE_STYLE,
-  collapseToggleAriaLabel
+  COLLAPSE_TOGGLE_STYLE
 } from '../../../src/collapseToggleContract';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'collapsibleBlock',
+  {
+    title: { arg: 'count', one: '{action} {count} part', other: '{action} {count} parts' },
+    expand: 'Expand', collapse: 'Collapse',
+    noun: { arg: 'count', one: 'part', other: 'parts' }
+  },
+  {
+    title: '{action} {count} 个部分', expand: '展开', collapse: '收起', noun: '个部分'
+  }
+);
 
 /**
  * Tooltip text for a collapsible *block macro*. Deliberately NOT
@@ -39,7 +51,14 @@ import {
  * "sub-entries" (Entry tree), while here the hidden children are body parts of
  * one block.
  */
-export function collapsibleBlockTitle(collapsed: boolean, hiddenCount: number): string {
+export function collapsibleBlockTitle(
+  collapsed: boolean,
+  hiddenCount: number,
+  locale = 'en'
+): string {
+  if (locale.toLowerCase().startsWith('zh')) {
+    return `${collapsed ? '展开' : '收起'} ${hiddenCount} 个部分`;
+  }
   const noun = `part${hiddenCount === 1 ? '' : 's'}`;
   return `${collapsed ? 'Expand' : 'Collapse'} ${hiddenCount} ${noun}`;
 }
@@ -70,6 +89,7 @@ function initiallyCollapsed(node: SnlSyntaxTree): boolean {
  * erroring.
  */
 export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
+  const t = useUiMessages(MESSAGES);
   const children: SnlSyntaxTree[] = Array.isArray(node.children) ? node.children : [];
   const [collapsed, setCollapsed] = useState(() => initiallyCollapsed(node));
 
@@ -98,7 +118,7 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
       // hardcoded in the runtime.
       data-snl-collapsible=""
       data-snl-child-count={body.length}
-      data-snl-collapse-noun={body.length === 1 ? 'part' : 'parts'}
+      data-snl-collapse-noun={t('noun', { count: body.length })}
       data-snl-collapsed={collapsed ? 'true' : undefined}
     >
       {/* `position: relative` + the toggle's `position: absolute; left: -20px`
@@ -114,8 +134,11 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
           className={COLLAPSE_TOGGLE_CLASS}
           style={COLLAPSE_TOGGLE_STYLE as React.CSSProperties}
           aria-expanded={!collapsed}
-          aria-label={collapseToggleAriaLabel(collapsed)}
-          title={collapsibleBlockTitle(collapsed, body.length)}
+          aria-label={t(collapsed ? 'expand' : 'collapse')}
+          title={t('title', {
+            action: t(collapsed ? 'expand' : 'collapse'),
+            count: body.length
+          })}
           onClick={(e) => {
             // The summary row is itself clickable; stop the bubble so one
             // click is not counted twice.

@@ -312,7 +312,8 @@ const RUNTIME_TEMPLATE = String.raw`
         // Vocabulary travels with the markup: the Entry outline hides
         // sub-entries, a collapsible block hides body parts.
         var noun = host.getAttribute('data-snl-collapse-noun');
-        if (!noun) noun = 'sub-entr' + (count === 1 ? 'y' : 'ies');
+        var zh = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0;
+        if (!noun) noun = zh ? '个子条目' : 'sub-entr' + (count === 1 ? 'y' : 'ies');
 
         var toggle = document.createElement('button');
         toggle.type = 'button';
@@ -328,8 +329,9 @@ const RUNTIME_TEMPLATE = String.raw`
           var open = toggle.getAttribute('aria-expanded') === 'true';
           subtree.hidden = !open;
           toggle.textContent = open ? '__GLYPH_EXPANDED__' : '__GLYPH_COLLAPSED__';
-          toggle.title = (open ? 'Collapse ' : 'Expand ') + count + ' ' + noun;
-          toggle.setAttribute('aria-label', open ? 'Collapse' : 'Expand');
+          var action = open ? (zh ? '收起' : 'Collapse') : (zh ? '展开' : 'Expand');
+          toggle.title = action + ' ' + count + (zh ? ' ' : ' ') + noun;
+          toggle.setAttribute('aria-label', action);
         }
         toggle.addEventListener('click', function () {
           toggle.setAttribute(

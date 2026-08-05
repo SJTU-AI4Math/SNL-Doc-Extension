@@ -10,7 +10,10 @@ import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
 // This project does not enable vitest `globals`, so testing-library's automatic
 // cleanup hook is not installed. Unmount explicitly or renders pile up in the
 // same document and `getByRole` finds several toggles.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.lang = 'en';
+});
 
 function node(text: string, mdata: unknown = null): SnlSyntaxTree {
   return { macro_name: text, kind: '', mdata, children: [] } as unknown as SnlSyntaxTree;
@@ -207,6 +210,16 @@ describe('CollapsibleRenderer', () => {
   it('exposes an aria-label on the toggle', () => {
     mount(blockNode([node('summary'), node('body1')]));
     expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Collapse');
+  });
+
+  it('localizes collapse accessibility copy and export vocabulary in Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    mount(blockNode([node('summary'), node('body1'), node('body2')]));
+    const button = screen.getByRole('button');
+    expect(button.getAttribute('aria-label')).toBe('收起');
+    expect(button.getAttribute('title')).toBe('收起 2 个部分');
+    expect(document.querySelector('.snl-collapsible')?.getAttribute('data-snl-collapse-noun'))
+      .toBe('个部分');
   });
 
   // Regression lock (found by rendering a real proof entry in a browser): a

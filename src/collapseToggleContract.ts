@@ -30,13 +30,21 @@ export const COLLAPSE_TOGGLE_GEOMETRY = {
 
 /** Tooltip text. The child count belongs here, not on the button face: the
  *  live panel keeps the glyph a bare triangle and explains in the tooltip. */
-export function collapseToggleTitle(collapsed: boolean, childCount: number): string {
+export function collapseToggleTitle(
+  collapsed: boolean,
+  childCount: number,
+  locale = 'en'
+): string {
+  if (locale.toLowerCase().startsWith('zh')) {
+    return `${collapsed ? '展开' : '收起'} ${childCount} 个子条目`;
+  }
   const noun = `sub-entr${childCount === 1 ? 'y' : 'ies'}`;
   return `${collapsed ? 'Expand' : 'Collapse'} ${childCount} ${noun}`;
 }
 
 /** Accessible name, independent of the child count. */
-export function collapseToggleAriaLabel(collapsed: boolean): string {
+export function collapseToggleAriaLabel(collapsed: boolean, locale = 'en'): string {
+  if (locale.toLowerCase().startsWith('zh')) return collapsed ? '展开' : '收起';
   return collapsed ? 'Expand' : 'Collapse';
 }
 

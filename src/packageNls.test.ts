@@ -17,4 +17,14 @@ describe('package localization catalogs', () => {
     expect(tokens.length).toBeGreaterThan(0);
     for (const token of tokens) expect(en[token], token).toBeTypeOf('string');
   });
+
+  it('routes every contributed configuration description through package NLS', () => {
+    const pkg = JSON.parse(manifest) as {
+      contributes?: { configuration?: { properties?: Record<string, { description?: string }> } };
+    };
+    const properties = pkg.contributes?.configuration?.properties ?? {};
+    for (const [name, setting] of Object.entries(properties)) {
+      expect(setting.description, name).toMatch(/^%[^%]+%$/);
+    }
+  });
 });

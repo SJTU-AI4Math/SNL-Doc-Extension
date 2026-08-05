@@ -242,13 +242,13 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "Open SNL editor panels in a new group beside the current editor, instead of taking over it. Note: this was tried as a performance fix and measured as a non-cause (Active 1077ms vs Beside 1096ms); it is a layout preference only."
+          "description": "%snlDoc.settings.openBeside.description%"
         },
         "snlDoc.trace": {
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "Log millisecond-resolution panel open/render timings to the \"SNL Trace\" output channel. For diagnosing slow panels; off by default."
+          "description": "%snlDoc.settings.trace.description%"
         },
         "snlDoc.locale": {
           "type": "string",
@@ -290,14 +290,14 @@
           "default": 60,
           "minimum": 0,
           "maximum": 100,
-          "description": "SNL Structural Index percentages below this threshold are shown in red."
+          "description": "%snlDoc.settings.structuralIndexRedBelow.description%"
         },
         "snlDoc.metrics.structuralIndexGreenAtLeast": {
           "type": "number",
           "default": 80,
           "minimum": 0,
           "maximum": 100,
-          "description": "SNL Structural Index percentages at or above this threshold are shown in green; values between the two thresholds are orange."
+          "description": "%snlDoc.settings.structuralIndexGreenAtLeast.description%"
         }
       }
     }

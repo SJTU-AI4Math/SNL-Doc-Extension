@@ -3,6 +3,21 @@ import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
 import { EXPORT_RUNTIME_CSS } from './exportRuntime';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const MESSAGES = defineHostMessages(
+  {
+    noWorkspace: 'No workspace folder is open.', chooseDestination: 'Choose a destination first.',
+    runtimeMissing: 'Interactive runtime not found (run `npm run build:export-runtime`); exporting a static document instead.',
+    done: 'Exported {count} file(s) to {path}'
+  },
+  {
+    noWorkspace: '没有打开的工作区文件夹。', chooseDestination: '请先选择导出位置。',
+    runtimeMissing: '未找到交互运行时（请运行 `npm run build:export-runtime`）；将改为导出静态文档。',
+    done: '已将 {count} 个文件导出到 {path}'
+  }
+);
 
 /** Harvested payload handed over by the Infoview, held until the user commits. */
 export interface ExportPayload {
@@ -184,18 +199,19 @@ export class ExportOptionsPanel {
     destinationPath: string,
     interactive: boolean
   ): Promise<void> {
+    const t = createHostTranslator(read_extension_preferences().language, MESSAGES);
     const root = firstWorkspaceFolder();
     if (!root) {
       await this.panel.webview.postMessage({
         type: 'exportFailed',
-        message: 'No workspace folder is open.'
+        message: t('noWorkspace')
       });
       return;
     }
     if (!destinationPath.trim()) {
       await this.panel.webview.postMessage({
         type: 'exportFailed',
-        message: 'Choose a destination first.'
+        message: t('chooseDestination')
       });
       return;
     }
@@ -223,7 +239,7 @@ export class ExportOptionsPanel {
         // the reader still gets correct, readable content, just without hover
         // and collapse.
         void vscode.window.showWarningMessage(
-          'Interactive runtime not found (run `npm run build:export-runtime`); exporting a static document instead.'
+          t('runtimeMissing')
         );
         runtimeJs = undefined;
       }
@@ -250,7 +266,7 @@ export class ExportOptionsPanel {
       this.lastTarget = outcome.target;
       await this.panel.webview.postMessage({
         type: 'exportDone',
-        message: `Exported ${outcome.fileCount} file(s) to ${outcome.target.fsPath}`,
+        message: t('done', { count: outcome.fileCount, path: outcome.target.fsPath }),
         warnings: outcome.warnings
       });
     } catch (err) {

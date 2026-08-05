@@ -34,10 +34,47 @@ export function defineUiMessages<const Messages extends UiCatalog>(
   english: Messages,
   chinese: { readonly [Key in keyof Messages]: UiMessageTemplate }
 ): UiMessages<Messages> {
+  for (const key of Object.keys(english) as Array<keyof Messages & string>) {
+    const enTemplate = english[key];
+    const zhTemplate = chinese[key];
+    if (zhTemplate === undefined) {
+      throw new Error(`Missing zh-CN UI message: ${namespace}.${key}`);
+    }
+    const enPlural = typeof enTemplate !== 'string';
+    const zhPlural = typeof zhTemplate !== 'string';
+    if (enPlural !== zhPlural ||
+        (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg)) {
+      throw new Error(`UI message ${namespace}.${key} has incompatible plural arguments`);
+    }
+    const enParams = placeholderNames(enTemplate);
+    const zhParams = placeholderNames(zhTemplate);
+    const missing = [...enParams].filter((name) => !zhParams.has(name));
+    const extra = [...zhParams].filter((name) => !enParams.has(name));
+    if (missing.length || extra.length) {
+      throw new Error(
+        `UI message ${namespace}.${key} placeholder mismatch: ` +
+        `missing [${missing.join(', ')}], extra [${extra.join(', ')}]`
+      );
+    }
+  }
   return {
     namespace,
     catalogs: { en: english, 'zh-CN': chinese }
   };
+}
+
+function placeholderNames(template: UiMessageTemplate): Set<string> {
+  const names = new Set<string>();
+  const strings = typeof template === 'string'
+    ? [template]
+    : [template.zero, template.one, template.two, template.few, template.many, template.other];
+  for (const value of strings) {
+    if (!value) continue;
+    for (const match of value.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+      names.add(match[1]);
+    }
+  }
+  return names;
 }
 
 export function resolveUiLocale(locale: string | null | undefined): UiLocale {

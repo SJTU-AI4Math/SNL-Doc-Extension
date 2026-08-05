@@ -55,4 +55,17 @@ describe('UI message runtime', () => {
   it('fails closed when an interpolation parameter is missing', () => {
     expect(() => formatUiMessage('Hello, {name}', {})).toThrow(/name/);
   });
+
+  it('rejects locale catalogs that drop placeholders or change plural arguments', () => {
+    expect(() => defineUiMessages(
+      'bad.placeholder',
+      { greeting: 'Hello, {name}' },
+      { greeting: '你好' }
+    )).toThrow(/greeting.*name/i);
+    expect(() => defineUiMessages(
+      'bad.plural',
+      { count: { arg: 'count', other: '{count} items' } },
+      { count: { arg: 'total', other: '{total} 项' } }
+    )).toThrow(/count.*plural/i);
+  });
 });

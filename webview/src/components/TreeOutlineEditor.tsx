@@ -27,6 +27,47 @@ import {
   treeRowCapabilities,
   treeRowStyle
 } from './interactionModel';
+import {
+  defineUiMessages,
+  useUiMessages,
+  type UiTranslator
+} from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'treeOutline',
+  {
+    expand: 'Expand', collapse: 'Collapse',
+    addChildLabel: '+ child', addChild: 'Add a child entry',
+    addSiblingLabel: '+ sibling', addSibling: 'Add a sibling after this entry',
+    outdent: 'Outdent — promote to sibling of parent',
+    outdentUnavailable: 'Outdent unavailable — already at the top level',
+    indent: 'Indent — make this entry a child of its previous sibling',
+    indentUnavailable: 'Indent unavailable — no previous sibling to nest under',
+    moveUpEdge: 'Move up (Ctrl/Cmd-click: move to first sibling)',
+    moveUp: 'Move up (swap with previous sibling)',
+    moveUpUnavailable: 'Move up unavailable — already first among siblings',
+    moveDownEdge: 'Move down (Ctrl/Cmd-click: move to last sibling)',
+    moveDown: 'Move down (swap with next sibling)',
+    moveDownUnavailable: 'Move down unavailable — already last among siblings',
+    delete: 'Delete this entry from the outline (does not delete the shared-pool entry)'
+  },
+  {
+    expand: '展开', collapse: '折叠',
+    addChildLabel: '+ 子级', addChild: '添加子条目',
+    addSiblingLabel: '+ 同级', addSibling: '在此条目后添加同级条目',
+    outdent: '减少缩进 — 提升为父节点的同级条目',
+    outdentUnavailable: '无法减少缩进 — 已在最顶层',
+    indent: '增加缩进 — 成为前一个同级条目的子条目',
+    indentUnavailable: '无法增加缩进 — 没有可作为父节点的前一个同级条目',
+    moveUpEdge: '上移（Ctrl/Cmd + 单击：移到同级首位）',
+    moveUp: '上移（与前一个同级条目交换）',
+    moveUpUnavailable: '无法上移 — 已是同级首项',
+    moveDownEdge: '下移（Ctrl/Cmd + 单击：移到同级末位）',
+    moveDown: '下移（与后一个同级条目交换）',
+    moveDownUnavailable: '无法下移 — 已是同级末项',
+    delete: '从大纲中移除此条目（不会删除共享池中的条目）'
+  }
+);
 
 /**
  * Structural mutation surfaced by the row toolbar. Generic over the node id;
@@ -86,6 +127,7 @@ export function TreeOutlineEditor<T>({
   moveToEdge = false
 }: TreeOutlineEditorProps<T>): React.ReactElement {
   ensureHoverStyle();
+  const t = useUiMessages(MESSAGES);
   // Collapse state keyed by node id — persists across re-renders / host pushes
   // as long as this component instance is mounted.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -121,6 +163,7 @@ export function TreeOutlineEditor<T>({
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
           moveToEdge={moveToEdge}
+          t={t}
         />
       ))}
     </ol>
@@ -141,6 +184,7 @@ interface TreeRowProps<T> {
   collapsed: Set<string>;
   onToggleCollapsed: (id: string) => void;
   moveToEdge: boolean;
+  t: UiTranslator<typeof MESSAGES.catalogs.en>;
 }
 
 function TreeRow<T>({
@@ -156,7 +200,8 @@ function TreeRow<T>({
   onOp,
   collapsed,
   onToggleCollapsed,
-  moveToEdge
+  moveToEdge,
+  t
 }: TreeRowProps<T>): React.ReactElement {
   const id = getId(node);
   const kids = getChildren(node);
@@ -195,9 +240,9 @@ function TreeRow<T>({
             type="button"
             onClick={() => onToggleCollapsed(id)}
             style={disclosureButtonStyle()}
-            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+            aria-label={isCollapsed ? t('expand') : t('collapse')}
             {...treeDisclosureA11y(!isCollapsed, childrenId)}
-            title={isCollapsed ? 'Expand' : 'Collapse'}
+            title={isCollapsed ? t('expand') : t('collapse')}
           >
             {isCollapsed ? '▶' : '▼'}
           </Button>
@@ -212,21 +257,21 @@ function TreeRow<T>({
           style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
           <ToolbarButton
-            label="+ child"
-            title="Add a child entry"
+            label={t('addChildLabel')}
+            title={t('addChild')}
             onClick={() => onOp({ kind: 'addChild', id })}
           />
           <ToolbarButton
-            label="+ sibling"
-            title="Add a sibling after this entry"
+            label={t('addSiblingLabel')}
+            title={t('addSibling')}
             onClick={() => onOp({ kind: 'addSibling', id })}
           />
           <ToolbarButton
             label="←|"
             title={
               canOutdent
-                ? 'Outdent — promote to sibling of parent'
-                : 'Outdent unavailable — already at the top level'
+                ? t('outdent')
+                : t('outdentUnavailable')
             }
             disabled={!canOutdent}
             onClick={() => onOp({ kind: 'outdent', id })}
@@ -235,8 +280,8 @@ function TreeRow<T>({
             label="→|"
             title={
               canIndent
-                ? 'Indent — make this entry a child of its previous sibling'
-                : 'Indent unavailable — no previous sibling to nest under'
+                ? t('indent')
+                : t('indentUnavailable')
             }
             disabled={!canIndent}
             onClick={() => onOp({ kind: 'indent', id })}
@@ -245,9 +290,9 @@ function TreeRow<T>({
             label="↑"
             title={canMoveUp
               ? moveToEdge
-                ? 'Move up (Ctrl/Cmd-click: move to first sibling)'
-                : 'Move up (swap with previous sibling)'
-              : 'Move up unavailable — already first among siblings'}
+                ? t('moveUpEdge')
+                : t('moveUp')
+              : t('moveUpUnavailable')}
             disabled={!canMoveUp}
             onClick={(event) => onOp({
               kind: 'move',
@@ -260,9 +305,9 @@ function TreeRow<T>({
             label="↓"
             title={canMoveDown
               ? moveToEdge
-                ? 'Move down (Ctrl/Cmd-click: move to last sibling)'
-                : 'Move down (swap with next sibling)'
-              : 'Move down unavailable — already last among siblings'}
+                ? t('moveDownEdge')
+                : t('moveDown')
+              : t('moveDownUnavailable')}
             disabled={!canMoveDown}
             onClick={(event) => onOp({
               kind: 'move',
@@ -273,7 +318,7 @@ function TreeRow<T>({
           />
           <ToolbarButton
             label="✕"
-            title="Delete this entry from the outline (does not delete the shared-pool entry)"
+            title={t('delete')}
             destructive
             onClick={() => onOp({ kind: 'delete', id })}
           />
@@ -304,6 +349,7 @@ function TreeRow<T>({
               collapsed={collapsed}
               onToggleCollapsed={onToggleCollapsed}
               moveToEdge={moveToEdge}
+              t={t}
             />
           ))}
         </ol>

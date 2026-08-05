@@ -68,4 +68,24 @@ describe('TreeOutlineEditor move modifiers', () => {
       toEdge: false
     });
   });
+
+  it('localizes structural action names in Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    const view = render(
+      <TreeOutlineEditor
+        roots={roots}
+        getId={(node) => node.id}
+        getChildren={(node) => node.children}
+        renderRow={(node) => node.id}
+        onOp={() => undefined}
+        emptyState={null}
+        moveToEdge
+      />
+    );
+    expect(view.getAllByRole('button', { name: '添加子条目' })).toHaveLength(3);
+    expect(view.getAllByRole('button', {
+      name: '上移（Ctrl/Cmd + 单击：移到同级首位）'
+    })).toHaveLength(2);
+    document.documentElement.lang = 'en';
+  });
 });

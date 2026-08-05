@@ -138,6 +138,25 @@ describe('MacroIdInput', () => {
     expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
   });
 
+  it('localizes the embedded SNoogL picker in Chinese', () => {
+    document.documentElement.lang = 'zh-CN';
+    const view = render(
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        macroIds={['FOL.forall']}
+        aria-label="Macro ID"
+      />
+    );
+    fireEvent.keyDown(view.getByRole('textbox', { name: 'Macro ID' }), {
+      key: 'f', ctrlKey: true
+    });
+    expect(view.getByRole('dialog', { name: 'SNoogL 宏搜索' })).toBeTruthy();
+    expect(view.getByRole('textbox', { name: '在 SNoogL 中搜索宏' })).toBeTruthy();
+    expect(view.getByText(/Tab 插入所选宏名/)).toBeTruthy();
+    document.documentElement.lang = 'en';
+  });
+
   it('uses shared SNoogL multi-token and tag ranking in the embedded picker', () => {
     const view = render(
       <MacroIdInput

@@ -12,6 +12,27 @@ import {
   SnooglSearchIndex,
   type SnooglSearchCandidate
 } from '../../../src/snooglSearch';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+
+const MESSAGES = defineUiMessages(
+  'macroIdInput',
+  {
+    suggestions: 'Macro ID suggestions',
+    dialog: 'SNoogL Macro Search',
+    heading: 'SNoogL · Macro',
+    search: 'Search macros in SNoogL',
+    results: 'SNoogL macro results',
+    hint: "Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes"
+  },
+  {
+    suggestions: '宏 ID 建议',
+    dialog: 'SNoogL 宏搜索',
+    heading: 'SNoogL · 宏',
+    search: '在 SNoogL 中搜索宏',
+    results: 'SNoogL 宏搜索结果',
+    hint: 'Tab 插入所选宏名 · 样式仍在编辑器的独立下拉框中设置 · Esc 关闭'
+  }
+);
 
 const EMPTY_MACRO_IDS: readonly string[] = [];
 const EMPTY_MACRO_CANDIDATES: readonly SnooglSearchCandidate[] = [];
@@ -155,6 +176,7 @@ export const MacroIdInput = forwardRef<
   },
   forwardedRef
 ): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
@@ -485,7 +507,7 @@ export const MacroIdInput = forwardRef<
   const suggestionList = suggestionsOpen && suggestions.length > 0 ? (
     <div
       role="listbox"
-      aria-label="Macro ID suggestions"
+      aria-label={t('suggestions')}
       style={{
         position: 'absolute',
         top: '100%',
@@ -540,7 +562,7 @@ export const MacroIdInput = forwardRef<
   const snooglDialog = snooglOpen ? (
     <div
       role="dialog"
-      aria-label="SNoogL Macro Search"
+      aria-label={t('dialog')}
       aria-modal="true"
       style={{
         position: 'fixed',
@@ -557,10 +579,10 @@ export const MacroIdInput = forwardRef<
         boxShadow: '0 12px 36px rgba(0,0,0,0.55)'
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>SNoogL · Macro</div>
+      <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{t('heading')}</div>
       <input
         ref={snooglSearchRef}
-        aria-label="Search macros in SNoogL"
+        aria-label={t('search')}
         value={snooglQuery}
         onChange={(event) => {
           setSnooglQuery(event.target.value);
@@ -593,7 +615,7 @@ export const MacroIdInput = forwardRef<
           border: '1px solid var(--vscode-input-border, #555)'
         }}
       />
-      <div role="listbox" aria-label="SNoogL macro results" style={{ marginTop: '0.5rem', maxHeight: '48vh', overflowY: 'auto' }}>
+      <div role="listbox" aria-label={t('results')} style={{ marginTop: '0.5rem', maxHeight: '48vh', overflowY: 'auto' }}>
         {snooglResults.map((id, index) => (
           <div
             key={id}
@@ -614,7 +636,7 @@ export const MacroIdInput = forwardRef<
         ))}
       </div>
       <div style={{ marginTop: '0.45rem', opacity: 0.65, fontSize: '0.8rem' }}>
-        Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes
+        {t('hint')}
       </div>
     </div>
   ) : null;

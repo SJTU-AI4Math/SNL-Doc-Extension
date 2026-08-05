@@ -307,6 +307,7 @@ interface ContextMsg {
   macroCandidates?: SnooglSearchCandidate[];
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
+  macroRevision?: string;
   /**
    * Entry pool for the source.entries picker (EntityIdSearchBox). Pushed
    * on initial context so the picker has options as soon as the panel
@@ -408,6 +409,7 @@ export function CreateMacroApp(): React.ReactElement {
   const languageRef = useRef(webview_language_runtime.query_environment().language);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
+  const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
   // Preserve consumer/backend extension fields that this editor does not know
   // how to project into controls. Copy and edit submissions overlay the known
@@ -609,6 +611,9 @@ export function CreateMacroApp(): React.ReactElement {
           if (msg.mode === 'edit' && msg.existing) {
             const sameDirtyDraft =
               formDirtyRef.current && editingNameRef.current === msg.existing.name;
+            if (!sameDirtyDraft || !macroRevisionRef.current) {
+              macroRevisionRef.current = msg.macroRevision;
+            }
             if (!sameDirtyDraft) hydrateFromExisting(msg.existing);
           } else if (msg.mode === 'create' && msg.prefill && !formDirtyRef.current) {
             // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
@@ -940,7 +945,8 @@ export function CreateMacroApp(): React.ReactElement {
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
       type: panelMode === 'edit' ? 'update' : 'create',
-      macro
+      macro,
+      expectedRevision: panelMode === 'edit' ? macroRevisionRef.current : undefined
     });
   }
 

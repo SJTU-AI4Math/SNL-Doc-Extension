@@ -16,6 +16,7 @@ import {
   type MacroPackageEntry
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { macroEntityPath, packageManifestPath } from './entityStorage';
 
 /** Strip a trailing `.json` (case-insensitive) from a package file argument. */
 function stripJsonExt(file: string): string {
@@ -58,6 +59,8 @@ export class PackagePanel {
   /** Bare filename (no `.json`) this panel is bound to. */
   private readonly file: string;
   private disposables: vscode.Disposable[] = [];
+  private packageGeneration = 0;
+  private ownedMacroUris = new Set<string>();
 
   public static createOrShow(extensionUri: vscode.Uri, file: string): void {
     const bare = stripJsonExt(file);
@@ -123,30 +126,59 @@ export class PackagePanel {
     if (!root) {
       return;
     }
-    const pattern = new vscode.RelativePattern(
-      root,
-      `.SNL_Doc/term_macros/${this.file}.json`
-    );
-    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = (): void => {
-      void this.pushPackage();
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void this.pushPackage();
+      }, 120);
     };
-    watcher.onDidCreate(refresh, null, this.disposables);
-    watcher.onDidChange(refresh, null, this.disposables);
-    watcher.onDidDelete(() => this.dispose(), null, this.disposables);
-    this.disposables.push(watcher);
-    // Also refresh when the entry pool changes — the macro table's Src
-    // column resolves ids against entries.json (cat 2026-07-10 §2).
-    const entriesWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, '.SNL_Doc/entries.json')
+    this.disposables.push({ dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
+    const install = (glob: string, disposeOnDelete = false): void => {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(root, glob)
+      );
+      watcher.onDidCreate(refresh, null, this.disposables);
+      watcher.onDidChange(refresh, null, this.disposables);
+      watcher.onDidDelete(disposeOnDelete ? () => this.dispose() : refresh, null, this.disposables);
+      this.disposables.push(watcher);
+    };
+
+    install(`.SNL_Doc/term_macros/${this.file}.json`);
+    install(`.SNL_Doc/${packageManifestPath(this.file)}`, true);
+    install('.SNL_Doc/config.json');
+    install('.SNL_Doc/term_macros/*.json');
+    install('.SNL_Doc/packages/*.json');
+    // Macro entity filenames hash the Macro identity, not the package alone;
+    // refresh on any Macro change, but never dispose the package panel when a
+    // single Macro entity is deleted.
+    const macroWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json')
     );
-    entriesWatcher.onDidCreate(refresh, null, this.disposables);
-    entriesWatcher.onDidChange(refresh, null, this.disposables);
-    entriesWatcher.onDidDelete(refresh, null, this.disposables);
-    this.disposables.push(entriesWatcher);
+    const refreshOwnedMacro = async (uri: vscode.Uri): Promise<void> => {
+      try {
+        const raw = JSON.parse(new TextDecoder('utf-8').decode(
+          await vscode.workspace.fs.readFile(uri)
+        )) as { package?: unknown };
+        if (raw?.package === this.file) refresh();
+      } catch {
+        // A transient or malformed file is handled by the strict package read.
+        refresh();
+      }
+    };
+    macroWatcher.onDidCreate((uri) => { void refreshOwnedMacro(uri); }, null, this.disposables);
+    macroWatcher.onDidChange((uri) => { void refreshOwnedMacro(uri); }, null, this.disposables);
+    macroWatcher.onDidDelete((uri) => {
+      if (this.ownedMacroUris.has(uri.toString())) refresh();
+    }, null, this.disposables);
+    this.disposables.push(macroWatcher);
+    install('.SNL_Doc/entries.json');
+    install('.SNL_Doc/entries/*.json');
   }
 
   private async pushPackage(): Promise<void> {
+    const generation = ++this.packageGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -157,6 +189,7 @@ export class PackagePanel {
     }
     try {
       const result = await readMacroPackage(root, this.file);
+      if (generation !== this.packageGeneration) return;
       if (result.status === 'noFile') {
         void this.panel.webview.postMessage({
           type: 'noFile',
@@ -173,6 +206,10 @@ export class PackagePanel {
       }
       const pkg: MacroPackageFile = result.pkg;
       const macros: MacroPackageEntry[] = result.macros;
+      this.ownedMacroUris = new Set(macros.map((macro) =>
+        vscode.Uri.joinPath(root, '.SNL_Doc', ...macroEntityPath(this.file, macro.name).split('/'))
+          .toString()
+      ));
       const macroKinds: MacroKind[] = await readMacroKinds(root);
 
       // Bootstrap the "Move to package" dropdown with OTHER active packages
@@ -198,6 +235,7 @@ export class PackagePanel {
       // Cat 2026-07-10 §2.
       const entryPool = await readEntries(root);
       const entryPoolIds = entryPool.map((e) => e.id);
+      if (generation !== this.packageGeneration) return;
 
       void this.panel.webview.postMessage({
         type: 'package',
@@ -210,6 +248,7 @@ export class PackagePanel {
         entryPoolIds
       });
     } catch (err) {
+      if (generation !== this.packageGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }

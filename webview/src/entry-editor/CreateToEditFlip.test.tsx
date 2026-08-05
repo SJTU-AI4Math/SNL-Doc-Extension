@@ -64,6 +64,7 @@ function createContext(): unknown {
     macroKinds: [],
     macroOrigin: {},
     existing: null,
+    entryPackages: ['_unpackaged', 'Logic'],
     existingIds: []
   };
 }
@@ -78,6 +79,7 @@ function editContext(entry: any): unknown {
     macroKinds: [],
     macroOrigin: {},
     existing: entry,
+    entryPackages: ['_unpackaged', 'Logic'],
     existingIds: [{ id: entry.id, title: entry.title, hasContent: true }],
     relationships: []
   };
@@ -175,6 +177,73 @@ describe('CreateEntryApp create → edit flip', () => {
     const update = posted.findLast((m) => m?.type === 'update');
     expect(update.entry.id).toBe('thm-new');
     expect(update.entry.title).toBe('Brand New');
+  });
+
+  it('loads and persists explicit Package membership', async () => {
+    const view = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'packaged-entry',
+      package: 'Logic',
+      title: 'Packaged Entry',
+      kind: 'definition',
+      content: {}
+    }));
+    const packageSelect = await waitFor(() =>
+      view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
+    expect(packageSelect.value).toBe('Logic');
+    fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    await waitFor(() => expect(posted.some((message) => message?.type === 'update')).toBe(true));
+    expect(posted.findLast((message) => message?.type === 'update').entry.package)
+      .toBe('_unpackaged');
+  });
+
+  it('preserves a dirty Package selection when that Package disappears', async () => {
+    const view = render(<CreateEntryApp />);
+    const entry = {
+      id: 'packaged-draft', package: 'Logic', title: 'Draft', kind: 'definition', content: {}
+    };
+    send(editContext(entry));
+    const title = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('#snl-entry-title')!);
+    fireEvent.change(title, { target: { value: 'Dirty draft' } });
+    send({ ...(editContext(entry) as Record<string, unknown>), entryPackages: ['_unpackaged'] });
+
+    const packageSelect = view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!;
+    await waitFor(() => expect(packageSelect.value).toBe('Logic'));
+    expect(view.getByText(/selected Package no longer exists/i)).toBeTruthy();
+    const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
+    expect(updateButton.disabled).toBe(true);
+    fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
+    expect(updateButton.disabled).toBe(false);
+  });
+
+  it('keeps the original revision when restoring an edit draft', async () => {
+    saveDraft(api, 'createEntry:edit:revision-draft', {
+      id: 'revision-draft',
+      title: 'Restored title',
+      selectedKind: 'definition',
+      selectedPackage: '_unpackaged',
+      content: { snl: '', typst: '', latex: '', markdown: '', text: '' },
+      activeFormat: 'snl',
+      snlMode: 'text',
+      entryRevision: 'old-editor-revision'
+    });
+    const view = render(<CreateEntryApp />);
+    send({
+      ...(editContext({
+        id: 'revision-draft', package: '_unpackaged', title: 'New disk title',
+        kind: 'definition', content: {}
+      }) as Record<string, unknown>),
+      entryRevision: 'new-disk-revision'
+    });
+    await waitFor(() => expect(
+      view.container.querySelector<HTMLInputElement>('#snl-entry-title')!.value
+    ).toBe('Restored title'));
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    await waitFor(() => expect(posted.some((message) => message?.type === 'update')).toBe(true));
+    expect(posted.findLast((message) => message?.type === 'update').expectedRevision)
+      .toBe('old-editor-revision');
   });
 
   it('does not let a stale edit-key draft clobber the just-created content', async () => {

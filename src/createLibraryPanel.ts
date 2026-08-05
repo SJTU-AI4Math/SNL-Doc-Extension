@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   addEntry,
   createLibrary,
+  entityRevision,
   readAllMacros,
   readEntries,
   readEntryKinds,
@@ -64,6 +65,7 @@ export class CreateLibraryPanel {
   /** Only set when mode === 'edit'; the library slug being edited. */
   private readonly slug: string;
   private disposables: vscode.Disposable[] = [];
+  private contextGeneration = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     CreateLibraryPanel.open(extensionUri, 'create', '');
@@ -159,6 +161,7 @@ export class CreateLibraryPanel {
   }
 
   private async pushContext(): Promise<void> {
+    const generation = ++this.contextGeneration;
     if (this.mode === 'create') {
       void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
       return;
@@ -176,25 +179,32 @@ export class CreateLibraryPanel {
     try {
       // meta.json is the source of truth for title (per Task 1 refactor).
       const metaResult = await readLibraryMeta(root, this.slug);
+      if (generation !== this.contextGeneration) return;
+      if (metaResult.status === 'error') throw new Error(metaResult.message);
       const title =
         metaResult.status === 'ok' && typeof metaResult.meta.title === 'string'
           ? metaResult.meta.title
           : this.slug;
+      const libraryRevision = entityRevision(
+        metaResult.status === 'ok' ? metaResult.meta : null
+      );
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
         slug: this.slug,
+        libraryRevision,
         existing: { slug: this.slug, title }
       });
       // Push the outline immediately after context so the webview has
       // everything it needs to render in one paint.
-      await this.pushGraph();
+      await this.pushGraph(generation);
       // Counters live in a separate file (libraries/<slug>/counters.json);
       // push them alongside the graph so the Counters section renders in the
       // same paint. The .SNL_Doc/** watcher re-invokes pushContext on any
       // external counters.json edit, keeping the tree fresh.
-      await this.pushCounters('countersLoaded');
+      await this.pushCounters('countersLoaded', generation);
     } catch (err) {
+      if (generation !== this.contextGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
@@ -202,7 +212,7 @@ export class CreateLibraryPanel {
 
   /** Push the current graph + entry pool + kinds to the webview so the
    *  outline editor can re-render. */
-  private async pushGraph(): Promise<void> {
+  private async pushGraph(generation?: number): Promise<void> {
     if (this.mode !== 'edit') return;
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -241,6 +251,7 @@ export class CreateLibraryPanel {
       const metricMacroSources = Object.fromEntries(
         Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
       );
+      if (generation !== undefined && generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({
         type: 'graph',
         nodes,
@@ -252,6 +263,7 @@ export class CreateLibraryPanel {
         warnings
       });
     } catch (err) {
+      if (generation !== undefined && generation !== this.contextGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({
         type: 'graphError',
@@ -269,7 +281,7 @@ export class CreateLibraryPanel {
       return;
     }
     const msg = message as
-      | { type?: string; title?: string; op?: unknown }
+      | { type?: string; title?: string; op?: unknown; expectedRevision?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -335,18 +347,30 @@ export class CreateLibraryPanel {
 
     try {
       if (msg.type === 'update' || this.mode === 'edit') {
-        const result = await updateLibrary(workspaceRoot, this.slug, { title });
-                switch (result.status) {
+        const result = await updateLibrary(
+          workspaceRoot,
+          this.slug,
+          { title },
+          msg.expectedRevision
+        );
+        switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(
               `Library "${result.slug}" title updated to "${result.title}".`
             );
-            void this.panel.webview.postMessage({
+            await this.panel.webview.postMessage({
               type: 'updated',
               slug: result.slug,
               title: result.title
             });
+            await this.pushContext();
             return;
+          case 'conflict': {
+            const text = `Library "${result.id}" changed after this editor opened. Reload before saving.`;
+            vscode.window.showWarningMessage(text);
+            void this.panel.webview.postMessage({ type: 'conflict', slug: result.id, message: text });
+            return;
+          }
           case 'notFound': {
             const text = `Library "${result.id}" no longer exists.`;
             vscode.window.showErrorMessage(text);
@@ -875,13 +899,15 @@ export class CreateLibraryPanel {
    * local tree), but the split keeps the protocol self-documenting.
    */
   private async pushCounters(
-    type: 'countersLoaded' | 'countersPushed'
+    type: 'countersLoaded' | 'countersPushed',
+    generation?: number
   ): Promise<void> {
     if (this.mode !== 'edit') return;
     const root = firstWorkspaceFolder();
     if (!root) return;
     try {
       const counters = await readLibraryCounters(root, this.slug);
+      if (generation !== undefined && generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({ type, counters });
     } catch {
       // readLibraryCounters already tolerates missing/malformed files by

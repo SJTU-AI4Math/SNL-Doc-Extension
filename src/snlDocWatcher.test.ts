@@ -27,6 +27,9 @@ describe('SNL_DOC_WATCHED_PATH', () => {
     const watched = [
       '/ws/.SNL_Doc/config.json',
       '/ws/.SNL_Doc/entries.json',
+      '/ws/.SNL_Doc/entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      '/ws/.SNL_Doc/packages/Logic-277a664e3d2332d369d7.json',
+      '/ws/.SNL_Doc/macros/Logic-dd2136b29efc47b38142.json',
       '/ws/.SNL_Doc/relationships.json',
       '/ws/.SNL_Doc/term_macros/core.json',
       '/ws/.SNL_Doc/term_macros/snl-macro.json',

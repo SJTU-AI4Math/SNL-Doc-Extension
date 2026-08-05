@@ -66,6 +66,7 @@ export class GraphPanel {
   private readonly extensionUri: vscode.Uri;
   private readonly scope: GraphScope;
   private disposables: vscode.Disposable[] = [];
+  private graphGeneration = 0;
 
   public static openPool(extensionUri: vscode.Uri): void {
     GraphPanel.open(extensionUri, { mode: 'pool' });
@@ -140,7 +141,11 @@ export class GraphPanel {
     const patterns: vscode.GlobPattern[] = [
       new vscode.RelativePattern(root, '.SNL_Doc/config.json'),
       new vscode.RelativePattern(root, '.SNL_Doc/entries.json'),
-      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json')
+      new vscode.RelativePattern(root, '.SNL_Doc/entries/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/relationships.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/term_macros/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/packages/*.json'),
+      new vscode.RelativePattern(root, '.SNL_Doc/macros/*.json')
     ];
     if (this.scope.mode === 'library') {
       patterns.push(
@@ -150,11 +155,17 @@ export class GraphPanel {
         )
       );
     }
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (): void => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void this.pushGraph();
+      }, 120);
+    };
+    this.disposables.push({ dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
     for (const p of patterns) {
       const w = vscode.workspace.createFileSystemWatcher(p);
-      const refresh = (): void => {
-        void this.pushGraph();
-      };
       w.onDidCreate(refresh, null, this.disposables);
       w.onDidChange(refresh, null, this.disposables);
       w.onDidDelete(refresh, null, this.disposables);
@@ -203,6 +214,7 @@ export class GraphPanel {
   }
 
   private async pushGraph(): Promise<void> {
+    const generation = ++this.graphGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -219,29 +231,20 @@ export class GraphPanel {
       return;
     }
     const warnings: string[] = [];
-    let entries: EntryData[] = [];
-    let kinds: EntryKind[] = [];
-    let rels: RelationshipData[] = [];
+    let entries: EntryData[];
+    let kinds: EntryKind[];
+    let rels: RelationshipData[];
     try {
-      entries = await readEntries(root);
+      [entries, kinds, rels] = await Promise.all([
+        readEntries(root),
+        readEntryKinds(root),
+        readRelationships(root)
+      ]);
     } catch (err) {
-      warnings.push(
-        `Failed to read entries.json: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-    try {
-      kinds = await readEntryKinds(root);
-    } catch (err) {
-      warnings.push(
-        `Failed to read entry kinds: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-    try {
-      rels = await readRelationships(root);
-    } catch (err) {
-      warnings.push(
-        `Failed to read relationships.json: ${err instanceof Error ? err.message : String(err)}`
-      );
+      if (generation !== this.graphGeneration) return;
+      const message = `SNL graph refresh failed: ${err instanceof Error ? err.message : String(err)}`;
+      void vscode.window.showErrorMessage(message);
+      return;
     }
 
     // Scope filter: for a library, restrict endpoints to that library's
@@ -255,6 +258,7 @@ export class GraphPanel {
       const lib = libraries.find((l) => l.slug === scopeSlug);
       if (!lib) {
         warnings.push(`Library "${scopeSlug}" not found.`);
+        if (generation !== this.graphGeneration) return;
         void this.panel.webview.postMessage({
           type: 'graph',
           scope: this.scope,
@@ -349,10 +353,21 @@ export class GraphPanel {
       snl: typeof e.content?.snl === 'string' ? e.content.snl : undefined
     }));
     // Independent reads run concurrently (cat 2026-07-25: panels felt slow).
-    const [allMacros, macroKinds] = await Promise.all([
-      readAllMacros(root).catch((): unknown => ({})),
-      readMacroKinds(root)
-    ]);
+    let allMacros: Awaited<ReturnType<typeof readAllMacros>>;
+    let macroKinds: Awaited<ReturnType<typeof readMacroKinds>>;
+    try {
+      [allMacros, macroKinds] = await Promise.all([
+        readAllMacros(root),
+        readMacroKinds(root)
+      ]);
+    } catch (error) {
+      if (generation !== this.graphGeneration) return;
+      vscode.window.showErrorMessage(
+        `SNL Graph could not load entity storage: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return;
+    }
+    if (generation !== this.graphGeneration) return;
 
     void this.panel.webview.postMessage({
       type: 'graph',

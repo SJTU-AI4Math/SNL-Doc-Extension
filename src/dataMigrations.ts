@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   CURRENT_DATA_VERSION,
   compareDataVersions,
@@ -6,12 +7,62 @@ import {
   type DataMigration,
   type DataMigrationReport
 } from './dataMigrationCore';
+import {
+  UNPACKAGED_PACKAGE_ID,
+  assertPackageId,
+  entryEntityPath,
+  macroEntityPath,
+  makeEntryEnvelope,
+  makeMacroEnvelope,
+  makePackageManifest,
+  packageManifestPath,
+  type EntryEnvelope,
+  type MacroEnvelope,
+  type PackageManifest
+} from './entityStorage';
+
+export interface EntityStorageReceipt {
+  legacy_backup_present: boolean;
+  legacy_entries_present: boolean;
+  entry_count: number;
+  macro_package_count: number;
+  macro_count: number;
+  entries_digest: string;
+  macro_packages_digest: string;
+}
+
+function semanticDigest(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+export function makeEntityStorageReceipt(
+  entries: unknown,
+  macroPackages: Map<string, unknown>,
+  legacyBackupPresent: boolean
+): EntityStorageReceipt {
+  const entryList = Array.isArray(entries) ? entries : [];
+  const packages = [...macroPackages].sort(([left], [right]) => left.localeCompare(right));
+  return {
+    legacy_backup_present: legacyBackupPresent,
+    legacy_entries_present: legacyBackupPresent && Array.isArray(entries),
+    entry_count: entryList.length,
+    macro_package_count: packages.length,
+    macro_count: packages.reduce((count, [, value]) =>
+      count + (isRecord(value) && isRecord(value.macros) ? Object.keys(value.macros).length : 0), 0),
+    entries_digest: semanticDigest(entryList),
+    macro_packages_digest: semanticDigest(packages)
+  };
+}
 
 export interface WorkspaceDataSnapshot {
   config: Record<string, unknown>;
   /** key is the package filename including `.json`. */
   macroPackages: Map<string, unknown>;
   relationships: unknown;
+  entries: unknown;
+  packageManifests: Map<string, PackageManifest>;
+  entryEntities: Map<string, EntryEnvelope>;
+  macroEntities: Map<string, MacroEnvelope>;
 }
 
 export interface WorkspaceMigrationContext {
@@ -115,6 +166,166 @@ function migrate003To004(context: WorkspaceMigrationContext): void {
   }
 }
 
+function addUnique<T>(map: Map<string, T>, path: string, value: T): void {
+  const folded = path.toLowerCase();
+  if ([...map.keys()].some((existing) => existing.toLowerCase() === folded)) {
+    throw new Error(`Entity storage path collision at ${path}.`);
+  }
+  map.set(path, value);
+}
+
+function migrate004To005(context: WorkspaceMigrationContext): void {
+  const data = context.data;
+  if (Object.prototype.hasOwnProperty.call(data.config, 'entity_storage')) {
+    throw new Error('config.json#entity_storage is reserved by workspace data version 0.0.5.');
+  }
+  const existingPackageManifests = new Map(data.packageManifests);
+  const existingEntryEntities = new Map(data.entryEntities);
+  const existingMacroEntities = new Map(data.macroEntities);
+  const packageManifests = new Map<string, PackageManifest>();
+  const entryEntities = new Map<string, EntryEnvelope>();
+  const macroEntities = new Map<string, MacroEnvelope>();
+  if (!Array.isArray(data.entries)) {
+    throw new Error('entries.json must contain an array before per-entity migration.');
+  }
+
+  const entryIds = new Set<string>();
+  for (const [index, value] of data.entries.entries()) {
+    if (!isRecord(value) || typeof value.id !== 'string' || !value.id.trim()) {
+      throw new Error(`entries.json[${index}] must be an object with a non-empty id.`);
+    }
+    if (value.id !== value.id.trim()) {
+      throw new Error(`entries.json[${index}] id must not have leading or trailing whitespace.`);
+    }
+    if ('package' in value) {
+      throw new Error(`entries.json[${index}] uses reserved field "package" before package migration.`);
+    }
+    if (entryIds.has(value.id)) {
+      throw new Error(`entries.json contains duplicate Entry identity ${JSON.stringify(value.id)}.`);
+    }
+    entryIds.add(value.id);
+    const entry = { ...value, package: UNPACKAGED_PACKAGE_ID };
+    addUnique(
+      entryEntities,
+      entryEntityPath(UNPACKAGED_PACKAGE_ID, value.id),
+      makeEntryEnvelope(UNPACKAGED_PACKAGE_ID, entry)
+    );
+  }
+
+  const foldedPackageIds = new Set<string>();
+  for (const [file, raw] of [...data.macroPackages].sort(([a], [b]) => a.localeCompare(b))) {
+    const packageId = file.replace(/\.json$/i, '');
+    const folded = packageId.toLowerCase();
+    if (foldedPackageIds.has(folded)) {
+      throw new Error(`Macro package ids collide under case-folding: ${packageId}.`);
+    }
+    foldedPackageIds.add(folded);
+    if (!isRecord(raw) || raw.version !== '7' || !isRecord(raw.macros)) {
+      throw new Error(`${file} must be a canonical v7 keyed Macro package before migration.`);
+    }
+    if ('format' in raw || 'id' in raw) {
+      throw new Error(`${file} uses reserved per-entity Package manifest fields "format" or "id".`);
+    }
+    const {
+      version: _legacyVersion,
+      macros,
+      name: rawName,
+      description: rawDescription,
+      ...extensions
+    } = raw;
+    const manifest: PackageManifest = {
+      ...extensions,
+      ...makePackageManifest(
+        packageId,
+        typeof rawName === 'string' && rawName ? rawName : packageId,
+        typeof rawDescription === 'string' ? rawDescription : ''
+      )
+    };
+    addUnique(packageManifests, packageManifestPath(packageId), manifest);
+
+    for (const [macroName, macroValue] of Object.entries(macros)) {
+      if (!macroName || !isRecord(macroValue)) {
+        throw new Error(`${file} Macro ${JSON.stringify(macroName)} must be an object.`);
+      }
+      if (macroName !== macroName.trim()) {
+        throw new Error(`${file} Macro names must not have leading or trailing whitespace.`);
+      }
+      if ('name' in macroValue && macroValue.name !== macroName) {
+        throw new Error(`${file} Macro key ${JSON.stringify(macroName)} disagrees with its name field.`);
+      }
+      addUnique(
+        macroEntities,
+        macroEntityPath(packageId, macroName),
+        makeMacroEnvelope(packageId, { ...macroValue, name: macroName })
+      );
+    }
+  }
+
+  addUnique(
+    packageManifests,
+    packageManifestPath(UNPACKAGED_PACKAGE_ID),
+    makePackageManifest(
+      UNPACKAGED_PACKAGE_ID,
+      'Unpackaged',
+      'Legacy Entries without an assigned package.'
+    )
+  );
+  const acceptCrashResidue = <T>(
+    existing: Map<string, T>,
+    expected: Map<string, T>,
+    label: string
+  ): void => {
+    for (const [path, value] of existing) {
+      if (!expected.has(path) || JSON.stringify(expected.get(path)) !== JSON.stringify(value)) {
+        throw new Error(`Conflicting partial migration residue in ${label}: ${path}.`);
+      }
+    }
+  };
+  acceptCrashResidue(existingPackageManifests, packageManifests, 'packages');
+  acceptCrashResidue(existingEntryEntities, entryEntities, 'entries');
+  acceptCrashResidue(existingMacroEntities, macroEntities, 'macros');
+
+  const generatedPackageIds = new Set(
+    [...packageManifests.values()].map((manifest) => manifest.id)
+  );
+  const rawActive = data.config.active_macro_packages;
+  let activePackageIds: string[];
+  if (Object.prototype.hasOwnProperty.call(data.config, 'active_macro_packages')) {
+    if (!Array.isArray(rawActive) || !rawActive.every((value) => typeof value === 'string')) {
+      throw new Error('config.json#active_macro_packages must be an array of Package ID strings before migration.');
+    }
+    activePackageIds = rawActive.map((rawId) => {
+      if (rawId !== rawId.trim()) {
+        throw new Error('config.json#active_macro_packages contains a whitespace-padded Package ID.');
+      }
+      const packageId = rawId.replace(/\.json$/i, '');
+      assertPackageId(packageId);
+      if (packageId === UNPACKAGED_PACKAGE_ID || !generatedPackageIds.has(packageId)) {
+        throw new Error(`Active Macro Package ${JSON.stringify(rawId)} has no generated Package manifest.`);
+      }
+      return packageId;
+    });
+  } else {
+    activePackageIds = [...generatedPackageIds].filter((id) => id !== UNPACKAGED_PACKAGE_ID);
+  }
+  data.config.active_macro_packages = [...new Set(activePackageIds)]
+    .sort((left, right) => left.localeCompare(right));
+
+  data.packageManifests.clear();
+  data.entryEntities.clear();
+  data.macroEntities.clear();
+  for (const [path, value] of packageManifests) data.packageManifests.set(path, value);
+  for (const [path, value] of entryEntities) data.entryEntities.set(path, value);
+  for (const [path, value] of macroEntities) data.macroEntities.set(path, value);
+
+  data.config.entity_storage = {
+    version: 1,
+    legacy_backup_version: '0.0.4',
+    entry_default_package: UNPACKAGED_PACKAGE_ID,
+    receipt: makeEntityStorageReceipt(data.entries, data.macroPackages, true)
+  };
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -133,6 +344,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.4',
     description: 'Persist current kind fields and canonical Macro package v7 data.',
     migrate: async (context) => { migrate003To004(context); }
+  },
+  {
+    from: '0.0.4',
+    to: '0.0.5',
+    description: 'Split aggregate Entries and Macros into stable per-entity package storage.',
+    migrate: async (context) => { migrate004To005(context); }
   }
 ];
 
@@ -327,7 +544,17 @@ function cloneSnapshot(source: WorkspaceDataSnapshot): WorkspaceDataSnapshot {
     macroPackages: new Map(
       [...source.macroPackages].map(([file, raw]) => [file, structuredClone(raw)])
     ),
-    relationships: structuredClone(source.relationships)
+    relationships: structuredClone(source.relationships),
+    entries: structuredClone(source.entries),
+    packageManifests: new Map(
+      [...source.packageManifests].map(([path, value]) => [path, structuredClone(value)])
+    ),
+    entryEntities: new Map(
+      [...source.entryEntities].map(([path, value]) => [path, structuredClone(value)])
+    ),
+    macroEntities: new Map(
+      [...source.macroEntities].map(([path, value]) => [path, structuredClone(value)])
+    )
   };
 }
 
@@ -357,5 +584,9 @@ export async function migrateWorkspaceSnapshot(
   source.config = working.config;
   source.macroPackages = working.macroPackages;
   source.relationships = working.relationships;
+  source.entries = working.entries;
+  source.packageManifests = working.packageManifests;
+  source.entryEntities = working.entryEntities;
+  source.macroEntities = working.macroEntities;
   return report;
 }

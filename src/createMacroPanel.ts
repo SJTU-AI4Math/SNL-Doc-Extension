@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   addMacro,
+  entityRevision,
   readEntries,
   readAllMacros,
   readMacroKinds,
@@ -10,9 +11,7 @@ import {
   type MacroKind,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
-  installSnlDocWatcher
-} from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
 
 /**
@@ -87,6 +86,7 @@ export class CreateMacroPanel {
   // Mutable for the same create->edit flip: it becomes the created name.
   private macroName: string;
   private disposables: vscode.Disposable[] = [];
+  private contextGeneration = 0;
 
   /**
    * Optional prefill (cat 2026-07-12) for CREATE mode only. Passed
@@ -200,12 +200,40 @@ export class CreateMacroPanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, () => this.pushContext());
+    const root = firstWorkspaceFolder();
+    if (root) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const refresh = (): void => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = undefined;
+          void this.pushContext();
+        }, 120);
+      };
+      this.disposables.push({ dispose: () => { if (timer) clearTimeout(timer); } });
+      for (const pattern of [
+        '.SNL_Doc/config.json',
+        '.SNL_Doc/entries.json',
+        '.SNL_Doc/entries/*.json',
+        '.SNL_Doc/term_macros/*.json',
+        '.SNL_Doc/packages/*.json',
+        '.SNL_Doc/macros/*.json'
+      ]) {
+        const watcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(root, pattern)
+        );
+        watcher.onDidCreate(refresh, null, this.disposables);
+        watcher.onDidChange(refresh, null, this.disposables);
+        watcher.onDidDelete(refresh, null, this.disposables);
+        this.disposables.push(watcher);
+      }
+    }
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
   private async pushContext(): Promise<void> {
+    const generation = ++this.contextGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -224,18 +252,34 @@ export class CreateMacroPanel {
     }
     // Independent reads — run them concurrently rather than one after
     // another. Cat 2026-07-25: "各个 Panel 开起来都非常慢".
-    const [macroKinds, allMacros, rawEntries, read] = await Promise.all([
-      readMacroKinds(root),
-      readAllMacros(root).catch(() => ({} as Record<string, { tags?: string[] }>)),
-      readEntries(root).catch(() => []),
-      readMacroPackage(root, this.file)
-    ]);
+    let contextReads: [
+      Awaited<ReturnType<typeof readMacroKinds>>,
+      Awaited<ReturnType<typeof readAllMacros>>,
+      Awaited<ReturnType<typeof readEntries>>,
+      Awaited<ReturnType<typeof readMacroPackage>>
+    ];
+    try {
+      contextReads = await Promise.all([
+        readMacroKinds(root),
+        readAllMacros(root),
+        readEntries(root),
+        readMacroPackage(root, this.file)
+      ]);
+    } catch (error) {
+      if (generation !== this.contextGeneration) return;
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Could not load Macro editor data: ${error instanceof Error ? error.message : String(error)}`
+      });
+      return;
+    }
+    const [macroKinds, allMacros, rawEntries, read] = contextReads;
+    if (generation !== this.contextGeneration) return;
     const macroCandidates: SnooglSearchCandidate[] = Object.entries(allMacros)
       .map(([id, macro]) => ({ id, labels: macro.tags ?? [] }))
       .sort((left, right) => left.id.localeCompare(right.id));
-    // Shared entry pool for the source.entries picker. Failures (missing
-    // entries.json, parse error) are non-fatal — an empty pool just makes
-    // the picker fall back to "No matching entry".
+    // Shared entry pool for the source.entries picker. Strict entity errors
+    // were handled above rather than silently replacing the picker with [].
     const entries: EntryOption[] = rawEntries.map(toEntryOption);
     if (read.status === 'ok') {
       const existing =
@@ -258,12 +302,20 @@ export class CreateMacroPanel {
         macroCandidates,
         macroKinds,
         existing,
+        macroRevision: existing ? entityRevision(existing) : undefined,
         entries,
         prefill: this.mode === 'create' ? prefill : null
       });
       return;
     }
-    // noFile / error → still let the editor open, just with no existing names.
+    if (read.status === 'error') {
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Could not load Macro Package ${JSON.stringify(this.file)}: ${read.message}`
+      });
+      return;
+    }
+    // A concurrently removed Package is represented as an empty create context.
     void this.panel.webview.postMessage({
       type: 'context',
       mode: this.mode,
@@ -287,7 +339,7 @@ export class CreateMacroPanel {
       return;
     }
     const msg = message as
-      | { type?: string; macro?: MacroPackageEntry }
+      | { type?: string; macro?: MacroPackageEntry; expectedRevision?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -345,7 +397,12 @@ export class CreateMacroPanel {
       if (msg.type === 'update' || this.mode === 'edit') {
         // Force the identity — ignore any name in the payload.
         const patched: MacroPackageEntry = { ...macro, name: this.macroName };
-        const result = await updateMacro(root, this.file, patched);
+        const result = await updateMacro(
+          root,
+          this.file,
+          patched,
+          typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined
+        );
                 switch (result.status) {
           case 'updated':
             vscode.window.showInformationMessage(

@@ -193,6 +193,7 @@ export const SNL_DOC_WATCHED_PATH = new RegExp(
   '\\.SNL_Doc/(' +
     'config\\.json|' +
     'entries\\.json|' +
+    '(entries|packages|macros)/[^/]+\\.json|' +
     'relationships\\.json|' +
     'term_macros/[^/]+\\.json|' +
     'libraries/[^/]+/[^/]+\\.json' +

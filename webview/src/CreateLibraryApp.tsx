@@ -127,6 +127,8 @@ export function CreateLibraryApp(): React.ReactElement {
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const titleDirtyRef = useRef(false);
+  const libraryRevisionRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -137,12 +139,13 @@ export function CreateLibraryApp(): React.ReactElement {
             type: 'context';
             mode: Mode;
             slug?: string;
+            libraryRevision?: string;
             existing?: ExistingLibrary | null;
           }
         | { type: 'created'; slug: string; title: string }
         | { type: 'updated'; slug: string; title: string }
         | { type: 'duplicate'; slug: string; message: string }
-        | { type: 'notFound'; slug: string; message: string }
+        | { type: 'notFound' | 'conflict'; slug: string; message: string }
         | { type: 'noSnlDoc'; message: string }
         | { type: 'noWorkspace'; message: string }
         | { type: 'invalid'; message: string }
@@ -170,7 +173,8 @@ export function CreateLibraryApp(): React.ReactElement {
           setMode(msg.mode);
           if (msg.mode === 'edit') {
             setSlug(msg.slug ?? '');
-            if (msg.existing) {
+            if (msg.existing && !titleDirtyRef.current) {
+              libraryRevisionRef.current = msg.libraryRevision;
               setTitle(msg.existing.title);
             }
           }
@@ -180,6 +184,7 @@ export function CreateLibraryApp(): React.ReactElement {
           setTitle('');
           break;
         case 'updated':
+          titleDirtyRef.current = false;
           setStatus({ kind: 'updated', slug: msg.slug, title: msg.title });
           break;
         case 'duplicate':
@@ -188,6 +193,9 @@ export function CreateLibraryApp(): React.ReactElement {
             slug: msg.slug,
             message: msg.message
           });
+          break;
+        case 'conflict':
+          setStatus({ kind: 'error', message: msg.message });
           break;
         case 'notFound':
           setStatus({
@@ -257,7 +265,8 @@ export function CreateLibraryApp(): React.ReactElement {
     setStatus({ kind: 'creating' });
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
-      title: trimmed
+      title: trimmed,
+      expectedRevision: mode === 'edit' ? libraryRevisionRef.current : undefined
     });
   }
 
@@ -359,7 +368,7 @@ export function CreateLibraryApp(): React.ReactElement {
               type="text"
               value={title}
               placeholder="e.g. Real Analysis"
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => { titleDirtyRef.current = true; setTitle(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   handleSubmit();

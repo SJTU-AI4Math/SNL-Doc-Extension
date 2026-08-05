@@ -43,6 +43,7 @@ interface ContextMessage {
   mode: 'create' | 'edit';
   id?: string;
   existing?: RelationshipData | null;
+  relationshipRevision?: string;
   entryPool: Array<{ id: string; title: string }>;
   existingIds: string[];
 }
@@ -58,7 +59,7 @@ type IncomingMessage =
       id: string;
       message: string;
     }
-  | { type: 'notFound'; id: string; message: string }
+  | { type: 'notFound' | 'conflict'; id: string; message: string }
   | { type: 'invalid'; reason: string }
   | { type: 'noSnlDoc'; message: string }
   | { type: 'noWorkspace'; message: string }
@@ -115,6 +116,8 @@ function parseMetadata(raw: string): unknown {
 
 export function CreateRelationshipApp(): React.ReactElement {
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const dirtyRef = useRef(false);
+  const revisionRef = useRef<string | undefined>(undefined);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
   const [id, setId] = useState('');
   const [from, setFrom] = useState('');
@@ -143,27 +146,32 @@ export function CreateRelationshipApp(): React.ReactElement {
           }));
           setEntryPool(pool);
           setExistingIds(msg.existingIds ?? []);
-          if (msg.mode === 'edit' && msg.existing) {
-            setId(msg.existing.id);
-            setFrom(msg.existing.from);
-            setTo(msg.existing.to);
-            setLabel(msg.existing.label);
-            setMetadata(formatMetadata(msg.existing.metadata));
-          } else {
-            setId('');
-            setFrom('');
-            setTo('');
-            setLabel('');
-            setMetadata('');
+          if (!dirtyRef.current) {
+            revisionRef.current = msg.relationshipRevision;
+            if (msg.mode === 'edit' && msg.existing) {
+              setId(msg.existing.id);
+              setFrom(msg.existing.from);
+              setTo(msg.existing.to);
+              setLabel(msg.existing.label);
+              setMetadata(formatMetadata(msg.existing.metadata));
+            } else {
+              setId('');
+              setFrom('');
+              setTo('');
+              setLabel('');
+              setMetadata('');
+            }
           }
           setLoaded(true);
           return;
         }
         case 'created':
+          dirtyRef.current = false;
           setBanner({ kind: 'ok', text: `Created relationship "${msg.id}".` });
           setBusy(false);
           return;
         case 'updated':
+          dirtyRef.current = false;
           setBanner({ kind: 'ok', text: `Updated relationship "${msg.id}".` });
           setBusy(false);
           return;
@@ -179,6 +187,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           setBusy(false);
           return;
         case 'notFound':
+        case 'conflict':
         case 'noSnlDoc':
         case 'noWorkspace':
         case 'error':
@@ -256,7 +265,8 @@ export function CreateRelationshipApp(): React.ReactElement {
     };
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
-      relationship: payload
+      relationship: payload,
+      expectedRevision: mode === 'edit' ? revisionRef.current : undefined
     });
   }
 
@@ -300,7 +310,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           type="text"
           value={id}
           readOnly={mode === 'edit'}
-          onChange={(e) => setId(e.target.value)}
+          onChange={(e) => { dirtyRef.current = true; setId(e.target.value); }}
           placeholder="e.g. depends.contMul.mulComm"
           style={{
             ...MONO_INPUT_STYLE,
@@ -328,7 +338,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           label="From (source entry)"
           entries={entryPool}
           value={from}
-          onChange={setFrom}
+          onChange={(value) => { dirtyRef.current = true; setFrom(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
           placeholder="Pick a source entry id"
           idPrefix="rel-from"
@@ -340,7 +350,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           label="To (target entry)"
           entries={entryPool}
           value={to}
-          onChange={setTo}
+          onChange={(value) => { dirtyRef.current = true; setTo(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
           placeholder="Pick a target entry id"
           idPrefix="rel-to"
@@ -355,7 +365,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           id="rel-label"
           type="text"
           value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          onChange={(e) => { dirtyRef.current = true; setLabel(e.target.value); }}
           placeholder="e.g. depends-on, generalizes, proves"
           style={INPUT_STYLE}
         />
@@ -368,7 +378,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         <textarea
           id="rel-metadata"
           value={metadata}
-          onChange={(e) => setMetadata(e.target.value)}
+          onChange={(e) => { dirtyRef.current = true; setMetadata(e.target.value); }}
           placeholder='{"weight": 1, "note": "..."}'
           rows={8}
           style={{

@@ -57,6 +57,23 @@ const workspace = {
     async createDirectory(uri) {
       await fs.mkdir(uri.fsPath, { recursive: true });
     },
+    async rename(oldUri, newUri, options = {}) {
+      if (options.overwrite !== true) {
+        try {
+          await fs.stat(newUri.fsPath);
+          throw new Error(`Target exists: ${newUri.fsPath}`);
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+      }
+      await fs.rename(oldUri.fsPath, newUri.fsPath);
+    },
+    async delete(uri, options = {}) {
+      await fs.rm(uri.fsPath, {
+        recursive: options.recursive === true,
+        force: options.useTrash !== true
+      });
+    },
     async readDirectory(uri) {
       const dirents = await fs.readdir(uri.fsPath, { withFileTypes: true });
       return dirents.map((d) => [
@@ -121,20 +138,30 @@ async function main() {
     initSnlDoc,
     applyEntryKindsPreset,
     createEntryKind,
+    updateEntryKind,
     readMacroKinds,
     applyMacroKindsPreset,
     createMacroKind,
     addEntry,
     updateEntry,
+    entityRevision,
+    macroPackageMetadataRevision,
     readEntries: readEntriesApi,
     readOverview,
     createMacroPackage,
+    updateMacroPackage,
+    deleteMacroPackage,
     readMacroPackage,
     readMacroPackages,
     addMacro,
     updateMacro,
     readAllMacros,
     setMacroPackageActive,
+    batchDeleteMacros,
+    batchMoveMacros,
+    batchCopyMacros,
+    batchPackageAsNew,
+    batchMoveToNewPackage,
     createLibrary,
     updateLibrary,
     readLibraryGraph,
@@ -142,7 +169,10 @@ async function main() {
     readLibraryCounters,
     listLibraries,
     readLibraryMeta,
-    writeLibraryMeta
+    writeLibraryMeta,
+    addRelationship,
+    updateRelationship,
+    readRelationships
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
@@ -160,8 +190,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.4',
-    `config.version === "0.0.4" (got ${cfg.version})`
+    cfg.version === '0.0.5',
+    `config.version === "0.0.5" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -204,6 +234,16 @@ async function main() {
   assert(created.status === 'created', 'createEntryKind -> created');
   const cfg2 = await readConfig(tmpRoot);
   assert(cfg2.entry_kinds.length === 17, 'entry_kinds now 17 after append');
+  const staleKindRevision = entityRevision(created.kind);
+  const newerKind = await updateEntryKind(root, 'scratch-note', {
+    name: 'Scratch Note Newer', stroke: '#123456', background: '#abcdef',
+    defaultCounterName: 'scratch', style: ''
+  }, staleKindRevision);
+  assert(newerKind.status === 'updated', 'concurrent Entry Kind edit fixture succeeds');
+  assert((await updateEntryKind(root, 'scratch-note', {
+    name: 'Scratch Note Stale', stroke: '#123456', background: '#abcdef',
+    defaultCounterName: 'scratch', style: ''
+  }, staleKindRevision)).status === 'conflict', 'stale Kind editor revision is rejected');
 
   console.log('\n[4] addEntryKind duplicate id');
   const dupKind = await createEntryKind(root, {
@@ -231,10 +271,10 @@ async function main() {
   };
   const addOk = await addEntry(root, entry);
   assert(addOk.status === 'ok', 'addEntry valid -> ok');
-  const entries = await readEntries(tmpRoot);
+  const entries = await readEntriesApi(root);
   assert(
-    entries.length === 1 && entries[0].id === entry.id,
-    'entries.json has the appended entry'
+    entries.length === 1 && entries[0].id === entry.id && entries[0].package === '_unpackaged',
+    'per-entity storage has the appended Entry in _unpackaged'
   );
 
   console.log('\n[7] addEntry duplicate id');
@@ -301,7 +341,7 @@ async function main() {
         values: { en: 'Axiom', 'zh-CN': '公理' }
       }
     }
-  });
+  }, entityRevision(localizedEntry));
   assert(updateLocalized.status === 'updated', 'updateEntry accepts I18n content');
   const afterLocalizedUpdate = await readEntriesApi(root);
   assert(
@@ -321,9 +361,85 @@ async function main() {
   assert(mkPkg.status === 'ok', 'createMacroPackage -> ok');
   assert(mkPkg.file === 'test_pkg.json', 'createMacroPackage file === test_pkg.json');
 
+  console.log('\n[11b] move Entry from _unpackaged to a named Package');
+  const entryBeforeMove = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
+  const movedEntry = await updateEntry(root, entry.id, {
+    ...entryBeforeMove,
+    package: 'test_pkg'
+  }, entityRevision(entryBeforeMove));
+  assert(movedEntry.status === 'updated', `updateEntry moves an Entry between Packages (${JSON.stringify(movedEntry)})`);
+  const entryAfterMove = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
+  assert(entryAfterMove?.package === 'test_pkg', 'moved Entry round-trips with its new Package');
+  const entityFilesAfterMove = (await fs.readdir(nodePath.join(tmpRoot, '.SNL_Doc', 'entries')))
+    .filter((name) => name.endsWith('.json'));
+  assert(
+    entityFilesAfterMove.some((name) => name.startsWith('test_pkg-')) &&
+      !entityFilesAfterMove.some((name) => name.includes(entry.id)),
+    'Entry move uses the stable hashed target path rather than embedding the Entry ID'
+  );
+  const movedEntityFile = entityFilesAfterMove.find((name) => name.startsWith('test_pkg-'));
+  const movedEntityPath = nodePath.join(tmpRoot, '.SNL_Doc', 'entries', movedEntityFile);
+  const movedEnvelope = JSON.parse(await fs.readFile(movedEntityPath, 'utf8'));
+  movedEnvelope.entry.vendor_extension = { keep: true };
+  movedEnvelope.entry.content.vendor_format = { opaque: 7 };
+  await fs.writeFile(movedEntityPath, JSON.stringify(movedEnvelope, null, 2) + '\n');
+  const extendedBeforeUpdate = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
+  const preserveUnknown = await updateEntry(root, entry.id, {
+    ...extendedBeforeUpdate,
+    title: 'Group with extensions'
+  }, entityRevision(extendedBeforeUpdate));
+  assert(preserveUnknown.status === 'updated', 'updateEntry accepts a migrated Entry with unknown fields');
+  const extendedAfterUpdate = (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id);
+  assert(
+    extendedAfterUpdate.vendor_extension?.keep === true &&
+      extendedAfterUpdate.content.vendor_format?.opaque === 7,
+    'updateEntry preserves unknown top-level and content extension fields'
+  );
+  const staleRevision = entityRevision(extendedAfterUpdate);
+  const externallyEditedEnvelope = JSON.parse(await fs.readFile(movedEntityPath, 'utf8'));
+  externallyEditedEnvelope.entry.title = 'External edit';
+  await fs.writeFile(movedEntityPath, JSON.stringify(externallyEditedEnvelope, null, 2) + '\n');
+  const staleUpdate = await updateEntry(root, entry.id, {
+    ...extendedAfterUpdate,
+    title: 'Stale editor overwrite'
+  }, staleRevision);
+  assert(staleUpdate.status === 'error' && /changed after/.test(staleUpdate.message),
+    'updateEntry rejects a stale editor revision');
+  assert(
+    (await readEntriesApi(root)).find((candidate) => candidate.id === entry.id)?.title === 'External edit',
+    'stale Entry save leaves the external edit intact'
+  );
+  const blockedPackageDelete = await deleteMacroPackage(root, 'test_pkg');
+  assert(
+    blockedPackageDelete.status === 'error' && /contains 1 Entry/.test(blockedPackageDelete.message),
+    'Package deletion refuses to orphan an Entry assigned to that Package'
+  );
+
   console.log('\n[12] createMacroPackage duplicate');
   const dupPkg = await createMacroPackage(root, 'test_pkg', 'Test Package');
   assert(dupPkg.status === 'duplicate', 'createMacroPackage dup -> duplicate');
+  const dottedPkg = await createMacroPackage(root, 'logic.extra', 'Dotted Package');
+  assert(dottedPkg.status === 'ok', 'dotted Package ID can be created');
+  const dottedRead = await readMacroPackage(root, 'logic.extra');
+  assert(dottedRead.status === 'ok', 'dotted Package fixture can be read for revision');
+  const dottedUpdate = await updateMacroPackage(
+    root,
+    'logic.extra',
+    { name: 'Dotted Updated', description: '' },
+    macroPackageMetadataRevision(dottedRead.raw)
+  );
+  assert(dottedUpdate.status === 'updated',
+    `dotted Package ID can be updated (${JSON.stringify(dottedUpdate)})`);
+  assert((await deleteMacroPackage(root, 'logic.extra')).status === 'ok',
+    'dotted Package ID can be deleted');
+  const jsonSuffixPackage = await createMacroPackage(root, 'foo.json', 'Must Reject');
+  assert(jsonSuffixPackage.status === 'invalid',
+    'Package ID ending in .json is rejected rather than silently normalized to foo');
+  const caseFoldDupPkg = await createMacroPackage(root, 'TEST_PKG', 'Case-fold duplicate');
+  assert(
+    caseFoldDupPkg.status === 'duplicate',
+    'createMacroPackage rejects case-fold-equivalent Package identities'
+  );
 
   console.log('\n[13] createMacroPackage invalid file name');
   const badPkg = await createMacroPackage(root, '../evil', 'Evil');
@@ -363,7 +479,7 @@ async function main() {
 
   console.log('\n[15] addMacro valid');
   const addOkMacro = await addMacro(root, 'test_pkg', validMacro);
-  assert(addOkMacro.status === 'ok', 'addMacro valid -> ok');
+  assert(addOkMacro.status === 'ok', `addMacro valid -> ok (${JSON.stringify(addOkMacro)})`);
   assert(addOkMacro.name === 'Add.add.infix', 'addMacro returns name');
 
   console.log('\n[15b] addMacro localized text template');
@@ -522,8 +638,15 @@ async function main() {
   // and typst/latex.synthesis.output_type (pre-0.4.0). readMacroPackage must
   // normalize them in-memory all the way to strict Macro v7: a single
   // `Mul.mul` macro with a styles array and canonical style_name/tags.
+  const legacyTmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-legacy-'));
+  const legacyRoot = Uri.file(legacyTmpRoot);
+  await fs.mkdir(nodePath.join(legacyTmpRoot, '.SNL_Doc', 'term_macros'), { recursive: true });
+  await fs.writeFile(
+    nodePath.join(legacyTmpRoot, '.SNL_Doc', 'config.json'),
+    JSON.stringify({ version: '0.0.4', entry_kinds: [], macro_kinds: [] }, null, 2)
+  );
   const legacyPkgUri = Uri.joinPath(
-    root,
+    legacyRoot,
     '.SNL_Doc',
     'term_macros',
     'legacy_pkg.json'
@@ -548,7 +671,7 @@ async function main() {
   };
   await fs.mkdir(nodePath.dirname(legacyPkgUri.fsPath), { recursive: true });
   await fs.writeFile(legacyPkgUri.fsPath, JSON.stringify(legacyPkg, null, 2));
-  const readLegacy = await readMacroPackage(root, 'legacy_pkg');
+  const readLegacy = await readMacroPackage(legacyRoot, 'legacy_pkg');
   assert(readLegacy.status === 'ok', 'readMacroPackage legacy -> ok');
   const oldMacro = readLegacy.macros.find((m) => m.name === 'Mul.mul');
   assert(!!oldMacro, 'legacy macros grouped into base "Mul.mul"');
@@ -695,6 +818,26 @@ async function main() {
       cfgActive.active_macro_packages.includes('foo'),
     'config.active_macro_packages includes foo after create'
   );
+  const packageDir = nodePath.join(tmpRoot, '.SNL_Doc', 'packages');
+  const fooManifestName = (await fs.readdir(packageDir)).find((name) => name.startsWith('foo-'));
+  const fooManifestPath = nodePath.join(packageDir, fooManifestName);
+  const fooManifestBytes = await fs.readFile(fooManifestPath, 'utf8');
+  const configBeforeCorruption = await fs.readFile(nodePath.join(tmpRoot, '.SNL_Doc', 'config.json'), 'utf8');
+  const corruptManifest = JSON.parse(fooManifestBytes);
+  corruptManifest.id = 'wrong-id';
+  await fs.writeFile(fooManifestPath, JSON.stringify(corruptManifest, null, 2) + '\n');
+  let malformedActiveRejected = false;
+  try {
+    await setMacroPackageActive(root, 'foo', true);
+  } catch {
+    malformedActiveRejected = true;
+  }
+  assert(malformedActiveRejected, 'active-package mutation propagates malformed manifest storage');
+  assert(
+    await fs.readFile(nodePath.join(tmpRoot, '.SNL_Doc', 'config.json'), 'utf8') === configBeforeCorruption,
+    'malformed manifest cannot overwrite active_macro_packages'
+  );
+  await fs.writeFile(fooManifestPath, fooManifestBytes);
   // foo starts empty; give it one macro, then flip the active list to prove
   // readAllMacros gates purely on active-list membership.
   await addMacro(root, 'foo', { ...validMacro, name: 'Foo.only' });
@@ -714,6 +857,131 @@ async function main() {
     Object.prototype.hasOwnProperty.call(allFiltered, 'Add.add.infix'),
     'readAllMacros still includes test_pkg macros (test_pkg active)'
   );
+
+  console.log('\n[20e] atomic per-entity Macro batch operations');
+  assert((await createMacroPackage(root, 'batch_dest', 'Batch Destination')).status === 'ok',
+    'create destination Package for batch operations');
+  const copiedBatch = await batchCopyMacros(root, 'test_pkg', 'batch_dest', ['Add.add.infix']);
+  assert(copiedBatch.status === 'ok' && copiedBatch.copiedCount === 1,
+    'batchCopyMacros commits one copied Macro');
+  const movedBatch = await batchMoveMacros(root, 'test_pkg', 'batch_dest', ['Group.prose']);
+  assert(movedBatch.status === 'ok' && movedBatch.movedCount === 1,
+    'batchMoveMacros atomically moves one Macro between existing Packages');
+  const packagedBatch = await batchPackageAsNew(
+    root, 'test_pkg', ['Add.add.infix'], 'batch_copy', 'Batch Copy'
+  );
+  assert(packagedBatch.status === 'ok' && packagedBatch.copiedCount === 1,
+    'batchPackageAsNew atomically creates and populates a Package');
+  const movedNewBatch = await batchMoveToNewPackage(
+    root, 'batch_dest', ['Group.prose'], 'batch_move', 'Batch Move'
+  );
+  assert(movedNewBatch.status === 'ok' && movedNewBatch.movedCount === 1,
+    'batchMoveToNewPackage atomically creates destination and removes source Macro');
+  const deletedBatch = await batchDeleteMacros(root, 'batch_dest', ['Add.add.infix']);
+  assert(deletedBatch.status === 'ok' && deletedBatch.deletedCount === 1,
+    'batchDeleteMacros deletes an entity Macro');
+  assert(
+    (await readMacroPackage(root, 'batch_move')).macros.some((macro) => macro.name === 'Group.prose') &&
+      !(await readMacroPackage(root, 'batch_dest')).macros.some((macro) => macro.name === 'Group.prose'),
+    'batch operations leave exactly the intended Macro ownership'
+  );
+
+  const entityEntryFiles = (await fs.readdir(nodePath.join(tmpRoot, '.SNL_Doc', 'entries')))
+    .filter((name) => name.endsWith('.json'));
+  const extensionEntryPath = nodePath.join(tmpRoot, '.SNL_Doc', 'entries', entityEntryFiles[0]);
+  const extensionEntryEnvelope = JSON.parse(await fs.readFile(extensionEntryPath, 'utf8'));
+  extensionEntryEnvelope.vendor_envelope = { keep: true };
+  await fs.writeFile(extensionEntryPath, JSON.stringify(extensionEntryEnvelope));
+  const extensionEntry = extensionEntryEnvelope.entry;
+  assert((await updateEntry(root, extensionEntry.id, extensionEntry, entityRevision(extensionEntry))).status === 'updated',
+    'Entry edit succeeds with an envelope extension');
+  assert(JSON.parse(await fs.readFile(extensionEntryPath, 'utf8')).vendor_envelope?.keep === true,
+    'Entry edit preserves unknown envelope fields');
+
+  const macroDirPath = nodePath.join(tmpRoot, '.SNL_Doc', 'macros');
+  let extensionMacroName;
+  for (const name of await fs.readdir(macroDirPath)) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const envelope = JSON.parse(await fs.readFile(nodePath.join(macroDirPath, name), 'utf8'));
+      if (envelope.package === 'batch_move') {
+        extensionMacroName = name;
+        break;
+      }
+    } catch { /* strict reader tests malformed files separately below */ }
+  }
+  const extensionMacroPath = nodePath.join(macroDirPath, extensionMacroName);
+  const extensionMacroEnvelope = JSON.parse(await fs.readFile(extensionMacroPath, 'utf8'));
+  extensionMacroEnvelope.vendor_envelope = { keep: true };
+  await fs.writeFile(extensionMacroPath, JSON.stringify(extensionMacroEnvelope));
+  const batchMovePackage = await readMacroPackage(root, 'batch_move');
+  assert(batchMovePackage.status === 'ok', 'Macro Package fixture loads for envelope extension test');
+  assert((await updateMacroPackage(root, 'batch_move', {
+    name: batchMovePackage.pkg.name,
+    description: batchMovePackage.pkg.description ?? ''
+  }, macroPackageMetadataRevision(batchMovePackage.raw))).status === 'updated', 'Package metadata edit succeeds with Macro envelope extensions');
+  assert(JSON.parse(await fs.readFile(extensionMacroPath, 'utf8')).vendor_envelope?.keep === true,
+    'Package metadata edit preserves unknown Macro envelope fields');
+  assert((await batchMoveMacros(root, 'batch_move', 'batch_dest', ['Group.prose'])).status === 'ok',
+    'Macro move fixture succeeds with an envelope extension');
+  let movedMacroEnvelope;
+  for (const name of await fs.readdir(macroDirPath)) {
+    try {
+      const envelope = JSON.parse(await fs.readFile(nodePath.join(macroDirPath, name), 'utf8'));
+      if (envelope.package === 'batch_dest' && envelope.macro?.name === 'Group.prose') {
+        movedMacroEnvelope = envelope;
+        break;
+      }
+    } catch { /* ignore non-JSON residue fixtures */ }
+  }
+  assert(movedMacroEnvelope?.vendor_envelope?.keep === true,
+    'moving a Macro to an existing Package preserves source envelope extensions');
+
+  const originalWriteFile = workspace.fs.writeFile;
+  const originalDeleteFile = workspace.fs.delete;
+  let injectedCommitFailure = true;
+  workspace.fs.writeFile = async (uri, data) => {
+    if (injectedCommitFailure && uri.fsPath.endsWith(nodePath.join('.SNL_Doc', 'config.json'))) {
+      injectedCommitFailure = false;
+      throw new Error('injected transaction commit failure');
+    }
+    return originalWriteFile(uri, data);
+  };
+  workspace.fs.delete = async (uri, options) => {
+    if (uri.fsPath.includes(nodePath.join('.SNL_Doc', 'macros')) &&
+        uri.fsPath.includes('rollback_target-')) {
+      throw new Error('injected rollback failure');
+    }
+    return originalDeleteFile(uri, options);
+  };
+  let rollbackFailureResult;
+  try {
+    rollbackFailureResult = await batchPackageAsNew(
+      root, 'test_pkg', ['Add.add.infix'], 'rollback_target', 'Rollback Target'
+    );
+  } finally {
+    workspace.fs.writeFile = originalWriteFile;
+    workspace.fs.delete = originalDeleteFile;
+  }
+  assert(
+    rollbackFailureResult.status === 'error' && /rollback was incomplete|inconsistent/i.test(rollbackFailureResult.message),
+    'batch transaction surfaces guarded rollback failure and inconsistent-state warning'
+  );
+  const rollbackResidue = (await fs.readdir(nodePath.join(tmpRoot, '.SNL_Doc', 'macros')))
+    .find((name) => name.startsWith('rollback_target-') && name.endsWith('.json'));
+  assert(!!rollbackResidue, 'injected rollback failure leaves the expected guarded residue');
+  await fs.writeFile(
+    nodePath.join(tmpRoot, '.SNL_Doc', 'macros', rollbackResidue),
+    '{ malformed macro entity'
+  );
+  let malformedMacroSurfaced = false;
+  try {
+    await readAllMacros(root);
+  } catch (error) {
+    malformedMacroSurfaced = /Macro|JSON|entity/i.test(error instanceof Error ? error.message : String(error));
+  }
+  assert(malformedMacroSurfaced,
+    'readAllMacros surfaces malformed per-entity Macro storage instead of returning an empty collection');
 
   // Cleanup.
   await fs.rm(tmpRoot, { recursive: true, force: true });
@@ -924,7 +1192,7 @@ async function main() {
       migratedV6.styles[0].typst.built_in === 'legacy',
     'v6→v7 preserves macro/style extension fields and output backends'
   );
-  const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6);
+  const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6, entityRevision(migratedV6));
   assert(rewriteV7.status === 'updated', 'updating migrated macro writes strict v7');
   const writtenV7 = JSON.parse(await fs.readFile(
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
@@ -1403,15 +1671,32 @@ async function main() {
   assert(noMetaEntry.hasMeta === false, 'hasMeta false when meta.json missing');
 
   // updateLibrary edits meta.json in place.
+  const pastedBeforeUpdate = await readLibraryMeta(root5, 'pasted-lib');
+  assert(pastedBeforeUpdate.status === 'ok', 'Library fixture loads with a revision');
   const upd = await updateLibrary(root5, 'pasted-lib', {
     title: 'Renamed Library',
     description: 'renamed via updateLibrary'
-  });
+  }, entityRevision(pastedBeforeUpdate.meta));
   assert(upd.status === 'updated', 'updateLibrary -> updated');
   const readMeta = await readLibraryMeta(root5, 'pasted-lib');
   assert(readMeta.status === 'ok', 'readLibraryMeta -> ok');
   assert(readMeta.meta.title === 'Renamed Library', 'title changed on disk');
   assert(readMeta.meta.description === 'renamed via updateLibrary', 'description changed on disk');
+  const staleLibraryRevision = entityRevision(readMeta.meta);
+  assert((await updateLibrary(root5, 'pasted-lib', { title: 'Newer Library' }, staleLibraryRevision)).status === 'updated',
+    'concurrent Library metadata edit fixture succeeds');
+  assert((await updateLibrary(root5, 'pasted-lib', { title: 'Stale Library' }, staleLibraryRevision)).status === 'conflict',
+    'stale Library editor revision is rejected');
+  const pastedMetaPath = nodePath.join(tmpRoot5, '.SNL_Doc', 'libraries', 'pasted-lib', 'meta.json');
+  const validPastedMeta = await fs.readFile(pastedMetaPath, 'utf8');
+  await fs.writeFile(pastedMetaPath, '{ malformed');
+  let malformedLibraryRejected = false;
+  try { await updateLibrary(root5, 'pasted-lib', { title: 'Must Not Save' }); }
+  catch { malformedLibraryRejected = true; }
+  assert(malformedLibraryRejected, 'Library edit refuses malformed meta.json instead of replacing it');
+  assert(await fs.readFile(pastedMetaPath, 'utf8') === '{ malformed',
+    'malformed Library metadata remains byte-preserving');
+  await fs.writeFile(pastedMetaPath, validPastedMeta);
   // And config.json is STILL clean.
   const cfg5Final = JSON.parse(await fs.readFile(configPath5, 'utf8'));
   assert(
@@ -1494,7 +1779,13 @@ async function main() {
   const root7 = Uri.file(tmpRoot7);
   await initSnlDoc(root7);
   await applyEntryKindsPreset(root7, 'fulcrum-math-notes');
-  const corruptPath = nodePath.join(tmpRoot7, '.SNL_Doc', 'entries.json');
+  const seed = await addEntry(root7, {
+    id: 'seed', kind: 'definition', title: 'Seed', content: {}
+  });
+  assert(seed.status === 'ok', 'seed Entry created before corrupt-envelope test');
+  const entityDir = nodePath.join(tmpRoot7, '.SNL_Doc', 'entries');
+  const entityFile = (await fs.readdir(entityDir)).find((name) => name.endsWith('.json'));
+  const corruptPath = nodePath.join(entityDir, entityFile);
   const corruptBytes = '{ this is not valid JSON';
   await fs.writeFile(corruptPath, corruptBytes);
   const corruptWrite = await addEntry(root7, {
@@ -1503,10 +1794,10 @@ async function main() {
     title: 'Should fail',
     content: {}
   });
-  assert(corruptWrite.status === 'invalid', 'addEntry reports corrupt entries.json');
+  assert(corruptWrite.status === 'invalid', 'addEntry reports a corrupt Entry envelope');
   assert(
     (await fs.readFile(corruptPath, 'utf8')) === corruptBytes,
-    'addEntry leaves corrupt entries.json byte-for-byte untouched'
+    'addEntry leaves the corrupt Entry envelope byte-for-byte untouched'
   );
   await fs.rm(tmpRoot7, { recursive: true, force: true });
 
@@ -1517,20 +1808,173 @@ async function main() {
   await initSnlDoc(root8);
   await applyEntryKindsPreset(root8, 'fulcrum-math-notes');
   const futureConfigPath = nodePath.join(tmpRoot8, '.SNL_Doc', 'config.json');
-  const futureEntriesPath = nodePath.join(tmpRoot8, '.SNL_Doc', 'entries.json');
+  const futureEntriesDir = nodePath.join(tmpRoot8, '.SNL_Doc', 'entries');
   const futureConfig = JSON.parse(await fs.readFile(futureConfigPath, 'utf8'));
   futureConfig.version = '9.0.0';
   await fs.writeFile(futureConfigPath, JSON.stringify(futureConfig, null, 2));
-  const entriesBeforeFutureWrite = await fs.readFile(futureEntriesPath, 'utf8');
+  const entriesBeforeFutureWrite = await Promise.all(
+    (await fs.readdir(futureEntriesDir)).sort().map(async (name) => [name, await fs.readFile(nodePath.join(futureEntriesDir, name), 'utf8')])
+  );
   const futureWrite = await addEntry(root8, {
     id: 'must-not-downgrade', kind: 'definition', title: 'Blocked', content: {}
   });
   assert(futureWrite.status === 'error', 'addEntry rejects a future workspace version');
+  const entriesAfterFutureWrite = await Promise.all(
+    (await fs.readdir(futureEntriesDir)).sort().map(async (name) => [name, await fs.readFile(nodePath.join(futureEntriesDir, name), 'utf8')])
+  );
   assert(
-    (await fs.readFile(futureEntriesPath, 'utf8')) === entriesBeforeFutureWrite,
-    'future-version write leaves entries.json untouched'
+    JSON.stringify(entriesAfterFutureWrite) === JSON.stringify(entriesBeforeFutureWrite),
+    'future-version write leaves per-entity Entry storage untouched'
   );
   await fs.rm(tmpRoot8, { recursive: true, force: true });
+
+  // --- [30] Current topology metadata gates ordinary writes -----------------
+  console.log('\n[30] ordinary writes refuse invalid current topology receipts');
+  const tmpRoot9 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-invalid-topology-'));
+  const root9 = Uri.file(tmpRoot9);
+  await initSnlDoc(root9);
+  await applyEntryKindsPreset(root9, 'fulcrum-math-notes');
+  const topologyConfigPath = nodePath.join(tmpRoot9, '.SNL_Doc', 'config.json');
+  const topologyConfig = JSON.parse(await fs.readFile(topologyConfigPath, 'utf8'));
+  delete topologyConfig.entity_storage.receipt;
+  await fs.writeFile(topologyConfigPath, JSON.stringify(topologyConfig, null, 2));
+  const topologyWrite = await addEntry(root9, {
+    id: 'must-not-write', kind: 'definition', title: 'Blocked', content: {}
+  });
+  assert(topologyWrite.status === 'error', 'addEntry rejects missing current-topology receipt');
+  assert((await fs.readdir(nodePath.join(tmpRoot9, '.SNL_Doc', 'entries')))
+    .filter((name) => name.endsWith('.json')).length === 0,
+    'invalid current topology remains byte-preserving and unwritten');
+  await fs.writeFile(topologyConfigPath, '{ malformed config');
+  let malformedConfigSurfaced = false;
+  try { await readOverview(root9); }
+  catch { malformedConfigSurfaced = true; }
+  assert(malformedConfigSurfaced,
+    'Dashboard read surfaces malformed current config instead of falling back to frozen backups');
+  await fs.rm(tmpRoot9, { recursive: true, force: true });
+
+  // --- [31] Legacy Package wrapper extensions survive edits -----------------
+  console.log('\n[31] legacy Package wrapper extensions survive metadata edits');
+  const tmpRoot10 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-legacy-wrapper-'));
+  const root10 = Uri.file(tmpRoot10);
+  const legacyDataDir = nodePath.join(tmpRoot10, '.SNL_Doc');
+  await fs.mkdir(nodePath.join(legacyDataDir, 'term_macros'), { recursive: true });
+  await fs.writeFile(nodePath.join(legacyDataDir, 'config.json'), JSON.stringify({
+    version: '0.0.4',
+    entry_kinds: [{ id: 'definition', label: 'Definition' }],
+    macro_kinds: [],
+    active_macro_packages: ['legacy.ext']
+  }));
+  await fs.writeFile(nodePath.join(legacyDataDir, 'entries.json'), JSON.stringify([
+    { id: 'legacy-entry', kind: 'definition', title: 'Before', content: {} }
+  ]));
+  const legacyWrapperPath = nodePath.join(legacyDataDir, 'term_macros', 'legacy.ext.json');
+  await fs.writeFile(legacyWrapperPath, JSON.stringify({
+    version: '7', name: 'Legacy', description: 'before', vendor_extension: { keep: true },
+    macros: {
+      'Legacy.macro': {
+        source: { entries: [], urls: [], vendor_source: { keep: true } },
+        styles: []
+      }
+    }
+  }));
+  const legacyConfigPath = nodePath.join(legacyDataDir, 'config.json');
+  const legacyConfigValid = await fs.readFile(legacyConfigPath, 'utf8');
+  await fs.writeFile(legacyConfigPath, JSON.stringify({
+    ...JSON.parse(legacyConfigValid), active_macro_packages: [' legacy.ext ']
+  }));
+  const invalidActiveEdit = await createMacroPackage(root10, 'must-not-save', 'Must Not Save');
+  assert(invalidActiveEdit.status === 'error',
+    'legacy mutation rejects noncanonical active Package IDs instead of garbage-collecting them');
+  assert(JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8')).name === 'Legacy',
+    'invalid legacy active config leaves Package bytes unchanged');
+  await fs.writeFile(legacyConfigPath, legacyConfigValid);
+  const malformedKindsConfig = JSON.stringify({
+    ...JSON.parse(legacyConfigValid), entry_kinds: { vendor: true }
+  });
+  await fs.writeFile(legacyConfigPath, malformedKindsConfig);
+  let malformedKindsRejected = false;
+  try {
+    const result = await createEntryKind(root10, {
+      id: 'must-not-save', name: 'Must Not Save', stroke: '#000', background: '#fff',
+      defaultCounterName: '', style: ''
+    });
+    malformedKindsRejected = result.status === 'error';
+  } catch { malformedKindsRejected = true; }
+  assert(malformedKindsRejected, 'legacy mutation rejects malformed present entry_kinds');
+  assert(await fs.readFile(legacyConfigPath, 'utf8') === malformedKindsConfig,
+    'malformed entry_kinds remains byte-preserving');
+  await fs.writeFile(legacyConfigPath, legacyConfigValid);
+  const legacyPackageBeforeUpdate = await readMacroPackage(root10, 'legacy.ext');
+  assert(legacyPackageBeforeUpdate.status === 'ok', 'legacy Package fixture loads with a revision');
+  const legacyUpdated = await updateMacroPackage(root10, 'legacy.ext', {
+    name: 'Legacy Updated', description: 'after'
+  }, macroPackageMetadataRevision(legacyPackageBeforeUpdate.raw));
+  assert(legacyUpdated.status === 'updated',
+    `legacy dotted Package metadata update succeeds (${JSON.stringify(legacyUpdated)})`);
+  const legacyWrapperAfter = JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8'));
+  assert(legacyWrapperAfter.vendor_extension?.keep === true,
+    'legacy Package metadata update preserves unknown wrapper extensions');
+  assert(legacyWrapperAfter.macros?.['Legacy.macro']?.source?.vendor_source?.keep === true,
+    'Macro canonicalization preserves unknown nested source fields');
+  const legacyEntryCreated = await addEntry(root10, {
+    id: 'legacy-created', kind: 'definition', title: 'Created', content: {}
+  });
+  assert(legacyEntryCreated.status === 'ok', 'legacy Entry create remains writable before migration');
+  const legacyEntryBeforeUpdate = (await readEntriesApi(root10)).find((item) => item.id === 'legacy-entry');
+  const legacyEntryUpdated = await updateEntry(root10, 'legacy-entry', {
+    id: 'legacy-entry', kind: 'definition', title: 'After', content: {}
+  }, entityRevision(legacyEntryBeforeUpdate));
+  assert(legacyEntryUpdated.status === 'updated', 'legacy Entry update remains writable before migration');
+  const legacyEntriesAfter = JSON.parse(
+    await fs.readFile(nodePath.join(legacyDataDir, 'entries.json'), 'utf8')
+  );
+  assert(legacyEntriesAfter.every((entry) => !Object.prototype.hasOwnProperty.call(entry, 'package')),
+    'legacy Entry create/update do not write the reserved migration package field');
+  const relationshipCreated = await addRelationship(root10, {
+    id: 'legacy-rel', from: 'legacy-entry', to: 'legacy-created', label: 'depends', metadata: null
+  });
+  assert(relationshipCreated.status === 'ok', 'Relationship fixture created for revision conflict test');
+  const originalRelationship = (await readRelationships(root10)).find((item) => item.id === 'legacy-rel');
+  const staleRelationshipRevision = entityRevision(originalRelationship);
+  assert((await updateRelationship(root10, 'legacy-rel', {
+    from: 'legacy-entry', to: 'legacy-created', label: 'newer', metadata: null
+  }, staleRelationshipRevision)).status === 'updated', 'concurrent Relationship edit fixture succeeds');
+  assert((await updateRelationship(root10, 'legacy-rel', {
+    from: 'legacy-entry', to: 'legacy-created', label: 'stale overwrite', metadata: null
+  }, staleRelationshipRevision)).status === 'conflict',
+    'stale Relationship editor revision is rejected');
+  await fs.rm(tmpRoot10, { recursive: true, force: true });
+
+  // --- [32] Initialization is config-last and retryable ---------------------
+  console.log('\n[32] initialization is config-last and retryable');
+  const tmpRoot11 = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-init-retry-'));
+  const root11 = Uri.file(tmpRoot11);
+  const originalInitWrite = workspace.fs.writeFile;
+  let failInitPayload = true;
+  workspace.fs.writeFile = async (uri, data) => {
+    if (failInitPayload && uri.fsPath.includes(nodePath.join('.SNL_Doc', 'packages'))) {
+      failInitPayload = false;
+      throw new Error('injected init payload failure');
+    }
+    return originalInitWrite(uri, data);
+  };
+  let initFailed = false;
+  try {
+    await initSnlDoc(root11);
+  } catch {
+    initFailed = true;
+  } finally {
+    workspace.fs.writeFile = originalInitWrite;
+  }
+  assert(initFailed, 'injected initialization payload failure is surfaced');
+  let configCreatedEarly = true;
+  try { await fs.stat(nodePath.join(tmpRoot11, '.SNL_Doc', 'config.json')); }
+  catch { configCreatedEarly = false; }
+  assert(!configCreatedEarly, 'failed initialization does not commit config.json');
+  assert((await initSnlDoc(root11)).status === 'created', 'partial initialization can be retried safely');
+  assert((await readConfig(tmpRoot11)).version === '0.0.5', 'retry commits the current config last');
+  await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);
 }

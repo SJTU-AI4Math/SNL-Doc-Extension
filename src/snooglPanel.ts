@@ -198,9 +198,9 @@ export class SnoogLPanel {
       // files and the serial await was pure latency on every panel open.
       // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
       const [entries, macrosByName, macroPackages] = await Promise.all([
-        safe(() => readEntries(root), []),
-        safe(() => readAllMacros(root), {}),
-        safe(async (): Promise<SnoogLHitMacro[]> => {
+        readEntries(root),
+        readAllMacros(root),
+        (async (): Promise<SnoogLHitMacro[]> => {
           const [active, packages] = await Promise.all([
             resolveActiveMacroPackages(root).then((names) => new Set(names)),
             readMacroPackages(root)
@@ -215,7 +215,10 @@ export class SnoogLPanel {
           );
           const out: SnoogLHitMacro[] = [];
           for (const { bare, read } of loaded) {
-            if (read.status !== 'ok') continue;
+            if (read.status === 'error') {
+              throw new Error(`Could not read Macro Package ${bare}: ${read.message}`);
+            }
+            if (read.status === 'noFile') continue;
             for (const m of read.macros) {
               if (typeof m.name !== 'string' || !m.name) continue;
               out.push({
@@ -230,7 +233,7 @@ export class SnoogLPanel {
             }
           }
           return out;
-        }, [])
+        })()
       ]);
       const kindsByMode = {
         entry: uniqueSorted(entries.map((e) => e.kind).filter(Boolean) as string[]),
@@ -277,14 +280,6 @@ export class SnoogLPanel {
         /* ignore */
       }
     }
-  }
-}
-
-async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await fn();
-  } catch {
-    return fallback;
   }
 }
 

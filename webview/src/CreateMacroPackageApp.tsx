@@ -36,7 +36,7 @@ type Status =
   | { kind: 'noWorkspace'; message: string }
   | { kind: 'error'; message: string };
 
-const FILE_RE = /^[a-zA-Z0-9_-]+$/;
+const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -72,6 +72,8 @@ export function CreateMacroPackageApp(): React.ReactElement {
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
+  const packageRevisionRef = useRef<string | undefined>(undefined);
+  const formDirtyRef = useRef(false);
 
   useEffect(() => {
     apiRef.current = getVsCodeApi();
@@ -82,6 +84,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
             type: 'context';
             mode: Mode;
             file?: string;
+            packageRevision?: string;
             existing?: ExistingPackage | null;
           }
         | { type: 'created'; file: string }
@@ -101,19 +104,22 @@ export function CreateMacroPackageApp(): React.ReactElement {
           setMode(msg.mode);
           if (msg.mode === 'edit') {
             setFile(msg.file ?? '');
-            if (msg.existing) {
+            if (msg.existing && !formDirtyRef.current) {
+              packageRevisionRef.current = msg.packageRevision;
               setName(msg.existing.name);
               setDescription(msg.existing.description);
             }
           }
           break;
         case 'created':
+          formDirtyRef.current = false;
           setStatus({ kind: 'created', file: msg.file });
           setFile('');
           setName('');
           setDescription('');
           break;
         case 'updated':
+          formDirtyRef.current = false;
           setStatus({ kind: 'updated', file: msg.file, name: msg.name });
           break;
         case 'duplicate':
@@ -154,7 +160,9 @@ export function CreateMacroPackageApp(): React.ReactElement {
 
   const trimmedFile = file.trim();
   const trimmedName = name.trim();
-  const fileValid = mode === 'edit' ? true : FILE_RE.test(trimmedFile);
+  const fileValid = mode === 'edit'
+    ? true
+    : FILE_RE.test(trimmedFile) && !trimmedFile.toLowerCase().endsWith('.json');
   const canSubmit =
     fileValid && trimmedName.length > 0 && status.kind !== 'creating';
 
@@ -170,7 +178,8 @@ export function CreateMacroPackageApp(): React.ReactElement {
       type: mode === 'edit' ? 'update' : 'create',
       file: trimmedFile,
       name: trimmedName,
-      description: description.trim()
+      description: description.trim(),
+      expectedRevision: mode === 'edit' ? packageRevisionRef.current : undefined
     });
   }
 
@@ -184,7 +193,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
       <p style={{ margin: '0 0 1rem', opacity: 0.8 }}>
         {mode === 'edit'
           ? 'Update this package\u2019s display name and description. The file name is immutable \u2014 renaming means delete + recreate.'
-          : 'Create an empty macro package under .SNL_Doc/term_macros/. The file name becomes the JSON filename; the display name is stored in the package.'}
+          : 'Create an empty macro Package. Workspace 0.0.5 stores its manifest under .SNL_Doc/packages/; its immutable ID determines the canonical filename.'}
       </p>
 
       <label htmlFor="pkg-file" style={labelStyle}>
@@ -196,7 +205,10 @@ export function CreateMacroPackageApp(): React.ReactElement {
         value={file}
         readOnly={mode === 'edit'}
         placeholder="e.g. mathlib_basic"
-        onChange={(e) => setFile(e.target.value)}
+        onChange={(e) => {
+          formDirtyRef.current = true;
+          setFile(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             handleSubmit();
@@ -224,15 +236,13 @@ export function CreateMacroPackageApp(): React.ReactElement {
             color: 'var(--vscode-errorForeground, #f48771)'
           }}
         >
-          Only letters, digits, <code>_</code> and <code>-</code> allowed (no
-          dots, no slashes).
+          Package IDs start with a letter or digit and may also contain{' '}
+          <code>_</code>, <code>-</code>, and <code>.</code>; no slashes and no{' '}
+          <code>.json</code> suffix.
         </p>
       ) : mode !== 'edit' ? (
         <p style={{ margin: '0 0 0.6rem', fontSize: '0.85rem', opacity: 0.7 }}>
-          will create:{' '}
-          <code>
-            .SNL_Doc/term_macros/{fileValid ? trimmedFile : '<file>'}.json
-          </code>
+          Package ID: <code>{fileValid ? trimmedFile : '<package-id>'}</code>
         </p>
       ) : (
         <div style={{ height: '0.6rem' }} />
@@ -246,7 +256,10 @@ export function CreateMacroPackageApp(): React.ReactElement {
         type="text"
         value={name}
         placeholder="e.g. Mathlib Basic"
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => {
+          formDirtyRef.current = true;
+          setName(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             handleSubmit();
@@ -263,7 +276,10 @@ export function CreateMacroPackageApp(): React.ReactElement {
         value={description}
         placeholder="What this package is for\u2026"
         rows={3}
-        onChange={(e) => setDescription(e.target.value)}
+        onChange={(e) => {
+          formDirtyRef.current = true;
+          setDescription(e.target.value);
+        }}
         style={{ ...inputStyle, marginBottom: '1rem', resize: 'vertical' }}
       />
 

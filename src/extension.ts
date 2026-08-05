@@ -21,6 +21,140 @@ import { firstWorkspaceFolder } from './panelUtil';
 import { initialize_preferences_host } from './preferencesHost';
 import { installSnlDocContextKey } from './snlDocContext';
 import { checkDataVersion, repairData } from './dataMigrationCommands';
+import { createHostTranslator, defineHostMessages, type HostMessageParams } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+
+const UI_MESSAGES = defineHostMessages(
+  {
+    initNoWorkspace: 'SNL Init requires an open folder / workspace.',
+    initExists: '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.',
+    initCreated: 'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.',
+    initFailed: 'SNL Init failed: {error}',
+    pointerNoWorkspace: 'Pointer cannot be resolved: no workspace folder is open.',
+    loadEntriesFailed: 'Failed to load entries: {error}',
+    entryNotFound: 'Entry not found: {id}',
+    invalidPointer: 'Entry {id} has no valid pointer.',
+    pointerResolutionFailed: 'Pointer could not be resolved: {error}',
+    openFileFailed: 'Failed to open file: {error}',
+    deleteAction: 'Delete',
+    deleteEntryPrompt: 'Delete entry "{id}"?',
+    deleteEntryDetail: 'This removes the entry from the shared pool. Library outlines and macro sources that reference this id will render as "unresolved" but keep working.',
+    deleteEntryFailed: 'Delete entry failed: {error}',
+    entryDeletedDangling: { arg: 'count', one: 'Deleted entry "{id}". {count} reference left dangling (library outlines / macro sources / relationships).', other: 'Deleted entry "{id}". {count} references left dangling (library outlines / macro sources / relationships).' },
+    entryDeleted: 'Deleted entry "{id}".',
+    deleteEntryKindPrompt: 'Delete entry kind "{id}"?',
+    deleteEntryKindDetail: 'Entries that use this kind will keep working but render as "unknown kind" until their kind field is updated.',
+    deleteEntryKindFailed: 'Delete entry kind failed: {error}',
+    entryKindDeletedReferenced: { arg: 'count', one: 'Deleted entry kind "{id}". {count} entry now references an unknown kind.', other: 'Deleted entry kind "{id}". {count} entries now reference an unknown kind.' },
+    entryKindDeleted: 'Deleted entry kind "{id}".',
+    deleteMacroKindPrompt: 'Delete macro kind "{id}"?',
+    deleteMacroKindDetail: 'Macros that use this kind will render with the fallback badge color until re-classified.',
+    deleteMacroKindFailed: 'Delete macro kind failed: {error}',
+    macroKindDeletedReferenced: { arg: 'count', one: 'Deleted macro kind "{id}". {count} macro now references an unknown kind.', other: 'Deleted macro kind "{id}". {count} macros now reference an unknown kind.' },
+    macroKindDeleted: 'Deleted macro kind "{id}".',
+    deleteLibraryPrompt: 'Delete library "{slug}"?',
+    deleteLibraryDetail: 'The library directory (meta.json + graph.json) moves to the OS trash. Entries referenced by the library remain in the shared pool.',
+    deleteLibraryFailed: 'Delete library failed: {error}',
+    libraryDeleted: 'Deleted library "{slug}". Underlying entries were NOT touched.',
+    deletePackagePrompt: 'Delete macro package "{file}"?',
+    deletePackageDetail: 'The package file is removed and the package is dropped from active_macro_packages. Macros defined only in this package become unresolved until re-added elsewhere.',
+    packageDeleted: 'Deleted macro package "{file}".',
+    packageNotFound: 'Macro package "{file}" not found.',
+    deletePackageFailed: 'Delete macro package failed: {error}',
+    traceOn: 'SNL panel timing trace ON — open a panel, then check the "SNL Trace" output channel.',
+    traceOff: 'SNL panel timing trace OFF.',
+    traceChannel: 'SNL Trace',
+    unsafeOpenPackage: 'Refusing to open macro package with unsafe name: "{file}".',
+    unsafeCreateMacro: 'Refusing to create a macro in package with unsafe name: "{file}".',
+    unsafeEditMacro: 'Refusing to edit a macro in package with unsafe name: "{file}".',
+    deleteRelationshipPrompt: 'Delete relationship "{id}"?',
+    deleteRelationshipDetail: 'The edge is removed from the pool-wide relationship graph. Endpoint entries are NOT touched.',
+    deleteRelationshipFailed: 'Delete relationship failed: {error}',
+    relationshipDeleted: 'Deleted relationship "{id}".',
+    regenerateNoWorkspace: 'SNL: Regenerate Dependencies requires an open folder.',
+    scopeWholePool: 'the whole entry pool',
+    scopeEntries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
+    regeneratePrompt: 'Regenerate dependency relationships for {scope}?',
+    regenerateDetail: 'Scans each entry\'s SNL content for macro uses, resolves each macro\'s source.entries[] and emits a "depends" edge per (entry, source) pair.\n\nUser-authored relationships (label ≠ "depends" or missing generator tag) are preserved. Auto rows outside the scope are also preserved. Atomicity (metadata.isAtomic) is recomputed globally over the merged depends-graph.',
+    regenerateAction: 'Regenerate',
+    regenerateFailed: 'Regenerate dependencies failed: {error}',
+    regenerateSuccess: 'Dependencies regenerated. +{added} / ~{updated} / −{removed}. {depends} "depends" edges, {usesContext} "uses_context" edges ({atomic} atomic total). {preserved} user-authored rows preserved.',
+    createMacroNoWorkspace: 'Open a folder / workspace before creating a macro.',
+    listPackagesFailed: 'Failed to list macro packages: {error}',
+    noActivePackages: 'No active macro packages. Create one first from the Dashboard.',
+    selectPackagePlaceholder: 'Select package for the new macro'
+  },
+  {
+    initNoWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
+    initExists: '.SNL_Doc 已存在——请使用“SNL: 创建库”添加库。',
+    initCreated: 'SNL Doc 骨架已初始化。请使用“SNL: 创建库”添加第一个库。',
+    initFailed: 'SNL 初始化失败：{error}',
+    pointerNoWorkspace: '无法解析指针：未打开工作区文件夹。',
+    loadEntriesFailed: '加载条目失败：{error}',
+    entryNotFound: '未找到条目：{id}',
+    invalidPointer: '条目 {id} 没有有效的指针。',
+    pointerResolutionFailed: '无法解析指针：{error}',
+    openFileFailed: '打开文件失败：{error}',
+    deleteAction: '删除',
+    deleteEntryPrompt: '删除条目“{id}”？',
+    deleteEntryDetail: '这会从共享池中移除该条目。引用此 ID 的库大纲和宏源仍可工作，但会显示为“未解析”。',
+    deleteEntryFailed: '删除条目失败：{error}',
+    entryDeletedDangling: { arg: 'count', other: '已删除条目“{id}”。留下 {count} 个悬空引用（库大纲 / 宏源 / 关系）。' },
+    entryDeleted: '已删除条目“{id}”。',
+    deleteEntryKindPrompt: '删除条目类型“{id}”？',
+    deleteEntryKindDetail: '使用此类型的条目仍可工作，但在更新其类型字段前会显示为“未知类型”。',
+    deleteEntryKindFailed: '删除条目类型失败：{error}',
+    entryKindDeletedReferenced: { arg: 'count', other: '已删除条目类型“{id}”。现在有 {count} 个条目引用未知类型。' },
+    entryKindDeleted: '已删除条目类型“{id}”。',
+    deleteMacroKindPrompt: '删除宏类型“{id}”？',
+    deleteMacroKindDetail: '使用此类型的宏在重新分类前将以备用徽章颜色显示。',
+    deleteMacroKindFailed: '删除宏类型失败：{error}',
+    macroKindDeletedReferenced: { arg: 'count', other: '已删除宏类型“{id}”。现在有 {count} 个宏引用未知类型。' },
+    macroKindDeleted: '已删除宏类型“{id}”。',
+    deleteLibraryPrompt: '删除库“{slug}”？',
+    deleteLibraryDetail: '库目录（meta.json + graph.json）将移至系统回收站。该库引用的条目会保留在共享池中。',
+    deleteLibraryFailed: '删除库失败：{error}',
+    libraryDeleted: '已删除库“{slug}”。底层条目未被修改。',
+    deletePackagePrompt: '删除宏包“{file}”？',
+    deletePackageDetail: '包文件会被移除，并从 active_macro_packages 中删除。仅在此包中定义的宏会变为未解析，直至在其他位置重新添加。',
+    packageDeleted: '已删除宏包“{file}”。',
+    packageNotFound: '未找到宏包“{file}”。',
+    deletePackageFailed: '删除宏包失败：{error}',
+    traceOn: 'SNL 面板计时跟踪已开启——请打开一个面板，然后查看“SNL 跟踪”输出通道。',
+    traceOff: 'SNL 面板计时跟踪已关闭。',
+    traceChannel: 'SNL 跟踪',
+    unsafeOpenPackage: '拒绝打开名称不安全的宏包：“{file}”。',
+    unsafeCreateMacro: '拒绝在名称不安全的包中创建宏：“{file}”。',
+    unsafeEditMacro: '拒绝在名称不安全的包中编辑宏：“{file}”。',
+    deleteRelationshipPrompt: '删除关系“{id}”？',
+    deleteRelationshipDetail: '该边会从池级关系图中移除。端点条目不会被修改。',
+    deleteRelationshipFailed: '删除关系失败：{error}',
+    relationshipDeleted: '已删除关系“{id}”。',
+    regenerateNoWorkspace: 'SNL：重新生成依赖关系需要打开文件夹。',
+    scopeWholePool: '整个条目池',
+    scopeEntries: { arg: 'count', other: '{count} 个条目' },
+    regeneratePrompt: '为{scope}重新生成依赖关系？',
+    regenerateDetail: '扫描每个条目的 SNL 内容以查找宏用法，解析每个宏的 source.entries[]，并为每个（条目，源）对生成一条“depends”边。\n\n保留用户创建的关系（标签不为“depends”或缺少生成器标记），也保留范围外的自动生成行。metadata.isAtomic 会基于合并后的 depends 图全局重新计算。',
+    regenerateAction: '重新生成',
+    regenerateFailed: '重新生成依赖关系失败：{error}',
+    regenerateSuccess: '依赖关系已重新生成。+{added} / ~{updated} / −{removed}。共 {depends} 条“depends”边、{usesContext} 条“uses_context”边（共 {atomic} 个原子条目）。保留了 {preserved} 条用户创建的记录。',
+    createMacroNoWorkspace: '创建宏前请先打开文件夹或工作区。',
+    listPackagesFailed: '列出宏包失败：{error}',
+    noActivePackages: '没有活动的宏包。请先从仪表板创建一个。',
+    selectPackagePlaceholder: '选择新宏所属的包'
+  }
+);
+
+function hostTranslator() {
+  return createHostTranslator(read_extension_preferences().language, UI_MESSAGES);
+}
+
+function hostMessage<Key extends keyof typeof UI_MESSAGES.en & string>(
+  key: Key,
+  params?: HostMessageParams
+): string {
+  return hostTranslator()(key, params);
+}
 
 // TODO: import SNL_render from snl-script lib
 
@@ -81,27 +215,22 @@ function sanitizeCreateMacroPrefill(
  *  - thrown   → error toast with the underlying message
  */
 async function runInit(): Promise<void> {
+  const t = hostTranslator();
   const workspaceRoot = firstWorkspaceFolder();
   if (!workspaceRoot) {
-    vscode.window.showErrorMessage(
-      'SNL Init requires an open folder / workspace.'
-    );
+    vscode.window.showErrorMessage(t('initNoWorkspace'));
     return;
   }
   try {
     const result = await initSnlDoc(workspaceRoot);
     if (result.status === 'exists') {
-      vscode.window.showWarningMessage(
-        '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.'
-      );
+      vscode.window.showWarningMessage(t('initExists'));
       return;
     }
-    vscode.window.showInformationMessage(
-      'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.'
-    );
+    vscode.window.showInformationMessage(t('initCreated'));
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`SNL Init failed: ${text}`);
+    vscode.window.showErrorMessage(t('initFailed', { error: text }));
   }
 }
 
@@ -113,6 +242,7 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshTraceEnabled();
   const activation = startTrace('extension:activate');
   initialize_preferences_host(context);
+  const t = hostMessage;
   // Drives the `when` clause of the editor-title 🐱 Dashboard button.
   installSnlDocContextKey(context.subscriptions);
   const openInfoview = vscode.commands.registerCommand(
@@ -163,9 +293,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof entryId !== 'string' || !entryId.trim()) return;
       const root = firstWorkspaceFolder();
       if (!root) {
-        void vscode.window.showErrorMessage(
-          'Pointer cannot be resolved: no workspace folder is open.'
-        );
+        void vscode.window.showErrorMessage(t('pointerNoWorkspace'));
         return;
       }
       const trimmed = entryId.trim();
@@ -173,38 +301,36 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         entries = await snlDoc.readEntries(root);
       } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Failed to load entries: ${err instanceof Error ? err.message : String(err)}`
-        );
+        void vscode.window.showErrorMessage(t('loadEntriesFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }));
         return;
       }
       const entry = entries.find((e) => e.id === trimmed);
       if (!entry) {
-        void vscode.window.showErrorMessage(
-          `Entry not found: ${trimmed}`
-        );
+        void vscode.window.showErrorMessage(t('entryNotFound', { id: trimmed }));
         return;
       }
       const { normalizeEntryPointer, resolveEntryPointer, revealResolvedPointer, describeResolutionFailure } =
         await import('./pointer');
       const pointer = normalizeEntryPointer(entry.pointer);
       if (!pointer) {
-        void vscode.window.showErrorMessage(
-          `Entry ${trimmed} has no valid pointer.`
-        );
+        void vscode.window.showErrorMessage(t('invalidPointer', { id: trimmed }));
         return;
       }
       const resolved = await resolveEntryPointer(root, pointer);
       if (resolved.status !== 'ok') {
-        void vscode.window.showErrorMessage(describeResolutionFailure(resolved));
+        void vscode.window.showErrorMessage(t('pointerResolutionFailed', {
+          error: describeResolutionFailure(resolved)
+        }));
         return;
       }
       try {
         await revealResolvedPointer(resolved);
       } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Failed to open file: ${err instanceof Error ? err.message : String(err)}`
-        );
+        void vscode.window.showErrorMessage(t('openFileFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }));
       }
     }
   );
@@ -222,28 +348,28 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!id) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete entry "${id}"?`,
-        { modal: true, detail: 'This removes the entry from the shared pool. Library outlines and macro sources that reference this id will render as "unresolved" but keep working.' },
-        'Delete'
+        t('deleteEntryPrompt', { id }),
+        { modal: true, detail: t('deleteEntryDetail') },
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteEntry(root, id);
       if (res.status !== 'ok') {
-        void vscode.window.showErrorMessage(
-          `Delete entry failed: ${'message' in res ? res.message : res.status}`
-        );
+        void vscode.window.showErrorMessage(t('deleteEntryFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
       const refCount =
         res.references.libraryNodes.length +
         res.references.macroSources.length +
         res.references.relationships.length;
-      const noun = refCount === 1 ? '1 reference' : `${refCount} references`;
       void vscode.window.showInformationMessage(
         refCount > 0
-          ? `Deleted entry "${id}". ${noun} left dangling (library outlines / macro sources / relationships).`
-          : `Deleted entry "${id}".`
+          ? t('entryDeletedDangling', { id, count: refCount })
+          : t('entryDeleted', { id })
       );
     }
   );
@@ -255,24 +381,25 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!id) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete entry kind "${id}"?`,
-        { modal: true, detail: 'Entries that use this kind will keep working but render as "unknown kind" until their kind field is updated.' },
-        'Delete'
+        t('deleteEntryKindPrompt', { id }),
+        { modal: true, detail: t('deleteEntryKindDetail') },
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteEntryKind(root, id);
       if (res.status !== 'ok') {
-        void vscode.window.showErrorMessage(
-          `Delete entry kind failed: ${'message' in res ? res.message : res.status}`
-        );
+        void vscode.window.showErrorMessage(t('deleteEntryKindFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
       const n = res.references.entries.length;
       void vscode.window.showInformationMessage(
         n > 0
-          ? `Deleted entry kind "${id}". ${n} entr${n === 1 ? 'y' : 'ies'} now reference an unknown kind.`
-          : `Deleted entry kind "${id}".`
+          ? t('entryKindDeletedReferenced', { id, count: n })
+          : t('entryKindDeleted', { id })
       );
     }
   );
@@ -284,24 +411,25 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!id) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete macro kind "${id}"?`,
-        { modal: true, detail: 'Macros that use this kind will render with the fallback badge color until re-classified.' },
-        'Delete'
+        t('deleteMacroKindPrompt', { id }),
+        { modal: true, detail: t('deleteMacroKindDetail') },
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteMacroKind(root, id);
       if (res.status !== 'ok') {
-        void vscode.window.showErrorMessage(
-          `Delete macro kind failed: ${'message' in res ? res.message : res.status}`
-        );
+        void vscode.window.showErrorMessage(t('deleteMacroKindFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
       const n = res.references.length;
       void vscode.window.showInformationMessage(
         n > 0
-          ? `Deleted macro kind "${id}". ${n} macro${n === 1 ? '' : 's'} now reference an unknown kind.`
-          : `Deleted macro kind "${id}".`
+          ? t('macroKindDeletedReferenced', { id, count: n })
+          : t('macroKindDeleted', { id })
       );
     }
   );
@@ -313,22 +441,21 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!librarySlug) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete library "${librarySlug}"?`,
-        { modal: true, detail: 'The library directory (meta.json + graph.json) moves to the OS trash. Entries referenced by the library remain in the shared pool.' },
-        'Delete'
+        t('deleteLibraryPrompt', { slug: librarySlug }),
+        { modal: true, detail: t('deleteLibraryDetail') },
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteLibrary(root, librarySlug);
       if (res.status !== 'ok') {
-        void vscode.window.showErrorMessage(
-          `Delete library failed: ${'message' in res ? res.message : res.status}`
-        );
+        void vscode.window.showErrorMessage(t('deleteLibraryFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
-      void vscode.window.showInformationMessage(
-        `Deleted library "${librarySlug}". Underlying entries were NOT touched.`
-      );
+      void vscode.window.showInformationMessage(t('libraryDeleted', { slug: librarySlug }));
     }
   );
 
@@ -339,19 +466,20 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!raw) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete macro package "${raw}"?`,
-        { modal: true, detail: 'The package file is removed and the package is dropped from active_macro_packages. Macros defined only in this package become unresolved until re-added elsewhere.' },
-        'Delete'
+        t('deletePackagePrompt', { file: raw }),
+        { modal: true, detail: t('deletePackageDetail') },
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteMacroPackage(root, raw);
       if (res.status === 'ok') {
-        void vscode.window.showInformationMessage(`Deleted macro package "${res.file}".`);
+        void vscode.window.showInformationMessage(t('packageDeleted', { file: res.file }));
       } else if (res.status === 'noFile') {
-        void vscode.window.showWarningMessage(`Macro package "${raw}" not found.`);
+        void vscode.window.showWarningMessage(t('packageNotFound', { file: raw }));
       } else {
-        void vscode.window.showErrorMessage(`Delete macro package failed: ${res.message}`);
+        void vscode.window.showErrorMessage(t('deletePackageFailed', { error: res.message }));
       }
     }
   );
@@ -404,9 +532,7 @@ export function activate(context: vscode.ExtensionContext): void {
     () => {
       const now = setTraceEnabled(!isTraceEnabled());
       void vscode.window.showInformationMessage(
-        now
-          ? 'SNL panel timing trace ON — open a panel, then check the "SNL Trace" output channel.'
-          : 'SNL panel timing trace OFF.'
+        now ? t('traceOn') : t('traceOff')
       );
     }
   );
@@ -418,7 +544,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // every panel pays before our code runs. Reports into the same "SNL Trace"
   // channel. See webviewCostProbe.ts for why guessing was not an option.
   const probeChannel =
-    traceChannel() ?? vscode.window.createOutputChannel('SNL Trace');
+    traceChannel() ?? vscode.window.createOutputChannel(t('traceChannel'));
   const probeWebviewCost = registerWebviewCostProbe(probeChannel);
 
   const initEntryKinds = vscode.commands.registerCommand(
@@ -519,9 +645,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       if (!MACRO_FILE_RE.test(file)) {
-        vscode.window.showErrorMessage(
-          `Refusing to open macro package with unsafe name: "${file}".`
-        );
+        vscode.window.showErrorMessage(t('unsafeOpenPackage', { file }));
         return;
       }
       PackagePanel.createOrShow(context.extensionUri, file);
@@ -539,9 +663,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       if (!MACRO_FILE_RE.test(file)) {
-        vscode.window.showErrorMessage(
-          `Refusing to create a macro in package with unsafe name: "${file}".`
-        );
+        vscode.window.showErrorMessage(t('unsafeCreateMacro', { file }));
         return;
       }
       CreateMacroPanel.createOrShow(
@@ -561,9 +683,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       if (!MACRO_FILE_RE.test(file)) {
-        vscode.window.showErrorMessage(
-          `Refusing to edit a macro in package with unsafe name: "${file}".`
-        );
+        vscode.window.showErrorMessage(t('unsafeEditMacro', { file }));
         return;
       }
       if (!macroName.trim()) {
@@ -598,24 +718,24 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!id) return;
       const root = firstWorkspaceFolder();
       if (!root) return;
+      const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Delete relationship "${id}"?`,
+        t('deleteRelationshipPrompt', { id }),
         {
           modal: true,
-          detail:
-            'The edge is removed from the pool-wide relationship graph. Endpoint entries are NOT touched.'
+          detail: t('deleteRelationshipDetail')
         },
-        'Delete'
+        deleteAction
       );
-      if (confirmed !== 'Delete') return;
+      if (confirmed !== deleteAction) return;
       const res = await snlDoc.deleteRelationship(root, id);
       if (res.status !== 'ok') {
-        void vscode.window.showErrorMessage(
-          `Delete relationship failed: ${'message' in res ? res.message : res.status}`
-        );
+        void vscode.window.showErrorMessage(t('deleteRelationshipFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
-      void vscode.window.showInformationMessage(`Deleted relationship "${id}".`);
+      void vscode.window.showInformationMessage(t('relationshipDeleted', { id }));
     }
   );
 
@@ -646,9 +766,7 @@ export function activate(context: vscode.ExtensionContext): void {
     async (scopeArg?: unknown) => {
       const root = firstWorkspaceFolder();
       if (!root) {
-        vscode.window.showErrorMessage(
-          'SNL: Regenerate Dependencies requires an open folder.'
-        );
+        vscode.window.showErrorMessage(t('regenerateNoWorkspace'));
         return;
       }
       // scopeArg shape: undefined → pool-wide; { entryIds: string[] } → subset.
@@ -665,33 +783,35 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const scopeLabel =
         scope.entryIds === null
-          ? 'the whole entry pool'
-          : `${scope.entryIds.size} entr${scope.entryIds.size === 1 ? 'y' : 'ies'}`;
+          ? t('scopeWholePool')
+          : t('scopeEntries', { count: scope.entryIds.size });
+      const regenerateAction = t('regenerateAction');
       const confirmed = await vscode.window.showWarningMessage(
-        `Regenerate dependency relationships for ${scopeLabel}?`,
+        t('regeneratePrompt', { scope: scopeLabel }),
         {
           modal: true,
-          detail:
-            'Scans each entry\'s SNL content for macro uses, resolves each macro\'s source.entries[] and emits a "depends" edge per (entry, source) pair.\n\n' +
-            'User-authored relationships (label ≠ "depends" or missing generator tag) are preserved. Auto rows outside the scope are also preserved. Atomicity (metadata.isAtomic) is recomputed globally over the merged depends-graph.'
+          detail: t('regenerateDetail')
         },
-        'Regenerate'
+        regenerateAction
       );
-      if (confirmed !== 'Regenerate') return;
+      if (confirmed !== regenerateAction) return;
       const res = await snlDoc.regenerateDependencyRelationships(root, scope);
       if (res.status !== 'ok') {
-        vscode.window.showErrorMessage(
-          `Regenerate dependencies failed: ${'message' in res ? res.message : res.status}`
-        );
+        vscode.window.showErrorMessage(t('regenerateFailed', {
+          error: 'message' in res ? res.message : res.status
+        }));
         return;
       }
       const r = res.report;
-      vscode.window.showInformationMessage(
-        `Dependencies regenerated. +${r.added} / ~${r.updated} / −${r.removed}. ` +
-          `${r.totalDepends} "depends" edges, ${r.totalUsesContext} "uses_context" edges ` +
-          `(${r.atomicCount} atomic total). ` +
-          `${r.preservedUser} user-authored rows preserved.`
-      );
+      vscode.window.showInformationMessage(t('regenerateSuccess', {
+        added: r.added,
+        updated: r.updated,
+        removed: r.removed,
+        depends: r.totalDepends,
+        usesContext: r.totalUsesContext,
+        atomic: r.atomicCount,
+        preserved: r.preservedUser
+      }));
     }
   );
 
@@ -718,9 +838,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return folders && folders.length > 0 ? folders[0].uri : undefined;
       })();
       if (!rootUri) {
-        void vscode.window.showErrorMessage(
-          'Open a folder / workspace before creating a macro.'
-        );
+        void vscode.window.showErrorMessage(t('createMacroNoWorkspace'));
         return;
       }
       let packages: { file: string }[];
@@ -736,15 +854,13 @@ export function activate(context: vscode.ExtensionContext): void {
           .filter((p) => active.has(p.file.replace(/\.json$/i, '')))
           .map((p) => ({ file: p.file }));
       } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Failed to list macro packages: ${(err as Error).message}`
-        );
+        void vscode.window.showErrorMessage(t('listPackagesFailed', {
+          error: err instanceof Error ? err.message : String(err)
+        }));
         return;
       }
       if (packages.length === 0) {
-        void vscode.window.showInformationMessage(
-          'No active macro packages. Create one first from the Dashboard.'
-        );
+        void vscode.window.showInformationMessage(t('noActivePackages'));
         return;
       }
       let file: string;
@@ -753,7 +869,7 @@ export function activate(context: vscode.ExtensionContext): void {
       } else {
         const pick = await vscode.window.showQuickPick(
           packages.map((p) => ({ label: p.file, file: p.file })),
-          { placeHolder: 'Select package for the new macro' }
+          { placeHolder: t('selectPackagePlaceholder') }
         );
         if (!pick) return;
         file = pick.file;

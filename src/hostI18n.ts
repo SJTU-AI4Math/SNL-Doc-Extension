@@ -32,8 +32,7 @@ export function defineHostMessages<const Messages extends HostMessageCatalog>(
     if (zhTemplate === undefined) throw new Error(`Missing zh-CN host message: ${key}`);
     const enPlural = typeof enTemplate !== 'string';
     const zhPlural = typeof zhTemplate !== 'string';
-    if (enPlural !== zhPlural ||
-        (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg)) {
+    if (enPlural && zhPlural && enTemplate.arg !== zhTemplate.arg) {
       throw new Error(`Host message ${key} has incompatible plural arguments`);
     }
     const enParams = hostPlaceholderNames(enTemplate);

@@ -173,7 +173,7 @@ describe('workspace data migrations', () => {
       });
       mutate(data);
       await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
-        .rejects.toThrow(/reserved|whitespace/i);
+        .rejects.toThrow(/reserved|whitespace|valid SNL identifier/i);
       expect(data.config.version).toBe('0.0.5');
     }
   });

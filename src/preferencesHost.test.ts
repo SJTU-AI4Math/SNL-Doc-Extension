@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  language: 'en',
   update: vi.fn(),
   inspect: vi.fn(),
   showErrorMessage: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('vscode', () => ({
 vi.mock('./preferences', () => ({
   extension_preferences_runtime: {
     query_environment: () => ({
-      language: 'en',
+      language: mocks.language,
       language_preference: 'en',
       color_scheme: 'dark',
       motion: 'full'
@@ -45,6 +46,7 @@ import { PreferencesHost } from './preferencesHost';
 describe('PreferencesHost language writes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.language = 'en';
     mocks.inspect.mockReturnValue(undefined);
     mocks.update.mockResolvedValue(undefined);
   });
@@ -96,6 +98,23 @@ describe('PreferencesHost language writes', () => {
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'snl.preferences/error',
       message: expect.stringContaining('read only')
+    }));
+    host.dispose();
+  });
+
+  it('reports a rejected language write in the effective Chinese locale', async () => {
+    mocks.language = 'zh-CN';
+    mocks.update.mockRejectedValue(new Error('read only'));
+    const host = new PreferencesHost();
+    const { receive, postMessage } = register(host);
+
+    receive({ type: 'snl.preferences/set-language', language: 'en' });
+    await vi.waitFor(() => expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      '无法更改 SNL 界面语言：read only'
+    ));
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'snl.preferences/error',
+      message: '无法更改 SNL 界面语言：read only'
     }));
     host.dispose();
   });

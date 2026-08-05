@@ -6,6 +6,12 @@ import {
   type ExtensionPreferences,
   type LanguagePreference
 } from './preferences-core';
+import { createHostTranslator, defineHostMessages } from './hostI18n';
+
+const MESSAGES = defineHostMessages(
+  { changeLanguageFailed: 'Could not change SNL interface language: {error}' },
+  { changeLanguageFailed: '无法更改 SNL 界面语言：{error}' }
+);
 
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
@@ -70,9 +76,13 @@ export class PreferencesHost implements vscode.Disposable {
     try {
       await config.update('locale', language, target);
     } catch (error) {
-      const message = `Could not change SNL interface language: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
+      const t = createHostTranslator(
+        extension_preferences_runtime.query_environment().language,
+        MESSAGES
+      );
+      const message = t('changeLanguageFailed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
       void vscode.window.showErrorMessage(message);
       try {
         await webview.postMessage({ type: 'snl.preferences/error', message });

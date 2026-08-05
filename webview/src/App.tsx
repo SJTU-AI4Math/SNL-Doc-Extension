@@ -28,25 +28,48 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
-import { use_localized, type LocalizedString } from './runtime/useLocalized';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml } from './export/htmlExport';
 import { createEntryDetailLoader } from './export/entryDetailBridge';
 import { prerenderPopovers } from './export/popoverPrerender';
 import {
   COLLAPSE_GLYPH,
-  COLLAPSE_TOGGLE_STYLE,
-  collapseToggleAriaLabel,
-  collapseToggleTitle
+  COLLAPSE_TOGGLE_STYLE
 } from '../../src/collapseToggleContract';
 
-function ui(en: string, zhCN: string): LocalizedString {
-  return {
-    type: 'i18n',
-    default_language: 'en',
-    values: { en, 'zh-CN': zhCN }
-  };
-}
+const MESSAGES = defineUiMessages('infoview', {
+  title: 'SNL Infoview', loadingLibraries: 'Loading libraries…',
+  libraries: { arg: 'count', one: '{count} library', other: '{count} libraries' },
+  entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
+  viewGraph: 'View Graph', viewPoolGraph: 'Open the pool-wide relationship graph',
+  editDashboard: 'Edit in Dashboard', editDashboardTitle: 'Open the Dashboard (management surface)',
+  noLibrariesPrefix: 'No libraries yet. Create one via',
+  noLibrariesMiddle: 'in the Dashboard, or paste an existing', noLibrariesSuffix: 'folder in.',
+  noMeta: 'no meta.json', back: '← Back', backTitle: 'Back to libraries',
+  libraryGraphTitle: 'Open the induced relationship subgraph for library "{slug}"',
+  exportHtml: 'Export HTML', exportTitle: 'Export library "{slug}" as a static HTML document',
+  editLibrary: 'Edit this Library', editLibraryTitle: 'Open the editor for library "{slug}"',
+  emptyLibrary: 'This library has no entries yet. Add some via the Dashboard.',
+  placeholder: 'placeholder node · {nodeId}', expand: 'Expand', collapse: 'Collapse',
+  expandChildren: { arg: 'count', one: 'Expand {count} child', other: 'Expand {count} children' },
+  collapseChildren: { arg: 'count', one: 'Collapse {count} child', other: 'Collapse {count} children' },
+  graphWarnings: { arg: 'count', one: '⚠️ {count} warning in graph.json', other: '⚠️ {count} warnings in graph.json' },
+  moreWarnings: '… {count} more'
+}, {
+  title: 'SNL 信息视图', loadingLibraries: '正在加载文档库……',
+  libraries: '{count} 个文档库', entries: '{count} 个条目',
+  viewGraph: '查看关系图', viewPoolGraph: '打开整个条目池的关系图',
+  editDashboard: '在仪表板中编辑', editDashboardTitle: '打开仪表板管理界面',
+  noLibrariesPrefix: '尚无文档库。请通过', noLibrariesMiddle: '在仪表板中创建，或粘贴已有的',
+  noLibrariesSuffix: '目录。', noMeta: '无 meta.json', back: '← 返回', backTitle: '返回文档库列表',
+  libraryGraphTitle: '打开文档库“{slug}”的诱导关系子图', exportHtml: '导出 HTML',
+  exportTitle: '将文档库“{slug}”导出为静态 HTML 文档', editLibrary: '编辑此文档库',
+  editLibraryTitle: '打开文档库“{slug}”的编辑器', emptyLibrary: '此文档库尚无条目。请通过仪表板添加。',
+  placeholder: '占位节点 · {nodeId}', expand: '展开', collapse: '折叠',
+  expandChildren: '展开 {count} 个子节点', collapseChildren: '折叠 {count} 个子节点',
+  graphWarnings: '⚠️ graph.json 中有 {count} 条警告', moreWarnings: '……另有 {count} 条'
+});
 
 interface LibraryEntry {
   slug: string;
@@ -99,6 +122,7 @@ type View =
     };
 
 export function App(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
@@ -189,7 +213,7 @@ export function App(): React.ReactElement {
         type: 'exportLibraryHtml',
         slug,
         title,
-        subtitle: `${entryCount} entr${entryCount === 1 ? 'y' : 'ies'} \u00b7 ${slug}`,
+        subtitle: `${t('entries', { count: entryCount })} · ${slug}`,
         body: html,
         assets: [...merged.values()],
         popovers
@@ -311,12 +335,11 @@ function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function LoadingLayer(): React.ReactElement {
-  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
-  const loading = use_localized(ui('Loading libraries…', '正在加载文档库……'));
+  const t = useUiMessages(MESSAGES);
   return (
     <>
-      <TopBar title={title} />
-      <p style={{ opacity: 0.7 }}>{loading}</p>
+      <TopBar title={t('title')} />
+      <p style={{ opacity: 0.7 }}>{t('loadingLibraries')}</p>
     </>
   );
 }
@@ -328,43 +351,24 @@ function LibrariesLayer({
   libraries: LibraryEntry[];
   ctx: RenderCtx;
 }): React.ReactElement {
-  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
-  const viewGraph = use_localized(ui('View Graph', '查看关系图'));
-  const viewGraphTitle = use_localized(ui(
-    'Open the pool-wide relationship graph',
-    '打开整个条目池的关系图'
-  ));
-  const editDashboard = use_localized(ui('Edit in Dashboard', '在仪表板中编辑'));
-  const editDashboardTitle = use_localized(ui(
-    'Open the Dashboard (management surface)',
-    '打开仪表板管理界面'
-  ));
-  const noLibraries = use_localized(ui(
-    'No libraries yet. Create one via',
-    '尚无文档库。请通过'
-  ));
-  const noLibrariesSuffix = use_localized(ui(
-    'in the Dashboard, or paste an existing',
-    '在仪表板中创建，或粘贴已有的'
-  ));
-  const folderSuffix = use_localized(ui('folder in.', '目录。'));
+  const t = useUiMessages(MESSAGES);
   return (
     <>
       <TopBar
-        title={title}
-        subtitle={`${libraries.length} librar${libraries.length === 1 ? 'y' : 'ies'}`}
+        title={t('title')}
+        subtitle={t('libraries', { count: libraries.length })}
         actions={
           <>
             <ToolbarButton
-              label={viewGraph}
-              title={viewGraphTitle}
+              label={t('viewGraph')}
+              title={t('viewPoolGraph')}
               onClick={() =>
                 ctx.postMessage({ type: 'openInfoviewGraph' })
               }
             />
             <ToolbarButton
-              label={editDashboard}
-              title={editDashboardTitle}
+              label={t('editDashboard')}
+              title={t('editDashboardTitle')}
               onClick={() => ctx.postMessage({ type: 'openDashboard' })}
             />
           </>
@@ -372,9 +376,9 @@ function LibrariesLayer({
       />
       {libraries.length === 0 ? (
         <p style={{ opacity: 0.8 }}>
-          {noLibraries} <code>SNL: Create Library</code>{' '}
-          {noLibrariesSuffix}{' '}
-          <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> {folderSuffix}
+          {t('noLibrariesPrefix')} <code>SNL: Create Library</code>{' '}
+          {t('noLibrariesMiddle')}{' '}
+          <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> {t('noLibrariesSuffix')}
         </p>
       ) : (
         <>
@@ -413,7 +417,7 @@ function LibrariesLayer({
                     }}
                   >
                     {lib.slug}
-                    {lib.hasMeta ? '' : ' · no meta.json'}
+                    {lib.hasMeta ? '' : ` · ${t('noMeta')}`}
                   </div>
                   {lib.description ? (
                     <div
@@ -458,6 +462,7 @@ function LibraryLayer({
   warnings: string[];
   ctx: RenderCtx;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   // Which nodes are currently collapsed. Default = all expanded, so we
   // store the exceptions rather than the whole state. Rebuilt on every
   // `outline` swap so stale nodeIds don't linger.
@@ -492,13 +497,13 @@ function LibraryLayer({
     <>
       <TopBar
         title={title}
-        subtitle={`${totalEntries} entr${totalEntries === 1 ? 'y' : 'ies'} · ${slug}`}
+        subtitle={`${t('entries', { count: totalEntries })} · ${slug}`}
         actions={
           <>
-            <ToolbarButton label="← Back" onClick={ctx.goBack} title="Back to libraries" />
+            <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} />
             <ToolbarButton
-              label="View Graph"
-              title={`Open the induced relationship subgraph for library "${slug}"`}
+              label={t('viewGraph')}
+              title={t('libraryGraphTitle', { slug })}
               onClick={() =>
                 ctx.postMessage({
                   type: 'openInfoviewGraphForLibrary',
@@ -507,8 +512,8 @@ function LibraryLayer({
               }
             />
             <ToolbarButton
-              label="Export HTML"
-              title={`Export library "${slug}" as a static HTML document`}
+              label={t('exportHtml')}
+              title={t('exportTitle', { slug })}
               onClick={() => {
                 // The Entry outline renders collapse by OMITTING the subtree,
                 // so a collapsed branch is not in the DOM and cannot be
@@ -523,8 +528,8 @@ function LibraryLayer({
               }}
             />
             <ToolbarButton
-              label="Edit this Library"
-              title={`Open the editor for library "${slug}"`}
+              label={t('editLibrary')}
+              title={t('editLibraryTitle', { slug })}
               onClick={() =>
                 ctx.postMessage({ type: 'editLibrary', slug })
               }
@@ -538,7 +543,7 @@ function LibraryLayer({
       {warnings.length > 0 ? <WarningBanner warnings={warnings} /> : null}
       {outline.length === 0 ? (
         <p style={{ opacity: 0.75, fontStyle: 'italic' }}>
-          This library has no entries yet. Add some via the Dashboard.
+          {t('emptyLibrary')}
         </p>
       ) : (
         <LibraryOutline
@@ -723,14 +728,15 @@ function CollapseToggle({
   onClick: () => void;
   childCount: number;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return (
     <Button
       type="button"
       variant="ghost"
       size="sm"
       onClick={onClick}
-      title={collapseToggleTitle(collapsed, childCount)}
-      aria-label={collapseToggleAriaLabel(collapsed)}
+      title={t(collapsed ? 'expandChildren' : 'collapseChildren', { count: childCount })}
+      aria-label={t(collapsed ? 'expand' : 'collapse')}
       aria-expanded={!collapsed}
       style={{
         ...(COLLAPSE_TOGGLE_STYLE as React.CSSProperties),
@@ -753,6 +759,7 @@ function PlaceholderCard({
   nodeId: string;
   counterLabel: string | null;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const label = counterLabel ? `${counterLabel} · ` : '';
   return (
     <section
@@ -765,7 +772,7 @@ function PlaceholderCard({
         fontSize: '0.9rem'
       }}
     >
-      {label}(placeholder node · {nodeId})
+      {label}({t('placeholder', { nodeId })})
     </section>
   );
 }
@@ -811,6 +818,7 @@ function ToolbarButton({
 }
 
 function WarningBanner({ warnings }: { warnings: string[] }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return (
     <div
       role="status"
@@ -826,14 +834,14 @@ function WarningBanner({ warnings }: { warnings: string[] }): React.ReactElement
       }}
     >
       <div style={{ marginBottom: '0.25rem', fontWeight: 600 }}>
-        ⚠️ {warnings.length} warning{warnings.length === 1 ? '' : 's'} in graph.json
+        {t('graphWarnings', { count: warnings.length })}
       </div>
       <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
         {warnings.slice(0, 5).map((w, i) => (
           <li key={i}>{w}</li>
         ))}
         {warnings.length > 5 ? (
-          <li style={{ opacity: 0.7 }}>… {warnings.length - 5} more</li>
+          <li style={{ opacity: 0.7 }}>{t('moreWarnings', { count: warnings.length - 5 })}</li>
         ) : null}
       </ul>
     </div>

@@ -26,6 +26,37 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages('relationshipGraph', {
+  title: 'SNL Relationship Graph', infoview: 'Infoview', backInfoview: 'Back to SNL Infoview',
+  loading: 'Loading graph…', nodes: { arg: 'count', one: '{count} node', other: '{count} nodes' },
+  edges: { arg: 'count', one: '{count} edge', other: '{count} edges' },
+  backEdges: { arg: 'count', one: '{count} cycle-breaking back-edge (dashed)', other: '{count} cycle-breaking back-edges (dashed)' },
+  isolatedHidden: 'isolated nodes hidden', selected: 'selected: {title}',
+  instructions: 'scroll to zoom · drag to pan · click node → select · Ctrl+click → open Infoview',
+  refreshFailed: 'Refresh failed; showing the last valid graph. {message}',
+  empty: 'No relationships to show. Add some from the Dashboard → Relationships section.',
+  atomic: 'atomic', composite: 'composite', collapseFilters: 'Collapse filters', expandFilters: 'Expand filters',
+  filtersOpen: '▶ Filters', filtersClosed: '◀ Filters', edgesHeading: 'Edges', atomicOnly: 'atomic deps only',
+  hidingComposite: 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.',
+  showingAllEdges: 'Currently showing every edge. Check to hide non-atomic dependency edges.',
+  entryKinds: 'Entry kinds', all: 'all', none: 'none', allTitle: 'Show every entry kind (reset kind filter)',
+  noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.'
+}, {
+  title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
+  nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
+  isolatedHidden: '已隐藏孤立节点', selected: '已选择：{title}',
+  instructions: '滚动缩放 · 拖动平移 · 单击节点以选择 · Ctrl+单击以打开信息视图',
+  refreshFailed: '刷新失败；正在显示上一个有效关系图。{message}',
+  empty: '没有可显示的关系。请在仪表板的“关系”部分中添加。', atomic: '原子', composite: '组合',
+  collapseFilters: '折叠筛选器', expandFilters: '展开筛选器', filtersOpen: '▶ 筛选器', filtersClosed: '◀ 筛选器',
+  edgesHeading: '边', atomicOnly: '仅原子依赖项',
+  hidingComposite: '当前已隐藏非原子（组合）依赖边。取消勾选可显示所有边。',
+  showingAllEdges: '当前正在显示所有边。勾选可隐藏非原子依赖边。', entryKinds: '条目种类',
+  all: '全部', none: '无', allTitle: '显示所有条目种类（重置种类筛选器）', noneTitle: '隐藏所有条目种类',
+  noKinds: '此关系图中尚无条目种类。'
+});
 
 interface GraphNode {
   id: string;
@@ -579,6 +610,7 @@ function SnlGraphInner({
   post: (m: unknown) => void;
   apiRef: React.MutableRefObject<VsCodeApi | undefined>;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
@@ -723,15 +755,15 @@ function SnlGraphInner({
       <main style={PANEL_STYLE}>
         <PanelHeader
           vsApi={apiRef.current}
-          title={graphError?.title ?? 'SNL Relationship Graph'}
+          title={graphError?.title ?? t('title')}
           back={{
-            label: 'Infoview',
-            title: 'Back to SNL Infoview',
+            label: t('infoview'),
+            title: t('backInfoview'),
             message: { type: 'nav.openInfoview' }
           }}
         />
         <p style={{ color: graphError ? 'var(--vscode-errorForeground)' : undefined, opacity: graphError ? 1 : 0.7 }}>
-          {graphError?.message ?? 'Loading graph…'}
+          {graphError?.message ?? t('loading')}
         </p>
       </main>
     );
@@ -808,8 +840,8 @@ function SnlGraphInner({
           vsApi={apiRef.current}
           title={msg.title}
           back={{
-            label: '← Infoview',
-            title: 'Back to SNL Infoview',
+            label: `← ${t('infoview')}`,
+            title: t('backInfoview'),
             message: { type: 'nav.openInfoview' }
           }}
         />
@@ -825,20 +857,20 @@ function SnlGraphInner({
       >
         <div>
           <div style={{ opacity: 0.7, fontSize: '0.8rem' }}>
-            {displayedNodeCount} node{displayedNodeCount === 1 ? '' : 's'} ·{' '}
-            {displayedEdgeCount} edge{displayedEdgeCount === 1 ? '' : 's'}
+            {t('nodes', { count: displayedNodeCount })} ·{' '}
+            {t('edges', { count: displayedEdgeCount })}
             {backEdgeCount > 0
-              ? ` · ${backEdgeCount} cycle-breaking back-edge${backEdgeCount === 1 ? '' : 's'} (dashed)`
+              ? ` · ${t('backEdges', { count: backEdgeCount })}`
               : ''}
-            {' · isolated nodes hidden'}
+            {` · ${t('isolatedHidden')}`}
             {selectedId
-              ? ` · selected: ${nodesById.get(selectedId)?.title ?? selectedId}`
+              ? ` · ${t('selected', { title: nodesById.get(selectedId)?.title ?? selectedId })}`
               : ''}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div style={{ fontSize: '0.75rem', opacity: 0.6 }}>
-            scroll to zoom · drag to pan · click node → select · Ctrl+click → open Infoview
+            {t('instructions')}
           </div>
         </div>
       </div>
@@ -852,7 +884,7 @@ function SnlGraphInner({
             color: 'var(--vscode-errorForeground)'
           }}
         >
-          Refresh failed; showing the last valid graph. {graphError.message}
+          {t('refreshFailed', { message: graphError.message })}
         </div>
       ) : null}
       {msg.warnings.length > 0 ? (
@@ -895,8 +927,7 @@ function SnlGraphInner({
               textAlign: 'center'
             }}
           >
-            No relationships to show. Add some from the Dashboard →
-            Relationships section.
+            {t('empty')}
           </div>
         ) : (
           <svg
@@ -969,7 +1000,7 @@ function SnlGraphInner({
                     <title>
                       {e.label}
                       {e.isDependency && e.isAtomic !== null
-                        ? ` (${e.isAtomic ? 'atomic' : 'composite'})`
+                        ? ` (${e.isAtomic ? t('atomic') : t('composite')})`
                         : ''}
                       {'\n'}{e.from} → {e.to}
                     </title>
@@ -1100,6 +1131,7 @@ function FiltersSidebar({
   kindFilter: Set<string> | null;
   onKindFilterChange: (v: Set<string> | null) => void;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const isKindEnabled = (id: string): boolean =>
     kindFilter === null ? true : kindFilter.has(id);
 
@@ -1139,7 +1171,7 @@ function FiltersSidebar({
       <Button
         type="button"
         onClick={onToggle}
-        title={open ? 'Collapse filters' : 'Expand filters'}
+        title={t(open ? 'collapseFilters' : 'expandFilters')}
         style={{
           pointerEvents: 'auto',
           alignSelf: 'flex-start',
@@ -1158,7 +1190,7 @@ function FiltersSidebar({
           writingMode: 'vertical-rl'
         }}
       >
-        {open ? '▶ Filters' : '◀ Filters'}
+        {t(open ? 'filtersOpen' : 'filtersClosed')}
       </Button>
       {open ? (
         <div
@@ -1182,7 +1214,7 @@ function FiltersSidebar({
               letterSpacing: '0.06em'
             }}
           >
-            Edges
+            {t('edgesHeading')}
           </h3>
           <label
             style={{
@@ -1195,8 +1227,8 @@ function FiltersSidebar({
             }}
             title={
               depFilter === 'atomic-deps'
-                ? 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.'
-                : 'Currently showing every edge. Check to hide non-atomic dependency edges.'
+                ? t('hidingComposite')
+                : t('showingAllEdges')
             }
           >
             <input
@@ -1206,7 +1238,7 @@ function FiltersSidebar({
                 onDepFilterChange(e.target.checked ? 'atomic-deps' : 'all')
               }
             />
-            <span>atomic deps only</span>
+            <span>{t('atomicOnly')}</span>
           </label>
 
           <h3
@@ -1221,7 +1253,7 @@ function FiltersSidebar({
               justifyContent: 'space-between'
             }}
           >
-            <span>Entry kinds</span>
+            <span>{t('entryKinds')}</span>
             <span style={{ opacity: 0.55, fontSize: '0.7rem' }}>
               {activeKindCount}/{totalKindCount}
             </span>
@@ -1237,22 +1269,22 @@ function FiltersSidebar({
               type="button"
               onClick={() => onKindFilterChange(null)}
               style={smallLinkBtn}
-              title="Show every entry kind (reset kind filter)"
+              title={t('allTitle')}
             >
-              all
+              {t('all')}
             </Button>
             <Button
               type="button"
               onClick={() => onKindFilterChange(new Set())}
               style={smallLinkBtn}
-              title="Hide every entry kind"
+              title={t('noneTitle')}
             >
-              none
+              {t('none')}
             </Button>
           </div>
           {totalKindCount === 0 ? (
             <p style={{ opacity: 0.55, fontSize: '0.8rem', margin: 0 }}>
-              No entry kinds in this graph yet.
+              {t('noKinds')}
             </p>
           ) : (
             <ul

@@ -12,11 +12,26 @@ import { getVsCodeApi, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
 import { Button } from './components/Button';
 import { PanelHeader } from './components/PanelHeader';
 import { FormField, TextInput, Alert } from './components/FormControls';
-import { use_localized, type LocalizedString } from './runtime/useLocalized';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 
-function ui(en: string, zhCN: string): LocalizedString {
-  return { type: 'i18n', default_language: 'en', values: { en, 'zh-CN': zhCN } };
-}
+const MESSAGES = defineUiMessages('exportOptions', {
+  title: 'Export HTML', infoview: '← Infoview', backTitle: 'Back to the Library Infoview',
+  loading: 'Loading export context…', entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
+  images: { arg: 'count', one: '{count} image', other: '{count} images' }, outputShape: 'Output shape',
+  destination: 'Destination', browse: 'Browse…', options: 'Options', export: 'Export',
+  reveal: 'Reveal in file manager', interactive: 'Keep interaction (hover highlight, collapse)',
+  interactiveHint: 'Inlines a small script that restores SNL hover highlighting and outline collapse. Uncheck for a document with no JavaScript at all.',
+  folder: 'Folder', folderDescription: 'index.html plus assets/ and fonts/. Smaller; good for hosting.',
+  single: 'Single file', singleDescription: 'One .html with images and fonts inlined. Good for sending to someone.'
+}, {
+  title: '导出 HTML', infoview: '← 信息视图', backTitle: '返回文档库信息视图', loading: '正在加载导出上下文……',
+  entries: '{count} 个条目', images: '{count} 张图片', outputShape: '输出形态', destination: '导出位置',
+  browse: '浏览……', options: '选项', export: '导出', reveal: '在文件管理器中显示',
+  interactive: '保留交互（悬停高亮、折叠）',
+  interactiveHint: '内联一小段脚本，恢复 SNL 悬停高亮与大纲折叠。取消勾选则导出完全不含 JavaScript 的文档。',
+  folder: '文件夹', folderDescription: 'index.html 加 assets/ 和 fonts/。体积更小，适合托管。',
+  single: '单个文件', singleDescription: '一个内联图片和字体的 .html 文件，适合发送给他人。'
+});
 
 export type ExportShape = 'single' | 'directory';
 
@@ -37,6 +52,7 @@ type Incoming =
   | undefined;
 
 export function ExportOptionsApp(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [api, setApi] = useState<VsCodeApi | undefined>(undefined);
   const [context, setContext] = useState<Context | null>(null);
   const [shape, setShape] = useState<ExportShape>('directory');
@@ -80,21 +96,6 @@ export function ExportOptionsApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  const shapeLabel = use_localized(ui('Output shape', '输出形态'));
-  const destLabel = use_localized(ui('Destination', '导出位置'));
-  const browseLabel = use_localized(ui('Browse…', '浏览……'));
-  const optionsLabel = use_localized(ui('Options', '选项'));
-  const exportLabel = use_localized(ui('Export', '导出'));
-  const revealLabel = use_localized(ui('Reveal in file manager', '在文件管理器中显示'));
-  const interactiveLabel = use_localized(
-    ui('Keep interaction (hover highlight, collapse)', '保留交互（悬停高亮、折叠）')
-  );
-  const interactiveHint = use_localized(
-    ui(
-      'Inlines a small script that restores SNL hover highlighting and outline collapse. Uncheck for a document with no JavaScript at all.',
-      '内联一小段脚本，恢复 SNL 悬停高亮与大纲折叠。取消勾选则导出完全不含 JavaScript 的文档。'
-    )
-  );
 
   function submit(): void {
     setBusy(true);
@@ -108,14 +109,14 @@ export function ExportOptionsApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
         <PanelHeader
           vsApi={api}
-          title={ui('Export HTML', '导出 HTML')}
+          title={t('title')}
           back={{
-            label: ui('Infoview', '信息视图'),
-            title: ui('Back to the Library Infoview', '返回文档库信息视图'),
+            label: t('infoview'),
+            title: t('backTitle'),
             message: { type: 'openInfoview' }
           }}
         />
-        <p style={{ opacity: 0.7 }}>Loading export context…</p>
+        <p style={{ opacity: 0.7 }}>{t('loading')}</p>
       </main>
     );
   }
@@ -124,33 +125,33 @@ export function ExportOptionsApp(): React.ReactElement {
     <main style={PANEL_STYLE}>
       <PanelHeader
         vsApi={api}
-        title={ui('Export HTML', '导出 HTML')}
-        subtitle={`${context.title} · ${context.entryCount} entries · ${context.assetCount} image(s)`}
+        title={t('title')}
+        subtitle={`${context.title} · ${t('entries', { count: context.entryCount })} · ${t('images', { count: context.assetCount })}`}
         back={{
-          label: ui('← Infoview', '← 信息视图'),
-          title: ui('Back to the Library Infoview', '返回文档库信息视图'),
+          label: t('infoview'),
+          title: t('backTitle'),
           message: { type: 'openInfoview' }
         }}
       />
 
-      <FormField id="snl-export-shape" label={shapeLabel}>
+      <FormField id="snl-export-shape" label={t('outputShape')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <ShapeChoice
             checked={shape === 'directory'}
             onChange={() => setShape('directory')}
-            title="Folder"
-            description="index.html plus assets/ and fonts/. Smaller; good for hosting."
+            title={t('folder')}
+            description={t('folderDescription')}
           />
           <ShapeChoice
             checked={shape === 'single'}
             onChange={() => setShape('single')}
-            title="Single file"
-            description="One .html with images and fonts inlined. Good for sending to someone."
+            title={t('single')}
+            description={t('singleDescription')}
           />
         </div>
       </FormField>
 
-      <FormField id="snl-export-destination" label={destLabel}>
+      <FormField id="snl-export-destination" label={t('destination')}>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <TextInput
             id="snl-export-destination"
@@ -160,19 +161,19 @@ export function ExportOptionsApp(): React.ReactElement {
             spellCheck={false}
           />
           <Button onClick={() => api?.postMessage({ type: 'pickDestination', shape })}>
-            {browseLabel}
+            {t('browse')}
           </Button>
         </div>
       </FormField>
 
-      <FormField id="snl-export-options" label={optionsLabel} hint={interactiveHint}>
+      <FormField id="snl-export-options" label={t('options')} hint={t('interactiveHint')}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <input
             type="checkbox"
             checked={interactive}
             onChange={(e) => setInteractive(e.target.checked)}
           />
-          <span>{interactiveLabel}</span>
+          <span>{t('interactive')}</span>
         </label>
       </FormField>
 
@@ -195,11 +196,11 @@ export function ExportOptionsApp(): React.ReactElement {
           loading={busy}
           disabled={busy || !destination.trim()}
         >
-          {exportLabel}
+          {t('export')}
         </Button>
         {done ? (
           <Button onClick={() => api?.postMessage({ type: 'revealExport' })}>
-            {revealLabel}
+            {t('reveal')}
           </Button>
         ) : null}
       </div>

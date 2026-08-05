@@ -22,6 +22,31 @@ import { PanelHeader } from './components/PanelHeader';
 import { EntryMacroSection } from './components/EntryMacroSection';
 import type { MacroKind, MacroPackageEntry } from './PackagePanelApp';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages('entryInfoview', {
+  title: 'Entry Infoview', edit: '✎ Edit', editTitle: 'Open this entry in the Edit Entry panel',
+  loading: 'Loading entry…', notFound: 'Entry not found in this workspace.',
+  context: 'Context', contextDescription: 'Entries providing bindings this one uses (via x@srcEntry).',
+  contextEmpty: "No context bindings — this entry doesn't reference any x@srcEntry.",
+  dependencies: 'Dependencies',
+  dependenciesDescription: 'Entries this one depends on (via macros whose source resolves in the pool). Ordered by title; lower entries depend on upper ones is only guaranteed for the graph view.',
+  dependenciesEmpty: 'No dependencies — every macro used here has no in-pool source entry.',
+  openEntry: 'Open Infoview for {title} ({id})', untitled: '(untitled)',
+  atomic: 'atomic', composite: 'composite',
+  atomicTitle: 'Atomic dependency — no shorter compose path in the pool.',
+  compositeTitle: 'Composite dependency — this edge is redundant with a chain of others.'
+}, {
+  title: '条目信息视图', edit: '✎ 编辑', editTitle: '在“编辑条目”面板中打开此条目',
+  loading: '正在加载条目……', notFound: '在此工作区中找不到该条目。',
+  context: '上下文', contextDescription: '提供此条目所用绑定的条目（通过 x@srcEntry）。',
+  contextEmpty: '无上下文绑定——此条目未引用任何 x@srcEntry。', dependencies: '依赖项',
+  dependenciesDescription: '此条目依赖的条目（通过来源可在条目池中解析的宏）。按标题排序；仅关系图视图保证下方条目依赖上方条目。',
+  dependenciesEmpty: '无依赖项——此处使用的所有宏都没有条目池内的来源条目。',
+  openEntry: '打开 {title}（{id}）的信息视图', untitled: '（无标题）', atomic: '原子', composite: '组合',
+  atomicTitle: '原子依赖项——条目池中不存在更短的组合路径。',
+  compositeTitle: '组合依赖项——此边与其他边组成的链重复。'
+});
 
 /** One row in the Context / Dependencies collapsible lists (cat 2026-07-10 §2). */
 interface RelatedRow {
@@ -51,6 +76,7 @@ type Incoming =
   | undefined;
 
 export function EntryInfoviewApp(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [loaded, setLoaded] = useState(false);
   const [state, setState] = useState<{
     entry: EntryData;
@@ -119,7 +145,7 @@ export function EntryInfoviewApp(): React.ReactElement {
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
         <PanelHeader
           vsApi={apiRef.current}
-          title={state?.entry.title || 'Entry Infoview'}
+          title={state?.entry.title || t('title')}
           subtitle={state?.entry.id}
           showRefresh={false}
           actions={state ? (
@@ -127,16 +153,16 @@ export function EntryInfoviewApp(): React.ReactElement {
               type="button"
               variant="secondary"
               onClick={() => postMessage({ type: 'editEntry', entryId: state.entry.id })}
-              title="Open this entry in the Edit Entry panel"
+              title={t('editTitle')}
             >
-              ✎ Edit
+              {t('edit')}
             </Button>
           ) : null}
         />
         {!loaded ? (
-          <p style={{ opacity: 0.8 }}>Loading entry…</p>
+          <p style={{ opacity: 0.8 }}>{t('loading')}</p>
         ) : !state ? (
-          <p style={{ opacity: 0.8 }}>Entry not found in this workspace.</p>
+          <p style={{ opacity: 0.8 }}>{t('notFound')}</p>
         ) : (
           <>
 
@@ -159,18 +185,20 @@ export function EntryInfoviewApp(): React.ReactElement {
               postMessage={postMessage}
             />
             <RelatedSection
-              title="Context"
-              description="Entries providing bindings this one uses (via x@srcEntry)."
+              id="context"
+              title={t('context')}
+              description={t('contextDescription')}
               rows={state.related.context}
               postMessage={postMessage}
-              emptyHint="No context bindings — this entry doesn't reference any x@srcEntry."
+              emptyHint={t('contextEmpty')}
             />
             <RelatedSection
-              title="Dependencies"
-              description="Entries this one depends on (via macros whose source resolves in the pool). Ordered by title; lower entries depend on upper ones is only guaranteed for the graph view."
+              id="dependencies"
+              title={t('dependencies')}
+              description={t('dependenciesDescription')}
               rows={state.related.dependencies}
               postMessage={postMessage}
-              emptyHint="No dependencies — every macro used here has no in-pool source entry."
+              emptyHint={t('dependenciesEmpty')}
               showAtomicBadge
             />
           </>
@@ -187,6 +215,7 @@ export function EntryInfoviewApp(): React.ReactElement {
  * graph is where the plain/Ctrl distinction actually diverges).
  */
 function RelatedSection({
+  id,
   title,
   description,
   rows,
@@ -194,6 +223,7 @@ function RelatedSection({
   emptyHint,
   showAtomicBadge
 }: {
+  id: 'context' | 'dependencies';
   title: string;
   description: string;
   rows: RelatedRow[];
@@ -201,9 +231,10 @@ function RelatedSection({
   emptyHint: string;
   showAtomicBadge?: boolean;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [open, setOpen] = useState<boolean>(true);
   const count = rows.length;
-  const panelId = `related-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const panelId = `related-${id}`;
   return (
     <section
       style={{
@@ -276,7 +307,7 @@ function RelatedSection({
                         entryId: r.id
                       })
                     }
-                    title={`Open Infoview for ${r.title || r.id} (${r.id})`}
+                    title={t('openEntry', { title: r.title || r.id, id: r.id })}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -292,7 +323,7 @@ function RelatedSection({
                       textDecoration: 'underline'
                     }}
                   >
-                    <span>{r.title || <em>(untitled)</em>}</span>
+                    <span>{r.title || <em>{t('untitled')}</em>}</span>
                     {r.kindId ? (
                       <span
                         style={{
@@ -318,11 +349,11 @@ function RelatedSection({
                         }}
                         title={
                           r.isAtomic
-                            ? 'Atomic dependency — no shorter compose path in the pool.'
-                            : 'Composite dependency — this edge is redundant with a chain of others.'
+                            ? t('atomicTitle')
+                            : t('compositeTitle')
                         }
                       >
-                        {r.isAtomic ? 'atomic' : 'composite'}
+                        {r.isAtomic ? t('atomic') : t('composite')}
                       </span>
                     ) : null}
                   </Button>

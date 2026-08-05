@@ -7,6 +7,23 @@ import {
   matchesPendingQuery,
   queryKey
 } from './components/interactionModel';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const MESSAGES = defineUiMessages('snoogl', {
+  title: 'SNoogL', subtitle: "Search across your workspace's entries and macros.",
+  dashboard: '← Dashboard', dashboardTitle: 'Return to the SNL Dashboard', searchTarget: 'Search target',
+  entry: 'Entry', macro: 'Macro', entryPlaceholder: 'Search entries — id or title…',
+  macroPlaceholder: 'Search macros — name across every active package…', filters: 'Filters',
+  kindMode: 'Kind ({mode})', any: '(any)', moreFilters: 'More filters coming — tag / source / content-format / rerank score…',
+  noMatches: 'No matches.', results: '{mode} results', untitled: '(untitled)', rerankScore: 'rerank score: {score}'
+}, {
+  title: 'SNoogL', subtitle: '搜索工作区中的条目和宏。', dashboard: '← 仪表板',
+  dashboardTitle: '返回 SNL 仪表板', searchTarget: '搜索目标', entry: '条目', macro: '宏',
+  entryPlaceholder: '搜索条目——按 ID 或标题……', macroPlaceholder: '搜索宏——在所有已启用包中按名称……',
+  filters: '筛选器', kindMode: '种类（{mode}）', any: '（任意）',
+  moreFilters: '更多筛选器即将推出——标签 / 来源 / 内容格式 / 重排分数……', noMatches: '无匹配项。',
+  results: '{mode}结果', untitled: '（无标题）', rerankScore: '重排分数：{score}'
+});
 
 /**
  * SNoogL — the SNL search page (cat 2026-07-12).
@@ -63,6 +80,7 @@ type Incoming =
   | undefined;
 
 export function SnooglApp(): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const [mode, setMode] = useState<Mode>('entry');
   const [q, setQ] = useState('');
@@ -173,11 +191,11 @@ export function SnooglApp(): React.ReactElement {
     <main style={{ ...PANEL_STYLE, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <PanelHeader
         vsApi={apiRef.current}
-        title="SNoogL"
-        subtitle="Search across your workspace's entries and macros."
+        title={t('title')}
+        subtitle={t('subtitle')}
         back={{
-          label: '← Dashboard',
-          title: 'Return to the SNL Dashboard',
+          label: t('dashboard'),
+          title: t('dashboardTitle'),
           message: { type: 'nav.openDashboard' }
         }}
       />
@@ -235,6 +253,7 @@ function SearchBar({
   setMode: (m: Mode) => void;
   onSubmit: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return (
     <div
       className="snl-responsive-search-bar"
@@ -245,7 +264,7 @@ function SearchBar({
     >
       <div
         role="tablist"
-        aria-label="Search target"
+        aria-label={t('searchTarget')}
         style={{
           display: 'inline-flex',
           borderRadius: '20px',
@@ -278,7 +297,7 @@ function SearchBar({
                   : 'inherit'
               }}
             >
-              {m === 'entry' ? 'Entry' : 'Macro'}
+              {t(m)}
             </Button>
           );
         })}
@@ -288,8 +307,8 @@ function SearchBar({
         value={q}
         placeholder={
           mode === 'entry'
-            ? 'Search entries — id or title…'
-            : 'Search macros — name across every active package…'
+            ? t('entryPlaceholder')
+            : t('macroPlaceholder')
         }
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
@@ -325,6 +344,7 @@ function FiltersRail({
   setFilters: React.Dispatch<React.SetStateAction<Filters>>;
   kinds: string[];
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   return (
     <aside
       style={{
@@ -340,10 +360,10 @@ function FiltersRail({
         fontSize: '0.85rem'
       }}
     >
-      <div style={{ fontWeight: 600, opacity: 0.85 }}>Filters</div>
+      <div style={{ fontWeight: 600, opacity: 0.85 }}>{t('filters')}</div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
         <span style={{ opacity: 0.75, fontSize: '0.8rem' }}>
-          Kind ({mode})
+          {t('kindMode', { mode: t(mode) })}
         </span>
         <select
           value={filters.kindId ?? ''}
@@ -361,7 +381,7 @@ function FiltersRail({
             fontSize: '0.85rem'
           }}
         >
-          <option value="">(any)</option>
+          <option value="">{t('any')}</option>
           {kinds.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -380,7 +400,7 @@ function FiltersRail({
           fontSize: '0.75rem'
         }}
       >
-        More filters coming — tag / source / content-format / rerank score…
+        {t('moreFilters')}
       </div>
     </aside>
   );
@@ -395,6 +415,7 @@ function ResultList({
   mode: Mode;
   onOpen: (h: Hit) => void;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const [activeIdx, setActiveIdx] = useState(0);
   const listboxId = `snoogl-${mode}-results`;
 
@@ -421,7 +442,7 @@ function ResultList({
           fontStyle: 'italic'
         }}
       >
-        No matches.
+        {t('noMatches')}
       </div>
     );
   }
@@ -431,7 +452,7 @@ function ResultList({
       role="listbox"
       id={listboxId}
       tabIndex={0}
-      aria-label={`${mode} results`}
+      aria-label={t('results', { mode: t(mode) })}
       aria-activedescendant={`${listboxId}-option-${activeIdx}`}
       onKeyDown={(event) => {
         const action = listboxKeyAction(event.key, activeIdx, results.length);
@@ -491,7 +512,7 @@ function ResultList({
                 whiteSpace: 'nowrap'
               }}
             >
-              {r.id || <em style={{ opacity: 0.65 }}>(untitled)</em>}
+              {r.id || <em style={{ opacity: 0.65 }}>{t('untitled')}</em>}
             </span>
             {r.kind === 'entry' && r.title ? (
               <span
@@ -539,12 +560,13 @@ function ScoreBar({
   score: number;
   max: number;
 }): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   // Rendered even for score=0 (empty-query browse mode) as a neutral pill
   // so hits still line up on the same grid.
   const pct = max > 0 ? Math.max(0, Math.min(1, score / max)) : 0;
   return (
     <span
-      title={`rerank score: ${score}`}
+      title={t('rerankScore', { score })}
       style={{
         width: '2.5rem',
         height: '0.4rem',

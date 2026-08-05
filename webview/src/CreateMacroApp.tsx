@@ -70,6 +70,229 @@ import {
   webview_language_runtime
 } from './runtime/preferencesRuntime';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const CREATE_MACRO_MESSAGES = defineUiMessages(
+  'createMacro',
+  {
+    createTitle: 'Create Macro in {package}',
+    editTitle: 'Edit Macro in {package}',
+    dashboard: 'Dashboard',
+    backToDashboard: 'Back to Dashboard',
+    name: 'Name',
+    readonly: '(readonly)',
+    unique: '(unique)',
+    immutableName: 'Macro names are immutable; delete + recreate to rename',
+    kind: 'Kind',
+    unset: '(unset)',
+    newMacroKind: '+ New macro kind…',
+    colorPreview: 'stroke {stroke} / background {background}',
+    description: 'Description',
+    optional: '(optional)',
+    descriptionPlaceholder: 'Short human-readable description',
+    contentStyle: 'Content — style "{style}"',
+    tabKatex: 'KaTeX template',
+    tabTypstBuiltin: 'Typst built_in',
+    tabTypstSynthesis: 'Typst synthesis',
+    tabLatexBuiltin: 'LaTeX built_in',
+    tabLatexSynthesis: 'LaTeX synthesis',
+    tabMarkdown: 'Markdown',
+    tabText: 'Text',
+    blockModeHelp: 'Block mode — this macro renders through a React component picked by the Render preset below. Children are passed to the renderer as a flat variadic list; the LaTeX template and variadic delimiters are ignored, so they are hidden here.',
+    dynamicArityHelp: 'Dynamic arity — configure the left / separator / right delimiters below. The macro renders as left + children.join(sep) + right. For more complex shapes (matrix rows, per-cell styling), split it into multiple macros.',
+    latexTemplateHelp: 'LaTeX template — use #0, #1, … for children. \\# = literal #. Do NOT write \\htmlData — the wrapper is added automatically.',
+    katexPlaceholder: 'e.g. \\frac{#0}{#1}',
+    styleTags: 'Style tags — "{style}"',
+    dynamicArity: 'Dynamic Arity',
+    rendersAs: 'renders as {expression}',
+    argumentOverrides: 'Argument overrides during preview',
+    addArg: '+ Add Arg',
+    removeArg: '− Remove Arg',
+    resetArgs: 'Reset all args',
+    noDynamicArgs: 'No argument slots. Use "+ Add Arg".',
+    noFixedArgs: 'No #N placeholders in the template — nothing to fill.',
+    argLabel: 'arg {index}',
+    argPlaceholder: 'SNL source to substitute (empty = box[{index}])',
+    parseError: 'parse error: {error}',
+    sources: 'Sources',
+    entries: 'Entries',
+    urls: 'URLs',
+    urlPlaceholder: 'https://…',
+    macroTags: 'Macro tags',
+    updating: 'Updating…',
+    creating: 'Creating…',
+    updateMacro: 'Update Macro',
+    createMacro: 'Create Macro',
+    templateRequired: 'KaTeX template is required.',
+    namePlaceholder: 'e.g. Add.add',
+    editWholeTitle: 'Collapse back to a single ID input (Edit whole ID)',
+    editWholeAria: 'Edit whole ID',
+    editWhole: '✎ whole',
+    invalidSegment: 'Invalid segment — cannot contain @ # $ %, whitespace, or bracket chars ( ) [ ] { }.',
+    nameSegment: 'name',
+    namespaceSegment: 'namespace',
+    renderMode: 'Render mode',
+    mode: 'Mode',
+    modeFormulaInline: 'Formula (inline)',
+    modeFormulaDisplay: 'Formula (display)',
+    modeText: 'Text',
+    modeBlock: 'Block',
+    leftDelimiter: 'Left delimiter',
+    leftDelimiterPlaceholder: 'e.g. \\begin{environment} or [',
+    separator: 'Separator',
+    separatorPlaceholder: 'e.g. \\\\ or , ',
+    rightDelimiter: 'Right delimiter',
+    rightDelimiterPlaceholder: 'e.g. \\end{environment} or ]',
+    none: '(none)',
+    tagCount: '{count} tag(s)',
+    noTags: 'No tags. Tags are free-text labels used by downstream search indices. Backslashes are not allowed.',
+    tagPlaceholder: 'tag',
+    addTag: '+ Add tag',
+    styles: 'Styles',
+    moveEarlier: 'Move earlier (toward default)',
+    addStyle: '+ Add style',
+    duplicateStyleTags: 'Duplicate style tags — each style tag must be unique.',
+    fallbackHelp: '★ = final fallback (styles[0]). Implicit rendering first uses the current language mapping, then English, then this fallback. Explicit [style] always wins.',
+    defaultStyleByLanguage: 'Default style by language',
+    useStylesZero: 'Use styles[0]',
+    useEnglishStylesZero: 'Use English / styles[0]',
+    languagePlaceholder: 'Language tag, e.g. fr',
+    addLanguage: '+ Add language',
+    renderPreset: 'Render preset',
+    presetNone: '— none —',
+    customKey: 'Custom key…',
+    customRenderHint: 'Custom render key — consumer must register a matching renderer. Empty key = no dispatch.',
+    noRenderHint: 'No render preset. The block will render with plain default layout.',
+    presetListHint: 'Unordered list — LaTeX \\begin{itemize} → <ul><li>…',
+    presetEnumerateHint: 'Ordered list — LaTeX \\begin{enumerate} → <ol><li>…',
+    presetTableHint: 'Table — variadic children are rows; the first child with kind="table-header" becomes <thead>.',
+    presetCenteredHint: 'Horizontally-centered block wrapper.',
+    presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
+    emptyStyle: '(empty)',
+    renameStyle: 'Double-click to rename',
+    searchEntry: 'Search entry id or title…',
+    add: '+ Add',
+    nonHttp: "doesn't start with http",
+    synthesisMode: 'Synthesis mode',
+    synthesisFormula: 'Formula',
+    synthesisText: 'Text',
+    previewError: 'Preview error: {error}',
+    macroPreview: 'SNL Macro Preview',
+    createdStatus: 'Created "{name}"',
+    updatedStatus: 'Updated "{name}"',
+    invalidStatus: '❌ Invalid: {reason}',
+    errorStatus: '❌ Error: {message}'
+  },
+  {
+    createTitle: '在 {package} 中创建宏',
+    editTitle: '在 {package} 中编辑宏',
+    dashboard: '仪表板',
+    backToDashboard: '返回仪表板',
+    name: '名称',
+    readonly: '（只读）',
+    unique: '（唯一）',
+    immutableName: '宏名称不可更改；如需重命名，请删除后重新创建',
+    kind: '种类',
+    unset: '（未设置）',
+    newMacroKind: '+ 新建宏种类…',
+    colorPreview: '描边 {stroke} / 背景 {background}',
+    description: '说明',
+    optional: '（可选）',
+    descriptionPlaceholder: '简短易读的说明',
+    contentStyle: '内容 — 样式“{style}”',
+    tabKatex: 'KaTeX 模板',
+    tabTypstBuiltin: 'Typst built_in',
+    tabTypstSynthesis: 'Typst 合成',
+    tabLatexBuiltin: 'LaTeX built_in',
+    tabLatexSynthesis: 'LaTeX 合成',
+    tabMarkdown: 'Markdown',
+    tabText: '文本',
+    blockModeHelp: '块模式 — 此宏通过下方“渲染预设”选择的 React 组件渲染。子节点会作为扁平可变参数列表传给渲染器；LaTeX 模板和可变参数分隔符会被忽略，因此这里将其隐藏。',
+    dynamicArityHelp: '动态参数 — 请在下方配置左侧、分隔符和右侧定界符。宏按 left + children.join(sep) + right 渲染。矩阵行或逐单元格样式等复杂结构请拆分为多个宏。',
+    latexTemplateHelp: 'LaTeX 模板 — 使用 #0、#1、… 表示子节点。\\# 表示字面量 #。不要写 \\htmlData；外层包装会自动添加。',
+    katexPlaceholder: '例如 \\frac{#0}{#1}',
+    styleTags: '样式标签 — “{style}”',
+    dynamicArity: '动态参数',
+    rendersAs: '渲染为 {expression}',
+    argumentOverrides: '预览参数覆盖',
+    addArg: '+ 添加参数',
+    removeArg: '− 移除参数',
+    resetArgs: '重置所有参数',
+    noDynamicArgs: '没有参数槽。请使用“+ 添加参数”。',
+    noFixedArgs: '模板中没有 #N 占位符，无内容可填写。',
+    argLabel: '参数 {index}',
+    argPlaceholder: '要替换的 SNL 源码（留空 = 方框[{index}]）',
+    parseError: '解析错误：{error}',
+    sources: '来源',
+    entries: '条目',
+    urls: '网址',
+    urlPlaceholder: 'https://…',
+    macroTags: '宏标签',
+    updating: '正在更新…',
+    creating: '正在创建…',
+    updateMacro: '更新宏',
+    createMacro: '创建宏',
+    templateRequired: '必须填写 KaTeX 模板。',
+    namePlaceholder: '例如 Add.add',
+    editWholeTitle: '折叠为单个 ID 输入框（编辑完整 ID）',
+    editWholeAria: '编辑完整 ID',
+    editWhole: '✎ 完整 ID',
+    invalidSegment: '无效片段 — 不能包含 @ # $ %、空白或括号字符 ( ) [ ] { }。',
+    nameSegment: '名称',
+    namespaceSegment: '命名空间',
+    renderMode: '渲染模式',
+    mode: '模式',
+    modeFormulaInline: '公式（行内）',
+    modeFormulaDisplay: '公式（展示）',
+    modeText: '文本',
+    modeBlock: '块',
+    leftDelimiter: '左侧定界符',
+    leftDelimiterPlaceholder: '例如 \\begin{environment} 或 [',
+    separator: '分隔符',
+    separatorPlaceholder: '例如 \\\\ 或 , ',
+    rightDelimiter: '右侧定界符',
+    rightDelimiterPlaceholder: '例如 \\end{environment} 或 ]',
+    none: '（无）',
+    tagCount: '{count} 个标签',
+    noTags: '暂无标签。标签是供下游搜索索引使用的自由文本；不允许使用反斜杠。',
+    tagPlaceholder: '标签',
+    addTag: '+ 添加标签',
+    styles: '样式',
+    moveEarlier: '向前移动（靠近默认样式）',
+    addStyle: '+ 添加样式',
+    duplicateStyleTags: '样式标签重复；每个样式标签必须唯一。',
+    fallbackHelp: '★ = 最终回退样式（styles[0]）。隐式渲染会依次使用当前语言映射、英语映射和此回退样式；显式 [style] 始终优先。',
+    defaultStyleByLanguage: '按语言设置默认样式',
+    useStylesZero: '使用 styles[0]',
+    useEnglishStylesZero: '使用英语映射 / styles[0]',
+    languagePlaceholder: '语言标签，例如 fr',
+    addLanguage: '+ 添加语言',
+    renderPreset: '渲染预设',
+    presetNone: '— 无 —',
+    customKey: '自定义键…',
+    customRenderHint: '自定义渲染键 — 使用方必须注册匹配的渲染器。空键表示不分派。',
+    noRenderHint: '未设置渲染预设；该块将使用普通默认布局。',
+    presetListHint: '无序列表 — LaTeX \\begin{itemize} → <ul><li>…',
+    presetEnumerateHint: '有序列表 — LaTeX \\begin{enumerate} → <ol><li>…',
+    presetTableHint: '表格 — 可变参数子节点作为行；kind="table-header" 的第一个子节点会成为 <thead>。',
+    presetCenteredHint: '水平居中的块包装器。',
+    presetCollapsibleHint: '可折叠块 — 第一个子节点始终显示为摘要，其余内容收起在切换按钮后。',
+    emptyStyle: '（空）',
+    renameStyle: '双击重命名',
+    searchEntry: '搜索条目 ID 或标题…',
+    add: '+ 添加',
+    nonHttp: '不是以 http 开头',
+    synthesisMode: '合成模式',
+    synthesisFormula: '公式',
+    synthesisText: '文本',
+    previewError: '预览错误：{error}',
+    macroPreview: 'SNL 宏预览',
+    createdStatus: '已创建“{name}”',
+    updatedStatus: '已更新“{name}”',
+    invalidStatus: '❌ 无效：{reason}',
+    errorStatus: '❌ 错误：{message}'
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Preview constants
@@ -113,22 +336,24 @@ for (let i = 0; i < MAX_ARGS; i++) {
  * so the preview shows something informative instead of the internal
  * `_snl_draft` name.
  */
-const PREVIEW_PLACEHOLDER_MACRO: SnlMacro = {
-  name: PREVIEW_PLACEHOLDER_KEY,
-  description: 'SNL preview placeholder',
-  source: { entries: [], urls: [] },
-  dynamic_arity: false,
-  default_style: { en: 'default' },
-  tags: [],
-  styles: [
-    {
-      style_name: 'default',
-      mode: 'text',
-      template: 'SNL Macro Preview',
-      tags: []
-    }
-  ]
-};
+function previewPlaceholderMacro(label: string): SnlMacro {
+  return {
+    name: PREVIEW_PLACEHOLDER_KEY,
+    description: 'SNL preview placeholder',
+    source: { entries: [], urls: [] },
+    dynamic_arity: false,
+    default_style: { en: 'default' },
+    tags: [],
+    styles: [
+      {
+        style_name: 'default',
+        mode: 'text',
+        template: label,
+        tags: []
+      }
+    ]
+  };
+}
 
 function placeholderNode(i: number): SnlSyntaxTree {
   return { macro_name: `_snl_arg_${i}`, kind: 'argPlaceholder', mdata: null, children: [] };
@@ -141,11 +366,11 @@ function placeholderNode(i: number): SnlSyntaxTree {
 type Mode = 'formula_inline' | 'formula_display' | 'text' | 'block';
 type SynthesisMode = 'formula' | 'text';
 
-const MODE_LABELS: Record<Mode, string> = {
-  formula_inline: 'Formula (inline)',
-  formula_display: 'Formula (display)',
-  text: 'Text',
-  block: 'Block'
+const MODE_MESSAGE_KEYS: Record<Mode, 'modeFormulaInline' | 'modeFormulaDisplay' | 'modeText' | 'modeBlock'> = {
+  formula_inline: 'modeFormulaInline',
+  formula_display: 'modeFormulaDisplay',
+  text: 'modeText',
+  block: 'modeBlock'
 };
 const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'];
 
@@ -354,13 +579,13 @@ type Incoming =
   | undefined;
 
 const TABS = [
-  { id: 'katex_template', label: 'KaTeX template' },
-  { id: 'typst_built_in', label: 'Typst built_in' },
-  { id: 'typst_synthesis', label: 'Typst synthesis' },
-  { id: 'latex_built_in', label: 'LaTeX built_in' },
-  { id: 'latex_synthesis', label: 'LaTeX synthesis' },
-  { id: 'markdown', label: 'Markdown' },
-  { id: 'text', label: 'Text' }
+  { id: 'katex_template', messageKey: 'tabKatex' },
+  { id: 'typst_built_in', messageKey: 'tabTypstBuiltin' },
+  { id: 'typst_synthesis', messageKey: 'tabTypstSynthesis' },
+  { id: 'latex_built_in', messageKey: 'tabLatexBuiltin' },
+  { id: 'latex_synthesis', messageKey: 'tabLatexSynthesis' },
+  { id: 'markdown', messageKey: 'tabMarkdown' },
+  { id: 'text', messageKey: 'tabText' }
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -414,6 +639,7 @@ function maxChildIndex(template: string): number {
 
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
   const formDirtyRef = useRef(false);
   const macroRevisionRef = useRef<string | undefined>(undefined);
@@ -769,10 +995,10 @@ export function CreateMacroApp(): React.ReactElement {
     () => ({
       ...workspaceMacros,
       ...ARG_PLACEHOLDER_MACROS,
-      [PREVIEW_PLACEHOLDER_KEY]: PREVIEW_PLACEHOLDER_MACRO,
+      [PREVIEW_PLACEHOLDER_KEY]: previewPlaceholderMacro(t('macroPreview')),
       [DRAFT_KEY]: draftMacro
     }),
-    [draftMacro, workspaceMacros]
+    [draftMacro, workspaceMacros, t]
   );
 
   const previewMacroDataDriver = useMemo(
@@ -928,8 +1154,8 @@ export function CreateMacroApp(): React.ReactElement {
     >
       <PanelHeader
         vsApi={apiRef.current}
-        title={`${panelMode === 'edit' ? 'Edit Macro' : 'Create Macro'} in ${titlePackage}`}
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        title={t(panelMode === 'edit' ? 'editTitle' : 'createTitle', { package: titlePackage })}
+        back={{ label: t('dashboard'), title: t('backToDashboard'), message: { type: 'nav.openDashboard' } }}
       />
 
       {/* --- Row 1: Name (1/4) | Kind (1/4) | Description (1/2) ------------- */}
@@ -942,9 +1168,9 @@ export function CreateMacroApp(): React.ReactElement {
       >
         <div>
           <label htmlFor="m-name" style={labelStyle}>
-            Name{' '}
+            {t('name')}{' '}
             <span style={{ opacity: 0.6 }}>
-              {panelMode === 'edit' ? '(readonly)' : '(unique)'}
+              {t(panelMode === 'edit' ? 'readonly' : 'unique')}
             </span>
           </label>
           <NameEditor
@@ -953,12 +1179,12 @@ export function CreateMacroApp(): React.ReactElement {
             onChange={setName}
             readOnly={panelMode === 'edit'}
             invalid={isDuplicate}
-            readOnlyTitle="Macro names are immutable; delete + recreate to rename"
+            readOnlyTitle={t('immutableName')}
           />
         </div>
         <div>
           <label htmlFor="m-kind" style={labelStyle}>
-            Kind
+            {t('kind')}
           </label>
           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
             <select
@@ -980,20 +1206,20 @@ export function CreateMacroApp(): React.ReactElement {
               }}
               style={{ ...inputStyle, flex: 1 }}
             >
-              <option value="">(unset)</option>
+              <option value="">{t('unset')}</option>
               {macroKinds.map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.name} ({k.id})
                 </option>
               ))}
-              <option value="__new__">+ New macro kind…</option>
+              <option value="__new__">{t('newMacroKind')}</option>
             </select>
             {kind
               ? (() => {
                   const sel = macroKinds.find((k) => k.id === kind);
                   return sel ? (
                     <span
-                      title={`stroke ${sel.coloring.stroke} / background ${sel.coloring.background}`}
+                      title={t('colorPreview', { stroke: sel.coloring.stroke, background: sel.coloring.background })}
                       style={{
                         display: 'inline-block',
                         width: '1.4rem',
@@ -1011,13 +1237,13 @@ export function CreateMacroApp(): React.ReactElement {
         </div>
         <div>
           <label htmlFor="m-desc" style={labelStyle}>
-            Description <span style={{ opacity: 0.6 }}>(optional)</span>
+            {t('description')} <span style={{ opacity: 0.6 }}>{t('optional')}</span>
           </label>
           <input
             id="m-desc"
             type="text"
             value={description}
-            placeholder="Short human-readable description"
+            placeholder={t('descriptionPlaceholder')}
             onChange={(e) => setDescription(e.target.value)}
             style={{ ...inputStyle, width: '100%' }}
           />
@@ -1037,7 +1263,7 @@ export function CreateMacroApp(): React.ReactElement {
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
-      <SectionHeader title={`Content — style "${current?.style_name || 'default'}"`} />
+      <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
       <div
         style={{
           display: 'flex',
@@ -1052,7 +1278,7 @@ export function CreateMacroApp(): React.ReactElement {
             active={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
           >
-            {tab.label}
+            {t(tab.messageKey)}
             {tab.id === 'katex_template' &&
             (current?.template ?? '').trim().length === 0
               ? ' *'
@@ -1090,6 +1316,7 @@ export function CreateMacroApp(): React.ReactElement {
                   (current?.style_name ?? '') +
                   preferencesRevision
                 }
+                errorLabel={(error) => t('previewError', { error })}
               >
                 <SnlSyntaxTreeView
                   tree={draftTree}
@@ -1101,30 +1328,9 @@ export function CreateMacroApp(): React.ReactElement {
               </PreviewBoundary>
             </div>
             <p style={{ margin: '0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
-              {current?.mode === 'block' ? (
-                <>
-                  Block mode — this macro renders through a React
-                  component picked by the <strong>Render preset</strong>
-                  below. Children are passed to the renderer as a flat
-                  variadic list; the LaTeX template and variadic
-                  delimiters are ignored, so they're hidden here.
-                </>
-              ) : dynamicArity ? (
-                <>
-                  Dynamic arity — configure the left / separator / right
-                  delimiters below. The macro renders as{' '}
-                  <code>left + children.join(sep) + right</code>. For more
-                  complex shapes (matrix rows, per-cell styling) split into
-                  multiple macros.
-                </>
-              ) : (
-                <>
-                  LaTeX template — use <code>#0</code>, <code>#1</code>, … for
-                  children. <code>\#</code> = literal <code>#</code>. Do NOT
-                  write <code>\htmlData</code> — the wrapper is added
-                  automatically.
-                </>
-              )}
+              {t(current?.mode === 'block'
+                ? 'blockModeHelp'
+                : dynamicArity ? 'dynamicArityHelp' : 'latexTemplateHelp')}
             </p>
             {current?.mode === 'block' ? (
               // Block mode: template + variadic delimiters are all dead
@@ -1146,7 +1352,7 @@ export function CreateMacroApp(): React.ReactElement {
               <textarea
                 value={current?.template ?? ''}
                 onChange={(e) => patchStyle({ template: e.target.value })}
-                placeholder="e.g. \frac{#0}{#1}"
+                placeholder={t('katexPlaceholder')}
                 rows={4}
                 style={{
                   ...inputStyle,
@@ -1193,7 +1399,7 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Style-level Tags (collapsible, follows active style) ---------- */}
       <TagsEditor
-        legend={`Style tags — "${current?.style_name || 'default'}"`}
+        legend={t('styleTags', { style: current?.style_name || 'default' })}
         values={current?.tags ?? []}
         onChange={(next) => patchStyle({ tags: next })}
       />
@@ -1244,11 +1450,10 @@ export function CreateMacroApp(): React.ReactElement {
               );
             }}
           />
-          Dynamic Arity
+          {t('dynamicArity')}
         </label>
         <span style={{ opacity: 0.65, fontSize: '0.85rem' }}>
-          renders as{' '}
-          <code>left + children.join(sep) + right</code>
+          {t('rendersAs', { expression: 'left + children.join(sep) + right' })}
         </span>
       </div>
 
@@ -1271,7 +1476,7 @@ export function CreateMacroApp(): React.ReactElement {
           }}
         >
           <strong style={{ fontSize: '0.9rem' }}>
-            Argument overrides during preview
+            {t('argumentOverrides')}
           </strong>
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             {dynamicArity ? (
@@ -1281,26 +1486,26 @@ export function CreateMacroApp(): React.ReactElement {
                     setVariadicArgCount((n) => Math.min(n + 1, MAX_ARGS))
                   }
                 >
-                  + Add Arg
+                  {t('addArg')}
                 </SmallButton>
                 <SmallButton
                   onClick={() =>
                     setVariadicArgCount((n) => Math.max(n - 1, 0))
                   }
                 >
-                  − Remove Arg
+                  {t('removeArg')}
                 </SmallButton>
               </>
             ) : null}
-            <SmallButton onClick={resetArgs}>Reset all args</SmallButton>
+            <SmallButton onClick={resetArgs}>{t('resetArgs')}</SmallButton>
           </div>
         </div>
 
         {argCount === 0 ? (
           <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
             {dynamicArity
-              ? 'No argument slots. Use "+ Add Arg".'
-              : 'No #N placeholders in the template — nothing to fill.'}
+              ? t('noDynamicArgs')
+              : t('noFixedArgs')}
           </p>
         ) : (
           Array.from({ length: argCount }).map((_, i) => (
@@ -1314,12 +1519,12 @@ export function CreateMacroApp(): React.ReactElement {
                     fontFamily: 'var(--vscode-editor-font-family, monospace)'
                   }}
                 >
-                  arg {i}
+                  {t('argLabel', { index: i })}
                 </span>
                 <textarea
                   value={previewArgs[i] ?? ''}
                   rows={1}
-                  placeholder={`SNL source to substitute (empty = box[${i}])`}
+                  placeholder={t('argPlaceholder', { index: i })}
                   onChange={(e) => setArg(i, e.target.value)}
                   style={{
                     ...inputStyle,
@@ -1340,7 +1545,7 @@ export function CreateMacroApp(): React.ReactElement {
                     color: 'var(--vscode-errorForeground, #f48771)'
                   }}
                 >
-                  parse error: {parseErrors[i]}
+                  {t('parseError', { error: parseErrors[i] ?? '' })}
                 </p>
               ) : null}
             </div>
@@ -1349,7 +1554,7 @@ export function CreateMacroApp(): React.ReactElement {
       </div>
 
       {/* --- Sources (moved to the bottom, above Submit) ------------------- */}
-      <SectionHeader title="Sources" />
+      <SectionHeader title={t('sources')} />
       <div
         className="snl-responsive-grid--two"
         style={{
@@ -1358,14 +1563,14 @@ export function CreateMacroApp(): React.ReactElement {
         }}
       >
         <EntryListEditor
-          label="Entries"
+          label={t('entries')}
           entryPool={entryPool}
           values={sourceEntries}
           onChange={setSourceEntries}
         />
         <ListEditor
-          label="URLs"
-          placeholder="https://…"
+          label={t('urls')}
+          placeholder={t('urlPlaceholder')}
           values={sourceUrls}
           onChange={setSourceUrls}
           warnNonHttp
@@ -1374,7 +1579,7 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Macro-level Tags (collapsible, always shown) ------------------ */}
       <TagsEditor
-        legend="Macro tags"
+        legend={t('macroTags')}
         values={macroTags}
         onChange={setMacroTags}
       />
@@ -1387,13 +1592,13 @@ export function CreateMacroApp(): React.ReactElement {
           disabled={!canCreate}
         >
           {status.kind === 'creating'
-            ? panelMode === 'edit' ? 'Updating\u2026' : 'Creating\u2026'
-            : panelMode === 'edit' ? 'Update Macro' : 'Create Macro'}
+            ? t(panelMode === 'edit' ? 'updating' : 'creating')
+            : t(panelMode === 'edit' ? 'updateMacro' : 'createMacro')}
         </Button>
         {/* 猫猫: 保存成功提示应放在按钮右侧 + 时间戳 + 5s 自动消失 */}
         <SavedInline status={status} />
         <span style={{ opacity: 0.6, fontSize: '0.85rem', marginLeft: 'auto' }}>
-          {templateEmpty ? 'KaTeX template is required.' : ''}
+          {templateEmpty ? t('templateRequired') : ''}
         </span>
       </div>
 
@@ -1577,6 +1782,7 @@ function SingleNameInput({
   invalid?: boolean;
   title?: string;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [local, setLocal] = useState(value);
   // Parent state follows the draft for validation and submit enablement, while
   // this local value keeps the one-piece input mounted until blur/Enter.
@@ -1587,7 +1793,7 @@ function SingleNameInput({
       id="m-name"
       value={local}
       macroCandidates={macroCandidates}
-      placeholder="e.g. Add.add"
+      placeholder={t('namePlaceholder')}
       onChange={(next) => {
         setLocal(next);
         onDraftChange(next);
@@ -1635,6 +1841,7 @@ function MultiNameEditor({
   invalid?: boolean;
   readOnlyTitle?: string;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [errIdx, setErrIdx] = useState<number | null>(null);
   const commitAt = (i: number, raw: string): void => {
     const parts = raw.split('.');
@@ -1707,8 +1914,8 @@ function MultiNameEditor({
           <Button
             type="button"
             onClick={onEditWholeId}
-            title="Collapse back to a single ID input (Edit whole ID)"
-            aria-label="Edit whole ID"
+            title={t('editWholeTitle')}
+            aria-label={t('editWholeAria')}
             style={{
               alignSelf: 'stretch',
               marginLeft: '0.25rem',
@@ -1724,7 +1931,7 @@ function MultiNameEditor({
               opacity: 0.75
             }}
           >
-            ✎ whole
+            {t('editWhole')}
           </Button>
         ) : null}
       </div>
@@ -1736,8 +1943,7 @@ function MultiNameEditor({
             color: 'var(--vscode-errorForeground, #f48771)'
           }}
         >
-          Invalid segment — cannot contain <code>@ # $ %</code>, whitespace,
-          or bracket chars <code>( ) [ ] {'{'} {'}'}</code>.
+          {t('invalidSegment')}
         </p>
       ) : null}
     </div>
@@ -1765,6 +1971,7 @@ function NameSegmentInput({
   onCommit: (v: string) => void;
   onFocus?: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [local, setLocal] = useState(value);
   useEffect(() => setLocal(value), [value]);
 
@@ -1780,7 +1987,7 @@ function NameSegmentInput({
     <MacroIdInput
       value={local}
       macroCandidates={macroCandidates}
-      placeholder={isLast ? 'name' : 'namespace'}
+      placeholder={t(isLast ? 'nameSegment' : 'namespaceSegment')}
       onChange={setLocal}
       onBlur={commit}
       onFocus={onFocus}
@@ -1830,6 +2037,7 @@ function ModeSwitcher({
   value: Mode;
   onChange: (v: Mode) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   return (
     <div
       style={{
@@ -1838,7 +2046,7 @@ function ModeSwitcher({
         gap: '0.25rem',
         minWidth: '10rem'
       }}
-      aria-label="Render mode"
+      aria-label={t('renderMode')}
     >
       <div
         style={{
@@ -1848,14 +2056,14 @@ function ModeSwitcher({
           opacity: 0.85
         }}
       >
-        Mode
+        {t('mode')}
       </div>
       {MODE_ORDER.map((m) => (
         <div key={m} style={{ flex: 1, display: 'flex' }}>
           <ModeButton
             active={value === m}
             onClick={() => onChange(m)}
-            label={MODE_LABELS[m]}
+            label={t(MODE_MESSAGE_KEYS[m])}
           />
         </div>
       ))}
@@ -1954,6 +2162,7 @@ function DynamicArityTemplateRow({
   onSep: (v: string) => void;
   onRight: (v: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const monoField: React.CSSProperties = {
     ...inputStyle,
     fontFamily: 'var(--vscode-editor-font-family, monospace)',
@@ -1973,12 +2182,12 @@ function DynamicArityTemplateRow({
     >
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <label htmlFor="dynamic-arity-left" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
-          Left delimiter
+          {t('leftDelimiter')}
         </label>
         <textarea
           id="dynamic-arity-left"
           value={left}
-          placeholder="e.g. \begin{pmatrix} or ["
+          placeholder={t('leftDelimiterPlaceholder', { environment: '{pmatrix}' })}
           onChange={(e) => onLeft(e.target.value)}
           rows={3}
           style={monoField}
@@ -1986,12 +2195,12 @@ function DynamicArityTemplateRow({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <label htmlFor="dynamic-arity-separator" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
-          Separator
+          {t('separator')}
         </label>
         <textarea
           id="dynamic-arity-separator"
           value={sep}
-          placeholder="e.g. \\\\ or , "
+          placeholder={t('separatorPlaceholder')}
           onChange={(e) => onSep(e.target.value)}
           rows={3}
           style={monoField}
@@ -1999,12 +2208,12 @@ function DynamicArityTemplateRow({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <label htmlFor="dynamic-arity-right" style={{ ...labelStyle, fontSize: '0.75rem', opacity: 0.75 }}>
-          Right delimiter
+          {t('rightDelimiter')}
         </label>
         <textarea
           id="dynamic-arity-right"
           value={right}
-          placeholder="e.g. \end{pmatrix} or ]"
+          placeholder={t('rightDelimiterPlaceholder', { environment: '{pmatrix}' })}
           onChange={(e) => onRight(e.target.value)}
           rows={3}
           style={monoField}
@@ -2028,6 +2237,7 @@ function TagsEditor({
   values: string[];
   onChange: (next: string[]) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [expanded, setExpanded] = useState(false);
   const set = (i: number, v: string): void => {
     const next = values.slice();
@@ -2039,8 +2249,7 @@ function TagsEditor({
     const next = values.filter((_, idx) => idx !== i);
     onChange(next);
   };
-  const summary =
-    values.length === 0 ? '(none)' : `${values.length} tag(s)`;
+  const summary = values.length === 0 ? t('none') : t('tagCount', { count: values.length });
   return (
     <div
       style={{
@@ -2081,8 +2290,7 @@ function TagsEditor({
         <div style={{ marginTop: '0.5rem' }}>
           {values.length === 0 ? (
             <p style={{ margin: '0 0 0.4rem', opacity: 0.7, fontSize: '0.85rem' }}>
-              No tags. Tags are free-text labels used by downstream search
-              indices. Backslashes are not allowed.
+              {t('noTags')}
             </p>
           ) : (
             values.map((v, i) => {
@@ -2095,7 +2303,7 @@ function TagsEditor({
                   <input
                     type="text"
                     value={v}
-                    placeholder="tag"
+                    placeholder={t('tagPlaceholder')}
                     onChange={(e) => set(i, e.target.value)}
                     style={{
                       ...inputStyle,
@@ -2110,7 +2318,7 @@ function TagsEditor({
               );
             })
           )}
-          <SmallButton onClick={add}>+ Add tag</SmallButton>
+          <SmallButton onClick={add}>{t('addTag')}</SmallButton>
         </div>
       ) : null}
     </div>
@@ -2136,6 +2344,7 @@ function StylesEditor({
   defaultStyle: Record<string, string>;
   setDefaultStyle: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const current = styles[activeStyle] ?? styles[0];
   const [newLanguage, setNewLanguage] = useState('');
 
@@ -2193,7 +2402,7 @@ function StylesEditor({
 
   return (
     <>
-      <SectionHeader title="Styles" />
+      <SectionHeader title={t('styles')} />
       <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
         {styles.map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
@@ -2205,7 +2414,7 @@ function StylesEditor({
               onRename={(next) => renameStyleAt(i, next)}
             />
             {i > 0 ? (
-              <SmallButton onClick={() => moveUp(i)} title="Move earlier (toward default)">
+              <SmallButton onClick={() => moveUp(i)} title={t('moveEarlier')}>
                 ↑
               </SmallButton>
             ) : null}
@@ -2214,7 +2423,7 @@ function StylesEditor({
             ) : null}
           </div>
         ))}
-        <SmallButton onClick={addStyle}>+ Add style</SmallButton>
+        <SmallButton onClick={addStyle}>{t('addStyle')}</SmallButton>
       </div>
 
       {hasDupTag ? (
@@ -2225,18 +2434,17 @@ function StylesEditor({
             color: 'var(--vscode-errorForeground, #f48771)'
           }}
         >
-          Duplicate style tags — each style tag must be unique.
+          {t('duplicateStyleTags')}
         </p>
       ) : null}
 
       <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
-        ★ = final fallback (<code>styles[0]</code>). Implicit rendering first uses the current
-        language mapping, then English, then this fallback. Explicit <code>[style]</code> always wins.
+        {t('fallbackHelp')}
       </p>
 
       <div style={{ marginBottom: '0.75rem' }}>
         <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-          Default style by language
+          {t('defaultStyleByLanguage')}
         </div>
         {[...new Set(['en', 'zh-CN', ...Object.keys(defaultStyle)])].map((language) => (
           <div key={language} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem' }}>
@@ -2254,7 +2462,7 @@ function StylesEditor({
               }}
               style={{ ...inputStyle, minWidth: '10rem' }}
             >
-              <option value="">{language === 'en' ? 'Use styles[0]' : 'Use English / styles[0]'}</option>
+              <option value="">{t(language === 'en' ? 'useStylesZero' : 'useEnglishStylesZero')}</option>
               {styles.map((style) => (
                 <option key={style.style_name} value={style.style_name}>{style.style_name}</option>
               ))}
@@ -2264,7 +2472,7 @@ function StylesEditor({
         <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
           <input
             value={newLanguage}
-            placeholder="Language tag, e.g. fr"
+            placeholder={t('languagePlaceholder')}
             onChange={(event) => setNewLanguage(event.target.value)}
             style={{ ...inputStyle, width: '12rem' }}
           />
@@ -2273,7 +2481,7 @@ function StylesEditor({
             if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
             setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
             setNewLanguage('');
-          }}>+ Add language</SmallButton>
+          }}>{t('addLanguage')}</SmallButton>
         </div>
       </div>
 
@@ -2308,16 +2516,14 @@ function StylesEditor({
  */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   key: string;
-  label: string;
-  hint: string;
+  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint';
 }> = [
-  // --- SNL-Basics built-ins ---
-  { key: 'list', label: 'list', hint: 'Unordered list — LaTeX \\begin{itemize} → <ul><li>…' },
-  { key: 'enumerate', label: 'enumerate', hint: 'Ordered list — LaTeX \\begin{enumerate} → <ol><li>…' },
-  { key: 'table', label: 'table', hint: 'Table — variadic children are rows; first child with kind="table-header" becomes <thead>.' },
-  { key: 'centered', label: 'centered', hint: 'Horizontally-centered block wrapper.' },
-  // --- Registered by SNL-Doc-Extension ---
-  { key: 'collapsible', label: 'collapsible', hint: 'Collapsible block — first child is the always-visible summary, the rest fold behind a toggle.' }
+  // Render preset keys are protocol tokens and remain language-invariant.
+  { key: 'list', hintKey: 'presetListHint' },
+  { key: 'enumerate', hintKey: 'presetEnumerateHint' },
+  { key: 'table', hintKey: 'presetTableHint' },
+  { key: 'centered', hintKey: 'presetCenteredHint' },
+  { key: 'collapsible', hintKey: 'presetCollapsibleHint' }
 ];
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 
@@ -2336,6 +2542,7 @@ function BlockRendererPresetControl({
   value: string;
   onChange: (v: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [mode, setMode] = useState<'preset' | 'custom' | 'unset'>(() => {
     if (!value) return 'unset';
     return PRESET_KEYS.has(value) ? 'preset' : 'custom';
@@ -2352,15 +2559,16 @@ function BlockRendererPresetControl({
   const selectedPreset = mode === 'preset' ? value : '';
   const hint =
     mode === 'preset'
-      ? BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hint ?? ''
-      : mode === 'custom'
-        ? 'Custom render key — consumer must register a matching renderer. Empty key = no dispatch.'
-        : 'No render preset. The block will render with plain default layout.';
+      ? (() => {
+          const hintKey = BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hintKey;
+          return hintKey ? t(hintKey) : '';
+        })()
+      : t(mode === 'custom' ? 'customRenderHint' : 'noRenderHint');
 
   return (
     <div style={{ marginBottom: '1rem' }}>
       <label htmlFor="m-rkey-preset" style={labelStyle}>
-        Render preset
+        {t('renderPreset')}
       </label>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <select
@@ -2384,13 +2592,13 @@ function BlockRendererPresetControl({
           }}
           style={{ ...inputStyle, width: 'auto', minWidth: '10rem' }}
         >
-          <option value="">— none —</option>
+          <option value="">{t('presetNone')}</option>
           {BLOCK_RENDERER_PRESETS.map((p) => (
             <option key={p.key} value={p.key}>
-              {p.label}
+              {p.key}
             </option>
           ))}
-          <option value="__custom__">Custom key…</option>
+          <option value="__custom__">{t('customKey')}</option>
         </select>
         {mode === 'custom' ? (
           <input
@@ -2426,6 +2634,7 @@ function StyleSwitch({
   onSelect: () => void;
   onRename: (next: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(tag);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -2489,9 +2698,9 @@ function StyleSwitch({
       active={active}
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
-      title="Double-click to rename"
+      title={t('renameStyle')}
     >
-      {tag.trim() || '(empty)'}
+      {tag.trim() || t('emptyStyle')}
       {isDefault ? ' ★' : ''}
     </TabButton>
   );
@@ -2521,6 +2730,7 @@ function EntryListEditor({
   values: string[];
   onChange: (next: string[]) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const set = (i: number, v: string): void => {
     const next = values.slice();
     next[i] = v;
@@ -2542,14 +2752,14 @@ function EntryListEditor({
                 entries={entryPool}
                 value={v}
                 onChange={(next) => set(i, next)}
-                placeholder="Search entry id or title…"
+                placeholder={t('searchEntry')}
               />
             </div>
             <SmallButton onClick={() => remove(i)}>−</SmallButton>
           </div>
         </div>
       ))}
-      <SmallButton onClick={add}>+ Add</SmallButton>
+      <SmallButton onClick={add}>{t('add')}</SmallButton>
     </div>
   );
 }
@@ -2567,6 +2777,7 @@ function ListEditor({
   onChange: (next: string[]) => void;
   warnNonHttp?: boolean;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const set = (i: number, v: string): void => {
     const next = values.slice();
     next[i] = v;
@@ -2603,13 +2814,13 @@ function ListEditor({
                   color: 'var(--vscode-editorWarning-foreground, #cca700)'
                 }}
               >
-                doesn't start with http
+                {t('nonHttp')}
               </p>
             ) : null}
           </div>
         );
       })}
-      <SmallButton onClick={add}>+ Add</SmallButton>
+      <SmallButton onClick={add}>{t('add')}</SmallButton>
     </div>
   );
 }
@@ -2624,7 +2835,7 @@ function RadioGroup({
   legend: string;
   name: string;
   value: string;
-  options: string[];
+  options: Array<{ value: string; label: string }>;
   onChange: (v: string) => void;
 }): React.ReactElement {
   return (
@@ -2639,7 +2850,7 @@ function RadioGroup({
       <div style={{ display: 'flex', gap: '0.75rem' }}>
         {options.map((opt) => (
           <label
-            key={opt}
+            key={opt.value}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -2650,11 +2861,11 @@ function RadioGroup({
             <input
               type="radio"
               name={name}
-              value={opt}
-              checked={value === opt}
-              onChange={() => onChange(opt)}
+              value={opt.value}
+              checked={value === opt.value}
+              onChange={() => onChange(opt.value)}
             />
-            {opt}
+            {opt.label}
           </label>
         ))}
       </div>
@@ -2671,13 +2882,17 @@ function SynthesisModeRow({
   value: SynthesisMode;
   onChange: (v: SynthesisMode) => void;
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   return (
     <div style={{ marginBottom: '0.5rem' }}>
       <RadioGroup
-        legend="Synthesis mode"
+        legend={t('synthesisMode')}
         name={name}
         value={value}
-        options={['formula', 'text']}
+        options={[
+          { value: 'formula', label: t('synthesisFormula') },
+          { value: 'text', label: t('synthesisText') }
+        ]}
         onChange={(v) => onChange(v as SynthesisMode)}
       />
     </div>
@@ -2779,10 +2994,10 @@ function SmallButton({
 
 /** Catches render-time throws from the preview (e.g. a KaTeX failure). */
 class PreviewBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; errorLabel: (error: string) => string },
   { error: string | null }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: { children: React.ReactNode; errorLabel: (error: string) => string }) {
     super(props);
     this.state = { error: null };
   }
@@ -2799,7 +3014,7 @@ class PreviewBoundary extends React.Component<
             fontFamily: 'var(--vscode-editor-font-family, monospace)'
           }}
         >
-          Preview error: {this.state.error}
+          {this.props.errorLabel(this.state.error)}
         </div>
       );
     }
@@ -2822,10 +3037,11 @@ function formatSavedAt(ts: number): string {
  * dismissed by the parent's useEffect after 5s.
  */
 function SavedInline({ status }: { status: Status }): React.ReactElement | null {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   if (status.kind !== 'created' && status.kind !== 'updated') {
     return null;
   }
-  const verb = status.kind === 'created' ? 'Created' : 'Updated';
+  const savedText = t(status.kind === 'created' ? 'createdStatus' : 'updatedStatus', { name: status.name });
   return (
     <span
       style={{
@@ -2838,7 +3054,7 @@ function SavedInline({ status }: { status: Status }): React.ReactElement | null 
       }}
     >
       <span>✓</span>
-      <span>{verb} "{status.name}"</span>
+      <span>{savedText}</span>
       <span style={{ opacity: 0.75, fontWeight: 400 }}>
         ({formatSavedAt(status.at)})
       </span>
@@ -2856,6 +3072,7 @@ function StatusLine({
 }: {
   status: Status;
 }): React.ReactElement | null {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   if (
     status.kind === 'idle' ||
     status.kind === 'creating' ||
@@ -2873,7 +3090,7 @@ function StatusLine({
     text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'invalid') {
-    text = `\u274c Invalid: ${status.reason}`;
+    text = t('invalidStatus', { reason: status.reason });
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (
     status.kind === 'noFile' ||
@@ -2883,7 +3100,7 @@ function StatusLine({
     text = `\u274c ${status.message}`;
     color = 'var(--vscode-errorForeground, #f48771)';
   } else if (status.kind === 'error') {
-    text = `\u274c Error: ${status.message}`;
+    text = t('errorStatus', { message: status.message });
     color = 'var(--vscode-errorForeground, #f48771)';
   }
   return (

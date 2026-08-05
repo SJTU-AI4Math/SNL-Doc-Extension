@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  readEntryEntityRecord,
   readEntryEntityRecords,
   readMacroEntityRecords,
+  readPackageManifestRecord,
   readPackageManifestRecords,
   type EntityReadStorage
 } from './entityStorageIo';
@@ -15,8 +17,11 @@ import {
 } from './entityStorage';
 
 class MemoryReader implements EntityReadStorage {
+  readonly reads: string[] = [];
+  readonly listings: string[] = [];
   constructor(readonly values: Map<string, unknown>) {}
   async listJsonFiles(directory: string): Promise<string[]> {
+    this.listings.push(directory);
     const prefix = `${directory}/`;
     return [...this.values.keys()]
       .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/'))
@@ -24,19 +29,39 @@ class MemoryReader implements EntityReadStorage {
       .sort();
   }
   async readJson(path: string): Promise<unknown | null> {
+    this.reads.push(path);
     return this.values.has(path) ? structuredClone(this.values.get(path)) : null;
   }
 }
 
 describe('per-entity storage readers', () => {
+  it('point-reads one Entry by stable ID without enumerating the directory', async () => {
+    const wanted = makeEntryEnvelope('Logic', {
+      id: 'Set.mem', package: 'Logic', title: 'Membership'
+    });
+    const unrelated = makeEntryEnvelope('_unpackaged', {
+      id: 'Other', package: '_unpackaged', title: 'Other'
+    });
+    const storage = new MemoryReader(new Map([
+      [entryEntityPath('Set.mem'), wanted],
+      [entryEntityPath('Other'), unrelated]
+    ]));
+
+    const record = await readEntryEntityRecord(storage, 'Set.mem');
+
+    expect(record?.entry.title).toBe('Membership');
+    expect(storage.listings).toEqual([]);
+    expect(storage.reads).toEqual([entryEntityPath('Set.mem')]);
+  });
+
   it('validates paths and returns Entries in identity order', async () => {
     const a = makeEntryEnvelope('_unpackaged', { id: 'A', package: '_unpackaged', title: 'A' });
     const b = makeEntryEnvelope('_unpackaged', { id: 'B', package: '_unpackaged', title: 'B' });
     const z = makeEntryEnvelope('Alpha', { id: 'Z', package: 'Alpha', title: 'Z' });
     const storage = new MemoryReader(new Map([
-      [entryEntityPath('_unpackaged', 'B'), b],
-      [entryEntityPath('Alpha', 'Z'), z],
-      [entryEntityPath('_unpackaged', 'A'), a]
+      [entryEntityPath('B'), b],
+      [entryEntityPath('Z'), z],
+      [entryEntityPath('A'), a]
     ]));
     const records = await readEntryEntityRecords(storage);
     expect(records.map(({ envelope, entry }) => [envelope.package, entry.id])).toEqual([
@@ -47,6 +72,17 @@ describe('per-entity storage readers', () => {
 
     storage.values.set('entries/_unpackaged-00000000000000000000.json', a);
     await expect(readEntryEntityRecords(storage)).rejects.toThrow(/path.*identity/i);
+  });
+
+  it('point-reads one Package manifest without enumerating the directory', async () => {
+    const manifest = makePackageManifest('Logic', 'Logic', 'desc');
+    const storage = new MemoryReader(new Map([[packageManifestPath('Logic'), manifest]]));
+
+    const record = await readPackageManifestRecord(storage, 'Logic');
+
+    expect(record?.manifest).toEqual(manifest);
+    expect(storage.listings).toEqual([]);
+    expect(storage.reads).toEqual([packageManifestPath('Logic')]);
   });
 
   it('loads common Package manifests and Macro entities without filename-order semantics', async () => {
@@ -68,8 +104,15 @@ describe('per-entity storage readers', () => {
       id: ' A ', package: '_unpackaged', title: 'A'
     });
     await expect(readEntryEntityRecords(new MemoryReader(new Map([
-      [entryEntityPath('_unpackaged', ' A '), entry]
+      [entryEntityPath(' A '), entry]
     ])))).rejects.toThrow(/valid SNL Entry envelope/i);
+
+    await expect(readEntryEntityRecords(new MemoryReader(new Map([
+      [entryEntityPath('A'), {
+        format: 'snl-entry', version: 1, package: ' bad/name ',
+        entry: { id: 'A', package: ' bad/name ' }
+      }]
+    ])))).rejects.toThrow(/Package id/i);
 
     const macro = makeMacroEnvelope('Logic', { name: ' a ', styles: [] });
     await expect(readMacroEntityRecords(new MemoryReader(new Map([
@@ -82,7 +125,7 @@ describe('per-entity storage readers', () => {
       id: 'A', package: '_unpackaged', title: 'A'
     });
     const values = new Map<string, unknown>([
-      [entryEntityPath('_unpackaged', 'A'), duplicate],
+      [entryEntityPath('A'), duplicate],
       ['entries/other-11111111111111111111.json', duplicate]
     ]);
     await expect(readEntryEntityRecords(new MemoryReader(values))).rejects.toThrow(/path|duplicate/i);

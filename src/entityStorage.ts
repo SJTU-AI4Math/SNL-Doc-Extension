@@ -61,10 +61,15 @@ export function packageManifestPath(packageId: string): string {
   return `packages/${packageId}-${entityIdentityHash('package', packageId)}.json`;
 }
 
-export function entryEntityPath(packageId: string, entryId: string): string {
+export function legacy005EntryEntityPath(packageId: string, entryId: string): string {
   assertPackageId(packageId);
   if (!entryId) throw new Error('Entry id must be non-empty.');
   return `entries/${packageId}-${entityIdentityHash('entry', packageId, entryId)}.json`;
+}
+
+export function entryEntityPath(entryId: string): string {
+  if (!entryId) throw new Error('Entry id must be non-empty.');
+  return `entries/${entityIdentityHash('entry', entryId)}.json`;
 }
 
 export function macroEntityPath(packageId: string, macroName: string): string {

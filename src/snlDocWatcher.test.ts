@@ -14,7 +14,11 @@ vi.mock('vscode', () => ({
     })
   }
 }));
-import { SNL_DOC_WATCHED_PATH, SNL_DOC_WATCH_DEBOUNCE_MS } from './panelUtil';
+import {
+  SNL_DOC_WATCHED_PATH,
+  SNL_DOC_WATCH_DEBOUNCE_MS,
+  shouldRefreshEntityDependency
+} from './panelUtil';
 
 /**
  * The `.SNL_Doc` watcher used to refresh on EVERY event under `.SNL_Doc/**`
@@ -27,7 +31,7 @@ describe('SNL_DOC_WATCHED_PATH', () => {
     const watched = [
       '/ws/.SNL_Doc/config.json',
       '/ws/.SNL_Doc/entries.json',
-      '/ws/.SNL_Doc/entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      '/ws/.SNL_Doc/entries/dc23c2ae0a0b9459393a.json',
       '/ws/.SNL_Doc/packages/Logic-277a664e3d2332d369d7.json',
       '/ws/.SNL_Doc/macros/Logic-dd2136b29efc47b38142.json',
       '/ws/.SNL_Doc/relationships.json',
@@ -68,6 +72,25 @@ describe('SNL_DOC_WATCHED_PATH', () => {
   });
 });
 
+describe('entity dependency invalidation', () => {
+  const dependency = '/.SNL_Doc/entries/target.json';
+
+  it('fails broad only before dependencies are established', () => {
+    expect(shouldRefreshEntityDependency('/ws/.SNL_Doc/entries/other.json', [], false)).toBe(true);
+    expect(shouldRefreshEntityDependency('/ws/.SNL_Doc/entries/other.json', [], true)).toBe(false);
+  });
+
+  it('refreshes exact dependencies and ignores unrelated entity hashes', () => {
+    expect(shouldRefreshEntityDependency('/ws/.SNL_Doc/entries/target.json', [dependency], true)).toBe(true);
+    expect(shouldRefreshEntityDependency('/ws/.SNL_Doc/entries/other.json', [dependency], true)).toBe(false);
+    expect(shouldRefreshEntityDependency(
+      '/ws/.SNL_Doc/packages/active.json',
+      ['/.SNL_Doc/packages/active.json'],
+      true
+    )).toBe(true);
+  });
+});
+
 describe('installSnlDocWatcher', () => {
   it('collapses a multi-file save into ONE refresh', async () => {
     const { installSnlDocWatcher } = await import('./panelUtil');
@@ -87,6 +110,28 @@ describe('installSnlDocWatcher', () => {
 
     await new Promise((resolve) => setTimeout(resolve, SNL_DOC_WATCH_DEBOUNCE_MS + 60));
     expect(refreshes).toBe(1); // …and the burst collapses to one re-read
+
+    for (const disposable of disposables) disposable.dispose();
+  });
+
+  it('delivers the exact changed paths so panels can invalidate dependencies precisely', async () => {
+    const { installSnlDocWatcher } = await import('./panelUtil');
+    handlers.length = 0;
+    const batches: string[][] = [];
+    const disposables: Array<{ dispose: () => void }> = [];
+    installSnlDocWatcher(disposables as never, (uris) => {
+      batches.push(uris.map((uri) => uri.path));
+    });
+
+    for (const handler of handlers) {
+      handler({ path: '/ws/.SNL_Doc/libraries/notes/meta.json' });
+      handler({ path: '/ws/.SNL_Doc/entries/dc23c2ae0a0b9459393a.json' });
+    }
+    await new Promise((resolve) => setTimeout(resolve, SNL_DOC_WATCH_DEBOUNCE_MS + 60));
+    expect(batches).toEqual([[
+      '/ws/.SNL_Doc/libraries/notes/meta.json',
+      '/ws/.SNL_Doc/entries/dc23c2ae0a0b9459393a.json'
+    ]]);
 
     for (const disposable of disposables) disposable.dispose();
   });

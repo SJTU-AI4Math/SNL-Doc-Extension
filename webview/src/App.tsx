@@ -83,12 +83,14 @@ type Incoming =
       assetBaseUri?: string;
       warnings?: string[];
     }
+  | { type: 'libraryEntriesError'; slug: string; message: string }
   | undefined;
 
 /** Current position in the 2-layer stack. */
 type View =
   | { kind: 'loading' }
   | { kind: 'libraries'; libraries: LibraryEntry[] }
+  | { kind: 'libraryError'; slug: string; message: string }
   | {
       kind: 'library';
       slug: string;
@@ -138,6 +140,9 @@ export function App(): React.ReactElement {
             outline: Array.isArray(msg.outline) ? msg.outline : [],
             warnings: Array.isArray(msg.warnings) ? msg.warnings : []
           });
+          break;
+        case 'libraryEntriesError':
+          setView({ kind: 'libraryError', slug: msg.slug, message: msg.message });
           break;
         default:
           break;
@@ -241,7 +246,7 @@ export function App(): React.ReactElement {
   );
 
   const goBack = (): void => {
-    if (view.kind === 'library') {
+    if (view.kind === 'library' || view.kind === 'libraryError') {
       // Back from library → libraries root.
       postMessage({ type: 'ready' });
     }
@@ -290,6 +295,8 @@ function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
       return <LoadingLayer />;
     case 'libraries':
       return <LibrariesLayer libraries={view.libraries} ctx={ctx} />;
+    case 'libraryError':
+      return <LibraryErrorLayer slug={view.slug} message={view.message} ctx={ctx} />;
     case 'library':
       return (
         <LibraryLayer
@@ -315,6 +322,26 @@ function LoadingLayer(): React.ReactElement {
     <>
       <TopBar title={title} />
       <p style={{ opacity: 0.7 }}>{loading}</p>
+    </>
+  );
+}
+
+function LibraryErrorLayer({
+  slug,
+  message,
+  ctx
+}: {
+  slug: string;
+  message: string;
+  ctx: RenderCtx;
+}): React.ReactElement {
+  return (
+    <>
+      <TopBar title={`Library unavailable: ${slug}`} />
+      <p role="alert" style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
+        {message}
+      </p>
+      <button type="button" onClick={ctx.goBack}>← Back to libraries</button>
     </>
   );
 }

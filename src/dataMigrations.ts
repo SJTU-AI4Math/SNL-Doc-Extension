@@ -11,6 +11,7 @@ import {
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
   entryEntityPath,
+  legacy005EntryEntityPath,
   macroEntityPath,
   makeEntryEnvelope,
   makeMacroEnvelope,
@@ -29,6 +30,25 @@ export interface EntityStorageReceipt {
   macro_count: number;
   entries_digest: string;
   macro_packages_digest: string;
+}
+
+export function isEntityStorageReceipt(value: unknown): value is EntityStorageReceipt {
+  if (!isRecord(value)) return false;
+  const expectedKeys = [
+    'legacy_backup_present', 'legacy_entries_present', 'entry_count',
+    'macro_package_count', 'macro_count', 'entries_digest', 'macro_packages_digest'
+  ];
+  if (Object.keys(value).length !== expectedKeys.length ||
+      !expectedKeys.every((key) => Object.prototype.hasOwnProperty.call(value, key))) {
+    return false;
+  }
+  return typeof value.legacy_backup_present === 'boolean' &&
+    typeof value.legacy_entries_present === 'boolean' &&
+    Number.isSafeInteger(value.entry_count) && (value.entry_count as number) >= 0 &&
+    Number.isSafeInteger(value.macro_package_count) && (value.macro_package_count as number) >= 0 &&
+    Number.isSafeInteger(value.macro_count) && (value.macro_count as number) >= 0 &&
+    typeof value.entries_digest === 'string' && /^[0-9a-f]{64}$/.test(value.entries_digest) &&
+    typeof value.macro_packages_digest === 'string' && /^[0-9a-f]{64}$/.test(value.macro_packages_digest);
 }
 
 function semanticDigest(value: unknown): string {
@@ -207,7 +227,7 @@ function migrate004To005(context: WorkspaceMigrationContext): void {
     const entry = { ...value, package: UNPACKAGED_PACKAGE_ID };
     addUnique(
       entryEntities,
-      entryEntityPath(UNPACKAGED_PACKAGE_ID, value.id),
+      legacy005EntryEntityPath(UNPACKAGED_PACKAGE_ID, value.id),
       makeEntryEnvelope(UNPACKAGED_PACKAGE_ID, entry)
     );
   }
@@ -326,6 +346,129 @@ function migrate004To005(context: WorkspaceMigrationContext): void {
   };
 }
 
+function migrate005To006(context: WorkspaceMigrationContext): void {
+  const data = context.data;
+  const storage = object(data.config.entity_storage);
+  if (storage.version !== 1 || storage.legacy_backup_version !== '0.0.4' ||
+      storage.entry_default_package !== UNPACKAGED_PACKAGE_ID ||
+      storage.entry_path_version !== undefined || !isEntityStorageReceipt(storage.receipt)) {
+    throw new Error('config.json#entity_storage has invalid 0.0.5 metadata or receipt.');
+  }
+  const expectedReceipt = makeEntityStorageReceipt(
+    data.entries,
+    data.macroPackages,
+    data.entries !== null && data.entries !== undefined || data.macroPackages.size > 0
+  );
+  if (JSON.stringify(storage.receipt) !== JSON.stringify(expectedReceipt)) {
+    throw new Error('config.json#entity_storage receipt does not match the frozen legacy backup.');
+  }
+
+  const packageIds = new Set<string>();
+  const packageIdsByFold = new Map<string, string>();
+  const manifestPathsByFold = new Set<string>();
+  for (const [path, manifest] of data.packageManifests) {
+    if (!isRecord(manifest) || manifest.format !== 'snl-package' || manifest.version !== 1 ||
+        typeof manifest.id !== 'string' || typeof manifest.name !== 'string' ||
+        typeof manifest.description !== 'string') {
+      throw new Error(`${path} is not a valid Package manifest.`);
+    }
+    assertPackageId(manifest.id);
+    if (path !== packageManifestPath(manifest.id)) {
+      throw new Error(`${path} does not match Package ${JSON.stringify(manifest.id)}.`);
+    }
+    const foldedId = manifest.id.toLowerCase();
+    const priorId = packageIdsByFold.get(foldedId);
+    if (priorId) {
+      throw new Error(`Package IDs ${JSON.stringify(priorId)} and ${JSON.stringify(manifest.id)} case-fold collide.`);
+    }
+    const foldedPath = path.toLowerCase();
+    if (manifestPathsByFold.has(foldedPath)) {
+      throw new Error(`Package manifest path ${JSON.stringify(path)} case-fold collides.`);
+    }
+    packageIdsByFold.set(foldedId, manifest.id);
+    manifestPathsByFold.add(foldedPath);
+    packageIds.add(manifest.id);
+  }
+  if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
+    throw new Error('0.0.5 topology is missing the _unpackaged Package manifest.');
+  }
+
+  const rawActive = data.config.active_macro_packages;
+  if (!Array.isArray(rawActive) || !rawActive.every((value) => typeof value === 'string')) {
+    throw new Error('config.json#active_macro_packages must be an array of Package ID strings.');
+  }
+  const activeByFold = new Map<string, string>();
+  for (const packageId of rawActive as string[]) {
+    if (packageId !== packageId.trim()) {
+      throw new Error('config.json#active_macro_packages contains a whitespace-padded Package ID.');
+    }
+    assertPackageId(packageId);
+    if (packageId === UNPACKAGED_PACKAGE_ID || !packageIds.has(packageId)) {
+      throw new Error(`Active Macro Package ${JSON.stringify(packageId)} has no Package manifest.`);
+    }
+    const folded = packageId.toLowerCase();
+    const prior = activeByFold.get(folded);
+    if (prior) {
+      throw new Error(`Active Package IDs ${JSON.stringify(prior)} and ${JSON.stringify(packageId)} duplicate or case-fold collide.`);
+    }
+    activeByFold.set(folded, packageId);
+  }
+
+  for (const [path, envelope] of data.macroEntities) {
+    if (!isRecord(envelope) || envelope.format !== 'snl-macro' || envelope.version !== 1 ||
+        typeof envelope.package !== 'string' || !isRecord(envelope.macro) ||
+        typeof envelope.macro.name !== 'string' || !envelope.macro.name) {
+      throw new Error(`${path} is not a valid 0.0.5 Macro envelope.`);
+    }
+    assertPackageId(envelope.package);
+    if (envelope.macro.name !== envelope.macro.name.trim()) {
+      throw new Error(`${path} Macro name has leading or trailing whitespace.`);
+    }
+    if (!packageIds.has(envelope.package)) {
+      throw new Error(`${path} Macro references missing Package ${JSON.stringify(envelope.package)}.`);
+    }
+    if (path !== macroEntityPath(envelope.package, envelope.macro.name)) {
+      throw new Error(`${path} does not match its Macro identity path.`);
+    }
+  }
+
+  const byId = new Map<string, EntryEnvelope>();
+  const migrated = new Map<string, EntryEnvelope>();
+  for (const [path, envelope] of data.entryEntities) {
+    if (!isRecord(envelope) || envelope.format !== 'snl-entry' || envelope.version !== 1 ||
+        typeof envelope.package !== 'string' || !isRecord(envelope.entry) ||
+        typeof envelope.entry.id !== 'string' || !envelope.entry.id) {
+      throw new Error(`${path} is not a valid 0.0.5 Entry envelope.`);
+    }
+    assertPackageId(envelope.package);
+    if (envelope.entry.id !== envelope.entry.id.trim()) {
+      throw new Error(`${path} Entry ID has leading or trailing whitespace.`);
+    }
+    if (!packageIds.has(envelope.package)) {
+      throw new Error(`${path} Entry references missing Package ${JSON.stringify(envelope.package)}.`);
+    }
+    if (envelope.entry.package !== envelope.package) {
+      throw new Error(`${path} Entry package disagrees with its envelope.`);
+    }
+    const oldPath = legacy005EntryEntityPath(envelope.package, envelope.entry.id);
+    const nextPath = entryEntityPath(envelope.entry.id);
+    if (path !== oldPath && path !== nextPath) {
+      throw new Error(`${path} does not match the 0.0.5 or 0.0.6 Entry identity path.`);
+    }
+    const prior = byId.get(envelope.entry.id);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(envelope)) {
+      throw new Error(`Conflicting crash residue for Entry ${JSON.stringify(envelope.entry.id)}.`);
+    }
+    byId.set(envelope.entry.id, envelope as unknown as EntryEnvelope);
+  }
+  for (const [entryId, envelope] of byId) {
+    addUnique(migrated, entryEntityPath(entryId), envelope);
+  }
+  data.entryEntities.clear();
+  for (const [path, envelope] of migrated) data.entryEntities.set(path, envelope);
+  data.config.entity_storage = { ...storage, entry_path_version: 2 };
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -350,6 +493,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.5',
     description: 'Split aggregate Entries and Macros into stable per-entity package storage.',
     migrate: async (context) => { migrate004To005(context); }
+  },
+  {
+    from: '0.0.5',
+    to: '0.0.6',
+    description: 'Rename Entry entities to globally stable Entry-ID hash paths.',
+    migrate: async (context) => { migrate005To006(context); }
   }
 ];
 

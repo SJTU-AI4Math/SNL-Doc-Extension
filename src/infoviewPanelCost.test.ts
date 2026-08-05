@@ -22,6 +22,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const readCounts: Record<string, number> = {};
 let inFlight = 0;
 let maxConcurrent = 0;
+let failReads = false;
+const shownErrors: string[] = [];
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -63,7 +65,7 @@ vi.mock('vscode', () => {
         });
       case 'entries.json':
         return JSON.stringify([
-          { id: 'e1', title: 'First', kind: 'k1', content: { snl: 'x' } },
+          { id: 'e1', title: 'First', kind: 'k1', content: { snl: 'root(x@e2)' } },
           { id: 'e2', title: 'Second', kind: 'k1', content: { snl: 'y' } }
         ]);
       case 'relationships.json':
@@ -109,7 +111,7 @@ vi.mock('vscode', () => {
       activeColorTheme: { kind: 2 },
       createOutputChannel: () => ({ appendLine: () => undefined }),
       showErrorMessage: (msg: string) => {
-        throw new Error(`unexpected showErrorMessage: ${msg}`);
+        shownErrors.push(msg);
       },
       showWarningMessage: async () => undefined,
       onDidChangeActiveColorTheme: () => ({ dispose: () => undefined }),
@@ -159,6 +161,7 @@ vi.mock('vscode', () => {
         readFile: async (uri: { path: string }) => {
           const name = uri.path.split('/').pop() ?? '';
           readCounts[name] = (readCounts[name] ?? 0) + 1;
+          if (failReads) throw new Error('forced transitive context failure');
           inFlight += 1;
           maxConcurrent = Math.max(maxConcurrent, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 5));
@@ -180,6 +183,8 @@ function reset(): void {
   for (const key of Object.keys(readCounts)) delete readCounts[key];
   inFlight = 0;
   maxConcurrent = 0;
+  failReads = false;
+  shownErrors.length = 0;
   posted.length = 0;
   commands.length = 0;
   onMessage = null;
@@ -214,8 +219,41 @@ describe('infoview panel read cost', () => {
       // (entry_kinds / macro_kinds / active packages); everything else must
       // be read exactly once per push.
       if (name === 'config.json') continue;
+      // This fixture intentionally exercises the pre-migration aggregate
+      // compatibility path. Resolving an out-of-graph context source rereads
+      // its single entries.json once; current 0.0.6 entity storage is covered
+      // by point-read tests and never enumerates/reloads unrelated Entries.
+      if (name === 'entries.json') {
+        expect(count).toBeLessThanOrEqual(2);
+        continue;
+      }
       expect(count, `${name} read ${count}x`).toBe(1);
     }
+  });
+
+  it('includes point-read context dependencies in the webview Entry pool', async () => {
+    const send = await openBrowser();
+    reset();
+    await send({ type: 'selectLibrary', slug: LIBRARY });
+
+    const payload = posted.find((message) => message.type === 'libraryEntries');
+    const entries = payload?.entries as Array<{ id: string }> | undefined;
+    expect(entries?.map((entry) => entry.id)).toEqual(['e1', 'e2']);
+  });
+
+  it('publishes a fatal Library error when dependency resolution throws', async () => {
+    const send = await openBrowser();
+    reset();
+    failReads = true;
+    await send({ type: 'selectLibrary', slug: LIBRARY });
+
+    expect(shownErrors).toHaveLength(1);
+    expect(posted).toContainEqual({
+      type: 'libraryEntriesError',
+      slug: LIBRARY,
+      message: 'forced transitive context failure'
+    });
+    expect(posted.some((message) => message.type === 'libraryEntries')).toBe(false);
   });
 
   it('overlaps the independent reads of a library outline', async () => {

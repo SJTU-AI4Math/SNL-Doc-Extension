@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import {
+  tryParseSnlSyntaxTree,
+  type SnlSyntaxTree
+} from '@sjtu-ai4math/snl-basics/core';
+import {
   macro_template_variants,
   normalize_entry_content,
   normalize_macro_template,
@@ -20,8 +24,11 @@ import {
   packageManifestPath
 } from './entityStorage';
 import {
+  readEntryEntityRecord,
   readEntryEntityRecords,
+  readMacroEntityRecord,
   readMacroEntityRecords,
+  readPackageManifestRecord,
   readPackageManifestRecords,
   type EntityReadStorage
 } from './entityStorageIo';
@@ -29,6 +36,8 @@ import {
   assertJsonSnapshotUnchanged,
   assertWorkspaceDataVersionNotRegressed,
   assertWorkspaceDataWritable,
+  inspectWorkspaceData,
+  isEntityStorageReceipt,
   makeEntityStorageReceipt
 } from './dataMigrations';
 import { inspectStoredWorkspaceData } from './workspaceDataMigration';
@@ -45,12 +54,14 @@ import { withWorkspaceDataLock } from './workspaceDataLock';
  * Layout produced (see Plan.md §"实装项目时的文件结构"):
  *
  *   .SNL_Doc/
- *   ├── config.json            { version, entry_kinds: [], macro_kinds: [] }
- *   ├── entries.json           shared entry pool (top-level, sibling of libraries/)
- *   ├── term_macros/<pkg>.json macro packages (one file = one package)
- *   └── libraries/<slug>/      one dir per library (source of truth)
- *       ├── meta.json           { title, description? }
- *       ├── graph.json          Neo4j-style { nodes, relationships }
+ *   ├── config.json
+ *   ├── packages/<packageHash>.json       Package manifests
+ *   ├── entries/<entryHash>.json          Entry envelopes, keyed by Entry ID
+ *   ├── macros/<macroHash>.json           Macro envelopes, keyed by Package + name
+ *   └── libraries/<slug>/                  one dir per library (source of truth)
+ *       ├── meta.json
+ *       ├── graph.json
+ *       ├── counters.json
  *       └── documents/{Typst,LaTeX,Markdown}/
  */
 
@@ -85,6 +96,75 @@ async function readJson<T>(uri: vscode.Uri): Promise<T> {
   return JSON.parse(DECODER.decode(bytes)) as T;
 }
 
+async function assertCurrentWorkspaceConfigConstantCost(
+  workspaceRoot: vscode.Uri,
+  rawConfig: unknown
+): Promise<Record<string, unknown>> {
+  const inspection = inspectWorkspaceData(rawConfig);
+  if (inspection.status !== 'current' || !rawConfig || typeof rawConfig !== 'object' ||
+      Array.isArray(rawConfig)) {
+    throw new Error(`Workspace data is not current: ${inspection.message}`);
+  }
+  const config = rawConfig as Record<string, unknown>;
+  const storageMetadata = config.entity_storage;
+  if (!storageMetadata || typeof storageMetadata !== 'object' || Array.isArray(storageMetadata)) {
+    throw new Error('Current workspace is missing config.json#entity_storage metadata.');
+  }
+  const metadata = storageMetadata as Record<string, unknown>;
+  if (metadata.version !== 1 || metadata.entry_path_version !== 2 ||
+      metadata.legacy_backup_version !== '0.0.4' ||
+      metadata.entry_default_package !== UNPACKAGED_PACKAGE_ID ||
+      !isEntityStorageReceipt(metadata.receipt)) {
+    throw new Error('Current workspace has invalid entity_storage v1 / Entry-path v2 metadata or receipt.');
+  }
+  const rawActive = config.active_macro_packages;
+  if (!Array.isArray(rawActive) || !rawActive.every((value) => typeof value === 'string')) {
+    throw new Error('config.json#active_macro_packages must be an array of Package ID strings.');
+  }
+  const active = rawActive as string[];
+  const packageIds = new Set<string>([UNPACKAGED_PACKAGE_ID]);
+  const packageIdsByFold = new Map<string, string>([
+    [UNPACKAGED_PACKAGE_ID.toLowerCase(), UNPACKAGED_PACKAGE_ID]
+  ]);
+  for (const packageId of active) {
+    if (packageId !== packageId.trim()) {
+      throw new Error('config.json#active_macro_packages contains a whitespace-padded Package ID.');
+    }
+    assertPackageId(packageId);
+    if (packageId === UNPACKAGED_PACKAGE_ID) {
+      throw new Error('config.json#active_macro_packages cannot activate the system _unpackaged Package.');
+    }
+    const folded = packageId.toLowerCase();
+    const prior = packageIdsByFold.get(folded);
+    if (prior) {
+      throw new Error(
+        `config.json#active_macro_packages has duplicate or case-fold-colliding Package IDs ${JSON.stringify(prior)} and ${JSON.stringify(packageId)}.`
+      );
+    }
+    packageIdsByFold.set(folded, packageId);
+    packageIds.add(packageId);
+  }
+  for (const directory of ['packages', 'entries', 'macros']) {
+    const uri = vscode.Uri.joinPath(snlRootUri(workspaceRoot), directory);
+    let stat: vscode.FileStat;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+    } catch {
+      throw new Error(`Current entity storage is missing required directory ${directory}/.`);
+    }
+    if ((stat.type & vscode.FileType.Directory) === 0) {
+      throw new Error(`Current entity storage path ${directory}/ is not a directory.`);
+    }
+  }
+  const entityStorage = entityReadStorage(workspaceRoot);
+  for (const packageId of packageIds) {
+    if (!(await readPackageManifestRecord(entityStorage, packageId))) {
+      throw new Error(`Required Package ${JSON.stringify(packageId)} has no manifest.`);
+    }
+  }
+  return config;
+}
+
 async function assertWorkspaceWritableOnDisk(
   workspaceRoot: vscode.Uri,
   validateTopology = true
@@ -98,8 +178,9 @@ async function assertWorkspaceWritableOnDisk(
     );
   }
   assertWorkspaceDataWritable(rawConfig);
-  if (
-    validateTopology &&
+  if (!validateTopology) {
+    await assertCurrentWorkspaceConfigConstantCost(workspaceRoot, rawConfig);
+  } else if (
     rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
     (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
   ) {
@@ -1997,6 +2078,72 @@ export async function readAllMacros(
 }
 
 /**
+ * Resolve known Macro names without enumerating `macros/` in entity mode.
+ *
+ * The configured active Package IDs and requested names determine every hash
+ * path up front. Collision precedence is the same deterministic Package-file
+ * order as `readAllMacrosWithOrigin`: later definitions win. A missing
+ * requested Macro is normal and costs only a failed point lookup.
+ */
+export async function readMacrosByNamesWithOrigin(
+  workspaceRoot: vscode.Uri,
+  macroNames: readonly string[]
+): Promise<{
+  macros: Record<string, MacroPackageEntry>;
+  origin: Record<string, string>;
+  packages: string[];
+}> {
+  const names = [...new Set(macroNames.filter((name) => typeof name === 'string' && name.length > 0))];
+  if (names.length === 0) return { macros: {}, origin: {}, packages: [] };
+
+  const rawConfig = await readJson<unknown>(configUri(workspaceRoot));
+  const version = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+    ? (rawConfig as Record<string, unknown>).version
+    : undefined;
+  if (typeof version === 'string' && compareDataVersions(version, '0.0.5') < 0) {
+    const all = await readAllMacrosWithOrigin(workspaceRoot);
+    const wanted = new Set(names);
+    return {
+      macros: Object.fromEntries(Object.entries(all.macros).filter(([name]) => wanted.has(name))),
+      origin: Object.fromEntries(Object.entries(all.origin).filter(([name]) => wanted.has(name))),
+      packages: []
+    };
+  }
+
+  await assertCurrentWorkspaceConfigConstantCost(workspaceRoot, rawConfig);
+  const config = rawConfig as Record<string, unknown>;
+  const configured = config.active_macro_packages as string[];
+  const packages = [...new Set(configured)]
+    .sort((a, b) => `${a}.json`.localeCompare(`${b}.json`));
+  const storage = entityReadStorage(workspaceRoot);
+  const loaded = await Promise.all(
+    packages.flatMap((packageId) =>
+      names.map(async (name) => ({
+        packageId,
+        name,
+        record: await readMacroEntityRecord(storage, packageId, name)
+      }))
+    )
+  );
+  const macros: Record<string, MacroPackageEntry> = {};
+  const origin: Record<string, string> = {};
+  for (const { packageId, name, record } of loaded) {
+    if (record) {
+      macros[name] = record.macro as unknown as MacroPackageEntry;
+      origin[name] = packageId;
+    }
+  }
+  return { macros, origin, packages };
+}
+
+export async function readMacrosByNames(
+  workspaceRoot: vscode.Uri,
+  macroNames: readonly string[]
+): Promise<Record<string, MacroPackageEntry>> {
+  return (await readMacrosByNamesWithOrigin(workspaceRoot, macroNames)).macros;
+}
+
+/**
  * Same as {@link readAllMacros}, but also returns the macro-name → owning
  * package map that the walk already computes internally.
  *
@@ -3163,7 +3310,7 @@ export async function addEntry(
   let entityPath: string | null = null;
   if (entityMode) {
     try {
-      entityPath = entryEntityPath(packageId, id);
+      entityPath = entryEntityPath(id);
       if (!(await exists(snlRelativeUri(workspaceRoot, packageManifestPath(packageId))))) {
         return { status: 'invalid', reason: `Unknown Entry package: ${packageId}` };
       }
@@ -3247,6 +3394,246 @@ export async function readEntries(
   } catch {
     return [];
   }
+}
+
+/**
+ * Resolve known Entry identities without enumerating the entity directory.
+ *
+ * Current per-entity storage computes each filename from the globally unique
+ * Entry ID and performs one read per distinct requested ID. This is the normal
+ * path for Library graphs, relationships, pointers, and editors. Full
+ * `readEntries()` enumeration is reserved for explicit list/search/audit UI.
+ * Legacy aggregate workspaces still read their one `entries.json` file once.
+ */
+export async function readEntriesByIds(
+  workspaceRoot: vscode.Uri,
+  entryIds: readonly string[]
+): Promise<EntryData[]> {
+  const ids = [...new Set(entryIds.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return [];
+  const rawConfig = await readJson<unknown>(configUri(workspaceRoot));
+  const version = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+    ? (rawConfig as Record<string, unknown>).version
+    : undefined;
+  if (typeof version === 'string' && compareDataVersions(version, '0.0.5') < 0) {
+    const wanted = new Set(ids);
+    const byId = new Map((await readEntries(workspaceRoot, false)).map((entry) => [entry.id, entry]));
+    return ids.flatMap((id) => {
+      const entry = wanted.has(id) ? byId.get(id) : undefined;
+      return entry ? [entry] : [];
+    });
+  }
+  const currentConfig = await assertCurrentWorkspaceConfigConstantCost(workspaceRoot, rawConfig);
+  const storage = entityReadStorage(workspaceRoot);
+  const records = await Promise.all(ids.map((id) => readEntryEntityRecord(storage, id)));
+  const loaded = records.flatMap((record) => record ? [record] : []);
+  const alreadyValidated = new Set<string>([
+    UNPACKAGED_PACKAGE_ID,
+    ...((currentConfig.active_macro_packages as string[]) ?? [])
+  ]);
+  const entryPackages = [...new Set(
+    loaded.map((record) => record.entry.package).filter((packageId) => !alreadyValidated.has(packageId))
+  )];
+  const manifests = await Promise.all(
+    entryPackages.map((packageId) => readPackageManifestRecord(storage, packageId))
+  );
+  for (let index = 0; index < entryPackages.length; index += 1) {
+    if (!manifests[index]) {
+      throw new Error(
+        `Entry Package ${JSON.stringify(entryPackages[index])} has no valid manifest.`
+      );
+    }
+  }
+  return loaded.map((record) => record.entry as unknown as EntryData);
+}
+
+/** Identities mentioned by the visible Entry payloads of one UI surface. */
+export interface EntryDependencies {
+  macroNames: string[];
+  entryIds: string[];
+}
+
+/**
+ * Parse only the supplied Entry SNL and collect identities that need point
+ * lookup. Parse failures contribute no dependencies; the existing metric UI
+ * already reports those separately.
+ */
+export function collectEntryDependencies(entries: readonly EntryData[]): EntryDependencies {
+  const macroNames = new Set<string>();
+  const entryIds = new Set<string>();
+  const visit = (node: SnlSyntaxTree): void => {
+    if (!node.env_mode && node.kind !== 'binder' && node.kind !== 'bvar' &&
+        node.kind !== 'fvar' && node.macro_name.length > 0) {
+      macroNames.add(node.macro_name);
+    }
+    const metadata = node.mdata && typeof node.mdata === 'object'
+      ? node.mdata as Record<string, unknown>
+      : null;
+    const source = metadata?.src;
+    if (typeof source === 'string' && source.length > 0) entryIds.add(source);
+    for (const child of node.children) visit(child);
+  };
+  for (const entry of entries) {
+    const snl = entry.content?.snl;
+    if (typeof snl !== 'string' || snl.trim().length === 0) continue;
+    const parsed = tryParseSnlSyntaxTree(snl);
+    if (parsed.ok) visit(parsed.tree);
+  }
+  return {
+    macroNames: [...macroNames],
+    entryIds: [...entryIds]
+  };
+}
+
+export interface EntryDependencyClosure {
+  entries: EntryData[];
+  macros: Record<string, MacroPackageEntry>;
+  macroOrigin: Record<string, string>;
+  candidatePackages: string[];
+  requestedEntryIds: ReadonlySet<string>;
+  requestedMacroNames: ReadonlySet<string>;
+}
+
+/**
+ * Resolve the transitive SNL context needed by a visible Entry set without a
+ * catalog scan. Every discovered Entry ID and Macro name is attempted once;
+ * missing identities remain in the returned request sets so watchers can
+ * observe their later creation. Cycles terminate through the attempted sets.
+ */
+export async function readEntryDependencyClosure(
+  workspaceRoot: vscode.Uri,
+  seedEntries: readonly EntryData[]
+): Promise<EntryDependencyClosure> {
+  const entries = new Map<string, EntryData>();
+  for (const entry of seedEntries) entries.set(entry.id, entry);
+
+  const requestedEntryIds = new Set<string>(entries.keys());
+  const attemptedEntryIds = new Set<string>(entries.keys());
+  const processedEntryIds = new Set<string>();
+  const requestedMacroNames = new Set<string>();
+  const attemptedMacroNames = new Set<string>();
+  const macros: Record<string, MacroPackageEntry> = {};
+  const macroOrigin: Record<string, string> = {};
+  const candidatePackages = new Set<string>();
+
+  const rawConfig = await readJson<unknown>(configUri(workspaceRoot));
+  const version = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+    ? (rawConfig as Record<string, unknown>).version
+    : undefined;
+  const legacy = typeof version === 'string' && compareDataVersions(version, '0.0.5') < 0;
+  if (!legacy) {
+    candidatePackages.add(UNPACKAGED_PACKAGE_ID);
+    const configured = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+      ? (rawConfig as Record<string, unknown>).active_macro_packages
+      : undefined;
+    if (Array.isArray(configured)) {
+      for (const packageId of configured) {
+        if (typeof packageId === 'string') candidatePackages.add(packageId);
+      }
+    }
+    for (const entry of entries.values()) {
+      if (typeof entry.package === 'string') candidatePackages.add(entry.package);
+    }
+  }
+  let legacyEntryPool: Promise<Map<string, EntryData>> | undefined;
+  let legacyMacroPool: Promise<Awaited<ReturnType<typeof readAllMacrosWithOrigin>>> | undefined;
+  const loadEntries = async (ids: readonly string[]): Promise<EntryData[]> => {
+    if (!legacy) return readEntriesByIds(workspaceRoot, ids);
+    legacyEntryPool ??= readEntries(workspaceRoot, false).then(
+      (loaded) => new Map(loaded.map((entry) => [entry.id, entry]))
+    );
+    const byId = await legacyEntryPool;
+    return ids.flatMap((id) => {
+      const entry = byId.get(id);
+      return entry ? [entry] : [];
+    });
+  };
+  const loadMacros = async (names: readonly string[]): Promise<{
+    macros: Record<string, MacroPackageEntry>;
+    origin: Record<string, string>;
+    packages: string[];
+  }> => {
+    if (!legacy) return readMacrosByNamesWithOrigin(workspaceRoot, names);
+    legacyMacroPool ??= readAllMacrosWithOrigin(workspaceRoot);
+    const all = await legacyMacroPool;
+    const wanted = new Set(names);
+    return {
+      macros: Object.fromEntries(Object.entries(all.macros).filter(([name]) => wanted.has(name))),
+      origin: Object.fromEntries(Object.entries(all.origin).filter(([name]) => wanted.has(name))),
+      packages: []
+    };
+  };
+
+  while (true) {
+    const freshEntries = [...entries.values()].filter(
+      (entry) => !processedEntryIds.has(entry.id)
+    );
+    for (const entry of freshEntries) processedEntryIds.add(entry.id);
+    const dependencies = collectEntryDependencies(freshEntries);
+
+    const pendingEntryIds: string[] = [];
+    for (const entryId of dependencies.entryIds) {
+      requestedEntryIds.add(entryId);
+      if (!attemptedEntryIds.has(entryId)) {
+        attemptedEntryIds.add(entryId);
+        pendingEntryIds.push(entryId);
+      }
+    }
+    const pendingMacroNames: string[] = [];
+    for (const macroName of dependencies.macroNames) {
+      requestedMacroNames.add(macroName);
+      if (!attemptedMacroNames.has(macroName)) {
+        attemptedMacroNames.add(macroName);
+        pendingMacroNames.push(macroName);
+      }
+    }
+
+    if (pendingEntryIds.length === 0 && pendingMacroNames.length === 0) break;
+    const [loadedEntries, loadedMacros] = await Promise.all([
+      pendingEntryIds.length > 0
+        ? loadEntries(pendingEntryIds)
+        : Promise.resolve([] as EntryData[]),
+      pendingMacroNames.length > 0
+        ? loadMacros(pendingMacroNames)
+        : Promise.resolve({ macros: {}, origin: {}, packages: [] })
+    ]);
+    for (const entry of loadedEntries) {
+      entries.set(entry.id, entry);
+      if (!legacy && typeof entry.package === 'string') candidatePackages.add(entry.package);
+    }
+    Object.assign(macros, loadedMacros.macros);
+    Object.assign(macroOrigin, loadedMacros.origin);
+    for (const packageId of loadedMacros.packages) candidatePackages.add(packageId);
+
+    const pendingMacroSourceIds: string[] = [];
+    for (const macro of Object.values(loadedMacros.macros)) {
+      const sourceIds = Array.isArray(macro.source?.entries) ? macro.source.entries : [];
+      for (const entryId of sourceIds) {
+        if (typeof entryId !== 'string' || entryId.length === 0) continue;
+        requestedEntryIds.add(entryId);
+        if (!attemptedEntryIds.has(entryId)) {
+          attemptedEntryIds.add(entryId);
+          pendingMacroSourceIds.push(entryId);
+        }
+      }
+    }
+    if (pendingMacroSourceIds.length > 0) {
+      const loaded = await loadEntries(pendingMacroSourceIds);
+      for (const entry of loaded) {
+        entries.set(entry.id, entry);
+        if (!legacy && typeof entry.package === 'string') candidatePackages.add(entry.package);
+      }
+    }
+  }
+
+  return {
+    entries: [...entries.values()],
+    macros,
+    macroOrigin,
+    candidatePackages: [...candidatePackages],
+    requestedEntryIds,
+    requestedMacroNames
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -3632,7 +4019,7 @@ export async function updateMacroKind(
 }
 
 export type UpdateLibraryResult = UpdateResult<
-  { status: 'updated'; slug: string; title: string },
+  { status: 'updated'; slug: string; title: string; revision: string },
   { status: 'conflict'; id: string }
 >;
 
@@ -3691,9 +4078,18 @@ export async function updateLibrary(
     workspaceRoot,
     metaUri,
     jsonBytes(next),
-    expected
+    expected,
+    // Library metadata is independent of Package/Entry/Macro topology. Validate
+    // the workspace version/config gate and this file's optimistic revision,
+    // but do not enumerate unrelated entity directories for a one-file edit.
+    false
   );
-  return { status: 'updated', slug: targetSlug, title };
+  return {
+    status: 'updated',
+    slug: targetSlug,
+    title,
+    revision: entityRevision(next)
+  };
 }
 
 export type UpdateEntryResult = UpdateResult<
@@ -3815,28 +4211,15 @@ export async function updateEntry(
         ...entityRecord.envelope,
         ...makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>)
       };
-      if (packageId === currentPackageId) {
-        await writeWorkspaceFile(
-          workspaceRoot,
-          snlRelativeUri(workspaceRoot, entityRecord.path),
-          jsonBytes(nextEnvelope),
-          entityRecord.envelope
-        );
-      } else {
-        await applyJsonFileOperations(workspaceRoot, `move Entry ${targetId}`, [
-          {
-            kind: 'write',
-            uri: snlRelativeUri(workspaceRoot, entryEntityPath(packageId, targetId)),
-            value: nextEnvelope,
-            expected: null
-          },
-          {
-            kind: 'delete',
-            uri: snlRelativeUri(workspaceRoot, entityRecord.path),
-            expected: entityRecord.envelope
-          }
-        ]);
-      }
+      // Entry ID is globally unique and determines the physical path. Package
+      // membership is mutable metadata inside the envelope, so a Package move
+      // is one in-place write — never a file move and never a reference rewrite.
+      await writeWorkspaceFile(
+        workspaceRoot,
+        snlRelativeUri(workspaceRoot, entryEntityPath(targetId)),
+        jsonBytes(nextEnvelope),
+        entityRecord.envelope
+      );
     } else {
       await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(next), pool);
     }
@@ -4646,24 +5029,11 @@ export interface GraphRelationshipDto {
  *  skipped and named in `warnings`. */
 export interface ReadLibraryGraphResult {
   graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] };
+  /** Entry payloads referenced by this graph, resolved by identity point-read. */
+  entries: EntryData[];
+  /** Exact raw file snapshot used for optimistic-concurrency writes. */
+  snapshot: unknown;
   warnings: string[];
-}
-
-/**
- * Optional inputs for {@link readLibraryGraph}.
- *
- * `entryPool` lets a caller that has ALREADY read the shared pool hand it in
- * so the dangling-entryId validation doesn't read `entries.json` a second
- * time. Panels routinely need both the graph and the pool, and the hidden
- * inner read doubled that file on every push.
- * Cat 2026-07-25: "各个 Panel 开起来都非常慢".
- *
- * Semantics are unchanged: when omitted the pool is read internally exactly
- * as before, and a read failure still degrades to "skip entryId validation"
- * rather than failing the graph read.
- */
-export interface ReadLibraryGraphOptions {
-  entryPool?: EntryData[];
 }
 
 /**
@@ -4675,8 +5045,7 @@ export interface ReadLibraryGraphOptions {
  */
 export async function readLibraryGraph(
   workspaceRoot: vscode.Uri,
-  slug: string,
-  opts?: ReadLibraryGraphOptions
+  slug: string
 ): Promise<
   | { status: 'ok'; result: ReadLibraryGraphResult }
   | { status: 'noFile' }
@@ -4707,7 +5076,12 @@ export async function readLibraryGraph(
   if (!raw || typeof raw !== 'object') {
     return {
       status: 'ok',
-      result: { graph: { nodes: [], relationships: [] }, warnings: ['graph file is not a JSON object'] }
+      result: {
+        graph: { nodes: [], relationships: [] },
+        entries: [],
+        snapshot: raw,
+        warnings: ['graph file is not a JSON object']
+      }
     };
   }
   const rawObj = raw as Record<string, unknown>;
@@ -4720,20 +5094,6 @@ export async function readLibraryGraph(
   }
   if (!Array.isArray(rawObj.relationships)) {
     warnings.push('relationships is not an array (treated as empty)');
-  }
-
-  // Cheap pre-index of the shared entry pool so dangling-entryId warnings
-  // can be computed in one read. When the caller already holds the pool it
-  // hands it in via `opts.entryPool`, saving a duplicate `entries.json` read.
-  const knownEntryIds = new Set<string>();
-  try {
-    const entries = opts?.entryPool ?? (await readEntries(workspaceRoot));
-    for (const e of entries) {
-      if (e && typeof e.id === 'string') knownEntryIds.add(e.id);
-    }
-  } catch {
-    // If the shared pool is unreadable we simply skip entryId validation.
-    // Not a fatal condition for reading a library's graph.
   }
 
   const nodes: GraphNodeDto[] = [];
@@ -4775,15 +5135,6 @@ export async function readLibraryGraph(
       );
     }
 
-    // Spec §8: Entry nodes carry props.entryId → warn if dangling.
-    if (label === 'Entry' && knownEntryIds.size > 0) {
-      const entryId = props.entryId;
-      if (typeof entryId === 'string' && entryId && !knownEntryIds.has(entryId)) {
-        warnings.push(
-          `Entry node "${id}" references missing entry "${entryId}"`
-        );
-      }
-    }
   }
 
   const relationships: GraphRelationshipDto[] = [];
@@ -4817,9 +5168,33 @@ export async function readLibraryGraph(
     relationships.push({ from, to, label });
   }
 
+  const referencedEntryIds = nodes.flatMap((node) => {
+    const entryId = node.label === 'Entry' ? node.props.entryId : undefined;
+    return typeof entryId === 'string' && entryId.length > 0 ? [entryId] : [];
+  });
+  let entries: EntryData[] = [];
+  try {
+    entries = await readEntriesByIds(workspaceRoot, referencedEntryIds);
+    const knownEntryIds = new Set(entries.map((entry) => entry.id));
+    for (const node of nodes) {
+      const entryId = node.label === 'Entry' ? node.props.entryId : undefined;
+      if (typeof entryId === 'string' && entryId.length > 0 && !knownEntryIds.has(entryId)) {
+        warnings.push(`Entry node "${node.id}" references missing entry "${entryId}"`);
+      }
+    }
+  } catch (error) {
+    // Strict per-entity errors are not silently converted into an empty graph.
+    return {
+      status: 'error',
+      message: `Could not resolve Library Entry references: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    };
+  }
+
   return {
     status: 'ok',
-    result: { graph: { nodes, relationships }, warnings }
+    result: { graph: { nodes, relationships }, entries, snapshot: raw, warnings }
   };
 }
 
@@ -4831,15 +5206,21 @@ export async function readLibraryGraph(
 export async function writeLibraryGraph(
   workspaceRoot: vscode.Uri,
   slug: string,
-  graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] }
+  graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] },
+  expectedOriginal: unknown
 ): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
-  const fsApi = vscode.workspace.fs;
   const file: LibraryGraphFile = {
     nodes: graph.nodes,
     relationships: graph.relationships
   };
   try {
-    await writeWorkspaceFile(workspaceRoot, libraryGraphUri(workspaceRoot, slug), jsonBytes(file));
+    await writeWorkspaceFile(
+      workspaceRoot,
+      libraryGraphUri(workspaceRoot, slug),
+      jsonBytes(file),
+      expectedOriginal,
+      false
+    );
     return { status: 'ok' };
   } catch (err) {
     return {
@@ -4881,25 +5262,32 @@ function normalizeCounterNode(raw: unknown): CounterNode | null {
  * Missing file / malformed JSON / wrong shape all degrade to `[]` (never
  * throws) — counters are an optional sidecar.
  */
-export async function readLibraryCounters(
+export async function readLibraryCountersWithSnapshot(
   workspaceRoot: vscode.Uri,
   slug: string
-): Promise<CounterNode[]> {
+): Promise<{ counters: CounterNode[]; snapshot: unknown }> {
   let raw: unknown;
   try {
     raw = await readJson<unknown>(libraryCountersUri(workspaceRoot, slug));
   } catch {
-    return [];
+    return { counters: [], snapshot: null };
   }
-  if (!raw || typeof raw !== 'object') return [];
+  if (!raw || typeof raw !== 'object') return { counters: [], snapshot: raw };
   const rawCounters = (raw as Record<string, unknown>).counters;
-  if (!Array.isArray(rawCounters)) return [];
+  if (!Array.isArray(rawCounters)) return { counters: [], snapshot: raw };
   const out: CounterNode[] = [];
   for (const c of rawCounters) {
     const node = normalizeCounterNode(c);
     if (node) out.push(node);
   }
-  return out;
+  return { counters: out, snapshot: raw };
+}
+
+export async function readLibraryCounters(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<CounterNode[]> {
+  return (await readLibraryCountersWithSnapshot(workspaceRoot, slug)).counters;
 }
 
 /**
@@ -4909,12 +5297,15 @@ export async function readLibraryCounters(
 export async function writeLibraryCounters(
   workspaceRoot: vscode.Uri,
   slug: string,
-  roots: CounterNode[]
+  roots: CounterNode[],
+  expectedOriginal: unknown
 ): Promise<void> {
   await writeWorkspaceFile(
     workspaceRoot,
     libraryCountersUri(workspaceRoot, slug),
-    jsonBytes({ counters: roots } satisfies LibraryCountersFile)
+    jsonBytes({ counters: roots } satisfies LibraryCountersFile),
+    expectedOriginal,
+    false
   );
 }
 

@@ -4,9 +4,11 @@ import {
   listLibraries,
   readAllMacros,
   readEntries,
+  readEntryDependencyClosure,
   readEntryKinds,
   readLibraryCounters,
   readLibraryGraph,
+  readLibraryMeta,
   readMacroKinds,
   readAllMacrosWithOrigin,
   readRelationships,
@@ -580,33 +582,44 @@ export class InfoviewPanel {
     }
 
     try {
-      const libraries = await listLibraries(root);
-      const lib: LibraryEntry | undefined = libraries.find(
-        (l) => l.slug === slug
-      );
-      const displayTitle = lib?.title ?? slug;
-      const description = lib?.description;
-
-      // Shared pool + kinds for entry / kind / counter resolution. These are
-      // independent files, so read them together rather than one after the
-      // other, and hand the pool to `readLibraryGraph` so it does not read
-      // `entries.json` a second time for its dangling-id check.
-      // Cat 2026-07-25: panels felt slow.
-      const [entryPool, kinds, counters] = await Promise.all([
-        readEntries(root),
+      const [metaResult, kinds, counters, graphResult] = await Promise.all([
+        readLibraryMeta(root, slug),
         readEntryKinds(root),
-        readLibraryCounters(root, slug)
+        readLibraryCounters(root, slug),
+        readLibraryGraph(root, slug)
       ]);
+      const displayTitle =
+        metaResult.status === 'ok' && typeof metaResult.meta.title === 'string'
+          ? metaResult.meta.title
+          : slug;
+      const description =
+        metaResult.status === 'ok' && typeof metaResult.meta.description === 'string'
+          ? metaResult.meta.description
+          : undefined;
 
-      const graphResult = await readLibraryGraph(root, slug, { entryPool });
       const warnings: string[] = [];
       let graph: LibraryGraph = { nodes: [], relationships: [] };
+      let entryPool: EntryData[] = [];
       if (graphResult.status === 'ok') {
         warnings.push(...graphResult.result.warnings);
         graph = graphResult.result.graph;
+        entryPool = graphResult.result.entries;
       } else if (graphResult.status === 'error') {
-        warnings.push(graphResult.message);
+        if (generation !== this.viewGeneration) return;
+        void this.panel.webview.postMessage({
+          type: 'libraryEntriesError',
+          slug,
+          message: graphResult.message
+        });
+        return;
       }
+
+      const [closure, macroKinds] = await Promise.all([
+        readEntryDependencyClosure(root, entryPool),
+        readMacroKinds(root)
+      ]);
+      entryPool = closure.entries;
+      const macros = closure.macros;
 
       const entriesById = new Map<string, EntryData>();
       for (const e of entryPool) {
@@ -648,12 +661,10 @@ export class InfoviewPanel {
         hasContent: boolean;
         snl?: string;
       }[] = [];
-      for (const node of graph.nodes) {
-        if (node.label !== 'Entry') continue;
-        const entryId = node.props?.entryId;
-        if (typeof entryId !== 'string' || !entryId) continue;
-        const e = entriesById.get(entryId);
-        if (!e) continue;
+      const flatEntryIds = new Set<string>();
+      const appendFlatEntry = (e: EntryData): void => {
+        if (flatEntryIds.has(e.id)) return;
+        flatEntryIds.add(e.id);
         const snl = typeof e.content?.snl === 'string' ? e.content.snl : '';
         flatEntries.push({
           id: e.id,
@@ -661,7 +672,19 @@ export class InfoviewPanel {
           hasContent: snl.trim().length > 0,
           snl: snl || undefined
         });
+      };
+      for (const node of graph.nodes) {
+        if (node.label !== 'Entry') continue;
+        const entryId = node.props?.entryId;
+        if (typeof entryId !== 'string' || !entryId) continue;
+        const e = entriesById.get(entryId);
+        if (!e) continue;
+        appendFlatEntry(e);
       }
+      // Keep graph declaration order first, then append point-read context and
+      // Macro source Entries so cross-entry lookup/popovers can actually use
+      // the dependencies resolved above.
+      for (const entry of entryPool) appendFlatEntry(entry);
 
       // Build the outline tree. numberFor needs the same graph + pool +
       // kinds inputs, so hand them straight through — a thin view of each.
@@ -690,10 +713,6 @@ export class InfoviewPanel {
         warnings
       );
 
-      const [macros, macroKinds] = await Promise.all([
-        this.readMacroDb(),
-        readMacroKinds(root)
-      ]);
       if (generation !== this.viewGeneration) return;
 
       void this.panel.webview.postMessage({
@@ -715,13 +734,9 @@ export class InfoviewPanel {
         `SNL Infoview: failed to load library "${slug}": ${text}`
       );
       void this.panel.webview.postMessage({
-        type: 'libraryEntries',
+        type: 'libraryEntriesError',
         slug,
-        title: slug,
-        entries: [],
-        outline: [],
-        macros: {},
-        warnings: [text]
+        message: text
       });
     }
   }

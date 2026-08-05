@@ -8,6 +8,7 @@ import {
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
   inspectWorkspaceData,
+  isEntityStorageReceipt,
   makeEntityStorageReceipt,
   migrateWorkspaceSnapshot,
   type WorkspaceDataInspection,
@@ -57,6 +58,7 @@ export async function inspectStoredWorkspaceData(
         throw new Error('config.json#active_macro_packages must be an array of Package ID strings.');
       }
       if (Array.isArray(activePackages)) {
+        const activeByFold = new Map<string, string>();
         for (const packageId of activePackages as string[]) {
           if (packageId !== packageId.trim()) {
             throw new Error('config.json#active_macro_packages contains a whitespace-padded Package ID.');
@@ -65,14 +67,23 @@ export async function inspectStoredWorkspaceData(
           if (packageId === UNPACKAGED_PACKAGE_ID) {
             throw new Error('config.json#active_macro_packages cannot activate the system _unpackaged Package.');
           }
+          const folded = packageId.toLowerCase();
+          const prior = activeByFold.get(folded);
+          if (prior) {
+            throw new Error(
+              `config.json#active_macro_packages has duplicate or case-fold-colliding Package IDs ${JSON.stringify(prior)} and ${JSON.stringify(packageId)}.`
+            );
+          }
+          activeByFold.set(folded, packageId);
         }
       }
       const entityStorage = (config as Record<string, unknown>).entity_storage;
       if (!isRecord(entityStorage) || entityStorage.version !== 1 ||
+          entityStorage.entry_path_version !== 2 ||
           entityStorage.legacy_backup_version !== '0.0.4' ||
           entityStorage.entry_default_package !== '_unpackaged' ||
-          !isRecord(entityStorage.receipt)) {
-        throw new Error('Current entity topology is missing config.json#entity_storage v1 metadata and receipt.');
+          !isEntityStorageReceipt(entityStorage.receipt)) {
+        throw new Error('Current entity topology is missing config.json#entity_storage v1 / Entry-path v2 metadata and receipt.');
       }
       const legacyEntries = await storage.readJson('entries.json');
       const legacyMacroFiles = await storage.listJsonFiles('term_macros');
@@ -256,11 +267,14 @@ export async function migrateStoredWorkspaceData(
   };
   const report = await migrateWorkspaceSnapshot(source, canonicalizeMacroPackage);
 
-  const writes: Array<{ path: string; value: unknown; original: unknown }> = [];
+  type MigrationOperation =
+    | { kind: 'write'; path: string; value: unknown; original: unknown }
+    | { kind: 'delete'; path: string; original: unknown };
+  const writes: MigrationOperation[] = [];
   for (const [file, value] of [...source.macroPackages].sort(([a], [b]) => a.localeCompare(b))) {
     const original = originals.macroPackages.get(file);
     if (!sameJson(value, original)) {
-      writes.push({ path: `term_macros/${file}`, value, original });
+      writes.push({ kind: 'write', path: `term_macros/${file}`, value, original });
     }
   }
   const appendEntityWrites = (
@@ -269,7 +283,10 @@ export async function migrateStoredWorkspaceData(
   ): void => {
     for (const [path, value] of [...values].sort(([a], [b]) => a.localeCompare(b))) {
       const original = originalValues.get(path) ?? null;
-      if (!sameJson(value, original)) writes.push({ path, value, original });
+      if (!sameJson(value, original)) writes.push({ kind: 'write', path, value, original });
+    }
+    for (const [path, original] of [...originalValues].sort(([a], [b]) => a.localeCompare(b))) {
+      if (!values.has(path)) writes.push({ kind: 'delete', path, original });
     }
   };
   appendEntityWrites(source.packageManifests, originals.packageManifests);
@@ -277,6 +294,7 @@ export async function migrateStoredWorkspaceData(
   appendEntityWrites(source.macroEntities, originals.macroEntities);
   if (!sameJson(source.relationships, originals.relationships)) {
     writes.push({
+      kind: 'write',
       path: 'relationships.json',
       value: source.relationships,
       original: originals.relationships
@@ -285,7 +303,7 @@ export async function migrateStoredWorkspaceData(
   // Config carries the committed workspace data version, so it is always the
   // final write. Readers never observe the new version before payloads land.
   if (!sameJson(source.config, originals.config)) {
-    writes.push({ path: 'config.json', value: source.config, original: originals.config });
+    writes.push({ kind: 'write', path: 'config.json', value: source.config, original: originals.config });
   }
 
   const completed: typeof writes = [];
@@ -295,14 +313,20 @@ export async function migrateStoredWorkspaceData(
         await verifyLegacySourcesUnchanged(storage, source);
         await verifyEntityStorageCommit(storage, source);
       }
-      await storage.writeJsonAtomic(write.path, write.value, write.original);
+      if (write.kind === 'delete') {
+        await storage.deleteJsonAtomic(write.path, write.original);
+      } else {
+        await storage.writeJsonAtomic(write.path, write.value, write.original);
+      }
       completed.push(write);
     }
   } catch (error) {
     const rollbackErrors: string[] = [];
     for (const write of completed.reverse()) {
       try {
-        if (write.original === null) {
+        if (write.kind === 'delete') {
+          await storage.writeJsonAtomic(write.path, write.original, null);
+        } else if (write.original === null) {
           await storage.deleteJsonAtomic(write.path, write.value);
         } else {
           await storage.writeJsonAtomic(write.path, write.original, write.value);

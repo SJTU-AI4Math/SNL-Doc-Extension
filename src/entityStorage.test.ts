@@ -5,6 +5,7 @@ import {
   MACRO_STORAGE_VERSION,
   entityIdentityHash,
   entryEntityPath,
+  legacy005EntryEntityPath,
   macroEntityPath,
   packageManifestPath,
   makeEntryEnvelope,
@@ -15,16 +16,26 @@ import {
 describe('per-entity Package-hash storage identities', () => {
   it('uses the frozen domain-separated NUL-delimited SHA-256 identity encoding', () => {
     expect(entityIdentityHash('package', '_unpackaged')).toBe('60979c6e210d0e2a20cb');
-    expect(entityIdentityHash('entry', '_unpackaged', 'Set.mem')).toBe('a45ab8852b86c1868f0f');
+    expect(entityIdentityHash('entry', 'Set.mem')).toBe('dc23c2ae0a0b9459393a');
     expect(entityIdentityHash('macro', 'core', 'Add.add.infix')).toBe('40a64e36a6fa48582270');
   });
 
-  it('derives Windows-safe paths from immutable logical identity', () => {
+  it('derives an Entry path from its globally unique stable ID alone', () => {
+    expect(entryEntityPath('Set.mem')).toBe(
+      'entries/dc23c2ae0a0b9459393a.json'
+    );
+    expect(legacy005EntryEntityPath('_unpackaged', 'Set.mem')).toBe(
+      'entries/_unpackaged-a45ab8852b86c1868f0f.json'
+    );
+    // Package membership is mutable metadata. Moving an Entry between
+    // Packages must never move its file or invalidate package-free references
+    // in Library graphs and relationships.
+    expect(entryEntityPath('Set.mem')).toBe(entryEntityPath('Set.mem'));
+  });
+
+  it('derives Windows-safe Package and Macro paths from their identities', () => {
     expect(packageManifestPath('_unpackaged')).toBe(
       'packages/_unpackaged-60979c6e210d0e2a20cb.json'
-    );
-    expect(entryEntityPath('_unpackaged', 'Set.mem')).toBe(
-      'entries/_unpackaged-a45ab8852b86c1868f0f.json'
     );
     expect(macroEntityPath('core', 'Add.add.infix')).toBe(
       'macros/core-40a64e36a6fa48582270.json'

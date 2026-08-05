@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { entryEntityPath, legacy005EntryEntityPath } from './entityStorage';
 import {
   inspectStoredWorkspaceData,
   migrateStoredWorkspaceData,
@@ -66,7 +67,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -77,17 +78,41 @@ describe('stored workspace data migration', () => {
       (_file, raw) => ({ ...(raw as Record<string, unknown>), version: '7' })
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.5');
+    expect(report.to).toBe('0.0.6');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
       'packages/Logic-277a664e3d2332d369d7.json',
-      'entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'entries/dc23c2ae0a0b9459393a.json',
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.5');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.6');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('7');
+  });
+
+  it('atomically renames existing 0.0.5 Entry files before committing 0.0.6', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(
+      storage,
+      (_file, raw) => ({ ...(raw as Record<string, unknown>), version: '7' })
+    );
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.5';
+    delete (config.entity_storage as Record<string, unknown>).entry_path_version;
+    const newPath = entryEntityPath('Set.mem');
+    const oldPath = legacy005EntryEntityPath('_unpackaged', 'Set.mem');
+    const envelope = storage.values.get(newPath);
+    storage.values.delete(newPath);
+    storage.values.set(oldPath, envelope);
+    storage.writes.length = 0;
+
+    const report = await migrateStoredWorkspaceData(storage, (_file, raw) => raw);
+
+    expect(report).toMatchObject({ from: '0.0.5', to: '0.0.6' });
+    expect(storage.values.has(oldPath)).toBe(false);
+    expect(storage.values.get(newPath)).toEqual(envelope);
+    expect(storage.writes).toEqual([newPath, `delete:${oldPath}`, 'config.json']);
   });
 
   it('rolls every already-written file back if the final config commit fails', async () => {
@@ -103,11 +128,11 @@ describe('stored workspace data migration', () => {
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
       'packages/Logic-277a664e3d2332d369d7.json',
-      'entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'entries/dc23c2ae0a0b9459393a.json',
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json',
       'delete:macros/Logic-dd2136b29efc47b38142.json',
-      'delete:entries/_unpackaged-a45ab8852b86c1868f0f.json',
+      'delete:entries/dc23c2ae0a0b9459393a.json',
       'delete:packages/Logic-277a664e3d2332d369d7.json',
       'delete:packages/_unpackaged-60979c6e210d0e2a20cb.json',
       'term_macros/Logic.json'
@@ -179,12 +204,14 @@ describe('stored workspace data migration', () => {
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
   });
 
-  it('rejects a manually bumped 0.0.5 workspace with no entity topology', async () => {
+  it('reports and then rejects a manually bumped 0.0.5 workspace with no entity topology', async () => {
     const storage = legacyStorage();
     (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.5';
     const inspection = await inspectStoredWorkspaceData(storage);
-    expect(inspection.status).toBe('invalid');
-    expect(inspection.message).toMatch(/entity|package|topology/i);
+    expect(inspection.status).toBe('needsMigration');
+    await expect(migrateStoredWorkspaceData(storage, (_file, raw) => raw))
+      .rejects.toThrow(/entity_storage|Entry path migration/i);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.5');
   });
 
   it('validates the immutable migration receipt against frozen legacy backups', async () => {
@@ -236,7 +263,7 @@ describe('stored workspace data migration', () => {
   });
 
   it('rejects non-canonical or missing active Package identities', async () => {
-    for (const active of [[' Logic '], ['bad/name'], ['Missing']]) {
+    for (const active of [[' Logic '], ['bad/name'], ['Missing'], ['Logic', 'Logic']]) {
       const storage = legacyStorage();
       await migrateStoredWorkspaceData(
         storage,

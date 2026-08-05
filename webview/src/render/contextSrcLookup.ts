@@ -17,10 +17,31 @@
 // up. That's acceptable Stage 1 behavior; future work can wire
 // cross-entry highlight.
 
-import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
-import { extractExportedBinders } from '@sjtu-ai4math/snl-basics/entry';
+import {
+  tryParseSnlSyntaxTree,
+  type SnlSyntaxTree
+} from '@sjtu-ai4math/snl-basics/core';
 
-export { extractExportedBinders };
+/**
+ * Lean extractor kept local to the lookup layer. Importing the equivalent
+ * helper from `@sjtu-ai4math/snl-basics/entry` pulls React + KaTeX into
+ * otherwise math-free Dashboard/Library bundles (~280KB avoidable JS).
+ */
+export function extractExportedBinders(snl: string): Set<string> {
+  const out = new Set<string>();
+  if (!snl.trim()) return out;
+  const parsed = tryParseSnlSyntaxTree(snl);
+  if (!parsed.ok) return out;
+  const visit = (node: SnlSyntaxTree): void => {
+    if (node.kind === 'binder') {
+      out.add(node.macro_name);
+      return;
+    }
+    for (const child of node.children) visit(child);
+  };
+  visit(parsed.tree);
+  return out;
+}
 
 /** Payload of an entries.json entry that this module cares about. */
 export interface EntryPoolItemForLookup {

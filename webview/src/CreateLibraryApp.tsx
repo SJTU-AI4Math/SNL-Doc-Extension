@@ -124,6 +124,9 @@ export function CreateLibraryApp(): React.ReactElement {
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [graph, setGraph] = useState<GraphState | null>(null);
+  const [lookupEntry, setLookupEntry] = useState<EntryPoolItem | null | undefined>(undefined);
+  const lookupRequestRef = useRef(0);
+  const lookupQueryRef = useRef('');
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
   const apiRef = useRef<VsCodeApi | undefined>(undefined);
@@ -143,7 +146,7 @@ export function CreateLibraryApp(): React.ReactElement {
             existing?: ExistingLibrary | null;
           }
         | { type: 'created'; slug: string; title: string }
-        | { type: 'updated'; slug: string; title: string }
+        | { type: 'updated'; slug: string; title: string; revision: string }
         | { type: 'duplicate'; slug: string; message: string }
         | { type: 'notFound' | 'conflict'; slug: string; message: string }
         | { type: 'noSnlDoc'; message: string }
@@ -160,6 +163,7 @@ export function CreateLibraryApp(): React.ReactElement {
             metricThresholds: EntryMetricThresholds;
             warnings: string[];
           }
+        | { type: 'entryLookup'; requestId: number; entryId: string; entry: EntryPoolItem | null }
         | { type: 'graphError'; message: string }
         | { type: 'countersLoaded'; counters: CounterNode[] }
         | { type: 'countersPushed'; counters: CounterNode[] }
@@ -185,6 +189,7 @@ export function CreateLibraryApp(): React.ReactElement {
           break;
         case 'updated':
           titleDirtyRef.current = false;
+          libraryRevisionRef.current = msg.revision;
           setStatus({ kind: 'updated', slug: msg.slug, title: msg.title });
           break;
         case 'duplicate':
@@ -228,6 +233,12 @@ export function CreateLibraryApp(): React.ReactElement {
             warnings: msg.warnings
           });
           setGraphError(null);
+          break;
+        case 'entryLookup':
+          if (msg.requestId === lookupRequestRef.current &&
+              msg.entryId === lookupQueryRef.current) {
+            setLookupEntry(msg.entry);
+          }
           break;
         case 'graphError':
           setGraphError(msg.message);
@@ -458,6 +469,13 @@ export function CreateLibraryApp(): React.ReactElement {
           onOpenCreateEntry={(entryId) =>
             apiRef.current?.postMessage({ type: 'openCreateEntry', entryId })
           }
+          onLookupEntry={(entryId) => {
+            const requestId = ++lookupRequestRef.current;
+            lookupQueryRef.current = entryId;
+            setLookupEntry(undefined);
+            apiRef.current?.postMessage({ type: 'lookupEntry', requestId, entryId });
+          }}
+          lookupEntry={lookupEntry}
           counters={counters}
         />
       ) : null}
@@ -818,6 +836,10 @@ interface OutlineEditorProps {
    * silently threw. Cat 2026-07-12.
    */
   onOpenCreateEntry: (entryId: string) => void;
+  /** Point-resolve an exact typed ID; never request the whole Entry catalog. */
+  onLookupEntry: (entryId: string) => void;
+  /** Query-scoped result; null means the current ID is absent. */
+  lookupEntry: EntryPoolItem | null | undefined;
   /** The library's counter tree — feeds the numbering engine (2026-07-16). */
   counters: CounterNode[];
 }
@@ -834,6 +856,8 @@ function OutlineEditor({
   onGraphOp,
   onOpenEntry,
   onOpenCreateEntry,
+  onLookupEntry,
+  lookupEntry,
   counters
 }: OutlineEditorProps): React.ReactElement {
   // Optional "adding" mode: which parent is currently being extended, and
@@ -874,10 +898,13 @@ function OutlineEditor({
     }
     const entriesById = new Map<string, EntryPoolItem>();
     for (const e of graph.entries) entriesById.set(e.id, e);
+    if (lookupEntry && !entriesById.has(lookupEntry.id)) {
+      entriesById.set(lookupEntry.id, lookupEntry);
+    }
     const kindsById = new Map<string, KindItem>();
     for (const k of graph.kinds) kindsById.set(k.id, k);
     return { childrenOf, roots, nodeById, entriesById, kindsById };
-  }, [graph]);
+  }, [graph, lookupEntry]);
 
   // Recompute every distinct Entry referenced by this library once per fresh
   // graph payload (including the initial Edit Library open). Metrics are derived
@@ -896,13 +923,17 @@ function OutlineEditor({
 
   const entryOptions = useMemo<EntryOption[]>(() => {
     if (!graph) return [];
-    return graph.entries.map((e) => ({
+    const entries = [...graph.entries];
+    if (lookupEntry && !entries.some((entry) => entry.id === lookupEntry.id)) {
+      entries.push(lookupEntry);
+    }
+    return entries.map((e) => ({
       id: e.id,
       title: e.title ?? '',
       hasContent:
         typeof e.content?.snl === 'string' && e.content.snl.trim().length > 0
     }));
-  }, [graph]);
+  }, [graph, lookupEntry]);
 
   // Compute reading order and number-for-each-node in one pass.
   const numbersById = useMemo(() => {
@@ -927,14 +958,26 @@ function OutlineEditor({
     return out;
   }, [graph, entriesById, kindsById, counters]);
 
+  const resetAdd = (): void => {
+    setAddingUnder(null);
+    onLookupEntry('');
+  };
+
   const startAdd = (
     parentId: string | null,
     insertAfter: string | null
   ): void => {
+    onLookupEntry('');
     setAddingUnder({ parentId, insertAfter, entryId: '', counterId: '' });
   };
 
-  const cancelAdd = (): void => setAddingUnder(null);
+  const cancelAdd = resetAdd;
+
+  const updateAdding = (next: typeof addingUnder): void => {
+    setAddingUnder(next);
+    const entryId = next?.entryId.trim() ?? '';
+    onLookupEntry(entryId);
+  };
 
   const commitAdd = (): void => {
     if (!addingUnder) return;
@@ -950,9 +993,14 @@ function OutlineEditor({
     //                        Fulcrum 2026-07-16.
     //   - typed-resolved   → REFERENCE mode: insert a node pointing at the
     //                        existing pooled entry.
-    const exists =
+    const existsInGraph =
       entryIdTrimmed.length > 0 &&
-      graph?.entries.some((e) => e.id === entryIdTrimmed);
+      graph?.entries.some((entry) => entry.id === entryIdTrimmed);
+    const lookupMatches = lookupEntry?.id === entryIdTrimmed;
+    const lookupSettledForQuery = lookupEntry === null || lookupMatches;
+    const lookupPending = entryIdTrimmed.length > 0 && !existsInGraph && !lookupSettledForQuery;
+    const exists = Boolean(existsInGraph || lookupMatches);
+    if (lookupPending) return;
     if (entryIdTrimmed.length === 0) {
       // No id to stub — keep the popover open so the user can paste the id
       // returned by the Create Entry panel when they come back.
@@ -972,7 +1020,7 @@ function OutlineEditor({
         isStub: true
       });
       onOpenCreateEntry(entryIdTrimmed);
-      setAddingUnder(null);
+      resetAdd();
       return;
     }
     onGraphOp({
@@ -982,7 +1030,7 @@ function OutlineEditor({
       entryId: entryIdTrimmed,
       counterId: addingUnder.counterId ?? ''
     });
-    setAddingUnder(null);
+    resetAdd();
   };
 
   if (!graph) {
@@ -1091,7 +1139,7 @@ function OutlineEditor({
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
-          onUpdate={setAddingUnder}
+          onUpdate={updateAdding}
         />
       </div>
     );
@@ -1143,7 +1191,7 @@ function OutlineEditor({
           state={addingUnder}
           onCancel={cancelAdd}
           onCommit={commitAdd}
-          onUpdate={setAddingUnder}
+          onUpdate={updateAdding}
         />
       ) : (
         <Button
@@ -1515,7 +1563,7 @@ function AddNodeForm({
             hideResolvedChip
             autoFocus
             idPrefix="snl-outline-entryid"
-            placeholder="Search existing entry, or type a new id and click Create"
+            placeholder="Enter an exact Entry ID, or type a new ID and click Create"
             onChange={(next) =>
               onUpdate({
                 parentId: state.parentId,

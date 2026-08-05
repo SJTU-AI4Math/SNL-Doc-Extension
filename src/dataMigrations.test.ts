@@ -1,10 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  legacy005EntryEntityPath,
+  macroEntityPath,
+  makeEntryEnvelope,
+  makeMacroEnvelope,
+  makePackageManifest,
+  packageManifestPath
+} from './entityStorage';
+import {
   WORKSPACE_DATA_MIGRATIONS,
   assertWorkspaceDataWritable,
   assertWorkspaceDataVersionNotRegressed,
   assertJsonSnapshotUnchanged,
   inspectWorkspaceData,
+  makeEntityStorageReceipt,
   migrateWorkspaceSnapshot,
   type WorkspaceDataSnapshot
 } from './dataMigrations';
@@ -33,6 +42,37 @@ const snapshot = (version: string): WorkspaceDataSnapshot => ({
   macroEntities: new Map()
 });
 
+const valid005Snapshot = (): WorkspaceDataSnapshot => {
+  const data = snapshot('0.0.5');
+  data.config.active_macro_packages = ['Logic'];
+  data.macroPackages = new Map([
+    ['Logic.json', { version: '7', name: 'Logic', macros: { old: { styles: [] } } }]
+  ]);
+  data.config.entity_storage = {
+    version: 1,
+    legacy_backup_version: '0.0.4',
+    entry_default_package: '_unpackaged',
+    receipt: makeEntityStorageReceipt(data.entries, data.macroPackages, true)
+  };
+  data.packageManifests.set(
+    packageManifestPath('_unpackaged'),
+    makePackageManifest('_unpackaged', 'Unpackaged', 'Legacy Entries')
+  );
+  data.packageManifests.set(
+    packageManifestPath('Logic'),
+    makePackageManifest('Logic', 'Logic', '')
+  );
+  data.entryEntities.set(
+    legacy005EntryEntityPath('Logic', 'Set.mem'),
+    makeEntryEnvelope('Logic', { id: 'Set.mem', package: 'Logic', title: 'Membership' })
+  );
+  data.macroEntities.set(
+    macroEntityPath('Logic', 'old'),
+    makeMacroEnvelope('Logic', { name: 'old', styles: [] })
+  );
+  return data;
+};
+
 describe('workspace data migrations', () => {
   it('reports missing, invalid, future, current and migratable workspace states', () => {
     expect(inspectWorkspaceData(null).status).toBe('missing');
@@ -42,14 +82,16 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData('bad').status).toBe('invalid');
     expect(inspectWorkspaceData({ version: '9.0.0' }).status).toBe('future');
     expect(inspectWorkspaceData({ version: '0.0.4' }).status).toBe('needsMigration');
-    expect(inspectWorkspaceData({ version: '0.0.5' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.5' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.0.6' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.1->0.0.2',
       '0.0.2->0.0.3',
       '0.0.3->0.0.4',
-      '0.0.4->0.0.5'
+      '0.0.4->0.0.5',
+      '0.0.5->0.0.6'
     ]);
   });
 
@@ -98,12 +140,14 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, canonicalize);
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
-      '0.0.4->0.0.5'
+      '0.0.4->0.0.5',
+      '0.0.5->0.0.6'
     ]);
     expect(data.config).toMatchObject({
-      version: '0.0.5',
+      version: '0.0.6',
       entity_storage: {
         version: 1,
+        entry_path_version: 2,
         legacy_backup_version: '0.0.4',
         entry_default_package: '_unpackaged'
       }
@@ -119,7 +163,7 @@ describe('workspace data migrations', () => {
       }]
     ]);
     expect([...data.entryEntities]).toEqual([
-      ['entries/_unpackaged-a45ab8852b86c1868f0f.json', {
+      ['entries/dc23c2ae0a0b9459393a.json', {
         format: 'snl-entry', version: 1, package: '_unpackaged',
         entry: { id: 'Set.mem', kind: 'theorem', title: 'Membership', package: '_unpackaged' }
       }]
@@ -132,6 +176,61 @@ describe('workspace data migrations', () => {
     ]);
     expect(data.entries).toEqual([{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);
     expect(data.macroPackages.has('Logic.json')).toBe(true);
+  });
+
+  it('migrates an already-current 0.0.5 Entry path to the ID-only 0.0.6 path', async () => {
+    const data = valid005Snapshot();
+    const envelope = data.entryEntities.values().next().value;
+    const receipt = (data.config.entity_storage as Record<string, unknown>).receipt;
+
+    const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.5->0.0.6']);
+    expect(data.config).toMatchObject({
+      version: '0.0.6',
+      entity_storage: { version: 1, entry_path_version: 2, receipt }
+    });
+    expect([...data.entryEntities]).toEqual([[
+      'entries/dc23c2ae0a0b9459393a.json', envelope
+    ]]);
+  });
+
+  it('rejects malformed 0.0.5 topology before rewriting any Entry path', async () => {
+    const cases: Array<(data: WorkspaceDataSnapshot) => void> = [
+      (data) => { (data.config.entity_storage as Record<string, unknown>).receipt = {}; },
+      (data) => { data.packageManifests.delete(packageManifestPath('Logic')); },
+      (data) => { data.config.active_macro_packages = ['Logic', 'logic']; },
+      (data) => {
+        data.entryEntities.clear();
+        data.entryEntities.set(
+          legacy005EntryEntityPath('Missing', 'Set.mem'),
+          makeEntryEnvelope('Missing', { id: 'Set.mem', package: 'Missing', title: 'Membership' })
+        );
+      },
+      (data) => {
+        data.entryEntities.clear();
+        data.entryEntities.set(
+          legacy005EntryEntityPath('Logic', ' Set.mem '),
+          makeEntryEnvelope('Logic', { id: ' Set.mem ', package: 'Logic', title: 'Membership' })
+        );
+      },
+      (data) => {
+        data.macroEntities.clear();
+        data.macroEntities.set(
+          macroEntityPath('Logic', ' old '),
+          makeMacroEnvelope('Logic', { name: ' old ', styles: [] })
+        );
+      }
+    ];
+    for (const mutate of cases) {
+      const data = valid005Snapshot();
+      mutate(data);
+      const beforePaths = [...data.entryEntities.keys()];
+      await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+        .rejects.toThrow(/receipt|Package|case-fold|duplicate|whitespace/i);
+      expect(data.config.version).toBe('0.0.5');
+      expect([...data.entryEntities.keys()]).toEqual(beforePaths);
+    }
   });
 
   it('rejects reserved extension fields and non-canonical identities before entity migration', async () => {
@@ -198,7 +297,7 @@ describe('workspace data migrations', () => {
       description: 'Legacy Entries without an assigned package.'
     });
     await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw)).resolves.toMatchObject({
-      to: '0.0.5'
+      to: '0.0.6'
     });
 
     const conflict = snapshot('0.0.4');
@@ -223,7 +322,7 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
 
     expect(report.applied).toEqual(WORKSPACE_DATA_MIGRATIONS);
-    expect(data.config.version).toBe('0.0.5');
+    expect(data.config.version).toBe('0.0.6');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -287,8 +386,8 @@ describe('workspace data migrations', () => {
       ...(raw as Record<string, unknown>), version: '7'
     }));
     const report = await migrateWorkspaceSnapshot(data, canonicalize);
-    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4']);
-    expect(data.config.version).toBe('0.0.5');
+    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5']);
+    expect(data.config.version).toBe('0.0.6');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

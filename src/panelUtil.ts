@@ -145,7 +145,7 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
  */
 export function installSnlDocWatcher(
   disposables: vscode.Disposable[],
-  refresh: () => void | Promise<void>
+  refresh: (uris: readonly vscode.Uri[]) => void | Promise<void>
 ): void {
   const root = firstWorkspaceFolder();
   if (!root) return;
@@ -157,14 +157,18 @@ export function installSnlDocWatcher(
   // made panels feel sluggish while editing.
   // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const pending = new Map<string, vscode.Uri>();
   const fire = (uri: vscode.Uri): void => {
     // Ignore churn we never read: only the entry pool, macro packages and
     // config feed panel state.
     if (!SNL_DOC_WATCHED_PATH.test(uri.path)) return;
+    pending.set(uri.path, uri);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      void refresh();
+      const changed = [...pending.values()];
+      pending.clear();
+      void refresh(changed);
     }, SNL_DOC_WATCH_DEBOUNCE_MS);
   };
   watcher.onDidCreate(fire, null, disposables);
@@ -180,6 +184,19 @@ export function installSnlDocWatcher(
 
 /** How long to coalesce a burst of `.SNL_Doc` writes before refreshing. */
 export const SNL_DOC_WATCH_DEBOUNCE_MS = 120;
+
+/** Decide whether one changed entity hash belongs to the published dependency set. */
+export function shouldRefreshEntityDependency(
+  changedPath: string,
+  dependencySuffixes: Iterable<string>,
+  dependenciesReady: boolean
+): boolean {
+  if (!dependenciesReady) return true;
+  for (const suffix of dependencySuffixes) {
+    if (changedPath.endsWith(suffix)) return true;
+  }
+  return false;
+}
 
 /**
  * The `.SNL_Doc` paths whose contents actually feed panel state, matching the

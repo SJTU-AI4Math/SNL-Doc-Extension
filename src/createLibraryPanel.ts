@@ -3,24 +3,25 @@ import {
   addEntry,
   createLibrary,
   entityRevision,
-  readAllMacros,
-  readEntries,
+  readEntriesByIds,
+  readEntryDependencyClosure,
   readEntryKinds,
   readLibraryCounters,
+  readLibraryCountersWithSnapshot,
   readLibraryGraph,
   readLibraryMeta,
   updateLibrary,
   writeLibraryCounters,
   writeLibraryGraph,
   type CounterNode,
-  type EntryData,
   type EntryKind,
   type GraphNodeDto,
   type GraphRelationshipDto
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
-  installSnlDocWatcher
+  installSnlDocWatcher, shouldRefreshEntityDependency
 } from './panelUtil';
+import { entryEntityPath, macroEntityPath, packageManifestPath } from './entityStorage';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
 
@@ -66,6 +67,11 @@ export class CreateLibraryPanel {
   private readonly slug: string;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
+  private metadataGeneration = 0;
+  private graphGeneration = 0;
+  /** Exact entity files used by the last successfully published graph context. */
+  private graphDependencySuffixes = new Set<string>();
+  private graphDependenciesReady = false;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     CreateLibraryPanel.open(extensionUri, 'create', '');
@@ -148,7 +154,7 @@ export class CreateLibraryPanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, () => this.pushContext());
+    installSnlDocWatcher(this.disposables, (uris) => this.handleStorageChanges(uris));
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (this.mode === 'edit' && event.affectsConfiguration('snlDoc.metrics')) {
@@ -162,6 +168,16 @@ export class CreateLibraryPanel {
 
   private async pushContext(): Promise<void> {
     const generation = ++this.contextGeneration;
+    await this.pushMetadataContext();
+    if (this.mode !== 'edit') return;
+    // Outline and counters are independent surfaces. Initial load asks for all
+    // three; watcher refreshes below target only the surface whose file changed.
+    await this.pushGraph(generation);
+    await this.pushCounters('countersLoaded', generation);
+  }
+
+  private async pushMetadataContext(): Promise<void> {
+    const generation = ++this.metadataGeneration;
     if (this.mode === 'create') {
       void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
       return;
@@ -169,17 +185,13 @@ export class CreateLibraryPanel {
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
-        type: 'context',
-        mode: 'edit',
-        slug: this.slug,
-        existing: null
+        type: 'context', mode: 'edit', slug: this.slug, existing: null
       });
       return;
     }
     try {
-      // meta.json is the source of truth for title (per Task 1 refactor).
       const metaResult = await readLibraryMeta(root, this.slug);
-      if (generation !== this.contextGeneration) return;
+      if (generation !== this.metadataGeneration) return;
       if (metaResult.status === 'error') throw new Error(metaResult.message);
       const title =
         metaResult.status === 'ok' && typeof metaResult.meta.title === 'string'
@@ -195,24 +207,64 @@ export class CreateLibraryPanel {
         libraryRevision,
         existing: { slug: this.slug, title }
       });
-      // Push the outline immediately after context so the webview has
-      // everything it needs to render in one paint.
-      await this.pushGraph(generation);
-      // Counters live in a separate file (libraries/<slug>/counters.json);
-      // push them alongside the graph so the Counters section renders in the
-      // same paint. The .SNL_Doc/** watcher re-invokes pushContext on any
-      // external counters.json edit, keeping the tree fresh.
-      await this.pushCounters('countersLoaded', generation);
     } catch (err) {
-      if (generation !== this.contextGeneration) return;
+      if (generation !== this.metadataGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
   }
 
+  private async handleStorageChanges(uris: readonly vscode.Uri[]): Promise<void> {
+    if (this.mode !== 'edit') return;
+    const libraryPrefix = `/.SNL_Doc/libraries/${this.slug}/`;
+    let refreshMeta = false;
+    let refreshGraph = false;
+    let refreshCounters = false;
+    for (const uri of uris) {
+      if (uri.path.endsWith(`${libraryPrefix}meta.json`)) refreshMeta = true;
+      else if (uri.path.endsWith(`${libraryPrefix}graph.json`)) refreshGraph = true;
+      else if (uri.path.endsWith(`${libraryPrefix}counters.json`)) refreshCounters = true;
+      else if (uri.path.includes('/.SNL_Doc/libraries/')) continue;
+      else if (
+        uri.path.endsWith('/.SNL_Doc/config.json') ||
+        uri.path.endsWith('/.SNL_Doc/entries.json') ||
+        uri.path.includes('/.SNL_Doc/term_macros/')
+      ) {
+        refreshGraph = true;
+      } else if (
+        uri.path.includes('/.SNL_Doc/entries/') ||
+        uri.path.includes('/.SNL_Doc/macros/') ||
+        uri.path.includes('/.SNL_Doc/packages/')
+      ) {
+        // Before the first graph publication there is no safe dependency set,
+        // so fail broad. Afterwards, unrelated hash files are ignored.
+        if (shouldRefreshEntityDependency(
+          uri.path,
+          this.graphDependencySuffixes,
+          this.graphDependenciesReady
+        )) {
+          refreshGraph = true;
+        }
+      }
+    }
+    await Promise.all([
+      refreshMeta ? this.pushMetadataContext() : Promise.resolve(),
+      refreshGraph ? this.pushGraph() : Promise.resolve(),
+      refreshCounters ? this.pushCounters('countersLoaded') : Promise.resolve()
+    ]);
+  }
+
   /** Push the current graph + entry pool + kinds to the webview so the
    *  outline editor can re-render. */
-  private async pushGraph(generation?: number): Promise<void> {
+  private async pushGraph(contextGeneration?: number): Promise<void> {
+    const graphGeneration = ++this.graphGeneration;
+    // While reads are in flight, fail broad rather than filtering against the
+    // previous publication's dependency set. A matching create/delete event
+    // then starts a newer generation; this one becomes stale and cannot publish.
+    this.graphDependenciesReady = false;
+    const isStale = (): boolean =>
+      graphGeneration !== this.graphGeneration ||
+      (contextGeneration !== undefined && contextGeneration !== this.contextGeneration);
     if (this.mode !== 'edit') return;
     const root = firstWorkspaceFolder();
     if (!root) {
@@ -224,6 +276,7 @@ export class CreateLibraryPanel {
     }
     try {
       const gResult = await readLibraryGraph(root, this.slug);
+      if (isStale()) return;
       let nodes: GraphNodeDto[] = [];
       let relationships: GraphRelationshipDto[] = [];
       let warnings: string[] = [];
@@ -242,16 +295,38 @@ export class CreateLibraryPanel {
         });
         return;
       }
-      // Independent reads run concurrently (cat 2026-07-25: panels felt slow).
-      const [entries, kinds, macros] = await Promise.all([
-        readEntries(root),
-        readEntryKinds(root),
-        readAllMacros(root)
+      // Resolve a cycle-safe transitive closure from graph-visible Entries.
+      // Every hop is an identity point read; missing identities remain in the
+      // dependency sets so later file creation invalidates this panel.
+      const graphEntries = gResult.status === 'ok' ? gResult.result.entries : [];
+      const [closure, kinds] = await Promise.all([
+        readEntryDependencyClosure(root, graphEntries),
+        readEntryKinds(root)
       ]);
+      const entries = closure.entries;
       const metricMacroSources = Object.fromEntries(
-        Object.entries(macros).map(([name, macro]) => [name, { source: macro.source }])
+        Object.entries(closure.macros).map(([name, macro]) => [name, { source: macro.source }])
       );
-      if (generation !== undefined && generation !== this.contextGeneration) return;
+      const dependencySuffixes = new Set<string>();
+      const requestedEntryIds = new Set<string>([
+        ...nodes.flatMap((node) => {
+          const entryId = node.label === 'Entry' ? node.props.entryId : undefined;
+          return typeof entryId === 'string' && entryId.length > 0 ? [entryId] : [];
+        }),
+        ...closure.requestedEntryIds
+      ]);
+      for (const entryId of requestedEntryIds) {
+        dependencySuffixes.add(`/.SNL_Doc/${entryEntityPath(entryId)}`);
+      }
+      for (const packageId of closure.candidatePackages) {
+        dependencySuffixes.add(`/.SNL_Doc/${packageManifestPath(packageId)}`);
+        for (const name of closure.requestedMacroNames) {
+          dependencySuffixes.add(`/.SNL_Doc/${macroEntityPath(packageId, name)}`);
+        }
+      }
+      if (isStale()) return;
+      this.graphDependencySuffixes = dependencySuffixes;
+      this.graphDependenciesReady = true;
       void this.panel.webview.postMessage({
         type: 'graph',
         nodes,
@@ -263,7 +338,7 @@ export class CreateLibraryPanel {
         warnings
       });
     } catch (err) {
-      if (generation !== undefined && generation !== this.contextGeneration) return;
+      if (isStale()) return;
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({
         type: 'graphError',
@@ -292,6 +367,18 @@ export class CreateLibraryPanel {
     }
     if (msg.type === 'requestGraph') {
       await this.pushGraph();
+      return;
+    }
+    if (msg.type === 'lookupEntry') {
+      const lookup = msg as { entryId?: unknown; requestId?: unknown };
+      const entryId = typeof lookup.entryId === 'string' ? lookup.entryId.trim() : '';
+      const requestId = typeof lookup.requestId === 'number' &&
+        Number.isSafeInteger(lookup.requestId) ? lookup.requestId : -1;
+      const root = firstWorkspaceFolder();
+      const entry = root && entryId && requestId >= 0
+        ? (await readEntriesByIds(root, [entryId]))[0] ?? null
+        : null;
+      void this.panel.webview.postMessage({ type: 'entryLookup', requestId, entryId, entry });
       return;
     }
     if (msg.type === 'graphOp') {
@@ -361,9 +448,12 @@ export class CreateLibraryPanel {
             await this.panel.webview.postMessage({
               type: 'updated',
               slug: result.slug,
-              title: result.title
+              title: result.title,
+              revision: result.revision
             });
-            await this.pushContext();
+            // The exact meta watcher event performs the sole disk refresh. The
+            // new revision is already in the acknowledgement, so save can
+            // complete immediately without a second explicit meta read.
             return;
           case 'conflict': {
             const text = `Library "${result.id}" changed after this editor opened. Reload before saving.`;
@@ -515,9 +605,11 @@ export class CreateLibraryPanel {
       const gRead = await readLibraryGraph(root, this.slug);
       let nodes: GraphNodeDto[] = [];
       let relationships: GraphRelationshipDto[] = [];
+      let expectedGraphSnapshot: unknown = null;
       if (gRead.status === 'ok') {
         nodes = gRead.result.graph.nodes.slice();
         relationships = gRead.result.graph.relationships.slice();
+        expectedGraphSnapshot = gRead.result.snapshot;
       } else if (gRead.status === 'error') {
         void this.panel.webview.postMessage({
           type: 'graphError',
@@ -558,8 +650,8 @@ export class CreateLibraryPanel {
             // this is a stub, in which case we skip the pool-existence check
             // and let the dangling ref resolve when the entry lands later.
             if (!isStub) {
-              const pool = await readEntries(root);
-              if (!pool.some((e) => e && e.id === rawEntryId)) {
+              const [entry] = await readEntriesByIds(root, [rawEntryId]);
+              if (!entry) {
                 void this.panel.webview.postMessage({
                   type: 'graphError',
                   message: `addNode: entry "${rawEntryId}" not found in shared pool. Leave the id field empty to create a new entry.`
@@ -873,7 +965,7 @@ export class CreateLibraryPanel {
       const writeRes = await writeLibraryGraph(root, this.slug, {
         nodes,
         relationships
-      });
+      }, expectedGraphSnapshot);
       if (writeRes.status !== 'ok') {
         void this.panel.webview.postMessage({
           type: 'graphError',
@@ -939,7 +1031,8 @@ export class CreateLibraryPanel {
     if (!op || typeof op.op !== 'string') return;
 
     try {
-      const roots = await readLibraryCounters(root, this.slug);
+      const counterRead = await readLibraryCountersWithSnapshot(root, this.slug);
+      const roots = counterRead.counters;
       switch (op.op) {
         case 'addRoot': {
           const node = makeCounterNode(readCounterSeed(op.seed));
@@ -1024,7 +1117,7 @@ export class CreateLibraryPanel {
           return;
       }
 
-      await writeLibraryCounters(root, this.slug, roots);
+      await writeLibraryCounters(root, this.slug, roots, counterRead.snapshot);
       await this.pushCounters('countersPushed');
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);

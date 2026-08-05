@@ -146,8 +146,8 @@ describe('VS Code workspace data migration adapter', () => {
     const report = await migrateWorkspaceData(root, (_file, raw) => ({
       ...(raw as Record<string, unknown>), version: '7'
     }));
-    expect(report.to).toBe('0.0.5');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.5' });
+    expect(report.to).toBe('0.0.6');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.6' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '7' });
   });
 });

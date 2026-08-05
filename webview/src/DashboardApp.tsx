@@ -42,6 +42,39 @@ import {
   type VsCodeApi
 } from './vscodeApi';
 import { use_preferences_revision } from './runtime/preferencesRuntime';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+
+const DASHBOARD_MESSAGES = defineUiMessages(
+  'dashboard',
+  {
+    title: 'SNL Dashboard', loading: 'Loading project overview…', setupIntroBefore: 'This workspace does not have an', setupIntroAfter: 'folder yet. Create the skeleton alone, or initialize a standard Kind catalog as part of setup.',
+    runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
+    viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
+    dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
+    libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
+    entries: 'Entries', entriesInPool: '{count} entries in shared pool', createEntry: 'Create Entry', createEntryHeader: '+ Create Entry', createEntryTitle: 'Open the Create Entry panel', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
+    relationships: 'Relationships', edgeCount: { arg: 'count', one: '{count} edge', other: '{count} edges' }, createRelationship: 'Create Relationship', regenerateDependencies: '⚙ Regenerate Dependencies from Macro Sources',
+    macros: 'SNL Macros', packageCount: { arg: 'count', one: '{count} package', other: '{count} packages' }, createMacroHeader: '+ Create Macro', createMacroTitle: 'Pick a package and open the Create Macro editor', macroSearch: '⌕ SNoogL: Macro Search', macroSearchTitle: 'Open SNoogL panel focused on macro search', addPackage: 'Add Package',
+    entryKinds: 'Entry Kinds', kindCount: { arg: 'count', one: '{count} kind', other: '{count} kinds' }, createEntryKind: 'Create Entry Kind', macroKinds: 'SNL Macro Kinds', createMacroKind: 'Create Macro Kind',
+    colTitle: 'Title', colSlug: 'Slug', colEntries: 'Entries', colRelationships: 'Relationships', colActive: 'Active', colFile: 'File', colMacros: 'Macros', colPreview: 'Preview', colName: 'Name', colId: 'ID', colDefaultCounter: 'Default Counter', colStyle: 'Style', colDescription: 'Description', colKind: 'Kind', colFormats: 'Formats', colStructuralIndex: 'SNL Structural Index', colFrom: 'From', colTo: '→ To', colLabel: 'Label', colMetadata: 'Metadata',
+    editLibrary: 'Edit library {id}', deleteLibrary: 'Delete library {id}', openPackage: 'Open macro package {id}', togglePackage: 'Toggle active state for {id}', activePackageTitle: 'Active — contributes macros to the workspace', inactivePackageTitle: 'Inactive — excluded from readAllMacros', deletePackage: 'Delete macro package {id}',
+    editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
+  },
+  {
+    title: 'SNL 仪表板', loading: '正在加载项目概览…', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
+    runInit: '运行 SNL: Init', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
+    viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
+    dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
+    libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
+    entries: '共享条目', entriesInPool: '共享池中有 {count} 个条目', createEntry: '创建条目', createEntryHeader: '+ 创建条目', createEntryTitle: '打开创建条目面板', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
+    relationships: '关系', edgeCount: { arg: 'count', other: '{count} 条边' }, createRelationship: '创建关系', regenerateDependencies: '⚙ 根据宏来源重新生成依赖关系',
+    macros: 'SNL 宏', packageCount: { arg: 'count', other: '{count} 个宏包' }, createMacroHeader: '+ 创建宏', createMacroTitle: '选择宏包并打开创建宏编辑器', macroSearch: '⌕ SNoogL：搜索宏', macroSearchTitle: '打开 SNoogL 面板并搜索宏', addPackage: '添加宏包',
+    entryKinds: '条目类别', kindCount: { arg: 'count', other: '{count} 个类别' }, createEntryKind: '创建条目类别', macroKinds: 'SNL 宏类别', createMacroKind: '创建宏类别',
+    colTitle: '标题', colSlug: '标识名', colEntries: '条目数', colRelationships: '关系数', colActive: '启用', colFile: '文件', colMacros: '宏数', colPreview: '预览', colName: '名称', colId: 'ID', colDefaultCounter: '默认计数器', colStyle: '样式', colDescription: '说明', colKind: '类别', colFormats: '格式', colStructuralIndex: 'SNL 结构指数', colFrom: '起点', colTo: '→ 终点', colLabel: '标签', colMetadata: '元数据',
+    editLibrary: '编辑库 {id}', deleteLibrary: '删除库 {id}', openPackage: '打开宏包 {id}', togglePackage: '切换 {id} 的启用状态', activePackageTitle: '已启用——向工作区提供宏', inactivePackageTitle: '未启用——不包含在 readAllMacros 中', deletePackage: '删除宏包 {id}',
+    editEntryKind: '编辑条目类别 {id}', deleteEntryKind: '删除条目类别 {id}', editMacroKind: '编辑宏类别 {id}', deleteMacroKind: '删除宏类别 {id}', colorTitle: '描边 {stroke} / 背景 {background}', editEntry: '编辑条目 {title}', deleteEntry: '删除条目 {id}', unknownKindTitle: '未知类别“{kind}”——config.json 中没有匹配的条目类别', unknownKind: '⚠ 未知', editRelationship: '编辑关系 {id}', deleteRelationship: '删除关系 {id}', missingEndpoint: '共享池中没有 ID 为“{id}”的条目；该端点可能已被删除。', untitled: '（无标题）', unserializable: '（无法序列化）'
+  }
+);
 
 interface LibrarySummary {
   slug: string;
@@ -156,12 +189,13 @@ const EMPTY: SnlOverview = {
     currentVersion: null,
     targetVersion: '—',
     pendingCount: 0,
-    message: 'Data version has not been checked yet.'
+    message: ''
   }
 };
 
 export function DashboardApp(): React.ReactElement {
   use_preferences_revision();
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   const [overview, setOverview] = useState<SnlOverview>(EMPTY);
   const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
   const [setupBusy, setSetupBusy] = useState(false);
@@ -215,8 +249,8 @@ export function DashboardApp(): React.ReactElement {
   if (!loaded) {
     return (
       <main style={PANEL_STYLE}>
-        <PanelHeader vsApi={apiRef.current} title="SNL Dashboard" />
-        <p style={{ opacity: 0.7 }}>Loading project overview…</p>
+        <PanelHeader vsApi={apiRef.current} title={t('title')} />
+        <p style={{ opacity: 0.7 }}>{t('loading')}</p>
       </main>
     );
   }
@@ -252,13 +286,12 @@ function NotInitialized({
   busy: boolean;
   onStart: (type: SetupMessageType) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <main style={PANEL_STYLE} aria-busy={busy}>
-      <PanelHeader vsApi={api} title="SNL Dashboard" />
+      <PanelHeader vsApi={api} title={t('title')} />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
-        This workspace does not have an <code>.SNL_Doc/</code> folder yet.
-        Create the skeleton alone, or initialize a standard Kind catalog as
-        part of setup.
+        {t('setupIntroBefore')} <code>.SNL_Doc/</code> {t('setupIntroAfter')}
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         <Button
@@ -267,7 +300,7 @@ function NotInitialized({
           disabled={busy}
           variant="primary"
         >
-          Run SNL: Init
+          {t('runInit')}
         </Button>
         <Button
           type="button"
@@ -275,7 +308,7 @@ function NotInitialized({
           disabled={busy}
           variant="secondary"
         >
-          Initialize Entry Kinds
+          {t('initEntryKinds')}
         </Button>
         <Button
           type="button"
@@ -283,11 +316,11 @@ function NotInitialized({
           disabled={busy}
           variant="secondary"
         >
-          Initialize Macro Kinds
+          {t('initMacroKinds')}
         </Button>
       </div>
-      <p role="status" aria-live="polite" aria-label="SNL setup status" style={{ minHeight: '1.25rem' }}>
-        {busy ? 'Initializing SNL workspace…' : ''}
+      <p role="status" aria-live="polite" aria-label={t('setupStatus')} style={{ minHeight: '1.25rem' }}>
+        {busy ? t('initializing') : ''}
       </p>
     </main>
   );
@@ -306,6 +339,7 @@ function Initialized({
   setupBusy: boolean;
   onStartSetup: (type: SetupMessageType) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   // All sections default collapsed. State is local (per-mount) — cheap and
   // avoids workspaceState round-trips; users open what they care about.
   const [openLibraries, setOpenLibraries] = useState(false);
@@ -325,48 +359,48 @@ function Initialized({
     <main style={PANEL_STYLE} aria-busy={setupBusy}>
       <PanelHeader
         vsApi={api}
-        title="SNL Dashboard"
+        title={t('title')}
         actions={
           <>
             <Button
               type="button"
               variant="secondary"
               onClick={() => api?.postMessage({ type: 'openInfoviewGraph' })}
-              title="Open the pool-wide relationship graph"
+              title={t('viewGraphTitle')}
             >
-              View Graph
+              {t('viewGraph')}
             </Button>
             <Button
               type="button"
               variant="secondary"
               onClick={() => api?.postMessage({ type: 'openInfoview' })}
-              title="Open the Infoview (reading surface)"
+              title={t('openInfoviewTitle')}
             >
-              Open Infoview →
+              {t('openInfoview')}
             </Button>
           </>
         }
       />
-      <p role="status" aria-live="polite" aria-label="SNL setup status" style={{ minHeight: '1.25rem' }}>
-        {setupBusy ? 'Initializing SNL workspace…' : ''}
+      <p role="status" aria-live="polite" aria-label={t('setupStatus')} style={{ minHeight: '1.25rem' }}>
+        {setupBusy ? t('initializing') : ''}
       </p>
       <CollapsibleSection
-        title="Data maintenance"
-        subtitle={`${overview.dataStatus.currentVersion ?? 'unknown'} → ${overview.dataStatus.targetVersion}`}
+        title={t('dataMaintenance')}
+        subtitle={`${overview.dataStatus.currentVersion ?? t('unknown')} → ${overview.dataStatus.targetVersion}`}
         expanded={openDataMaintenance}
         onToggle={() => setOpenDataMaintenance((value) => !value)}
         headerActions={
           <>
             <HeaderActionButton
-              label="Check data"
-              title="Check data"
+              label={t('checkData')}
+              title={t('checkData')}
               disabled={dataOperation.status === 'running'}
               loading={dataOperation.status === 'running' && dataOperation.operation === 'check'}
               onClick={() => api?.postMessage({ type: 'checkDataVersion' })}
             />
             <HeaderActionButton
-              label="Repair / migrate data"
-              title="Repair / migrate data"
+              label={t('repairData')}
+              title={t('repairData')}
               disabled={dataOperation.status === 'running'}
               loading={dataOperation.status === 'running' && dataOperation.operation === 'repair'}
               onClick={() => api?.postMessage({ type: 'repairData' })}
@@ -374,11 +408,10 @@ function Initialized({
           </>
         }
       >
-        <p style={{ margin: 0 }}>{overview.dataStatus.message}</p>
+        <p style={{ margin: 0 }}>{overview.dataStatus.message || t('dataNotChecked')}</p>
         {overview.dataStatus.pendingCount > 0 ? (
           <p style={{ marginBottom: 0 }}>
-            {overview.dataStatus.pendingCount} pending migration step
-            {overview.dataStatus.pendingCount === 1 ? '' : 's'}.
+            {t('pendingMigrations', { count: overview.dataStatus.pendingCount })}
           </p>
         ) : null}
       </CollapsibleSection>
@@ -388,25 +421,23 @@ function Initialized({
           aria-live="polite"
           style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
         >
-          {dataOperation.operation === 'repair' ? 'Migration is running…' : 'Data check is running…'}
+          {dataOperation.operation === 'repair' ? t('migrationRunning') : t('checkRunning')}
         </span>
       ) : dataOperation.status === 'error' ? (
         <p role="alert" style={{ margin: '0.5rem 0', color: 'var(--vscode-errorForeground)' }}>
-          {dataOperation.message ?? 'Data operation failed.'}
+          {dataOperation.message ?? t('dataFailed')}
         </p>
       ) : null}
       {/* === 1. Libraries ================================================== */}
       <CollapsibleSection
-        title="Libraries"
-        subtitle={`${overview.libraries.length} librar${
-          overview.libraries.length === 1 ? 'y' : 'ies'
-        }`}
+        title={t('libraries')}
+        subtitle={t('libraryCount', { count: overview.libraries.length })}
         expanded={openLibraries}
         onToggle={() => setOpenLibraries((v) => !v)}
         headerActions={
           <HeaderActionButton
-            label="+ Create Library"
-            title="Open the Create Library panel"
+            label={t('createLibraryHeader')}
+            title={t('createLibraryTitle')}
             onClick={() => api?.postMessage({ type: 'createLibrary' })}
           />
         }
@@ -423,27 +454,27 @@ function Initialized({
           />
         ) : null}
         <AddBar
-          label="Create Library"
+          label={t('createLibrary')}
           onActivate={() => api?.postMessage({ type: 'createLibrary' })}
         />
       </CollapsibleSection>
 
       {/* === 2. Entries =================================================== */}
       <CollapsibleSection
-        title="Entries"
-        subtitle={`${totalEntries} entries in shared pool`}
+        title={t('entries')}
+        subtitle={t('entriesInPool', { count: totalEntries })}
         expanded={openEntries}
         onToggle={() => setOpenEntries((v) => !v)}
         headerActions={
           <>
             <HeaderActionButton
-              label="+ Create Entry"
-              title="Open the Create Entry panel"
+              label={t('createEntryHeader')}
+              title={t('createEntryTitle')}
               onClick={() => api?.postMessage({ type: 'createEntry' })}
             />
             <HeaderActionButton
-              label="⌕ SNoogL: Entry Search"
-              title="Open SNoogL panel focused on entry search"
+              label={t('entrySearch')}
+              title={t('entrySearchTitle')}
               onClick={() =>
                 api?.postMessage({ type: 'openSnoogL', mode: 'entry' })
               }
@@ -464,17 +495,15 @@ function Initialized({
           />
         ) : null}
         <AddBar
-          label="Create Entry"
+          label={t('createEntry')}
           onActivate={() => api?.postMessage({ type: 'createEntry' })}
         />
       </CollapsibleSection>
 
       {/* === 3. Relationships ============================================ */}
       <CollapsibleSection
-        title="Relationships"
-        subtitle={`${overview.relationships.length} edge${
-          overview.relationships.length === 1 ? '' : 's'
-        }`}
+        title={t('relationships')}
+        subtitle={t('edgeCount', { count: overview.relationships.length })}
         expanded={openRelationships}
         onToggle={() => setOpenRelationships((v) => !v)}
       >
@@ -491,13 +520,13 @@ function Initialized({
           />
         ) : null}
         <AddBar
-          label="Create Relationship"
+          label={t('createRelationship')}
           onActivate={() =>
             api?.postMessage({ type: 'createRelationship' })
           }
         />
         <AddBar
-          label="⚙ Regenerate Dependencies from Macro Sources"
+          label={t('regenerateDependencies')}
           onActivate={() =>
             api?.postMessage({ type: 'regenerateDependencies' })
           }
@@ -506,24 +535,22 @@ function Initialized({
 
       {/* === 4. SNL Macros ================================================ */}
       <CollapsibleSection
-        title="SNL Macros"
-        subtitle={`${overview.macroPackages.length} package${
-          overview.macroPackages.length === 1 ? '' : 's'
-        }`}
+        title={t('macros')}
+        subtitle={t('packageCount', { count: overview.macroPackages.length })}
         expanded={openMacros}
         onToggle={() => setOpenMacros((v) => !v)}
         headerActions={
           <>
             <HeaderActionButton
-              label="+ Create Macro"
-              title="Pick a package and open the Create Macro editor"
+              label={t('createMacroHeader')}
+              title={t('createMacroTitle')}
               onClick={() =>
                 api?.postMessage({ type: 'createMacroPickPackage' })
               }
             />
             <HeaderActionButton
-              label="⌕ SNoogL: Macro Search"
-              title="Open SNoogL panel focused on macro search"
+              label={t('macroSearch')}
+              title={t('macroSearchTitle')}
               onClick={() =>
                 api?.postMessage({ type: 'openSnoogL', mode: 'macro' })
               }
@@ -546,17 +573,15 @@ function Initialized({
           />
         ) : null}
         <AddBar
-          label="Add Package"
+          label={t('addPackage')}
           onActivate={() => api?.postMessage({ type: 'createMacroPackage' })}
         />
       </CollapsibleSection>
 
       {/* === 4. Entry Kinds =============================================== */}
       <CollapsibleSection
-        title="Entry Kinds"
-        subtitle={`${overview.entryKinds.length} kind${
-          overview.entryKinds.length === 1 ? '' : 's'
-        }`}
+        title={t('entryKinds')}
+        subtitle={t('kindCount', { count: overview.entryKinds.length })}
         expanded={openEntryKinds}
         onToggle={() => setOpenEntryKinds((v) => !v)}
       >
@@ -572,13 +597,13 @@ function Initialized({
           />
         ) : (
           <AddBar
-            label="Initialize Entry Kinds"
+            label={t('initEntryKinds')}
             disabled={setupBusy}
             onActivate={() => onStartSetup('initEntryKinds')}
           />
         )}
         <AddBar
-          label="Create Entry Kind"
+          label={t('createEntryKind')}
           onActivate={() =>
             api?.postMessage({ type: 'createEntryKind' })
           }
@@ -587,10 +612,8 @@ function Initialized({
 
       {/* === 5. Macro Kinds =============================================== */}
       <CollapsibleSection
-        title="SNL Macro Kinds"
-        subtitle={`${overview.macroKinds.length} kind${
-          overview.macroKinds.length === 1 ? '' : 's'
-        }`}
+        title={t('macroKinds')}
+        subtitle={t('kindCount', { count: overview.macroKinds.length })}
         expanded={openMacroKinds}
         onToggle={() => setOpenMacroKinds((v) => !v)}
       >
@@ -606,13 +629,13 @@ function Initialized({
           />
         ) : (
           <AddBar
-            label="Initialize Macro Kinds"
+            label={t('initMacroKinds')}
             disabled={setupBusy}
             onActivate={() => onStartSetup('initMacroKinds')}
           />
         )}
         <AddBar
-          label="Create Macro Kind"
+          label={t('createMacroKind')}
           onActivate={() =>
             api?.postMessage({ type: 'createMacroKind' })
           }
@@ -837,6 +860,7 @@ function LibrariesTable({
   onOpen: (slug: string) => void;
   onDelete: (slug: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <table
       style={{
@@ -848,10 +872,10 @@ function LibrariesTable({
     >
       <thead>
         <tr>
-          <th style={HEAD}>Title</th>
-          <th style={HEAD}>Slug</th>
-          <th style={{ ...HEAD, textAlign: 'right' }}>Entries</th>
-          <th style={{ ...HEAD, textAlign: 'right' }}>Relationships</th>
+          <th style={HEAD}>{t('colTitle')}</th>
+          <th style={HEAD}>{t('colSlug')}</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colEntries')}</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colRelationships')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -859,7 +883,7 @@ function LibrariesTable({
         {libraries.map((lib) => (
           <ClickableRow
             key={lib.slug}
-            label={`Edit library ${lib.slug}`}
+            label={t('editLibrary', { id: lib.slug })}
             onActivate={() => onOpen(lib.slug)}
             primaryCellIndex={0}
           >
@@ -872,7 +896,7 @@ function LibrariesTable({
               {lib.relationshipCount === null ? '—' : lib.relationshipCount}
             </td>
             <RowDeleteCell
-              label={`Delete library ${lib.slug}`}
+              label={t('deleteLibrary', { id: lib.slug })}
               onDelete={() => onDelete(lib.slug)}
             />
           </ClickableRow>
@@ -893,6 +917,7 @@ function MacroPackagesTable({
   onSetActive: (file: string, active: boolean) => void;
   onDelete: (file: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <table
       style={{
@@ -904,9 +929,9 @@ function MacroPackagesTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '4.5rem', textAlign: 'center' }}>Active</th>
-          <th style={HEAD}>File</th>
-          <th style={{ ...HEAD, textAlign: 'right' }}>Macros</th>
+          <th style={{ ...HEAD, width: '4.5rem', textAlign: 'center' }}>{t('colActive')}</th>
+          <th style={HEAD}>{t('colFile')}</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colMacros')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -914,7 +939,7 @@ function MacroPackagesTable({
         {packages.map((pkg) => (
           <ClickableRow
             key={pkg.file}
-            label={`Open macro package ${pkg.file}`}
+            label={t('openPackage', { id: pkg.file })}
             onActivate={() => onOpen(pkg.file)}
             primaryCellIndex={1}
           >
@@ -922,11 +947,11 @@ function MacroPackagesTable({
               <input
                 type="checkbox"
                 checked={pkg.active !== false}
-                aria-label={`Toggle active state for ${pkg.file}`}
+                aria-label={t('togglePackage', { id: pkg.file })}
                 title={
                   pkg.active !== false
-                    ? 'Active — contributes macros to the workspace'
-                    : 'Inactive — excluded from readAllMacros'
+                    ? t('activePackageTitle')
+                    : t('inactivePackageTitle')
                 }
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
@@ -941,7 +966,7 @@ function MacroPackagesTable({
               {pkg.macroCount === null ? '—' : pkg.macroCount}
             </td>
             <RowDeleteCell
-              label={`Delete macro package ${pkg.file}`}
+              label={t('deletePackage', { id: pkg.file })}
               onDelete={() => onDelete(pkg.file)}
             />
           </ClickableRow>
@@ -1055,6 +1080,7 @@ function EntryKindsTable({
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <table
       style={{
@@ -1066,11 +1092,11 @@ function EntryKindsTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '5.5rem' }}>Preview</th>
-          <th style={HEAD}>Name</th>
-          <th style={HEAD}>ID</th>
-          <th style={HEAD}>Default Counter</th>
-          <th style={HEAD}>Style</th>
+          <th style={{ ...HEAD, width: '5.5rem' }}>{t('colPreview')}</th>
+          <th style={HEAD}>{t('colName')}</th>
+          <th style={HEAD}>{t('colId')}</th>
+          <th style={HEAD}>{t('colDefaultCounter')}</th>
+          <th style={HEAD}>{t('colStyle')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -1078,7 +1104,7 @@ function EntryKindsTable({
         {kinds.map((kind) => (
           <ClickableRow
             key={kind.id}
-            label={`Edit entry kind ${kind.id}`}
+            label={t('editEntryKind', { id: kind.id })}
             onActivate={() => onOpen(kind.id)}
             primaryCellIndex={1}
           >
@@ -1097,7 +1123,7 @@ function EntryKindsTable({
               {kind.style ? kind.style : '—'}
             </td>
             <RowDeleteCell
-              label={`Delete entry kind ${kind.id}`}
+              label={t('deleteEntryKind', { id: kind.id })}
               onDelete={() => onDelete(kind.id)}
             />
           </ClickableRow>
@@ -1117,6 +1143,7 @@ function MacroKindsTable({
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <table
       style={{
@@ -1128,10 +1155,10 @@ function MacroKindsTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '5.5rem' }}>Preview</th>
-          <th style={HEAD}>Name</th>
-          <th style={HEAD}>ID</th>
-          <th style={HEAD}>Description</th>
+          <th style={{ ...HEAD, width: '5.5rem' }}>{t('colPreview')}</th>
+          <th style={HEAD}>{t('colName')}</th>
+          <th style={HEAD}>{t('colId')}</th>
+          <th style={HEAD}>{t('colDescription')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -1139,7 +1166,7 @@ function MacroKindsTable({
         {kinds.map((kind) => (
           <ClickableRow
             key={kind.id}
-            label={`Edit macro kind ${kind.id}`}
+            label={t('editMacroKind', { id: kind.id })}
             onActivate={() => onOpen(kind.id)}
             primaryCellIndex={1}
           >
@@ -1153,7 +1180,7 @@ function MacroKindsTable({
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
             <td style={CELL}>{kind.description ? kind.description : '—'}</td>
             <RowDeleteCell
-              label={`Delete macro kind ${kind.id}`}
+              label={t('deleteMacroKind', { id: kind.id })}
               onDelete={() => onDelete(kind.id)}
             />
           </ClickableRow>
@@ -1173,9 +1200,10 @@ function KindPreview({
   background: string;
   width?: string;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   return (
     <span
-      title={`stroke ${stroke} / background ${background}`}
+      title={t('colorTitle', { stroke, background })}
       style={{
         display: 'inline-block',
         width,
@@ -1220,6 +1248,7 @@ function EntriesTable({
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   const metricContext = useMemo(
     () => buildEntryMetricContext(entries),
     [entries]
@@ -1235,12 +1264,12 @@ function EntriesTable({
     >
       <thead>
         <tr>
-          <th style={{ ...HEAD, width: '3.5rem' }}>Preview</th>
-          <th style={HEAD}>Title</th>
-          <th style={HEAD}>ID</th>
-          <th style={HEAD}>Kind</th>
-          <th style={HEAD}>Formats</th>
-          <th style={{ ...HEAD, textAlign: 'center' }}>SNL Structural Index</th>
+          <th style={{ ...HEAD, width: '3.5rem' }}>{t('colPreview')}</th>
+          <th style={HEAD}>{t('colTitle')}</th>
+          <th style={HEAD}>{t('colId')}</th>
+          <th style={HEAD}>{t('colKind')}</th>
+          <th style={HEAD}>{t('colFormats')}</th>
+          <th style={{ ...HEAD, textAlign: 'center' }}>{t('colStructuralIndex')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -1255,7 +1284,7 @@ function EntriesTable({
           return (
             <ClickableRow
               key={entry.id}
-              label={`Edit entry ${entry.title}`}
+              label={t('editEntry', { title: entry.title })}
               onActivate={() => onOpen(entry.id)}
               primaryCellIndex={1}
             >
@@ -1273,7 +1302,7 @@ function EntriesTable({
                   kind.name
                 ) : (
                   <span
-                    title={`Unknown kind "${entry.kind}" — no matching entry kind in config.json`}
+                    title={t('unknownKindTitle', { kind: entry.kind })}
                     style={{
                       display: 'inline-block',
                       padding: '0.05rem 0.4rem',
@@ -1284,7 +1313,7 @@ function EntriesTable({
                         '1px solid var(--vscode-errorForeground, #f14c4c)'
                     }}
                   >
-                    ⚠ unknown
+                    {t('unknownKind')}
                   </span>
                 )}
               </td>
@@ -1297,7 +1326,7 @@ function EntriesTable({
                 />
               </td>
               <RowDeleteCell
-                label={`Delete entry ${entry.id}`}
+                label={t('deleteEntry', { id: entry.id })}
                 onDelete={() => onDelete(entry.id)}
               />
             </ClickableRow>
@@ -1325,7 +1354,8 @@ function RelationshipsTable({
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }): React.ReactElement {
-  const titleById = new Map(entries.map((e) => [e.id, e.title || '(untitled)']));
+  const t = useUiMessages(DASHBOARD_MESSAGES);
+  const titleById = new Map(entries.map((e) => [e.id, e.title || t('untitled')]));
   return (
     <table
       style={{
@@ -1337,11 +1367,11 @@ function RelationshipsTable({
     >
       <thead>
         <tr>
-          <th style={HEAD}>ID</th>
-          <th style={HEAD}>From</th>
-          <th style={HEAD}>→ To</th>
-          <th style={HEAD}>Label</th>
-          <th style={HEAD}>Metadata</th>
+          <th style={HEAD}>{t('colId')}</th>
+          <th style={HEAD}>{t('colFrom')}</th>
+          <th style={HEAD}>{t('colTo')}</th>
+          <th style={HEAD}>{t('colLabel')}</th>
+          <th style={HEAD}>{t('colMetadata')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
         </tr>
       </thead>
@@ -1349,7 +1379,7 @@ function RelationshipsTable({
         {relationships.map((r) => (
           <ClickableRow
             key={r.id}
-            label={`Edit relationship ${r.id}`}
+            label={t('editRelationship', { id: r.id })}
             onActivate={() => onOpen(r.id)}
             primaryCellIndex={0}
           >
@@ -1362,10 +1392,10 @@ function RelationshipsTable({
             </td>
             <td style={CELL}>{r.label}</td>
             <td style={{ ...CELL, ...MONO, opacity: 0.75 }}>
-              {formatMetadataPreview(r.metadata)}
+              {formatMetadataPreview(r.metadata, t('unserializable'))}
             </td>
             <RowDeleteCell
-              label={`Delete relationship ${r.id}`}
+              label={t('deleteRelationship', { id: r.id })}
               onDelete={() => onDelete(r.id)}
             />
           </ClickableRow>
@@ -1383,10 +1413,11 @@ function EndpointCell({
   id: string;
   title: string | undefined;
 }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
   if (!title) {
     return (
       <span
-        title={`No entry with id "${id}" in the shared pool. The endpoint was likely deleted.`}
+        title={t('missingEndpoint', { id })}
         style={{
           fontFamily: 'var(--vscode-editor-font-family, monospace)',
           color: 'var(--vscode-errorForeground, #f14c4c)'
@@ -1407,13 +1438,13 @@ function EndpointCell({
 }
 
 /** One-line preview of the metadata blob for the table cell. */
-function formatMetadataPreview(v: unknown): string {
+function formatMetadataPreview(v: unknown, unserializable: string): string {
   if (v === null || v === undefined) return '—';
   try {
     const s = JSON.stringify(v);
     if (s.length <= 48) return s;
     return `${s.slice(0, 45)}…`;
   } catch {
-    return '(unserializable)';
+    return unserializable;
   }
 }

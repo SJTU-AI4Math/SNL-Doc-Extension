@@ -41,10 +41,33 @@ import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import { macroKindsToPalette } from './render/macroKindPalette';
 import { extensionRenderers } from './render/blockRenderers';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import {
   use_preferences_revision,
   webview_language_runtime
 } from './runtime/preferencesRuntime';
+
+const PACKAGE_MESSAGES = defineUiMessages(
+  'packagePanel',
+  {
+    panelTitle: 'SNL Macro Package', dashboard: 'Dashboard', backDashboard: 'Back to Dashboard', loading: 'Loading package…', noFile: 'The package file {file} does not exist (yet).', macroCount: { arg: 'count', one: '{file} · {count} macro', other: '{file} · {count} macros' },
+    deletedMacros: { arg: 'count', one: 'Deleted {count} macro.', other: 'Deleted {count} macros.' }, transferredMacros: '{verb} {count} macro(s) to {file}.', createdAndTransferred: 'Created package {file} and {verb} {count} macro(s) into it.', copiedPast: 'Copied', movedPast: 'Moved',
+    exitSelectTitle: 'Exit multi-select mode', enterSelectTitle: 'Select macros for batch operations', cancel: 'Cancel', select: 'Select', editPackageTitle: 'Edit package name / description', editPackage: 'Edit package', empty: 'No macros yet — use the bar below to create the first one.', createMacro: 'Create Macro', active: 'Active', inactive: 'Inactive', deactivateTitle: 'Deactivate this package (remove from active_macro_packages)', activateTitle: 'Activate this package (add to active_macro_packages)', toggle: 'Toggle', dynamic: 'dynamic',
+    colPreview: 'Preview', colName: 'Name', colArity: 'Arity', srcTitle: 'Src status. 🟢 has entry src and it resolves in the pool. 🟡 has entry src but unresolved, OR only url srcs. 🔴 no src declared.', colSrc: 'Src', colMode: 'Mode', colKind: 'Kind', colStyle: 'Style', colMacroTags: 'Macro Tags', colStyleTags: 'Style Tags', colDescription: 'Description', colActions: 'Actions',
+    selectMacro: 'Select macro {name}', deselectMacro: 'Deselect macro {name}', editMacro: 'Edit macro {name}', editMacroStyle: 'Edit macro {name} — style {style}', collapseStyles: 'Collapse styles', expandStyles: 'Expand styles', collapseRows: 'Collapse this macro’s style rows', moreRows: { arg: 'count', one: 'Show {count} more style row', other: 'Show {count} more style rows' }, defaultStyle: 'Default style', untagged: '(untagged)', copyMacro: 'Copy macro {name}', copy: 'Copy', deleteMacro: 'Delete macro {name}', sameAsDefault: 'same as default', noKind: 'No matching macro kind in the catalog', colorTitle: 'stroke {stroke} / background {background}',
+    selectedCount: '{count} selected', transferTitle: 'Copy or move the selected macros to another package', transfer: 'Copy / Move…', delete: 'Delete', dismiss: 'Dismiss', transferHeading: 'Copy / Move macros', transferMode: 'Transfer mode', move: 'Move', copyModeTitle: 'Copy selected macros — source package left unchanged', moveModeTitle: 'Move selected macros — removed from source package', transferSummaryNew: '{verb} the {count} selected macro(s) into a brand-new package.', transferSummaryExisting: '{verb} the {count} selected macro(s) to the selected package.', moveEffect: 'They will be removed from this package.', copyEffect: 'The source package is left unchanged.', destination: 'Destination package', createNew: '— Create new package —', newFile: 'New package file name (letters, digits, - and _ only)', filePlaceholder: 'my_new_package', invalidFile: 'Only letters, digits, hyphen and underscore are allowed.', displayName: 'Display name (optional)', displayNamePlaceholder: 'Package display name', description: 'Description (optional)', transferIntoNew: '{verb} into new package',
+    resolvedEntries: '{count} entry src(s) resolved: {ids}', unresolved: '{count} unresolved: {ids}', urlSources: '{count} url src(s)', missingEntries: '{count} entry src(s) NOT in pool: {ids}', urlSourcesWithIds: '{count} url src(s): {ids}', noSource: 'No src declared (neither entry nor url).', srcStatus: 'Src status: {color}', green: 'green', yellow: 'yellow', red: 'red'
+  },
+  {
+    panelTitle: 'SNL 宏包', dashboard: '仪表板', backDashboard: '返回仪表板', loading: '正在加载宏包…', noFile: '宏包文件 {file} 尚不存在。', macroCount: { arg: 'count', other: '{file} · {count} 个宏' },
+    deletedMacros: { arg: 'count', other: '已删除 {count} 个宏。' }, transferredMacros: '已将 {count} 个宏{verb}到 {file}。', createdAndTransferred: '已创建宏包 {file}，并将 {count} 个宏{verb}到其中。', copiedPast: '复制', movedPast: '移动',
+    exitSelectTitle: '退出多选模式', enterSelectTitle: '选择要批量操作的宏', cancel: '取消', select: '选择', editPackageTitle: '编辑宏包名称 / 说明', editPackage: '编辑宏包', empty: '暂无宏——请使用下方按钮创建第一个宏。', createMacro: '创建宏', active: '启用', inactive: '未启用', deactivateTitle: '停用此宏包（从 active_macro_packages 中移除）', activateTitle: '启用此宏包（添加到 active_macro_packages）', toggle: '切换', dynamic: '动态',
+    colPreview: '预览', colName: '名称', colArity: '元数', srcTitle: '来源状态：🟢 条目来源存在且可在共享池中解析；🟡 条目来源无法解析或只有 URL 来源；🔴 未声明来源。', colSrc: '来源', colMode: '模式', colKind: '类别', colStyle: '样式', colMacroTags: '宏标签', colStyleTags: '样式标签', colDescription: '说明', colActions: '操作',
+    selectMacro: '选择宏 {name}', deselectMacro: '取消选择宏 {name}', editMacro: '编辑宏 {name}', editMacroStyle: '编辑宏 {name} — 样式 {style}', collapseStyles: '收起样式', expandStyles: '展开样式', collapseRows: '收起此宏的样式行', moreRows: { arg: 'count', other: '再显示 {count} 个样式行' }, defaultStyle: '默认样式', untagged: '（未标记）', copyMacro: '复制宏 {name}', copy: '复制', deleteMacro: '删除宏 {name}', sameAsDefault: '与默认值相同', noKind: '类别目录中没有匹配的宏类别', colorTitle: '描边 {stroke} / 背景 {background}',
+    selectedCount: '已选择 {count} 个', transferTitle: '将所选宏复制或移动到其他宏包', transfer: '复制 / 移动…', delete: '删除', dismiss: '关闭', transferHeading: '复制 / 移动宏', transferMode: '传输模式', move: '移动', copyModeTitle: '复制所选宏——源宏包保持不变', moveModeTitle: '移动所选宏——将从源宏包中移除', transferSummaryNew: '将 {count} 个所选宏{verb}到全新宏包。', transferSummaryExisting: '将 {count} 个所选宏{verb}到选定宏包。', moveEffect: '这些宏将从当前宏包中移除。', copyEffect: '源宏包保持不变。', destination: '目标宏包', createNew: '— 创建新宏包 —', newFile: '新宏包文件名（仅限字母、数字、- 和 _）', filePlaceholder: 'my_new_package', invalidFile: '只能使用字母、数字、连字符和下划线。', displayName: '显示名称（可选）', displayNamePlaceholder: '宏包显示名称', description: '说明（可选）', transferIntoNew: '{verb}到新宏包',
+    resolvedEntries: '已解析 {count} 个条目来源：{ids}', unresolved: '{count} 个未解析：{ids}', urlSources: '{count} 个 URL 来源', missingEntries: '共享池中不存在的 {count} 个条目来源：{ids}', urlSourcesWithIds: '{count} 个 URL 来源：{ids}', noSource: '未声明来源（既无条目也无 URL）。', srcStatus: '来源状态：{color}', green: '正常', yellow: '警告', red: '缺失'
+  }
+);
 
 // Extended, on-disk macro shape (v6) — a superset of the library's render-only
 // `SnlMacro`. It keeps the consumer-owned output backends (typst / latex /
@@ -226,6 +249,7 @@ function macroToLibShape(m: MacroPackageEntry): SnlMacro {
 }
 
 export function PackagePanelApp(): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   use_preferences_revision();
   const [model, setModel] = useState<Model>({ kind: 'loading' });
   const [mode, setMode] = useState<'normal' | 'multiselect'>('normal');
@@ -362,12 +386,12 @@ export function PackagePanelApp(): React.ReactElement {
     // CSP-blocked in VS Code webviews and silently returned undefined
     // here, so this branch never showed a prompt). Host sees the intent
     // via the batchDelete message and prompts before mutating.
-    pendingActionRef.current = `Deleted ${names.length} macro${names.length === 1 ? '' : 's'}.`;
+    pendingActionRef.current = t('deletedMacros', { count: names.length });
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: names });
   };
 
   const deleteMacro = (name: string): void => {
-    pendingActionRef.current = 'Deleted 1 macro.';
+    pendingActionRef.current = t('deletedMacros', { count: 1 });
     apiRef.current?.postMessage({ type: 'batchDelete', macroNames: [name] });
   };
 
@@ -381,11 +405,10 @@ export function PackagePanelApp(): React.ReactElement {
   }): void => {
     const names = Array.from(selectedNames);
     if (names.length === 0) return;
-    const verbPast = params.mode === 'move' ? 'Moved' : 'Copied';
-    const plural = names.length === 1 ? '' : 's';
+    const verbPast = params.mode === 'move' ? t('movedPast') : t('copiedPast');
     if (params.target === 'existing') {
       if (!params.destFile) return;
-      pendingActionRef.current = `${verbPast} ${names.length} macro${plural} to ${params.destFile}.`;
+      pendingActionRef.current = t('transferredMacros', { verb: verbPast, count: names.length, file: params.destFile });
       apiRef.current?.postMessage({
         type: 'batchTransfer',
         mode: params.mode,
@@ -397,8 +420,8 @@ export function PackagePanelApp(): React.ReactElement {
     }
     // target === 'new'
     if (!params.newFile) return;
-    const verbGer = params.mode === 'move' ? 'Moved' : 'Copied';
-    pendingActionRef.current = `Created package ${params.newFile} and ${verbGer.toLowerCase()} ${names.length} macro${plural} into it.`;
+    const verbGer = params.mode === 'move' ? t('movedPast') : t('copiedPast');
+    pendingActionRef.current = t('createdAndTransferred', { verb: verbGer.toLowerCase(), count: names.length, file: params.newFile });
     apiRef.current?.postMessage({
       type: 'batchTransfer',
       mode: params.mode,
@@ -415,10 +438,10 @@ export function PackagePanelApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
       <PanelHeader
         vsApi={apiRef.current}
-        title="SNL Macro Package"
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        title={t('panelTitle')}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
       />
-        <p style={{ opacity: 0.7 }}>Loading package…</p>
+        <p style={{ opacity: 0.7 }}>{t('loading')}</p>
       </main>
     );
   }
@@ -428,11 +451,11 @@ export function PackagePanelApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
       <PanelHeader
         vsApi={apiRef.current}
-        title="SNL Macro Package"
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        title={t('panelTitle')}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
       />
         <p style={{ opacity: 0.85 }}>
-          The package file <code>{model.file}</code> does not exist (yet).
+          {t('noFile', { file: model.file })}
         </p>
       </main>
     );
@@ -443,8 +466,8 @@ export function PackagePanelApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
       <PanelHeader
         vsApi={apiRef.current}
-        title="SNL Macro Package"
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        title={t('panelTitle')}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
       />
         <p style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
           ❌ {model.message}
@@ -461,8 +484,8 @@ export function PackagePanelApp(): React.ReactElement {
       <PanelHeader
         vsApi={apiRef.current}
         title={pkg.name}
-        subtitle={`${file} · ${macros.length} macro${macros.length === 1 ? '' : 's'}`}
-        back={{ label: 'Dashboard', title: 'Back to Dashboard', message: { type: 'nav.openDashboard' } }}
+        subtitle={t('macroCount', { file, count: macros.length })}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
       />
       {toast ? <ToastBanner toast={toast} onDismiss={() => setToast(null)} /> : null}
       <div
@@ -490,20 +513,20 @@ export function PackagePanelApp(): React.ReactElement {
             onClick={selectMode ? cancelSelect : enterSelect}
             title={
               selectMode
-                ? 'Exit multi-select mode'
-                : 'Select macros for batch operations'
+                ? t('exitSelectTitle')
+                : t('enterSelectTitle')
             }
             style={HEADER_BUTTON_STYLE}
           >
-            {selectMode ? 'Cancel' : 'Select'}
+            {selectMode ? t('cancel') : t('select')}
           </Button>
           <Button
             type="button"
             onClick={editMacroPackage}
-            title="Edit package name / description"
+            title={t('editPackageTitle')}
             style={HEADER_BUTTON_STYLE}
           >
-            Edit package
+            {t('editPackage')}
           </Button>
         </div>
       </div>
@@ -523,7 +546,7 @@ export function PackagePanelApp(): React.ReactElement {
         />
       ) : (
         <p style={{ opacity: 0.7, fontStyle: 'italic', margin: '0.5rem 0' }}>
-          No macros yet — use the bar below to create the first one.
+          {t('empty')}
         </p>
       )}
 
@@ -534,7 +557,7 @@ export function PackagePanelApp(): React.ReactElement {
           onDelete={submitBatchDelete}
         />
       ) : (
-        <AddBar label="Create Macro" onActivate={createMacro} />
+        <AddBar label={t('createMacro')} onActivate={createMacro} />
       )}
 
       {activeModal === 'transfer' ? (
@@ -575,6 +598,7 @@ function ActiveIndicator({
   active: boolean;
   onToggle: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   return (
     <span
       style={{
@@ -597,19 +621,19 @@ function ActiveIndicator({
         }}
       />
       <span style={{ fontSize: '0.85rem', opacity: 0.85 }}>
-        {active ? 'Active' : 'Inactive'}
+        {active ? t('active') : t('inactive')}
       </span>
       <Button
         type="button"
         onClick={onToggle}
         title={
           active
-            ? 'Deactivate this package (remove from active_macro_packages)'
-            : 'Activate this package (add to active_macro_packages)'
+            ? t('deactivateTitle')
+            : t('activateTitle')
         }
         style={HEADER_BUTTON_STYLE}
       >
-        Toggle
+        {t('toggle')}
       </Button>
     </span>
   );
@@ -655,10 +679,11 @@ function arityLabel(
   style = defaultStyleForLanguage(
     macro,
     webview_language_runtime.query_environment().language
-  )
+  ),
+  dynamicLabel = 'dynamic'
 ): string {
   if (macro.dynamic_arity) {
-    return 'dynamic';
+    return dynamicLabel;
   }
   const template = style
     ? resolve_style_template(style, webview_language_runtime)
@@ -690,6 +715,7 @@ export function MacroTable({
   selectedNames: Set<string>;
   onToggleSelect: (name: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const kindById = useMemo(() => {
     const m = new Map<string, MacroKind>();
     for (const k of macroKinds) {
@@ -751,23 +777,23 @@ export function MacroTable({
           {/* Leftmost column doubles as expand-toggle stub (normal mode) or
               checkbox column (multi-select mode) — 1.6rem wide. */}
           <th style={{ ...HEAD, width: '1.6rem', padding: '0.45rem 0.2rem' }} />
-          <th style={{ ...HEAD, width: '9rem' }}>Preview</th>
-          <th style={HEAD}>Name</th>
-          <th style={{ ...HEAD, width: '5rem' }}>Arity</th>
+          <th style={{ ...HEAD, width: '9rem' }}>{t('colPreview')}</th>
+          <th style={HEAD}>{t('colName')}</th>
+          <th style={{ ...HEAD, width: '5rem' }}>{t('colArity')}</th>
           <th
             style={{ ...HEAD, width: '3.5rem', textAlign: 'center' }}
-            title="Src status. 🟢 has entry src and it resolves in the pool. 🟡 has entry src but unresolved, OR only url srcs. 🔴 no src declared."
+            title={t('srcTitle')}
           >
-            Src
+            {t('colSrc')}
           </th>
-          <th style={{ ...HEAD, width: '9rem' }}>Mode</th>
-          <th style={{ ...HEAD, width: '8rem' }}>Kind</th>
-          <th style={{ ...HEAD, width: '11rem' }}>Style</th>
-          <th style={{ ...HEAD, width: '13rem' }}>Macro Tags</th>
-          <th style={{ ...HEAD, width: '13rem' }}>Style Tags</th>
+          <th style={{ ...HEAD, width: '9rem' }}>{t('colMode')}</th>
+          <th style={{ ...HEAD, width: '8rem' }}>{t('colKind')}</th>
+          <th style={{ ...HEAD, width: '11rem' }}>{t('colStyle')}</th>
+          <th style={{ ...HEAD, width: '13rem' }}>{t('colMacroTags')}</th>
+          <th style={{ ...HEAD, width: '13rem' }}>{t('colStyleTags')}</th>
           {/* Description can be long and wrapping is fine here. */}
-          <th style={HEAD}>Description</th>
-          <th style={{ ...HEAD, width: '7rem', textAlign: 'center' }}>Actions</th>
+          <th style={HEAD}>{t('colDescription')}</th>
+          <th style={{ ...HEAD, width: '7rem', textAlign: 'center' }}>{t('colActions')}</th>
         </tr>
       </thead>
       <tbody>
@@ -958,6 +984,7 @@ function MacroStyleRow({
   selected: boolean;
   onToggleSelect: (name: string) => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const [hover, setHover] = useState(false);
   // In multi-select mode a row click toggles selection instead of opening the
   // macro editor.
@@ -965,7 +992,7 @@ function MacroStyleRow({
     selectMode ? onToggleSelect(macro.name) : onEdit(macro.name);
   const macroTags = Array.isArray(macro.tags) ? macro.tags : [];
   const styleTags = Array.isArray(style?.tags) ? (style?.tags as string[]) : [];
-  const styleTag = style?.style_name ?? '(untagged)';
+  const styleTag = style?.style_name ?? t('untagged');
   const styleMode = style?.mode ?? '';
   const rowBackground =
     selectMode && selected
@@ -1005,7 +1032,7 @@ function MacroStyleRow({
           <input
             type="checkbox"
             checked={selected}
-            aria-label={`Select macro ${macro.name}`}
+            aria-label={t('selectMacro', { name: macro.name })}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (shouldStopRowActivation(e.key)) e.stopPropagation();
@@ -1027,11 +1054,11 @@ function MacroStyleRow({
                 e.stopPropagation();
               }
             }}
-            aria-label={expanded ? 'Collapse styles' : 'Expand styles'}
+            aria-label={expanded ? t('collapseStyles') : t('expandStyles')}
             title={
               expanded
-                ? 'Collapse this macro\u2019s style rows'
-                : `Show ${macro.styles.length - 1} more style row${macro.styles.length - 1 === 1 ? '' : 's'}`
+                ? t('collapseRows')
+                : t('moreRows', { count: macro.styles.length - 1 })
             }
             style={{
               padding: '0.05rem 0.35rem',
@@ -1076,10 +1103,10 @@ function MacroStyleRow({
         <RowPrimaryButton
           label={
             selectMode
-              ? `${selected ? 'Deselect' : 'Select'} macro ${macro.name}`
+              ? (selected ? t('deselectMacro', { name: macro.name }) : t('selectMacro', { name: macro.name }))
               : isDefault
-                ? `Edit macro ${macro.name}`
-                : `Edit macro ${macro.name} — style ${styleTag}`
+                ? t('editMacro', { name: macro.name })
+                : t('editMacroStyle', { name: macro.name, style: styleTag })
           }
           onActivate={activate}
         >
@@ -1087,7 +1114,7 @@ function MacroStyleRow({
         </RowPrimaryButton>
       </td>
       {/* Arity: macro-level. */}
-      <td style={CELL}>{showMacroLevel ? arityLabel(macro, style) : <Dash />}</td>
+      <td style={CELL}>{showMacroLevel ? arityLabel(macro, style, t('dynamic')) : <Dash />}</td>
       {/* Src status: macro-level. Cat 2026-07-10 §2. */}
       <td style={{ ...CELL, textAlign: 'center' }}>
         {showMacroLevel ? (
@@ -1122,7 +1149,7 @@ function MacroStyleRow({
       <td style={CELL}>
         <span style={MONO}>{styleTag}</span>
         {isDefault ? (
-          <span style={{ opacity: 0.7, marginLeft: '0.3rem' }} title="Default style">
+          <span style={{ opacity: 0.7, marginLeft: '0.3rem' }} title={t('defaultStyle')}>
             ★
           </span>
         ) : null}
@@ -1145,22 +1172,22 @@ function MacroStyleRow({
             {onCopy ? (
               <Button
                 size="sm"
-                title={`Copy macro ${macro.name}`}
-                aria-label={`Copy macro ${macro.name}`}
+                title={t('copyMacro', { name: macro.name })}
+                aria-label={t('copyMacro', { name: macro.name })}
                 onClick={(e) => {
                   e.stopPropagation();
                   onCopy?.(macro.name);
                 }}
                 onKeyDown={(e) => e.stopPropagation()}
               >
-                Copy
+                {t('copy')}
               </Button>
             ) : null}
             <Button
               variant="destructive"
               size="sm"
-              title={`Delete macro ${macro.name}`}
-              aria-label={`Delete macro ${macro.name}`}
+              title={t('deleteMacro', { name: macro.name })}
+              aria-label={t('deleteMacro', { name: macro.name })}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(macro.name);
@@ -1180,8 +1207,9 @@ function MacroStyleRow({
 
 /** Placeholder cell used to signal "same as macro's default row". */
 function Dash(): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   return (
-    <span aria-label="same as default" style={{ opacity: 0.45 }}>
+    <span aria-label={t('sameAsDefault')} style={{ opacity: 0.45 }}>
       —
     </span>
   );
@@ -1271,6 +1299,7 @@ function KindCell({
   kindId?: string;
   kind?: MacroKind;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   if (!kindId) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
@@ -1278,7 +1307,7 @@ function KindCell({
     return (
       <span
         style={{ ...MONO, opacity: 0.75 }}
-        title="No matching macro kind in the catalog"
+        title={t('noKind')}
       >
         {kindId}
       </span>
@@ -1287,7 +1316,7 @@ function KindCell({
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
       <span
-        title={`stroke ${kind.coloring.stroke} / background ${kind.coloring.background}`}
+        title={t('colorTitle', { stroke: kind.coloring.stroke, background: kind.coloring.background })}
         style={{
           display: 'inline-block',
           width: '1.2rem',
@@ -1468,6 +1497,7 @@ function MultiSelectBar({
   onTransfer: () => void;
   onDelete: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const none = count === 0;
   return (
     <div
@@ -1487,16 +1517,16 @@ function MultiSelectBar({
       }}
     >
       <span style={{ fontWeight: 600, marginRight: 'auto' }}>
-        {count} selected
+        {t('selectedCount', { count })}
       </span>
       <Button
         type="button"
         disabled={none}
         onClick={onTransfer}
-        title="Copy or move the selected macros to another package"
+        title={t('transferTitle')}
         style={batchButtonStyle(none, false)}
       >
-        Copy / Move…
+        {t('transfer')}
       </Button>
       <Button
         type="button"
@@ -1504,7 +1534,7 @@ function MultiSelectBar({
         onClick={onDelete}
         style={batchButtonStyle(none, true)}
       >
-        Delete
+        {t('delete')}
       </Button>
     </div>
   );
@@ -1541,6 +1571,7 @@ function ToastBanner({
   toast: Toast;
   onDismiss: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const isError = toast.kind === 'error';
   return (
     <div
@@ -1571,7 +1602,7 @@ function ToastBanner({
       <Button
         type="button"
         onClick={onDismiss}
-        aria-label="Dismiss"
+        aria-label={t('dismiss')}
         style={{
           background: 'transparent',
           border: 'none',
@@ -1684,6 +1715,7 @@ function TransferModal({
     newDescription?: string;
   }) => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const [mode, setMode] = useState<'copy' | 'move'>('copy');
   // Default: first existing package if any, otherwise create-new.
   const [destValue, setDestValue] = useState<string>(
@@ -1716,15 +1748,14 @@ function TransferModal({
     }
   };
 
-  const verb = mode === 'move' ? 'Move' : 'Copy';
-  const plural = count === 1 ? '' : 's';
+  const verb = mode === 'move' ? t('move') : t('copy');
 
   return (
-    <ModalShell title="Copy / Move macros" onCancel={onCancel}>
+    <ModalShell title={t('transferHeading')} onCancel={onCancel}>
       {/* Copy / Move segmented toggle. */}
       <div
         role="radiogroup"
-        aria-label="Transfer mode"
+        aria-label={t('transferMode')}
         style={{
           display: 'inline-flex',
           marginBottom: '0.75rem',
@@ -1734,27 +1765,24 @@ function TransferModal({
         }}
       >
         <TransferModeButton
-          label="Copy"
+          label={t('copy')}
           active={mode === 'copy'}
           onClick={() => setMode('copy')}
-          title="Copy selected macros — source package left unchanged"
+          title={t('copyModeTitle')}
         />
         <TransferModeButton
-          label="Move"
+          label={t('move')}
           active={mode === 'move'}
           onClick={() => setMode('move')}
-          title="Move selected macros — removed from source package"
+          title={t('moveModeTitle')}
         />
       </div>
 
       <p style={{ margin: '0 0 0.75rem', opacity: 0.8, fontSize: '0.9rem' }}>
-        {verb} the {count} selected macro{plural}
         {isNew
-          ? ' into a brand-new package.'
-          : ' to the selected package.'}
-        {mode === 'move'
-          ? ' They will be removed from this package.'
-          : ' The source package is left unchanged.'}
+          ? t('transferSummaryNew', { verb, count })
+          : t('transferSummaryExisting', { verb, count })}
+        {' '}{mode === 'move' ? t('moveEffect') : t('copyEffect')}
       </p>
 
       <label style={{ display: 'block', marginBottom: '0.6rem' }}>
@@ -1765,14 +1793,14 @@ function TransferModal({
             fontSize: '0.85rem'
           }}
         >
-          Destination package
+          {t('destination')}
         </span>
         <select
           value={destValue}
           onChange={(e) => setDestValue(e.target.value)}
           style={MODAL_INPUT_STYLE}
         >
-          <option value={CREATE_NEW_VALUE}>— Create new package —</option>
+          <option value={CREATE_NEW_VALUE}>{t('createNew')}</option>
           {otherPackages.map((p) => (
             <option key={p.file} value={p.file}>
               {p.name} ({p.file})
@@ -1791,13 +1819,13 @@ function TransferModal({
                 fontSize: '0.85rem'
               }}
             >
-              New package file name (letters, digits, - and _ only)
+              {t('newFile')}
             </span>
             <input
               type="text"
               value={newFile}
               autoFocus
-              placeholder="my_new_package"
+              placeholder={t('filePlaceholder')}
               onChange={(e) => setNewFile(e.target.value)}
               style={{
                 ...MODAL_INPUT_STYLE,
@@ -1816,7 +1844,7 @@ function TransferModal({
                   color: 'var(--vscode-errorForeground, #f48771)'
                 }}
               >
-                Only letters, digits, hyphen and underscore are allowed.
+                {t('invalidFile')}
               </span>
             ) : null}
           </label>
@@ -1828,12 +1856,12 @@ function TransferModal({
                 fontSize: '0.85rem'
               }}
             >
-              Display name (optional)
+              {t('displayName')}
             </span>
             <input
               type="text"
               value={newDisplayName}
-              placeholder={bare || 'Package display name'}
+              placeholder={bare || t('displayNamePlaceholder')}
               onChange={(e) => setNewDisplayName(e.target.value)}
               style={MODAL_INPUT_STYLE}
             />
@@ -1846,7 +1874,7 @@ function TransferModal({
                 fontSize: '0.85rem'
               }}
             >
-              Description (optional)
+              {t('description')}
             </span>
             <input
               type="text"
@@ -1860,7 +1888,7 @@ function TransferModal({
 
       <ModalButtons
         onCancel={onCancel}
-        submitLabel={isNew ? `${verb} into new package` : verb}
+        submitLabel={isNew ? t('transferIntoNew', { verb }) : verb}
         canSubmit={canSubmit}
         onSubmit={submit}
       />
@@ -1919,10 +1947,11 @@ function ModalButtons({
   canSubmit: boolean;
   onSubmit: () => void;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
       <Button type="button" onClick={onCancel} style={HEADER_BUTTON_STYLE}>
-        Cancel
+        {t('cancel')}
       </Button>
       <Button
         type="button"
@@ -1958,6 +1987,7 @@ function SrcStatusLight({
   source: { entries?: string[]; urls?: string[] } | null | undefined;
   entryPoolIds: Set<string>;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const entries = Array.isArray(source?.entries) ? source!.entries : [];
   const urls = Array.isArray(source?.urls) ? source!.urls : [];
   const resolved = entries.filter((id) => entryPoolIds.has(id));
@@ -1968,34 +1998,28 @@ function SrcStatusLight({
   if (resolved.length > 0) {
     color = 'green';
     const bits = [
-      `${resolved.length} entry src${resolved.length === 1 ? '' : 's'} resolved: ${resolved.join(', ')}`
+      t('resolvedEntries', { count: resolved.length, ids: resolved.join(', ') })
     ];
     if (unresolved.length > 0) {
-      bits.push(
-        `${unresolved.length} unresolved: ${unresolved.join(', ')}`
-      );
+      bits.push(t('unresolved', { count: unresolved.length, ids: unresolved.join(', ') }));
     }
     if (urls.length > 0) {
-      bits.push(`${urls.length} url src${urls.length === 1 ? '' : 's'}`);
+      bits.push(t('urlSources', { count: urls.length }));
     }
     title = bits.join('\n');
   } else if (entries.length > 0 || urls.length > 0) {
     color = 'yellow';
     const bits: string[] = [];
     if (unresolved.length > 0) {
-      bits.push(
-        `${unresolved.length} entry src${unresolved.length === 1 ? '' : 's'} NOT in pool: ${unresolved.join(', ')}`
-      );
+      bits.push(t('missingEntries', { count: unresolved.length, ids: unresolved.join(', ') }));
     }
     if (urls.length > 0) {
-      bits.push(
-        `${urls.length} url src${urls.length === 1 ? '' : 's'}: ${urls.join(', ')}`
-      );
+      bits.push(t('urlSourcesWithIds', { count: urls.length, ids: urls.join(', ') }));
     }
     title = bits.join('\n');
   } else {
     color = 'red';
-    title = 'No src declared (neither entry nor url).';
+    title = t('noSource');
   }
 
   const dotColor =
@@ -2007,7 +2031,7 @@ function SrcStatusLight({
   return (
     <span
       title={title}
-      aria-label={`Src status: ${color}`}
+      aria-label={t('srcStatus', { color: t(color) })}
       style={{
         display: 'inline-block',
         width: '0.75rem',

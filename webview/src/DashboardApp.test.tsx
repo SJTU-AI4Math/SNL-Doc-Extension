@@ -232,3 +232,53 @@ describe('Dashboard library actions', () => {
     expect(screen.queryByText('Structured')).toBeNull();
   });
 });
+
+describe('Dashboard Chinese localization', () => {
+  beforeEach(() => {
+    document.documentElement.lang = 'zh-CN';
+  });
+
+  afterEach(() => {
+    document.documentElement.lang = '';
+  });
+
+  it('renders setup and initialized dashboard controls in Simplified Chinese', async () => {
+    const { unmount } = render(<DashboardApp />);
+    expect(screen.getByText('正在加载项目概览…')).toBeTruthy();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'overview', overview: { hasSnlDoc: false } }
+    }));
+    expect(await screen.findByRole('button', { name: '运行 SNL: Init' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '初始化条目类别' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'SNL 设置状态' })).toBeTruthy();
+
+    unmount();
+    render(<DashboardApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: {
+          hasSnlDoc: true,
+          totalEntryCount: 0,
+          entries: [],
+          libraries: [],
+          macroPackages: [],
+          allMacros: [],
+          metricMacroSources: {},
+          entryKinds: [],
+          macroKinds: [],
+          relationships: []
+        }
+      }
+    }));
+
+    expect(await screen.findByText('数据维护')).toBeTruthy();
+    expect(screen.getByText('库')).toBeTruthy();
+    expect(screen.getByText('共享条目')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '打开创建库面板' })).toBeTruthy();
+    const graphButton = screen.getByRole('button', { name: '打开共享池的完整关系图' });
+    expect(graphButton.textContent).toContain('查看关系图');
+    expect(screen.queryByText('Libraries')).toBeNull();
+  });
+});

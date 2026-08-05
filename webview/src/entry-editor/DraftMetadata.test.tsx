@@ -31,6 +31,18 @@ function installApi(): void {
   state = undefined;
 }
 
+function titleInput(view: ReturnType<typeof render>): HTMLInputElement {
+  const input = view.container.querySelector<HTMLInputElement>('#snl-entry-title');
+  if (!input) throw new Error('entry title input not rendered');
+  return input;
+}
+
+function submitButton(view: ReturnType<typeof render>): HTMLButtonElement {
+  const button = view.container.querySelector<HTMLButtonElement>('button.snl-btn--primary');
+  if (!button) throw new Error('entry submit button not rendered');
+  return button;
+}
+
 function sendInit(): void {
   window.dispatchEvent(new MessageEvent('message', {
     data: {
@@ -67,10 +79,14 @@ function sendInit(): void {
 
 beforeEach(() => {
   cleanup();
+  document.documentElement.lang = 'en';
   posted.length = 0;
   installApi();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.lang = 'en';
+});
 
 describe('restored draft in edit mode', () => {
   it('keeps contribution_info, pointer and other languages on save', async () => {
@@ -89,10 +105,10 @@ describe('restored draft in edit mode', () => {
 
     // The draft wins for the visible fields...
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('My Unsaved Title')
+      expect(titleInput(view).value).toBe('My Unsaved Title')
     );
 
-    const update = await waitFor(() => view.getByRole('button', { name: /Update Entry/i }));
+    const update = await waitFor(() => submitButton(view));
     fireEvent.click(update);
 
     const submission = await waitFor(() => {
@@ -128,9 +144,9 @@ describe('restored draft in edit mode', () => {
     const view = render(<CreateEntryApp />);
     sendInit();
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('My Unsaved Title')
+      expect(titleInput(view).value).toBe('My Unsaved Title')
     );
-    fireEvent.click(await waitFor(() => view.getByRole('button', { name: /Update Entry/i })));
+    fireEvent.click(await waitFor(() => submitButton(view)));
 
     const submission = await waitFor(() => {
       const found = posted.find(
@@ -179,10 +195,10 @@ describe('restored draft in edit mode', () => {
     const view = render(<CreateEntryApp />);
     sendInit();
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Host Title')
+      expect(titleInput(view).value).toBe('Host Title')
     );
     // Any edit marks the form dirty, which is what enables stashing.
-    fireEvent.input(view.getByLabelText(/Title/i), { target: { value: 'edited' } });
+    fireEvent.input(titleInput(view), { target: { value: 'edited' } });
 
     await waitFor(() => {
       const draft = loadDraft<{ canvasForest?: unknown[] }>(api, 'createEntry:edit:thm-1');
@@ -208,15 +224,15 @@ describe('restored draft in edit mode', () => {
     const view = render(<CreateEntryApp />);
     sendInit();
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Host Title')
+      expect(titleInput(view).value).toBe('Host Title')
     );
     // Author edits ONLY the title; typst is left untouched.
-    fireEvent.input(view.getByLabelText(/Title/i), { target: { value: 'Retitled' } });
+    fireEvent.input(titleInput(view), { target: { value: 'Retitled' } });
     // The file watcher re-pushes the same entry.
     sendInit();
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    fireEvent.click(await waitFor(() => view.getByRole('button', { name: /Update Entry/i })));
+    fireEvent.click(await waitFor(() => submitButton(view)));
     const submission = await waitFor(() => {
       const found = posted.find(
         (message): message is { type: string; entry: Record<string, unknown> } =>
@@ -252,7 +268,7 @@ describe('restored draft in edit mode', () => {
     const view = render(<CreateEntryApp />);
     sendInit();
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Draft For One')
+      expect(titleInput(view).value).toBe('Draft For One')
     );
 
     // Host retargets the live panel at a different entry.
@@ -261,7 +277,7 @@ describe('restored draft in edit mode', () => {
     }));
 
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).not.toBe('Draft For One')
+      expect(titleInput(view).value).not.toBe('Draft For One')
     );
   });
 
@@ -282,7 +298,7 @@ describe('restored draft in edit mode', () => {
     }));
     // The section is collapsed by default, so assert on the visible count.
     await waitFor(() =>
-      expect(view.getByRole('button', { name: /Relationships \(1\)/ })).toBeTruthy()
+      expect(view.getByRole('button', { name: /(?:Relationships|关系) \(1\)/ })).toBeTruthy()
     );
 
     // Retarget must clear them, or the new entry shows the old one's graph.
@@ -290,7 +306,7 @@ describe('restored draft in edit mode', () => {
       data: { type: 'retarget', mode: 'edit', id: 'thm-2' }
     }));
     await waitFor(() =>
-      expect(view.getByRole('button', { name: /Relationships \(0\)/ })).toBeTruthy()
+      expect(view.getByRole('button', { name: /(?:Relationships|关系) \(0\)/ })).toBeTruthy()
     );
   });
 });

@@ -240,7 +240,7 @@ export function App(): React.ReactElement {
     // each Entry must settle — so the export message is sent afterwards. A
     // failure degrades to a popover-less document instead of aborting.
     void prerenderPopovers(html, {
-      loadDetail: createEntryDetailLoader({ postMessage }),
+      loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool }),
       entries: entryPool,
       userMacros,
       kindPalette,

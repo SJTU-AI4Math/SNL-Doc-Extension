@@ -15,7 +15,8 @@
 // The one thing missing from the raw channel is a correlation handle, since
 // replies arrive as global window messages. This module adds that.
 
-import type { EntryData, EntryKind } from '../render/EntrySurface';
+import type { EntryData, EntryKind, EntryOption } from '../render/EntrySurface';
+import { entryDetailsRequest } from '../render/HoverPopoverProvider';
 
 export interface EntryDetail {
   entry: EntryData | null;
@@ -28,6 +29,8 @@ export interface DetailBridgeOptions {
   target?: Pick<Window, 'addEventListener' | 'removeEventListener'>;
   /** A host that never answers must not hang the whole export. */
   timeoutMs?: number;
+  /** Stable identities for exact current-storage reads. */
+  entries?: EntryOption[];
 }
 
 export const DETAIL_TIMEOUT_MS = 5000;
@@ -70,7 +73,7 @@ export function createEntryDetailLoader(
       // popover is a degraded export, a rejected promise is a failed one.
       const timer = setTimeout(() => finish({ entry: null, kind: null }), timeoutMs);
       target.addEventListener('message', onMessage as EventListener);
-      options.postMessage({ type: 'requestEntryDetails', entryId });
+      options.postMessage(entryDetailsRequest(entryId, options.entries ?? []));
     });
 
     cache.set(entryId, pending);

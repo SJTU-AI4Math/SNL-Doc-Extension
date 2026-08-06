@@ -37,6 +37,8 @@ import {
   type CounterNode,
   type LibraryGraph
 } from './libraryGraph';
+import { readEntryEntityRecord, type EntityReadStorage } from './entityStorageIo';
+import { compareDataVersions, CURRENT_DATA_VERSION } from './dataMigrationCore';
 
 /**
  * One node in the outline tree pushed to the webview for the Library page
@@ -385,6 +387,7 @@ export class InfoviewPanel {
           id?: string;
           slug?: string;
           entryId?: string;
+          entryPackage?: string;
           level?: string;
           msg?: string;
         }
@@ -534,7 +537,10 @@ export class InfoviewPanel {
         return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
-          await this.pushPopoverEntryDetails(msg.entryId.trim());
+          const entryPackage = typeof msg.entryPackage === 'string' && msg.entryPackage.trim()
+            ? msg.entryPackage.trim()
+            : undefined;
+          await this.pushPopoverEntryDetails(msg.entryId.trim(), entryPackage);
         }
         return;
       case 'log': {
@@ -669,6 +675,7 @@ export class InfoviewPanel {
       // stays for callers that only care about non-emptiness.
       const flatEntries: {
         id: string;
+        package?: string;
         title: string;
         hasContent: boolean;
         snl?: string;
@@ -682,6 +689,7 @@ export class InfoviewPanel {
         const snl = typeof e.content?.snl === 'string' ? e.content.snl : '';
         flatEntries.push({
           id: e.id,
+          package: typeof e.package === 'string' ? e.package : undefined,
           title: e.title,
           hasContent: snl.trim().length > 0,
           snl: snl || undefined
@@ -802,6 +810,7 @@ export class InfoviewPanel {
         )
         .map((e) => ({
           id: e.id,
+          package: typeof e.package === 'string' ? e.package : undefined,
           title: e.title,
           hasContent: true as const,
           // Cat 2026-07-09 Stage 1 lookup: include snl so webview's
@@ -859,6 +868,7 @@ export class InfoviewPanel {
         )
         .map((e) => ({
           id: e.id,
+          package: typeof e.package === 'string' ? e.package : undefined,
           title: e.title,
           hasContent: true as const,
           // Cat 2026-07-09 Stage 1 lookup: include snl so webview's
@@ -971,22 +981,21 @@ export class InfoviewPanel {
    * entryId so the requesting webview popover can match it. Distinct from
    * `entryDetails` so it never disturbs the browser's main selection.
    */
-  private async pushPopoverEntryDetails(id: string): Promise<void> {
+  private async pushPopoverEntryDetails(id: string, entryPackage?: string): Promise<void> {
     const generation = ++this.popoverGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
       return;
     }
     try {
-      // Both files are needed for a hit and are independent, so fetch them
-      // together instead of only starting `readEntryKinds` after the pool
-      // has arrived. Cat 2026-07-25: panels felt slow.
-      const [entries, kinds] = await Promise.all([
-        readEntries(root),
+      // Current per-entity payloads carry package + id, allowing a single
+      // hashed-path read. Id-only requests are retained only for legacy
+      // aggregate payloads/workspaces that cannot supply package identity.
+      const [entry, kinds] = await Promise.all([
+        this.readPopoverEntry(root, entryPackage, id),
         readEntryKinds(root)
       ]);
       if (generation !== this.popoverGeneration) return;
-      const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
         // Cat 2026-07-10: cross-library hover should still resolve
         // against the shared pool — but if the id genuinely doesn't
@@ -1014,6 +1023,59 @@ export class InfoviewPanel {
         hostText()('loadPopoverFailed', { error: text })
       );
     }
+  }
+
+  private async readPopoverEntry(
+    root: vscode.Uri,
+    entryPackage: string | undefined,
+    id: string
+  ): Promise<EntryData | undefined> {
+    const configUri = vscode.Uri.joinPath(root, '.SNL_Doc', 'config.json');
+    const configBytes = await vscode.workspace.fs.readFile(configUri);
+    const config = JSON.parse(new TextDecoder('utf-8').decode(configBytes)) as unknown;
+    if (!config || typeof config !== 'object' || Array.isArray(config) ||
+        typeof (config as Record<string, unknown>).version !== 'string') {
+      throw new Error('config.json must contain a string version.');
+    }
+    const version = (config as Record<string, unknown>).version as string;
+    const relation = compareDataVersions(version, CURRENT_DATA_VERSION);
+    if (relation > 0) {
+      throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
+    }
+    if (relation === 0) {
+      if (!entryPackage) {
+        throw new Error(`Current Entry ${JSON.stringify(id)} request is missing its package identity.`);
+      }
+      return this.readPopoverEntryEntity(root, entryPackage, id);
+    }
+    // Older workspaces have only entries.json, so an id scan is unavoidable.
+    return readEntries(root).then((entries) => entries.find((candidate) => candidate.id === id));
+  }
+
+  private async readPopoverEntryEntity(
+    root: vscode.Uri,
+    entryPackage: string,
+    id: string
+  ): Promise<EntryData | undefined> {
+    const snlRoot = vscode.Uri.joinPath(root, '.SNL_Doc');
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => {
+        throw new Error('Popover point reads must not list the Entry directory.');
+      },
+      readJson: async (path) => {
+        const uri = vscode.Uri.joinPath(snlRoot, ...path.split('/'));
+        try {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          return JSON.parse(new TextDecoder('utf-8').decode(bytes)) as unknown;
+        } catch (error) {
+          if (error && typeof error === 'object' &&
+              (error as { code?: unknown }).code === 'FileNotFound') return null;
+          throw error;
+        }
+      }
+    };
+    const record = await readEntryEntityRecord(storage, entryPackage, id);
+    return record?.entry as unknown as EntryData | undefined;
   }
 
   /** Resolve the active package that wins for a macro name using the same

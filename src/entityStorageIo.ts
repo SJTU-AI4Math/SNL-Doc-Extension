@@ -83,23 +83,52 @@ function assertExpectedPath(actual: string, expected: string): void {
   }
 }
 
+function validateEntryEntity(
+  path: string,
+  value: unknown,
+  expectedIdentity?: { package: string; id: string }
+): EntryEntityRecord {
+  if (!isRecord(value) || value.format !== 'snl-entry' ||
+      value.version !== ENTRY_STORAGE_VERSION || typeof value.package !== 'string' ||
+      !isRecord(value.entry) || typeof value.entry.id !== 'string' || !value.entry.id ||
+      value.entry.id !== value.entry.id.trim() || typeof value.entry.package !== 'string') {
+    throw new Error(`${path} is not a valid SNL Entry envelope.`);
+  }
+  if (value.entry.package !== value.package) {
+    throw new Error(`${path} Entry package disagrees with its envelope package.`);
+  }
+  assertExpectedPath(path, entryEntityPath(value.package, value.entry.id));
+  if (expectedIdentity &&
+      (value.package !== expectedIdentity.package || value.entry.id !== expectedIdentity.id)) {
+    throw new Error(`${path} Entry identity does not match the requested identity.`);
+  }
+  return {
+    path,
+    envelope: value as unknown as EntryEnvelope,
+    entry: value.entry as EntryEntityRecord['entry']
+  };
+}
+
+/** Read exactly one current-storage Entry by its stable logical identity. */
+export async function readEntryEntityRecord(
+  storage: EntityReadStorage,
+  packageId: string,
+  entryId: string
+): Promise<EntryEntityRecord | null> {
+  const path = entryEntityPath(packageId, entryId);
+  const value = await storage.readJson(path);
+  if (value === null) return null;
+  return validateEntryEntity(path, value, { package: packageId, id: entryId });
+}
+
 export async function readEntryEntityRecords(storage: EntityReadStorage): Promise<EntryEntityRecord[]> {
   const records: EntryEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'entries')) {
-    if (!isRecord(value) || value.format !== 'snl-entry' ||
-        value.version !== ENTRY_STORAGE_VERSION || typeof value.package !== 'string' ||
-        !isRecord(value.entry) || typeof value.entry.id !== 'string' || !value.entry.id ||
-        value.entry.id !== value.entry.id.trim() || typeof value.entry.package !== 'string') {
-      throw new Error(`${path} is not a valid SNL Entry envelope.`);
-    }
-    if (value.entry.package !== value.package) {
-      throw new Error(`${path} Entry package disagrees with its envelope package.`);
-    }
-    assertExpectedPath(path, entryEntityPath(value.package, value.entry.id));
-    if (ids.has(value.entry.id)) throw new Error(`Duplicate Entry identity ${JSON.stringify(value.entry.id)}.`);
-    ids.add(value.entry.id);
-    records.push({ path, envelope: value as unknown as EntryEnvelope, entry: value.entry as EntryEntityRecord['entry'] });
+    const record = validateEntryEntity(path, value);
+    if (ids.has(record.entry.id)) throw new Error(`Duplicate Entry identity ${JSON.stringify(record.entry.id)}.`);
+    ids.add(record.entry.id);
+    records.push(record);
   }
   return records.sort((left, right) => left.envelope.package.localeCompare(right.envelope.package) || left.entry.id.localeCompare(right.entry.id));
 }

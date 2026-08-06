@@ -41,6 +41,17 @@ export type PopoverInstance = HoverPopover<string>;
 export type HoverPopoverContextValue = HoverPopoverApi<string>;
 export type { PopoverPhase };
 
+export function entryDetailsRequest(entryId: string, entries: EntryOption[]): {
+  type: 'requestEntryDetails';
+  entryId: string;
+  entryPackage?: string;
+} {
+  const entryPackage = entries.find((entry) => entry.id === entryId)?.package;
+  return typeof entryPackage === 'string' && entryPackage
+    ? { type: 'requestEntryDetails', entryId, entryPackage }
+    : { type: 'requestEntryDetails', entryId };
+}
+
 export function useHoverPopovers(): HoverPopoverContextValue {
   return useSharedHoverPopovers<string>();
 }
@@ -167,9 +178,9 @@ export function HoverPopoverProvider({
       }
       if (requestedRef.current.has(entryId)) return;
       requestedRef.current.add(entryId);
-      postMessage({ type: 'requestEntryDetails', entryId });
+      postMessage(entryDetailsRequest(entryId, entries));
     },
-    [localDetails, postMessage]
+    [entries, localDetails, postMessage]
   );
 
   const renderPopover = useCallback(

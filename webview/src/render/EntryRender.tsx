@@ -27,6 +27,8 @@ import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
 
 export interface EntryOption {
   id: string;
+  /** Stable current-storage package identity used for exact entity reads. */
+  package?: string;
   title: string;
   hasContent: boolean;
   /** Raw SNL used by Basics to resolve cross-Entry x@source bindings. */

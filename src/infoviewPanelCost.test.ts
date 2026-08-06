@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { entryEntityPath } from './entityStorage';
 
 /**
  * Infoview is the main READING surface, so it is the panel cat opens most.
@@ -20,8 +21,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 const readCounts: Record<string, number> = {};
+const directoryReadCounts: Record<string, number> = {};
 let inFlight = 0;
 let maxConcurrent = 0;
+let entityMode = false;
+let malformedEntityEnvelope = false;
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -59,7 +63,7 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: '0.0.4',
+          version: entityMode ? '0.0.6' : '0.0.4',
           active_macro_packages: ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c' }],
           macro_kinds: [{ id: 'mk1', name: 'Operator' }]
@@ -85,6 +89,16 @@ vi.mock('vscode', () => {
       case 'counters.json':
         return JSON.stringify({ counters: [{ id: 'c', name: 'c', children: [] }] });
       default:
+        if (path.includes('/entries/')) {
+          const e1File = entryEntityPath('logic', 'e1').split('/').pop();
+          const id = name === e1File ? 'e1' : 'e2';
+          return JSON.stringify(malformedEntityEnvelope
+            ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id, package: 'logic' } }
+            : {
+                format: 'snl-entry', version: 1, package: 'logic',
+                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : 'y' } }
+              });
+        }
         return '{}';
     }
   };
@@ -158,6 +172,13 @@ vi.mock('vscode', () => {
       }),
       fs: {
         readDirectory: async (uri: { path: string }) => {
+          directoryReadCounts[uri.path] = (directoryReadCounts[uri.path] ?? 0) + 1;
+          if (uri.path.endsWith('/entries') && entityMode) {
+            return [
+              [entryEntityPath('logic', 'e1').split('/').pop()!, FileType.File],
+              [entryEntityPath('logic', 'e2').split('/').pop()!, FileType.File]
+            ] as Array<[string, number]>;
+          }
           if (uri.path.endsWith('/term_macros')) {
             return ALL_PACKAGES.map(
               (name) => [`${name}.json`, FileType.File] as [string, number]
@@ -191,8 +212,11 @@ const extensionUri = { path: '/ext', fsPath: '/ext', toString: () => '/ext' } as
 
 function reset(): void {
   for (const key of Object.keys(readCounts)) delete readCounts[key];
+  for (const key of Object.keys(directoryReadCounts)) delete directoryReadCounts[key];
   inFlight = 0;
   maxConcurrent = 0;
+  entityMode = false;
+  malformedEntityEnvelope = false;
   posted.length = 0;
   commands.length = 0;
   dashboardGate = null;
@@ -291,6 +315,36 @@ describe('infoview panel read cost', () => {
     await send({ type: 'requestEntryDetails', entryId: 'e1' });
     expect(posted.some((m) => m.type === 'popoverEntryDetails')).toBe(true);
     expect(maxConcurrent).toBeGreaterThan(1);
+  });
+
+  it('point-reads exactly one current-storage entity for a popover', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+
+    await send({ type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic' });
+
+    const entityPath = entryEntityPath('logic', 'e1');
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'popoverEntryDetails', entryId: 'e1',
+      entry: expect.objectContaining({ id: 'e1', package: 'logic' })
+    }));
+    expect(readCounts[entityPath.split('/').pop()!]).toBe(1);
+    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+  });
+
+  it('fails closed when the exact current-storage entity has a malformed envelope', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+    malformedEntityEnvelope = true;
+
+    await expect(send({
+      type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic'
+    })).rejects.toThrow(/valid SNL Entry envelope/);
+
+    expect(posted.some((message) => message.type === 'popoverEntryDetails')).toBe(false);
+    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
   });
 
   it('waits for the Dashboard before opening the Entry editor', async () => {

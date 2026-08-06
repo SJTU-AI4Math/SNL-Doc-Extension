@@ -899,6 +899,71 @@ describe('CreateEntryApp create → edit flip', () => {
     expect((view.getByLabelText('ID (readonly)') as HTMLInputElement).value).toBe('entry-b');
   });
 
+  it('does not let a same-generation retarget erase an established context', async () => {
+    const contextAt = (entry: any, targetGeneration: number): Record<string, unknown> => ({
+      ...(editContext(entry) as Record<string, unknown>), targetGeneration
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(contextAt({
+        id: 'entry-a', title: 'Entry A', kind: 'definition', content: { snl: 'a(child)' }
+      }, 1));
+      send(contextAt({
+        id: 'entry-b', title: 'Hydrated B', kind: 'definition', content: { snl: 'b(child)' }
+      }, 2));
+      send({ type: 'retarget', mode: 'edit', id: 'entry-b', targetGeneration: 2 });
+    });
+
+    await waitFor(() => expect(
+      (view.getByLabelText('Title') as HTMLInputElement).value
+    ).toBe('Hydrated B'));
+  });
+
+  it('buffers a future terminal until createCommitted establishes its generation', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => { send({ ...(createContext() as Record<string, unknown>), targetGeneration: 0 }); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    const idInput = view.container.querySelector<HTMLInputElement>('#snl-entry-id')!;
+    fireEvent.input(title, { target: { value: 'Buffered terminal' } });
+    fireEvent.input(idInput, { target: { value: 'buffered-terminal' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+
+    act(() => {
+      send({ type: 'created', id: 'buffered-terminal', targetGeneration: 1 });
+      send({ type: 'createCommitted', id: 'buffered-terminal', targetGeneration: 1 });
+    });
+
+    const update = await waitFor(() =>
+      view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement
+    );
+    expect(update.disabled).toBe(false);
+  });
+
+  it('rejects generation-less target messages after correlation is established', async () => {
+    const contextAt = (entry: any, targetGeneration?: number): Record<string, unknown> => ({
+      ...(editContext(entry) as Record<string, unknown>),
+      ...(targetGeneration === undefined ? {} : { targetGeneration })
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(contextAt({
+        id: 'entry-a', title: 'Entry A', kind: 'definition', content: { snl: 'a(child)' }
+      }, 1));
+      send({ type: 'retarget', mode: 'edit', id: 'entry-b', targetGeneration: 2 });
+      send(contextAt({
+        id: 'entry-b', title: 'Entry B', kind: 'definition', content: { snl: 'b(child)' }
+      }, 2));
+    });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    fireEvent.input(title, { target: { value: 'Unsaved correlated B' } });
+    act(() => {
+      send(contextAt({
+        id: 'entry-a', title: 'STALE LEGACY A', kind: 'definition', content: { snl: 'a(child)' }
+      }));
+    });
+    await waitFor(() => expect(title.value).toBe('Unsaved correlated B'));
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

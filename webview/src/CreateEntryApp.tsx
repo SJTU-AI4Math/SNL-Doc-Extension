@@ -734,6 +734,8 @@ export function CreateEntryApp(): React.ReactElement {
   const justSavedIdRef = useRef<string | null>(null);
   const committedCreateIdRef = useRef<string | null>(null);
   const targetGenerationRef = useRef<number | null>(null);
+  const contextEstablishedGenerationRef = useRef<number | null>(null);
+  const pendingTargetMessagesRef = useRef<Map<number, unknown[]>>(new Map());
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     pointer: unknown;
@@ -816,18 +818,49 @@ export function CreateEntryApp(): React.ReactElement {
       }
       const rawTargetGeneration = (event.data as { targetGeneration?: unknown })
         .targetGeneration;
-      if (typeof rawTargetGeneration === 'number' && Number.isSafeInteger(rawTargetGeneration)) {
+      const hasTargetGeneration =
+        typeof rawTargetGeneration === 'number' && Number.isSafeInteger(rawTargetGeneration);
+      let flushGeneration: number | null = null;
+      if (!hasTargetGeneration) {
+        // Legacy fixtures remain usable until the first correlated anchor. Once
+        // correlation is active, an untagged target message is unsafe/stale.
+        if (targetGenerationRef.current !== null) return;
+      } else {
+        const incomingGeneration = rawTargetGeneration;
         const currentGeneration = targetGenerationRef.current;
         const establishesTarget =
           msg.type === 'retarget' || msg.type === 'context' || msg.type === 'createCommitted';
-        if (establishesTarget) {
-          if (currentGeneration !== null && rawTargetGeneration < currentGeneration) return;
-          targetGenerationRef.current = rawTargetGeneration;
-        } else if (
-          currentGeneration !== null && rawTargetGeneration !== currentGeneration
+        const futureGeneration =
+          currentGeneration === null || incomingGeneration > currentGeneration;
+        const createFlipContextArrivedBeforeCommit =
+          msg.type === 'context' && msg.mode === 'edit' && mode === 'create' &&
+          submittedEditGenerationRef.current !== null;
+
+        if (
+          futureGeneration &&
+          (!establishesTarget || createFlipContextArrivedBeforeCommit)
         ) {
+          const pending = pendingTargetMessagesRef.current.get(incomingGeneration) ?? [];
+          pending.push(event.data);
+          pendingTargetMessagesRef.current.set(incomingGeneration, pending);
           return;
         }
+        if (currentGeneration !== null && incomingGeneration < currentGeneration) return;
+        if (
+          msg.type === 'retarget' &&
+          contextEstablishedGenerationRef.current === incomingGeneration
+        ) return;
+        if (futureGeneration) {
+          targetGenerationRef.current = incomingGeneration;
+          contextEstablishedGenerationRef.current = null;
+          for (const generation of pendingTargetMessagesRef.current.keys()) {
+            if (generation < incomingGeneration) pendingTargetMessagesRef.current.delete(generation);
+          }
+        }
+        if (msg.type === 'context') {
+          contextEstablishedGenerationRef.current = incomingGeneration;
+        }
+        if (establishesTarget) flushGeneration = incomingGeneration;
       }
       switch (msg.type) {
         case 'retarget': {
@@ -1122,6 +1155,13 @@ export function CreateEntryApp(): React.ReactElement {
           break;
         default:
           break;
+      }
+      if (flushGeneration !== null) {
+        const pending = pendingTargetMessagesRef.current.get(flushGeneration) ?? [];
+        pendingTargetMessagesRef.current.delete(flushGeneration);
+        for (const pendingMessage of pending) {
+          onMessage(new MessageEvent('message', { data: pendingMessage }));
+        }
       }
     }
 

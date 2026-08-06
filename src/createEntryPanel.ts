@@ -273,6 +273,7 @@ export class CreateEntryPanel {
     if (!root) {
       void this.panel.webview.postMessage({
         type: 'context',
+        targetGeneration: this.targetGeneration,
         mode: this.mode,
         targetState: this.mode === 'edit' ? 'notFound' : 'found',
         id: this.id || undefined,
@@ -325,6 +326,7 @@ export class CreateEntryPanel {
       if (generation !== this.contextGeneration) return;
       void this.panel.webview.postMessage({
         type: 'error',
+        targetGeneration: this.targetGeneration,
         message: hostText()('loadFailed', { error: error instanceof Error ? error.message : String(error) })
       });
       return;
@@ -471,6 +473,7 @@ export class CreateEntryPanel {
       if (!root) {
         void this.panel.webview.postMessage({
           type: 'packageCreateFailed',
+          targetGeneration: requestTargetGeneration,
           requestId,
           message: hostText()('noWorkspace')
         });
@@ -483,6 +486,7 @@ export class CreateEntryPanel {
         if (!targetIsCurrent()) return;
         void this.panel.webview.postMessage({
           type: 'packageCreateFailed',
+          targetGeneration: requestTargetGeneration,
           requestId,
           message: hostText()('packageCreateFailed', {
             error: error instanceof Error ? error.message : String(error)
@@ -495,7 +499,10 @@ export class CreateEntryPanel {
           await this.pushContext();
           return;
         }
-        await this.panel.webview.postMessage({ type: 'packageCreated', packageId, requestId });
+        await this.panel.webview.postMessage({
+          type: 'packageCreated', packageId, requestId,
+          targetGeneration: requestTargetGeneration
+        });
         await this.pushContext();
         return;
       }
@@ -508,7 +515,10 @@ export class CreateEntryPanel {
             ? hostText()('initFirst')
             : hostText()('packageCreateFailed', { error: result.message });
       void this.panel.webview.postMessage({
-        type: 'packageCreateFailed', requestId, message: error
+        type: 'packageCreateFailed',
+        targetGeneration: requestTargetGeneration,
+        requestId,
+        message: error
       });
       return;
     }
@@ -540,6 +550,7 @@ export class CreateEntryPanel {
       vscode.window.showErrorMessage(text);
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
+        targetGeneration: this.targetGeneration,
         message: text
       });
       return;
@@ -549,6 +560,7 @@ export class CreateEntryPanel {
     if (!entry || typeof entry !== 'object') {
       void this.panel.webview.postMessage({
         type: 'invalid',
+        targetGeneration: this.targetGeneration,
         reason: hostText()('noPayload')
       });
       return;

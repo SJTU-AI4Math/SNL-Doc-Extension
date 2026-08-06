@@ -421,8 +421,9 @@ describe('CreateEntryPanel create -> edit flip', () => {
       'Algebra'
     );
     const confirmation = posted.find((message) => message?.type === 'packageCreated');
-    expect(confirmation).toEqual({
-      type: 'packageCreated', packageId: 'Algebra', requestId: 'request-1'
+    expect(confirmation).toMatchObject({
+      type: 'packageCreated', packageId: 'Algebra', requestId: 'request-1',
+      targetGeneration: expect.any(Number)
     });
     const refreshed = contexts().at(-1);
     expect(refreshed.entryPackages).toContain('Algebra');
@@ -469,8 +470,9 @@ describe('CreateEntryPanel create -> edit flip', () => {
       type: 'createPackage', packageId: 'Algebra', requestId: 'request-error'
     });
 
-    expect(posted.find((message) => message?.type === 'packageCreateFailed')).toEqual({
+    expect(posted.find((message) => message?.type === 'packageCreateFailed')).toMatchObject({
       type: 'packageCreateFailed',
+      targetGeneration: expect.any(Number),
       requestId: 'request-error',
       message: 'Could not create Package: disk full'
     });

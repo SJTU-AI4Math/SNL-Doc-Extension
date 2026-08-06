@@ -16,4 +16,24 @@ describe('CreateEntryPanel update roundtrip', () => {
     expect(updatedCase.indexOf('await this.pushContext();', acknowledgement))
       .toBeGreaterThan(acknowledgement);
   });
+
+  it('tags every directly-published Entry target message with targetGeneration', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, 'createEntryPanel.ts'), 'utf8');
+    const targetTypes = new Set([
+      'context', 'created', 'createCommitted', 'updated', 'duplicate',
+      'notFound', 'unknownKind', 'invalid', 'noSnlDoc', 'noWorkspace',
+      'error', 'packageCreated', 'packageCreateFailed'
+    ]);
+    const directPublications = Array.from(
+      source.matchAll(/this\.panel\.webview\.postMessage\(\{([\s\S]*?)\}\)/g)
+    );
+    const untagged = directPublications.flatMap((match) => {
+      const body = match[1];
+      const type = /type:\s*'([^']+)'/.exec(body)?.[1];
+      return type && targetTypes.has(type) && !body.includes('targetGeneration')
+        ? [type]
+        : [];
+    });
+    expect(untagged).toEqual([]);
+  });
 });

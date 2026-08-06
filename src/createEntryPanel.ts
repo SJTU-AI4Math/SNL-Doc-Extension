@@ -24,6 +24,7 @@ import {
   readMacroPackages,
   readMacroKinds,
   readRelationships,
+  regenerateDependencyRelationships,
   resolveActiveMacroPackages,
   updateEntry,
   type EntryData
@@ -384,6 +385,28 @@ export class CreateEntryPanel {
     void this.pushContext();
   }
 
+  /**
+   * Complete the synchronous dependency half of an Entry save. The Entry is
+   * already committed, so failure is terminal and followed by authoritative
+   * context for refresh-safe recovery, never a false success acknowledgement.
+   */
+  private async regenerateSavedEntryDependencies(
+    root: vscode.Uri,
+    savedId: string
+  ): Promise<boolean> {
+    const result = await regenerateDependencyRelationships(root, {
+      entryIds: new Set([savedId])
+    });
+    if (result.status === 'ok') return true;
+    const detail = result.status === 'noSnlDoc'
+      ? hostText()('initFirst')
+      : result.message;
+    vscode.window.showErrorMessage(hostText()('editorFailed', { error: detail }));
+    await this.panel.webview.postMessage({ type: 'error', message: detail });
+    await this.pushContext();
+    return false;
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     // Timing marks reported by the webview itself — mount, first paint —
     // folded into the same timeline as the host stages so the whole open
@@ -474,6 +497,9 @@ export class CreateEntryPanel {
         }, typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined);
                 switch (result.status) {
           case 'updated':
+            if (!(await this.regenerateSavedEntryDependencies(root, result.id))) {
+              return;
+            }
             vscode.window.showInformationMessage(
               hostText()('updated', { title: entry.title, id: result.id })
             );
@@ -530,13 +556,6 @@ export class CreateEntryPanel {
       const result = await addEntry(root, entry);
       switch (result.status) {
         case 'ok':
-          vscode.window.showInformationMessage(
-            hostText()('created', { title: entry.title, id: result.id })
-          );
-          void this.panel.webview.postMessage({
-            type: 'created',
-            id: result.id
-          });
           // Cat 2026-07-27: after creating something the natural next action
           // is to keep editing THAT entry, not to create another one. Flip the
           // live panel into edit mode in place — same panel, same webview, no
@@ -547,6 +566,16 @@ export class CreateEntryPanel {
           this.id = result.id;
           this.seedId = '';
           this.panel.title = hostText()('editTitle', { id: result.id });
+          if (!(await this.regenerateSavedEntryDependencies(root, result.id))) {
+            return;
+          }
+          vscode.window.showInformationMessage(
+            hostText()('created', { title: entry.title, id: result.id })
+          );
+          await this.panel.webview.postMessage({
+            type: 'created',
+            id: result.id
+          });
           await this.pushContext();
           return;
         case 'duplicate': {

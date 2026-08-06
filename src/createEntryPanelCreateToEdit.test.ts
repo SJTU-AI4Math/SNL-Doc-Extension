@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 const posted: any[] = [];
+const events: string[] = [];
 const panelRecord = { title: '' };
 let messageHandler: ((e: any) => unknown) | undefined;
 
@@ -41,7 +42,11 @@ vi.mock('vscode', () => ({
           html: '',
           asWebviewUri: (u: { path: string }) => ({ toString: () => u.path }),
           cspSource: 'vscode-webview://x',
-          postMessage: async (m: unknown) => { posted.push(m); return true; },
+          postMessage: async (m: any) => {
+            posted.push(m);
+            events.push(`post:${String(m?.type)}`);
+            return true;
+          },
           onDidReceiveMessage: (h: (e: any) => unknown) => {
             messageHandler = h;
             return { dispose: () => undefined };
@@ -71,13 +76,18 @@ const stored: any[] = [];
 vi.mock('./snlDoc', () => ({
   entityRevision: () => 'test-revision',
   addEntry: vi.fn(async (_root: unknown, entry: any) => {
+    events.push('save:create');
     stored.push({ ...entry });
     return { status: 'ok', id: entry.id };
   }),
-  updateEntry: vi.fn(async (_root: unknown, id: string) => ({
-    status: 'updated',
-    id
-  })),
+  updateEntry: vi.fn(async (_root: unknown, id: string) => {
+    events.push('save:update');
+    return { status: 'updated', id };
+  }),
+  regenerateDependencyRelationships: vi.fn(async (_root: unknown, scope: { entryIds: Set<string> }) => {
+    events.push(`regenerate:${Array.from(scope.entryIds).join(',')}`);
+    return { status: 'ok', report: {} };
+  }),
   listEntryKinds: async () => [{ id: 'definition', name: 'Definition' }],
   readAllMacrosWithOrigin: async () => ({ macros: {}, origin: {} }),
   readMacroKinds: async () => [],
@@ -104,6 +114,7 @@ function contexts(): any[] {
 describe('CreateEntryPanel create -> edit flip', () => {
   beforeEach(() => {
     posted.length = 0;
+    events.length = 0;
   });
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {
@@ -136,6 +147,9 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(posted.some((message) => message?.type === 'kinds')).toBe(false);
     // `created` must precede the context so the webview can mark the target.
     expect(posted.indexOf(created)).toBeLessThan(posted.indexOf(context));
+    expect(events.indexOf('save:create')).toBeLessThan(events.indexOf('regenerate:thm-new'));
+    expect(events.indexOf('regenerate:thm-new')).toBeLessThan(events.indexOf('post:created'));
+    expect(events.indexOf('post:created')).toBeLessThan(events.indexOf('post:context'));
   });
 
   it('routes the next save to updateEntry instead of creating a duplicate', async () => {
@@ -165,5 +179,35 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][2]).toMatchObject({
       contribution_info: 'Grace Hopper'
     });
+    expect(events.indexOf('save:update')).toBeLessThan(events.lastIndexOf('regenerate:thm-second'));
+    expect(events.lastIndexOf('regenerate:thm-second')).toBeLessThan(events.lastIndexOf('post:updated'));
+  });
+
+  it('reports dependency regeneration failure as terminal error and refreshes saved state', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    events.length = 0;
+    vi.mocked(snlDoc.regenerateDependencyRelationships).mockResolvedValueOnce({
+      status: 'error',
+      message: 'relationships write failed'
+    });
+
+    await messageHandler!({
+      type: 'create',
+      entry: { id: 'saved-despite-regen-error', kind: 'definition', title: 'Saved', content: {} }
+    });
+
+    expect(posted.some((message) => message?.type === 'created')).toBe(false);
+    const error = posted.find((message) => message?.type === 'error');
+    const context = contexts().at(-1);
+    expect(error?.message).toContain('relationships write failed');
+    expect(context).toMatchObject({
+      mode: 'edit',
+      id: 'saved-despite-regen-error',
+      existing: { id: 'saved-despite-regen-error' }
+    });
+    expect(posted.indexOf(error)).toBeLessThan(posted.indexOf(context));
   });
 });

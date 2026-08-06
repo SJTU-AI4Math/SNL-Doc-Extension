@@ -6157,6 +6157,120 @@ export interface DependencyScope {
   entryIds: Set<string> | null;
 }
 
+/** Pure snapshot reconciliation used by the writer and focused tests. */
+export function reconcileDependencyRelationships(
+  entries: readonly EntryData[],
+  macros: Readonly<Record<string, MacroPackageEntry>>,
+  existing: readonly RelationshipData[],
+  scope: DependencyScope
+): { relationships: RelationshipData[]; report: DependencyGenReport } {
+  const poolIds = new Set(entries.map((entry) => entry.id));
+  const isAutoRow = (relationship: RelationshipData): boolean =>
+    AUTO_LABELS.includes(relationship.label) &&
+    relationship.metadata !== null &&
+    typeof relationship.metadata === 'object' &&
+    (relationship.metadata as { generator?: unknown }).generator === AUTO_GENERATOR_TAG;
+
+  const preservedRows: RelationshipData[] = [];
+  const inScopeAuto = new Map<string, RelationshipData>();
+  for (const relationship of existing) {
+    const inScope = scope.entryIds === null || scope.entryIds.has(relationship.from);
+    if (isAutoRow(relationship) && inScope) {
+      inScopeAuto.set(`${relationship.label}|${relationship.from}|${relationship.to}`, relationship);
+    } else {
+      preservedRows.push(relationship);
+    }
+  }
+  const preservedUser = preservedRows.filter((relationship) => !isAutoRow(relationship)).length;
+
+  const generated = new Map<string, { rel: RelationshipData; witnesses: Set<string> }>();
+  const idPrefix: Record<string, string> = {
+    [AUTO_LABEL]: 'dep',
+    [AUTO_LABEL_USES_CONTEXT]: 'ctx'
+  };
+  const witnessField: Record<string, string> = {
+    [AUTO_LABEL]: 'macros',
+    [AUTO_LABEL_USES_CONTEXT]: 'postfixes'
+  };
+  const upsert = (label: string, from: string, to: string, witness: string): void => {
+    if (!to || from === to || !poolIds.has(to)) return;
+    const key = `${label}|${from}|${to}`;
+    let bucket = generated.get(key);
+    if (!bucket) {
+      const previous = inScopeAuto.get(key);
+      bucket = {
+        rel: {
+          id: previous?.id ?? `${idPrefix[label]}.${from}.${to}`,
+          from,
+          to,
+          label,
+          metadata: {
+            generator: AUTO_GENERATOR_TAG,
+            [witnessField[label]]: [] as string[],
+            isAtomic: true
+          }
+        },
+        witnesses: new Set<string>()
+      };
+      generated.set(key, bucket);
+    }
+    bucket.witnesses.add(witness);
+  };
+
+  for (const entry of entries) {
+    if (scope.entryIds !== null && !scope.entryIds.has(entry.id)) continue;
+    const snl = entry.content?.snl ?? '';
+    if (!snl.trim()) continue;
+    const references = extractSnlReferences(snl);
+    for (const name of references.macros) {
+      const macro = macros[name];
+      if (!macro || !Array.isArray(macro.source?.entries)) continue;
+      for (const source of macro.source.entries) upsert(AUTO_LABEL, entry.id, source, name);
+    }
+    for (const source of references.contextSrcs) {
+      upsert(AUTO_LABEL_USES_CONTEXT, entry.id, source, source);
+    }
+  }
+
+  for (const bucket of generated.values()) {
+    const metadata = bucket.rel.metadata as Record<string, unknown>;
+    metadata[witnessField[bucket.rel.label]] = Array.from(bucket.witnesses).sort();
+  }
+
+  const relationships = [...preservedRows, ...Array.from(generated.values(), ({ rel }) => rel)];
+  const generatedRows = new Set(Array.from(generated.values(), ({ rel }) => rel));
+  computeAtomicityInPlace(relationships, (relationship) => generatedRows.has(relationship));
+  relationships.sort((left, right) => left.id.localeCompare(right.id));
+
+  let added = 0;
+  let updated = 0;
+  for (const key of generated.keys()) {
+    if (inScopeAuto.has(key)) updated += 1;
+    else added += 1;
+  }
+  let removed = 0;
+  for (const key of inScopeAuto.keys()) {
+    if (!generated.has(key)) removed += 1;
+  }
+  return {
+    relationships,
+    report: {
+      added,
+      removed,
+      updated,
+      preservedUser,
+      totalDepends: relationships.filter(({ label }) => label === AUTO_LABEL).length,
+      totalUsesContext: relationships.filter(({ label }) => label === AUTO_LABEL_USES_CONTEXT).length,
+      atomicCount: relationships.filter((relationship) =>
+        AUTO_LABELS.includes(relationship.label) &&
+        relationship.metadata !== null &&
+        typeof relationship.metadata === 'object' &&
+        (relationship.metadata as { isAtomic?: unknown }).isAtomic === true
+      ).length
+    }
+  };
+}
+
 /**
  * Regenerate the auto-managed subset of `relationships.json` for a scope.
  * Auto rows are identified by (label ∈ AUTO_LABELS) AND
@@ -6187,136 +6301,14 @@ export async function regenerateDependencyRelationships(
   }
   try {
     const entries = await readEntries(workspaceRoot);
-    const poolIds = new Set(entries.map((e) => e.id));
     const macros = await readAllMacros(workspaceRoot);
     const existing = await readRelationships(workspaceRoot);
-
-    const isAutoRow = (r: RelationshipData): boolean =>
-      AUTO_LABELS.includes(r.label) &&
-      r.metadata !== null &&
-      typeof r.metadata === 'object' &&
-      (r.metadata as { generator?: unknown }).generator ===
-        AUTO_GENERATOR_TAG;
-
-    // Preserve: user-authored rows AND out-of-scope auto rows.
-    // In-scope auto rows are indexed for id-stable regen.
-    const preservedRows: RelationshipData[] = [];
-    // key = "<label>|<from>|<to>"
-    const inScopeAuto = new Map<string, RelationshipData>();
-    for (const r of existing) {
-      const inScope = scope.entryIds === null || scope.entryIds.has(r.from);
-      if (isAutoRow(r) && inScope) {
-        inScopeAuto.set(`${r.label}|${r.from}|${r.to}`, r);
-      } else {
-        preservedRows.push(r);
-      }
-    }
-    const preservedUserOnly = preservedRows.filter((r) => !isAutoRow(r)).length;
-
-    // Compute new in-scope auto rows for BOTH labels.
-    const newAuto = new Map<
-      string,
-      { rel: RelationshipData; witnessSet: Set<string> }
-    >();
-
-    const idPrefix: Record<string, string> = {
-      [AUTO_LABEL]: 'dep',
-      [AUTO_LABEL_USES_CONTEXT]: 'ctx'
-    };
-    const witnessField: Record<string, string> = {
-      [AUTO_LABEL]: 'macros',       // depends: which macros triggered
-      [AUTO_LABEL_USES_CONTEXT]: 'postfixes' // uses_context: which local var names
-    };
-    const upsert = (
-      label: string,
-      from: string,
-      to: string,
-      witness: string
-    ): void => {
-      if (!to || from === to) return;
-      if (!poolIds.has(to)) return;
-      const key = `${label}|${from}|${to}`;
-      let bucket = newAuto.get(key);
-      if (!bucket) {
-        const prev = inScopeAuto.get(key);
-        bucket = {
-          rel: {
-            id: prev?.id ?? `${idPrefix[label]}.${from}.${to}`,
-            from,
-            to,
-            label,
-            metadata: {
-              generator: AUTO_GENERATOR_TAG,
-              [witnessField[label]]: [] as string[],
-              isAtomic: true
-            }
-          },
-          witnessSet: new Set<string>()
-        };
-        newAuto.set(key, bucket);
-      }
-      bucket.witnessSet.add(witness);
-    };
-
-    for (const e of entries) {
-      if (scope.entryIds !== null && !scope.entryIds.has(e.id)) continue;
-      const snl = e.content?.snl ?? '';
-      if (!snl.trim()) continue;
-      const refs = extractSnlReferences(snl);
-      // "depends" via macro source resolution.
-      for (const name of refs.macros) {
-        const m = macros[name];
-        if (!m || !Array.isArray(m.source?.entries)) continue;
-        for (const src of m.source.entries) {
-          upsert(AUTO_LABEL, e.id, src, name);
-        }
-      }
-      // "uses_context" via x@foo direct-target references.
-      for (const src of refs.contextSrcs) {
-        // Use the entry's SNL scanner already collected the local-var
-        // name via the `x` prefix; but we didn't return it, so witness
-        // is the src itself. Good enough — the target IS the interesting
-        // datum, and duplicates collapse naturally into one edge.
-        upsert(AUTO_LABEL_USES_CONTEXT, e.id, src, src);
-      }
-    }
-
-    // Freeze witness arrays into stable-sorted lists on metadata.
-    for (const b of newAuto.values()) {
-      const md = b.rel.metadata as Record<string, unknown>;
-      md[witnessField[b.rel.label]] = Array.from(b.witnessSet).sort();
-    }
-
-    const merged: RelationshipData[] = [...preservedRows];
-    for (const b of newAuto.values()) merged.push(b.rel);
-
-    computeAtomicityInPlace(merged);
-
-    merged.sort((a, b) => a.id.localeCompare(b.id));
-
-    let added = 0;
-    let updated = 0;
-    for (const k of newAuto.keys()) {
-      if (inScopeAuto.has(k)) updated += 1;
-      else added += 1;
-    }
-    let removed = 0;
-    for (const k of inScopeAuto.keys()) {
-      if (!newAuto.has(k)) removed += 1;
-    }
-    const totalDepends = merged.filter(
-      (r) => r.label === AUTO_LABEL
-    ).length;
-    const totalUsesContext = merged.filter(
-      (r) => r.label === AUTO_LABEL_USES_CONTEXT
-    ).length;
-    const atomicCount = merged.filter(
-      (r) =>
-        AUTO_LABELS.includes(r.label) &&
-        r.metadata !== null &&
-        typeof r.metadata === 'object' &&
-        (r.metadata as { isAtomic?: unknown }).isAtomic === true
-    ).length;
+    const { relationships: merged, report } = reconcileDependencyRelationships(
+      entries,
+      macros,
+      existing,
+      scope
+    );
 
     const relationshipsFile = relationshipsUri(workspaceRoot);
     const expectedRelationships: RelationshipsFile | null =
@@ -6329,18 +6321,7 @@ export async function regenerateDependencyRelationships(
       expectedRelationships
     );
 
-    return {
-      status: 'ok',
-      report: {
-        added,
-        removed,
-        updated,
-        preservedUser: preservedUserOnly,
-        totalDepends,
-        totalUsesContext,
-        atomicCount
-      }
-    };
+    return { status: 'ok', report };
   } catch (err) {
     return {
       status: 'error',
@@ -6359,7 +6340,10 @@ export async function regenerateDependencyRelationships(
  * same-label edges excluding that one direct edge; if target reachable,
  * not atomic. O(V × (V+E)) per label.
  */
-export function computeAtomicityInPlace(rels: RelationshipData[]): void {
+export function computeAtomicityInPlace(
+  rels: RelationshipData[],
+  shouldUpdate: (relationship: RelationshipData) => boolean = () => true
+): void {
   for (const label of AUTO_LABELS) {
     const bucket: { rel: RelationshipData; idx: number }[] = [];
     rels.forEach((r) => {
@@ -6383,6 +6367,7 @@ export function computeAtomicityInPlace(rels: RelationshipData[]): void {
           if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
         }
       }
+      if (!shouldUpdate(rel)) return;
       const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
       md.isAtomic = !hit;
       rel.metadata = md;

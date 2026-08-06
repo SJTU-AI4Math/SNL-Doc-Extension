@@ -7,7 +7,13 @@
 // display name and description are editable.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useSaveShortcut } from './components/draftState';
+import {
+  editorDraftKey,
+  loadDraft,
+  saveDraft,
+  usePersistedDraft,
+  useSaveShortcut
+} from './components/draftState';
 import {
   useVsCodeApiRef,
   PANEL_STYLE
@@ -55,6 +61,13 @@ interface ExistingPackage {
   file: string;
   name: string;
   description: string;
+}
+
+interface MacroPackageDraft {
+  file: string;
+  name: string;
+  description: string;
+  originalRevision?: string;
 }
 
 type Status =
@@ -109,6 +122,8 @@ export function CreateMacroPackageApp(): React.ReactElement {
   const apiRef = useVsCodeApiRef();
   const packageRevisionRef = useRef<string | undefined>(undefined);
   const formDirtyRef = useRef(false);
+  const draftKeyRef = useRef('');
+  const [draftKey, setDraftKey] = useState('');
 
   useEffect(() => {
 
@@ -138,6 +153,24 @@ export function CreateMacroPackageApp(): React.ReactElement {
         case 'context':
           setMode(msg.mode);
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
+          {
+            const identity = msg.mode === 'edit' ? (msg.file ?? '') : 'workspace';
+            const nextDraftKey = editorDraftKey('macro-package', msg.mode, identity);
+            const identityChanged = draftKeyRef.current !== nextDraftKey;
+            draftKeyRef.current = nextDraftKey;
+            setDraftKey(nextDraftKey);
+            const restored = identityChanged
+              ? loadDraft<MacroPackageDraft>(apiRef.current, nextDraftKey)
+              : undefined;
+            if (restored) {
+              setFile(restored.file);
+              setName(restored.name);
+              setDescription(restored.description);
+              packageRevisionRef.current = restored.originalRevision;
+              formDirtyRef.current = true;
+              break;
+            }
+          }
           if (msg.mode === 'edit') {
             setFile(msg.file ?? '');
             if (msg.existing && !formDirtyRef.current) {
@@ -148,6 +181,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
           }
           break;
         case 'created':
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
           formDirtyRef.current = false;
           setStatus({ kind: 'created', file: msg.file });
           setFile('');
@@ -155,6 +189,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
           setDescription('');
           break;
         case 'updated':
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
           formDirtyRef.current = false;
           setStatus({ kind: 'updated', file: msg.file, name: msg.name });
           break;
@@ -194,6 +229,18 @@ export function CreateMacroPackageApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
+
+  usePersistedDraft(
+    apiRef.current,
+    draftKey,
+    {
+      file,
+      name,
+      description,
+      originalRevision: packageRevisionRef.current
+    } satisfies MacroPackageDraft,
+    draftKey.length > 0 && formDirtyRef.current
+  );
 
   const trimmedFile = file.trim();
   const trimmedName = name.trim();

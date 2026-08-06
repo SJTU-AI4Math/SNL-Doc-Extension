@@ -34,7 +34,13 @@
 //     the raw internal `_snl_draft` name.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSaveShortcut } from './components/draftState';
+import {
+  editorDraftKey,
+  loadDraft,
+  saveDraft,
+  usePersistedDraft,
+  useSaveShortcut
+} from './components/draftState';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
@@ -370,6 +376,19 @@ interface StyleDraft {
   text: string;
 }
 
+interface MacroEditorDraft {
+  name: string;
+  description: string;
+  sourceEntries: string[];
+  sourceUrls: string[];
+  dynamicArity: boolean;
+  macroTags: string[];
+  kind: string;
+  styles: StyleDraft[];
+  defaultStyle: Record<string, string>;
+  originalRevision?: string;
+}
+
 function newStyleDraft(styleName: string): StyleDraft {
   return {
     extensions: {},
@@ -603,6 +622,8 @@ export function CreateMacroApp(): React.ReactElement {
   const formDirtyRef = useRef(false);
   const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
+  const draftKeyRef = useRef('');
+  const [draftKey, setDraftKey] = useState('');
   // Preserve consumer/backend extension fields that this editor does not know
   // how to project into controls. Copy and edit submissions overlay the known
   // draft fields onto this source record instead of silently deleting extras.
@@ -646,9 +667,13 @@ export function CreateMacroApp(): React.ReactElement {
 
   const current = styles[activeStyle] ?? styles[0];
 
+  function markFormDirty(): void {
+    formDirtyRef.current = true;
+  }
+
   /** Patch a field on the currently-active style. */
   function patchStyle(patch: Partial<StyleDraft>): void {
-    formDirtyRef.current = true;
+    markFormDirty();
     setStyles((prev) =>
       prev.map((s, i) => i === activeStyle ? { ...s, ...patch } : s)
     );
@@ -658,12 +683,8 @@ export function CreateMacroApp(): React.ReactElement {
     patchStyle({ mode });
   }
 
-  /**
-   * Load an existing extended macro (from the host, edit mode) into the form
-   * state. Field maps to defaults; the on-disk record must already have been
-   * migrated to v6 shape by the host reader (snlDoc.v5MacroToV6).
-   */
-  function hydrateFromExisting(existing: ExtendedSnlMacro): void {
+  /** Keep pass-through fields current even when a restored visible draft wins. */
+  function absorbHydratedMacroBase(existing: ExtendedSnlMacro): void {
     hydratedMacroBaseRef.current = {
       ...existing,
       source: {
@@ -675,6 +696,32 @@ export function CreateMacroApp(): React.ReactElement {
       styles: (existing.styles ?? []).map((style) => ({ ...style })),
       tags: [...(existing.tags ?? [])]
     };
+  }
+
+  function restoreMacroDraft(draft: MacroEditorDraft): void {
+    setName(draft.name);
+    setDescription(draft.description);
+    setSourceEntries(draft.sourceEntries.slice());
+    setSourceUrls(draft.sourceUrls.slice());
+    setDynamicArity(draft.dynamicArity);
+    setMacroTags(draft.macroTags.slice());
+    setKind(draft.kind);
+    setStyles(draft.styles.map((style) => ({ ...style, tags: style.tags.slice() })));
+    setDefaultStyle({ ...draft.defaultStyle });
+    setActiveStyle(0);
+    setActiveTab('katex_template');
+    editingNameRef.current = draft.name;
+    macroRevisionRef.current = draft.originalRevision;
+    formDirtyRef.current = true;
+  }
+
+  /**
+   * Load an existing extended macro (from the host, edit mode) into the form
+   * state. Field maps to defaults; the on-disk record must already have been
+   * migrated to v6 shape by the host reader (snlDoc.v5MacroToV6).
+   */
+  function hydrateFromExisting(existing: ExtendedSnlMacro): void {
+    absorbHydratedMacroBase(existing);
     setName(existing.name ?? '');
     setDescription(existing.description ?? '');
     const src = existing.source ?? { entries: [], urls: [] };
@@ -780,6 +827,28 @@ export function CreateMacroApp(): React.ReactElement {
             : {});
           setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
+
+          const identity = msg.mode === 'edit' && msg.existing
+            ? `${msg.file}\u0000${msg.existing.name}`
+            : `${msg.file}\u0000${msg.packageName}`;
+          const nextDraftKey = editorDraftKey('macro', msg.mode, identity);
+          const identityChanged = draftKeyRef.current !== nextDraftKey;
+          draftKeyRef.current = nextDraftKey;
+          setDraftKey(nextDraftKey);
+
+          // Pass-through fields still come from the newest host snapshot; only
+          // author-controlled fields and CAS provenance are restored.
+          if (msg.mode === 'edit' && msg.existing) {
+            absorbHydratedMacroBase(msg.existing);
+          }
+          const restored = identityChanged
+            ? loadDraft<MacroEditorDraft>(apiRef.current, nextDraftKey)
+            : undefined;
+          if (restored) {
+            restoreMacroDraft(restored);
+            break;
+          }
+
           if (msg.mode === 'create' && !msg.prefill?.macro) {
             hydratedMacroBaseRef.current = null;
           }
@@ -826,11 +895,13 @@ export function CreateMacroApp(): React.ReactElement {
           // created and immediately re-pushes a context. Adopt the new name
           // as our editing identity now so the follow-up context is
           // recognised as "the thing I am already editing".
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
           editingNameRef.current = msg.name;
           formDirtyRef.current = false;
           setStatus({ kind: 'created', name: msg.name, at: Date.now() });
           break;
         case 'updated':
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
           formDirtyRef.current = false;
           setStatus({ kind: 'updated', name: msg.name, at: Date.now() });
           break;
@@ -877,6 +948,24 @@ export function CreateMacroApp(): React.ReactElement {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
+
+  usePersistedDraft(
+    apiRef.current,
+    draftKey,
+    {
+      name,
+      description,
+      sourceEntries,
+      sourceUrls,
+      dynamicArity,
+      macroTags,
+      kind,
+      styles,
+      defaultStyle,
+      originalRevision: macroRevisionRef.current
+    } satisfies MacroEditorDraft,
+    draftKey.length > 0 && formDirtyRef.current
+  );
 
   // Auto-dismiss the "saved" toast after 5s (猫猫 req: doesn't linger).
   useEffect(() => {
@@ -1124,7 +1213,7 @@ export function CreateMacroApp(): React.ReactElement {
   return (
     <main
       style={PANEL_STYLE}
-      onInputCapture={() => { formDirtyRef.current = true; }}
+      onInputCapture={markFormDirty}
     >
       <PanelHeader
         vsApi={apiRef.current}
@@ -1150,7 +1239,10 @@ export function CreateMacroApp(): React.ReactElement {
           <NameEditor
             value={name}
             macroCandidates={macroCandidates}
-            onChange={setName}
+            onChange={(next) => {
+              markFormDirty();
+              setName(next);
+            }}
             readOnly={panelMode === 'edit'}
             invalid={isDuplicate}
             readOnlyTitle={t('immutableName')}
@@ -1176,6 +1268,7 @@ export function CreateMacroApp(): React.ReactElement {
                   apiRef.current?.postMessage({ type: 'createMacroKind' });
                   return;
                 }
+                markFormDirty();
                 setKind(v);
               }}
               style={{ ...inputStyle, flex: 1 }}
@@ -1218,7 +1311,10 @@ export function CreateMacroApp(): React.ReactElement {
             type="text"
             value={description}
             placeholder={t('descriptionPlaceholder')}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              markFormDirty();
+              setDescription(e.target.value);
+            }}
             style={{ ...inputStyle, width: '100%' }}
           />
         </div>
@@ -1227,13 +1323,19 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Styles bar + style editor ------------------------------------- */}
       <StylesEditor
         styles={styles}
-        setStyles={setStyles}
+        setStyles={(next) => {
+          markFormDirty();
+          setStyles(next);
+        }}
         activeStyle={activeStyle}
         setActiveStyle={setActiveStyle}
         patchStyle={patchStyle}
         hasDupTag={hasDupTag}
         defaultStyle={defaultStyle}
-        setDefaultStyle={setDefaultStyle}
+        setDefaultStyle={(next) => {
+          markFormDirty();
+          setDefaultStyle(next);
+        }}
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
@@ -1401,6 +1503,7 @@ export function CreateMacroApp(): React.ReactElement {
             checked={dynamicArity}
             onChange={(e) => {
               const next = e.target.checked;
+              markFormDirty();
               setDynamicArity(next);
               // When toggling ON: the UI hides the template textarea and only
               // exposes left/sep/right, so we pin every style's template to
@@ -1540,13 +1643,19 @@ export function CreateMacroApp(): React.ReactElement {
           label={t('entries')}
           entryPool={entryPool}
           values={sourceEntries}
-          onChange={setSourceEntries}
+          onChange={(next) => {
+            markFormDirty();
+            setSourceEntries(next);
+          }}
         />
         <ListEditor
           label={t('urls')}
           placeholder={t('urlPlaceholder')}
           values={sourceUrls}
-          onChange={setSourceUrls}
+          onChange={(next) => {
+            markFormDirty();
+            setSourceUrls(next);
+          }}
           warnNonHttp
         />
       </div>
@@ -1555,7 +1664,10 @@ export function CreateMacroApp(): React.ReactElement {
       <TagsEditor
         legend={t('macroTags')}
         values={macroTags}
-        onChange={setMacroTags}
+        onChange={(next) => {
+          markFormDirty();
+          setMacroTags(next);
+        }}
       />
 
       {/* --- Submit --------------------------------------------------------- */}

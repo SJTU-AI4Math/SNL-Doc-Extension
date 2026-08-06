@@ -94,6 +94,7 @@ export interface OutlineNode {
 
 type Incoming =
   | { type: 'libraries'; libraries: LibraryEntry[] }
+  | { type: 'librariesError'; message: string }
   | {
       type: 'libraryEntries';
       slug: string;
@@ -112,6 +113,7 @@ type Incoming =
 type View =
   | { kind: 'loading' }
   | { kind: 'libraries'; libraries: LibraryEntry[] }
+  | { kind: 'librariesError'; message: string; previous: LibraryEntry[] | null }
   | {
       kind: 'library';
       slug: string;
@@ -143,6 +145,18 @@ export function App(): React.ReactElement {
             kind: 'libraries',
             libraries: Array.isArray(msg.libraries) ? msg.libraries : []
           });
+          break;
+        case 'librariesError':
+          setView((current) => ({
+            kind: 'librariesError',
+            message: msg.message || 'Unknown error',
+            previous:
+              current.kind === 'libraries'
+                ? current.libraries
+                : current.kind === 'librariesError'
+                  ? current.previous
+                  : null
+          }));
           break;
         case 'libraryEntries':
           if (msg.macros && typeof msg.macros === 'object') {
@@ -316,6 +330,8 @@ function renderCurrentView(view: View, ctx: RenderCtx): React.ReactElement {
       return <LoadingLayer />;
     case 'libraries':
       return <LibrariesLayer libraries={view.libraries} ctx={ctx} />;
+    case 'librariesError':
+      return <LibrariesErrorLayer message={view.message} previous={view.previous} ctx={ctx} />;
     case 'library':
       return (
         <LibraryLayer
@@ -342,6 +358,30 @@ function LoadingLayer(): React.ReactElement {
       <p style={{ opacity: 0.7 }}>{t('loadingLibraries')}</p>
     </>
   );
+}
+
+function LibrariesErrorLayer({
+  message,
+  previous,
+  ctx
+}: {
+  message: string;
+  previous: LibraryEntry[] | null;
+  ctx: RenderCtx;
+}): React.ReactElement {
+  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
+  const prefix = use_localized(ui('Could not load libraries:', '无法加载文档库：'));
+  const retry = use_localized(ui('Retry', '重试'));
+  const alert = (
+    <div role="alert" style={{ marginBottom: 16 }}>
+      <p>{prefix} {message}</p>
+      <Button onClick={() => ctx.postMessage({ type: 'ready' })}>{retry}</Button>
+    </div>
+  );
+  if (previous) {
+    return <>{alert}<LibrariesLayer libraries={previous} ctx={ctx} /></>;
+  }
+  return <><TopBar title={title} />{alert}</>;
 }
 
 function LibrariesLayer({

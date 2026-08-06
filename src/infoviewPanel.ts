@@ -568,7 +568,10 @@ export class InfoviewPanel {
       vscode.window.showErrorMessage(
         hostText()('listLibrariesFailed', { error: text })
       );
-      void this.panel.webview.postMessage({ type: 'libraries', libraries: [] });
+      void this.panel.webview.postMessage({
+        type: 'librariesError',
+        message: text
+      });
     }
   }
 

@@ -25,6 +25,24 @@ afterEach(() => {
 });
 
 describe('Infoview navigation', () => {
+  it('shows library read failures instead of an empty catalog and retries', () => {
+    const view = render(<App />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'librariesError', message: 'meta.json is malformed' }
+      }));
+    });
+
+    expect(view.getByRole('alert').textContent).toContain(
+      'Could not load libraries: meta.json is malformed'
+    );
+    expect(view.queryByText(/No libraries yet/)).toBeNull();
+
+    api.postMessage.mockClear();
+    fireEvent.click(view.getByRole('button', { name: 'Retry' }));
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'ready' });
+  });
+
   it('uses the explicit back transition from a directly opened Library', () => {
     const view = render(<App />);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'ready' });

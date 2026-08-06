@@ -850,6 +850,26 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(loadDraft(api, 'createEntry:create:')).toBeUndefined();
   });
 
+  it('treats duplicate createCommitted delivery as idempotent', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => { send(createContext()); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    const idInput = view.container.querySelector<HTMLInputElement>('#snl-entry-id')!;
+    fireEvent.input(title, { target: { value: 'Current committed draft' } });
+    fireEvent.input(idInput, { target: { value: 'duplicate-committed' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+
+    act(() => { send({ type: 'createCommitted', id: 'duplicate-committed' }); });
+    await waitFor(() => expect(
+      loadDraft<{ title: string }>(api, 'createEntry:edit:duplicate-committed')?.title
+    ).toBe('Current committed draft'));
+
+    act(() => { send({ type: 'createCommitted', id: 'duplicate-committed' }); });
+    await waitFor(() => expect(
+      loadDraft<{ title: string }>(api, 'createEntry:edit:duplicate-committed')?.title
+    ).toBe('Current committed draft'));
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

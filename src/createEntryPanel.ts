@@ -552,6 +552,7 @@ export class CreateEntryPanel {
     let requestTargetGeneration = this.targetGeneration;
     const requestMode = this.mode;
     const requestId = this.id;
+    let committedCreateId: string | undefined;
     const targetIsCurrent = (): boolean =>
       this.targetGeneration === requestTargetGeneration;
 
@@ -660,9 +661,10 @@ export class CreateEntryPanel {
           // Tell the webview to migrate create→edit ownership immediately so
           // a later reconciliation error/context cannot overwrite edits made
           // after submission. This is not a full-save success acknowledgement.
+          committedCreateId = result.id;
           await this.panel.webview.postMessage({
             type: 'createCommitted',
-            id: result.id
+            id: committedCreateId
           });
           if (!(await this.regenerateSavedEntryDependencies(
             root,
@@ -731,6 +733,15 @@ export class CreateEntryPanel {
       if (!targetIsCurrent()) {
         await this.pushContext();
         return;
+      }
+      // The Entry may already be durable even if the first ownership message
+      // rejected. Retry it before error/context; the webview handles duplicates
+      // idempotently, giving this transition at-least-once delivery semantics.
+      if (committedCreateId) {
+        await this.panel.webview.postMessage({
+          type: 'createCommitted',
+          id: committedCreateId
+        });
       }
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));

@@ -732,6 +732,7 @@ export function CreateEntryApp(): React.ReactElement {
    * must not blank Preview/Canvas or rebuild the Canvas forest.
    */
   const justSavedIdRef = useRef<string | null>(null);
+  const committedCreateIdRef = useRef<string | null>(null);
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     pointer: unknown;
@@ -820,6 +821,7 @@ export function CreateEntryApp(): React.ReactElement {
           // dirty/draft/save-ack bookkeeping that belonged to the old target.
           restoredDraftIdRef.current = null;
           justSavedIdRef.current = null;
+          committedCreateIdRef.current = null;
           submittedEditGenerationRef.current = null;
           editingIdRef.current = '';
           entryRevisionRef.current = undefined;
@@ -987,6 +989,11 @@ export function CreateEntryApp(): React.ReactElement {
           // Edit, but dependency reconciliation is still pending. Migrate
           // ownership without clearing dirty state or claiming save success.
           const createdId = typeof msg.id === 'string' ? msg.id : '';
+          if (
+            committedCreateIdRef.current === createdId &&
+            editingIdRef.current === createdId
+          ) break;
+          committedCreateIdRef.current = createdId;
           // The key switch itself must be atomic with draft ownership. A stale
           // edit draft from an older session for the newly-created ID must not
           // hydrate over the current in-memory form; the dirty effect below
@@ -1010,6 +1017,7 @@ export function CreateEntryApp(): React.ReactElement {
           // the follow-up `edit` context is recognised as the SAME target and
           // preserves what is already on screen instead of re-filling it.
           const createdId = typeof msg.id === 'string' ? msg.id : '';
+          committedCreateIdRef.current = createdId;
           editingIdRef.current = createdId;
           justSavedIdRef.current = createdId;
           // The host now treats Package responses from the create target as

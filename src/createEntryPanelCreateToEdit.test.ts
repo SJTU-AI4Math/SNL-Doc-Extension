@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const posted: any[] = [];
 const events: string[] = [];
-const panelRecord = { title: '' };
+const panelRecord: { title: string; postMessage?: ReturnType<typeof vi.fn> } = { title: '' };
 let messageHandler: ((e: any) => unknown) | undefined;
 
 vi.mock('vscode', () => ({
@@ -35,6 +35,12 @@ vi.mock('vscode', () => ({
     showInformationMessage: () => undefined,
     createWebviewPanel: (_type: string, title: string) => {
       panelRecord.title = title;
+      const postMessage = vi.fn(async (m: any) => {
+        posted.push(m);
+        events.push(`post:${String(m?.type)}`);
+        return true;
+      });
+      panelRecord.postMessage = postMessage;
       return {
         get title() { return panelRecord.title; },
         set title(next: string) { panelRecord.title = next; },
@@ -42,11 +48,7 @@ vi.mock('vscode', () => ({
           html: '',
           asWebviewUri: (u: { path: string }) => ({ toString: () => u.path }),
           cspSource: 'vscode-webview://x',
-          postMessage: async (m: any) => {
-            posted.push(m);
-            events.push(`post:${String(m?.type)}`);
-            return true;
-          },
+          postMessage,
           onDidReceiveMessage: (h: (e: any) => unknown) => {
             messageHandler = h;
             return { dispose: () => undefined };
@@ -222,6 +224,33 @@ describe('CreateEntryPanel create -> edit flip', () => {
     )).toBe(false);
     expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
     expect(contexts().at(-1)?.id).toBe('entry-b');
+  });
+
+  it('retries committed ownership before error/context when its first delivery rejects', async () => {
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    panelRecord.postMessage!.mockRejectedValueOnce(
+      new Error('createCommitted transport failed')
+    );
+
+    await messageHandler!({
+      type: 'create',
+      entry: { id: 'committed-retry', kind: 'definition', title: 'Committed retry', content: {} }
+    });
+
+    const committed = posted.find((message) =>
+      message?.type === 'createCommitted' && message.id === 'committed-retry'
+    );
+    const error = posted.find((message) =>
+      message?.type === 'error' && message.message === 'createCommitted transport failed'
+    );
+    const context = contexts().at(-1);
+    expect(committed).toBeTruthy();
+    expect(error).toBeTruthy();
+    expect(context).toMatchObject({ mode: 'edit', id: 'committed-retry' });
+    expect(posted.indexOf(committed)).toBeLessThan(posted.indexOf(error));
+    expect(posted.indexOf(error)).toBeLessThan(posted.indexOf(context));
   });
 
   it('does not publish a stale update completion into a retargeted panel', async () => {

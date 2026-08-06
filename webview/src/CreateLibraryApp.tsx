@@ -63,7 +63,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
     noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
     defaultCounter: '<default>', copyEntryId: 'Click to copy entry id\n{id}', entryId: 'Entry id',
-    entryTargetId: 'Entry ID indexed by node {id}', entryTargetTitle: 'Changes which Entry this row indexes; node identity and topology stay unchanged',
+    entryTargetId: 'Entry ID indexed by node {id}',
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
@@ -88,7 +88,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
     pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
     copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryTargetId: '节点 {id} 索引的条目 ID',
-    entryTargetTitle: '修改此行索引的条目；节点标识和拓扑保持不变', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
+    entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
     graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
@@ -1189,6 +1189,7 @@ function OutlineEditor({
     <OutlineRowContent
       node={node}
       entriesById={entriesById}
+      entryOptions={entryOptions}
       kindsById={kindsById}
       numbersById={numbersById}
       counters={counters}
@@ -1200,8 +1201,13 @@ function OutlineEditor({
       metricThresholds={graph.metricThresholds}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
-      onUpdateNodeEntry={(nodeId, entryId) =>
-        onGraphOp({ op: 'updateNodeEntry', nodeId, entryId })
+      onUpdateNodeEntry={(nodeId, expectedEntryId, entryId) =>
+        onGraphOp({
+          op: 'setNodeEntryId',
+          nodeId,
+          expectedEntryId,
+          entryId
+        })
       }
     />
   );
@@ -1297,6 +1303,7 @@ function OutlineEditor({
 interface OutlineRowContentProps {
   node: GraphNode;
   entriesById: Map<string, EntryPoolItem>;
+  entryOptions: EntryOption[];
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
   counters: CounterNode[];
@@ -1304,7 +1311,11 @@ interface OutlineRowContentProps {
   metricThresholds: EntryMetricThresholds;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
-  onUpdateNodeEntry: (nodeId: string, entryId: string) => void;
+  onUpdateNodeEntry: (
+    nodeId: string,
+    expectedEntryId: string | null,
+    entryId: string
+  ) => void;
 }
 
 /**
@@ -1315,6 +1326,7 @@ interface OutlineRowContentProps {
 function OutlineRowContent({
   node,
   entriesById,
+  entryOptions,
   kindsById,
   numbersById,
   counters,
@@ -1361,8 +1373,12 @@ function OutlineRowContent({
       <OutlineEntryTargetEditor
         nodeId={node.id}
         entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
-        entries={Array.from(entriesById.values())}
-        onCommit={(entryId) => onUpdateNodeEntry(node.id, entryId)}
+        entries={entryOptions}
+        onCommit={(entryId) => onUpdateNodeEntry(
+          node.id,
+          typeof node.props.entryId === 'string' ? node.props.entryId : null,
+          entryId
+        )}
       />
 
       {kind ? <KindBadge kind={kind} /> : null}
@@ -1535,81 +1551,35 @@ function OutlineEntryTargetEditor({
 }: {
   nodeId: string;
   entryId: string;
-  entries: EntryPoolItem[];
+  entries: EntryOption[];
   onCommit: (entryId: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const [draft, setDraft] = useState(entryId);
-  const submittedSinceFocusRef = useRef(false);
-  const cancelBlurRef = useRef(false);
-  const listId = React.useId();
   useEffect(() => {
     setDraft(entryId);
-    submittedSinceFocusRef.current = false;
   }, [entryId]);
-  const commit = (): void => {
-    if (draft.length > 0 && draft !== entryId && !submittedSinceFocusRef.current) {
-      submittedSinceFocusRef.current = true;
-      onCommit(draft);
-    }
-  };
   return (
-    <>
-      <input
-        value={draft}
-        list={listId}
-        aria-label={t('entryTargetId', { id: nodeId })}
-        title={t('entryTargetTitle')}
-        onClick={(event) => event.stopPropagation()}
-        onFocus={() => {
-          submittedSinceFocusRef.current = false;
-        }}
-        onChange={(event) => {
-          submittedSinceFocusRef.current = false;
-          setDraft(event.target.value);
-        }}
-        onBlur={() => {
-          if (cancelBlurRef.current) {
-            cancelBlurRef.current = false;
-            return;
-          }
-          commit();
-        }}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commit();
-            event.currentTarget.blur();
-          } else if (event.key === 'Escape') {
-            event.preventDefault();
-            cancelBlurRef.current = true;
-            setDraft(entryId);
-            event.currentTarget.blur();
-          }
-        }}
-        style={{
-          width: '9rem',
-          flex: '0 1 9rem',
-          minWidth: '5rem',
-          boxSizing: 'border-box',
-          padding: '0.1rem 0.3rem',
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          fontSize: '0.72rem',
-          color: 'var(--vscode-input-foreground, inherit)',
-          background: 'var(--vscode-input-background, #2a2a2a)',
-          border: '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-          borderRadius: '2px'
-        }}
-      />
-      <datalist id={listId}>
-        {entries.map((candidate) => (
-          <option key={candidate.id} value={candidate.id}>
-            {candidate.id} — {candidate.title || t('untitled')}
-          </option>
-        ))}
-      </datalist>
-    </>
+    <EntityIdSearchBox
+      entries={entries}
+      value={draft}
+      onChange={setDraft}
+      onCommit={(nextEntryId) => {
+        if (nextEntryId !== entryId) onCommit(nextEntryId);
+      }}
+      onCancel={() => setDraft(entryId)}
+      validate={ENTRY_VALIDATE_RULES.requireMatch}
+      label={t('entryTargetId', { id: nodeId })}
+      idPrefix={`snl-library-node-entry-${nodeId}`}
+      hideResolvedChip
+      suggestionsInFlow
+      style={{ width: '11rem', flex: '0 1 11rem', minWidth: '6rem' }}
+      inputStyle={{
+        padding: '0.1rem 0.3rem',
+        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+        fontSize: '0.72rem'
+      }}
+    />
   );
 }
 

@@ -43,7 +43,8 @@ export interface LibraryGraph {
 
 export type UpdateRawLibraryGraphNodeEntryResult =
   | { ok: true; value: Record<string, unknown>; changed: boolean }
-  | { ok: false; reason: 'invalid' | 'notFound' };
+  | { ok: false; reason: 'invalid' | 'notFound' }
+  | { ok: false; reason: 'conflict'; currentEntryId: string | null };
 
 /**
  * Change which shared Entry a graph-local outline node indexes.
@@ -55,6 +56,7 @@ export type UpdateRawLibraryGraphNodeEntryResult =
 export function updateRawLibraryGraphNodeEntryId(
   raw: unknown,
   nodeId: string,
+  expectedEntryId: string | null,
   entryId: string
 ): UpdateRawLibraryGraphNodeEntryResult {
   const nextEntryId = entryId.trim();
@@ -77,10 +79,16 @@ export function updateRawLibraryGraphNodeEntryId(
   if (matches.length === 0) return { ok: false, reason: 'notFound' };
   if (matches.length !== 1) return { ok: false, reason: 'invalid' };
   const target = matches[0] as Record<string, unknown>;
-  if (!target.props || typeof target.props !== 'object' || Array.isArray(target.props)) {
+  if (target.props !== undefined && (
+    target.props === null || typeof target.props !== 'object' || Array.isArray(target.props)
+  )) {
     return { ok: false, reason: 'invalid' };
   }
-  const props = target.props as Record<string, unknown>;
+  const props = (target.props ?? {}) as Record<string, unknown>;
+  const currentEntryId = typeof props.entryId === 'string' ? props.entryId : null;
+  if (currentEntryId !== expectedEntryId) {
+    return { ok: false, reason: 'conflict', currentEntryId };
+  }
   if (props.entryId === nextEntryId) return { ok: true, value: wrapper, changed: false };
   return {
     ok: true,

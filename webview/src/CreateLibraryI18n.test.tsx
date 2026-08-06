@@ -78,6 +78,9 @@ describe('Library editor localization', () => {
 
     expect(view.getByText('⚠ 待创建')).toBeTruthy();
     expect(view.getByText('pending-entry-id')).toBeTruthy();
+    expect((view.getByRole('combobox', {
+      name: '节点 node-1 索引的条目 ID'
+    }) as HTMLInputElement).value).toBe('pending-entry-id');
     fireEvent.click(view.getByRole('button', { name: '+ 添加根条目' }));
     expect(view.getByText('条目 ID')).toBeTruthy();
     expect(view.getByPlaceholderText('搜索现有条目，或输入新 ID 后点击“创建”')).toBeTruthy();

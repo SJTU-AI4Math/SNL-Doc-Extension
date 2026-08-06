@@ -5140,11 +5140,13 @@ export async function updateLibraryGraphNodeEntryId(
   workspaceRoot: vscode.Uri,
   slug: string,
   nodeId: string,
+  expectedEntryId: string | null,
   entryId: string
 ): Promise<
   | { status: 'ok' }
   | { status: 'invalid' }
   | { status: 'notFound' }
+  | { status: 'conflict'; currentEntryId: string | null }
   | { status: 'error'; message: string }
 > {
   return withExtensionWriterLock(workspaceRoot, 'update Library graph Entry reference', async () => {
@@ -5162,8 +5164,17 @@ export async function updateLibraryGraphNodeEntryId(
         message: error instanceof Error ? error.message : String(error)
       } as const;
     }
-    const updated = updateRawLibraryGraphNodeEntryId(raw, nodeId, entryId);
-    if (!updated.ok) return { status: updated.reason } as const;
+    const updated = updateRawLibraryGraphNodeEntryId(
+      raw,
+      nodeId,
+      expectedEntryId,
+      entryId
+    );
+    if (!updated.ok) {
+      return updated.reason === 'conflict'
+        ? { status: 'conflict', currentEntryId: updated.currentEntryId } as const
+        : { status: updated.reason } as const;
+    }
     if (!updated.changed) return { status: 'ok' } as const;
     try {
       await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(updated.value), raw);

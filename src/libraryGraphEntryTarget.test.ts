@@ -24,7 +24,12 @@ describe('updateRawLibraryGraphNodeEntryId', () => {
 
   it('changes only the indexed Entry reference and preserves node identity and topology', () => {
     const original = structuredClone(graph);
-    const result = updateRawLibraryGraphNodeEntryId(graph, 'outline-node', 'entry-new');
+    const result = updateRawLibraryGraphNodeEntryId(
+      graph,
+      'outline-node',
+      'entry-old',
+      'entry-new'
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -51,20 +56,44 @@ describe('updateRawLibraryGraphNodeEntryId', () => {
     ['entry-new\n', 'invalid']
   ] as const)('rejects invalid target %j without mutating graph', (entryId, reason) => {
     const original = structuredClone(graph);
-    expect(updateRawLibraryGraphNodeEntryId(graph, 'outline-node', entryId))
+    expect(updateRawLibraryGraphNodeEntryId(graph, 'outline-node', 'entry-old', entryId))
       .toEqual({ ok: false, reason });
     expect(graph).toEqual(original);
   });
 
   it('rejects missing and malformed target nodes without replacing their data', () => {
-    expect(updateRawLibraryGraphNodeEntryId(graph, 'missing', 'entry-new'))
+    expect(updateRawLibraryGraphNodeEntryId(graph, 'missing', null, 'entry-new'))
       .toEqual({ ok: false, reason: 'notFound' });
     const malformedProps = {
       nodes: [{ id: 'outline-node', label: 'Entry', props: 'do-not-replace' }],
       relationships: []
     };
-    expect(updateRawLibraryGraphNodeEntryId(malformedProps, 'outline-node', 'entry-new'))
+    expect(updateRawLibraryGraphNodeEntryId(malformedProps, 'outline-node', null, 'entry-new'))
       .toEqual({ ok: false, reason: 'invalid' });
     expect(malformedProps.nodes[0].props).toBe('do-not-replace');
+  });
+
+  it('rejects a stale expected Entry reference without changing the graph', () => {
+    const original = structuredClone(graph);
+    expect(updateRawLibraryGraphNodeEntryId(
+      graph,
+      'outline-node',
+      'entry-stale',
+      'entry-new'
+    )).toEqual({ ok: false, reason: 'conflict', currentEntryId: 'entry-old' });
+    expect(graph).toEqual(original);
+  });
+
+  it('can assign an Entry to a node whose props are absent', () => {
+    const withoutProps = { nodes: [{ id: 'outline-node', label: 'Entry' }], relationships: [] };
+    const result = updateRawLibraryGraphNodeEntryId(
+      withoutProps,
+      'outline-node',
+      null,
+      'entry-new'
+    );
+    expect(result.ok && result.value.nodes).toEqual([
+      { id: 'outline-node', label: 'Entry', props: { entryId: 'entry-new' } }
+    ]);
   });
 });

@@ -34,8 +34,10 @@ vi.mock('./snlDoc', () => ({
     operationGraph = structuredClone(graph);
     return { status: 'ok' };
   }),
-  updateLibraryGraphNodeEntryId: vi.fn(async (_root: unknown, _slug: string, nodeId: string, entryId: string) => {
-    if (!operationGraph.nodes.some((node) => node.id === nodeId)) return { status: 'notFound' };
+  updateLibraryGraphNodeEntryId: vi.fn(async (_root: unknown, _slug: string, nodeId: string, expectedEntryId: string | null, entryId: string) => {
+    const target = operationGraph.nodes.find((node) => node.id === nodeId);
+    if (!target) return { status: 'notFound' };
+    if ((target.props?.entryId ?? null) !== expectedEntryId) return { status: 'conflict' };
     operationGraph = {
       nodes: operationGraph.nodes.map((node) => node.id === nodeId
         ? { ...node, props: { ...node.props, entryId } }
@@ -159,7 +161,12 @@ describe('CreateLibraryPanel refresh ordering', () => {
 
     await panel.handleMessage({
       type: 'graphOp',
-      op: { op: 'updateNodeEntry', nodeId: 'root', entryId: 'entry-c' }
+      op: {
+        op: 'setNodeEntryId',
+        nodeId: 'root',
+        expectedEntryId: 'entry-a',
+        entryId: 'entry-c'
+      }
     });
 
     expect(operationGraph.nodes.map((node) => node.id)).toEqual(['root', 'child']);
@@ -172,6 +179,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
       expect.objectContaining({ path: '/workspace' }),
       'lib',
       'root',
+      'entry-a',
       'entry-c'
     );
     expect(snlDoc.writeLibraryGraph).not.toHaveBeenCalled();
@@ -194,13 +202,40 @@ describe('CreateLibraryPanel refresh ordering', () => {
 
     await panel.handleMessage({
       type: 'graphOp',
-      op: { op: 'updateNodeEntry', nodeId: 'root', entryId: '' }
+      op: { op: 'setNodeEntryId', nodeId: 'root', expectedEntryId: 'entry-a', entryId: '' }
     });
 
     expect(snlDoc.updateLibraryGraphNodeEntryId).not.toHaveBeenCalled();
     expect(posted).toContainEqual({
       type: 'graphError',
-      message: 'updateNodeEntry: nodeId and entryId are required'
+      message: 'setNodeEntryId: nodeId, expectedEntryId, and entryId are required'
+    });
+  });
+
+  it('rejects a stale indexed Entry expectation instead of overwriting another panel', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [{ id: 'root', label: 'Entry', props: { entryId: 'entry-current' } }],
+      relationships: []
+    };
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: {
+        op: 'setNodeEntryId',
+        nodeId: 'root',
+        expectedEntryId: 'entry-stale',
+        entryId: 'entry-new'
+      }
+    });
+
+    expect(operationGraph.nodes[0].props.entryId).toBe('entry-current');
+    expect(posted).toContainEqual({
+      type: 'graphError',
+      message: 'Outline node "root" changed on disk. Refresh and retry.'
     });
   });
 

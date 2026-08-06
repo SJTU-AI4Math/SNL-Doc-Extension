@@ -73,7 +73,7 @@ beforeEach(() => {
 
 describe('updateLibraryGraphNodeEntryId raw CAS writer', () => {
   it('preserves unknown data, node identity, and every relationship', async () => {
-    expect(await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-b')).toEqual({ status: 'ok' });
+    expect(await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-a', 'entry-b')).toEqual({ status: 'ok' });
     const graph = JSON.parse(dec.decode(files.get(graphPath)!));
     expect(graph.extension).toEqual({ keep: true });
     expect(graph.nodes).toEqual([
@@ -90,7 +90,7 @@ describe('updateLibraryGraphNodeEntryId raw CAS writer', () => {
 
   it('rejects a stale snapshot instead of overwriting a concurrent writer', async () => {
     injectConcurrentWrite = true;
-    const result = await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-b');
+    const result = await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-a', 'entry-b');
     expect(result).toMatchObject({ status: 'error' });
     expect(result.status === 'error' ? result.message : '').toContain('Refusing stale write');
     const graph = JSON.parse(dec.decode(files.get(graphPath)!));

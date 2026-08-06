@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup } from '@testing-library/react';
@@ -12,6 +13,39 @@ afterEach(() => {
 });
 
 describe('EntityIdSearchBox localization', () => {
+  it('separates raw search drafts from committed existing Entry selections', () => {
+    const commits: string[] = [];
+    function Harness(): React.ReactElement {
+      const [value, setValue] = useState('entry-one');
+      return (
+        <EntityIdSearchBox
+          entries={[
+            { id: 'entry-one', title: 'One', hasContent: true },
+            { id: 'entry-two', title: 'Two', hasContent: true }
+          ]}
+          value={value}
+          onChange={setValue}
+          onCommit={(entryId) => commits.push(entryId)}
+          onCancel={() => setValue('entry-one')}
+          label="Entry ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('combobox', { name: 'Entry ID' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'entry-t' } });
+    expect(commits).toEqual([]);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(commits).toEqual(['entry-two']);
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'unmatched' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.value).toBe('entry-one');
+    expect(commits).toEqual(['entry-two']);
+  });
+
   it('localizes default validation and search-result affordances', () => {
     document.documentElement.lang = 'zh-CN';
     const view = render(

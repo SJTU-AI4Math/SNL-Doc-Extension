@@ -529,12 +529,16 @@ describe('CreateEntryApp create → edit flip', () => {
 
   it('keeps Preview and Canvas content through the immediate post-update context', async () => {
     const view = render(<CreateEntryApp />);
-    send(editContext({
-      id: 'saved-canvas',
-      title: 'Saved Canvas',
-      kind: 'definition',
-      content: { snl: 'root(child)' }
-    }));
+    send({
+      ...(editContext({
+        id: 'saved-canvas',
+        title: 'Saved Canvas',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }) as Record<string, unknown>),
+      targetGeneration: 7,
+      entryRevision: 'revision-1'
+    });
 
     await waitFor(() => {
       expect(view.getByTestId('entry-preview-surface').textContent).toBe('root(child)');
@@ -546,18 +550,35 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
     const update = posted.findLast((message) => message?.type === 'update');
     expect(update?.entry.content.snl).toBe('root(child)');
+    expect(update?.expectedRevision).toBe('revision-1');
 
     act(() => {
-      send({ type: 'updated', id: 'saved-canvas' });
+      send({
+        type: 'updateCommitted',
+        id: 'saved-canvas',
+        revision: 'revision-2',
+        targetGeneration: 7,
+        saveRequestId: update.saveRequestId
+      });
+      send({
+        type: 'updated',
+        id: 'saved-canvas',
+        targetGeneration: 7,
+        saveRequestId: update.saveRequestId
+      });
       // The save's follow-up read can race a watcher/cache and briefly carry an
       // older empty snapshot. It must update revision/metadata without erasing
       // the content that was just acknowledged as successfully persisted.
-      send(editContext({
-        id: 'saved-canvas',
-        title: 'STALE HOST ECHO',
-        kind: 'definition',
-        content: {}
-      }));
+      send({
+        ...(editContext({
+          id: 'saved-canvas',
+          title: 'STALE HOST ECHO',
+          kind: 'definition',
+          content: {}
+        }) as Record<string, unknown>),
+        targetGeneration: 7,
+        entryRevision: 'revision-2'
+      });
     });
 
     await waitFor(() => {
@@ -567,19 +588,10 @@ describe('CreateEntryApp create → edit flip', () => {
     });
     expect(renderedMacroDrivers.at(-1)).toBe(driverBeforeSaveRefresh);
 
-    act(() => {
-      send(editContext({
-        id: 'saved-canvas',
-        title: 'Later authoritative refresh',
-        kind: 'definition',
-        content: { snl: 'replacement(next)' }
-      }));
-    });
-    await waitFor(() => {
-      expect(view.getByTestId('entry-preview-surface').textContent).toBe('replacement(next)');
-      expect(view.container.querySelector<HTMLElement>('[data-canvas-root]')?.textContent)
-        .toContain('replacement');
-    });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const retry = posted.findLast((message) => message?.type === 'update');
+    expect(retry?.saveRequestId).not.toBe(update.saveRequestId);
+    expect(retry?.expectedRevision).toBe('revision-2');
   });
 
   it('does not carry a saved-context guard across retargets', async () => {

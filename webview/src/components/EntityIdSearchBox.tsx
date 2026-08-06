@@ -174,6 +174,11 @@ export interface EntityIdSearchBoxProps {
   /** Emitted on Enter/click of a highlighted result OR on raw text edits
    *  (so parent state stays in sync while user is typing). */
   onChange: (nextValue: string) => void;
+  /** Emitted only when the author commits an existing suggestion with Enter
+   *  or pointer selection. Raw query keystrokes never call this callback. */
+  onCommit?: (entryId: string) => void;
+  /** Optional Escape hook for callers that keep an uncommitted local draft. */
+  onCancel?: () => void;
   /** Validation rule. Default: {@link ENTRY_VALIDATE_RULES.requireMatch}
    *  (the safest default — matches the original widget's "must pick from
    *  the list" behavior). Pass a preset or your own function. */
@@ -228,6 +233,8 @@ export function EntityIdSearchBox(
     entries,
     value,
     onChange,
+    onCommit,
+    onCancel,
     validate = ENTRY_VALIDATE_RULES.requireMatch,
     placeholder,
     maxResults = 30,
@@ -302,10 +309,18 @@ export function EntityIdSearchBox(
 
   function commit(entry: EntryOption): void {
     onChange(entry.id);
+    onCommit?.(entry.id);
     setOpen(false);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    if (e.key === 'Escape' && onCancel) {
+      e.preventDefault();
+      onCancel();
+      setOpen(false);
+      inputRef.current?.blur();
+      return;
+    }
     const navigation = entitySearchKeyAction(
       e.key,
       highlightIdx,

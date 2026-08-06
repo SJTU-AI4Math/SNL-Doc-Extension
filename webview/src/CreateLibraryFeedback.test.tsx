@@ -119,19 +119,25 @@ describe('Create Library feedback', () => {
 
     const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
     expect(entryId.value).toBe('entry-one');
-    expect(document.querySelector('datalist option[value="entry-two"]')?.textContent)
-      .toContain('Entry Two');
     entryId.focus();
-    fireEvent.change(entryId, { target: { value: 'entry-two' } });
+    fireEvent.change(entryId, { target: { value: 'entry-t' } });
+    expect(screen.getByRole('option', { name: /entry-two.*Entry Two/ })).toBeTruthy();
+    expect(postMessage.mock.calls.some(([message]) =>
+      message?.type === 'graphOp' && message?.op?.op === 'setNodeEntryId'
+    )).toBe(false);
     fireEvent.keyDown(entryId, { key: 'Enter' });
-    fireEvent.blur(entryId);
 
     expect(postMessage).toHaveBeenCalledWith({
       type: 'graphOp',
-      op: { op: 'updateNodeEntry', nodeId: 'n_1', entryId: 'entry-two' }
+      op: {
+        op: 'setNodeEntryId',
+        nodeId: 'n_1',
+        expectedEntryId: 'entry-one',
+        entryId: 'entry-two'
+      }
     });
     expect(postMessage.mock.calls.filter(([message]) =>
-      message?.type === 'graphOp' && message?.op?.op === 'updateNodeEntry'
+      message?.type === 'graphOp' && message?.op?.op === 'setNodeEntryId'
     )).toHaveLength(1);
     expect(postMessage.mock.calls.some(([message]) =>
       message?.type === 'graphOp' && message?.op?.op === 'renameNode'
@@ -155,7 +161,7 @@ describe('Create Library feedback', () => {
 
     expect(entryId.value).toBe('entry-one');
     expect(postMessage.mock.calls.some(([message]) =>
-      message?.type === 'graphOp' && message?.op?.op === 'updateNodeEntry'
+      message?.type === 'graphOp' && message?.op?.op === 'setNodeEntryId'
     )).toBe(false);
   });
 });

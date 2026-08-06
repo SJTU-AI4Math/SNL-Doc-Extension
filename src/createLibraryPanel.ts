@@ -61,9 +61,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent: nodeId required',
     updateNodeRequired: 'updateNodeProps: nodeId is required',
     updateNodeNotFound: 'updateNodeProps: node "{node}" not found',
-    updateNodeEntryRequired: 'updateNodeEntry: nodeId and entryId are required',
+    updateNodeEntryRequired: 'setNodeEntryId: nodeId, expectedEntryId, and entryId are required',
     updateNodeEntryInvalid: 'Entry ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
     updateNodeEntryNotFound: 'Outline node "{node}" no longer exists.',
+    updateNodeEntryConflict: 'Outline node "{node}" changed on disk. Refresh and retry.',
     unknownGraphOp: 'unknown graphOp: {op}'
   },
   {
@@ -100,9 +101,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent：必须指定 nodeId',
     updateNodeRequired: 'updateNodeProps：必须指定 nodeId',
     updateNodeNotFound: 'updateNodeProps：找不到节点“{node}”',
-    updateNodeEntryRequired: 'updateNodeEntry：必须指定 nodeId 和 entryId',
+    updateNodeEntryRequired: 'setNodeEntryId：必须指定 nodeId、expectedEntryId 和 entryId',
     updateNodeEntryInvalid: '条目 ID 不能为空、不能包含首尾空白或控制字符。',
     updateNodeEntryNotFound: '大纲节点“{node}”已不存在。',
+    updateNodeEntryConflict: '大纲节点“{node}”已在磁盘上变更。请刷新后重试。',
     unknownGraphOp: '未知 graphOp：{op}'
   }
 );
@@ -657,23 +659,36 @@ export class CreateLibraryPanel {
     }
 
     try {
-      if (op.op === 'updateNodeEntry') {
+      if (op.op === 'setNodeEntryId') {
         const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
         const entryId = typeof op.entryId === 'string' ? op.entryId : '';
-        if (!nodeId || !entryId) {
+        const expectedEntryId = typeof op.expectedEntryId === 'string'
+          ? op.expectedEntryId
+          : op.expectedEntryId === null
+            ? null
+            : undefined;
+        if (!nodeId || !entryId || expectedEntryId === undefined) {
           void this.panel.webview.postMessage({
             type: 'graphError',
             message: libraryT()('updateNodeEntryRequired')
           });
           return;
         }
-        const updated = await updateLibraryGraphNodeEntryId(root, this.slug, nodeId, entryId);
+        const updated = await updateLibraryGraphNodeEntryId(
+          root,
+          this.slug,
+          nodeId,
+          expectedEntryId,
+          entryId
+        );
         if (updated.status !== 'ok') {
           const message = updated.status === 'invalid'
             ? libraryT()('updateNodeEntryInvalid')
             : updated.status === 'notFound'
               ? libraryT()('updateNodeEntryNotFound', { node: nodeId })
-              : updated.message;
+              : updated.status === 'conflict'
+                ? libraryT()('updateNodeEntryConflict', { node: nodeId })
+                : updated.message;
           void this.panel.webview.postMessage({ type: 'graphError', message });
           return;
         }

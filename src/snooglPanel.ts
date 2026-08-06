@@ -20,6 +20,10 @@ import {
   type EntryData
 } from './snlDoc';
 import {
+  entryMatchesMacroFilter,
+  macroMatchesEntryFilter
+} from './snooglCrossDomainFilter';
+import {
   buildPanelHtml,
   firstWorkspaceFolder,
   handlePanelNavMessage,
@@ -57,6 +61,8 @@ import {
 interface SnoogLFilters {
   /** Restrict to a single kind id (entry_kinds[].id / macro_kinds[].id). */
   kindId?: string;
+  /** Entry mode: Macro ID used by the Entry. Macro mode: source Entry ID. */
+  counterpartId?: string;
 }
 
 interface SnoogLHitEntry {
@@ -74,6 +80,7 @@ interface SnoogLHitMacro {
   packageName: string;
   macroKind: string | null;
   tags: string[];
+  sourceEntries: string[];
   score: number;
 }
 
@@ -172,6 +179,10 @@ export class SnoogLPanel {
         if (rawFilters && typeof rawFilters === 'object') {
           const kindId = (rawFilters as { kindId?: unknown }).kindId;
           if (typeof kindId === 'string' && kindId) filters.kindId = kindId;
+          const counterpartId = (rawFilters as { counterpartId?: unknown }).counterpartId;
+          if (typeof counterpartId === 'string' && counterpartId) {
+            filters.counterpartId = counterpartId;
+          }
         }
         await this.runCurrentQuery({ q, mode, filters });
         return;
@@ -253,6 +264,9 @@ export class SnoogLPanel {
           packageName: pkg.name,
           macroKind: typeof macro.kind === 'string' && macro.kind ? macro.kind : null,
           tags: Array.isArray(macro.tags) ? macro.tags : [],
+          sourceEntries: Array.isArray(macro.source?.entries)
+            ? [...macro.source.entries]
+            : [],
           score: 0
         }))
       );
@@ -264,6 +278,10 @@ export class SnoogLPanel {
             .map((m) => m.kind)
             .filter((k): k is string => typeof k === 'string' && k.length > 0)
         )
+      };
+      const counterpartIdsByMode = {
+        entry: uniqueSorted(macroPackages.map((macro) => macro.id)),
+        macro: uniqueSorted(entries.map((entry) => entry.id).filter(Boolean))
       };
 
       const q = query.q.trim().toLowerCase();
@@ -282,7 +300,8 @@ export class SnoogLPanel {
         type: 'results',
         query,
         results,
-        kindsByMode
+        kindsByMode,
+        counterpartIdsByMode
       });
     } catch (err) {
       if (generation !== this.queryGeneration) return;
@@ -323,6 +342,7 @@ function rankEntries(
 ): SnoogLHitEntry[] {
   const hits = entries
     .filter((entry) => !filters.kindId || entry.kind === filters.kindId)
+    .filter((entry) => entryMatchesMacroFilter(entry, filters.counterpartId ?? ''))
     .map((entry): SnoogLHitEntry => ({
       kind: 'entry',
       id: entry.id ?? '',
@@ -347,7 +367,10 @@ function rankMacros(
 ): SnoogLHitMacro[] {
   const filtered = macros.filter(
     (macro) => !filters.kindId || macro.macroKind === filters.kindId
-  );
+  ).filter((macro) => macroMatchesEntryFilter(
+    { source: { entries: macro.sourceEntries } },
+    filters.counterpartId ?? ''
+  ));
   return rankSnooglDocuments(
     q,
     filtered.map((macro) => createSnooglSearchDocument({

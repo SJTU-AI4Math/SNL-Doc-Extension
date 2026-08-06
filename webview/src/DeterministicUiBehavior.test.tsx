@@ -44,11 +44,13 @@ describe('deterministic panel refresh behavior', () => {
       type: 'results',
       query: { q: 'group', mode: 'macro', filters: { kindId: 'const' } },
       results: [],
-      kindsByMode: { entry: ['theorem'], macro: ['const'] }
+      kindsByMode: { entry: ['theorem'], macro: ['const'] },
+      counterpartIdsByMode: { entry: ['Logic.group'], macro: ['entry-group'] }
     });
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('group');
     expect(screen.getByRole('tab', { name: 'Macro' }).getAttribute('aria-selected')).toBe('true');
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('const');
+    expect((screen.getByRole('combobox', { name: 'Kind (Macro)' }) as HTMLSelectElement).value)
+      .toBe('const');
     const queryCount = posted.filter(
       (message) => (message as { type?: string }).type === 'query'
     ).length;
@@ -56,6 +58,33 @@ describe('deterministic panel refresh behavior', () => {
     expect(posted.filter(
       (message) => (message as { type?: string }).type === 'query'
     )).toHaveLength(queryCount);
+  });
+
+  it('SNoogL uses the opposite ID domain only as an explicit filter', async () => {
+    render(<SnooglApp />);
+    send({
+      type: 'results',
+      query: { q: '', mode: 'entry', filters: {} },
+      results: [],
+      kindsByMode: { entry: [], macro: [] },
+      counterpartIdsByMode: { entry: ['Logic.rule'], macro: ['entry-a'] }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Uses Macro ID' }), {
+      target: { value: 'Logic.rule' }
+    });
+    await waitFor(() => expect(posted).toContainEqual({
+      type: 'query', q: '', mode: 'entry', filters: { counterpartId: 'Logic.rule' }
+    }), { timeout: 500 });
+
+    send({
+      type: 'results',
+      query: { q: '', mode: 'macro', filters: { counterpartId: 'entry-a' } },
+      results: [],
+      kindsByMode: { entry: [], macro: [] },
+      counterpartIdsByMode: { entry: ['Logic.rule'], macro: ['entry-a'] }
+    });
+    expect((screen.getByRole('combobox', { name: 'Source Entry ID' }) as HTMLSelectElement).value)
+      .toBe('entry-a');
   });
 });
 

@@ -15,14 +15,14 @@ const MESSAGES = defineUiMessages('snoogl', {
   entry: 'Entry', macro: 'Macro', entryPlaceholder: 'Search entries — id or title…',
   macroPlaceholder: 'Search macros — name across every active package…', filters: 'Filters',
   kindMode: 'Kind ({mode})', any: '(any)', moreFilters: 'More filters coming — tag / source / content-format / rerank score…',
-  noMatches: 'No matches.', results: '{mode} results', untitled: '(untitled)', rerankScore: 'rerank score: {score}'
+  usesMacro: 'Uses Macro ID', sourceEntry: 'Source Entry ID', noMatches: 'No matches.', results: '{mode} results', untitled: '(untitled)', rerankScore: 'rerank score: {score}'
 }, {
   title: 'SNoogL', subtitle: '搜索工作区中的条目和宏。', dashboard: '← 仪表板',
   dashboardTitle: '返回 SNL 仪表板', searchTarget: '搜索目标', entry: '条目', macro: '宏',
   entryPlaceholder: '搜索条目——按 ID 或标题……', macroPlaceholder: '搜索宏——在所有已启用包中按名称……',
   filters: '筛选器', kindMode: '种类（{mode}）', any: '（任意）',
   moreFilters: '更多筛选器即将推出——标签 / 来源 / 内容格式 / 重排分数……', noMatches: '无匹配项。',
-  results: '{mode}结果', untitled: '（无标题）', rerankScore: '重排分数：{score}'
+  usesMacro: '使用的宏 ID', sourceEntry: '来源条目 ID', results: '{mode}结果', untitled: '（无标题）', rerankScore: '重排分数：{score}'
 });
 
 /**
@@ -38,6 +38,7 @@ type Mode = 'entry' | 'macro';
 
 interface Filters {
   kindId?: string;
+  counterpartId?: string;
 }
 
 interface HitEntry {
@@ -70,6 +71,7 @@ interface ResultsMsg {
   query: { q: string; mode: Mode; filters: Filters };
   results: Hit[];
   kindsByMode: KindsByMode;
+  counterpartIdsByMode: KindsByMode;
 }
 
 type Incoming =
@@ -87,6 +89,9 @@ export function SnooglApp(): React.ReactElement {
   const [filters, setFilters] = useState<Filters>({});
   const [results, setResults] = useState<Hit[]>([]);
   const [kindsByMode, setKindsByMode] = useState<KindsByMode>({ entry: [], macro: [] });
+  const [counterpartIdsByMode, setCounterpartIdsByMode] = useState<KindsByMode>({
+    entry: [], macro: []
+  });
   const [error, setError] = useState<string | null>(null);
   const queryTimerRef = useRef<number | null>(null);
   const pendingQueryKeyRef = useRef<string | null>(null);
@@ -139,6 +144,16 @@ export function SnooglApp(): React.ReactElement {
               macro: Array.isArray(msg.kindsByMode.macro) ? msg.kindsByMode.macro : []
             });
           }
+          if (msg.counterpartIdsByMode && typeof msg.counterpartIdsByMode === 'object') {
+            setCounterpartIdsByMode({
+              entry: Array.isArray(msg.counterpartIdsByMode.entry)
+                ? msg.counterpartIdsByMode.entry
+                : [],
+              macro: Array.isArray(msg.counterpartIdsByMode.macro)
+                ? msg.counterpartIdsByMode.macro
+                : []
+            });
+          }
           break;
         case 'error':
           setError(msg.message);
@@ -185,6 +200,15 @@ export function SnooglApp(): React.ReactElement {
       setFilters((f) => ({ ...f, kindId: undefined }));
     }
   }, [mode, kindsByMode, filters.kindId]);
+
+  useEffect(() => {
+    if (
+      filters.counterpartId &&
+      !counterpartIdsByMode[mode].includes(filters.counterpartId)
+    ) {
+      setFilters((current) => ({ ...current, counterpartId: undefined }));
+    }
+  }, [mode, counterpartIdsByMode, filters.counterpartId]);
 
   const openHit = (h: Hit): void => {
     if (h.kind === 'entry') {
@@ -244,6 +268,7 @@ export function SnooglApp(): React.ReactElement {
           filters={filters}
           setFilters={setFilters}
           kinds={kindsByMode[mode]}
+          counterpartIds={counterpartIdsByMode[mode]}
         />
         <ResultList results={results} mode={mode} onOpen={openHit} />
       </div>
@@ -348,12 +373,14 @@ function FiltersRail({
   mode,
   filters,
   setFilters,
-  kinds
+  kinds,
+  counterpartIds
 }: {
   mode: Mode;
   filters: Filters;
   setFilters: React.Dispatch<React.SetStateAction<Filters>>;
   kinds: string[];
+  counterpartIds: string[];
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   return (
@@ -397,6 +424,35 @@ function FiltersRail({
             <option key={k} value={k}>
               {k}
             </option>
+          ))}
+        </select>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+        <span style={{ opacity: 0.75, fontSize: '0.8rem' }}>
+          {mode === 'entry' ? t('usesMacro') : t('sourceEntry')}
+        </span>
+        <select
+          value={filters.counterpartId ?? ''}
+          onChange={(event) => {
+            const value = event.target.value;
+            setFilters((current) => ({
+              ...current,
+              counterpartId: value || undefined
+            }));
+          }}
+          style={{
+            padding: '0.3rem 0.4rem',
+            background: 'var(--vscode-input-background, #2a2a2a)',
+            color: 'var(--vscode-input-foreground, #ddd)',
+            border: '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+            borderRadius: '3px',
+            fontFamily: 'inherit',
+            fontSize: '0.85rem'
+          }}
+        >
+          <option value="">{t('any')}</option>
+          {counterpartIds.map((id) => (
+            <option key={id} value={id}>{id}</option>
           ))}
         </select>
       </label>

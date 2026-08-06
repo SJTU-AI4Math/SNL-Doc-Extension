@@ -40,6 +40,10 @@ vi.mock('./snlDoc', () => ({
   readPackageMacroSnapshot: async () => ({
     workspaceMacros: {},
     activePackages: []
+  }),
+  extractSnlReferences: (snl: string) => ({
+    macros: snl.match(/[A-Za-z_.][A-Za-z0-9_.]*/g) ?? [],
+    contextSrcs: []
   })
 }));
 

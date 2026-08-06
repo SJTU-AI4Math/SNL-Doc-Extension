@@ -54,7 +54,10 @@ function fakeMonaco(initial = ''): {
     KeyMod: { CtrlCmd: 1, Shift: 2, Alt: 4 },
     KeyCode: { KeyS: 8, KeyF: 16 },
     editor: {
-      createModel: vi.fn(() => model),
+      createModel: vi.fn((value: string) => {
+        model.value = value;
+        return model;
+      }),
       create: vi.fn(() => editor),
       setTheme: vi.fn()
     }
@@ -126,6 +129,30 @@ describe('MonacoTextEditor', () => {
     act(() => fake.editor.commands.get(2 | 4 | 16)?.());
     expect(format).toHaveBeenCalledWith('x');
     expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  it('creates a deferred Monaco model from the latest controlled value', async () => {
+    const fake = fakeMonaco();
+    const monaco = await fake.load();
+    let resolveLoad: ((value: typeof monaco) => void) | undefined;
+    const deferredLoad = vi.fn(() => new Promise<typeof monaco>((resolve) => {
+      resolveLoad = resolve;
+    })) as MonacoLoader;
+    const props = {
+      language: 'snl',
+      ariaLabel: 'SNL source',
+      onChange: vi.fn(),
+      onSave: vi.fn(),
+      loadMonaco: deferredLoad
+    };
+    const view = render(<MonacoTextEditor {...props} value="stale" />);
+    view.rerender(<MonacoTextEditor {...props} value="latest draft" />);
+
+    await act(async () => resolveLoad?.(monaco));
+    await waitFor(() => expect(
+      view.getByTestId('monaco-editor').getAttribute('data-ready')
+    ).toBe('true'));
+    expect(fake.model.value).toBe('latest draft');
   });
 
   it('lays out on resize and disposes editor, model, listener, and observer', async () => {

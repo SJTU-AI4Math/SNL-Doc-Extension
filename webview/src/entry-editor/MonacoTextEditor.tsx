@@ -69,6 +69,7 @@ export function MonacoTextEditor({
   const modelRef = useRef<MonacoModel | null>(null);
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
+  const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const formatRef = useRef(format);
@@ -76,6 +77,7 @@ export function MonacoTextEditor({
   const [ready, setReady] = useState(false);
 
   onChangeRef.current = onChange;
+  valueRef.current = value;
   onSaveRef.current = onSave;
   formatRef.current = format;
   onFormatErrorRef.current = onFormatError;
@@ -108,7 +110,7 @@ export function MonacoTextEditor({
 
     void loadMonaco().then((monaco) => {
       if (cancelled) return;
-      const model = monaco.editor.createModel(value, language);
+      const model = monaco.editor.createModel(valueRef.current, language);
       const editor = monaco.editor.create(container, {
         model,
         ariaLabel,

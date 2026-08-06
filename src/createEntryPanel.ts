@@ -267,6 +267,7 @@ export class CreateEntryPanel {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
+        targetState: this.mode === 'edit' ? 'notFound' : 'found',
         id: this.id || undefined,
         seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
         kinds: [],
@@ -347,6 +348,7 @@ export class CreateEntryPanel {
     const payload = {
       type: 'context',
       mode: this.mode,
+      targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
       id: this.id || undefined,
       seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
       kinds,

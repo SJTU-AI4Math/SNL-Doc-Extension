@@ -59,6 +59,7 @@ import {
   PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
@@ -503,6 +504,8 @@ type PanelMode = 'create' | 'edit';
 interface ContextMsg {
   type: 'context';
   mode: PanelMode;
+  targetState?: 'found' | 'notFound';
+  targetId?: string;
   file: string;
   packageName: string;
   existingNames: string[];
@@ -606,6 +609,8 @@ export function CreateMacroApp(): React.ReactElement {
   const hydratedMacroBaseRef = useRef<ExtendedSnlMacro | null>(null);
 
   const [panelMode, setPanelMode] = useState<PanelMode>('create');
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
+  const [targetId, setTargetId] = useState('');
   const [file, setFile] = useState('');
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
@@ -760,6 +765,8 @@ export function CreateMacroApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setPanelMode(msg.mode);
+          setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
+          setTargetId(msg.targetId ?? msg.existing?.name ?? '');
           setFile(msg.file);
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
@@ -831,6 +838,8 @@ export function CreateMacroApp(): React.ReactElement {
           setStatus({ kind: 'duplicate', name: msg.name, message: msg.message });
           break;
         case 'notFound':
+          setTargetState('notFound');
+          setTargetId(msg.name);
           setStatus({ kind: 'notFound', name: msg.name, message: msg.message });
           break;
         case 'invalid':
@@ -1035,6 +1044,7 @@ export function CreateMacroApp(): React.ReactElement {
     (styleName) => !styleNames.has(styleName)
   );
   const canCreate =
+    targetState !== 'notFound' &&
     exactName.length > 0 &&
     isSnlIdentifier(exactName) &&
     !isDuplicate &&
@@ -1099,6 +1109,17 @@ export function CreateMacroApp(): React.ReactElement {
 
   const showPreview = activeTab === 'katex_template';
   const titlePackage = packageName || file || '\u2026';
+
+  if (panelMode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader
+        vsApi={apiRef.current}
+        title={t('editTitle', { package: titlePackage })}
+        back={{ label: t('dashboard'), title: t('backToDashboard'), message: { type: 'nav.openDashboard' } }}
+      />
+      <MissingEditorTarget target="macro" id={targetId || name} />
+    </main>;
+  }
 
   return (
     <main

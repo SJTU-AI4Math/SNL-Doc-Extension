@@ -225,6 +225,8 @@ export class CreateMacroPanel {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
+        targetState: this.mode === 'edit' ? 'notFound' : 'found',
+        targetId: this.mode === 'edit' ? this.macroName : undefined,
         file: `${this.file}.json`,
         packageName: this.file,
         existingNames: [],
@@ -287,6 +289,8 @@ export class CreateMacroPanel {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
+        targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
+        targetId: this.mode === 'edit' ? this.macroName : undefined,
         file: `${this.file}.json`,
         packageName: read.pkg.name,
         existingNames: read.macros.map((m) => m.name),
@@ -307,10 +311,12 @@ export class CreateMacroPanel {
       });
       return;
     }
-    // A concurrently removed Package is represented as an empty create context.
+    // Preserve edit identity when the package or macro disappears concurrently.
     void this.panel.webview.postMessage({
       type: 'context',
       mode: this.mode,
+      targetState: this.mode === 'edit' ? 'notFound' : 'found',
+      targetId: this.mode === 'edit' ? this.macroName : undefined,
       file: `${this.file}.json`,
       packageName: this.file,
       existingNames: [],

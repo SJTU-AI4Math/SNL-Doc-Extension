@@ -14,6 +14,7 @@ import {
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
 
 const MESSAGES = defineUiMessages(
@@ -104,6 +105,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const apiRef = useVsCodeApiRef();
   const packageRevisionRef = useRef<string | undefined>(undefined);
   const formDirtyRef = useRef(false);
@@ -117,6 +119,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
             mode: Mode;
             file?: string;
             packageRevision?: string;
+            targetState?: 'found' | 'notFound';
             existing?: ExistingPackage | null;
           }
         | { type: 'created'; file: string }
@@ -134,6 +137,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setMode(msg.mode);
+          setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           if (msg.mode === 'edit') {
             setFile(msg.file ?? '');
             if (msg.existing && !formDirtyRef.current) {
@@ -162,6 +166,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
           });
           break;
         case 'notFound':
+          setTargetState('notFound');
           setStatus({
             kind: 'notFound',
             file: msg.file,
@@ -196,7 +201,7 @@ export function CreateMacroPackageApp(): React.ReactElement {
     ? true
     : FILE_RE.test(trimmedFile) && !trimmedFile.toLowerCase().endsWith('.json');
   const canSubmit =
-    fileValid && trimmedName.length > 0 && status.kind !== 'creating';
+    targetState !== 'notFound' && fileValid && trimmedName.length > 0 && status.kind !== 'creating';
 
   // Ctrl/Cmd+S is the same action as the Create/Update button.
   useSaveShortcut(() => handleSubmit(), canSubmit);
@@ -213,6 +218,17 @@ export function CreateMacroPackageApp(): React.ReactElement {
       description: description.trim(),
       expectedRevision: mode === 'edit' ? packageRevisionRef.current : undefined
     });
+  }
+
+  if (mode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader
+        vsApi={apiRef.current}
+        title={t('editTitle')}
+        back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }}
+      />
+      <MissingEditorTarget target="macroPackage" id={file} />
+    </main>;
   }
 
   return (

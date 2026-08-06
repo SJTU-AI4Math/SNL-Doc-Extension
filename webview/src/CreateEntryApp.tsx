@@ -52,6 +52,7 @@ import {
   type EntryRelationshipRow
 } from './components/EntryRelationshipsSection';
 import { PanelHeader } from './components/PanelHeader';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { Disclosure } from './components/Disclosure';
 import { MacroIdInput } from './components/MacroIdInput';
@@ -548,6 +549,7 @@ export function CreateEntryApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
   const languageRef = useRef(webview_language_runtime.query_environment().language);
   const [mode, setMode] = useState<Mode>('create');
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const [kinds, setKinds] = useState<EntryKind[]>([]);
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
@@ -723,6 +725,7 @@ export function CreateEntryApp(): React.ReactElement {
         | {
             type: 'context';
             mode: Mode;
+            targetState?: 'found' | 'notFound';
             id?: string;
             seedId?: string;
             kinds: EntryKind[];
@@ -760,6 +763,7 @@ export function CreateEntryApp(): React.ReactElement {
           contentDirtyRef.current.clear();
           markFormDirty(false);
           setStatus({ kind: 'idle' });
+          setTargetState('found');
           setTitle('');
           setSelectedPackage('_unpackaged');
           setSelectedKind('');
@@ -779,6 +783,7 @@ export function CreateEntryApp(): React.ReactElement {
             Array.isArray(msg.relationships) ? msg.relationships : []
           );
           setMode(msg.mode);
+          setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
           setWireMacros(
@@ -928,6 +933,8 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'duplicate', id: msg.id, message: msg.message });
           break;
         case 'notFound':
+          setTargetState('notFound');
+          setId(msg.id);
           setStatus({ kind: 'notFound', id: msg.id, message: msg.message });
           break;
         case 'unknownKind':
@@ -974,6 +981,7 @@ export function CreateEntryApp(): React.ReactElement {
       ? null
       : pointerDraftError(pointerDraft, t);
   const canCreate =
+    targetState !== 'notFound' &&
     kinds.length > 0 &&
     trimmedTitle.length > 0 &&
     trimmedId.length > 0 &&
@@ -1192,6 +1200,17 @@ export function CreateEntryApp(): React.ReactElement {
   }
 
   const noKinds = kindsLoaded && kinds.length === 0;
+
+  if (mode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader
+        vsApi={apiRef.current}
+        title={t('editEntry')}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
+      />
+      <MissingEditorTarget target="entry" id={id} />
+    </main>;
+  }
 
   return (
     <main

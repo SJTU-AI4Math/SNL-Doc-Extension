@@ -88,6 +88,7 @@ export class KindPanelController {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: this.mode,
+        targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
         id: this.id || undefined,
         existing,
         kindRevision: existing ? entityRevision(existing) : undefined,

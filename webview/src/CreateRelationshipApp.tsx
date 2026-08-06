@@ -21,6 +21,7 @@ import {
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import {
   EntityIdSearchBox,
   ENTRY_VALIDATE_RULES,
@@ -76,6 +77,7 @@ interface ContextMessage {
   id?: string;
   existing?: RelationshipData | null;
   relationshipRevision?: string;
+  targetState?: 'found' | 'notFound';
   entryPool: Array<{ id: string; title: string }>;
   existingIds: string[];
 }
@@ -164,6 +166,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<Banner | null>(null);
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
 
   useEffect(() => {
 
@@ -174,6 +177,7 @@ export function CreateRelationshipApp(): React.ReactElement {
       switch (msg.type) {
         case 'context': {
           setMode(msg.mode);
+          setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           const pool: EntryOption[] = msg.entryPool.map((e) => ({
             id: e.id,
             title: e.title,
@@ -189,6 +193,8 @@ export function CreateRelationshipApp(): React.ReactElement {
               setTo(msg.existing.to);
               setLabel(msg.existing.label);
               setMetadata(formatMetadata(msg.existing.metadata));
+            } else if (msg.mode === 'edit') {
+              setId(msg.id ?? '');
             } else {
               setId('');
               setFrom('');
@@ -222,6 +228,12 @@ export function CreateRelationshipApp(): React.ReactElement {
           setBusy(false);
           return;
         case 'notFound':
+          setTargetState('notFound');
+          setId(msg.id);
+          setBanner({ kind: 'error', text: msg.message });
+          setBusy(false);
+          setLoaded(true);
+          return;
         case 'conflict':
         case 'noSnlDoc':
         case 'noWorkspace':
@@ -266,6 +278,7 @@ export function CreateRelationshipApp(): React.ReactElement {
   }
 
   const canSubmit =
+    targetState !== 'notFound' &&
     loaded &&
     !busy &&
     trimmedId.length > 0 &&
@@ -321,6 +334,17 @@ export function CreateRelationshipApp(): React.ReactElement {
         <p style={{ opacity: 0.7 }}>{t('loading')}</p>
       </main>
     );
+  }
+
+  if (mode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader
+        vsApi={apiRef.current}
+        title={t('editTitle', { id })}
+        back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }}
+      />
+      <MissingEditorTarget target="relationship" id={id} />
+    </main>;
   }
 
   return (

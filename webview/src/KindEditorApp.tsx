@@ -7,6 +7,7 @@ import { ColorField, ColorPreview, KindTextField } from './components/KindFormFi
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { isEntityIdUnique } from './components/formValidation';
 import { PanelHeader } from './components/PanelHeader';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
@@ -68,12 +69,14 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const [defaultCounterName, setDefaultCounterName] = useState('');
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const { apiRef, post } = useVsCodeBridge<{
     type?: string;
     mode?: Mode;
     id?: string;
     existing?: Record<string, unknown> | null;
     kindRevision?: string;
+    targetState?: 'found' | 'notFound';
     expectedRevision?: string;
     existingIds?: EntryOption[];
     kind?: { id: string; name: string };
@@ -83,6 +86,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     if (msg.type === 'context') {
       const nextMode = msg.mode === 'edit' ? 'edit' : 'create';
       setMode(nextMode);
+      setTargetState(nextMode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
       setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
       if (nextMode === 'edit' && !dirtyRef.current) {
         revisionRef.current = msg.kindRevision;
@@ -100,13 +104,14 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       dirtyRef.current = false;
       setStatus({ kind: msg.type, id: msg.kind.id, name: msg.kind.name });
     } else if (['duplicate', 'notFound', 'conflict', 'invalid', 'noSnlDoc', 'noWorkspace', 'error'].includes(msg.type)) {
+      if (msg.type === 'notFound') setTargetState('notFound');
       setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? t('unknownError') });
     }
   });
 
   const trimmedId = id.trim();
   const trimmedName = name.trim();
-  const canSubmit = trimmedName.length > 0 && isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) && status.kind !== 'creating';
+  const canSubmit = targetState !== 'notFound' && trimmedName.length > 0 && isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) && status.kind !== 'creating';
   const submit = (): void => {
     if (!canSubmit) return;
     setStatus({ kind: 'creating' });
@@ -131,6 +136,13 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
 
   // Ctrl/Cmd+S is the same action as the Create/Update button.
   useSaveShortcut(() => submit(), canSubmit);
+
+  if (mode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader title={t('edit', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />
+      <MissingEditorTarget target={domain === 'entry' ? 'entryKind' : 'macroKind'} id={id} />
+    </main>;
+  }
 
   return <main style={PANEL_STYLE} onChangeCapture={() => { dirtyRef.current = true; }}>
     <PanelHeader title={t(mode === 'edit' ? 'edit' : 'create', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />

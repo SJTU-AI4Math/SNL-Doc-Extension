@@ -150,7 +150,7 @@ export class CreateMacroPackagePanel {
   private async pushContext(): Promise<void> {
     const generation = ++this.contextGeneration;
     if (this.mode === 'create') {
-      void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
+      void this.panel.webview.postMessage({ type: 'context', mode: 'create', targetState: 'found' });
       return;
     }
     const root = firstWorkspaceFolder();
@@ -158,6 +158,7 @@ export class CreateMacroPackagePanel {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
+        targetState: 'notFound',
         file: this.file,
         existing: null
       });
@@ -169,6 +170,7 @@ export class CreateMacroPackagePanel {
       void this.panel.webview.postMessage({
         type: 'context',
         mode: 'edit',
+        targetState: 'found',
         file: this.file,
         packageRevision: macroPackageMetadataRevision(read.raw),
         existing: {
@@ -189,6 +191,7 @@ export class CreateMacroPackagePanel {
     void this.panel.webview.postMessage({
       type: 'context',
       mode: 'edit',
+      targetState: 'notFound',
       file: this.file,
       existing: null
     });

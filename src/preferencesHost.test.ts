@@ -41,7 +41,7 @@ vi.mock('./preferences', () => ({
   }
 }));
 
-import { PreferencesHost } from './preferencesHost';
+import { bind_preferences_panel_title, PreferencesHost } from './preferencesHost';
 
 describe('PreferencesHost language writes', () => {
   beforeEach(() => {
@@ -117,5 +117,43 @@ describe('PreferencesHost language writes', () => {
       message: '无法更改 SNL 界面语言：read only'
     }));
     host.dispose();
+  });
+
+  it('uses a new generation when the host lifecycle restarts', async () => {
+    const first = new PreferencesHost();
+    const firstWebview = register(first);
+    firstWebview.receive({ type: 'snl.preferences/ready' });
+    await vi.waitFor(() => expect(firstWebview.postMessage).toHaveBeenCalled());
+    const firstSnapshot = firstWebview.postMessage.mock.calls[0][0] as { generation: string };
+    first.dispose();
+
+    const second = new PreferencesHost();
+    const secondWebview = register(second);
+    secondWebview.receive({ type: 'snl.preferences/ready' });
+    await vi.waitFor(() => expect(secondWebview.postMessage).toHaveBeenCalled());
+    const secondSnapshot = secondWebview.postMessage.mock.calls[0][0] as { generation: string };
+    expect(firstSnapshot.generation).toBeTruthy();
+    expect(secondSnapshot.generation).not.toBe(firstSnapshot.generation);
+    second.dispose();
+  });
+
+  it('refreshes a live panel title when the interface locale changes', () => {
+    let title = 'English title';
+    let disposePanel = (): void => undefined;
+    const panel = {
+      title,
+      onDidDispose: (listener: () => void) => {
+        disposePanel = listener;
+        return { dispose: vi.fn() };
+      }
+    } as never;
+    bind_preferences_panel_title(panel, () => title);
+    const listener = mocks.configListener.mock.calls.at(-1)?.[0] as
+      ((event: { affectsConfiguration: (key: string) => boolean }) => void);
+
+    title = '中文标题';
+    listener({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
+    expect((panel as { title: string }).title).toBe('中文标题');
+    disposePanel();
   });
 });

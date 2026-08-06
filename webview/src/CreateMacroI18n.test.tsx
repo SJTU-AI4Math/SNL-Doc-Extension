@@ -14,7 +14,7 @@ vi.mock('./vscodeApi', async () => {
   };
 });
 
-const { CreateMacroApp } = await import('./CreateMacroApp');
+const { BlockRendererPresetControl, CreateMacroApp } = await import('./CreateMacroApp');
 
 afterEach(() => {
   cleanup();
@@ -53,5 +53,11 @@ describe('Create Macro localization', () => {
     expect(screen.getByRole('button', { name: '创建宏' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^KaTeX 模板/ })).toBeTruthy();
     expect(screen.getByText(/#0、#1、…/)).toBeTruthy();
+  });
+
+  it('renders block preset LaTeX examples as literals instead of message parameters', () => {
+    document.documentElement.lang = 'zh-CN';
+    render(<BlockRendererPresetControl value="list" onChange={() => undefined} />);
+    expect(screen.getByText(/\\begin\{itemize\}/)).toBeTruthy();
   });
 });

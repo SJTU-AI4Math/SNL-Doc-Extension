@@ -101,7 +101,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     blockModeHelp: 'Block mode — this macro renders through a React component picked by the Render preset below. Children are passed to the renderer as a flat variadic list; the LaTeX template and variadic delimiters are ignored, so they are hidden here.',
     dynamicArityHelp: 'Dynamic arity — configure the left / separator / right delimiters below. The macro renders as left + children.join(sep) + right. For more complex shapes (matrix rows, per-cell styling), split it into multiple macros.',
     latexTemplateHelp: 'LaTeX template — use #0, #1, … for children. \\# = literal #. Do NOT write \\htmlData — the wrapper is added automatically.',
-    katexPlaceholder: 'e.g. \\frac{#0}{#1}',
+    katexPlaceholder: 'e.g. \\frac{arg0}{arg1}',
     styleTags: 'Style tags — "{style}"',
     dynamicArity: 'Dynamic Arity',
     rendersAs: 'renders as {expression}',
@@ -128,7 +128,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     editWholeTitle: 'Collapse back to a single ID input (Edit whole ID)',
     editWholeAria: 'Edit whole ID',
     editWhole: '✎ whole',
-    invalidSegment: 'Invalid segment — cannot contain @ # $ %, whitespace, or bracket chars ( ) [ ] { }.',
+    invalidSegment: 'Invalid segment — cannot contain @ # $ %, whitespace, or bracket chars ( ) [ ] {braces}.',
     nameSegment: 'name',
     namespaceSegment: 'namespace',
     renderMode: 'Render mode',
@@ -163,8 +163,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     customKey: 'Custom key…',
     customRenderHint: 'Custom render key — consumer must register a matching renderer. Empty key = no dispatch.',
     noRenderHint: 'No render preset. The block will render with plain default layout.',
-    presetListHint: 'Unordered list — LaTeX \\begin{itemize} → <ul><li>…',
-    presetEnumerateHint: 'Ordered list — LaTeX \\begin{enumerate} → <ol><li>…',
+    presetListHint: 'Unordered list — LaTeX \\begin{environment} → <ul><li>…',
+    presetEnumerateHint: 'Ordered list — LaTeX \\begin{environment} → <ol><li>…',
     presetTableHint: 'Table — variadic children are rows; the first child with kind="table-header" becomes <thead>.',
     presetCenteredHint: 'Horizontally-centered block wrapper.',
     presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
@@ -210,7 +210,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     blockModeHelp: '块模式 — 此宏通过下方“渲染预设”选择的 React 组件渲染。子节点会作为扁平可变参数列表传给渲染器；LaTeX 模板和可变参数分隔符会被忽略，因此这里将其隐藏。',
     dynamicArityHelp: '动态参数 — 请在下方配置左侧、分隔符和右侧定界符。宏按 left + children.join(sep) + right 渲染。矩阵行或逐单元格样式等复杂结构请拆分为多个宏。',
     latexTemplateHelp: 'LaTeX 模板 — 使用 #0、#1、… 表示子节点。\\# 表示字面量 #。不要写 \\htmlData；外层包装会自动添加。',
-    katexPlaceholder: '例如 \\frac{#0}{#1}',
+    katexPlaceholder: '例如 \\frac{arg0}{arg1}',
     styleTags: '样式标签 — “{style}”',
     dynamicArity: '动态参数',
     rendersAs: '渲染为 {expression}',
@@ -237,7 +237,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     editWholeTitle: '折叠为单个 ID 输入框（编辑完整 ID）',
     editWholeAria: '编辑完整 ID',
     editWhole: '✎ 完整 ID',
-    invalidSegment: '无效片段 — 不能包含 @ # $ %、空白或括号字符 ( ) [ ] { }。',
+    invalidSegment: '无效片段 — 不能包含 @ # $ %、空白或括号字符 ( ) [ ] {braces}。',
     nameSegment: '名称',
     namespaceSegment: '命名空间',
     renderMode: '渲染模式',
@@ -272,8 +272,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     customKey: '自定义键…',
     customRenderHint: '自定义渲染键 — 使用方必须注册匹配的渲染器。空键表示不分派。',
     noRenderHint: '未设置渲染预设；该块将使用普通默认布局。',
-    presetListHint: '无序列表 — LaTeX \\begin{itemize} → <ul><li>…',
-    presetEnumerateHint: '有序列表 — LaTeX \\begin{enumerate} → <ol><li>…',
+    presetListHint: '无序列表 — LaTeX \\begin{environment} → <ul><li>…',
+    presetEnumerateHint: '有序列表 — LaTeX \\begin{environment} → <ol><li>…',
     presetTableHint: '表格 — 可变参数子节点作为行；kind="table-header" 的第一个子节点会成为 <thead>。',
     presetCenteredHint: '水平居中的块包装器。',
     presetCollapsibleHint: '可折叠块 — 第一个子节点始终显示为摘要，其余内容收起在切换按钮后。',
@@ -1352,7 +1352,7 @@ export function CreateMacroApp(): React.ReactElement {
               <textarea
                 value={current?.template ?? ''}
                 onChange={(e) => patchStyle({ template: e.target.value })}
-                placeholder={t('katexPlaceholder')}
+                placeholder={t('katexPlaceholder', { arg0: '#0', arg1: '#1' })}
                 rows={4}
                 style={{
                   ...inputStyle,
@@ -1943,7 +1943,7 @@ function MultiNameEditor({
             color: 'var(--vscode-errorForeground, #f48771)'
           }}
         >
-          {t('invalidSegment')}
+          {t('invalidSegment', { braces: '{ }' })}
         </p>
       ) : null}
     </div>
@@ -2535,7 +2535,7 @@ const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
  *   - preset key       → dropdown showing that preset selected.
  *   - unknown string   → "Custom" mode, freeform input pre-filled.
  */
-function BlockRendererPresetControl({
+export function BlockRendererPresetControl({
   value,
   onChange
 }: {
@@ -2561,7 +2561,14 @@ function BlockRendererPresetControl({
     mode === 'preset'
       ? (() => {
           const hintKey = BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hintKey;
-          return hintKey ? t(hintKey) : '';
+          if (!hintKey) return '';
+          if (hintKey === 'presetListHint') {
+            return t(hintKey, { environment: '{itemize}' });
+          }
+          if (hintKey === 'presetEnumerateHint') {
+            return t(hintKey, { environment: '{enumerate}' });
+          }
+          return t(hintKey);
         })()
       : t(mode === 'custom' ? 'customRenderHint' : 'noRenderHint');
 

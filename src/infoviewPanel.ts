@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
@@ -174,6 +175,7 @@ export class InfoviewPanel {
         localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
+    bind_preferences_panel_title(panel, () => hostText()('browserTitle'));
 
     trace.mark('webview-created', `panelsThisSession=${countPanelOpen()}`);
     const instance = new InfoviewPanel(
@@ -219,6 +221,7 @@ export class InfoviewPanel {
         localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
+    bind_preferences_panel_title(panel, () => hostText()('entryTitle', { id: entryId }));
 
     const instance = new InfoviewPanel(
       panel,
@@ -494,12 +497,13 @@ export class InfoviewPanel {
         if (typeof name !== 'string' || !name) return;
         const file = await this.findActiveMacroPackage(name);
         if (!file) return;
+        const deleteAction = hostText()('delete');
         const confirmed = await vscode.window.showWarningMessage(
           hostText()('deleteMacro', { name, file }),
           { modal: true, detail: hostText()('cannotUndo') },
-          hostText()('delete')
+          deleteAction
         );
-        if (confirmed !== hostText()('delete')) return;
+        if (confirmed !== deleteAction) return;
         const root = firstWorkspaceFolder();
         if (!root) return;
         const result = await batchDeleteMacros(root, file, [name]);

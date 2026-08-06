@@ -26,3 +26,7 @@ out/**/*.spec.js
 .gitignore
 .git/**
 *.vsix
+.hermes/**
+Plan.md
+plan-*.md
+scripts/**

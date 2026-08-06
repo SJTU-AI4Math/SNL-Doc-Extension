@@ -26,8 +26,27 @@ export interface UiMessages<Messages extends UiCatalog = UiCatalog> {
   }>;
 }
 
+type UiTemplateText<Template> = Template extends string
+  ? Template
+  : Template extends UiPluralMessage
+    ? Extract<Template[keyof Template], string>
+    : never;
+type UiPlaceholderNames<Text extends string> = Text extends `${string}{${infer Name}}${infer Rest}`
+  ? Name | UiPlaceholderNames<Rest>
+  : never;
+type UiRequiredNames<Template> =
+  UiPlaceholderNames<UiTemplateText<Template>> |
+  (Template extends UiPluralMessage ? Template['arg'] : never);
+type UiTypedParams<Template> = Readonly<
+  Record<Exclude<UiPlaceholderNames<UiTemplateText<Template>>, Template extends UiPluralMessage ? Template['arg'] : never>, UiMessageValue> &
+  (Template extends UiPluralMessage ? Record<Template['arg'], number> : object)
+>;
+type UiTranslatorArgs<Template> = [UiRequiredNames<Template>] extends [never]
+  ? []
+  : [params: UiTypedParams<Template>];
+
 export type UiTranslator<Messages extends UiCatalog> =
-  <Key extends keyof Messages & string>(key: Key, params?: UiMessageParams) => string;
+  <Key extends keyof Messages & string>(key: Key, ...args: UiTranslatorArgs<Messages[Key]>) => string;
 
 export function defineUiMessages<const Messages extends UiCatalog>(
   namespace: string,

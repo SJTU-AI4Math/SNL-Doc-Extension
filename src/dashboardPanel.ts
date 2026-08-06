@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import {
   initSnlDoc,
   readOverview,
@@ -32,8 +33,8 @@ const DASHBOARD_HOST_MESSAGES = defineHostMessages(
     kindInitRequiresWorkspace: '初始化类型需要打开文件夹或工作区。',
     kindInitFailed: '初始化类型失败：{error}',
     initRequiresWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
-    alreadyExists: '.SNL_Doc 已存在——请使用“SNL: 创建库”添加库。',
-    initialized: 'SNL Doc 框架已初始化。请使用“SNL: 创建库”添加第一个库。',
+    alreadyExists: '.SNL_Doc 已存在——请使用“SNL：创建文档库”添加库。',
+    initialized: 'SNL Doc 框架已初始化。请使用“SNL：创建文档库”添加第一个库。',
     initFailed: 'SNL 初始化失败：{error}',
     activePackagesFailed: 'SNL 仪表板：更新活动包失败：{error}'
   }
@@ -106,6 +107,7 @@ export class DashboardPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => dashboardT()('title'));
 
     DashboardPanel.currentPanel = new DashboardPanel(panel, extensionUri);
   }

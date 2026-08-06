@@ -33,6 +33,17 @@ describe('host UI localization runtime', () => {
     expect(() => formatHostMessage('Created {name}.', {})).toThrow(/name/);
   });
 
+  it('requires host template parameters at compile time', () => {
+    const t = createHostTranslator('en', messages);
+    if (false) {
+      // @ts-expect-error done requires name
+      t('done');
+      // @ts-expect-error count requires a numeric count value
+      t('count', { count: false });
+    }
+    expect(t('done', { name: 'A' })).toBe('Created A.');
+  });
+
   it('rejects translated host templates that drop dynamic parameters', () => {
     expect(() => defineHostMessages(
       { done: 'Created {name}.' },

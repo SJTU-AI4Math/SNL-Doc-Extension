@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import {
   addEntry,
   createLibrary,
@@ -72,7 +73,7 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     libraryUpdated: '库“{slug}”的标题已更新为“{title}”。',
     libraryConflict: '库“{slug}”在此编辑器打开后已更改。请重新加载后再保存。',
     libraryNotFound: '库“{slug}”已不存在。',
-    noSnlDoc: '.SNL_Doc 尚不存在。请先运行“SNL: 初始化”。',
+    noSnlDoc: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。',
     libraryDuplicate: '库“{slug}”已存在。',
     libraryCreated: '已创建库“{title}”（标识：{slug}）。',
     editorFailed: 'SNL 库编辑器失败：{error}',
@@ -192,6 +193,9 @@ export class CreateLibraryPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => mode === 'edit'
+      ? libraryT()('editTitle', { slug })
+      : libraryT()('createTitle'));
 
     CreateLibraryPanel.instances.set(
       key,
@@ -773,15 +777,16 @@ export class CreateLibraryPanel {
           // never fired the deleteNode op. Modal lives here now.
           const nodeLabel =
             nodes.find((n) => n.id === nodeId)?.props?.entryId ?? nodeId;
+          const removeAction = libraryT()('outlineRemoveAction');
           const confirmed = await vscode.window.showWarningMessage(
             libraryT()('outlineRemovePrompt', { node: String(nodeLabel) }),
             {
               modal: true,
               detail: libraryT()('outlineRemoveDetail')
             },
-            libraryT()('outlineRemoveAction')
+            removeAction
           );
-          if (confirmed !== libraryT()('outlineRemoveAction')) {
+          if (confirmed !== removeAction) {
             return;
           }
           nodes = nodes.filter((n) => n.id !== nodeId);

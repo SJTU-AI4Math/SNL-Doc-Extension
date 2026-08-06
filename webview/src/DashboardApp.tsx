@@ -62,7 +62,7 @@ const DASHBOARD_MESSAGES = defineUiMessages(
   },
   {
     title: 'SNL 仪表板', loading: '正在加载项目概览…', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
-    runInit: '运行 SNL: Init', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
+    runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
     dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
     libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',

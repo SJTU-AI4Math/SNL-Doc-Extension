@@ -94,7 +94,7 @@ describe('extension host UI localization', () => {
     mocks.initSnlDoc.mockResolvedValue({ status: 'created' });
     await command('snlDoc.init')();
     expect(mocks.showInformationMessage).toHaveBeenCalledWith(
-      'SNL Doc 骨架已初始化。请使用“SNL: 创建库”添加第一个库。'
+      'SNL Doc 骨架已初始化。请使用“SNL：创建文档库”添加第一个库。'
     );
 
     mocks.initSnlDoc.mockRejectedValueOnce(new Error('磁盘只读'));

@@ -19,8 +19,27 @@ export interface HostMessages<Messages extends HostMessageCatalog = HostMessageC
   readonly 'zh-CN': { readonly [Key in keyof Messages]: HostMessageTemplate };
 }
 
+type HostTemplateText<Template> = Template extends string
+  ? Template
+  : Template extends HostPluralMessage
+    ? Extract<Template[keyof Template], string>
+    : never;
+type HostPlaceholderNames<Text extends string> = Text extends `${string}{${infer Name}}${infer Rest}`
+  ? Name | HostPlaceholderNames<Rest>
+  : never;
+type HostRequiredNames<Template> =
+  HostPlaceholderNames<HostTemplateText<Template>> |
+  (Template extends HostPluralMessage ? Template['arg'] : never);
+type HostTypedParams<Template> = Readonly<
+  Record<Exclude<HostPlaceholderNames<HostTemplateText<Template>>, Template extends HostPluralMessage ? Template['arg'] : never>, HostMessageValue> &
+  (Template extends HostPluralMessage ? Record<Template['arg'], number> : object)
+>;
+export type HostTranslatorArgs<Template> = [HostRequiredNames<Template>] extends [never]
+  ? []
+  : [params: HostTypedParams<Template>];
+
 export type HostTranslator<Messages extends HostMessageCatalog> =
-  <Key extends keyof Messages & string>(key: Key, params?: HostMessageParams) => string;
+  <Key extends keyof Messages & string>(key: Key, ...args: HostTranslatorArgs<Messages[Key]>) => string;
 
 export function defineHostMessages<const Messages extends HostMessageCatalog>(
   english: Messages,

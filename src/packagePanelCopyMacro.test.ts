@@ -41,6 +41,7 @@ vi.mock('vscode', () => ({
     })
   },
   workspace: {
+    onDidChangeConfiguration: () => ({ dispose: () => undefined }),
     workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws' } }],
     getConfiguration: () => ({ get: () => undefined }),
     createFileSystemWatcher: () => ({

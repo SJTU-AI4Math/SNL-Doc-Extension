@@ -59,4 +59,14 @@ describe('panel-controller host localization', () => {
       id: 'custom', label: 'Team preset', description: 'Team-owned copy', count: 0
     });
   });
+
+  it('compares modal confirmation against the exact action label originally displayed', () => {
+    const infoview = fs.readFileSync(path.join(__dirname, 'infoviewPanel.ts'), 'utf8');
+    expect(infoview).toContain("const deleteAction = hostText()('delete')");
+    expect(infoview).toContain('confirmed !== deleteAction');
+
+    const library = fs.readFileSync(path.join(__dirname, 'createLibraryPanel.ts'), 'utf8');
+    expect(library).toContain("const removeAction = libraryT()('outlineRemoveAction')");
+    expect(library).toContain('confirmed !== removeAction');
+  });
 });

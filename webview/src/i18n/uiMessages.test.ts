@@ -56,6 +56,17 @@ describe('UI message runtime', () => {
     expect(() => formatUiMessage('Hello, {name}', {})).toThrow(/name/);
   });
 
+  it('requires template parameters at compile time', () => {
+    const t = createUiTranslator('en', messages);
+    if (false) {
+      // @ts-expect-error greeting has a required name parameter
+      t('greeting');
+      // @ts-expect-error title has no parameters
+      t('title', { name: 'Ada' });
+    }
+    expect(t('greeting', { name: 'Ada' })).toBe('Hello, Ada');
+  });
+
   it('rejects locale catalogs that drop placeholders or change plural arguments', () => {
     expect(() => defineUiMessages(
       'bad.placeholder',

@@ -217,6 +217,7 @@ describe('restored draft in edit mode', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         type: 'snl.preferences/snapshot',
+        generation: 'draft-test',
         revision: 1,
         preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'auto' }
       }

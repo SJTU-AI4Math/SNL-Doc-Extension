@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import {
   readAllMacros,
   readMacroKinds,
@@ -136,6 +137,7 @@ export class PackagePanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => packageT()('title', { file: bare }));
 
     PackagePanel.panels.set(
       bare,

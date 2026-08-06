@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'node:crypto';
 import { extension_preferences_runtime } from './preferences';
 import {
   is_supported_language,
@@ -15,6 +16,7 @@ const MESSAGES = defineHostMessages(
 
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
+  generation: string;
   revision: number;
   preferences: ExtensionPreferences;
 }
@@ -23,6 +25,7 @@ export class PreferencesHost implements vscode.Disposable {
   private readonly webviews = new Set<WeakRef<vscode.Webview>>();
   private readonly webviewRefs = new WeakMap<vscode.Webview, WeakRef<vscode.Webview>>();
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly generation = randomUUID();
   private revision = 0;
 
   constructor() {
@@ -95,6 +98,7 @@ export class PreferencesHost implements vscode.Disposable {
   private snapshot(): PreferencesSnapshotMessage {
     return {
       type: 'snl.preferences/snapshot',
+      generation: this.generation,
       revision: ++this.revision,
       preferences: extension_preferences_runtime.query_environment()
     };
@@ -147,4 +151,19 @@ export function initialize_preferences_host(context: vscode.ExtensionContext): v
 
 export function register_preferences_webview(webview: vscode.Webview): void {
   host?.register(webview);
+}
+
+/** Keep a VS Code tab title in sync with live interface-locale changes. */
+export function bind_preferences_panel_title(
+  panel: vscode.WebviewPanel,
+  title: () => string
+): vscode.Disposable {
+  const configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration('snlDoc.locale')) panel.title = title();
+  });
+  const disposed = panel.onDidDispose(() => {
+    configuration.dispose();
+    disposed.dispose();
+  });
+  return { dispose: () => { configuration.dispose(); disposed.dispose(); } };
 }

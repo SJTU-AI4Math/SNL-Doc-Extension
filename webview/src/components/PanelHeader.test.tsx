@@ -24,6 +24,7 @@ describe('PanelHeader', () => {
     expect(view.container.textContent).toContain('Back');
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
+        generation: 'panel-test',
       revision: 100,
       preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'reduced' }
     });

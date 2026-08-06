@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
@@ -104,6 +105,7 @@ export class SnoogLPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => hostText()('title'));
     SnoogLPanel.instance = new SnoogLPanel(panel, extensionUri, initialMode);
   }
 

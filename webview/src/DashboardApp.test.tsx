@@ -249,7 +249,7 @@ describe('Dashboard Chinese localization', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'overview', overview: { hasSnlDoc: false } }
     }));
-    expect(await screen.findByRole('button', { name: '运行 SNL: Init' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '运行 SNL：初始化' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '初始化条目类别' })).toBeTruthy();
     expect(screen.getByRole('status', { name: 'SNL 设置状态' })).toBeTruthy();
 

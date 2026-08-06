@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PANEL_STYLE } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { Alert, FormField, Select } from './components/FormControls';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+import { use_preferences_revision } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages(
   'initKinds',
@@ -53,6 +54,7 @@ export function kindInitializationCopy(domain: KindDomain) {
 export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactElement {
   const copy = kindInitializationCopy(domain);
   const t = useUiMessages(MESSAGES);
+  const preferenceRevision = use_preferences_revision();
   const [presets, setPresets] = useState<PresetOption[]>([]);
   const [existing, setExisting] = useState(0);
   const [selected, setSelected] = useState('');
@@ -81,6 +83,16 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
       setStatus({ kind: msg.type, message: msg.message });
     }
   });
+  const observedInitialPreferences = useRef(false);
+  useEffect(() => {
+    if (!observedInitialPreferences.current) {
+      observedInitialPreferences.current = true;
+      return;
+    }
+    // Preset labels/descriptions are projected by the host for the effective
+    // locale. Ask for a fresh projection after a live preference change.
+    post({ type: 'ready' });
+  }, [post, preferenceRevision]);
 
   const catalogBusy = existing > 0;
   const canApply = loaded && !catalogBusy && !!selected && status.kind !== 'applying';

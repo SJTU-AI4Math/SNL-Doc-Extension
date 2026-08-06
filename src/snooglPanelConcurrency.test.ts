@@ -17,7 +17,8 @@ vi.mock('vscode', () => ({
       reveal() {}, dispose() {}, onDidDispose: () => ({ dispose() {} })
     })
   },
-  commands: { executeCommand: async () => undefined }
+  commands: { executeCommand: async () => undefined },
+  workspace: { onDidChangeConfiguration: () => ({ dispose() {} }) }
 }));
 
 const pendingEntries: Array<{

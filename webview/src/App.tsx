@@ -28,7 +28,7 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
-import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessages';
+import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml } from './export/htmlExport';
 import { createEntryDetailLoader } from './export/entryDetailBridge';
@@ -44,7 +44,7 @@ const MESSAGES = defineUiMessages('infoview', {
   entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
   viewGraph: 'View Graph', viewPoolGraph: 'Open the pool-wide relationship graph',
   editDashboard: 'Edit in Dashboard', editDashboardTitle: 'Open the Dashboard (management surface)',
-  noLibrariesPrefix: 'No libraries yet. Create one via',
+  noLibrariesPrefix: 'No libraries yet. Create one via', createLibraryCommand: 'SNL: Create Library',
   noLibrariesMiddle: 'in the Dashboard, or paste an existing', noLibrariesSuffix: 'folder in.',
   noMeta: 'no meta.json', back: '← Back', backTitle: 'Back to libraries',
   libraryGraphTitle: 'Open the induced relationship subgraph for library "{slug}"',
@@ -61,7 +61,7 @@ const MESSAGES = defineUiMessages('infoview', {
   libraries: '{count} 个文档库', entries: '{count} 个条目',
   viewGraph: '查看关系图', viewPoolGraph: '打开整个条目池的关系图',
   editDashboard: '在仪表板中编辑', editDashboardTitle: '打开仪表板管理界面',
-  noLibrariesPrefix: '尚无文档库。请通过', noLibrariesMiddle: '在仪表板中创建，或粘贴已有的',
+  noLibrariesPrefix: '尚无文档库。请通过', createLibraryCommand: 'SNL：创建文档库', noLibrariesMiddle: '在仪表板中创建，或粘贴已有的',
   noLibrariesSuffix: '目录。', noMeta: '无 meta.json', back: '← 返回', backTitle: '返回文档库列表',
   libraryGraphTitle: '打开文档库“{slug}”的诱导关系子图', exportHtml: '导出 HTML',
   exportTitle: '将文档库“{slug}”导出为静态 HTML 文档', editLibrary: '编辑此文档库',
@@ -377,7 +377,7 @@ function LibrariesLayer({
       />
       {libraries.length === 0 ? (
         <p style={{ opacity: 0.8 }}>
-          {t('noLibrariesPrefix')} <code>{invariantText('SNL: Create Library', 'protocol-token')}</code>{' '}
+          {t('noLibrariesPrefix')} <code>{t('createLibraryCommand')}</code>{' '}
           {t('noLibrariesMiddle')}{' '}
           <code>.SNL_Doc/libraries/&lt;slug&gt;/</code> {t('noLibrariesSuffix')}
         </p>

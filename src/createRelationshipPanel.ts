@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
 const MESSAGES = defineHostMessages(
   { createTitle: 'SNL Create Relationship', editTitle: 'SNL Edit Relationship — {id}', loadFailed: 'Could not load Relationship editor data: {error}', noWorkspace: 'SNL Relationship editor requires an open folder / workspace.', noPayload: 'No relationship payload was provided.', updated: 'Relationship “{id}” updated.', conflict: 'Relationship “{id}” changed after this editor opened. Reload before saving.', notFound: 'Relationship “{id}” no longer exists.', unknownEndpoint: 'Unknown {endpoint} entry: “{id}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Relationship “{id}” created.', duplicate: 'Relationship id “{id}” already exists.', editorFailed: 'SNL Relationship editor failed: {error}' },
-  { createTitle: 'SNL 创建关系', editTitle: 'SNL 编辑关系 — {id}', loadFailed: '无法加载关系编辑器数据：{error}', noWorkspace: 'SNL 关系编辑器需要打开文件夹或工作区。', noPayload: '未提供关系数据。', updated: '关系“{id}”已更新。', conflict: '关系“{id}”在此编辑器打开后发生了变化。请重新加载后再保存。', notFound: '关系“{id}”已不存在。', unknownEndpoint: '未知的{endpoint}条目：“{id}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '关系“{id}”已创建。', duplicate: '关系 ID“{id}”已存在。', editorFailed: 'SNL 关系编辑器失败：{error}' }
+  { createTitle: 'SNL 创建关系', editTitle: 'SNL 编辑关系 — {id}', loadFailed: '无法加载关系编辑器数据：{error}', noWorkspace: 'SNL 关系编辑器需要打开文件夹或工作区。', noPayload: '未提供关系数据。', updated: '关系“{id}”已更新。', conflict: '关系“{id}”在此编辑器打开后发生了变化。请重新加载后再保存。', notFound: '关系“{id}”已不存在。', unknownEndpoint: '未知的{endpoint}条目：“{id}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '关系“{id}”已创建。', duplicate: '关系 ID“{id}”已存在。', editorFailed: 'SNL 关系编辑器失败：{error}' }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
@@ -84,6 +85,9 @@ export class CreateRelationshipPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => mode === 'edit'
+      ? hostText()('editTitle', { id })
+      : hostText()('createTitle'));
 
     CreateRelationshipPanel.instances.set(
       key,

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
@@ -107,6 +108,9 @@ export class GraphPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => scope.mode === 'pool'
+      ? hostText()('panelPoolTitle')
+      : hostText()('panelLibraryTitle', { slug: scope.slug }));
     GraphPanel.instances.set(key, new GraphPanel(panel, extensionUri, scope));
   }
 

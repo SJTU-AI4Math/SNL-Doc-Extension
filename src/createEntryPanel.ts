@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
@@ -7,7 +8,7 @@ const MESSAGES = defineHostMessages(
     createTitle: 'SNL Create Entry', editTitle: 'SNL Edit Entry — {id}', loadFailed: 'Could not load Entry editor data: {error}', noWorkspace: 'SNL Entry editor requires an open folder / workspace.', noPayload: 'No entry payload was provided.', updated: 'Entry “{title}” ({id}) updated.', notFound: 'Entry “{id}” no longer exists.', unknownKind: 'Unknown entry kind: “{kind}”.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Entry “{title}” ({id}) created.', duplicate: 'Entry id “{id}” already exists.', editorFailed: 'SNL Entry editor failed: {error}', macroNoWorkspace: 'Cannot open the Macro editor: no workspace / folder is open.', createPackage: '＋ Create new package…', createPackageDescription: 'Open the Create Macro Package panel', chooseNamedPackage: 'Create macro “{name}” — choose target package', choosePackage: 'Create macro — choose target package', selectOrCreate: 'Select an existing package or create a new one', noActivePackages: 'No active packages yet — create one to hold this macro', selectPackageFile: 'Select the .SNL_Doc/term_macros/*.json to add it to', openMacroFailed: 'Failed to open Macro editor: {error}'
   },
   {
-    createTitle: 'SNL 创建条目', editTitle: 'SNL 编辑条目 — {id}', loadFailed: '无法加载条目编辑器数据：{error}', noWorkspace: 'SNL 条目编辑器需要打开文件夹或工作区。', noPayload: '未提供条目数据。', updated: '条目“{title}”（{id}）已更新。', notFound: '条目“{id}”已不存在。', unknownKind: '未知条目类型：“{kind}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '条目“{title}”（{id}）已创建。', duplicate: '条目 ID“{id}”已存在。', editorFailed: 'SNL 条目编辑器失败：{error}', macroNoWorkspace: '无法打开宏编辑器：当前未打开工作区或文件夹。', createPackage: '＋ 创建新包…', createPackageDescription: '打开“创建宏包”面板', chooseNamedPackage: '创建宏“{name}”——选择目标包', choosePackage: '创建宏——选择目标包', selectOrCreate: '选择现有包或创建新包', noActivePackages: '尚无活动包——请创建一个用于存放此宏', selectPackageFile: '选择要添加到的 .SNL_Doc/term_macros/*.json', openMacroFailed: '无法打开宏编辑器：{error}'
+    createTitle: 'SNL 创建条目', editTitle: 'SNL 编辑条目 — {id}', loadFailed: '无法加载条目编辑器数据：{error}', noWorkspace: 'SNL 条目编辑器需要打开文件夹或工作区。', noPayload: '未提供条目数据。', updated: '条目“{title}”（{id}）已更新。', notFound: '条目“{id}”已不存在。', unknownKind: '未知条目类型：“{kind}”。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '条目“{title}”（{id}）已创建。', duplicate: '条目 ID“{id}”已存在。', editorFailed: 'SNL 条目编辑器失败：{error}', macroNoWorkspace: '无法打开宏编辑器：当前未打开工作区或文件夹。', createPackage: '＋ 创建新包…', createPackageDescription: '打开“创建宏包”面板', chooseNamedPackage: '创建宏“{name}”——选择目标包', choosePackage: '创建宏——选择目标包', selectOrCreate: '选择现有包或创建新包', noActivePackages: '尚无活动包——请创建一个用于存放此宏', selectPackageFile: '选择要添加到的 .SNL_Doc/term_macros/*.json', openMacroFailed: '无法打开宏编辑器：{error}'
   }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
@@ -163,6 +164,12 @@ export class CreateEntryPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => {
+      const current = CreateEntryPanel.instance;
+      return current?.mode === 'edit'
+        ? hostText()('editTitle', { id: current.id })
+        : hostText()('createTitle');
+    });
     trace.mark('webview-created', `panelsThisSession=${countPanelOpen()}`);
 
     CreateEntryPanel.instance = new CreateEntryPanel(

@@ -17,6 +17,7 @@ describe('webview preference Reader runtime', () => {
   it('applies only newer snapshots and updates document attributes', () => {
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
+      generation: 'host-a',
       revision: 2,
       preferences: {
         language: 'zh-CN',
@@ -30,9 +31,25 @@ describe('webview preference Reader runtime', () => {
     expect(document.documentElement.dataset.snlMotion).toBe('reduced');
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
+      generation: 'host-a',
       revision: 1,
       preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
     })).toBe(false);
     expect(document.documentElement.lang).toBe('zh-CN');
+
+    expect(apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'host-a', revision: Number.POSITIVE_INFINITY,
+      preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
+    })).toBe(false);
+    expect(apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'host-a', revision: Number.NaN,
+      preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
+    })).toBe(false);
+
+    expect(apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'host-b', revision: 0,
+      preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
+    })).toBe(true);
+    expect(document.documentElement.lang).toBe('en');
   });
 });

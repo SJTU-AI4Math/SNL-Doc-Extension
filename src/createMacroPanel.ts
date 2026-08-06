@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
@@ -7,7 +8,7 @@ const MESSAGES = defineHostMessages(
     createTitle: 'SNL Create Macro — {file}', editTitle: 'SNL Edit Macro — {name} ({file})', loadFailed: 'Could not load Macro editor data: {error}', loadPackageFailed: 'Could not load Macro Package {file}: {error}', noWorkspace: 'SNL Macro editor requires an open folder / workspace.', noPayload: 'No macro payload was provided.', updated: 'Macro “{name}” in {file}.json updated.', notFound: 'Macro “{name}” no longer exists in {file}.json.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Macro “{name}” added to {file}.json.', duplicate: 'Macro “{name}” already exists in this package.', noFile: 'Package {file}.json no longer exists.', editorFailed: 'SNL Macro editor failed: {error}'
   },
   {
-    createTitle: 'SNL 创建宏 — {file}', editTitle: 'SNL 编辑宏 — {name}（{file}）', loadFailed: '无法加载宏编辑器数据：{error}', loadPackageFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏编辑器需要打开文件夹或工作区。', noPayload: '未提供宏数据。', updated: '宏“{name}”已在 {file}.json 中更新。', notFound: '宏“{name}”已不在 {file}.json 中。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '宏“{name}”已添加到 {file}.json。', duplicate: '宏“{name}”已存在于此包中。', noFile: '包 {file}.json 已不存在。', editorFailed: 'SNL 宏编辑器失败：{error}'
+    createTitle: 'SNL 创建宏 — {file}', editTitle: 'SNL 编辑宏 — {name}（{file}）', loadFailed: '无法加载宏编辑器数据：{error}', loadPackageFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏编辑器需要打开文件夹或工作区。', noPayload: '未提供宏数据。', updated: '宏“{name}”已在 {file}.json 中更新。', notFound: '宏“{name}”已不在 {file}.json 中。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '宏“{name}”已添加到 {file}.json。', duplicate: '宏“{name}”已存在于此包中。', noFile: '包 {file}.json 已不存在。', editorFailed: 'SNL 宏编辑器失败：{error}'
   }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
@@ -170,6 +171,9 @@ export class CreateMacroPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => mode === 'edit'
+      ? hostText()('editTitle', { name: macroName, file })
+      : hostText()('createTitle', { file }));
 
     CreateMacroPanel.instances.set(
       key,

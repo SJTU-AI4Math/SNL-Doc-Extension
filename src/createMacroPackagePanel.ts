@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
+import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
 const MESSAGES = defineHostMessages(
   { createTitle: 'SNL Create Macro Package', editTitle: 'SNL Edit Macro Package — {file}', loadFailed: 'Could not load Macro Package {file}: {error}', noWorkspace: 'SNL Macro Package editor requires an open folder / workspace.', updated: 'Macro package “{file}” updated.', notFound: 'Macro package “{file}” no longer exists.', initFirst: '.SNL_Doc does not exist yet. Run “SNL: Init” first.', created: 'Macro package “{file}” created.', duplicate: 'Macro package “{file}” already exists.', editorFailed: 'SNL Macro Package editor failed: {error}' },
-  { createTitle: 'SNL 创建宏包', editTitle: 'SNL 编辑宏包 — {file}', loadFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏包编辑器需要打开文件夹或工作区。', updated: '宏包“{file}”已更新。', notFound: '宏包“{file}”已不存在。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL: Init”。', created: '宏包“{file}”已创建。', duplicate: '宏包“{file}”已存在。', editorFailed: 'SNL 宏包编辑器失败：{error}' }
+  { createTitle: 'SNL 创建宏包', editTitle: 'SNL 编辑宏包 — {file}', loadFailed: '无法加载宏包 {file}：{error}', noWorkspace: 'SNL 宏包编辑器需要打开文件夹或工作区。', updated: '宏包“{file}”已更新。', notFound: '宏包“{file}”已不存在。', initFirst: '.SNL_Doc 尚不存在。请先运行“SNL：初始化”。', created: '宏包“{file}”已创建。', duplicate: '宏包“{file}”已存在。', editorFailed: 'SNL 宏包编辑器失败：{error}' }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 import {
@@ -83,6 +84,9 @@ export class CreateMacroPackagePanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
+    bind_preferences_panel_title(panel, () => mode === 'edit'
+      ? hostText()('editTitle', { file })
+      : hostText()('createTitle'));
 
     CreateMacroPackagePanel.instances.set(
       key,

@@ -21,7 +21,7 @@ import { firstWorkspaceFolder } from './panelUtil';
 import { initialize_preferences_host } from './preferencesHost';
 import { installSnlDocContextKey } from './snlDocContext';
 import { checkDataVersion, repairData } from './dataMigrationCommands';
-import { createHostTranslator, defineHostMessages, type HostMessageParams } from './hostI18n';
+import { createHostTranslator, defineHostMessages, type HostTranslatorArgs } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
 const UI_MESSAGES = defineHostMessages(
@@ -86,8 +86,8 @@ const UI_MESSAGES = defineHostMessages(
   },
   {
     initNoWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
-    initExists: '.SNL_Doc 已存在——请使用“SNL: 创建库”添加库。',
-    initCreated: 'SNL Doc 骨架已初始化。请使用“SNL: 创建库”添加第一个库。',
+    initExists: '.SNL_Doc 已存在——请使用“SNL：创建文档库”添加库。',
+    initCreated: 'SNL Doc 骨架已初始化。请使用“SNL：创建文档库”添加第一个库。',
     initFailed: 'SNL 初始化失败：{error}',
     pointerNoWorkspace: '无法解析指针：未打开工作区文件夹。',
     loadEntriesFailed: '加载条目失败：{error}',
@@ -151,9 +151,9 @@ function hostTranslator() {
 
 function hostMessage<Key extends keyof typeof UI_MESSAGES.en & string>(
   key: Key,
-  params?: HostMessageParams
+  ...args: HostTranslatorArgs<(typeof UI_MESSAGES.en)[Key]>
 ): string {
-  return hostTranslator()(key, params);
+  return hostTranslator()(key, ...args);
 }
 
 // TODO: import SNL_render from snl-script lib

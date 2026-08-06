@@ -16,11 +16,13 @@ interface WebviewPreferences {
 
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
+  generation: string;
   revision: number;
   preferences: WebviewPreferences;
 }
 
 let hostRevision = -1;
+let hostGeneration: string | undefined;
 let renderRevision = 0;
 const documentRoot = typeof document !== 'undefined'
   ? document.documentElement
@@ -51,7 +53,14 @@ export function create_webview_reader_runtime(
 export function apply_preferences_snapshot(
   message: PreferencesSnapshotMessage
 ): boolean {
-  if (message.revision <= hostRevision) return false;
+  if (!message.generation ||
+      !Number.isSafeInteger(message.revision) ||
+      message.revision < 0) return false;
+  if (message.generation === hostGeneration && message.revision <= hostRevision) return false;
+  if (message.generation !== hostGeneration) {
+    hostGeneration = message.generation;
+    hostRevision = -1;
+  }
   hostRevision = message.revision;
   const root = documentRoot;
   root.lang = message.preferences.language || 'en';
@@ -85,6 +94,7 @@ if (typeof window !== 'undefined') {
     const message = value as Partial<PreferencesSnapshotMessage>;
     if (
       message.type !== 'snl.preferences/snapshot' ||
+      typeof message.generation !== 'string' ||
       typeof message.revision !== 'number' ||
       !message.preferences
     ) {

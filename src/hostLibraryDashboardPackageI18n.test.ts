@@ -30,7 +30,7 @@ describe('Library, Dashboard, and Package host localization', () => {
     expect(t('title')).toBe('SNL 仪表板');
     expect(t('noWorkspaceOverview')).toBe('未打开工作区文件夹。');
     expect(t('kindInitRequiresWorkspace')).toBe('初始化类型需要打开文件夹或工作区。');
-    expect(t('initialized')).toBe('SNL Doc 框架已初始化。请使用“SNL: 创建库”添加第一个库。');
+    expect(t('initialized')).toBe('SNL Doc 框架已初始化。请使用“SNL：创建文档库”添加第一个库。');
     expect(t('activePackagesFailed', { error: 'disk' }))
       .toBe('SNL 仪表板：更新活动包失败：disk');
   });

@@ -69,4 +69,12 @@ describe('panel-controller host localization', () => {
     expect(library).toContain("const removeAction = libraryT()('outlineRemoveAction')");
     expect(library).toContain('confirmed !== removeAction');
   });
+
+  it('refreshes the export locale and context when the live interface locale changes', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'exportOptionsPanel.ts'), 'utf8');
+    expect(source).toContain('bind_preferences_panel_locale_change(panel');
+    expect(source).toContain('instance.payload = { ...instance.payload, locale }');
+    expect(source).toContain('void instance.pushContext()');
+    expect(source).not.toContain("'exportOptions',\n      'SNL Export HTML'");
+  });
 });

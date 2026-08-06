@@ -54,6 +54,11 @@ function audit(file: string): string[] {
     }
   };
   const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+        node.expression.text === 'buildPanelHtml') {
+      const title = node.arguments[3];
+      if (title && isRawHumanCopy(title)) report(title, 'raw webview document title');
+    }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       if (NOTIFICATION_METHODS.has(method)) {

@@ -5,6 +5,7 @@ import { EXPORT_RUNTIME_CSS } from './exportRuntime';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
+import { bind_preferences_panel_locale_change } from './preferencesHost';
 
 const MESSAGES = defineHostMessages(
   {
@@ -60,6 +61,10 @@ export class ExportOptionsPanel {
 
     if (ExportOptionsPanel.current) {
       ExportOptionsPanel.current.payload = payload;
+      ExportOptionsPanel.current.panel.title = createHostTranslator(
+        payload.locale ?? read_extension_preferences().language,
+        MESSAGES
+      )('panelTitle');
       ExportOptionsPanel.current.panel.reveal(column);
       void ExportOptionsPanel.current.pushContext();
       return;
@@ -77,7 +82,14 @@ export class ExportOptionsPanel {
       }
     );
 
-    ExportOptionsPanel.current = new ExportOptionsPanel(panel, extensionUri, payload);
+    const instance = new ExportOptionsPanel(panel, extensionUri, payload);
+    ExportOptionsPanel.current = instance;
+    bind_preferences_panel_locale_change(panel, () => {
+      const locale = read_extension_preferences().language;
+      instance.payload = { ...instance.payload, locale };
+      panel.title = createHostTranslator(locale, MESSAGES)('panelTitle');
+      void instance.pushContext();
+    });
   }
 
   private constructor(
@@ -93,7 +105,10 @@ export class ExportOptionsPanel {
       this.extensionUri,
       this.panel.webview,
       'exportOptions',
-      'SNL Export HTML'
+      createHostTranslator(
+        this.payload.locale ?? read_extension_preferences().language,
+        MESSAGES
+      )('panelTitle')
     );
 
     this.panel.webview.onDidReceiveMessage(

@@ -153,17 +153,25 @@ export function register_preferences_webview(webview: vscode.Webview): void {
   host?.register(webview);
 }
 
-/** Keep a VS Code tab title in sync with live interface-locale changes. */
-export function bind_preferences_panel_title(
+/** Run a callback while a panel is alive whenever the interface locale changes. */
+export function bind_preferences_panel_locale_change(
   panel: vscode.WebviewPanel,
-  title: () => string
+  update: () => void
 ): vscode.Disposable {
   const configuration = vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration('snlDoc.locale')) panel.title = title();
+    if (event.affectsConfiguration('snlDoc.locale')) update();
   });
   const disposed = panel.onDidDispose(() => {
     configuration.dispose();
     disposed.dispose();
   });
   return { dispose: () => { configuration.dispose(); disposed.dispose(); } };
+}
+
+/** Keep a VS Code tab title in sync with live interface-locale changes. */
+export function bind_preferences_panel_title(
+  panel: vscode.WebviewPanel,
+  title: () => string
+): vscode.Disposable {
+  return bind_preferences_panel_locale_change(panel, () => { panel.title = title(); });
 }

@@ -638,6 +638,8 @@ export function CreateEntryApp(): React.ReactElement {
   const [newPackageId, setNewPackageId] = useState('');
   const [packageCreating, setPackageCreating] = useState(false);
   const [packageCreateError, setPackageCreateError] = useState('');
+  const packageRequestSequenceRef = useRef(0);
+  const activePackageRequestRef = useRef<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
@@ -775,8 +777,8 @@ export function CreateEntryApp(): React.ReactElement {
             relationships?: EntryRelationshipRow[];
           }
         | { type: 'created'; id: string }
-        | { type: 'packageCreated'; packageId: string }
-        | { type: 'packageCreateFailed'; message: string }
+        | { type: 'packageCreated'; packageId: string; requestId: string }
+        | { type: 'packageCreateFailed'; message: string; requestId: string }
         | { type: 'updated'; id: string }
         | { type: 'duplicate'; id: string; message: string }
         | { type: 'notFound'; id: string; message: string }
@@ -804,6 +806,11 @@ export function CreateEntryApp(): React.ReactElement {
           setTargetState('found');
           setTitle('');
           setSelectedPackage('_unpackaged');
+          activePackageRequestRef.current = null;
+          setPackageCreating(false);
+          setPackageCreateError('');
+          setNewPackageId('');
+          setShowPackageCreator(false);
           setSelectedKind('');
           setContentI18n({});
           setContributor('');
@@ -973,8 +980,10 @@ export function CreateEntryApp(): React.ReactElement {
           break;
         }
         case 'packageCreated': {
+          if (msg.requestId !== activePackageRequestRef.current) break;
           const packageId = typeof msg.packageId === 'string' ? msg.packageId : '';
           if (!packageId) break;
+          activePackageRequestRef.current = null;
           setEntryPackages((previous) =>
             previous.includes(packageId) ? previous : [...previous, packageId]
           );
@@ -987,6 +996,8 @@ export function CreateEntryApp(): React.ReactElement {
           break;
         }
         case 'packageCreateFailed':
+          if (msg.requestId !== activePackageRequestRef.current) break;
+          activePackageRequestRef.current = null;
           setPackageCreating(false);
           setPackageCreateError(msg.message);
           break;
@@ -1486,9 +1497,11 @@ export function CreateEntryApp(): React.ReactElement {
                   onClick={() => {
                     const packageId = newPackageId.trim();
                     if (!packageId) return;
+                    const requestId = `package-${++packageRequestSequenceRef.current}`;
+                    activePackageRequestRef.current = requestId;
                     setPackageCreating(true);
                     setPackageCreateError('');
-                    apiRef.current?.postMessage({ type: 'createPackage', packageId });
+                    apiRef.current?.postMessage({ type: 'createPackage', packageId, requestId });
                   }}
                 >
                   {packageCreating ? t('packageCreating') : t('addPackage')}

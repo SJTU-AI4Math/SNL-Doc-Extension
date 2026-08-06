@@ -224,7 +224,9 @@ describe('CreateEntryPanel create -> edit flip', () => {
     posted.length = 0;
     vi.mocked(snlDoc.createMacroPackage).mockClear();
 
-    await messageHandler!({ type: 'createPackage', packageId: 'Algebra' });
+    await messageHandler!({
+      type: 'createPackage', packageId: 'Algebra', requestId: 'request-1'
+    });
 
     expect(snlDoc.createMacroPackage).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/ws' }),
@@ -232,10 +234,41 @@ describe('CreateEntryPanel create -> edit flip', () => {
       'Algebra'
     );
     const confirmation = posted.find((message) => message?.type === 'packageCreated');
-    expect(confirmation).toEqual({ type: 'packageCreated', packageId: 'Algebra' });
+    expect(confirmation).toEqual({
+      type: 'packageCreated', packageId: 'Algebra', requestId: 'request-1'
+    });
     const refreshed = contexts().at(-1);
     expect(refreshed.entryPackages).toContain('Algebra');
     expect(posted.indexOf(confirmation)).toBeLessThan(posted.indexOf(refreshed));
+  });
+
+  it('does not apply a completed Package request after the singleton retargets', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.editOrShow(extUri, 'entry-a');
+    posted.length = 0;
+    let finish!: () => void;
+    vi.mocked(snlDoc.createMacroPackage).mockImplementationOnce(() => new Promise((resolve) => {
+      finish = () => {
+        packageFiles.push('Deferred.json');
+        resolve({ status: 'ok', file: 'Deferred.json' });
+      };
+    }));
+
+    const pending = messageHandler!({
+      type: 'createPackage', packageId: 'Deferred', requestId: 'request-a'
+    });
+    await vi.waitFor(() => expect(typeof finish).toBe('function'));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    finish();
+    await pending;
+
+    expect(posted.some((message) =>
+      message?.type === 'packageCreated' && message?.requestId === 'request-a'
+    )).toBe(false);
+    const refreshed = contexts().at(-1);
+    expect(refreshed.id).toBe('entry-b');
+    expect(refreshed.entryPackages).toContain('Deferred');
   });
 
   it('reports canonical Package creation exceptions without dropping the request', async () => {
@@ -245,10 +278,13 @@ describe('CreateEntryPanel create -> edit flip', () => {
     posted.length = 0;
     vi.mocked(snlDoc.createMacroPackage).mockRejectedValueOnce(new Error('disk full'));
 
-    await messageHandler!({ type: 'createPackage', packageId: 'Algebra' });
+    await messageHandler!({
+      type: 'createPackage', packageId: 'Algebra', requestId: 'request-error'
+    });
 
     expect(posted.find((message) => message?.type === 'packageCreateFailed')).toEqual({
       type: 'packageCreateFailed',
+      requestId: 'request-error',
       message: 'Could not create Package: disk full'
     });
   });

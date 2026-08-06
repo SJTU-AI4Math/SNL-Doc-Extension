@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { CreateEntryApp } from '../CreateEntryApp';
@@ -254,12 +254,18 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.change(packageId, { target: { value: 'Algebra' } });
     fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
 
-    expect(posted.findLast((message) => message?.type === 'createPackage')).toEqual({
-      type: 'createPackage', packageId: 'Algebra'
-    });
-    send({ type: 'packageCreated', packageId: 'Algebra' });
-
     const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    const request = posted.findLast((message) => message?.type === 'createPackage');
+    expect(request).toMatchObject({ type: 'createPackage', packageId: 'Algebra' });
+    expect(typeof request?.requestId).toBe('string');
+
+    act(() => send({
+      type: 'packageCreated', packageId: 'Algebra', requestId: 'stale-request'
+    }));
+    expect(selector.value).toBe('_unpackaged');
+    expect(view.getByLabelText('New Package ID')).toBeTruthy();
+
+    send({ type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId });
     await waitFor(() => expect(selector.value).toBe('Algebra'));
     expect(Array.from(selector.options).some((option) => option.value === 'Algebra')).toBe(true);
     expect(view.queryByLabelText('New Package ID')).toBeNull();
@@ -275,7 +281,12 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
     fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'bad/package' } });
     fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
-    send({ type: 'packageCreateFailed', message: 'Could not create Package: invalid ID' });
+    const request = posted.findLast((message) => message?.type === 'createPackage');
+    send({
+      type: 'packageCreateFailed',
+      requestId: request.requestId,
+      message: 'Could not create Package: invalid ID'
+    });
 
     expect((await view.findByRole('alert')).textContent).toContain('Could not create Package: invalid ID');
     expect(view.getByLabelText('New Package ID')).toBeTruthy();

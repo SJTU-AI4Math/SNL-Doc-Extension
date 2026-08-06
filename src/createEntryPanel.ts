@@ -98,6 +98,8 @@ export class CreateEntryPanel {
   private seedId: string;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
+  /** Changes only when the singleton points at a different authoring target. */
+  private targetGeneration = 0;
   /**
    * Trace for the in-flight open, handed down from `open()` so the panel's
    * own stages land on one timeline. Cleared after the first context push.
@@ -199,6 +201,7 @@ export class CreateEntryPanel {
     trace: Trace
   ): void {
     const sameTarget = this.mode === mode && this.id === id;
+    if (!sameTarget) this.targetGeneration += 1;
     this.mode = mode;
     this.id = id;
     if (mode === 'create' && seedId) {
@@ -445,12 +448,20 @@ export class CreateEntryPanel {
       return;
     }
     if (msg.type === 'createPackage') {
-      const rawPackageId = (message as { packageId?: unknown }).packageId;
+      const packageMessage = message as { packageId?: unknown; requestId?: unknown };
+      const rawPackageId = packageMessage.packageId;
       const packageId = typeof rawPackageId === 'string' ? rawPackageId.trim() : '';
+      const requestId = typeof packageMessage.requestId === 'string'
+        ? packageMessage.requestId
+        : '';
+      const requestTargetGeneration = this.targetGeneration;
+      const targetIsCurrent = (): boolean =>
+        this.targetGeneration === requestTargetGeneration;
       const root = firstWorkspaceFolder();
       if (!root) {
         void this.panel.webview.postMessage({
           type: 'packageCreateFailed',
+          requestId,
           message: hostText()('noWorkspace')
         });
         return;
@@ -459,8 +470,10 @@ export class CreateEntryPanel {
       try {
         result = await createMacroPackage(root, packageId, packageId);
       } catch (error) {
+        if (!targetIsCurrent()) return;
         void this.panel.webview.postMessage({
           type: 'packageCreateFailed',
+          requestId,
           message: hostText()('packageCreateFailed', {
             error: error instanceof Error ? error.message : String(error)
           })
@@ -468,10 +481,15 @@ export class CreateEntryPanel {
         return;
       }
       if (result.status === 'ok') {
-        await this.panel.webview.postMessage({ type: 'packageCreated', packageId });
+        if (!targetIsCurrent()) {
+          await this.pushContext();
+          return;
+        }
+        await this.panel.webview.postMessage({ type: 'packageCreated', packageId, requestId });
         await this.pushContext();
         return;
       }
+      if (!targetIsCurrent()) return;
       const error = result.status === 'duplicate'
         ? hostText()('packageDuplicate', { id: packageId })
         : result.status === 'invalid'
@@ -479,7 +497,9 @@ export class CreateEntryPanel {
           : result.status === 'noSnlDoc'
             ? hostText()('initFirst')
             : hostText()('packageCreateFailed', { error: result.message });
-      void this.panel.webview.postMessage({ type: 'packageCreateFailed', message: error });
+      void this.panel.webview.postMessage({
+        type: 'packageCreateFailed', requestId, message: error
+      });
       return;
     }
     if (msg.type === 'openMacroEditor') {
@@ -603,6 +623,7 @@ export class CreateEntryPanel {
           // author would watch their just-submitted content flash away.
           this.mode = 'edit';
           this.id = result.id;
+          this.targetGeneration += 1;
           this.seedId = '';
           this.panel.title = hostText()('editTitle', { id: result.id });
           if (!(await this.regenerateSavedEntryDependencies(root, result.id))) {

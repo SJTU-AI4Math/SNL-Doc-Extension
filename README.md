@@ -6,7 +6,9 @@ kinds and entries, and renders SNL content in React-based webview panels
 (Infoview / Dashboard) using the shared `@sjtu-ai4math/snl-basics` rendering
 library.
 
-> _Screenshot placeholder — add an Infoview screenshot here._
+The extension ships separate reading, management, search, graph, authoring,
+and HTML-export surfaces; see [`docs/extension-feature-inventory.md`](docs/extension-feature-inventory.md)
+for the current command and panel inventory.
 
 ## Install & build
 

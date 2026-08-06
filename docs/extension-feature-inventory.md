@@ -1,6 +1,6 @@
 # SNL-Doc-Extension 功能列表
 
-来源：`package.json` `contributes.commands` + `webview/src/*.tsx` 全量扫描（15 个 webview，~14 100 行 tsx）。
+来源：`package.json` `contributes.commands` + `webview/src/*.tsx` 全量扫描（16 个 webview）。
 
 ## 1. Commands 表
 
@@ -63,7 +63,7 @@
 | Infoview | View Graph | button | 打开池级关系图 | `openInfoviewGraph` | — |
 | Infoview | Edit in Dashboard | button | 跳转到 Dashboard 管理界面 | `openDashboard` | — |
 | Infoview | Library 卡片 | list-item | 进入该 Library 层级视图 | `selectLibrary {slug}` | （每行一个）无库时不渲染 |
-| Infoview | ← Back | button | 从 Library 层返回 Libraries 根 | `ready` | 仅 Library 层显示 |
+| Infoview | ← Back | button | 从 Library 层返回 Libraries 根 | `back` | 仅 Library 层显示 |
 | Infoview | View Graph（Library 层） | button | 打开该 Library 的关系子图 | `openInfoviewGraphForLibrary {slug}` | — |
 | Infoview | Edit this Library | button | 打开该 Library 的编辑器 | `editLibrary {slug}` | — |
 | Infoview | ▶/▼ 折叠切换 | button | 折叠/展开该 outline 节点的子条目 | local state only | 仅有子节点时显示 |
@@ -309,6 +309,18 @@
 | SnlGraph | none | button (link) | 隐藏所有 entry kind | local state only | — |
 | SnlGraph | (kind 名) | checkbox | 切换该 entry kind 的可见性（每行一个） | local state only | 无 kind 时显示占位提示 |
 
+### 2.16 ExportOptions (`ExportOptionsApp.tsx`)
+
+| Panel | 单元 label/文字 | 类型 | 作用 | 触发的 command / message | 状态/校验 |
+|---|---|---|---|---|---|
+| ExportOptions | ← Infoview | button (nav) | 返回当前 Library 的 Infoview | `openInfoview` | — |
+| ExportOptions | Folder / Single file | radio | 选择目录导出或单文件导出 | local state only | 二选一 |
+| ExportOptions | Destination | text-input | 编辑导出目标路径 | local state only | trim 后非空才能导出 |
+| ExportOptions | Browse… | button | 打开与输出形态匹配的目标选择器 | `pickDestination {shape}` | — |
+| ExportOptions | Keep interaction | checkbox | 是否内联 hover 高亮和 outline 折叠脚本 | local state only | 关闭时输出无 JavaScript |
+| ExportOptions | Export | button | 执行 HTML 导出 | `runExport {shape,destination,interactive}` | busy 或路径为空时禁用 |
+| ExportOptions | Reveal in file manager | button | 在系统文件管理器中定位导出结果 | `revealExport` | 仅成功后显示 |
+
 ---
 
-*生成方法：并发扫 15 个 webview.tsx，逐个提取 `<button/input/select/textarea/…>` 并对应 `postMessage({type:...})` 调用。*
+*生成方法：并发扫 16 个 webview.tsx，逐个提取 `<button/input/select/textarea/…>` 并对应 `postMessage({type:...})` 调用。*

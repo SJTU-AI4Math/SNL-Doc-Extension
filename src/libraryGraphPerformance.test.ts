@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   indexLibraryGraph,
+  numberAllForIndexed,
   numberFor,
-  numberForIndexed,
   type CounterNode,
   type GraphNode,
   type GraphRelationship,
@@ -47,9 +47,10 @@ describe('library graph indexed numbering', () => {
 
     const index = indexLibraryGraph(graph);
     const walksAfterIndex = { nodeWalks, relationshipWalks };
-    const numbers = nodes.map((node) => numberForIndexed(index, node.id, entries, kinds, counters));
+    const numberMap = numberAllForIndexed(index, entries, kinds, counters);
+    const numbers = nodes.map((node) => numberMap.get(node.id));
 
-    expect(numbers).toEqual(['1.', '1.1.', '1.2.']);
+    expect(numbers).toEqual(['1.', '2.', '3.']);
     expect({ nodeWalks, relationshipWalks }).toEqual(walksAfterIndex);
     expect(walksAfterIndex).toEqual({ nodeWalks: 2, relationshipWalks: 1 });
   });

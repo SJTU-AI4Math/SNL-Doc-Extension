@@ -1449,10 +1449,13 @@ async function main() {
   //   theorem kind → counter 'theorem' numbering 'A'
   //   remark  kind → counter 'remark'  numbering '.1'
   const counters1 = [
-    { id: 'c-chapter', name: 'chapter', numbering: '1', children: [] },
-    { id: 'c-section', name: 'section', numbering: '.1', children: [] },
-    { id: 'c-theorem', name: 'theorem', numbering: 'A', children: [] },
-    { id: 'c-remark', name: 'remark', numbering: '.1', children: [] }
+    { id: 'c-chapter', name: 'chapter', numbering: '1', children: [
+      { id: 'c-section', name: 'section', numbering: '.1', children: [
+        { id: 'c-theorem', name: 'theorem', numbering: 'A', children: [
+          { id: 'c-remark', name: 'remark', numbering: '.1', children: [] }
+        ] }
+      ] }
+    ] }
   ];
   const kindsById = new Map([
     ['chapter', { defaultCounterName: 'chapter' }],
@@ -1513,19 +1516,17 @@ async function main() {
   // Missing node → null.
   assert(numberFor(graph1, 'nope', entriesById, kindsById, counters1) === null, 'numberFor(missing) → null');
 
-  // Per-counter isolation invariant: changing s1_1 to the theorem counter
-  // removes it from the section counter's sequence. s1_3 is now the second
-  // section sibling (s1_2, s1_3), so its label becomes "1.2"; the theorem
-  // sibling does not reshape the section template.
+  // Linear Counter invariant: changing s1_1 to theorem leaves section
+  // uninitialized at that point. The later s1_2 and s1_3 entries advance the
+  // section Counter to 1 and 2, independently of their Entry-tree siblinghood.
   const entriesTweak = new Map(entriesById);
   entriesTweak.set('uuid-1_1', { kind: 'theorem' });
   assert(
     numberFor(graph1, 's1_3', entriesTweak, kindsById, counters1) === '1.2',
-    'different-counter sibling is excluded from this counter sequence (s1_3 → "1.2")'
+    'different Counter is excluded from the section sequence (s1_3 → "1.2")'
   );
 
-  // An unresolved sibling is likewise excluded from the section sequence;
-  // s1_2 + s1_3 remain, making s1_3 the second section sibling.
+  // An unresolved Entry is likewise excluded from the linear section sequence.
   const entriesGap = new Map(entriesById);
   entriesGap.delete('uuid-1_1');
   assert(

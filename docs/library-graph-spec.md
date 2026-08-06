@@ -49,36 +49,35 @@ This is the ONLY ordering source. There is no `next` edge and no `reading-next`.
 
 ## 3. Numbering
 
-`numberFor(graph, entryPool, kinds, nodeId)` → `string | null`.
+Numbering is scoped to one Library and consumes that Library's natural one-dimensional reading order. It does **not** inspect an Entry node's `branch` ancestors or siblings.
 
-1. Walk `branch` incoming edges backwards from nodeId to some root. Chain = `[root, …, parent, nodeId]`.
-2. For each node `N` on the chain except the root, let `P` be its branch parent. Compute the **level segment** for `N`:
-   - Enumerate `P`'s children in `relationships[]` declaration order. Let `k` be `N`'s 1-indexed position.
-   - Let `firstChild = P.children[0]`.
-   - Look up `firstChild.props.entryId` → its `EntryData.kind` → the matching `EntryKind`.
-   - Segment = `formatNumbering(entryKind.numbering, k)` — same magic-string formatter as v1 (`1 / A / a / I / i` + literal).
-   - Fallback when first child has no resolvable kind: use `".1"`.
-3. Root segment: root itself has no branch parent. Return only its children's segments, no prefix. (I.e. a root node's "number" is empty/null; its **children** are `"1"`, `"2"`, … or `"A"`, `"B"`, … depending on their kind.)
-4. Concatenate segments in chain order → full number (e.g. `"1.3B.5"` for a 3-deep entry).
+1. Flatten the Library to `readingOrder(graph)`.
+2. Resolve each Entry's active Counter from explicit `node.props.counterId`, falling back to its Entry Kind's `defaultCounterName`.
+3. Process Entries in that linear order. An Entry with no active Counter remains unnumbered and does not mutate Counter state.
+4. Advancing a Counter increments only that Counter and resets all of its descendant Counters.
+5. Render the Entry's label by concatenating the initialized Counter segments from the Counter-tree root through the active Counter. Each segment uses that Counter's own `numbering` DSL.
 
-### Root node numbering
+Example for Counter hierarchy `chapter("1") → section(".1") → theorem("A")`:
 
-Root nodes themselves are un-numbered. In practice a library has ONE root (a Chapter kind entry using numbering `"1"`), and its children pick up `"1.1"`, `"1.2"` from the chapter's own kind numbering. See §6 example.
+```text
+chapter, section, theorem, section, theorem, chapter, section, theorem
+1        1.1      1.1A     1.2      1.2A     2        2.1      2.1A
+```
+
+Two Entry trees that produce the same Library linear order therefore produce identical numbers. Entry tree shape controls outline presentation; Counter hierarchy controls numbering/reset semantics.
 
 ### Fallback rules
 
-- First child has `entryId` unset → placeholder node → fallback `".1"`.
-- First child's `entryId` doesn't resolve in shared pool → fallback `".1"`.
-- First child's `kind` doesn't resolve in `entryKinds` → fallback `".1"`.
-- Any node in the branch chain missing → return `null`.
+- Missing/dangling explicit `counterId` falls back to the Entry Kind's `defaultCounterName`.
+- Missing Entry, Entry Kind, or resolvable Counter → `null` for that Entry.
+- A child Counter encountered before its hierarchy ancestors have been initialized → `null`; no synthetic zero prefix is invented.
+- Duplicate Counter names remain ambiguous and resolve to the first depth-first match, with UI validation responsible for warning authors.
 
 ## 4. Reading order
 
 `readingOrder(graph)` → `string[]` (node ids in read order).
 
-**Pure DFS on branch**, root(s) first (multiple roots emitted in the order they appear in `nodes[]`), then each root's subtree in branch-declaration order. No separate `reading-next` edges.
-
-Cat 2026-07-06 accepted this as v1 limitation: axiom-across-chapters ("a single global axiom counter embedded in different sections") is not modellable — those entries will just be numbered per their branch parent like everything else.
+The current Library natural order is DFS on `branch`: roots in `nodes[]` declaration order, then each subtree in branch-edge declaration order; unreachable/orphan nodes are appended in `nodes[]` order. Numbering receives only this flattened sequence and never uses branch depth.
 
 ## 5. Magic-string formatter (unchanged from v1 §5)
 
@@ -94,11 +93,13 @@ Cat 2026-07-06 accepted this as v1 limitation: axiom-across-chapters ("a single 
 
 Same target as v1 spec §6.
 
-**EntryKinds** (in `config.json#entry_kinds`):
+**Counter hierarchy** (in `libraries/<slug>/counters.json`):
 - `chapter.numbering = "1"`
-- `section.numbering = ".1"`
-- `theorem.numbering = "A"` (or any kind whose first child is B-worthy)
-- `remark.numbering = ".1"`
+  - `section.numbering = ".1"`
+    - `theorem.numbering = "A"`
+      - `remark.numbering = ".1"`
+
+The matching Entry Kinds select these Counters through `defaultCounterName`.
 
 **Shared pool** (live `.SNL_Doc/entries/*.json` entities in `0.0.6`; shown here keyed by Entry ID):
 - `uuid-chap1: { title: "Chapter 1", kind: "chapter" }`
@@ -144,22 +145,14 @@ Same target as v1 spec §6.
 
 **Compute `numberFor(r_5)`:**
 
-Branch chain: `[chap1, s1_3, t_B, r_5]`.
+The Library linear sequence advances Counters as follows:
 
-- `chap1` is root → segment omitted (unnumbered).
-- `s1_3` under `chap1`: chap1's children `[s1_1, s1_2, s1_3]`, first-child = `s1_1`, its kind = `section`, `numbering=".1"`. `s1_3` is 3rd → `formatNumbering(".1", 3)` = `".3"`.
-- `t_B` under `s1_3`: children `[t_A, t_B]`, first = `t_A` kind=`theorem`, `numbering="A"`. `t_B` is 2nd → `formatNumbering("A", 2)` = `"B"`.
-- `r_5` under `t_B`: children `[r_1..r_5]`, first = `r_1` kind=`remark`, `numbering=".1"`. `r_5` is 5th → `formatNumbering(".1", 5)` = `".5"`.
+- `chap1` advances chapter → `1` and resets all descendants.
+- `s1_1`, `s1_2`, `s1_3` advance section → `1.1`, `1.2`, `1.3`; each section advance resets theorem/remark.
+- `t_A`, `t_B` advance theorem → `1.3A`, `1.3B`; each theorem advance resets remark.
+- `r_1..r_5` advance remark → `1.3B.1` through `1.3B.5`.
 
-For chap1 to appear as `"1"`, it needs a PARENT (library-root virtual counter) OR we accept that root chapters are un-prefixed. Design decision (cat 2026-07-06):
-
-**Chapters ARE the roots.** The first chapter is displayed as `"1"` by rendering `formatNumbering(chapter.numbering, 1)` where `chapter.numbering = "1"`. To make this uniform we number roots too:
-
-- Roots segment: enumerate all roots in `nodes[]` order, first-root kind decides root numbering, `formatNumbering(rootKind.numbering, k)`.
-
-So `chap1` alone → `"1"`, and `r_5`'s full number = `"1" + ".3" + "B" + ".5"` = `"1.3B.5"`. ✓
-
-If there are multiple root chapters `chap1, chap2, chap3`, they get `"1"`, `"2"`, `"3"`.
+Therefore `r_5` is `"1.3B.5"`. The same linear Counter sequence yields this number even if the Entry branch tree is regrouped without changing the Library's natural linear order.
 
 ## 7. TypeScript surface
 

@@ -33,7 +33,7 @@ import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
   indexLibraryGraph,
-  numberForIndexed,
+  numberAllForIndexed,
   type CounterNode,
   type LibraryGraph
 } from './libraryGraph';
@@ -1119,6 +1119,9 @@ export function buildOutline(
 ): OutlineNode[] {
   const graphIndex = indexLibraryGraph(graph);
   const { nodesById, childrenOf, parentOf } = graphIndex;
+  const counterLabels = numberAllForIndexed(
+    graphIndex, entryKindRefById, kindCounterById, counters
+  );
 
   // Cycle guard. This tracks the nodes on the CURRENT path, not every node
   // ever seen: a node legitimately appears under more than one parent when
@@ -1153,13 +1156,7 @@ export function buildOutline(
       }
     }
 
-    const counterLabel = numberForIndexed(
-      graphIndex,
-      nodeId,
-      entryKindRefById,
-      kindCounterById,
-      counters
-    );
+    const counterLabel = counterLabels.get(nodeId) ?? null;
 
     const childIds = childrenOf.get(nodeId) ?? [];
     const children: OutlineNode[] = [];

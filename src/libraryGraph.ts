@@ -278,39 +278,98 @@ function kindForNode(
   return kindsById.get(entry.kind);
 }
 
+/** Natural one-dimensional reading order for one Library index. */
+function readingOrderIndexed(idx: LibraryGraphIndex): string[] {
+  const out: string[] = [];
+  const visited = new Set<string>();
+  const dfs = (nodeId: string): void => {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    out.push(nodeId);
+    for (const child of idx.childrenOf.get(nodeId) ?? []) dfs(child);
+  };
+  for (const root of idx.roots) dfs(root);
+  for (const nodeId of idx.nodesById.keys()) dfs(nodeId);
+  return out;
+}
+
+function counterHierarchyPaths(counters: CounterNode[]): Map<CounterNode, readonly CounterNode[]> {
+  const paths = new Map<CounterNode, readonly CounterNode[]>();
+  const visiting = new Set<CounterNode>();
+  const visit = (counter: CounterNode, parentPath: readonly CounterNode[]): void => {
+    if (visiting.has(counter) || paths.has(counter)) return;
+    visiting.add(counter);
+    const path = [...parentPath, counter];
+    paths.set(counter, path);
+    for (const child of counter.children) visit(child, path);
+    visiting.delete(counter);
+  };
+  for (const counter of counters) visit(counter, []);
+  return paths;
+}
+
+function resetCounterDescendants(
+  counter: CounterNode,
+  values: Map<CounterNode, number>,
+  seen = new Set<CounterNode>()
+): void {
+  if (seen.has(counter)) return;
+  seen.add(counter);
+  for (const child of counter.children) {
+    values.delete(child);
+    resetCounterDescendants(child, values, seen);
+  }
+}
+
 /**
- * Compute the full number of a node (e.g. `"1.3B.5"`).
+ * Number every Entry in one Library operation.
  *
- * `entriesById` maps shared-pool entryId -> EntryData (only `.kind` is
- * consulted). `kindsById` maps kind.id -> EntryKind (only `.defaultCounterName`
- * is consulted). `counters` is the library's counter tree.
- *
- * Numbering rules (2026-07-16, updated 2026-07-16 for per-counter isolation):
- *   - Each node's "active counter" is resolved via {@link resolveActiveCounter}.
- *     If the TARGET node resolves to no counter, this returns `null` (the entry
- *     contributes no numbering).
- *   - For each level in the branch chain, we identify the ACTIVE counter for
- *     the chain-node at that level (target node → its own counter; ancestors →
- *     their own counter). The template for that level is that counter's
- *     `numbering` DSL.
- *   - Sibling position (1-indexed) counts ONLY same-level siblings that share
- *     the SAME active counter as the chain-node, in outline order, up to and
- *     including the chain-node itself. Siblings with a different counter (or
- *     none) are skipped — a/b/a/b under one parent thus yields 1/1/2/2 within
- *     each counter's own sequence.
- *   - If a chain-node ancestor resolves to no counter, its level yields no
- *     fragment (skipped).
- *
- * TODO(counter-tree reset semantics): the counter tree's parent/child
- * relationship is stored + shown in the UI but the numbering engine uses ONLY
- * each counter's own `numbering` DSL today. Cross-counter reset semantics
- * (sub-counters numerically nesting/resetting under their parent counter) land
- * in a follow-up once Fulcrum specs the reset rules; today the tree is
- * display-only for management purposes.
- *
- * Returns `null` if the node doesn't exist, its branch chain is broken (cycle,
- * missing parent), or the target node resolves to no counter.
+ * Numbering consumes only the Library's natural one-dimensional reading order.
+ * Entry branch ancestry never contributes a number. Counter hierarchy supplies
+ * the prefix/reset semantics: advancing a counter resets all descendants, and
+ * a counter's rendered number is the concatenation of its initialized ancestor
+ * segments plus its own segment.
  */
+export function numberAllForIndexed(
+  idx: LibraryGraphIndex,
+  entriesById: Map<string, EntryKindRef>,
+  kindsById: Map<string, KindCounterRef>,
+  counters: CounterNode[]
+): Map<string, string | null> {
+  const paths = counterHierarchyPaths(counters);
+  const values = new Map<CounterNode, number>();
+  const numbers = new Map<string, string | null>();
+
+  for (const nodeId of readingOrderIndexed(idx)) {
+    const node = idx.nodesById.get(nodeId);
+    if (!node) continue;
+    const kind = kindForNode(node, entriesById, kindsById);
+    const counter = resolveActiveCounter(node, kind, counters);
+    const path = counter ? paths.get(counter) : undefined;
+    if (!counter || !path) {
+      numbers.set(nodeId, null);
+      continue;
+    }
+
+    values.set(counter, (values.get(counter) ?? 0) + 1);
+    resetCounterDescendants(counter, values);
+
+    const segments: string[] = [];
+    let initialized = true;
+    for (const level of path) {
+      const value = values.get(level);
+      if (value === undefined) {
+        initialized = false;
+        break;
+      }
+      segments.push(formatNumbering(level.numbering, value));
+    }
+    numbers.set(nodeId, initialized ? segments.join('') : null);
+  }
+  return numbers;
+}
+
+/** Compute one node's number within its Library-scoped linear sequence. */
 export function numberFor(
   graph: LibraryGraph,
   nodeId: string,
@@ -319,15 +378,11 @@ export function numberFor(
   counters: CounterNode[]
 ): string | null {
   return numberForIndexed(
-    indexLibraryGraph(graph),
-    nodeId,
-    entriesById,
-    kindsById,
-    counters
+    indexLibraryGraph(graph), nodeId, entriesById, kindsById, counters
   );
 }
 
-/** Compute a node number using a graph index shared by a larger operation. */
+/** Compute one node number from a prebuilt graph index. */
 export function numberForIndexed(
   idx: LibraryGraphIndex,
   nodeId: string,
@@ -335,61 +390,7 @@ export function numberForIndexed(
   kindsById: Map<string, KindCounterRef>,
   counters: CounterNode[]
 ): string | null {
-  const targetNode = idx.nodesById.get(nodeId);
-  if (!targetNode) return null;
-
-  // The target must resolve to a counter, else it gets no numbering label.
-  const targetKind = kindForNode(targetNode, entriesById, kindsById);
-  if (!resolveActiveCounter(targetNode, targetKind, counters)) return null;
-
-  // Walk branch parents back to a root. Chain = [root, ..., parent, node].
-  const chain: string[] = [];
-  const seen = new Set<string>();
-  let cur: string | undefined = nodeId;
-  while (cur !== undefined) {
-    if (seen.has(cur)) return null; // cycle
-    seen.add(cur);
-    chain.unshift(cur);
-    cur = idx.parentOf.get(cur);
-  }
-  if (chain.length === 0) return null;
-
-  const segments: string[] = [];
-  for (let i = 0; i < chain.length; i++) {
-    const curId = chain[i];
-    const curNode = idx.nodesById.get(curId);
-    if (!curNode) return null;
-    const parent = i === 0 ? null : chain[i - 1];
-    const siblings = parent === null ? idx.roots : idx.childrenOf.get(parent) ?? [];
-
-    // Per-counter isolation: use the chain-node's OWN active counter for both
-    // template and position. Position counts only siblings that resolve to the
-    // same counter (by id), up to and including this node itself. If the
-    // chain-node has no counter, the level is skipped entirely.
-    const curKind = kindForNode(curNode, entriesById, kindsById);
-    const curCounter = resolveActiveCounter(curNode, curKind, counters);
-    if (!curCounter) continue;
-
-    let position = 0;
-    let found = false;
-    for (const sibId of siblings) {
-      const sibNode = idx.nodesById.get(sibId);
-      if (!sibNode) continue;
-      const sibKind = kindForNode(sibNode, entriesById, kindsById);
-      const sibCounter = resolveActiveCounter(sibNode, sibKind, counters);
-      if (sibCounter && sibCounter.id === curCounter.id) {
-        position += 1;
-        if (sibId === curId) {
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found) return null;
-
-    segments.push(formatNumbering(curCounter.numbering, position));
-  }
-  return segments.join('');
+  return numberAllForIndexed(idx, entriesById, kindsById, counters).get(nodeId) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,30 +406,5 @@ export function numberForIndexed(
  * at the end so no entry is silently dropped.
  */
 export function readingOrder(graph: LibraryGraph): string[] {
-  const idx = indexLibraryGraph(graph);
-  const out: string[] = [];
-  const visited = new Set<string>();
-
-  const dfs = (nodeId: string): void => {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-    out.push(nodeId);
-    const children = idx.childrenOf.get(nodeId) ?? [];
-    for (const child of children) {
-      dfs(child);
-    }
-  };
-
-  for (const root of idx.roots) {
-    dfs(root);
-  }
-  // Orphans (had a parent that didn't exist, but branch edges got them in
-  // childrenOf via a non-root walk). Append them to the tail in nodes[]
-  // declaration order so nothing gets lost.
-  for (const n of graph.nodes) {
-    if (!visited.has(n.id)) {
-      dfs(n.id);
-    }
-  }
-  return out;
+  return readingOrderIndexed(indexLibraryGraph(graph));
 }

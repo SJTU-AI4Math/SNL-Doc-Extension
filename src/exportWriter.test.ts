@@ -64,10 +64,15 @@ const request = {
   inline: false
 };
 
+const testUri = (path: string): { path: string; with: (change: { path?: string }) => ReturnType<typeof testUri> } => ({
+  path,
+  with: (change) => testUri(change.path ?? path)
+});
+
 const deps = (destination: { path: string }) => ({
   extensionUri: EXT as never,
   workspaceRoot: WS as never,
-  destination: destination as never,
+  destination: testUri(destination.path) as never,
   buildDocument: (input: {
     title: string;
     subtitle?: string;
@@ -125,6 +130,17 @@ describe('writeExport — directory shape', () => {
 });
 
 describe('writeExport — inline shape', () => {
+  it('appends .html when the single-file destination has no HTML extension', async () => {
+    const out = await writeExport(
+      { ...request, inline: true },
+      deps({ path: '/out/tour' }) as never
+    );
+
+    expect(out.target.path).toBe('/out/tour.html');
+    expect(files.has('/out/tour.html')).toBe(true);
+    expect(files.has('/out/tour')).toBe(false);
+  });
+
   it('emits exactly one file with every binary folded in', async () => {
     const out = await writeExport(
       { ...request, inline: true },

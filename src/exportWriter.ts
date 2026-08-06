@@ -177,8 +177,11 @@ export async function writeExport(
   const encoder = new TextEncoder();
 
   if (request.inline) {
-    await fsApi.writeFile(deps.destination, encoder.encode(plan.html));
-    return { target: deps.destination, fileCount: 1, warnings };
+    const destination = /\.html$/i.test(deps.destination.path)
+      ? deps.destination
+      : deps.destination.with({ path: `${deps.destination.path}.html` });
+    await fsApi.writeFile(destination, encoder.encode(plan.html));
+    return { target: destination, fileCount: 1, warnings };
   }
 
   await fsApi.createDirectory(deps.destination);

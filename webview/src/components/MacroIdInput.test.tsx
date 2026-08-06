@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -13,6 +14,28 @@ afterEach(() => {
 });
 
 describe('MacroIdInput', () => {
+  it('keeps syntax colors visible through native text selection', () => {
+    const view = render(
+      <MacroIdInput
+        value="$Foo.bar$"
+        onChange={() => undefined}
+        aria-label="Selected Macro"
+        className="caller-class"
+      />
+    );
+    const input = view.getByRole('textbox', { name: 'Selected Macro' });
+    expect(input.classList.contains('snl-macro-id-native-control')).toBe(true);
+    expect(input.classList.contains('caller-class')).toBe(true);
+
+    const css = readFileSync('webview/src/components/MacroIdInput.css', 'utf8');
+    const selectionRule = css.match(
+      /\.snl-macro-id-native-control::selection\s*\{([^}]*)\}/
+    )?.[1] ?? '';
+    expect(selectionRule).toMatch(/(?:^|\n)\s*color:\s*transparent;/);
+    expect(selectionRule).toMatch(/(?:^|\n)\s*-webkit-text-fill-color:\s*transparent;/);
+    expect(selectionRule).toMatch(/(?:^|\n)\s*background:[^;]*color-mix\(/s);
+  });
+
   it('auto-closes a leading formula or text delimiter', () => {
     expect(autoCloseLeadingDelimiter('', '$')).toEqual({ value: '$$', caret: 1 });
     expect(autoCloseLeadingDelimiter('', '%')).toEqual({ value: '%%', caret: 1 });

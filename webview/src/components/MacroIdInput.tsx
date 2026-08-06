@@ -12,6 +12,7 @@ import {
   SnooglSearchIndex,
   type SnooglSearchCandidate
 } from '../../../src/snooglSearch';
+import './MacroIdInput.css';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 
 const MESSAGES = defineUiMessages(
@@ -657,7 +658,7 @@ export const MacroIdInput = forwardRef<
           <textarea
             {...textareaProps}
             ref={(element) => { controlRef.current = element; }}
-            className={className}
+            className={['snl-macro-id-native-control', className].filter(Boolean).join(' ')}
             value={value}
             rows={autoSize ? rows : undefined}
             onChange={(event) => handleValueChange(
@@ -689,7 +690,7 @@ export const MacroIdInput = forwardRef<
         <input
           {...inputProps}
           ref={(element) => { controlRef.current = element; }}
-          className={className}
+          className={['snl-macro-id-native-control', className].filter(Boolean).join(' ')}
           value={value}
           onChange={(event) => handleValueChange(
             event.target.value,

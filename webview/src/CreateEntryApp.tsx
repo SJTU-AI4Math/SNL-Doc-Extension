@@ -4036,11 +4036,15 @@ function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): strin
   return 'fvar';
 }
 
-function useQueriedMacro(
+export function useQueriedMacro(
   driver: MacroDataDriver,
   macroName: string
 ): SnlMacro | undefined {
-  const [macro, setMacro] = useState<SnlMacro | undefined>(undefined);
+  const [result, setResult] = useState<{
+    driver: MacroDataDriver;
+    macroName: string;
+    macro: SnlMacro | undefined;
+  }>(() => ({ driver, macroName, macro: undefined }));
   // Epoch guard: `query_macro` has an LRU cache, so a cache HIT for the new
   // name can resolve long before an in-flight MISS for the previous one. The
   // AbortController only guards the driver's entry point, not a promise that
@@ -4052,7 +4056,9 @@ function useQueriedMacro(
     const controller = new AbortController();
     const epoch = ++epochRef.current;
     const settle = (value: SnlMacro | undefined): void => {
-      if (epochRef.current === epoch) setMacro(value);
+      if (epochRef.current === epoch) {
+        setResult({ driver, macroName, macro: value });
+      }
     };
     settle(undefined);
     void driver.query_macro({ macro_name: macroName, signal: controller.signal })
@@ -4064,7 +4070,12 @@ function useQueriedMacro(
       });
     return () => controller.abort();
   }, [driver, macroName]);
-  return macro;
+  // Effects clear state only after a render commits. Bind the stored result to
+  // both query inputs so the first render for a new name/driver cannot expose
+  // the previous Macro's kind, frame color, tooltip, Style list, or arity.
+  return result.driver === driver && result.macroName === macroName
+    ? result.macro
+    : undefined;
 }
 
 /**
@@ -4791,9 +4802,8 @@ function InductiveNode({
    * answer arrives. Cat 2026-07-25.
    */
   useEffect(() => {
-    // No stale-name check needed: `useQueriedMacro` is keyed on
-    // `node.macro_name` and clears to undefined while a new lookup is in
-    // flight, so a defined `macroEntry` always describes the current name.
+    // `useQueriedMacro` binds each result to its driver + name, so a defined
+    // `macroEntry` always describes the current row even before effects run.
     if (!macroEntry || macroEntry.dynamic_arity === true) return;
     const requiredArity = macroTemplateArity(macroEntry);
     if (requiredArity > node.children.length) {

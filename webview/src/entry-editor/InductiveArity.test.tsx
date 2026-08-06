@@ -1,8 +1,10 @@
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';
-import { GuiInductiveEditor, withContextEntryId } from '../CreateEntryApp';
+import { GuiInductiveEditor, useQueriedMacro, withContextEntryId } from '../CreateEntryApp';
 
 afterEach(() => {
   cleanup();
@@ -68,6 +70,27 @@ function renderEditor(
 }
 
 describe('Inductive editor arity auto-fill', () => {
+  it('does not expose the previous Macro result during the first render of a new name', async () => {
+    const keyedDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'known' ? macro('known', true, 'K') : null
+    }});
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const Probe = ({ name }: { name: string }): React.ReactElement => {
+      const result = useQueriedMacro(keyedDriver, name);
+      return <output>{result?.name ?? 'none'}</output>;
+    };
+
+    flushSync(() => root.render(<Probe name="known" />));
+    await waitFor(() => expect(host.textContent).toBe('known'));
+    flushSync(() => root.render(<Probe name="missing" />));
+    expect(host.textContent).toBe('none');
+    flushSync(() => root.unmount());
+    host.remove();
+  });
+
   it('localizes Inductive inputs, Style states, helper copy, and parse errors in Simplified Chinese', async () => {
     document.documentElement.lang = 'zh-CN';
     const localized = renderEditor('styled@missing-entry', [

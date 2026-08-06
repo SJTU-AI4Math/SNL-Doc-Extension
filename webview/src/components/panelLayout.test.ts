@@ -39,6 +39,19 @@ describe('responsive full-width panel layout', () => {
     expect(css).toContain('@container');
   });
 
+  it('keeps the narrow header language menu right-aligned and viewport-clamped', () => {
+    const css = fs.readFileSync(
+      path.join(repo, 'webview/src/components/ui.css'),
+      'utf8'
+    );
+    const narrowStart = css.indexOf('@container (max-width:28rem)');
+    const narrowEnd = css.indexOf('.snl-empty-action', narrowStart);
+    const narrow = css.slice(narrowStart, narrowEnd);
+    expect(narrow).toContain('.snl-panel-header__language-menu { left:auto; right:0;');
+    expect(narrow).not.toContain('left:0; right:auto');
+    expect(css).toContain('max-width:calc(100vw - 1rem)');
+  });
+
   it('contains Entry preview errors instead of letting long source widen the editor', () => {
     const source = fs.readFileSync(
       path.join(repo, 'webview/src/CreateEntryApp.tsx'),

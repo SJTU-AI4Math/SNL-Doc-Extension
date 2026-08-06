@@ -64,10 +64,11 @@ import {
   useVsCodeApiRef,
   PANEL_STYLE
 } from './vscodeApi';
-import { PanelHeader } from './components/PanelHeader';
+import { LanguageIcon, PanelHeader } from './components/PanelHeader';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { IconButton } from './components/IconButton';
+import { Disclosure } from './components/Disclosure';
 import { TabButton, TabList } from './components/Tabs';
 import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
@@ -78,6 +79,7 @@ import {
   webview_language_runtime
 } from './runtime/preferencesRuntime';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
+import { BUILT_IN_LANGUAGE_CATALOG } from '../../src/languageCatalog';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
@@ -164,6 +166,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     duplicateStyleTags: 'Duplicate style tags — each style tag must be unique.',
     fallbackHelp: '★ = final fallback (styles[0]). Implicit rendering first uses the current language mapping, then English, then this fallback. Explicit [style] always wins.',
     defaultStyleByLanguage: 'Default style by language',
+    language: 'Language',
+    defaultStyleForLanguage: 'Default style for {language}',
     useStylesZero: 'Use styles[0]',
     useEnglishStylesZero: 'Use English / styles[0]',
     languagePlaceholder: 'Language tag, e.g. fr',
@@ -277,6 +281,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     duplicateStyleTags: '样式标签重复；每个样式标签必须唯一。',
     fallbackHelp: '★ = 最终回退样式（styles[0]）。隐式渲染会依次使用当前语言映射、英语映射和此回退样式；显式 [style] 始终优先。',
     defaultStyleByLanguage: '按语言设置默认样式',
+    language: '语言',
+    defaultStyleForLanguage: '{language}的默认样式',
     useStylesZero: '使用 styles[0]',
     useEnglishStylesZero: '使用英语映射 / styles[0]',
     languagePlaceholder: '语言标签，例如 fr',
@@ -672,6 +678,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
 
   const [previewArgs, setPreviewArgs] = useState<string[]>(['', '', '', '']);
+  const [previewArgsOpen, setPreviewArgsOpen] = useState(false);
   const [variadicArgCount, setVariadicArgCount] = useState(3);
 
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -1555,97 +1562,90 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Argument overrides during preview ----------------------------- */}
       <div
         style={{
-          border:
-            '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+          border: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
           borderRadius: '4px',
           padding: '0.75rem',
           marginBottom: '1.25rem'
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '0.5rem'
-          }}
+        <Disclosure
+          expanded={previewArgsOpen}
+          controls="macro-preview-argument-overrides"
+          onToggle={() => setPreviewArgsOpen((value) => !value)}
+          style={{ width: '100%', justifyContent: 'flex-start', padding: 0 }}
         >
-          <strong style={{ fontSize: '0.9rem' }}>
-            {t('argumentOverrides')}
-          </strong>
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
-            {dynamicArity ? (
-              <>
-                <Button size="sm"
-                  onClick={() =>
-                    setVariadicArgCount((n) => Math.min(n + 1, MAX_MACRO_PREVIEW_ARGS))
-                  }
-                >
-                  {t('addArg')}
-                </Button>
-                <Button size="sm"
-                  onClick={() =>
-                    setVariadicArgCount((n) => Math.max(n - 1, 0))
-                  }
-                >
-                  {t('removeArg')}
-                </Button>
-              </>
-            ) : null}
-            <Button size="sm" onClick={resetArgs}>{t('resetArgs')}</Button>
-          </div>
-        </div>
-
-        {argCount === 0 ? (
-          <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
-            {dynamicArity
-              ? t('noDynamicArgs')
-              : t('noFixedArgs')}
-          </p>
-        ) : (
-          Array.from({ length: argCount }).map((_, i) => (
-            <div key={i} style={{ marginBottom: '0.4rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span
-                  style={{
-                    width: '3.5rem',
-                    fontSize: '0.85rem',
-                    opacity: 0.8,
-                    fontFamily: 'var(--vscode-editor-font-family, monospace)'
-                  }}
-                >
-                  {t('argLabel', { index: i })}
-                </span>
-                <textarea
-                  value={previewArgs[i] ?? ''}
-                  rows={1}
-                  placeholder={t('argPlaceholder', { index: i })}
-                  onChange={(e) => setArg(i, e.target.value)}
-                  style={{
-                    ...inputStyle,
-                    flex: 1,
-                    fontFamily: 'var(--vscode-editor-font-family, monospace)',
-                    resize: 'vertical',
-                    borderColor: parseErrors[i]
-                      ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
-                      : undefined
-                  }}
-                />
-              </div>
-              {parseErrors[i] ? (
-                <p
-                  style={{
-                    margin: '0.15rem 0 0 4rem',
-                    fontSize: '0.78rem',
-                    color: 'var(--vscode-errorForeground, #f48771)'
-                  }}
-                >
-                  {t('parseError', { error: parseErrors[i] ?? '' })}
-                </p>
+          {t('argumentOverrides')}
+        </Disclosure>
+        {previewArgsOpen ? (
+          <div id="macro-preview-argument-overrides" style={{ marginTop: '0.65rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', marginBottom: '0.5rem' }}>
+              {dynamicArity ? (
+                <>
+                  <Button size="sm"
+                    onClick={() => setVariadicArgCount((n) => Math.min(n + 1, MAX_MACRO_PREVIEW_ARGS))}
+                  >
+                    {t('addArg')}
+                  </Button>
+                  <Button size="sm"
+                    onClick={() => setVariadicArgCount((n) => Math.max(n - 1, 0))}
+                  >
+                    {t('removeArg')}
+                  </Button>
+                </>
               ) : null}
+              <Button size="sm" onClick={resetArgs}>{t('resetArgs')}</Button>
             </div>
-          ))
-        )}
+
+            {argCount === 0 ? (
+              <p style={{ margin: 0, opacity: 0.7, fontSize: '0.85rem' }}>
+                {dynamicArity ? t('noDynamicArgs') : t('noFixedArgs')}
+              </p>
+            ) : (
+              Array.from({ length: argCount }).map((_, i) => (
+                <div key={i} style={{ marginBottom: '0.4rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <span
+                      style={{
+                        width: '3.5rem',
+                        fontSize: '0.85rem',
+                        opacity: 0.8,
+                        fontFamily: 'var(--vscode-editor-font-family, monospace)'
+                      }}
+                    >
+                      {t('argLabel', { index: i })}
+                    </span>
+                    <textarea
+                      value={previewArgs[i] ?? ''}
+                      rows={1}
+                      placeholder={t('argPlaceholder', { index: i })}
+                      onChange={(event) => setArg(i, event.target.value)}
+                      style={{
+                        ...inputStyle,
+                        flex: 1,
+                        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                        resize: 'vertical',
+                        borderColor: parseErrors[i]
+                          ? 'var(--vscode-inputValidation-errorBorder, #be1100)'
+                          : undefined
+                      }}
+                    />
+                  </div>
+                  {parseErrors[i] ? (
+                    <p
+                      style={{
+                        margin: '0.15rem 0 0 4rem',
+                        fontSize: '0.78rem',
+                        color: 'var(--vscode-errorForeground, #f48771)'
+                      }}
+                    >
+                      {t('parseError', { error: parseErrors[i] ?? '' })}
+                    </p>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* --- Sources (moved to the bottom, above Submit) ------------------- */}
@@ -2435,6 +2435,108 @@ function TagsEditor({
   );
 }
 
+function languageDisplayName(language: string): string {
+  return BUILT_IN_LANGUAGE_CATALOG.find((item) => item.id === language)?.display_name ?? language;
+}
+
+function MacroLanguageSelector({
+  languages,
+  value,
+  label,
+  onChange
+}: {
+  languages: string[];
+  value: string;
+  label: string;
+  onChange: (language: string) => void;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const selected = [...(rootRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [])]
+      .find((option) => option.dataset.language === value);
+    selected?.focus();
+    const closeOutside = (event: MouseEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOutside);
+    return () => document.removeEventListener('mousedown', closeOutside);
+  }, [open, value]);
+
+  return (
+    <div ref={rootRef} className="snl-panel-header__language">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="snl-control snl-panel-header__language-trigger"
+        aria-label={`${label}: ${languageDisplayName(value)}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <LanguageIcon language={value} />
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="snl-panel-header__language-menu"
+          style={{ left: 0, right: 'auto' }}
+          onKeyDown={(event) => {
+            const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setOpen(false);
+              triggerRef.current?.focus();
+              return;
+            }
+            if (event.key === 'Tab') {
+              setOpen(false);
+              return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || options.length === 0) return;
+            event.preventDefault();
+            const current = Math.max(0, options.indexOf(document.activeElement as HTMLButtonElement));
+            const next = event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? options.length - 1
+                : event.key === 'ArrowUp'
+                  ? (current - 1 + options.length) % options.length
+                  : (current + 1) % options.length;
+            options[next]?.focus();
+          }}
+        >
+          {languages.map((language) => (
+            <button
+              key={language}
+              type="button"
+              role="option"
+              data-language={language}
+              aria-selected={language === value}
+              className="snl-panel-header__language-item"
+              onClick={() => {
+                onChange(language);
+                setOpen(false);
+                requestAnimationFrame(() => triggerRef.current?.focus());
+              }}
+            >
+              <LanguageIcon language={language} />
+              <span>{languageDisplayName(language)}</span>
+              <span aria-hidden="true" className="snl-panel-header__language-check">
+                {language === value ? '✓' : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StylesEditor({
   styles,
   setStyles,
@@ -2457,6 +2559,8 @@ function StylesEditor({
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const current = styles[activeStyle] ?? styles[0];
   const [newLanguage, setNewLanguage] = useState('');
+  const [i18nOpen, setI18nOpen] = useState(false);
+  const [selectedDefaultLanguage, setSelectedDefaultLanguage] = useState('en');
 
   const addStyle = (): void => {
     const existing = new Set(styles.map((s) => s.style_name));
@@ -2565,47 +2669,93 @@ function StylesEditor({
         {t('fallbackHelp')}
       </p>
 
-      <div style={{ marginBottom: '0.75rem' }}>
-        <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+      <div
+        style={{
+          marginBottom: '0.75rem',
+          border: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
+          borderRadius: '4px',
+          padding: '0.55rem 0.65rem'
+        }}
+      >
+        <Disclosure
+          expanded={i18nOpen}
+          controls="macro-default-style-i18n"
+          onToggle={() => setI18nOpen((value) => !value)}
+          style={{ width: '100%', justifyContent: 'flex-start', padding: 0 }}
+        >
           {t('defaultStyleByLanguage')}
-        </div>
-        {[...new Set(['en', 'zh-CN', ...Object.keys(defaultStyle)])].map((language) => (
-          <div key={language} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.3rem' }}>
-            <code style={{ minWidth: '5rem' }}>{language}</code>
-            <select
-              value={defaultStyle[language] ?? ''}
-              onChange={(event) => {
-                const value = event.target.value;
-                setDefaultStyle((currentDefaults) => {
-                  const next = { ...currentDefaults };
-                  if (value) next[language] = value;
-                  else delete next[language];
-                  return next;
-                });
+        </Disclosure>
+        {i18nOpen ? (
+          <div id="macro-default-style-i18n" style={{ marginTop: '0.65rem' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(8rem, auto) minmax(12rem, 1fr)',
+                gap: '0.5rem',
+                alignItems: 'end',
+                marginBottom: '0.55rem'
               }}
-              style={{ ...inputStyle, minWidth: '10rem' }}
             >
-              <option value="">{t(language === 'en' ? 'useStylesZero' : 'useEnglishStylesZero')}</option>
-              {styles.map((style) => (
-                <option key={style.style_name} value={style.style_name}>{style.style_name}</option>
-              ))}
-            </select>
+              <div>
+                <div style={{ ...labelStyle, marginBottom: '0.3rem' }}>{t('language')}</div>
+                <MacroLanguageSelector
+                  languages={[...new Set([
+                    'en',
+                    'zh-CN',
+                    ...Object.keys(defaultStyle),
+                    selectedDefaultLanguage
+                  ])]}
+                  value={selectedDefaultLanguage}
+                  label={t('language')}
+                  onChange={setSelectedDefaultLanguage}
+                />
+              </div>
+              <label style={{ ...labelStyle, margin: 0 }}>
+                {t('defaultStyleForLanguage', {
+                  language: languageDisplayName(selectedDefaultLanguage)
+                })}
+                <select
+                  aria-label={t('defaultStyleForLanguage', {
+                    language: languageDisplayName(selectedDefaultLanguage)
+                  })}
+                  value={defaultStyle[selectedDefaultLanguage] ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setDefaultStyle((currentDefaults) => {
+                      const next = { ...currentDefaults };
+                      if (value) next[selectedDefaultLanguage] = value;
+                      else delete next[selectedDefaultLanguage];
+                      return next;
+                    });
+                  }}
+                  style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.3rem' }}
+                >
+                  <option value="">
+                    {t(selectedDefaultLanguage === 'en' ? 'useStylesZero' : 'useEnglishStylesZero')}
+                  </option>
+                  {styles.map((style) => (
+                    <option key={style.style_name} value={style.style_name}>{style.style_name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              <input
+                value={newLanguage}
+                placeholder={t('languagePlaceholder')}
+                onChange={(event) => setNewLanguage(event.target.value)}
+                style={{ ...inputStyle, width: '12rem' }}
+              />
+              <Button size="sm" onClick={() => {
+                const language = newLanguage.trim();
+                if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
+                setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
+                setSelectedDefaultLanguage(language);
+                setNewLanguage('');
+              }}>{t('addLanguage')}</Button>
+            </div>
           </div>
-        ))}
-        <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-          <input
-            value={newLanguage}
-            placeholder={t('languagePlaceholder')}
-            onChange={(event) => setNewLanguage(event.target.value)}
-            style={{ ...inputStyle, width: '12rem' }}
-          />
-          <Button size="sm" onClick={() => {
-            const language = newLanguage.trim();
-            if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
-            setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
-            setNewLanguage('');
-          }}>{t('addLanguage')}</Button>
-        </div>
+        ) : null}
       </div>
 
       {/* React renderer preset — only for `block` mode. Text mode goes

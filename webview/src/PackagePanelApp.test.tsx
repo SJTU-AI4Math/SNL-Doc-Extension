@@ -22,7 +22,7 @@ describe('Macro package panel Chinese localization', () => {
   it('renders loading, package actions, and empty state in Simplified Chinese', async () => {
     render(<PackagePanelApp />);
     expect(screen.getByText('正在加载宏包…')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '仪表板' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '返回仪表板' })).toBeTruthy();
 
     window.dispatchEvent(new MessageEvent('message', {
       data: {

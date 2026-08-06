@@ -1,7 +1,5 @@
 import React from 'react';
 import type { VsCodeApi } from '../vscodeApi';
-import { Button } from './Button';
-import { Icon } from './Icon';
 import { IconButton } from './IconButton';
 import {
   use_localized,
@@ -27,6 +25,8 @@ export interface PanelHeaderProps {
   title: LocalizedString;
   /** Optional low-emphasis context below the title. */
   subtitle?: LocalizedString;
+  /** Optional panel-specific control rendered beside the title. */
+  titleAction?: React.ReactNode;
   /** Left-side action (back / go up). Omit for root panels. */
   back?: PanelHeaderAction;
   /** Optional action that opens the corresponding Infoview surface. */
@@ -48,6 +48,7 @@ export function PanelHeader({
   vsApi,
   title,
   subtitle,
+  titleAction,
   back,
   viewInInfoview,
   actions,
@@ -100,17 +101,16 @@ export function PanelHeader({
     <nav className="snl-panel-header" aria-label={navigationLabel}>
       <div className="snl-panel-header__leading">
         {back ? (
-          <Button
+          <IconButton
+            icon="chevron-left"
+            label={backTitle || backLabel}
             variant="secondary"
             size="md"
             title={backTitle}
             onClick={() => back.onClick
               ? back.onClick()
               : back.message && vsApi?.postMessage(back.message)}
-          >
-            <Icon name="chevron-left" />
-            <span>{backLabel}</span>
-          </Button>
+          />
         ) : null}
         <div className="snl-panel-header__brand">
           <img className="snl-panel-header__logo" src={logo} alt="" aria-hidden="true" />
@@ -121,7 +121,10 @@ export function PanelHeader({
       </div>
 
       <div className="snl-panel-header__identity">
-        <h1>{resolvedTitle}</h1>
+        <div className="snl-panel-header__title-row">
+          <h1>{resolvedTitle}</h1>
+          {titleAction}
+        </div>
         {resolvedSubtitle ? <div className="snl-panel-header__subtitle">{resolvedSubtitle}</div> : null}
       </div>
 
@@ -137,17 +140,16 @@ export function PanelHeader({
           />
         ) : null}
         {viewInInfoview ? (
-          <Button
+          <IconButton
+            icon="chevron-right"
+            label={viewTitle || viewLabel}
             variant="secondary"
             size="md"
             title={viewTitle}
             onClick={() => viewInInfoview.onClick
               ? viewInInfoview.onClick()
               : viewInInfoview.message && vsApi?.postMessage(viewInInfoview.message)}
-          >
-            <Icon name="open" />
-            <span>{viewLabel}</span>
-          </Button>
+          />
         ) : null}
         {actions}
         <LanguageSelector
@@ -155,6 +157,7 @@ export function PanelHeader({
           label={languageLabel}
           autoLabel={autoLanguageLabel}
           current={currentPreference}
+          effectiveLanguage={effectiveLanguage}
         />
       </div>
     </nav>
@@ -167,12 +170,14 @@ function LanguageSelector({
   vsApi,
   label,
   autoLabel,
-  current
+  current,
+  effectiveLanguage
 }: {
   vsApi: VsCodeApi | undefined;
   label: string;
   autoLabel: string;
   current: HeaderLanguagePreference;
+  effectiveLanguage: 'en' | 'zh-CN';
 }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
   const [activeLanguage, setActiveLanguage] = React.useState<HeaderLanguagePreference>(current);
@@ -251,9 +256,7 @@ function LanguageSelector({
           }
         }}
       >
-        <LanguageIcon language={current} />
-        <span>{currentLabel}</span>
-        <span aria-hidden="true" className="snl-panel-header__language-chevron">▾</span>
+        <LanguageIcon language={effectiveLanguage} />
       </button>
       {open ? (
         <div
@@ -322,7 +325,7 @@ function LanguageMenuItem({
   );
 }
 
-function LanguageIcon({ language }: { language: HeaderLanguagePreference }): React.ReactElement {
+export function LanguageIcon({ language }: { language: string }): React.ReactElement {
   if (language === 'zh-CN') {
     return (
       <svg data-language-icon="zh-CN" aria-hidden="true" viewBox="0 0 20 14">

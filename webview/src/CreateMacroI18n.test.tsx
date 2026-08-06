@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./vscodeApi', async () => {
@@ -60,5 +60,39 @@ describe('Create Macro localization', () => {
     document.documentElement.lang = 'zh-CN';
     render(<BlockRendererPresetControl value="list" onChange={() => undefined} />);
     expect(screen.getByText(/\\begin\{itemize\}/)).toBeTruthy();
+  });
+
+  it('starts I18N and preview overrides collapsed and uses paired language/style selectors', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+
+    const i18n = screen.getByRole('button', { name: 'Default style by language' });
+    expect(i18n.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: /Language: English/ })).toBeNull();
+    fireEvent.click(i18n);
+    const language = screen.getByRole('button', { name: /Language: English/ });
+    expect(language.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: /Default style for English/ })).toBeTruthy();
+    fireEvent.click(language);
+    const languageMenu = screen.getByRole('listbox', { name: 'Language' });
+    expect(languageMenu.style.left).toBe('0px');
+    expect(languageMenu.style.right).toBe('auto');
+    fireEvent.click(screen.getByRole('option', { name: /简体中文/ }));
+    expect(screen.getByRole('combobox', { name: /Default style for 简体中文/ })).toBeTruthy();
+
+    const preview = screen.getByRole('button', { name: 'Argument overrides during preview' });
+    expect(preview.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Reset all args' })).toBeNull();
+    fireEvent.click(preview);
+    expect(screen.getByRole('button', { name: 'Reset all args' })).toBeTruthy();
   });
 });

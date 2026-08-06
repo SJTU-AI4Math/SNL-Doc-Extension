@@ -184,7 +184,7 @@
       "editor/title": [
         {
           "command": "snlDoc.openDashboard",
-          "group": "navigation@100",
+          "group": "navigation@-100",
           "when": "snlDoc.hasSnlDoc"
         }
       ],

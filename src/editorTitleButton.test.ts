@@ -84,8 +84,10 @@ const extensionSource = readFileSync(resolve(__dirname, 'extension.ts'), 'utf8')
 describe('editor-title Dashboard button', () => {
   it('contributes an editor/title item for the Dashboard', () => {
     expect(dashboardItem).toBeDefined();
-    // Right-hand side of the title bar, not the "..." overflow menu.
-    expect(dashboardItem?.group).toMatch(/^navigation/);
+    // Right-hand side of the title bar. A negative order keeps the cat before
+    // language-extension actions such as Lean's ∀ so it is not the first item
+    // pushed into the overflow menu when the editor title runs out of width.
+    expect(dashboardItem?.group).toBe('navigation@-100');
   });
 
   it('gates the button on the SNL context key, not on every file', () => {

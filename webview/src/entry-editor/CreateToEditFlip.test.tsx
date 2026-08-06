@@ -73,6 +73,12 @@ const KINDS = [{
   style: 'default'
 }];
 
+function openPackageCreator(view: ReturnType<typeof render>): void {
+  const select = view.container.querySelector<HTMLSelectElement>('#snl-entry-package');
+  if (!select) throw new Error('Entry Package selector not rendered');
+  fireEvent.change(select, { target: { value: '__create__' } });
+}
+
 function createContext(): unknown {
   return {
     type: 'context',
@@ -152,7 +158,7 @@ describe('CreateEntryApp create → edit flip', () => {
       ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!;
     fireEvent.change(idInput, { target: { value: 'thm-new' } });
 
-    expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Create Entry');
+    expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Create entry');
     fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
     const create = posted.findLast((m) => m?.type === 'create');
     expect(create).toBeTruthy();
@@ -175,7 +181,7 @@ describe('CreateEntryApp create → edit flip', () => {
 
     // (b) edit-mode UI, with the submitted values still on screen.
     await waitFor(() => {
-      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit Entry');
+      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit entry');
     });
     expect(view.container.querySelector<HTMLInputElement>('#snl-entry-title')!.value)
       .toBe('Brand New');
@@ -183,8 +189,11 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(readonlyId.readOnly).toBe(true);
     expect(readonlyId.value).toBe('thm-new');
     expect(view.getByRole('button', { name: 'Update Entry' })).toBeTruthy();
-    const navButtons = Array.from(view.container.querySelectorAll('nav button'));
-    expect(navButtons.some((b) => (b.textContent ?? '').includes('Infoview'))).toBe(true);
+    const infoview = view.getByRole('button', {
+      name: 'Open entry "thm-new" in the Infoview reading surface'
+    });
+    expect(infoview.textContent).toBe('');
+    expect(infoview.querySelector('svg[data-snl-icon="chevron-right"]')).toBeTruthy();
 
     // (c) a second save is an update, not a duplicate create.
     const createsBefore = posted.filter((m) => m?.type === 'create').length;
@@ -202,8 +211,8 @@ describe('CreateEntryApp create → edit flip', () => {
     const view = render(<CreateEntryApp />);
     send(createContext());
 
-    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
-    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Deferred' } });
+    openPackageCreator(view);
+    fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Deferred' } });
 
     const titleInput = view.container.querySelector<HTMLInputElement>('#snl-entry-title')!;
     const idInput = view.container.querySelector<HTMLInputElement>(
@@ -214,7 +223,7 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
     expect(posted.some((message) => message?.type === 'create')).toBe(true);
 
-    const addPackage = view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement;
+    const addPackage = view.getByRole('button', { name: 'Add Entry Package' }) as HTMLButtonElement;
     expect(addPackage.disabled).toBe(true);
     fireEvent.click(addPackage);
     expect(posted.some((message) => message?.type === 'createPackage')).toBe(false);
@@ -224,9 +233,9 @@ describe('CreateEntryApp create → edit flip', () => {
     const view = render(<CreateEntryApp />);
     send(createContext());
 
-    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
-    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Deferred' } });
-    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+    openPackageCreator(view);
+    fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Deferred' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
     const packageRequest = posted.findLast((message) => message?.type === 'createPackage');
     expect(packageRequest?.requestId).toBeTruthy();
     expect(view.getByRole('button', { name: 'Creating…' })).toBeTruthy();
@@ -254,11 +263,11 @@ describe('CreateEntryApp create → edit flip', () => {
       entryPackages: ['_unpackaged', 'Logic', 'Deferred']
     });
 
-    const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    const selector = view.getByLabelText('Entry Package') as HTMLSelectElement;
     await waitFor(() => expect(selector.value).toBe('_unpackaged'));
     expect(Array.from(selector.options).some((option) => option.value === 'Deferred')).toBe(true);
     expect(view.queryByRole('button', { name: 'Creating…' })).toBeNull();
-    expect(view.queryByLabelText('New Package ID')).toBeNull();
+    expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
 
     act(() => send({
       type: 'packageCreated',
@@ -266,9 +275,9 @@ describe('CreateEntryApp create → edit flip', () => {
       requestId: packageRequest.requestId
     }));
     expect(selector.value).toBe('_unpackaged');
-    fireEvent.click(view.getByRole('button', { name: 'Create Package' }));
-    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Fresh' } });
-    expect((view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement).disabled)
+    openPackageCreator(view);
+    fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Fresh' } });
+    expect((view.getByRole('button', { name: 'Add Entry Package' }) as HTMLButtonElement).disabled)
       .toBe(false);
   });
 
@@ -314,14 +323,14 @@ describe('CreateEntryApp create → edit flip', () => {
     await waitFor(() => expect(editView.getByLabelText('ID (readonly)')).toBeTruthy());
     expect(editView.queryByText(/stable references used by relationship links/i)).toBeNull();
     expect(editView.queryByText(/Prefer a semantic id/i)).toBeNull();
-    expect(editView.queryByText(/Package membership may be changed later/i)).toBeNull();
-    expect(editView.getByLabelText('Package')).toBeTruthy();
+    expect(editView.queryByText(/Entry Package membership may be changed later/i)).toBeNull();
+    expect(editView.getByLabelText('Entry Package')).toBeTruthy();
     editView.unmount();
 
     const createView = render(<CreateEntryApp />);
     send(createContext());
     await waitFor(() => expect(createView.getByText(/Prefer a semantic id/i)).toBeTruthy());
-    expect(createView.getByText(/Package membership may be changed later/i)).toBeTruthy();
+    expect(createView.getByText(/Entry Package membership may be changed later/i)).toBeTruthy();
   });
 
   it('creates a Package from the selector and selects the host-confirmed Package', async () => {
@@ -331,13 +340,12 @@ describe('CreateEntryApp create → edit flip', () => {
       kind: 'definition', content: {}
     }));
 
-    const createButton = await view.findByRole('button', { name: 'Create Package' });
-    fireEvent.click(createButton);
-    const packageId = view.getByLabelText('New Package ID');
+    openPackageCreator(view);
+    const packageId = view.getByLabelText('New Entry Package ID');
     fireEvent.change(packageId, { target: { value: 'Algebra' } });
-    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+    fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
 
-    const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    const selector = view.getByLabelText('Entry Package') as HTMLSelectElement;
     const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
     expect(updateButton.disabled).toBe(true);
     const request = posted.findLast((message) => message?.type === 'createPackage');
@@ -348,12 +356,12 @@ describe('CreateEntryApp create → edit flip', () => {
       type: 'packageCreated', packageId: 'Algebra', requestId: 'stale-request'
     }));
     expect(selector.value).toBe('_unpackaged');
-    expect(view.getByLabelText('New Package ID')).toBeTruthy();
+    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
 
     send({ type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId });
     await waitFor(() => expect(selector.value).toBe('Algebra'));
     expect(Array.from(selector.options).some((option) => option.value === 'Algebra')).toBe(true);
-    expect(view.queryByLabelText('New Package ID')).toBeNull();
+    expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
     expect(updateButton.disabled).toBe(false);
   });
 
@@ -364,9 +372,9 @@ describe('CreateEntryApp create → edit flip', () => {
       kind: 'definition', content: {}
     }));
 
-    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
-    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'bad/package' } });
-    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+    openPackageCreator(view);
+    fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'bad/package' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
     const request = posted.findLast((message) => message?.type === 'createPackage');
     send({
       type: 'packageCreateFailed',
@@ -375,8 +383,8 @@ describe('CreateEntryApp create → edit flip', () => {
     });
 
     expect((await view.findByRole('alert')).textContent).toContain('Could not create Package: invalid ID');
-    expect(view.getByLabelText('New Package ID')).toBeTruthy();
-    expect((view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
+    expect((view.getByRole('button', { name: 'Add Entry Package' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('preserves a dirty Package selection when that Package disappears', async () => {
@@ -392,7 +400,7 @@ describe('CreateEntryApp create → edit flip', () => {
 
     const packageSelect = view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!;
     await waitFor(() => expect(packageSelect.value).toBe('Logic'));
-    expect(view.getByText(/selected Package no longer exists/i)).toBeTruthy();
+    expect(view.getByText(/selected Entry Package no longer exists/i)).toBeTruthy();
     const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
     expect(updateButton.disabled).toBe(true);
     fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
@@ -458,7 +466,7 @@ describe('CreateEntryApp create → edit flip', () => {
     }));
 
     await waitFor(() => {
-      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit Entry');
+      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit entry');
     });
     // (d) the stale stash must be gone AND must not have been applied.
     expect(loadDraft(api, 'createEntry:edit:thm-stale')).toBeUndefined();
@@ -514,7 +522,7 @@ describe('CreateEntryApp create → edit flip', () => {
     }));
 
     await waitFor(() => {
-      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit Entry');
+      expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Edit entry');
     });
     // (e) same block, same position — the forest was NOT re-derived from snl.
     block = view.container.querySelector<HTMLElement>('[data-canvas-root]')!;

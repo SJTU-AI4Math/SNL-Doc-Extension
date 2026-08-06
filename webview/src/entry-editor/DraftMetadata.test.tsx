@@ -85,6 +85,56 @@ afterEach(() => {
 });
 
 describe('restored draft in edit mode', () => {
+  it('puts title editing and permanent metadata in the compact editor header layout', async () => {
+    const view = render(<CreateEntryApp />);
+    sendInit();
+
+    const title = await waitFor(() => titleInput(view));
+    const navigation = title.closest('nav');
+    expect(navigation).toBeTruthy();
+    expect(title.readOnly).toBe(true);
+    const editTitle = navigation?.querySelector<HTMLButtonElement>('button[aria-label="Edit title"]');
+    expect(editTitle).toBeTruthy();
+    expect(editTitle?.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    fireEvent.click(editTitle!);
+    expect(title.readOnly).toBe(false);
+
+    const metadata = view.container.querySelector('[data-entry-metadata-row]');
+    expect(metadata).toBeTruthy();
+    const metadataFieldset = metadata?.closest('fieldset');
+    expect(metadataFieldset?.style.minWidth).toBe('0px');
+    expect(metadataFieldset?.style.width).toBe('100%');
+    expect(metadataFieldset?.style.boxSizing).toBe('border-box');
+    expect(metadata?.querySelector('#snl-entry-id')).toBeTruthy();
+    const packageSelect = metadata?.querySelector<HTMLSelectElement>('#snl-entry-package');
+    expect(packageSelect?.options[0]?.value).toBe('__create__');
+    expect(view.queryByRole('button', { name: 'Create Entry Package' })).toBeNull();
+    fireEvent.change(packageSelect!, { target: { value: '__create__' } });
+    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
+
+    const kind = metadata?.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Entry kind: Theorem"]');
+    expect(kind).toBeTruthy();
+    expect(kind?.textContent).toBe('Theorem');
+    expect(kind?.style.borderColor).toBe('rgb(136, 136, 136)');
+    expect(kind?.style.background).toBe('rgb(34, 34, 34)');
+    fireEvent.click(kind!);
+    const kindMenu = view.container.querySelector<HTMLElement>('[role="listbox"]');
+    expect(kindMenu?.style.left).toBe('auto');
+    expect(kindMenu?.style.right).toBe('0px');
+    expect(kindMenu?.style.width).toBe('calc(100vw - 2rem)');
+    expect(kindMenu?.style.maxWidth).toBe('20rem');
+    expect(kindMenu?.style.minWidth).toBe('');
+    const option = view.container.querySelector<HTMLElement>('[role="option"]');
+    expect(option?.textContent).toMatch(/Theorem.*theorem.*#888.*#222/s);
+
+    const formatButton = (name: string): HTMLButtonElement =>
+      [...view.container.querySelectorAll<HTMLButtonElement>('[data-segmented-button="true"]')]
+        .find((button) => button.textContent === name)!;
+    expect(formatButton('Typst').disabled).toBe(true);
+    expect(formatButton('LaTeX').disabled).toBe(true);
+    expect(formatButton('SNL').disabled).toBe(false);
+  });
+
   it('keeps contribution_info, pointer and other languages on save', async () => {
     // Unsaved work that outlived the panel being hidden.
     saveDraft(api, 'createEntry:edit:thm-1', {

@@ -56,6 +56,7 @@ import {
 import { PanelHeader } from './components/PanelHeader';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
+import { Icon } from './components/Icon';
 import { IconButton } from './components/IconButton';
 import { MenuItemButton } from './components/MenuItemButton';
 import { TabButton, TabList } from './components/Tabs';
@@ -122,13 +123,16 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   cannotSaveId: 'Cannot save yet — the id is empty.',
   cannotSaveDuplicateId: 'Cannot save yet — the id "{id}" is already taken.',
   cannotSaveKind: 'Cannot save yet — pick a kind first.',
-  cannotSavePackage: 'Cannot save yet — pick an existing Package first.',
+  cannotSavePackage: 'Cannot save yet — pick an existing Entry Package first.',
   cannotSaveReason: 'Cannot save yet — {reason}',
   cannotSave: 'Cannot save yet.',
   cannotSaveLooseCanvas: 'Cannot save yet — the Canvas has several loose blocks. Attach them first.',
   cannotSaveCanvasSlot: 'Cannot save yet — a Macro has a single unfilled slot, which cannot be written to SNL.',
   editEntry: 'Edit Entry',
   createEntry: 'Create Entry',
+  editEntryHeader: 'Edit entry',
+  createEntryHeader: 'Create entry',
+  editTitle: 'Edit title',
   dashboard: 'Dashboard',
   backDashboard: 'Back to Dashboard',
   viewInfoview: 'View in Infoview',
@@ -148,18 +152,21 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   useUuid: 'Use UUID instead',
   immutableIdHint: 'IDs are stable references used by relationship links; they cannot be edited here.',
   semanticIdHint: "Prefer a semantic id like 'pythagorean-theorem' or 'context-linalg-vars' — human-readable ids render better in cross-entry references (macro sources, library graph nodes, bvar `x@<id>` context refs). The UUID button is a fallback for when no meaningful name fits. IDs are immutable once created.",
-  package: 'Package',
-  createPackage: 'Create Package',
-  newPackageId: 'New Package ID',
+  package: 'Entry Package',
+  createPackage: 'Create Entry Package',
+  newPackageId: 'New Entry Package ID',
   packageIdPlaceholder: 'e.g. algebra',
-  addPackage: 'Add Package',
+  addPackage: 'Add Entry Package',
   cancelPackageCreate: 'Cancel',
   packageCreating: 'Creating…',
-  missingPackageOption: '{packageId} (missing; choose another Package)',
+  missingPackageOption: '{packageId} (missing; choose another Entry Package)',
   unpackaged: 'Unpackaged (_unpackaged)',
-  missingPackage: 'The selected Package no longer exists. Your draft was preserved; choose another Package before saving.',
-  packageHint: 'Package membership may be changed later; moving an Entry preserves its ID and references.',
-  kind: 'Kind',
+  missingPackage: 'The selected Entry Package no longer exists. Your draft was preserved; choose another Entry Package before saving.',
+  packageHint: 'Entry Package membership may be changed later; moving an Entry preserves its ID and references.',
+  kind: 'Entry kind',
+  kindSelection: 'Entry kind: {name}',
+  kindDetails: 'id {id}; stroke {stroke}; background {background}',
+  unsupportedFormat: '{format} editing is not supported yet',
   kindColors: 'stroke {stroke} / background {background}',
   livePreview: 'Live Preview',
   newEntryId: '(new-entry)',
@@ -299,12 +306,12 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   cannotSaveId: '尚无法保存——ID 为空。',
   cannotSaveDuplicateId: '尚无法保存——ID“{id}”已被占用。',
   cannotSaveKind: '尚无法保存——请先选择种类。',
-  cannotSavePackage: '尚无法保存——请先选择现有宏包。',
+  cannotSavePackage: '尚无法保存——请先选择现有条目包。',
   cannotSaveReason: '尚无法保存——{reason}',
   cannotSave: '尚无法保存。',
   cannotSaveLooseCanvas: '尚无法保存——画布中有多个未连接的块。请先将其连接。',
   cannotSaveCanvasSlot: '尚无法保存——某个宏仅有一个未填槽位，无法写入 SNL。',
-  editEntry: '编辑条目', createEntry: '创建条目', dashboard: '仪表板', backDashboard: '返回仪表板',
+  editEntry: '编辑条目', createEntry: '创建条目', editEntryHeader: '编辑条目', createEntryHeader: '创建条目', editTitle: '编辑标题', dashboard: '仪表板', backDashboard: '返回仪表板',
   viewInfoview: '在信息视图中查看', openEntryInfoview: '在信息视图阅读界面中打开条目“{id}”',
   noKindsBefore: '未定义条目种类——请先运行', initializeKinds: '初始化条目种类', noKindsAfter: '。在至少存在一种条目种类之前，表单将被禁用。',
   title: '标题', titlePlaceholder: '例如：勾股定理', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
@@ -313,9 +320,9 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   fillUuidTitle: '用新的 UUID v4 填充 ID（仅当没有合适的语义化 ID 时使用）', regenerateUuid: '重新生成 UUID', useUuid: '改用 UUID',
   immutableIdHint: 'ID 是关系链接使用的稳定引用，无法在此处编辑。',
   semanticIdHint: "建议使用 'pythagorean-theorem' 或 'context-linalg-vars' 等语义化 ID——人类可读的 ID 在跨条目引用（宏源、库图节点、bvar `x@<id>` 上下文引用）中显示效果更好。没有合适名称时才使用 UUID 按钮。ID 创建后不可变。",
-  package: '宏包', createPackage: '创建宏包', newPackageId: '新宏包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加宏包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他宏包）', unpackaged: '未归入宏包（_unpackaged）',
-  missingPackage: '所选宏包已不存在。草稿已保留；保存前请选择其他宏包。', packageHint: '以后可以更改宏包归属；移动条目会保留其 ID 和引用。',
-  kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
+  package: '条目包', createPackage: '创建条目包', newPackageId: '新条目包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加条目包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他条目包）', unpackaged: '未归入条目包（_unpackaged）',
+  missingPackage: '所选条目包已不存在。草稿已保留；保存前请选择其他条目包。', packageHint: '以后可以更改条目包归属；移动条目会保留其 ID 和引用。',
+  kind: '条目类别', kindSelection: '条目类别：{name}', kindDetails: 'ID {id}；描边 {stroke}；背景 {background}', unsupportedFormat: '暂不支持编辑 {format}', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   editorMode: 'SNL 编辑器模式', guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
   sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
@@ -648,6 +655,9 @@ export function CreateEntryApp(): React.ReactElement {
   // no longer need one at this layer.)
 
   const [title, setTitle] = useState('');
+  const [titleEditing, setTitleEditing] = useState(true);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const titleModeInitializedRef = useRef(false);
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
   // (`requireUnique`). In edit mode we still use it — the widget is
@@ -902,6 +912,8 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'idle' });
           setTargetState('found');
           setTitle('');
+          setTitleEditing(false);
+          titleModeInitializedRef.current = false;
           setSelectedPackage('_unpackaged');
           activePackageRequestRef.current = null;
           setPackageCreating(false);
@@ -927,6 +939,10 @@ export function CreateEntryApp(): React.ReactElement {
             Array.isArray(msg.relationships) ? msg.relationships : []
           );
           setMode(msg.mode);
+          if (!titleModeInitializedRef.current) {
+            setTitleEditing(msg.mode === 'create');
+            titleModeInitializedRef.current = true;
+          }
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
@@ -1083,6 +1099,7 @@ export function CreateEntryApp(): React.ReactElement {
           editingIdRef.current = createdId;
           justSavedIdRef.current = createdId;
           setMode('edit');
+          setTitleEditing(false);
           setId(createdId);
           activePackageRequestRef.current = null;
           setPackageCreating(false);
@@ -1462,6 +1479,12 @@ export function CreateEntryApp(): React.ReactElement {
     setSelectedKind(kinds.length > 0 ? kinds[0].id : '');
   }
 
+  useEffect(() => {
+    if (!titleEditing) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [titleEditing]);
+
   const noKinds = kindsLoaded && kinds.length === 0;
 
   if (mode === 'edit' && targetState === 'notFound') {
@@ -1484,7 +1507,39 @@ export function CreateEntryApp(): React.ReactElement {
           jump to this entry's per-entry Infoview. */}
       <PanelHeader
         vsApi={apiRef.current}
-        title={mode === 'edit' ? t('editEntry') : t('createEntry')}
+        title={t(mode === 'edit' ? 'editEntryHeader' : 'createEntryHeader')}
+        titleAction={
+          <>
+            <input
+              ref={titleInputRef}
+              id="snl-entry-title"
+              type="text"
+              aria-label={t('title')}
+              value={title}
+              placeholder={t('titlePlaceholder')}
+              readOnly={!titleEditing}
+              onChange={(event) => setTitle(event.target.value)}
+              onBlur={() => setTitleEditing(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === 'Escape') {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+              className="snl-panel-header__title-input"
+              data-editing={titleEditing ? 'true' : 'false'}
+            />
+            <IconButton
+              icon="edit"
+              label={t('editTitle')}
+              title={t('editTitle')}
+              variant="ghost"
+              size="sm"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setTitleEditing(true)}
+            />
+          </>
+        }
         back={{
           label: t('dashboard'),
           title: t('backDashboard'),
@@ -1523,62 +1578,47 @@ export function CreateEntryApp(): React.ReactElement {
           border: 'none',
           margin: 0,
           padding: 0,
+          minWidth: 0,
+          width: '100%',
+          boxSizing: 'border-box',
           opacity: noKinds ? 0.5 : 1
         }}
       >
-        {/* 1. Header row: Title + ID ==================================== */}
+        {/* 1. Permanent metadata: ID + Entry Package + Entry kind ====== */}
         <div
+          data-entry-metadata-row="true"
           style={{
             display: 'flex',
-            gap: '1rem',
+            alignItems: 'flex-start',
+            gap: '0.75rem',
             marginBottom: '1rem',
             flexWrap: 'wrap'
           }}
         >
-          <div style={{ flex: '2 1 16rem' }}>
-            <Label htmlFor="snl-entry-title">{t('title')}</Label>
-            <input
-              id="snl-entry-title"
-              type="text"
-              value={title}
-              placeholder={t('titlePlaceholder')}
-              onChange={(e) => setTitle(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-          <div style={{ flex: '3 1 20rem' }}>
+          <div style={{ flex: '2 1 18rem', minWidth: 0 }}>
             <Label htmlFor="snl-entry-id">
               {mode === 'edit' ? t('idReadonly') : t('id')}
             </Label>
             {mode === 'edit' ? (
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <input
-                  id="snl-entry-id"
-                  type="text"
-                  value={id}
-                  placeholder={t('idPlaceholder')}
-                  onChange={(e) => setId(e.target.value)}
-                  readOnly
-                  title={t('immutableIdTitle')}
-                  style={{
-                    ...inputStyle,
-                    ...monoStyle,
-                    marginBottom: 0,
-                    color: 'var(--vscode-descriptionForeground, #999)',
-                    opacity: 0.7,
-                    cursor: 'not-allowed'
-                  }}
-                />
-              </div>
+              <input
+                id="snl-entry-id"
+                type="text"
+                value={id}
+                placeholder={t('idPlaceholder')}
+                onChange={(event) => setId(event.target.value)}
+                readOnly
+                title={t('immutableIdTitle')}
+                style={{
+                  ...inputStyle,
+                  ...monoStyle,
+                  marginBottom: 0,
+                  color: 'var(--vscode-descriptionForeground, #999)',
+                  opacity: 0.7,
+                  cursor: 'not-allowed'
+                }}
+              />
             ) : (
               <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
-                {/* create mode: EntityIdSearchBox with requireUnique so
-                    typing a colliding id gets a red border + inline
-                    "already exists" message. The picker still shows
-                    autocomplete of existing ids — useful for "I want to
-                    reference-like a similar id" pattern recognition —
-                    but the message + border-color make it obvious the
-                    duplicate would fail. Cat 2026-07-09. */}
                 <div style={{ flex: 1 }}>
                   <EntityIdSearchBox
                     entries={existingIds}
@@ -1598,11 +1638,7 @@ export function CreateEntryApp(): React.ReactElement {
                     markFormDirty(true);
                     setId(newUuid());
                   }}
-                  title={
-                    trimmedId
-                      ? t('overwriteUuidTitle')
-                      : t('fillUuidTitle')
-                  }
+                  title={trimmedId ? t('overwriteUuidTitle') : t('fillUuidTitle')}
                   style={{ whiteSpace: 'nowrap', opacity: 0.75 }}
                 >
                   {trimmedId ? t('regenerateUuid') : t('useUuid')}
@@ -1610,33 +1646,29 @@ export function CreateEntryApp(): React.ReactElement {
               </div>
             )}
             {mode === 'create' ? (
-              <p
-                style={{
-                  margin: '0.35rem 0 0',
-                  fontSize: '0.8rem',
-                  opacity: 0.75,
-                  lineHeight: 1.4
-                }}
-              >
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', opacity: 0.75, lineHeight: 1.4 }}>
                 {t('semanticIdHint')}
               </p>
             ) : null}
           </div>
-        </div>
 
-        {/* 2. Package + Kind =========================================== */}
-        <div style={{ marginBottom: '1rem' }}>
-          <Label htmlFor="snl-entry-package">{t('package')}</Label>
-          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1.25 1 12rem', minWidth: 0 }}>
+            <Label htmlFor="snl-entry-package">{t('package')}</Label>
             <select
               id="snl-entry-package"
               value={selectedPackage}
-              onChange={(e) => {
+              onChange={(event) => {
+                if (event.target.value === '__create__') {
+                  setShowPackageCreator(true);
+                  setPackageCreateError('');
+                  return;
+                }
                 markFormDirty(true);
-                setSelectedPackage(e.target.value);
+                setSelectedPackage(event.target.value);
               }}
-              style={{ ...inputStyle, marginBottom: 0, flex: '1 1 auto' }}
+              style={{ ...inputStyle, marginBottom: 0, width: '100%' }}
             >
+              <option value="__create__">＋ {t('createPackage')}</option>
               {!entryPackages.includes(selectedPackage) && selectedPackage ? (
                 <option value={selectedPackage} disabled>
                   {t('missingPackageOption', { packageId: selectedPackage })}
@@ -1648,109 +1680,83 @@ export function CreateEntryApp(): React.ReactElement {
                 </option>
               ))}
             </select>
-            <Button
-              variant="secondary"
-              disabled={status.kind === 'creating'}
-              onClick={() => {
-                setShowPackageCreator(true);
-                setPackageCreateError('');
-              }}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {t('createPackage')}
-            </Button>
-          </div>
-          {showPackageCreator ? (
-            <div style={{ marginTop: '0.5rem' }}>
-              <Label htmlFor="snl-entry-new-package">{t('newPackageId')}</Label>
-              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
-                <input
-                  id="snl-entry-new-package"
-                  value={newPackageId}
-                  placeholder={t('packageIdPlaceholder')}
-                  onChange={(event) => setNewPackageId(event.target.value)}
-                  style={{ ...inputStyle, ...monoStyle, marginBottom: 0, flex: '1 1 auto' }}
-                />
-                <Button
-                  variant="primary"
-                  disabled={
-                    status.kind === 'creating' ||
-                    packageCreating ||
-                    newPackageId.trim().length === 0
-                  }
-                  onClick={() => {
-                    const packageId = newPackageId.trim();
-                    if (status.kind === 'creating' || !packageId) return;
-                    const requestId = `package-${++packageRequestSequenceRef.current}`;
-                    activePackageRequestRef.current = requestId;
-                    setPackageCreating(true);
-                    setPackageCreateError('');
-                    apiRef.current?.postMessage({ type: 'createPackage', packageId, requestId });
-                  }}
-                >
-                  {packageCreating ? t('packageCreating') : t('addPackage')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={packageCreating}
-                  onClick={() => {
-                    setShowPackageCreator(false);
-                    setNewPackageId('');
-                    setPackageCreateError('');
-                  }}
-                >
-                  {t('cancelPackageCreate')}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {packageCreateError ? (
-            <p role="alert" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
-              {packageCreateError}
-            </p>
-          ) : null}
-          {!entryPackages.includes(selectedPackage) && selectedPackage ? (
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
-              {t('missingPackage')}
-            </p>
-          ) : mode === 'create' ? (
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
-              {t('packageHint')}
-            </p>
-          ) : null}
-        </div>
-
-        <div style={{ marginBottom: '1rem' }}>
-          <Label htmlFor="snl-entry-kind">{t('kind')}</Label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <select
-              id="snl-entry-kind"
-              value={selectedKind}
-              onChange={(e) => setSelectedKind(e.target.value)}
-              style={{ ...inputStyle, marginBottom: 0, flex: '1 1 auto' }}
-            >
-              {kinds.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name} ({k.id})
-                </option>
-              ))}
-            </select>
-            {kind ? (
-              <span
-                title={t('kindColors', { stroke: kind.coloring.stroke, background: kind.coloring.background })}
-                style={{
-                  display: 'inline-block',
-                  width: '2.5rem',
-                  height: '1.4rem',
-                  borderRadius: '3px',
-                  background: kind.coloring.background,
-                  border: `2px solid ${kind.coloring.stroke}`,
-                  flex: '0 0 auto'
-                }}
-              />
+            {!entryPackages.includes(selectedPackage) && selectedPackage ? (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
+                {t('missingPackage')}
+              </p>
+            ) : mode === 'create' ? (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
+                {t('packageHint')}
+              </p>
             ) : null}
           </div>
+
+          <div style={{ flex: '1 1 11rem', minWidth: 0 }}>
+            <Label>{t('kind')}</Label>
+            <EntryKindPicker
+              kinds={kinds}
+              selectedId={selectedKind}
+              label={t('kind')}
+              selectionLabel={(item) => t('kindSelection', { name: item.name })}
+              details={(item) => t('kindDetails', {
+                name: item.name,
+                id: item.id,
+                stroke: item.coloring.stroke,
+                background: item.coloring.background
+              })}
+              onSelect={(next) => {
+                markFormDirty(true);
+                setSelectedKind(next);
+              }}
+            />
+          </div>
         </div>
+
+        {showPackageCreator ? (
+          <div style={{ margin: '-0.35rem 0 1rem' }}>
+            <Label htmlFor="snl-entry-new-package">{t('newPackageId')}</Label>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+              <input
+                id="snl-entry-new-package"
+                value={newPackageId}
+                placeholder={t('packageIdPlaceholder')}
+                onChange={(event) => setNewPackageId(event.target.value)}
+                style={{ ...inputStyle, ...monoStyle, marginBottom: 0, flex: '1 1 auto' }}
+              />
+              <Button
+                variant="primary"
+                disabled={status.kind === 'creating' || packageCreating || newPackageId.trim().length === 0}
+                onClick={() => {
+                  const packageId = newPackageId.trim();
+                  if (status.kind === 'creating' || !packageId) return;
+                  const requestId = `package-${++packageRequestSequenceRef.current}`;
+                  activePackageRequestRef.current = requestId;
+                  setPackageCreating(true);
+                  setPackageCreateError('');
+                  apiRef.current?.postMessage({ type: 'createPackage', packageId, requestId });
+                }}
+              >
+                {packageCreating ? t('packageCreating') : t('addPackage')}
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={packageCreating}
+                onClick={() => {
+                  setShowPackageCreator(false);
+                  setNewPackageId('');
+                  setPackageCreateError('');
+                }}
+              >
+                {t('cancelPackageCreate')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {packageCreateError ? (
+          <p role="alert" style={{ margin: '-0.75rem 0 1rem', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
+            {packageCreateError}
+          </p>
+        ) : null}
 
         {/* 3. Live preview ============================================= */}
         <section style={{ marginBottom: '1rem' }}>
@@ -1785,6 +1791,10 @@ export function CreateEntryApp(): React.ReactElement {
               <TabButton
                 key={tab.id}
                 active={activeFormat === tab.id}
+                disabled={tab.id === 'typst' || tab.id === 'latex'}
+                title={tab.id === 'typst' || tab.id === 'latex'
+                  ? t('unsupportedFormat', { format: tab.label })
+                  : undefined}
                 onClick={() => setActiveFormat(tab.id)}
               >
                 {tab.id === 'text' ? t('textFormat') : tab.label}
@@ -2297,6 +2307,160 @@ function PointerEditor({
           {t('noPointer')}
         </p>
       )}
+    </div>
+  );
+}
+
+function EntryKindPicker({
+  kinds,
+  selectedId,
+  label,
+  selectionLabel,
+  details,
+  onSelect
+}: {
+  kinds: EntryKind[];
+  selectedId: string;
+  label: string;
+  selectionLabel: (kind: EntryKind) => string;
+  details: (kind: EntryKind) => string;
+  onSelect: (id: string) => void;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const selected = kinds.find((item) => item.id === selectedId) ?? kinds[0];
+  const listboxId = 'snl-entry-kind-options';
+
+  useEffect(() => {
+    if (!open) return;
+    const selectedOption = [...(rootRef.current
+      ?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? [])]
+      .find((option) => option.dataset.kindId === selectedId);
+    selectedOption?.focus();
+    const closeOutside = (event: MouseEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOutside);
+    return () => document.removeEventListener('mousedown', closeOutside);
+  }, [open, selectedId]);
+
+  const moveOptionFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (event.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || options.length === 0) return;
+    event.preventDefault();
+    const current = Math.max(0, options.indexOf(document.activeElement as HTMLButtonElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : event.key === 'ArrowUp'
+          ? (current - 1 + options.length) % options.length
+          : (current + 1) % options.length;
+    options[next]?.focus();
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <Button
+        ref={triggerRef}
+        id="snl-entry-kind"
+        role="combobox"
+        aria-label={selected ? selectionLabel(selected) : label}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-expanded={open}
+        variant="secondary"
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        style={{
+          width: '100%',
+          justifyContent: 'flex-start',
+          background: selected?.coloring.background,
+          color: selected?.coloring.stroke,
+          borderColor: selected?.coloring.stroke,
+          borderWidth: '2px'
+        }}
+      >
+        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {selected?.name ?? ''}
+        </span>
+        <Icon name="chevron-down" size={14} />
+      </Button>
+      {open ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={label}
+          onKeyDown={moveOptionFocus}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 0.25rem)',
+            left: 'auto',
+            right: 0,
+            zIndex: 120,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.2rem',
+            width: 'calc(100vw - 2rem)',
+            maxWidth: '20rem',
+            padding: '0.3rem',
+            border: '1px solid var(--vscode-menu-border, var(--vscode-panel-border, #555))',
+            borderRadius: '4px',
+            background: 'var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526))',
+            boxShadow: '0 4px 14px rgba(0,0,0,.35)'
+          }}
+        >
+          {kinds.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="option"
+              data-kind-id={item.id}
+              aria-selected={item.id === selectedId}
+              onClick={() => {
+                onSelect(item.id);
+                setOpen(false);
+                requestAnimationFrame(() => triggerRef.current?.focus());
+              }}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(7rem, 1fr) minmax(0, 1.5fr)',
+                gap: '0.55rem',
+                alignItems: 'center',
+                padding: '0.45rem 0.55rem',
+                border: `2px solid ${item.coloring.stroke}`,
+                borderRadius: '4px',
+                background: item.coloring.background,
+                color: item.coloring.stroke,
+                font: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer'
+              }}
+            >
+              <strong>{item.name}</strong>
+              <span style={{ fontSize: '0.75rem', opacity: 0.85 }}>
+                {details(item)}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

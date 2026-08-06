@@ -47,6 +47,10 @@ describe('CreateEntryApp localization', () => {
     await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
     expect(view.getByLabelText('标题').getAttribute('placeholder')).toBe('例如：勾股定理');
     expect(view.getByLabelText('ID').getAttribute('placeholder')).toBe('例如：pythagorean-theorem');
+    expect(view.getByLabelText('条目包')).toBeTruthy();
+    expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy();
+    expect(view.queryByText('宏包')).toBeNull();
+    expect(view.queryByText('种类')).toBeNull();
     expect(view.getByRole('button', { name: '创建条目' })).toBeTruthy();
     expect(view.getByText('内容')).toBeTruthy();
 

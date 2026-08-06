@@ -1499,6 +1499,7 @@ function OutlineRowContent({
       {entry ? (
         <Button
           type="button"
+          aria-label={t('copyEntryId', { id: entry.id })}
           title={t('copyEntryId', { id: entry.id })}
           onClick={() => {
             const id = entry.id;

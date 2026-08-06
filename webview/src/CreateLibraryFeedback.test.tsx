@@ -117,6 +117,7 @@ describe('Create Library feedback', () => {
       ]
     });
 
+    expect(screen.getByRole('button', { name: /Click to copy entry id\s+entry-one/ })).toBeTruthy();
     const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
     expect(entryId.value).toBe('entry-one');
     entryId.focus();

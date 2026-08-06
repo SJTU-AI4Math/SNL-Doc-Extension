@@ -71,15 +71,17 @@ html,body { margin:0; padding:0; }
 .snl-panel-header__logo { width:1.65rem; height:1.65rem; object-fit:contain; flex:none; }
 .snl-panel-header__watermark { font-size:.72rem; font-weight:650; letter-spacing:.055em; white-space:nowrap; }
 .snl-panel-header__identity { min-width:0; }
+.snl-panel-header__title-row { display:flex; align-items:center; gap:.35rem; min-width:0; }
+.snl-panel-header__title-input { min-width:5rem; width:min(24rem,38vw); padding:.15rem .3rem; border:1px solid transparent; border-radius:3px; background:transparent; color:inherit; font:inherit; font-size:1.15rem; line-height:1.25; text-overflow:ellipsis; }
+.snl-panel-header__title-input[data-editing='true'] { border-color:var(--vscode-focusBorder,#007fd4); background:var(--vscode-input-background,#2a2a2a); color:var(--vscode-input-foreground,#ddd); }
+.snl-panel-header__title-input[readonly] { cursor:default; }
 .snl-panel-header__identity h1 { margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.15rem; line-height:1.25; }
 .snl-panel-header__subtitle { margin-top:.1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--vscode-descriptionForeground,#999); font-size:.75rem; }
 .snl-panel-header__actions { display:flex; align-items:center; justify-content:flex-end; gap:.4rem; min-width:0; }
 .snl-panel-header__language { position:relative; display:flex; align-items:center; }
-.snl-panel-header__language-trigger { display:flex; align-items:center; gap:.4rem; max-width:16rem; cursor:pointer; font-size:.8rem; white-space:nowrap; }
-.snl-panel-header__language-trigger > span:not(.snl-panel-header__language-chevron) { overflow:hidden; text-overflow:ellipsis; }
-.snl-panel-header__language-chevron { opacity:.7; margin-left:.1rem; }
+.snl-panel-header__language-trigger { display:flex; align-items:center; justify-content:center; min-width:30px; min-height:28px; padding:.3rem .28rem; cursor:pointer; }
 .snl-panel-header__language svg { width:20px; height:14px; flex:none; border-radius:1px; box-shadow:0 0 0 1px rgba(127,127,127,.35); }
-.snl-panel-header__language-menu { position:absolute; top:calc(100% + .3rem); right:0; z-index:100; display:flex; flex-direction:column; min-width:17rem; padding:.25rem; border:1px solid var(--vscode-menu-border,var(--vscode-panel-border,#555)); border-radius:4px; background:var(--vscode-menu-background,var(--vscode-editorWidget-background,#252526)); color:var(--vscode-menu-foreground,var(--vscode-foreground,#ddd)); box-shadow:0 4px 14px rgba(0,0,0,.35); }
+.snl-panel-header__language-menu { position:absolute; top:calc(100% + .3rem); right:0; z-index:100; display:flex; flex-direction:column; min-width:min(17rem,calc(100vw - 1rem)); max-width:calc(100vw - 1rem); padding:.25rem; border:1px solid var(--vscode-menu-border,var(--vscode-panel-border,#555)); border-radius:4px; background:var(--vscode-menu-background,var(--vscode-editorWidget-background,#252526)); color:var(--vscode-menu-foreground,var(--vscode-foreground,#ddd)); box-shadow:0 4px 14px rgba(0,0,0,.35); }
 .snl-panel-header__language-item { display:grid; grid-template-columns:20px minmax(0,1fr) 1rem; align-items:center; gap:.55rem; width:100%; padding:.45rem .55rem; border:0; border-radius:3px; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .snl-panel-header__language-item:hover,.snl-panel-header__language-item:focus-visible { outline:none; background:var(--vscode-menu-selectionBackground,var(--vscode-list-activeSelectionBackground,#094771)); color:var(--vscode-menu-selectionForeground,var(--vscode-list-activeSelectionForeground,#fff)); }
 .snl-panel-header__language-check { text-align:center; }
@@ -93,9 +95,8 @@ html,body { margin:0; padding:0; }
 
 @container (max-width:28rem) {
   .snl-panel-header__watermark { display:none; }
-  .snl-panel-header__language { width:100%; margin-left:0; }
-  .snl-panel-header__language-trigger { width:100%; max-width:none; }
-  .snl-panel-header__language-menu { left:0; right:auto; min-width:100%; }
+  .snl-panel-header__language { margin-left:auto; }
+  .snl-panel-header__language-menu { left:auto; right:0; }
 }
 
 .snl-empty-action { width:100%; display:flex; justify-content:center; align-items:center; gap:.45rem; margin-top:.75rem; padding:.65rem; border:1px dashed var(--vscode-focusBorder,#007fd4); color:var(--vscode-textLink-foreground,#4a9eff); }

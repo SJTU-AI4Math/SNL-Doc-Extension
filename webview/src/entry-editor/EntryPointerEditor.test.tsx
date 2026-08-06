@@ -45,7 +45,7 @@ function sendContext(pointer: unknown = null): void {
 async function renderEditor(pointer: unknown = null) {
   const view = render(<CreateEntryApp />);
   sendContext(pointer);
-  await waitFor(() => expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Theorem One'));
+  await waitFor(() => expect((view.getByLabelText('Title') as HTMLInputElement).value).toBe('Theorem One'));
   return view;
 }
 
@@ -171,7 +171,7 @@ describe('Entry pointer editor', () => {
       }
     }));
     await waitFor(() =>
-      expect((view.getByLabelText(/Title/i) as HTMLInputElement).value).toBe('Externally Updated')
+      expect((view.getByLabelText('Title') as HTMLInputElement).value).toBe('Externally Updated')
     );
     fireEvent.click(view.getByRole('button', { name: /Update Entry/i }));
     expect(latestUpdate().entry.pointer).toEqual(futurePointer);
@@ -180,7 +180,7 @@ describe('Entry pointer editor', () => {
   it('allows unrelated edits while preserving an untouched malformed stored pointer', async () => {
     const malformed = { file: 'src/a.ts', mode: 'regex', pattern: '[', flags: 'qq' };
     const view = await renderEditor(malformed);
-    fireEvent.change(view.getByLabelText(/Title/i), { target: { value: 'Retitled' } });
+    fireEvent.change(view.getByLabelText('Title'), { target: { value: 'Retitled' } });
     const update = view.getByRole('button', { name: /Update Entry/i }) as HTMLButtonElement;
     expect(update.disabled).toBe(false);
     fireEvent.click(update);

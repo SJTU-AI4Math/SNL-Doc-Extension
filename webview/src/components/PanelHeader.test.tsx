@@ -38,18 +38,31 @@ describe('PanelHeader', () => {
     document.documentElement.dataset.snlLogoBlack = 'webview://logo-black.svg';
     document.documentElement.dataset.snlLogoWhite = 'webview://logo-white.svg';
     const api = { postMessage: vi.fn() } as unknown as VsCodeApi;
-    const view = render(<PanelHeader vsApi={api} title="Create Entry" back={back} />);
+    const view = render(
+      <PanelHeader
+        vsApi={api}
+        title="Create Entry"
+        back={back}
+        viewInInfoview={{ label: 'View', title: 'View this entry', message: { type: 'view' } }}
+      />
+    );
 
     expect(view.getByRole('heading', { name: 'Create Entry' })).toBeTruthy();
     expect(view.getByText('SJTU AI4Math')).toBeTruthy();
     expect(view.container.querySelector('.snl-panel-header__logo')).toBeTruthy();
-    expect(view.getByRole('button', { name: 'Back' })
-      .querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
+    const backButton = view.getByRole('button', { name: 'Back' });
+    expect(backButton.querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
+    expect(backButton.textContent).toBe('');
+    const viewButton = view.getByRole('button', { name: 'View this entry' });
+    expect(viewButton.querySelector('svg[data-snl-icon="chevron-right"]')).toBeTruthy();
+    expect(viewButton.textContent).toBe('');
     expect(view.getByRole('button', { name: /Refresh this panel/ })
       .querySelector('svg[data-snl-icon="refresh"]')).toBeTruthy();
     const trigger = view.getByRole('button', { name: /Interface language: English \(US\)/ });
     expect(trigger.hasAttribute('disabled')).toBe(false);
     expect(trigger.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    expect(trigger.textContent).toBe('');
+    expect(trigger.querySelector('.snl-panel-header__language-chevron')).toBeNull();
     expect(view.container.textContent).not.toMatch(/🇨🇳|🇺🇸/);
 
     fireEvent.click(trigger);
@@ -127,8 +140,23 @@ describe('PanelHeader', () => {
     const api = { postMessage: vi.fn() } as unknown as VsCodeApi;
     const view = render(<PanelHeader vsApi={api} title="Dashboard" />);
 
-    expect(view.getByRole('button', {
+    const trigger = view.getByRole('button', {
       name: /Interface language: Follow VS Code \(English \(US\)\)/
-    })).toBeTruthy();
+    });
+    expect(trigger.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    expect(trigger.querySelector('svg[data-language-icon="auto"]')).toBeNull();
+  });
+
+  it('places an optional title action beside the heading', () => {
+    const view = render(
+      <PanelHeader
+        vsApi={undefined}
+        title="Edit entry Pythagoras"
+        titleAction={<button type="button" aria-label="Edit title">edit</button>}
+      />
+    );
+    const heading = view.getByRole('heading', { name: 'Edit entry Pythagoras' });
+    const action = view.getByRole('button', { name: 'Edit title' });
+    expect(heading.parentElement).toBe(action.parentElement);
   });
 });

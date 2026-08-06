@@ -100,7 +100,7 @@ describe('reader panel Chinese UI', () => {
   it('localizes graph loading, summaries, empty state, filters, and controls', () => {
     const view = render(<SnlGraphApp />);
     expect(view.getByText('正在加载关系图……')).toBeTruthy();
-    const graphBack = view.getByRole('button', { name: '信息视图' });
+    const graphBack = view.getByRole('button', { name: '返回 SNL 信息视图' });
     expect(graphBack.querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
 
     hostMessage({

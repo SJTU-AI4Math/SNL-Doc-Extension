@@ -189,6 +189,55 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(update.entry.title).toBe('Brand New');
   });
 
+  it('resets a pending Package request when create mode becomes edit mode', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+
+    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
+    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Deferred' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+    const packageRequest = posted.findLast((message) => message?.type === 'createPackage');
+    expect(packageRequest?.requestId).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Creating…' })).toBeTruthy();
+
+    const titleInput = view.container.querySelector<HTMLInputElement>('#snl-entry-title')!;
+    const idInput = view.container.querySelector<HTMLInputElement>(
+      'input#snl-entry-id, #snl-entry-id-input'
+    ) ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!;
+    fireEvent.change(titleInput, { target: { value: 'Created While Package Pending' } });
+    fireEvent.change(idInput, { target: { value: 'created-while-package-pending' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+
+    send({ type: 'created', id: 'created-while-package-pending' });
+    send({
+      ...(editContext({
+        id: 'created-while-package-pending',
+        package: '_unpackaged',
+        title: 'Created While Package Pending',
+        kind: 'definition',
+        content: {}
+      }) as Record<string, unknown>),
+      entryPackages: ['_unpackaged', 'Logic', 'Deferred']
+    });
+
+    const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    await waitFor(() => expect(selector.value).toBe('_unpackaged'));
+    expect(Array.from(selector.options).some((option) => option.value === 'Deferred')).toBe(true);
+    expect(view.queryByRole('button', { name: 'Creating…' })).toBeNull();
+    expect(view.queryByLabelText('New Package ID')).toBeNull();
+
+    act(() => send({
+      type: 'packageCreated',
+      packageId: 'Deferred',
+      requestId: packageRequest.requestId
+    }));
+    expect(selector.value).toBe('_unpackaged');
+    fireEvent.click(view.getByRole('button', { name: 'Create Package' }));
+    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Fresh' } });
+    expect((view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement).disabled)
+      .toBe(false);
+  });
+
   it('loads and persists explicit Package membership', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({

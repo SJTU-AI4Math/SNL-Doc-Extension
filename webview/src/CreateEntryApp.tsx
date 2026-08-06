@@ -964,6 +964,14 @@ export function CreateEntryApp(): React.ReactElement {
           const createdId = typeof msg.id === 'string' ? msg.id : '';
           editingIdRef.current = createdId;
           justCreatedIdRef.current = createdId;
+          // The host now treats Package responses from the create target as
+          // stale. Reset the matching local request state so the new Edit
+          // target cannot remain stuck on a disabled “Creating…” control.
+          activePackageRequestRef.current = null;
+          setPackageCreating(false);
+          setPackageCreateError('');
+          setNewPackageId('');
+          setShowPackageCreator(false);
           // The form was just persisted, so it is by definition no longer
           // dirty (mirrors `updated` below). This also makes
           // `justCreatedIdRef` the SOLE reason the follow-up context

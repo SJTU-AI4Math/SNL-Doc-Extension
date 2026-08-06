@@ -1054,6 +1054,10 @@ function SnlGraphInner({
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
+                      if (event.ctrlKey || event.metaKey) {
+                        post({ type: 'openEntryInfoview', entryId: n.id });
+                        return;
+                      }
                       setSelectedId((previous) => previous === n.id ? null : n.id);
                     }}
                   >

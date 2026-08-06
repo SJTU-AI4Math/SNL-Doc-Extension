@@ -57,9 +57,24 @@ vi.mock('./preferences', () => ({
 
 describe('SNoogLPanel query ordering', () => {
   it('never lets an older slower query replace the newest results', async () => {
-    const { SnoogLPanel } = await import('./snooglPanel');
+    const { SNOOGL_WATCHED_PATH, SnoogLPanel } = await import('./snooglPanel');
+    expect(SNOOGL_WATCHED_PATH.test('/workspace/.SNL_Doc/entries/a.json')).toBe(true);
+    expect(SNOOGL_WATCHED_PATH.test('/workspace/.SNL_Doc/macros/a.json')).toBe(true);
+    expect(SNOOGL_WATCHED_PATH.test('/workspace/.SNL_Doc/relationships.json')).toBe(false);
+    expect(SNOOGL_WATCHED_PATH.test('/workspace/.SNL_Doc/libraries/lib/graph.json')).toBe(false);
     SnoogLPanel.open({ path: '/extension', fsPath: '/extension' } as never);
     expect(messageHandler).toBeTruthy();
+
+    SnoogLPanel.open({ path: '/extension', fsPath: '/extension' } as never, 'macro');
+    await vi.waitFor(() => expect(pendingEntries).toHaveLength(1));
+    const ready = messageHandler!({ type: 'ready' });
+    await vi.waitFor(() => expect(pendingEntries).toHaveLength(2));
+    pendingEntries[1].resolve([]);
+    await ready;
+    pendingEntries[0].resolve([]);
+    expect(posted.find((message) => message.type === 'results')?.query.mode).toBe('macro');
+    pendingEntries.length = 0;
+    posted.length = 0;
 
     const older = messageHandler!({ type: 'query', q: '', mode: 'entry', filters: {} });
     await vi.waitFor(() => expect(pendingEntries).toHaveLength(1));

@@ -110,6 +110,7 @@ export function ExportOptionsApp(): React.ReactElement {
         <PanelHeader
           vsApi={api}
           title={t('title')}
+          showRefresh={false}
           back={{
             label: t('infoview'),
             title: t('backTitle'),
@@ -126,6 +127,7 @@ export function ExportOptionsApp(): React.ReactElement {
       <PanelHeader
         vsApi={api}
         title={t('title')}
+        showRefresh={false}
         subtitle={`${context.title} · ${t('entries', { count: context.entryCount })} · ${t('images', { count: context.assetCount })}`}
         back={{
           label: t('infoview'),

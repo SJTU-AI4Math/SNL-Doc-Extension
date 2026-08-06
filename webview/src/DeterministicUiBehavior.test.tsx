@@ -27,7 +27,7 @@ beforeEach(() => { posted.length = 0; });
 afterEach(cleanup);
 
 describe('deterministic panel refresh behavior', () => {
-  it('Dashboard and Export refresh controls request fresh host context', () => {
+  it('refreshes Dashboard but hides refresh for an immutable Export snapshot', () => {
     render(<DashboardApp />);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh this panel from disk' }));
     expect(posted).toContainEqual({ type: 'nav.refresh' });
@@ -35,8 +35,7 @@ describe('deterministic panel refresh behavior', () => {
     posted.length = 0;
 
     render(<ExportOptionsApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh this panel from disk' }));
-    expect(posted).toContainEqual({ type: 'nav.refresh' });
+    expect(screen.queryByRole('button', { name: 'Refresh this panel from disk' })).toBeNull();
   });
 
   it('SNoogL atomically adopts the query represented by published results without echoing it', async () => {
@@ -117,5 +116,8 @@ describe('graph keyboard accessibility', () => {
     expect(screen.getByText(/selected: Alpha/)).toBeTruthy();
     fireEvent.keyDown(edge, { key: ' ' });
     expect(posted).toContainEqual({ type: 'editRelationship', id: 'r' });
+    posted.length = 0;
+    fireEvent.keyDown(node, { key: 'Enter', ctrlKey: true });
+    expect(posted).toContainEqual({ type: 'openEntryInfoview', entryId: 'a' });
   });
 });

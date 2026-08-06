@@ -8,6 +8,12 @@ const MESSAGES = defineHostMessages(
   { title: 'SNoogL — 搜索', noWorkspace: '请打开文件夹或工作区以进行搜索。', packageReadFailed: '无法读取宏包 {file}：{error}', searchFailed: '搜索失败：{error}' }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
+
+/** Paths that can change SNoogL's Entry/Macro search catalog. */
+export const SNOOGL_WATCHED_PATH = new RegExp(
+  '\\.SNL_Doc/(config\\.json|entries\\.json|(entries|packages|macros)/[^/]+\\.json|term_macros/[^/]+\\.json)$',
+  'i'
+);
 import {
   readAllMacros,
   readEntries,
@@ -117,7 +123,7 @@ export class SnoogLPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    private readonly initialMode: 'entry' | 'macro' = 'entry'
+    initialMode: 'entry' | 'macro' = 'entry'
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
@@ -135,7 +141,11 @@ export class SnoogLPanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, () => this.refreshCurrentQuery());
+    installSnlDocWatcher(
+      this.disposables,
+      () => this.refreshCurrentQuery(),
+      SNOOGL_WATCHED_PATH
+    );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
@@ -148,15 +158,13 @@ export class SnoogLPanel {
     switch (msg.type) {
       case 'ready':
         void this.panel.webview.postMessage({ type: 'ready' });
-        // Push the requested initial mode BEFORE first results so the
-        // webview's tab selection reflects the button that opened it.
+        // Use the latest mode/query. A second open command can adopt a new
+        // mode before the webview finishes its ready handshake.
         void this.panel.webview.postMessage({
           type: 'setMode',
-          mode: this.initialMode
+          mode: this.currentQuery.mode
         });
-        // Kick a blank query so the webview can populate its kind
-        // dropdown from the returned `kindsByMode`.
-        await this.runCurrentQuery({ q: '', mode: this.initialMode, filters: {} });
+        await this.refreshCurrentQuery();
         return;
       case 'query': {
         const q = typeof (msg as { q?: unknown }).q === 'string' ? (msg as { q: string }).q : '';

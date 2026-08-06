@@ -141,13 +141,13 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
  * (Dashboard, GraphPanel, Infoview) keep them for their narrower globs;
  * this helper is for every OTHER panel that had no watcher at all.
  *
- * The single `.SNL_Doc/**` glob catches everything — writes are rare
- * enough that overfiring is fine, and the panel's own `pushContext()`
- * is idempotent.
+ * The default `.SNL_Doc/**` watcher is narrowed by `SNL_DOC_WATCHED_PATH`;
+ * callers whose data dependencies are smaller may provide a stricter filter.
  */
 export function installSnlDocWatcher(
   disposables: vscode.Disposable[],
-  refresh: () => void | Promise<void>
+  refresh: () => void | Promise<void>,
+  pathFilter: RegExp = SNL_DOC_WATCHED_PATH
 ): void {
   const root = firstWorkspaceFolder();
   if (!root) return;
@@ -162,7 +162,7 @@ export function installSnlDocWatcher(
   const fire = (uri: vscode.Uri): void => {
     // Ignore churn we never read: only the entry pool, macro packages and
     // config feed panel state.
-    if (!SNL_DOC_WATCHED_PATH.test(uri.path)) return;
+    if (!pathFilter.test(uri.path)) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;

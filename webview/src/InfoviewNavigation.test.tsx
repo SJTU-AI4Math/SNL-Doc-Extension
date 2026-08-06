@@ -25,6 +25,18 @@ afterEach(() => {
 });
 
 describe('Infoview navigation', () => {
+  it('localizes the fallback for a malformed library error payload', () => {
+    document.documentElement.lang = 'zh-CN';
+    const view = render(<App />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'librariesError', message: '' }
+      }));
+    });
+    expect(view.getByRole('alert').textContent).toContain('未知错误');
+    document.documentElement.lang = 'en';
+  });
+
   it('shows library read failures instead of an empty catalog and retries', () => {
     const view = render(<App />);
     act(() => {

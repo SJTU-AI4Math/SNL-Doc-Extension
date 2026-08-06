@@ -64,7 +64,13 @@ vi.mock('./panelUtil', () => ({
   firstWorkspaceFolder: () => ({ path: '/ws', scheme: 'file', toString: () => 'file:/ws' })
 }));
 vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) }));
-vi.mock('./vscodeDataMigration', () => ({ inspectWorkspaceDataVersion: mocks.inspect }));
+vi.mock('./vscodeDataMigration', () => ({
+  inspectWorkspaceDataVersion: mocks.inspect,
+  readDashboardWorkspaceData: async () => ({
+    overview: await mocks.readOverview(),
+    inspection: await mocks.inspect()
+  })
+}));
 
 import { DashboardPanel } from './dashboardPanel';
 

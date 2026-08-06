@@ -29,6 +29,7 @@ import {
   readEntryEntityRecords,
   readMacroEntityRecords,
   readPackageManifestRecords,
+  type EntityStorageSnapshot,
   type EntityReadStorage
 } from './entityStorageIo';
 import {
@@ -37,7 +38,10 @@ import {
   assertWorkspaceDataWritable,
   makeEntityStorageReceipt
 } from './dataMigrations';
-import { inspectStoredWorkspaceData } from './workspaceDataMigration';
+import {
+  inspectStoredWorkspaceData,
+  type StoredWorkspaceDataReadSnapshot
+} from './workspaceDataMigration';
 import { withWorkspaceDataLock } from './workspaceDataLock';
 import { stripJsonExt } from './macroPackageName';
 
@@ -2770,7 +2774,8 @@ export interface AllMacroIndexEntry {
  * revisited.
  */
 export async function readOverview(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  operationSnapshot?: StoredWorkspaceDataReadSnapshot
 ): Promise<SnlOverview> {
   const root = snlRootUri(workspaceRoot);
   if (!(await exists(root))) {
@@ -2793,17 +2798,30 @@ export async function readOverview(
   // macro packages), each of which itself awaited in a loop. Cat 2026-07-25:
   // "所有 Dashboard 相关的基本都慢,具体 Library 的 Infoview 不慢" — the
   // Dashboard is the hot path precisely because it fans out the widest.
-  const configPromise = readJson<unknown>(configUri(workspaceRoot))
-    .then((raw) => normalizeConfig(raw));
+  const configPromise = operationSnapshot
+    ? operationSnapshot.config === null
+      ? Promise.reject(new Error('.SNL_Doc/config.json is missing.'))
+      : Promise.resolve(normalizeConfig(operationSnapshot.config))
+    : readJson<unknown>(configUri(workspaceRoot)).then((raw) => normalizeConfig(raw));
   const discoveredPromise = listLibraries(workspaceRoot);
   const relationshipsPromise = readRelationships(workspaceRoot);
   const config = await configPromise;
   const entityMode = typeof config?.version === 'string' &&
     compareDataVersions(config.version, CURRENT_DATA_VERSION) === 0;
+  const entitySnapshot: EntityStorageSnapshot | undefined = entityMode
+    ? operationSnapshot?.entities
+    : undefined;
   const [entries, discovered, packageNames, relationships] = await Promise.all([
-    readEntries(workspaceRoot, entityMode),
+    entitySnapshot
+      ? Promise.resolve(entitySnapshot.entries.map(({ entry }) => entry as unknown as EntryData))
+      : readEntries(workspaceRoot, entityMode),
     discoveredPromise,
-    listMacroPackageNames(workspaceRoot, entityMode),
+    entitySnapshot
+      ? Promise.resolve(entitySnapshot.packages
+          .map(({ manifest }) => manifest.id)
+          .filter((id) => id !== UNPACKAGED_PACKAGE_ID)
+          .sort((left, right) => left.localeCompare(right)))
+      : listMacroPackageNames(workspaceRoot, entityMode),
     relationshipsPromise
   ]);
   const totalEntryCount: number | null = entries.length;
@@ -2854,11 +2872,15 @@ export async function readOverview(
   const loaded: Array<{ file: string; raw: unknown; ok: boolean }> = [];
   if (entityMode) {
     try {
-      const storage = entityReadStorage(workspaceRoot);
-      const [packageRecords, macroRecords] = await Promise.all([
-        readPackageManifestRecords(storage),
-        readMacroEntityRecords(storage)
-      ]);
+      const { packages: packageRecords, macros: macroRecords } = entitySnapshot ??
+        await (async () => {
+          const storage = entityReadStorage(workspaceRoot);
+          const [packages, macros] = await Promise.all([
+            readPackageManifestRecords(storage),
+            readMacroEntityRecords(storage)
+          ]);
+          return { packages, macros };
+        })();
       for (const bare of packageNames) {
         const packageRecord = packageRecords.find(({ manifest }) => manifest.id === bare);
         if (!packageRecord) continue;

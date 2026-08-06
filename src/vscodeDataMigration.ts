@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
-import { snlRootUri, canonicalizeMacroPackageData } from './snlDoc';
+import {
+  snlRootUri,
+  canonicalizeMacroPackageData,
+  readOverview,
+  type SnlOverview
+} from './snlDoc';
 import {
   inspectStoredWorkspaceData,
   migrateStoredWorkspaceData,
+  readStoredWorkspaceDataSnapshot,
   type CanonicalizeMacroPackage,
   type DataMigrationStorage
 } from './workspaceDataMigration';
@@ -123,6 +129,19 @@ export async function inspectWorkspaceDataVersion(
   workspaceRoot: vscode.Uri
 ): Promise<WorkspaceDataInspection> {
   return inspectStoredWorkspaceData(createVscodeDataMigrationStorage(workspaceRoot));
+}
+
+/** One Dashboard refresh, backed by one operation-local parsed entity tree. */
+export async function readDashboardWorkspaceData(
+  workspaceRoot: vscode.Uri
+): Promise<{ overview: SnlOverview; inspection: WorkspaceDataInspection }> {
+  const storage = createVscodeDataMigrationStorage(workspaceRoot);
+  const snapshot = await readStoredWorkspaceDataSnapshot(storage);
+  const [overview, inspection] = await Promise.all([
+    readOverview(workspaceRoot, snapshot),
+    inspectStoredWorkspaceData(storage, snapshot)
+  ]);
+  return { overview, inspection };
 }
 
 export async function migrateWorkspaceData(

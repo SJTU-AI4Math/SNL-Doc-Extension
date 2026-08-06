@@ -1,9 +1,11 @@
 import type { DataMigrationReport } from './dataMigrationCore';
 import { assertPackageId, UNPACKAGED_PACKAGE_ID } from './entityStorage';
 import {
+  readEntityStorageSnapshot,
   readEntryEntityRecords,
   readMacroEntityRecords,
-  readPackageManifestRecords
+  readPackageManifestRecords,
+  type EntityStorageSnapshot
 } from './entityStorageIo';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
@@ -33,15 +35,32 @@ export type CanonicalizeMacroPackage = (
   targetVersion: '7' | '8'
 ) => unknown;
 
+export interface StoredWorkspaceDataReadSnapshot {
+  readonly config: unknown | null;
+  readonly entities?: EntityStorageSnapshot;
+}
+
+/** Capture the parsed data shared by one Dashboard overview and inspection. */
+export async function readStoredWorkspaceDataSnapshot(
+  storage: Pick<DataMigrationStorage, 'readJson' | 'listJsonFiles'>
+): Promise<StoredWorkspaceDataReadSnapshot> {
+  const config = await storage.readJson('config.json');
+  const versionInspection = inspectWorkspaceData(config);
+  if (versionInspection.status !== 'current') return Object.freeze({ config });
+  const entities = await readEntityStorageSnapshot(storage);
+  return Object.freeze({ config, entities });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export async function inspectStoredWorkspaceData(
-  storage: Pick<DataMigrationStorage, 'readJson' | 'listJsonFiles' | 'directoryExists'>
+  storage: Pick<DataMigrationStorage, 'readJson' | 'listJsonFiles' | 'directoryExists'>,
+  snapshot?: StoredWorkspaceDataReadSnapshot
 ): Promise<WorkspaceDataInspection> {
   try {
-    const config = await storage.readJson('config.json');
+    const config = snapshot ? snapshot.config : await storage.readJson('config.json');
     const inspection = inspectWorkspaceData(config);
     if (inspection.status === 'current') {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -95,11 +114,8 @@ export async function inspectStoredWorkspaceData(
       if (!sameJson(entityStorage.receipt, actualReceipt)) {
         throw new Error('Current entity topology migration receipt does not match the frozen legacy backup.');
       }
-      const [packages, entries, macros] = await Promise.all([
-        readPackageManifestRecords(storage),
-        readEntryEntityRecords(storage),
-        readMacroEntityRecords(storage)
-      ]);
+      const { packages, entries, macros } = snapshot?.entities ??
+        await readEntityStorageSnapshot(storage);
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));
       if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
         throw new Error('Current entity topology is missing the _unpackaged Package manifest.');

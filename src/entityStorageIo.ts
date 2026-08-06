@@ -33,6 +33,13 @@ export interface PackageManifestRecord {
   manifest: PackageManifest;
 }
 
+/** Parsed entity tree owned by one read operation. No module-level state is retained. */
+export interface EntityStorageSnapshot {
+  readonly packages: readonly PackageManifestRecord[];
+  readonly entries: readonly EntryEntityRecord[];
+  readonly macros: readonly MacroEntityRecord[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -166,4 +173,19 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
     records.push({ path, envelope: value as unknown as MacroEnvelope, macro: value.macro as MacroEntityRecord['macro'] });
   }
   return records.sort((left, right) => left.envelope.package.localeCompare(right.envelope.package) || left.macro.name.localeCompare(right.macro.name));
+}
+
+export async function readEntityStorageSnapshot(
+  storage: EntityReadStorage
+): Promise<EntityStorageSnapshot> {
+  const [packages, entries, macros] = await Promise.all([
+    readPackageManifestRecords(storage),
+    readEntryEntityRecords(storage),
+    readMacroEntityRecords(storage)
+  ]);
+  return Object.freeze({
+    packages: Object.freeze(packages),
+    entries: Object.freeze(entries),
+    macros: Object.freeze(macros)
+  });
 }

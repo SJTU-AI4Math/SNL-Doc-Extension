@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   files: new Map<string, Uint8Array>(),
   directories: new Set<string>(),
+  readFiles: new Map<string, number>(),
+  readDirectories: new Map<string, number>(),
   rename: vi.fn(),
   writeGate: null as Promise<void> | null
 }));
@@ -30,8 +32,15 @@ vi.mock('vscode', () => {
           if (mocks.directories.has(uri.path)) return { type: 2 };
           return missing();
         },
-        readFile: async (uri: Uri) => mocks.files.get(uri.path) ?? missing(),
+        readFile: async (uri: Uri) => {
+          mocks.readFiles.set(uri.path, (mocks.readFiles.get(uri.path) ?? 0) + 1);
+          return mocks.files.get(uri.path) ?? missing();
+        },
         readDirectory: async (uri: Uri) => {
+          mocks.readDirectories.set(
+            uri.path,
+            (mocks.readDirectories.get(uri.path) ?? 0) + 1
+          );
           if (!mocks.directories.has(uri.path)) return missing();
           const prefix = `${uri.path}/`;
           return [...mocks.files.keys()]
@@ -66,9 +75,20 @@ vi.mock('./workspaceDataLock', () => ({
 import * as vscode from 'vscode';
 import {
   createVscodeDataMigrationStorage,
+  readDashboardWorkspaceData,
   inspectWorkspaceDataVersion,
   migrateWorkspaceData
 } from './vscodeDataMigration';
+import { makeEntityStorageReceipt } from './dataMigrations';
+import {
+  entryEntityPath,
+  macroEntityPath,
+  makeEntryEnvelope,
+  makeMacroEnvelope,
+  makePackageManifest,
+  packageManifestPath,
+  UNPACKAGED_PACKAGE_ID
+} from './entityStorage';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -81,6 +101,8 @@ describe('VS Code workspace data migration adapter', () => {
   beforeEach(() => {
     mocks.files.clear();
     mocks.directories.clear();
+    mocks.readFiles.clear();
+    mocks.readDirectories.clear();
     mocks.rename.mockClear();
     mocks.writeGate = null;
     mocks.directories.add('/ws/.SNL_Doc');
@@ -157,5 +179,95 @@ describe('VS Code workspace data migration adapter', () => {
     expect(report.to).toBe('0.0.6');
     expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.6' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
+  });
+
+  it('reads each current entity directory and file once for a Dashboard refresh', async () => {
+    for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
+      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+    }
+    put('/ws/.SNL_Doc/config.json', {
+      version: '0.0.6',
+      entry_kinds: [],
+      macro_kinds: [],
+      active_macro_packages: ['Logic'],
+      entity_storage: {
+        version: 1,
+        legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt(null, new Map(), false)
+      }
+    });
+    const entities = new Map<string, unknown>([
+      [packageManifestPath(UNPACKAGED_PACKAGE_ID),
+        makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')],
+      [packageManifestPath('Logic'), makePackageManifest('Logic', 'Logic', '')],
+      [entryEntityPath('Logic', 'entry.one'),
+        makeEntryEnvelope('Logic', { id: 'entry.one', package: 'Logic', title: 'One' })],
+      [macroEntityPath('Logic', 'logic.one'),
+        makeMacroEnvelope('Logic', {
+          name: 'logic.one', description: '', source: { entries: [], urls: [] },
+          dynamic_arity: false, default_style: { en: 'default' }, tags: [],
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+        })]
+    ]);
+    for (const [path, value] of entities) put(`/ws/.SNL_Doc/${path}`, value);
+
+    const result = await readDashboardWorkspaceData(vscode.Uri.file('/ws'));
+
+    expect(result.inspection.status).toBe('current');
+    expect(result.overview.entries.map((entry) => entry.id)).toEqual(['entry.one']);
+    for (const directory of ['packages', 'entries', 'macros']) {
+      expect(mocks.readDirectories.get(`/ws/.SNL_Doc/${directory}`)).toBe(1);
+    }
+    for (const path of entities.keys()) {
+      expect(mocks.readFiles.get(`/ws/.SNL_Doc/${path}`)).toBe(1);
+    }
+  });
+
+  it('keeps Dashboard migration inspection fail-closed for a partial entity topology', async () => {
+    for (const directory of ['packages', 'macros', 'libraries']) {
+      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+    }
+    put('/ws/.SNL_Doc/config.json', {
+      version: '0.0.6', entry_kinds: [], macro_kinds: [],
+      entity_storage: {
+        version: 1, legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt(null, new Map(), false)
+      }
+    });
+    put(
+      `/ws/.SNL_Doc/${packageManifestPath(UNPACKAGED_PACKAGE_ID)}`,
+      makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')
+    );
+
+    const result = await readDashboardWorkspaceData(vscode.Uri.file('/ws'));
+
+    expect(result.inspection.status).toBe('invalid');
+    expect(result.inspection.message).toMatch(/missing.*entries/i);
+  });
+
+  it('rejects a Dashboard refresh when a shared entity snapshot is malformed', async () => {
+    for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
+      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+    }
+    put('/ws/.SNL_Doc/config.json', {
+      version: '0.0.6', entry_kinds: [], macro_kinds: [],
+      entity_storage: {
+        version: 1, legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt(null, new Map(), false)
+      }
+    });
+    put(
+      `/ws/.SNL_Doc/${packageManifestPath(UNPACKAGED_PACKAGE_ID)}`,
+      makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')
+    );
+    const badEntryPath = entryEntityPath(UNPACKAGED_PACKAGE_ID, 'bad');
+    put(`/ws/.SNL_Doc/${badEntryPath}`, { corrupt: true });
+
+    await expect(readDashboardWorkspaceData(vscode.Uri.file('/ws')))
+      .rejects.toThrow(/not a valid SNL Entry envelope/);
+    expect(mocks.readFiles.get(`/ws/.SNL_Doc/${badEntryPath}`)).toBe(1);
   });
 });

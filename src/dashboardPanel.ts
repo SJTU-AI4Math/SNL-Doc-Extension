@@ -2,13 +2,12 @@ import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   initSnlDoc,
-  readOverview,
   setMacroPackageActive,
   type InitResult
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
-import { inspectWorkspaceDataVersion } from './vscodeDataMigration';
+import { readDashboardWorkspaceData } from './vscodeDataMigration';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
@@ -218,10 +217,7 @@ export class DashboardPanel {
       return;
     }
     try {
-      const [overview, inspection] = await Promise.all([
-        readOverview(root),
-        inspectWorkspaceDataVersion(root)
-      ]);
+      const { overview, inspection } = await readDashboardWorkspaceData(root);
       if (generation !== this.overviewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'overview',

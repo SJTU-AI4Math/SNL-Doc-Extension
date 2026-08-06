@@ -67,6 +67,8 @@ import {
 import { PanelHeader } from './components/PanelHeader';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
+import { IconButton } from './components/IconButton';
+import { TabButton, TabList } from './components/Tabs';
 import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
@@ -154,9 +156,11 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     noTags: 'No tags. Tags are free-text labels used by downstream search indices. Backslashes are not allowed.',
     tagPlaceholder: 'tag',
     addTag: '+ Add tag',
+    removeTag: 'Remove tag {index}',
     styles: 'Styles',
     moveEarlier: 'Move earlier (toward default)',
     addStyle: '+ Add style',
+    removeStyle: 'Remove style {style}',
     duplicateStyleTags: 'Duplicate style tags — each style tag must be unique.',
     fallbackHelp: '★ = final fallback (styles[0]). Implicit rendering first uses the current language mapping, then English, then this fallback. Explicit [style] always wins.',
     defaultStyleByLanguage: 'Default style by language',
@@ -178,6 +182,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     renameStyle: 'Double-click to rename',
     searchEntry: 'Search entry id or title…',
     add: '+ Add',
+    removeEntrySource: 'Remove Entry source {index}',
+    removeUrlSource: 'Remove URL source {index}',
     nonHttp: "doesn't start with http",
     synthesisMode: 'Synthesis mode',
     synthesisFormula: 'Formula',
@@ -263,9 +269,11 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     noTags: '暂无标签。标签是供下游搜索索引使用的自由文本；不允许使用反斜杠。',
     tagPlaceholder: '标签',
     addTag: '+ 添加标签',
+    removeTag: '移除标签 {index}',
     styles: '样式',
     moveEarlier: '向前移动（靠近默认样式）',
     addStyle: '+ 添加样式',
+    removeStyle: '移除样式 {style}',
     duplicateStyleTags: '样式标签重复；每个样式标签必须唯一。',
     fallbackHelp: '★ = 最终回退样式（styles[0]）。隐式渲染会依次使用当前语言映射、英语映射和此回退样式；显式 [style] 始终优先。',
     defaultStyleByLanguage: '按语言设置默认样式',
@@ -287,6 +295,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     renameStyle: '双击重命名',
     searchEntry: '搜索条目 ID 或标题…',
     add: '+ 添加',
+    removeEntrySource: '移除条目来源 {index}',
+    removeUrlSource: '移除网址来源 {index}',
     nonHttp: '不是以 http 开头',
     synthesisMode: '合成模式',
     synthesisFormula: '公式',
@@ -1347,7 +1357,8 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Content tabs --------------------------------------------------- */}
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
-      <div
+      <TabList
+        aria-label={t('contentStyle', { style: current?.style_name || 'default' })}
         style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -1368,7 +1379,7 @@ export function CreateMacroApp(): React.ReactElement {
               : ''}
           </TabButton>
         ))}
-      </div>
+      </TabList>
 
       {/* --- Mode + Preview + template textarea ----------------------------
            Layout: [ Mode switcher (left, vertical) | Preview + Template (right) ]
@@ -1565,23 +1576,23 @@ export function CreateMacroApp(): React.ReactElement {
           <div style={{ display: 'flex', gap: '0.4rem' }}>
             {dynamicArity ? (
               <>
-                <SmallButton
+                <Button size="sm"
                   onClick={() =>
                     setVariadicArgCount((n) => Math.min(n + 1, MAX_MACRO_PREVIEW_ARGS))
                   }
                 >
                   {t('addArg')}
-                </SmallButton>
-                <SmallButton
+                </Button>
+                <Button size="sm"
                   onClick={() =>
                     setVariadicArgCount((n) => Math.max(n - 1, 0))
                   }
                 >
                   {t('removeArg')}
-                </SmallButton>
+                </Button>
               </>
             ) : null}
-            <SmallButton onClick={resetArgs}>{t('resetArgs')}</SmallButton>
+            <Button size="sm" onClick={resetArgs}>{t('resetArgs')}</Button>
           </div>
         </div>
 
@@ -2406,12 +2417,18 @@ function TagsEditor({
                         : undefined
                     }}
                   />
-                  <SmallButton onClick={() => remove(i)}>−</SmallButton>
+                  <IconButton
+                    icon="delete"
+                    label={t('removeTag', { index: i + 1 })}
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => remove(i)}
+                  />
                 </div>
               );
             })
           )}
-          <SmallButton onClick={add}>{t('addTag')}</SmallButton>
+          <Button size="sm" onClick={add}>{t('addTag')}</Button>
         </div>
       ) : null}
     </div>
@@ -2496,7 +2513,11 @@ function StylesEditor({
   return (
     <>
       <SectionHeader title={t('styles')} />
-      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+      <div
+        role="group"
+        aria-label={t('styles')}
+        style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}
+      >
         {styles.map((s, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
             <StyleSwitch
@@ -2507,16 +2528,25 @@ function StylesEditor({
               onRename={(next) => renameStyleAt(i, next)}
             />
             {i > 0 ? (
-              <SmallButton onClick={() => moveUp(i)} title={t('moveEarlier')}>
-                ↑
-              </SmallButton>
+              <IconButton
+                icon="move-up"
+                label={t('moveEarlier')}
+                size="sm"
+                onClick={() => moveUp(i)}
+              />
             ) : null}
             {styles.length > 1 ? (
-              <SmallButton onClick={() => removeStyle(i)}>−</SmallButton>
+              <IconButton
+                icon="delete"
+                label={t('removeStyle', { style: s.style_name || t('emptyStyle') })}
+                variant="destructive"
+                size="sm"
+                onClick={() => removeStyle(i)}
+              />
             ) : null}
           </div>
         ))}
-        <SmallButton onClick={addStyle}>{t('addStyle')}</SmallButton>
+        <Button size="sm" onClick={addStyle}>{t('addStyle')}</Button>
       </div>
 
       {hasDupTag ? (
@@ -2569,12 +2599,12 @@ function StylesEditor({
             onChange={(event) => setNewLanguage(event.target.value)}
             style={{ ...inputStyle, width: '12rem' }}
           />
-          <SmallButton onClick={() => {
+          <Button size="sm" onClick={() => {
             const language = newLanguage.trim();
             if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
             setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
             setNewLanguage('');
-          }}>{t('addLanguage')}</SmallButton>
+          }}>{t('addLanguage')}</Button>
         </div>
       </div>
 
@@ -2794,15 +2824,18 @@ function StyleSwitch({
   }
 
   return (
-    <TabButton
-      active={active}
+    <Button
+      size="md"
+      variant={active ? 'primary' : 'secondary'}
+      aria-pressed={active}
+      aria-label={tag.trim() || t('emptyStyle')}
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
       title={t('renameStyle')}
     >
       {tag.trim() || t('emptyStyle')}
       {isDefault ? ' ★' : ''}
-    </TabButton>
+    </Button>
   );
 }
 
@@ -2855,11 +2888,17 @@ function EntryListEditor({
                 placeholder={t('searchEntry')}
               />
             </div>
-            <SmallButton onClick={() => remove(i)}>−</SmallButton>
+            <IconButton
+              icon="delete"
+              label={t('removeEntrySource', { index: i + 1 })}
+              variant="destructive"
+              size="sm"
+              onClick={() => remove(i)}
+            />
           </div>
         </div>
       ))}
-      <SmallButton onClick={add}>{t('add')}</SmallButton>
+      <Button size="sm" onClick={add}>{t('add')}</Button>
     </div>
   );
 }
@@ -2904,7 +2943,13 @@ function ListEditor({
                 onChange={(e) => set(i, e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
               />
-              <SmallButton onClick={() => remove(i)}>−</SmallButton>
+              <IconButton
+                icon="delete"
+                label={t('removeUrlSource', { index: i + 1 })}
+                variant="destructive"
+                size="sm"
+                onClick={() => remove(i)}
+              />
             </div>
             {warn ? (
               <p
@@ -2920,7 +2965,7 @@ function ListEditor({
           </div>
         );
       })}
-      <SmallButton onClick={add}>{t('add')}</SmallButton>
+      <Button size="sm" onClick={add}>{t('add')}</Button>
     </div>
   );
 }
@@ -2996,99 +3041,6 @@ function SynthesisModeRow({
         onChange={(v) => onChange(v as SynthesisMode)}
       />
     </div>
-  );
-}
-
-/**
- * Themed button used both as content-tab and as styles-bar tab. Hovering flips
- * the background to a subtle grey ({@link BUTTON_HOVER_BG}) for interaction
- * feedback (Fulcrum, 2026-07-03 UI overhaul).
- */
-function TabButton({
-  active,
-  onClick,
-  onDoubleClick,
-  children,
-  title
-}: {
-  active: boolean;
-  onClick: () => void;
-  onDoubleClick?: () => void;
-  children: React.ReactNode;
-  title?: string;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  const inactiveBg = hover
-    ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.06))'
-    : 'var(--vscode-tab-inactiveBackground, transparent)';
-  const activeBg = hover
-    ? 'var(--vscode-list-activeSelectionBackground, rgba(255,255,255,0.09))'
-    : 'var(--vscode-tab-activeBackground, #1e1e1e)';
-  return (
-    <Button
-      type="button"
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title={title}
-      style={{
-        padding: '0.3rem 0.7rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        borderBottom: active
-          ? '2px solid var(--vscode-focusBorder, #0e639c)'
-          : '1px solid var(--vscode-panel-border, #444)',
-        background: active ? activeBg : inactiveBg,
-        color: 'inherit',
-        cursor: 'pointer',
-        borderRadius: '3px 3px 0 0',
-        fontFamily: 'inherit',
-        fontSize: '0.85rem',
-        fontWeight: active ? 600 : 400,
-        transition: 'background 80ms ease',
-        textAlign: 'left'
-      }}
-    >
-      {children}
-    </Button>
-  );
-}
-
-function SmallButton({
-  onClick,
-  children,
-  title
-}: {
-  onClick: () => void;
-  children: React.ReactNode;
-  title?: string;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  return (
-    <Button
-      type="button"
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title={title}
-      style={{
-        padding: '0.2rem 0.55rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.06))'
-          : 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        borderRadius: '3px',
-        fontFamily: 'inherit',
-        fontSize: '0.8rem',
-        transition: 'background 80ms ease'
-      }}
-    >
-      {children}
-    </Button>
   );
 }
 

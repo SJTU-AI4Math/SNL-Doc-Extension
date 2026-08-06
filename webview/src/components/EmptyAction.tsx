@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button, type ButtonProps } from './Button';
+import { Icon } from './Icon';
 
-export function EmptyAction({ label, icon = '+', className, ...props }: {
+export function EmptyAction({ label, icon = <Icon name="add" />, className, ...props }: {
   label: React.ReactNode;
   icon?: React.ReactNode;
 } & Omit<ButtonProps, 'children' | 'variant'>): React.ReactElement {

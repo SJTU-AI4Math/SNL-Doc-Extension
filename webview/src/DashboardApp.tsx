@@ -25,6 +25,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from './components/Button';
+import { IconButton } from './components/IconButton';
+import { Icon } from './components/Icon';
+import { EmptyAction } from './components/EmptyAction';
 import { PanelHeader } from './components/PanelHeader';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
@@ -451,9 +454,9 @@ function Initialized({
             }
           />
         ) : null}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createLibrary')}
-          onActivate={() => api?.postMessage({ type: 'createLibrary' })}
+          onClick={() => api?.postMessage({ type: 'createLibrary' })}
         />
       </CollapsibleSection>
 
@@ -492,9 +495,9 @@ function Initialized({
             }
           />
         ) : null}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createEntry')}
-          onActivate={() => api?.postMessage({ type: 'createEntry' })}
+          onClick={() => api?.postMessage({ type: 'createEntry' })}
         />
       </CollapsibleSection>
 
@@ -517,15 +520,15 @@ function Initialized({
             }
           />
         ) : null}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createRelationship')}
-          onActivate={() =>
+          onClick={() =>
             api?.postMessage({ type: 'createRelationship' })
           }
         />
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('regenerateDependencies')}
-          onActivate={() =>
+          onClick={() =>
             api?.postMessage({ type: 'regenerateDependencies' })
           }
         />
@@ -570,9 +573,9 @@ function Initialized({
             }
           />
         ) : null}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('addPackage')}
-          onActivate={() => api?.postMessage({ type: 'createMacroPackage' })}
+          onClick={() => api?.postMessage({ type: 'createMacroPackage' })}
         />
       </CollapsibleSection>
 
@@ -594,15 +597,15 @@ function Initialized({
             }
           />
         ) : (
-          <AddBar
+          <EmptyAction size="lg" className="snl-empty-action--large"
             label={t('initEntryKinds')}
             disabled={setupBusy}
-            onActivate={() => onStartSetup('initEntryKinds')}
+            onClick={() => onStartSetup('initEntryKinds')}
           />
         )}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createEntryKind')}
-          onActivate={() =>
+          onClick={() =>
             api?.postMessage({ type: 'createEntryKind' })
           }
         />
@@ -626,15 +629,15 @@ function Initialized({
             }
           />
         ) : (
-          <AddBar
+          <EmptyAction size="lg" className="snl-empty-action--large"
             label={t('initMacroKinds')}
             disabled={setupBusy}
-            onActivate={() => onStartSetup('initMacroKinds')}
+            onClick={() => onStartSetup('initMacroKinds')}
           />
         )}
-        <AddBar
+        <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createMacroKind')}
-          onActivate={() =>
+          onClick={() =>
             api?.postMessage({ type: 'createMacroKind' })
           }
         />
@@ -725,7 +728,7 @@ function CollapsibleSection({
           }}
         >
           <span style={{ width: '0.9rem', opacity: 0.7 }}>
-            {expanded ? '▾' : '▸'}
+            <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={14} />
           </span>
           <span style={{ fontWeight: 600 }}>{title}</span>
           <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
@@ -801,65 +804,7 @@ function HeaderActionButton({
  */
 
 
- /**
-  * Full-width primary "add" bar used as a section CTA. When a section's list
-  * is empty the section shows only this bar as its call-to-action.
-  */
- function AddBar({
-  label,
-  onActivate,
-  disabled = false
-}: {
-  label: string;
-  onActivate: () => void;
-  disabled?: boolean;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-label={label}
-      onClick={onActivate}
-      onMouseEnter={() => { if (!disabled) setHover(true); }}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => { if (!disabled) setHover(true); }}
-      onBlur={() => setHover(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.4rem',
-        width: '100%',
-        boxSizing: 'border-box',
-        height: '3rem',
-        marginTop: '0.5rem',
-        padding: 0,
-        borderRadius: '6px',
-        border: hover
-          ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
-          : '2px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-          : 'transparent',
-        color: 'inherit',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.6 : 1,
-        appearance: 'none',
-        fontFamily: 'inherit',
-        fontSize: 'inherit',
-        lineHeight: 'inherit',
-        fontWeight: 600,
-        userSelect: 'none'
-      }}
-    >
-      <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
-      <span>{label}</span>
-    </button>
-  );
-}
-
-const CELL: React.CSSProperties = {
+ const CELL: React.CSSProperties = {
   padding: '0.45rem 0.6rem',
   borderBottom:
     '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
@@ -1025,10 +970,11 @@ function RowDeleteCell({
       style={{ ...CELL, textAlign: 'right', width: '2.5rem' }}
       onClick={(e) => e.stopPropagation()}
     >
-      <Button
+      <IconButton
+        icon="delete"
+        label={label}
         variant="destructive"
         size="sm"
-        aria-label={label}
         title={label}
         onClick={(e) => {
           e.stopPropagation();
@@ -1041,9 +987,7 @@ function RowDeleteCell({
             e.stopPropagation();
           }
         }}
-      >
-        ✕
-      </Button>
+      />
     </td>
   );
 }

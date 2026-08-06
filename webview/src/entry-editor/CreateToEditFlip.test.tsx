@@ -1050,7 +1050,7 @@ describe('CreateEntryApp create → edit flip', () => {
         ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!
     );
     const before = idInput.value;
-    const uuidButton = view.getByRole('button', { name: /fresh UUID v4/ });
+    const uuidButton = view.getByRole('button', { name: 'Use UUID instead' });
     fireEvent.click(uuidButton);
     await waitFor(() => expect(idInput.value).not.toBe(before));
     await waitFor(() => {

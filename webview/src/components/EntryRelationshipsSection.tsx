@@ -1,5 +1,6 @@
 import React, { useId, useState } from 'react';
 import { Disclosure } from './Disclosure';
+import { Icon } from './Icon';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 
 const MESSAGES = defineUiMessages(
@@ -88,12 +89,11 @@ export function EntryRelationshipsSection({
           font: 'inherit',
           textAlign: 'left'
         }}
-        // `Disclosure` publishes `title` as the button's accessible name,
-        // so the count has to live here to be reachable by assistive tech.
+        aria-label={t('accessibleTitle', { count: relationships.length })}
         title={t('accessibleTitle', { count: relationships.length })}
       >
-        <span style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
-          {open ? '▾' : '▸'}
+        <span aria-hidden="true" style={{ opacity: 0.7, width: '1em' }}>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} />
         </span>
         <span role="heading" aria-level={2} style={{ fontSize: '1rem', fontWeight: 600 }}>
           {t('heading')}

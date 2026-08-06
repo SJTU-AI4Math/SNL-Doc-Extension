@@ -16,7 +16,7 @@ export interface ButtonProps
 }
 
 /** Single exit for every webview button; interaction styling lives in ui.css. */
-export function Button({
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button({
   children,
   variant = 'secondary',
   size = 'md',
@@ -26,22 +26,30 @@ export function Button({
   loading = false,
   loadingLabel,
   type = 'button',
+  onClick,
+  'aria-disabled': ariaDisabled,
   ...rest
-}: ButtonProps): React.ReactElement {
+}, ref): React.ReactElement {
+  const unavailable = ariaDisabled === true || ariaDisabled === 'true';
   const classes = ['snl-btn', `snl-btn--${variant}`, `snl-btn--${size}`, className]
     .filter(Boolean)
     .join(' ');
   return (
     <button
+      ref={ref}
       type={type}
       title={title}
-      aria-label={rest['aria-label'] ?? title}
       aria-busy={loading || undefined}
+      aria-disabled={ariaDisabled}
       disabled={disabled || loading}
       className={classes}
+      onClick={unavailable ? (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      } : onClick}
       {...rest}
     >
       {loading ? (loadingLabel ?? children) : children}
     </button>
   );
-}
+});

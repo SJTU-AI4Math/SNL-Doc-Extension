@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
-import { Button } from './components/Button';
+import { TabButton, TabList } from './components/Tabs';
 import {
   listboxKeyAction,
   matchesPendingQuery,
@@ -370,8 +370,7 @@ function SearchBar({
         gap: '0.4rem'
       }}
     >
-      <div
-        role="tablist"
+      <TabList
         aria-label={t('searchTarget')}
         style={{
           display: 'inline-flex',
@@ -384,32 +383,23 @@ function SearchBar({
         {(['entry', 'macro'] as Mode[]).map((m) => {
           const active = mode === m;
           return (
-            <Button
+            <TabButton
               key={m}
-              role="tab"
-              aria-selected={active}
-              type="button"
+              active={active}
+              tabVariant="pill"
               onClick={() => setMode(m)}
               style={{
                 padding: '0.4rem 1rem',
                 border: 'none',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                fontWeight: active ? 600 : 400,
-                fontSize: '0.9rem',
-                background: active
-                  ? 'var(--vscode-button-background, #0e639c)'
-                  : 'transparent',
-                color: active
-                  ? 'var(--vscode-button-foreground, #fff)'
-                  : 'inherit'
+                borderRadius: 0,
+                fontSize: '0.9rem'
               }}
             >
               {t(m)}
-            </Button>
+            </TabButton>
           );
         })}
-      </div>
+      </TabList>
       <input
         type="text"
         value={q}

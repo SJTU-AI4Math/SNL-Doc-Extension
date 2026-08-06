@@ -73,7 +73,9 @@ describe('Infoview navigation', () => {
     });
 
     api.postMessage.mockClear();
-    fireEvent.click(view.getByRole('button', { name: 'Back to libraries' }));
+    const back = view.getByRole('button', { name: '← Back' });
+    expect(back.getAttribute('title')).toBe('Back to libraries');
+    fireEvent.click(back);
     expect(api.postMessage).toHaveBeenCalledTimes(1);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'back' });
   });

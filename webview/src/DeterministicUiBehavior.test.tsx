@@ -48,7 +48,7 @@ describe('deterministic panel refresh behavior', () => {
       counterpartIdsByMode: { entry: ['Logic.group'], macro: ['entry-group'] }
     });
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('group');
-    expect(screen.getByRole('tab', { name: 'Macro' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Macro' }).getAttribute('aria-pressed')).toBe('true');
     expect((screen.getByRole('combobox', { name: 'Kind (Macro)' }) as HTMLSelectElement).value)
       .toBe('const');
     send({ type: 'results' });

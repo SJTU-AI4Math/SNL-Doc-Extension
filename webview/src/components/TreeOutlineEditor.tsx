@@ -20,7 +20,8 @@
 // about graphs, counters, or the host protocol.
 
 import React, { useState } from 'react';
-import { Button } from './Button';
+import { IconButton } from './IconButton';
+import type { IconName } from './Icon';
 import {
   TREE_OUTLINE_TOOLBAR_CSS,
   treeDisclosureA11y,
@@ -237,16 +238,16 @@ function TreeRow<T>({
         }}
       >
         {hasKids ? (
-          <Button
-            type="button"
+          <IconButton
+            icon={isCollapsed ? 'chevron-right' : 'chevron-down'}
+            label={isCollapsed ? t('expand') : t('collapse')}
+            variant="ghost"
+            size="sm"
             onClick={() => onToggleCollapsed(id)}
             style={disclosureButtonStyle()}
-            aria-label={isCollapsed ? t('expand') : t('collapse')}
             {...treeDisclosureA11y(!isCollapsed, childrenId)}
             title={isCollapsed ? t('expand') : t('collapse')}
-          >
-            {isCollapsed ? '▶' : '▼'}
-          </Button>
+          />
         ) : (
           <span style={{ width: '1.2rem', display: 'inline-block' }} />
         )}
@@ -270,17 +271,17 @@ function TreeRow<T>({
           style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, marginLeft: 'auto' }}
         >
           <ToolbarButton
-            label={t('addChildLabel')}
+            icon="add-child"
             title={t('addChild')}
             onClick={() => onOp({ kind: 'addChild', id })}
           />
           <ToolbarButton
-            label={t('addSiblingLabel')}
+            icon="add-sibling"
             title={t('addSibling')}
             onClick={() => onOp({ kind: 'addSibling', id })}
           />
           <ToolbarButton
-            label="←|"
+            icon="outdent"
             title={
               canOutdent
                 ? t('outdent')
@@ -290,7 +291,7 @@ function TreeRow<T>({
             onClick={() => onOp({ kind: 'outdent', id })}
           />
           <ToolbarButton
-            label="→|"
+            icon="indent"
             title={
               canIndent
                 ? t('indent')
@@ -300,7 +301,7 @@ function TreeRow<T>({
             onClick={() => onOp({ kind: 'indent', id })}
           />
           <ToolbarButton
-            label="↑"
+            icon="move-up"
             title={canMoveUp
               ? moveToEdge
                 ? t('moveUpEdge')
@@ -315,7 +316,7 @@ function TreeRow<T>({
             })}
           />
           <ToolbarButton
-            label="↓"
+            icon="move-down"
             title={canMoveDown
               ? moveToEdge
                 ? t('moveDownEdge')
@@ -330,7 +331,7 @@ function TreeRow<T>({
             })}
           />
           <ToolbarButton
-            label="✕"
+            icon="delete"
             title={t('delete')}
             destructive
             onClick={() => onOp({ kind: 'delete', id })}
@@ -372,28 +373,28 @@ function TreeRow<T>({
 }
 
 function ToolbarButton({
-  label,
+  icon,
   title,
   onClick,
   destructive,
   disabled
 }: {
-  label: string;
+  icon: IconName;
   title: string;
   onClick: React.MouseEventHandler<HTMLButtonElement>;
   destructive?: boolean;
   disabled?: boolean;
 }): React.ReactElement {
   return (
-    <Button
+    <IconButton
+      icon={icon}
+      label={title}
       variant={destructive ? 'destructive' : 'secondary'}
       size="sm"
       title={title}
       onClick={onClick}
       disabled={disabled}
-    >
-      {label}
-    </Button>
+    />
   );
 }
 

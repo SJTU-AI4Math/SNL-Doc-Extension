@@ -115,12 +115,13 @@ describe('Dashboard library actions', () => {
     );
 
     const createButton = await screen.findByRole('button', {
-      name: 'Open the Create Library panel'
+      name: '+ Create Library'
     });
     const librariesToggle = screen.getByRole('button', {
       name: /Libraries0 libraries/
     });
     expect(createButton.textContent).toBe('+ Create Library');
+    expect(createButton.getAttribute('title')).toBe('Open the Create Library panel');
     expect(librariesToggle.getAttribute('aria-expanded')).toBe('false');
 
     fireEvent.click(createButton);
@@ -172,7 +173,7 @@ describe('Dashboard library actions', () => {
       data: { type: 'dataMigrationStatus', status: 'running', operation: 'repair' }
     }));
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Repair / migrate data' }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('button', { name: /Repair \/ migrate data/ }).hasAttribute('disabled')).toBe(true);
       expect(screen.getByRole('button', { name: 'Check data' }).hasAttribute('disabled')).toBe(true);
       expect(screen.getByText(/Migration is running/).textContent).toContain('Migration is running');
     });
@@ -267,8 +268,10 @@ describe('Dashboard Chinese localization', () => {
     expect(await screen.findByText('数据维护')).toBeTruthy();
     expect(screen.getByText('库')).toBeTruthy();
     expect(screen.getByText('共享条目')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '打开创建库面板' })).toBeTruthy();
-    const graphButton = screen.getByRole('button', { name: '打开共享池的完整关系图' });
+    const createLibrary = screen.getByRole('button', { name: '+ 创建库' });
+    expect(createLibrary.getAttribute('title')).toBe('打开创建库面板');
+    const graphButton = screen.getByRole('button', { name: '查看关系图' });
+    expect(graphButton.getAttribute('title')).toBe('打开共享池的完整关系图');
     expect(graphButton.textContent).toContain('查看关系图');
     expect(screen.queryByText('Libraries')).toBeNull();
   });

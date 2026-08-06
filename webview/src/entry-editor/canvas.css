@@ -55,16 +55,16 @@
 .snl-tree-operation-dial {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, 1.15rem);
-  grid-template-rows: repeat(3, 1.15rem);
+  grid-template-columns: repeat(3, 1.5rem);
+  grid-template-rows: repeat(3, 1.5rem);
 }
 
 .snl-tree-dial-action,
 .snl-tree-compact-action {
   box-sizing: border-box;
-  width: 1.15rem;
-  height: 1.15rem;
-  min-width: 1.15rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-width: 1.5rem;
   line-height: 1;
 }
 /* ui.css is bundled after this file and its .snl-btn--sm rule has equal

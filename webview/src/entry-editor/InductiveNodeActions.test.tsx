@@ -95,13 +95,13 @@ describe('Inductive node action dial', () => {
         rule.selectorText.includes('.snl-tree-row:hover') &&
         rule.style.paddingRight !== ''
       ) as CSSStyleRule | undefined;
-    expect(hoverRule?.style.paddingRight).toBe('6.65rem');
+    expect(hoverRule?.style.paddingRight).toBe('8.4rem');
     const responsiveCss = Array.from(view.container.querySelectorAll('style'))
       .map((style) => style.textContent ?? '')
       .join('\n');
     expect(responsiveCss).toContain('@container snl-inductive (max-width: 30rem)');
-    expect(responsiveCss).toContain('padding-bottom: 3.8rem');
-    expect(responsiveCss).toContain('padding-bottom: 5.8rem');
+    expect(responsiveCss).toContain('padding-bottom: 4.9rem');
+    expect(responsiveCss).toContain('padding-bottom: 6.9rem');
     expect(responsiveCss).toContain('bottom: 2.15rem');
     const styleSelect = within(childRow).getByRole('combobox') as HTMLSelectElement;
     expect(styleSelect.style.flexShrink).toBe('1');
@@ -115,18 +115,24 @@ describe('Inductive node action dial', () => {
       canvasCss.match(/\.snl-tree-operation-cluster[\s\S]*?gap:\s*([\d.]+)rem/)?.[1]
     );
     expect(Number.isFinite(compactWidth)).toBe(true);
+    expect(compactWidth).toBeGreaterThanOrEqual(1.5);
     expect(Number.isFinite(actionGap)).toBe(true);
     const authoredToolbarWidth =
       compactWidth + actionGap + 3 * compactWidth + actionGap + compactWidth;
     const visibleRowReserve = parseFloat(hoverRule!.style.paddingRight);
     const toolbarRight = parseFloat(getComputedStyle(toolbar).right);
     expect(visibleRowReserve - toolbarRight - authoredToolbarWidth).toBeGreaterThanOrEqual(0.25);
-    expect(within(dial!).getByRole('button', { name: 'Move up' }).textContent).toBe('↑');
-    expect(within(dial!).getByRole('button', { name: 'Move down' }).textContent).toBe('↓');
-    expect(within(dial!).getByRole('button', { name: 'Outdent' }).textContent).toBe('←');
-    expect(within(dial!).getByRole('button', { name: 'Indent' }).textContent).toBe('→');
-    expect(within(dial!).getByRole('button', { name: 'Choose add position' }).textContent).toBe('+');
-    expect(parseFloat(getComputedStyle(within(dial!).getByRole('button', { name: 'Move up' })).padding)).toBe(0);
+    for (const [label, icon] of [
+      ['Move up', 'move-up'],
+      ['Move down', 'move-down'],
+      ['Outdent', 'outdent'],
+      ['Indent', 'indent'],
+      ['Choose add position', 'add']
+    ] as const) {
+      const action = within(dial!).getByRole('button', { name: label });
+      expect(action.querySelector(`svg[data-snl-icon="${icon}"]`)).toBeTruthy();
+      expect(action.classList.contains('snl-btn--icon')).toBe(true);
+    }
     expect(childRow.querySelector('.snl-tree-delete-action')).not.toBeNull();
     expect(within(childRow).getByRole('button', { name: 'Delete subtree' })).toBeTruthy();
     expect(childRow.querySelector('.snl-tree-row-toolbar')?.textContent).not.toContain('+ child');

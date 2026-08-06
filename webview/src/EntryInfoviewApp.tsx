@@ -396,6 +396,7 @@ function RelatedSection({
           font: 'inherit',
           textAlign: 'left'
         }}
+        aria-label={title}
         title={title}
       >
         <span style={{ opacity: 0.7, fontFamily: 'monospace', width: '1em' }}>
@@ -437,6 +438,7 @@ function RelatedSection({
                         entryPackage: r.package
                       })
                     }
+                    aria-label={t('openEntry', { title: r.title || r.id, id: r.id })}
                     title={t('openEntry', { title: r.title || r.id, id: r.id })}
                     style={{
                       background: 'transparent',

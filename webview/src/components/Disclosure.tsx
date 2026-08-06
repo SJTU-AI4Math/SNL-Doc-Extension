@@ -1,32 +1,27 @@
 import React from 'react';
-import { Button } from './Button';
+import { Button, type ButtonProps } from './Button';
+
+export interface DisclosureProps extends Omit<ButtonProps, 'children' | 'onClick' | 'variant'> {
+  expanded: boolean;
+  controls: string;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
 
 export function Disclosure({
   expanded,
   controls,
   onToggle,
   children,
-  className,
-  style,
-  title
-}: {
-  expanded: boolean;
-  controls: string;
-  onToggle: () => void;
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-  title?: string;
-}): React.ReactElement {
+  ...buttonProps
+}: DisclosureProps): React.ReactElement {
   return (
     <Button
+      {...buttonProps}
       variant="ghost"
       aria-expanded={expanded}
       aria-controls={controls}
       onClick={onToggle}
-      className={className}
-      style={style}
-      title={title}
     >
       {children}
     </Button>

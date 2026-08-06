@@ -1,7 +1,8 @@
 import React from 'react';
 import type { VsCodeApi } from '../vscodeApi';
 import { Button } from './Button';
-import { formatDirectionalLabel } from './interactionModel';
+import { Icon } from './Icon';
+import { IconButton } from './IconButton';
 import {
   use_localized,
   type LocalizedString
@@ -107,7 +108,8 @@ export function PanelHeader({
               ? back.onClick()
               : back.message && vsApi?.postMessage(back.message)}
           >
-            {formatDirectionalLabel('back', backLabel)}
+            <Icon name="chevron-left" />
+            <span>{backLabel}</span>
           </Button>
         ) : null}
         <div className="snl-panel-header__brand">
@@ -125,15 +127,14 @@ export function PanelHeader({
 
       <div className="snl-panel-header__actions">
         {showRefresh ? (
-          <Button
+          <IconButton
+            icon="refresh"
+            label={refreshTitle}
             variant="secondary"
             size="md"
             title={refreshTitle}
-            aria-label={refreshTitle}
             onClick={() => vsApi?.postMessage({ type: 'nav.refresh' })}
-          >
-            {'↻'}
-          </Button>
+          />
         ) : null}
         {viewInInfoview ? (
           <Button
@@ -144,7 +145,8 @@ export function PanelHeader({
               ? viewInInfoview.onClick()
               : viewInInfoview.message && vsApi?.postMessage(viewInInfoview.message)}
           >
-            {formatDirectionalLabel('forward', viewLabel)}
+            <Icon name="open" />
+            <span>{viewLabel}</span>
           </Button>
         ) : null}
         {actions}

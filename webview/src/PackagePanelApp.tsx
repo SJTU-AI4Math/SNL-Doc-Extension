@@ -42,6 +42,8 @@ import {
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
+import { IconButton } from './components/IconButton';
+import { EmptyAction } from './components/EmptyAction';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import { macroKindsToPalette } from './render/macroKindPalette';
@@ -475,7 +477,7 @@ export function PackagePanelApp(): React.ReactElement {
           onDelete={submitBatchDelete}
         />
       ) : (
-        <AddBar label={t('createMacro')} onActivate={createMacro} />
+        <EmptyAction size="lg" className="snl-empty-action--large" label={t('createMacro')} onClick={createMacro} />
       )}
 
       {activeModal === 'transfer' ? (
@@ -1090,19 +1092,18 @@ function MacroStyleRow({
                 {t('copy')}
               </Button>
             ) : null}
-            <Button
+            <IconButton
+              icon="delete"
+              label={t('deleteMacro', { name: macro.name })}
               variant="destructive"
               size="sm"
               title={t('deleteMacro', { name: macro.name })}
-              aria-label={t('deleteMacro', { name: macro.name })}
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(macro.name);
               }}
               onKeyDown={(e) => e.stopPropagation()}
-            >
-              🗑
-            </Button>
+            />
           </span>
         ) : (
           <Dash />
@@ -1329,62 +1330,6 @@ function MacroPreview({
   );
 }
 
-/**
- * Full-width dashed "+" bar (mirrors the Dashboard's AddBar). Clicking (or
- * Enter/Space) fires `onActivate`.
- */
-function AddBar({
-  label,
-  onActivate
-}: {
-  label: string;
-  onActivate: () => void;
-}): React.ReactElement {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      onClick={onActivate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onActivate();
-        }
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.4rem',
-        width: '100%',
-        boxSizing: 'border-box',
-        height: '3rem',
-        marginTop: '0.75rem',
-        borderRadius: '6px',
-        border: hover
-          ? '1.5px solid var(--vscode-focusBorder, var(--vscode-button-background, #0e639c))'
-          : '2px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: hover
-          ? 'var(--vscode-list-hoverBackground, rgba(255,255,255,0.04))'
-          : 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        fontWeight: 600,
-        userSelect: 'none'
-      }}
-    >
-      <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</span>
-      <span>{label}</span>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Multi-select batch UI
 // ---------------------------------------------------------------------------
@@ -1506,21 +1451,14 @@ function ToastBanner({
       <span style={{ marginRight: 'auto' }}>
         {isError ? '❌' : '✓'} {toast.message}
       </span>
-      <Button
-        type="button"
+      <IconButton
+        icon="close"
+        label={t('dismiss')}
+        variant="ghost"
+        size="sm"
         onClick={onDismiss}
-        aria-label={t('dismiss')}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: 'inherit',
-          cursor: 'pointer',
-          fontSize: '1rem',
-          lineHeight: 1
-        }}
-      >
-        ×
-      </Button>
+        style={{ color: 'inherit' }}
+      />
     </div>
   );
 }

@@ -56,6 +56,9 @@ import {
 import { PanelHeader } from './components/PanelHeader';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
+import { IconButton } from './components/IconButton';
+import { MenuItemButton } from './components/MenuItemButton';
+import { TabButton, TabList } from './components/Tabs';
 import { Disclosure } from './components/Disclosure';
 import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
@@ -162,6 +165,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   newEntryId: '(new-entry)',
   content: 'Content',
   textFormat: 'Text',
+  editorMode: 'SNL editor mode',
   guiCanvas: 'GUI Editor (Canvas)',
   guiInductive: 'GUI Editor (Inductive)',
   textEditor: 'Text Editor',
@@ -312,7 +316,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   package: '宏包', createPackage: '创建宏包', newPackageId: '新宏包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加宏包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他宏包）', unpackaged: '未归入宏包（_unpackaged）',
   missingPackage: '所选宏包已不存在。草稿已保留；保存前请选择其他宏包。', packageHint: '以后可以更改宏包归属；移动条目会保留其 ID 和引用。',
   kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
-  guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
+  editorMode: 'SNL 编辑器模式', guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
   sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
   canvasSingleSlot: '某个宏只有一个未填槽位，无法写入 SNL，因此无法保存——空槽位需要逗号；请为该宏再添加一个参数或填充此槽位。',
@@ -1768,7 +1772,8 @@ export function CreateEntryApp(): React.ReactElement {
         {/* 4. Content tabs ============================================= */}
         <div style={{ marginBottom: '1rem' }}>
           <Label>{t('content')}</Label>
-          <div
+          <TabList
+            aria-label={t('content')}
             style={{
               display: 'flex',
               gap: '0.25rem',
@@ -1785,35 +1790,39 @@ export function CreateEntryApp(): React.ReactElement {
                 {tab.id === 'text' ? t('textFormat') : tab.label}
               </TabButton>
             ))}
-          </div>
+          </TabList>
 
           {activeFormat === 'snl' ? (
-            <div
+            <TabList
+              aria-label={t('editorMode')}
               style={{
                 display: 'flex',
                 gap: '0.25rem',
                 marginBottom: '0.5rem'
               }}
             >
-              <SubTabButton
+              <TabButton
+                tabVariant="pill"
                 active={snlMode === 'canvas'}
                 onClick={() => setSnlMode('canvas')}
               >
                 {t('guiCanvas')}
-              </SubTabButton>
-              <SubTabButton
+              </TabButton>
+              <TabButton
+                tabVariant="pill"
                 active={snlMode === 'gui'}
                 onClick={() => setSnlMode('gui')}
               >
                 {t('guiInductive')}
-              </SubTabButton>
-              <SubTabButton
+              </TabButton>
+              <TabButton
+                tabVariant="pill"
                 active={snlMode === 'text'}
                 onClick={() => setSnlMode('text')}
               >
                 {t('textEditor')}
-              </SubTabButton>
-            </div>
+              </TabButton>
+            </TabList>
           ) : null}
 
           {activeFormat === 'snl' && snlMode === 'gui' ? (
@@ -2311,74 +2320,6 @@ function Label({
     >
       {children}
     </label>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <Button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '0.35rem 0.8rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        borderBottom: active
-          ? '2px solid var(--vscode-focusBorder, #0e639c)'
-          : '1px solid var(--vscode-panel-border, #444)',
-        background: active
-          ? 'var(--vscode-tab-activeBackground, #1e1e1e)'
-          : 'var(--vscode-tab-inactiveBackground, transparent)',
-        color: 'inherit',
-        cursor: 'pointer',
-        borderRadius: '3px 3px 0 0',
-        fontFamily: 'inherit',
-        fontSize: '0.9rem',
-        fontWeight: active ? 600 : 400
-      }}
-    >
-      {children}
-    </Button>
-  );
-}
-
-function SubTabButton({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <Button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '0.2rem 0.6rem',
-        border:
-          '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-        background: active
-          ? 'var(--vscode-button-background, #0e639c)'
-          : 'transparent',
-        color: active ? 'var(--vscode-button-foreground, #fff)' : 'inherit',
-        cursor: 'pointer',
-        borderRadius: '3px',
-        fontFamily: 'inherit',
-        fontSize: '0.8rem'
-      }}
-    >
-      {children}
-    </Button>
   );
 }
 
@@ -4076,26 +4017,24 @@ export function GuiCanvasEditor({
           >
             {focusedMacroControl.dynamic ? (
               <>
-                <Button
+                <IconButton
+                  icon="remove"
+                  label={t('removeArgument')}
                   variant="secondary"
                   size="sm"
-                  aria-label={t('removeArgument')}
                   disabled={focusedMacroControl.count === 0}
                   onClick={() => changeDynamicArity(focusedMacroControl.target, -1)}
-                >
-                  −
-                </Button>
+                />
                 <span aria-label={t('argumentCountValue')} style={{ minWidth: '1.2rem', textAlign: 'center' }}>
                   {focusedMacroControl.count}
                 </span>
-                <Button
+                <IconButton
+                  icon="add"
+                  label={t('addArgument')}
                   variant="secondary"
                   size="sm"
-                  aria-label={t('addArgument')}
                   onClick={() => changeDynamicArity(focusedMacroControl.target, 1)}
-                >
-                  +
-                </Button>
+                />
               </>
             ) : null}
             {(() => {
@@ -4142,10 +4081,11 @@ export function GuiCanvasEditor({
                       ))}
                     </select>
                   ) : null}
-                  <Button
+                  <IconButton
+                    icon={known ? 'edit' : 'add'}
+                    label={known ? t('editMacro') : t('createMacro')}
                     variant="ghost"
                     size="sm"
-                    aria-label={known ? t('editMacro') : t('createMacro')}
                     title={
                       known
                         ? t('openEditMacro', { name, origin: macroOrigin[name] })
@@ -4158,9 +4098,7 @@ export function GuiCanvasEditor({
                         style_name: node.style_name
                       })
                     }
-                  >
-                    ↗
-                  </Button>
+                  />
                 </>
               );
             })()}
@@ -4217,7 +4155,24 @@ export function GuiCanvasEditor({
               setContextMenu(null);
               applyForestChange(next, null);
             }}
-            onClose={() => setContextMenu(null)}
+            onClose={(direction) => {
+              setContextMenu(null);
+              if (direction === 'next') {
+                const focusable = [...document.querySelectorAll<HTMLElement>(
+                  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+                )];
+                const canvas = canvasRef.current;
+                const lastCanvasIndex = focusable.reduce(
+                  (last, element, index) => canvas?.contains(element) ? index : last,
+                  -1
+                );
+                focusable.slice(lastCanvasIndex + 1).find(
+                  (element) => !element.closest('[role="menu"]')
+                )?.focus();
+              } else {
+                window.setTimeout(() => canvasRef.current?.focus(), 0);
+              }
+            }}
           />
         ) : null}
       </div>
@@ -4274,13 +4229,20 @@ function CanvasContextMenuView({
   onRemoveArgument: () => void;
   onDetach: () => void;
   onDelete: () => void;
-  onClose: () => void;
+  onClose: (direction: 'restore' | 'next') => void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const onBlankSpace = menu.rootIndex < 0;
   const isRoot = menu.path.length === 0;
   const isHole = isCanvasHole(node);
-  const items: Array<{ label: string; hint?: string; disabled?: boolean; run: () => void }> =
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const items: Array<{
+    label: string;
+    hint?: string;
+    disabled?: boolean;
+    danger?: boolean;
+    run: () => void;
+  }> =
     onBlankSpace
       ? [{ label: t('addRootMacro'), hint: 'Ctrl+F', run: onAddRoot }]
       : [
@@ -4304,15 +4266,47 @@ function CanvasContextMenuView({
             disabled: isRoot || isHole,
             run: onDetach
           },
-          { label: t('delete'), hint: 'Del', disabled: isHole, run: onDelete }
+          { label: t('delete'), hint: 'Del', disabled: isHole, danger: true, run: onDelete }
         ];
+
+  useEffect(() => {
+    menuRef.current
+      ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+      ?.focus();
+  }, []);
+
+  const moveMenuFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const enabled = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled)'
+    )];
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault();
+      onClose(event.key === 'Tab' && !event.shiftKey ? 'next' : 'restore');
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || enabled.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const current = Math.max(0, enabled.indexOf(document.activeElement as HTMLButtonElement));
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? enabled.length - 1
+        : event.key === 'ArrowUp'
+          ? (current - 1 + enabled.length) % enabled.length
+          : (current + 1) % enabled.length;
+    enabled[next]?.focus();
+  };
   return (
     <div
+      ref={menuRef}
       role="menu"
       data-canvas-menu
       aria-label={t('canvasBlockActions')}
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={moveMenuFocus}
       style={{
         position: 'absolute',
         left: menu.left,
@@ -4328,36 +4322,24 @@ function CanvasContextMenuView({
       }}
     >
       {items.map((item) => (
-        <button
+        <MenuItemButton
           key={item.label}
-          type="button"
-          role="menuitem"
           disabled={item.disabled}
+          danger={item.danger}
           onClick={() => {
             if (item.disabled) return;
             item.run();
-            onClose();
+            onClose('restore');
           }}
           style={{
-            display: 'flex',
             justifyContent: 'space-between',
             gap: '1rem',
-            width: '100%',
-            padding: '0.3rem 0.5rem',
-            border: 'none',
-            borderRadius: '3px',
-            background: 'transparent',
-            color: item.disabled
-              ? 'var(--vscode-disabledForeground, #777)'
-              : 'var(--vscode-menu-foreground, inherit)',
-            cursor: item.disabled ? 'not-allowed' : 'pointer',
-            font: 'inherit',
-            textAlign: 'left'
+            color: item.disabled ? 'var(--vscode-disabledForeground, #777)' : undefined
           }}
         >
           <span>{item.label}</span>
           {item.hint ? <span style={{ opacity: 0.6 }}>{item.hint}</span> : null}
-        </button>
+        </MenuItemButton>
       ))}
     </div>
   );
@@ -4781,7 +4763,7 @@ export function GuiInductiveEditor({
         }
         .snl-tree-row:hover,
         .snl-tree-row:focus-within {
-          padding-right: 6.65rem;
+          padding-right: 8.4rem;
         }
         @container snl-inductive (max-width: 30rem) {
           .snl-tree-row {
@@ -4803,7 +4785,7 @@ export function GuiInductiveEditor({
           .snl-tree-row:hover,
           .snl-tree-row:focus-within {
             padding-right: 0.3rem;
-            padding-bottom: 3.8rem;
+            padding-bottom: 4.9rem;
           }
           .snl-tree-row-toolbar {
             top: auto;
@@ -4811,7 +4793,7 @@ export function GuiInductiveEditor({
             transform: none;
           }
           .snl-tree-row:has(.snl-tree-add-menu) {
-            padding-bottom: 5.8rem;
+            padding-bottom: 6.9rem;
           }
           .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
             bottom: 2.15rem;
@@ -5631,7 +5613,9 @@ function InductiveNode({
                       ? t('openCreateMacroBlank')
                       : t('openCreateMacroPrefill', { name: trimmed });
             return (
-              <Button
+              <IconButton
+                icon={known ? 'edit' : 'add'}
+                label={known ? t('editMacro') : t('createMacro')}
                 variant="ghost"
                 size="sm"
                 className="snl-tree-compact-action"
@@ -5643,15 +5627,12 @@ function InductiveNode({
                   })
                 }
                 title={title}
-                aria-label={known ? t('editMacro') : t('createMacro')}
                 style={{
                   color: known
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
                     : 'var(--vscode-descriptionForeground, #999)'
                 }}
-              >
-                ↗
-              </Button>
+              />
             );
           })()}
           {(() => {
@@ -5664,64 +5645,59 @@ function InductiveNode({
             return (
               <div className="snl-tree-operation-cluster">
                 <div ref={addControlRef} className="snl-tree-operation-dial">
-                  <Button
+                  <IconButton
+                    icon="move-up"
+                    label={t('moveUp')}
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--up"
                     onClick={(event) => canMoveUp && treeOp('moveUp', path, event.ctrlKey)}
                     disabled={!canMoveUp}
                     title={canMoveUp ? t('moveUpAvailable') : t('moveUpUnavailable')}
-                    aria-label={t('moveUp')}
-                  >
-                    ↑
-                  </Button>
-                  <Button
+                  />
+                  <IconButton
+                    icon="outdent"
+                    label={t('outdent')}
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--outdent"
                     onClick={(event) => canOutdent && treeOp('outdent', path, event.ctrlKey)}
                     disabled={!canOutdent}
                     title={canOutdent ? t('outdentAvailable') : t('outdentUnavailable')}
-                    aria-label={t('outdent')}
-                  >
-                    ←
-                  </Button>
-                  <Button
+                  />
+                  <IconButton
+                    icon="add"
+                    label={t('chooseAddPositionAria')}
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--add"
                     onClick={() => setAddMenuOpen((open) => !open)}
                     title={t('chooseAddPosition')}
-                    aria-label={t('chooseAddPositionAria')}
                     data-snl-add-position-trigger
                     aria-haspopup="menu"
                     aria-expanded={addMenuOpen}
                     aria-controls={addMenuOpen ? addMenuId : undefined}
-                  >
-                    +
-                  </Button>
-                  <Button
+                  />
+                  <IconButton
+                    icon="indent"
+                    label={t('indent')}
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--indent"
                     onClick={(event) => canIndent && treeOp('indent', path, event.ctrlKey)}
                     disabled={!canIndent}
                     title={canIndent ? t('indentAvailable') : t('indentUnavailable')}
-                    aria-label={t('indent')}
-                  >
-                    →
-                  </Button>
-                  <Button
+                  />
+                  <IconButton
+                    icon="move-down"
+                    label={t('moveDown')}
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--down"
                     onClick={(event) => canMoveDown && treeOp('moveDown', path, event.ctrlKey)}
                     disabled={!canMoveDown}
                     title={canMoveDown ? t('moveDownAvailable') : t('moveDownUnavailable')}
-                    aria-label={t('moveDown')}
-                  >
-                    ↓
-                  </Button>
+                  />
                   {addMenuOpen ? (
                     <div
                       id={addMenuId}
@@ -5760,16 +5736,15 @@ function InductiveNode({
                   ) : null}
                 </div>
                 {onDelete ? (
-                  <Button
-                    variant="ghost"
+                  <IconButton
+                    icon="delete"
+                    label={t('deleteSubtree')}
+                    variant="destructive"
                     size="sm"
                     className="snl-tree-compact-action snl-tree-delete-action"
                     onClick={onDelete}
                     title={t('deleteSubtreeTitle')}
-                    aria-label={t('deleteSubtree')}
-                  >
-                    ×
-                  </Button>
+                  />
                 ) : null}
               </div>
             );

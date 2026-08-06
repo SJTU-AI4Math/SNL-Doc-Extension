@@ -43,6 +43,10 @@ describe('PanelHeader', () => {
     expect(view.getByRole('heading', { name: 'Create Entry' })).toBeTruthy();
     expect(view.getByText('SJTU AI4Math')).toBeTruthy();
     expect(view.container.querySelector('.snl-panel-header__logo')).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Back' })
+      .querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
+    expect(view.getByRole('button', { name: /Refresh this panel/ })
+      .querySelector('svg[data-snl-icon="refresh"]')).toBeTruthy();
     const trigger = view.getByRole('button', { name: /Interface language: English \(US\)/ });
     expect(trigger.hasAttribute('disabled')).toBe(false);
     expect(trigger.querySelector('svg[data-language-icon="en"]')).toBeTruthy();

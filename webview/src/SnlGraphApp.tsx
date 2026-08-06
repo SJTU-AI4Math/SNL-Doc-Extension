@@ -959,7 +959,7 @@ function SnlGraphInner({
           vsApi={apiRef.current}
           title={msg.title}
           back={{
-            label: `← ${t('infoview')}`,
+            label: t('infoview'),
             title: t('backInfoview'),
             message: { type: 'nav.openInfoview' }
           }}

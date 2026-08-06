@@ -494,9 +494,11 @@ describe('GuiCanvasEditor', () => {
     const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
     fireEvent.click(root);
     const argumentsControl = await view.findByLabelText('参数数量');
-    expect(within(argumentsControl).getByLabelText('移除参数')).toBeTruthy();
+    const removeArgument = within(argumentsControl).getByLabelText('移除参数');
+    expect(removeArgument.querySelector('svg[data-snl-icon="remove"]')).toBeTruthy();
     expect(within(argumentsControl).getByLabelText('参数数量值').textContent).toBe('1');
-    expect(within(argumentsControl).getByLabelText('添加参数')).toBeTruthy();
+    const addArgument = within(argumentsControl).getByLabelText('添加参数');
+    expect(addArgument.querySelector('svg[data-snl-icon="add"]')).toBeTruthy();
     expect(view.getByRole('combobox', { name: '宏样式' }).getAttribute('title'))
       .toBe('选择宏样式');
     expect(view.getByRole('button', { name: '编辑宏' })).toBeTruthy();
@@ -506,7 +508,17 @@ describe('GuiCanvasEditor', () => {
     expect(within(menu).getByRole('menuitem', { name: /编辑宏/ })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: /添加参数/ })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: /移除参数/ })).toBeTruthy();
-    expect(within(menu).getByRole('menuitem', { name: /删除/ })).toBeTruthy();
+    const deleteItem = within(menu).getByRole('menuitem', { name: /删除/ });
+    expect(deleteItem.getAttribute('data-danger')).toBe('true');
+    const enabledItems = within(menu).getAllByRole('menuitem').filter((item) =>
+      !(item as HTMLButtonElement).disabled
+    );
+    await waitFor(() => expect(document.activeElement).toBe(enabledItems[0]));
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(document.activeElement).toBe(enabledItems.at(-1));
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('menu', { name: '画布块操作' })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(canvas));
   });
 
   it('owns interactions so partial nodes cannot fall through to reading-surface ancestors', async () => {
@@ -1425,6 +1437,36 @@ describe('GuiCanvasEditor', () => {
     expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
   });
 
+  it('lets Tab and Shift+Tab leave a Canvas context menu in document order', async () => {
+    const view = render(
+      <>
+        <button type="button">Before canvas</button>
+        <GuiCanvasEditor
+          forest={[node('root', [node('branch')])]}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={() => undefined}
+          onResetFromSnl={() => undefined}
+        />
+        <button type="button">After canvas</button>
+      </>
+    );
+    const branch = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!);
+    fireEvent.contextMenu(branch);
+    let menu = await view.findByRole('menu', { name: 'Canvas block actions' });
+    fireEvent.keyDown(menu, { key: 'Tab' });
+    expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
+    expect(document.activeElement).toBe(view.getByRole('button', { name: 'After canvas' }));
+
+    fireEvent.contextMenu(branch);
+    menu = await view.findByRole('menu', { name: 'Canvas block actions' });
+    fireEvent.keyDown(menu, { key: 'Tab', shiftKey: true });
+    expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(
+      view.container.querySelector('[data-entry-gui-canvas]')
+    ));
+  });
+
   it('Ctrl+F2 SNoogL Tab inserts the Macro id instead of replacing the expression', async () => {
     const view = render(
       <GuiCanvasEditor
@@ -2020,7 +2062,7 @@ describe('GuiCanvasEditor', () => {
     );
     fireEvent.click(known.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
     const editButton = await waitFor(() => known.getByRole('button', { name: 'Edit macro' }));
-    expect(editButton.textContent).toBe('↗');
+    expect(editButton.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
     fireEvent.click(editButton);
     expect(edit).toHaveBeenCalledWith({ name: 'list', env_mode: undefined, style_name: undefined });
     expect(known.container.querySelector<HTMLElement>('[data-tree-path=""]')?.classList.contains('snl-canvas-focused')).toBe(true);

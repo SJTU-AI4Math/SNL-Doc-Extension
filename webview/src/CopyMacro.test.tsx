@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const posted: unknown[] = [];
@@ -121,6 +121,22 @@ describe('Copy Macro', () => {
     const name = document.getElementById('m-name') as HTMLInputElement;
     expect(name.value).toBe('');
     expect(name.readOnly).toBe(false);
+
+    expect(screen.getByRole('button', { name: /KaTeX template/ })).toBeTruthy();
+    const styleGroup = screen.getByRole('group', { name: 'Styles' });
+    expect(within(styleGroup).getByRole('button', { name: 'default' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Style tags/ }));
+    for (const label of [
+      'Remove tag 1',
+      'Remove style compact',
+      'Remove Entry source 1',
+      'Remove URL source 1'
+    ]) {
+      const remove = screen.getByRole('button', { name: label });
+      expect(remove.querySelector('svg[data-snl-icon="delete"]')).toBeTruthy();
+    }
 
     for (const label of ['Left delimiter', 'Separator', 'Right delimiter']) {
       const field = screen.getByLabelText(label) as HTMLTextAreaElement;

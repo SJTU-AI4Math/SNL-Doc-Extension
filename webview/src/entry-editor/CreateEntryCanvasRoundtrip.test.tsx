@@ -84,7 +84,7 @@ describe('CreateEntryApp Canvas update round-trip', () => {
       }
     }));
 
-    const canvasTab = await waitFor(() => view.getByRole('button', { name: 'GUI Editor (Canvas)' }));
+    const canvasTab = await view.findByRole('button', { name: 'GUI Editor (Canvas)' });
     fireEvent.click(canvasTab);
     let block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
     fireEvent.pointerDown(block, { pointerId: 20, button: 0, clientX: 10, clientY: 10 });

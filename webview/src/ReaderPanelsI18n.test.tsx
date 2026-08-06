@@ -47,13 +47,15 @@ describe('reader panel Chinese UI', () => {
 
     hostMessage({ type: 'libraries', libraries: [] });
     expect(view.getByText('0 个文档库')).toBeTruthy();
-    expect(view.getByRole('button', { name: '打开整个条目池的关系图' })).toBeTruthy();
+    expect(view.getByRole('button', { name: '查看关系图' })).toBeTruthy();
 
     hostMessage({
       type: 'libraryEntries', slug: 'algebra', title: 'Algebra', entries: [], outline: [], warnings: []
     });
     api.postMessage.mockClear();
-    fireEvent.click(view.getByRole('button', { name: '返回文档库列表' }));
+    const libraryBack = view.getByRole('button', { name: '← 返回' });
+    expect(libraryBack.getAttribute('title')).toBe('返回文档库列表');
+    fireEvent.click(libraryBack);
     expect(api.postMessage).toHaveBeenCalledTimes(1);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'back' });
     expect(view.getByText('0 个条目 · algebra')).toBeTruthy();
@@ -92,30 +94,34 @@ describe('reader panel Chinese UI', () => {
     expect(view.getByRole('heading', { name: '依赖项 · 传出' })).toBeTruthy();
     expect(view.getByText('（无标题）')).toBeTruthy();
     expect(view.getByText('原子').getAttribute('title')).toBe('原子依赖项——条目池中不存在更短的组合路径。');
-    expect(view.getByRole('button', { name: '在“编辑条目”面板中打开此条目' }).textContent).toBe('✎ 编辑');
+    expect(view.getByRole('button', { name: '✎ 编辑' }).textContent).toBe('✎ 编辑');
   });
 
   it('localizes graph loading, summaries, empty state, filters, and controls', () => {
     const view = render(<SnlGraphApp />);
     expect(view.getByText('正在加载关系图……')).toBeTruthy();
-    expect(view.getByRole('button', { name: '返回 SNL 信息视图' }).textContent).toBe('← 信息视图');
+    const graphBack = view.getByRole('button', { name: '信息视图' });
+    expect(graphBack.querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
 
     hostMessage({
       type: 'graph', scope: { mode: 'pool' }, title: 'Workspace Graph', nodes: [], edges: [], warnings: []
     });
     expect(view.getByText('0 个节点 · 0 条边 · 已隐藏孤立节点')).toBeTruthy();
     expect(view.getByText(/没有可显示的关系/)).toBeTruthy();
-    fireEvent.click(view.getByRole('button', { name: '展开筛选器' }));
+    const filters = view.getByRole('button', { name: /筛选器/ });
+    expect(filters.getAttribute('title')).toBe('展开筛选器');
+    fireEvent.click(filters);
     expect(view.getByRole('heading', { name: '边' })).toBeTruthy();
     expect(view.getByText('仅原子依赖项')).toBeTruthy();
-    expect(view.getByRole('button', { name: '显示所有条目种类（重置种类筛选器）' }).textContent).toBe('全部');
+    const showAll = view.getByRole('button', { name: '全部' });
+    expect(showAll.getAttribute('title')).toBe('显示所有条目种类（重置种类筛选器）');
   });
 
   it('localizes search headings, controls, placeholders, empty state, aria, and score tooltip', () => {
     const view = render(<SnooglApp />);
     expect(view.getByText('搜索工作区中的条目和宏。')).toBeTruthy();
-    expect(view.getByRole('tablist', { name: '搜索目标' })).toBeTruthy();
-    expect(view.getByRole('tab', { name: '条目' })).toBeTruthy();
+    expect(view.getByRole('group', { name: '搜索目标' })).toBeTruthy();
+    expect(view.getByRole('button', { name: '条目' }).getAttribute('aria-pressed')).toBe('true');
     expect(view.getByPlaceholderText('搜索条目——按 ID 或标题……')).toBeTruthy();
     expect(view.getByText('筛选器')).toBeTruthy();
     expect(view.getByText('无匹配项。')).toBeTruthy();

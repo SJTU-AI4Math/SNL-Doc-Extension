@@ -30,6 +30,7 @@ import {
   tryParseSnlSyntaxTree,
   createSnlSyntaxTreeNode,
   SnlSyntaxTreeView,
+  SnlDslFormatter,
   DEFAULT_KIND_PALETTE,
   read_localized,
   resolve_style_template,
@@ -90,6 +91,7 @@ import {
 import { loadDraft, saveDraft, usePersistedDraft, useSaveShortcut } from './components/draftState';
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
+  get_formatter_preferences,
   use_preferences_revision,
   webview_language_runtime
 } from './runtime/preferencesRuntime';
@@ -99,6 +101,7 @@ import {
 } from './render/macroKindPalette';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+import { MonacoTextEditor } from './entry-editor/MonacoTextEditor';
 
 
 export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
@@ -156,7 +159,10 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   guiInductive: 'GUI Editor (Inductive)',
   textEditor: 'Text Editor',
   sourcePlaceholder: '{format} source…',
-  monacoPlanned: 'Monaco editor integration planned; for now a plain textarea.',
+  sourceEditorLabel: '{format} source editor',
+  formatSnl: 'Format SNL',
+  formatShortcut: 'Shift+Alt+F',
+  formatFailed: 'Could not format SNL: {error}',
   contributor: 'Contributor',
   contributorPlaceholder: 'e.g. Ada Lovelace',
   contributorTemporary: 'Temporary single-string field — this Contributor shape may change.',
@@ -300,7 +306,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   missingPackage: '所选宏包已不存在。草稿已保留；保存前请选择其他宏包。', packageHint: '以后可以更改宏包归属；移动条目会保留其 ID 和引用。',
   kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
-  monacoPlanned: '计划集成 Monaco 编辑器；目前暂用普通文本框。', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
+  sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
   canvasSingleSlot: '某个宏只有一个未填槽位，无法写入 SNL，因此无法保存——空槽位需要逗号；请为该宏再添加一个参数或填充此槽位。',
   updating: '正在更新…', creating: '正在创建…', updateEntry: '更新条目', resetBanner: '重置横幅', cancel: '取消',
@@ -549,6 +555,22 @@ function newUuid(): string {
 export function CreateEntryApp(): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const preferencesRevision = use_preferences_revision();
+  const formatterPreferences = get_formatter_preferences();
+  const snlFormatter = useMemo(
+    () => new SnlDslFormatter(
+      formatterPreferences.indentSpaces,
+      formatterPreferences.inlineParenthesisDepth
+    ),
+    [preferencesRevision]
+  );
+  const monacoTheme = (() => {
+    switch (document.documentElement.dataset.snlColorScheme) {
+      case 'light': return 'vs';
+      case 'high-contrast': return 'hc-black';
+      case 'high-contrast-light': return 'hc-light';
+      default: return 'vs-dark';
+    }
+  })();
   const languageRef = useRef(webview_language_runtime.query_environment().language);
   const [mode, setMode] = useState<Mode>('create');
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
@@ -1558,47 +1580,34 @@ export function CreateEntryApp(): React.ReactElement {
               }}
             />
           ) : (
-            <>
-              <textarea
-                value={content[activeFormat]}
-                onChange={(e) => {
-                  markFormDirty(true);
-                  if (activeFormat !== 'snl') {
-                    contentDirtyRef.current.add(activeFormat);
-                  }
-                  setContent((prev) => ({
-                    ...prev,
-                    [activeFormat]: e.target.value
-                  }));
-                }}
-                rows={8}
-                placeholder={t('sourcePlaceholder', { format: activeFormat.toUpperCase() })}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '0.5rem 0.6rem',
-                  color: 'var(--vscode-input-foreground, #ddd)',
-                  background: 'var(--vscode-input-background, #2a2a2a)',
-                  border:
-                    '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-                  borderRadius: '2px',
-                  fontFamily:
-                    'var(--vscode-editor-font-family, monospace)',
-                  fontSize: '0.9rem',
-                  resize: 'vertical'
-                }}
-              />
-              <p
-                style={{
-                  margin: '0.25rem 0 0',
-                  fontSize: '0.8rem',
-                  opacity: 0.6,
-                  fontStyle: 'italic'
-                }}
-              >
-                {t('monacoPlanned')}
-              </p>
-            </>
+            <MonacoTextEditor
+              value={content[activeFormat]}
+              language={activeFormat === 'text' ? 'plaintext' : activeFormat}
+              ariaLabel={t('sourceEditorLabel', { format: activeFormat.toUpperCase() })}
+              placeholder={t('sourcePlaceholder', { format: activeFormat.toUpperCase() })}
+              theme={monacoTheme}
+              onChange={(next) => {
+                markFormDirty(true);
+                if (activeFormat !== 'snl') {
+                  contentDirtyRef.current.add(activeFormat);
+                }
+                setContent((previous) => previous[activeFormat] === next
+                  ? previous
+                  : { ...previous, [activeFormat]: next });
+              }}
+              onSave={handleSubmit}
+              format={activeFormat === 'snl'
+                ? (source) => snlFormatter.format(source)
+                : undefined}
+              formatLabel={activeFormat === 'snl' ? t('formatSnl') : undefined}
+              formatShortcutLabel={activeFormat === 'snl' ? t('formatShortcut') : undefined}
+              onFormatError={(error) => setStatus({
+                kind: 'invalid',
+                message: t('formatFailed', {
+                  error: error instanceof Error ? error.message : String(error)
+                })
+              })}
+            />
           )}
         </div>
 

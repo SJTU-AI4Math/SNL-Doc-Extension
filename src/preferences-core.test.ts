@@ -5,6 +5,8 @@ import {
   resolve_color_scheme,
   resolve_language,
   resolve_motion,
+  resolve_formatter_indent_spaces,
+  resolve_formatter_inline_parenthesis_depth,
 } from './preferences-core'
 
 describe('preference resolution', () => {
@@ -36,5 +38,18 @@ describe('preference resolution', () => {
   it('leaves automatic motion for the webview media query', () => {
     expect(resolve_motion('auto')).toBe('auto')
     expect(resolve_motion('reduced')).toBe('reduced')
+  })
+
+  it('accepts only formatter integers within the SNL-Basics constructor bounds', () => {
+    expect(resolve_formatter_indent_spaces(8)).toBe(8)
+    expect(resolve_formatter_indent_spaces(0)).toBe(0)
+    expect(resolve_formatter_indent_spaces(256)).toBe(256)
+    expect(resolve_formatter_indent_spaces(-1)).toBe(4)
+    expect(resolve_formatter_indent_spaces(257)).toBe(4)
+    expect(resolve_formatter_indent_spaces(2.5)).toBe(4)
+    expect(resolve_formatter_inline_parenthesis_depth(0)).toBe(0)
+    expect(resolve_formatter_inline_parenthesis_depth(12)).toBe(12)
+    expect(resolve_formatter_inline_parenthesis_depth(-1)).toBe(3)
+    expect(resolve_formatter_inline_parenthesis_depth(Number.MAX_SAFE_INTEGER + 1)).toBe(3)
   })
 })

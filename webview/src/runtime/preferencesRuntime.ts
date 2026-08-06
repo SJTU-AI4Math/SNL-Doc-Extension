@@ -12,6 +12,13 @@ interface WebviewPreferences {
   language_preference?: string;
   color_scheme: string;
   motion: string;
+  formatter_indent_spaces?: number;
+  formatter_inline_parenthesis_depth?: number;
+}
+
+export interface FormatterPreferences {
+  indentSpaces: number;
+  inlineParenthesisDepth: number;
 }
 
 export interface PreferencesSnapshotMessage {
@@ -28,7 +35,21 @@ const documentRoot = typeof document !== 'undefined'
   ? document.documentElement
   : ({ lang: 'en', dataset: {} } as unknown as HTMLElement);
 let configuredMotion = documentRoot.dataset.snlMotion || 'auto';
+let formatterPreferences: FormatterPreferences = {
+  indentSpaces: 4,
+  inlineParenthesisDepth: 3
+};
 const subscribers = new Set<() => void>();
+
+function safe_formatter_integer(value: unknown, fallback: number, maximum: number): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum
+    ? value
+    : fallback;
+}
+
+export function get_formatter_preferences(): FormatterPreferences {
+  return { ...formatterPreferences };
+}
 
 function effective_motion(value: string): string {
   if (value !== 'auto') return value;
@@ -68,6 +89,18 @@ export function apply_preferences_snapshot(
   root.dataset.snlColorScheme = message.preferences.color_scheme;
   configuredMotion = message.preferences.motion;
   root.dataset.snlMotion = effective_motion(configuredMotion);
+  formatterPreferences = {
+    indentSpaces: safe_formatter_integer(
+      message.preferences.formatter_indent_spaces,
+      4,
+      256
+    ),
+    inlineParenthesisDepth: safe_formatter_integer(
+      message.preferences.formatter_inline_parenthesis_depth,
+      3,
+      Number.MAX_SAFE_INTEGER
+    )
+  };
   renderRevision += 1;
   for (const subscriber of subscribers) subscriber();
   return true;

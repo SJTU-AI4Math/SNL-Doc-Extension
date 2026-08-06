@@ -4,6 +4,8 @@ import {
   resolve_color_scheme,
   resolve_language,
   resolve_motion,
+  resolve_formatter_indent_spaces,
+  resolve_formatter_inline_parenthesis_depth,
   type ColorScheme,
   type ColorSchemePreference,
   type ExtensionPreferences,
@@ -53,7 +55,13 @@ export function read_extension_preferences(): ExtensionPreferences {
       color_scheme_preference(config.get('appearance.theme')),
       active_color_scheme()
     ),
-    motion: resolve_motion(motion_preference(config.get('appearance.motion')))
+    motion: resolve_motion(motion_preference(config.get('appearance.motion'))),
+    formatter_indent_spaces: resolve_formatter_indent_spaces(
+      config.get('editor.formatter.indentSpaces')
+    ),
+    formatter_inline_parenthesis_depth: resolve_formatter_inline_parenthesis_depth(
+      config.get('editor.formatter.inlineParenthesisDepth')
+    )
   };
 }
 

@@ -5,6 +5,8 @@
   "snlDoc.settings.locale.description": "UI language. Auto follows the VS Code display language.",
   "snlDoc.settings.theme.description": "Semantic UI color scheme. Auto follows the active VS Code theme.",
   "snlDoc.settings.motion.description": "Animation preference. Auto follows the Webview reduced-motion media query.",
+  "snlDoc.settings.formatter.indentSpaces.description": "Number of spaces per indentation level when formatting SNL.",
+  "snlDoc.settings.formatter.inlineParenthesisDepth.description": "Maximum parenthesis depth kept on one line when formatting SNL.",
   "snlDoc.settings.openBeside.description": "Open SNL editor panels in a new group beside the current editor instead of replacing it. This is a layout preference, not a performance setting.",
   "snlDoc.settings.trace.description": "Log millisecond-resolution panel open and render timings to the SNL Trace output channel. Intended for diagnostics and disabled by default.",
   "snlDoc.settings.structuralIndexRedBelow.description": "Show SNL Structural Index percentages below this threshold in red.",

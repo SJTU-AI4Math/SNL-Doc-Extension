@@ -285,6 +285,22 @@
           "scope": "window",
           "description": "%snlDoc.settings.motion.description%"
         },
+        "snlDoc.editor.formatter.indentSpaces": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 0,
+          "maximum": 256,
+          "scope": "window",
+          "description": "%snlDoc.settings.formatter.indentSpaces.description%"
+        },
+        "snlDoc.editor.formatter.inlineParenthesisDepth": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "scope": "window",
+          "description": "%snlDoc.settings.formatter.inlineParenthesisDepth.description%"
+        },
         "snlDoc.metrics.structuralIndexRedBelow": {
           "type": "number",
           "default": 60,
@@ -352,6 +368,7 @@
     "@vitejs/plugin-react": "^5",
     "cross-env": "^10.1.0",
     "jsdom": "^29.1.1",
+    "monaco-editor": "0.53.0",
     "typescript": "~5.9.3",
     "vite": "^8",
     "vitest": "^3.2.6"

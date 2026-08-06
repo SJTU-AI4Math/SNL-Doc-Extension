@@ -27,4 +27,16 @@ describe('package localization catalogs', () => {
       expect(setting.description, name).toMatch(/^%[^%]+%$/);
     }
   });
+
+  it('declares formatter settings with SNL-Basics defaults and bounds', () => {
+    const pkg = JSON.parse(manifest) as {
+      contributes: { configuration: { properties: Record<string, Record<string, unknown>> } };
+    };
+    expect(pkg.contributes.configuration.properties['snlDoc.editor.formatter.indentSpaces']).toMatchObject({
+      type: 'integer', default: 4, minimum: 0, maximum: 256
+    });
+    expect(pkg.contributes.configuration.properties['snlDoc.editor.formatter.inlineParenthesisDepth']).toMatchObject({
+      type: 'integer', default: 3, minimum: 0, maximum: Number.MAX_SAFE_INTEGER
+    });
+  });
 });

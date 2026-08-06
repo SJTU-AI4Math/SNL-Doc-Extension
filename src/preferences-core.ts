@@ -14,6 +14,31 @@ export interface ExtensionPreferences {
   language_preference: LanguagePreference;
   color_scheme: ColorScheme;
   motion: MotionPreference;
+  formatter_indent_spaces: number;
+  formatter_inline_parenthesis_depth: number;
+}
+
+export const FORMATTER_INDENT_SPACES_DEFAULT = 4;
+export const FORMATTER_INDENT_SPACES_MAX = 256;
+export const FORMATTER_INLINE_PARENTHESIS_DEPTH_DEFAULT = 3;
+export const FORMATTER_INLINE_PARENTHESIS_DEPTH_MAX = Number.MAX_SAFE_INTEGER;
+
+function integer_in_range(value: unknown, fallback: number, maximum: number): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum
+    ? value
+    : fallback;
+}
+
+export function resolve_formatter_indent_spaces(value: unknown): number {
+  return integer_in_range(value, FORMATTER_INDENT_SPACES_DEFAULT, FORMATTER_INDENT_SPACES_MAX);
+}
+
+export function resolve_formatter_inline_parenthesis_depth(value: unknown): number {
+  return integer_in_range(
+    value,
+    FORMATTER_INLINE_PARENTHESIS_DEPTH_DEFAULT,
+    FORMATTER_INLINE_PARENTHESIS_DEPTH_MAX
+  );
 }
 
 export type LanguageConfigurationTarget = 'global' | 'workspace';

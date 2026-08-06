@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   brand_html_attributes,
   escape_html_attribute,
+  panel_content_security_policy,
+  panel_script_type_attribute,
   preference_html_attributes
 } from './panelHtml'
 
@@ -18,6 +20,18 @@ describe('panel HTML preference bootstrap', () => {
       motion: 'reduced'
     })).toBe('lang="zh-CN" data-snl-language-preference="zh-CN" data-snl-color-scheme="dark" data-snl-motion="reduced"')
   })
+
+  it('allows only the webview origin and blob workers for Monaco', () => {
+    const policy = panel_content_security_policy('abc123', 'vscode-webview://unit');
+    expect(policy).toContain("script-src 'nonce-abc123' vscode-webview://unit");
+    expect(policy).toContain('worker-src vscode-webview://unit blob:');
+    expect(policy).not.toContain('unsafe-eval');
+  });
+
+  it('loads only the chunked Create Entry bundle as a module', () => {
+    expect(panel_script_type_attribute('createEntry')).toBe(' type="module"');
+    expect(panel_script_type_attribute('main')).toBe('');
+  });
 
   it('emits escaped shared brand logo URLs for every panel', () => {
     expect(brand_html_attributes('webview://black?a=1&b=2', 'webview://white')).toBe(

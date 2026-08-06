@@ -78,6 +78,14 @@ export default defineConfig({
       'react/jsx-runtime': resolve(
         __dirname,
         '../node_modules/react/jsx-runtime.js'
+      ),
+      'monaco-editor/esm/vs/editor/editor.api.js': resolve(
+        __dirname,
+        '../node_modules/monaco-editor/esm/vs/editor/editor.api.js'
+      ),
+      'monaco-editor-editor-worker': resolve(
+        __dirname,
+        '../node_modules/monaco-editor/esm/vs/editor/editor.worker.js'
       )
     }
   },
@@ -93,7 +101,7 @@ export default defineConfig({
       input: resolve(__dirname, inputFile),
       output: {
         entryFileNames: `${entry}.js`,
-        chunkFileNames: `${entry}.js`,
+        chunkFileNames: `${entry}-[name]-[hash].js`,
         // CSS must be a predictable sibling (`<entry>.css`) so buildPanelHtml
         // can <link> it. Every other asset (KaTeX web-fonts pulled in via the
         // `katex.min.css` import) keeps a hashed name so the many font files

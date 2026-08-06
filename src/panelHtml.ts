@@ -8,6 +8,21 @@ export function escape_html_attribute(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+export function panel_content_security_policy(nonce: string, cspSource: string): string {
+  return [
+    `default-src 'none'`,
+    `script-src 'nonce-${nonce}' ${cspSource}`,
+    `style-src ${cspSource} 'unsafe-inline'`,
+    `img-src ${cspSource} data:`,
+    `font-src ${cspSource}`,
+    `worker-src ${cspSource} blob:`
+  ].join('; ');
+}
+
+export function panel_script_type_attribute(entry: string): string {
+  return entry === 'createEntry' ? ' type="module"' : '';
+}
+
 export function preference_html_attributes(
   preferences: ExtensionPreferences
 ): string {

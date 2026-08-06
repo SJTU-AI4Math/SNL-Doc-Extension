@@ -19,6 +19,14 @@ vi.mock('../render/HoverPopoverProvider', () => ({
   HoverPopoverProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
 }));
 vi.mock('../render/EntrySurface', () => ({ EntrySurface: () => null }));
+vi.mock('./MonacoTextEditor', () => ({
+  MonacoTextEditor: ({ value, ariaLabel, onChange }: {
+    value: string;
+    ariaLabel: string;
+    onChange(value: string): void;
+  }) => <textarea aria-label={ariaLabel} value={value}
+    onChange={(event) => onChange(event.currentTarget.value)} />
+}));
 
 vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@sjtu-ai4math/snl-basics')>();

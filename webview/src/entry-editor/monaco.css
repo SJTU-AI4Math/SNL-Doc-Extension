@@ -1,0 +1,31 @@
+.snl-monaco-shell {
+  border: 1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555));
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--vscode-editor-background, var(--vscode-input-background, #1e1e1e));
+}
+
+.snl-monaco-toolbar {
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555));
+  color: var(--vscode-descriptionForeground, #aaa);
+  font-size: 0.75rem;
+}
+
+.snl-monaco-editor {
+  width: 100%;
+  height: min(42vh, 24rem);
+  min-height: 12rem;
+}
+
+.snl-monaco-editor[data-ready='false']::before {
+  content: '';
+  display: block;
+  height: 100%;
+  background: var(--vscode-editor-background, var(--vscode-input-background, #1e1e1e));
+}

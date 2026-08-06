@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   apply_preferences_snapshot,
-  create_webview_reader_runtime
+  create_webview_reader_runtime,
+  get_formatter_preferences
 } from './preferencesRuntime';
 
 describe('webview preference Reader runtime', () => {
@@ -23,12 +24,18 @@ describe('webview preference Reader runtime', () => {
         language: 'zh-CN',
         language_preference: 'auto',
         color_scheme: 'dark',
-        motion: 'reduced'
+        motion: 'reduced',
+        formatter_indent_spaces: 8,
+        formatter_inline_parenthesis_depth: 2
       }
     })).toBe(true);
     expect(document.documentElement.lang).toBe('zh-CN');
     expect(document.documentElement.dataset.snlLanguagePreference).toBe('auto');
     expect(document.documentElement.dataset.snlMotion).toBe('reduced');
+    expect(get_formatter_preferences()).toEqual({
+      indentSpaces: 8,
+      inlineParenthesisDepth: 2
+    });
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
       generation: 'host-a',

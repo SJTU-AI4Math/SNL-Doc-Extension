@@ -6,6 +6,8 @@ import { register_preferences_webview } from './preferencesHost';
 import {
   brand_html_attributes,
   escape_html_attribute,
+  panel_content_security_policy,
+  panel_script_type_attribute,
   preference_html_attributes
 } from './panelHtml';
 
@@ -56,13 +58,8 @@ export function buildPanelHtml(
     : '';
 
   const nonce = getNonce();
-  const csp = [
-    `default-src 'none'`,
-    `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-    `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `img-src ${webview.cspSource} data:`,
-    `font-src ${webview.cspSource}`
-  ].join('; ');
+  const csp = panel_content_security_policy(nonce, webview.cspSource);
+  const scriptType = panel_script_type_attribute(entry);
 
   const preferencesDisposable = register_preferences_webview(webview);
   ownerDisposables?.push(preferencesDisposable);
@@ -119,7 +116,7 @@ export function buildPanelHtml(
   <script nonce="${nonce}">
     try { window.__snlMark && window.__snlMark('document-start'); } catch (e) {}
   </script>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
+  <script${scriptType} nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
 }

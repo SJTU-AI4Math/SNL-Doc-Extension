@@ -2,6 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  editorDraftKey,
   loadDraft,
   saveDraft,
   usePersistedDraft,
@@ -23,6 +24,15 @@ function fakeApi(initial: unknown = undefined): VsCodeApi & { state: unknown } {
 }
 
 describe('draft persistence across a panel teardown', () => {
+  it('scopes editor drafts by domain, mode, and target identity', () => {
+    expect(editorDraftKey('macro', 'edit', 'core/FOL.forall')).toBe(
+      'editor-draft:macro:edit:core%2FFOL.forall'
+    );
+    expect(editorDraftKey('macro', 'create', '')).toBe(
+      'editor-draft:macro:create:new'
+    );
+  });
+
   it('round trips a draft through webview state', () => {
     const api = fakeApi();
     expect(loadDraft(api, 'entry')).toBeUndefined();

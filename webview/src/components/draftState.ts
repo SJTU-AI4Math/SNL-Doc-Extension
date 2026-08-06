@@ -28,6 +28,12 @@ function readEnvelope(vsApi: VsCodeApi | undefined): DraftEnvelope {
   return raw && typeof raw === 'object' ? (raw as DraftEnvelope) : {};
 }
 
+/** Stable key shared by editor panels; target ids cannot collide with separators. */
+export function editorDraftKey(domain: string, mode: 'create' | 'edit', identity: string): string {
+  const target = identity.trim();
+  return `editor-draft:${domain}:${mode}:${target ? encodeURIComponent(target) : 'new'}`;
+}
+
 /**
  * Read a previously stashed draft for `key`, if any.
  *

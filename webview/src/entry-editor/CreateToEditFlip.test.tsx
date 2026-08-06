@@ -870,6 +870,35 @@ describe('CreateEntryApp create → edit flip', () => {
     ).toBe('Current committed draft'));
   });
 
+  it('rejects createCommitted from a superseded target generation', async () => {
+    const contextAt = (entry: any, targetGeneration: number): Record<string, unknown> => ({
+      ...(editContext(entry) as Record<string, unknown>),
+      targetGeneration
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(contextAt({
+        id: 'entry-a', title: 'Entry A', kind: 'definition', content: { snl: 'a(child)' }
+      }, 1));
+      send({ type: 'retarget', mode: 'edit', id: 'entry-b', targetGeneration: 2 });
+      send(contextAt({
+        id: 'entry-b', title: 'Entry B', kind: 'definition', content: { snl: 'b(child)' }
+      }, 2));
+    });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    fireEvent.input(title, { target: { value: 'Unsaved B edit' } });
+
+    act(() => {
+      send({ type: 'createCommitted', id: 'entry-a', targetGeneration: 1 });
+      send(contextAt({
+        id: 'entry-b', title: 'Entry B', kind: 'definition', content: { snl: 'b(child)' }
+      }, 2));
+    });
+
+    await waitFor(() => expect(title.value).toBe('Unsaved B edit'));
+    expect((view.getByLabelText('ID (readonly)') as HTMLInputElement).value).toBe('entry-b');
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

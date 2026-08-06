@@ -212,9 +212,9 @@ describe('CreateEntryPanel create -> edit flip', () => {
       type: 'create',
       entry: { id: 'committed-a', kind: 'definition', title: 'Committed A', content: {} }
     });
-    await vi.waitFor(() => expect(posted).toContainEqual({
+    await vi.waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
       type: 'createCommitted', id: 'committed-a'
-    }));
+    })));
     CreateEntryPanel.editOrShow(extUri, 'entry-b');
     rejectRegeneration(new Error('stale regeneration exploded'));
     await pending;
@@ -229,7 +229,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
   it('retries committed ownership before error/context when its first delivery rejects', async () => {
     const { CreateEntryPanel } = await import('./createEntryPanel');
     CreateEntryPanel.createOrShow(extUri);
-    await vi.waitFor(() => expect(contexts().length).toBeGreaterThan(0));
+    await messageHandler!({ type: 'ready' });
     posted.length = 0;
     panelRecord.postMessage!.mockRejectedValueOnce(
       new Error('createCommitted transport failed')
@@ -257,7 +257,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
   it('rechecks target ownership after a pending createCommitted retry', async () => {
     const { CreateEntryPanel } = await import('./createEntryPanel');
     CreateEntryPanel.createOrShow(extUri);
-    await vi.waitFor(() => expect(contexts().length).toBeGreaterThan(0));
+    await messageHandler!({ type: 'ready' });
     posted.length = 0;
     let resolveRetry!: () => void;
     panelRecord.postMessage!
@@ -279,6 +279,12 @@ describe('CreateEntryPanel create -> edit flip', () => {
     resolveRetry();
     await pending;
 
+    const staleCommitted = posted.find((message) =>
+      message?.type === 'createCommitted' && message.id === 'ownership-a'
+    );
+    const currentContext = contexts().at(-1);
+    expect(staleCommitted?.targetGeneration).toEqual(expect.any(Number));
+    expect(currentContext?.targetGeneration).toBeGreaterThan(staleCommitted.targetGeneration);
     expect(posted.some((message) =>
       message?.type === 'error' && message.message === 'stale ownership transport failed'
     )).toBe(false);
@@ -381,7 +387,11 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
     expect(posted.some((message) => message?.type === 'created')).toBe(false);
     const committed = posted.find((message) => message?.type === 'createCommitted');
-    expect(committed).toEqual({ type: 'createCommitted', id: 'saved-despite-regen-error' });
+    expect(committed).toMatchObject({
+      type: 'createCommitted',
+      id: 'saved-despite-regen-error',
+      targetGeneration: expect.any(Number)
+    });
     const error = posted.find((message) => message?.type === 'error');
     const context = contexts().at(-1);
     expect(error?.message).toContain('relationships write failed');

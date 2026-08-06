@@ -220,7 +220,9 @@ export class CreateEntryPanel {
     }
     // Different entry: clear the form before the new data lands so no field
     // from the previous entry is ever visible against the new id.
-    void this.panel.webview.postMessage({ type: 'retarget', mode, id });
+    void this.panel.webview.postMessage({
+      type: 'retarget', mode, id, targetGeneration: this.targetGeneration
+    });
     this.openTrace = trace;
     trace.mark('retarget');
     void this.pushContext();
@@ -352,6 +354,7 @@ export class CreateEntryPanel {
     if (generation !== this.contextGeneration) return;
     const payload = {
       type: 'context',
+      targetGeneration: this.targetGeneration,
       mode: this.mode,
       targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
       id: this.id || undefined,
@@ -397,7 +400,9 @@ export class CreateEntryPanel {
   private async regenerateSavedEntryDependencies(
     root: vscode.Uri,
     savedId: string,
-    targetIsCurrent: () => boolean = () => true
+    targetIsCurrent: () => boolean = () => true,
+    postTargetMessage: (message: Record<string, unknown>) => Thenable<boolean> =
+      (message) => this.panel.webview.postMessage(message)
   ): Promise<boolean> {
     const result = await regenerateDependencyRelationships(root, {
       entryIds: new Set([savedId])
@@ -411,7 +416,7 @@ export class CreateEntryPanel {
       ? hostText()('initFirst')
       : result.message;
     vscode.window.showErrorMessage(hostText()('editorFailed', { error: detail }));
-    await this.panel.webview.postMessage({ type: 'error', message: detail });
+    await postTargetMessage({ type: 'error', message: detail });
     await this.pushContext();
     return false;
   }
@@ -555,6 +560,11 @@ export class CreateEntryPanel {
     let committedCreateId: string | undefined;
     const targetIsCurrent = (): boolean =>
       this.targetGeneration === requestTargetGeneration;
+    const postRequestMessage = (message: Record<string, unknown>): Thenable<boolean> =>
+      this.panel.webview.postMessage({
+        ...message,
+        targetGeneration: requestTargetGeneration
+      });
 
     try {
       if (msg.type === 'update' || requestMode === 'edit') {
@@ -572,7 +582,9 @@ export class CreateEntryPanel {
         }
         switch (result.status) {
           case 'updated':
-            if (!(await this.regenerateSavedEntryDependencies(root, result.id, targetIsCurrent))) {
+            if (!(await this.regenerateSavedEntryDependencies(
+              root, result.id, targetIsCurrent, postRequestMessage
+            ))) {
               return;
             }
             if (!targetIsCurrent()) {
@@ -582,7 +594,7 @@ export class CreateEntryPanel {
             vscode.window.showInformationMessage(
               hostText()('updated', { title: entry.title, id: result.id })
             );
-            await this.panel.webview.postMessage({
+            await postRequestMessage({
               type: 'updated',
               id: result.id
             });
@@ -591,7 +603,7 @@ export class CreateEntryPanel {
           case 'notFound': {
             const text = hostText()('notFound', { id: result.id });
             vscode.window.showErrorMessage(text);
-            void this.panel.webview.postMessage({
+            void postRequestMessage({
               type: 'notFound',
               id: result.id,
               message: text
@@ -601,7 +613,7 @@ export class CreateEntryPanel {
           case 'unknownKind': {
             const text = hostText()('unknownKind', { kind: result.kind });
             vscode.window.showWarningMessage(text);
-            void this.panel.webview.postMessage({
+            void postRequestMessage({
               type: 'unknownKind',
               kind: result.kind,
               message: text
@@ -609,7 +621,7 @@ export class CreateEntryPanel {
             return;
           }
           case 'invalid':
-            void this.panel.webview.postMessage({
+            void postRequestMessage({
               type: 'invalid',
               reason: result.message
             });
@@ -617,14 +629,14 @@ export class CreateEntryPanel {
           case 'noSnlDoc': {
             const text = hostText()('initFirst');
             vscode.window.showErrorMessage(text);
-            void this.panel.webview.postMessage({
+            void postRequestMessage({
               type: 'noSnlDoc',
               message: text
             });
             return;
           }
           case 'error':
-            void this.panel.webview.postMessage({
+            void postRequestMessage({
               type: 'error',
               message: result.message
             });
@@ -640,7 +652,9 @@ export class CreateEntryPanel {
       switch (result.status) {
         case 'ok': {
           if (!targetIsCurrent()) {
-            if (await this.regenerateSavedEntryDependencies(root, result.id, targetIsCurrent)) {
+            if (await this.regenerateSavedEntryDependencies(
+              root, result.id, targetIsCurrent, postRequestMessage
+            )) {
               await this.pushContext();
             }
             return;
@@ -662,14 +676,15 @@ export class CreateEntryPanel {
           // a later reconciliation error/context cannot overwrite edits made
           // after submission. This is not a full-save success acknowledgement.
           committedCreateId = result.id;
-          await this.panel.webview.postMessage({
+          await postRequestMessage({
             type: 'createCommitted',
             id: committedCreateId
           });
           if (!(await this.regenerateSavedEntryDependencies(
             root,
             result.id,
-            targetIsCurrent
+            targetIsCurrent,
+            postRequestMessage
           ))) {
             return;
           }
@@ -680,7 +695,7 @@ export class CreateEntryPanel {
           vscode.window.showInformationMessage(
             hostText()('created', { title: entry.title, id: result.id })
           );
-          await this.panel.webview.postMessage({
+          await postRequestMessage({
             type: 'created',
             id: result.id
           });
@@ -690,7 +705,7 @@ export class CreateEntryPanel {
         case 'duplicate': {
           const text = hostText()('duplicate', { id: result.id });
           vscode.window.showWarningMessage(text);
-          void this.panel.webview.postMessage({
+          void postRequestMessage({
             type: 'duplicate',
             id: result.id,
             message: text
@@ -700,7 +715,7 @@ export class CreateEntryPanel {
         case 'unknownKind': {
           const text = hostText()('unknownKind', { kind: result.kind });
           vscode.window.showWarningMessage(text);
-          void this.panel.webview.postMessage({
+          void postRequestMessage({
             type: 'unknownKind',
             kind: result.kind,
             message: text
@@ -708,7 +723,7 @@ export class CreateEntryPanel {
           return;
         }
         case 'invalid':
-          void this.panel.webview.postMessage({
+          void postRequestMessage({
             type: 'invalid',
             reason: result.reason
           });
@@ -716,14 +731,14 @@ export class CreateEntryPanel {
         case 'noSnlDoc': {
           const text = hostText()('initFirst');
           vscode.window.showErrorMessage(text);
-          void this.panel.webview.postMessage({
+          void postRequestMessage({
             type: 'noSnlDoc',
             message: text
           });
           return;
         }
         case 'error':
-          void this.panel.webview.postMessage({
+          void postRequestMessage({
             type: 'error',
             message: result.message
           });
@@ -738,7 +753,7 @@ export class CreateEntryPanel {
       // rejected. Retry it before error/context; the webview handles duplicates
       // idempotently, giving this transition at-least-once delivery semantics.
       if (committedCreateId) {
-        await this.panel.webview.postMessage({
+        await postRequestMessage({
           type: 'createCommitted',
           id: committedCreateId
         });
@@ -750,7 +765,7 @@ export class CreateEntryPanel {
       }
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));
-      await this.panel.webview.postMessage({ type: 'error', message: text });
+      await postRequestMessage({ type: 'error', message: text });
       await this.pushContext();
     }
   }

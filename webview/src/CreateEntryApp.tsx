@@ -733,6 +733,7 @@ export function CreateEntryApp(): React.ReactElement {
    */
   const justSavedIdRef = useRef<string | null>(null);
   const committedCreateIdRef = useRef<string | null>(null);
+  const targetGenerationRef = useRef<number | null>(null);
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     pointer: unknown;
@@ -812,6 +813,21 @@ export function CreateEntryApp(): React.ReactElement {
         | undefined;
       if (!msg || typeof msg.type !== 'string') {
         return;
+      }
+      const rawTargetGeneration = (event.data as { targetGeneration?: unknown })
+        .targetGeneration;
+      if (typeof rawTargetGeneration === 'number' && Number.isSafeInteger(rawTargetGeneration)) {
+        const currentGeneration = targetGenerationRef.current;
+        const establishesTarget =
+          msg.type === 'retarget' || msg.type === 'context' || msg.type === 'createCommitted';
+        if (establishesTarget) {
+          if (currentGeneration !== null && rawTargetGeneration < currentGeneration) return;
+          targetGenerationRef.current = rawTargetGeneration;
+        } else if (
+          currentGeneration !== null && rawTargetGeneration !== currentGeneration
+        ) {
+          return;
+        }
       }
       switch (msg.type) {
         case 'retarget': {

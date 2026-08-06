@@ -3153,6 +3153,11 @@ export function GuiCanvasEditor({
     setAddingRootFromMacro(false);
   };
 
+  /** Return keyboard focus without letting the browser scroll the Entry form. */
+  const restoreCanvasFocus = (): void => {
+    window.setTimeout(() => canvasRef.current?.focus({ preventScroll: true }), 0);
+  };
+
   /**
    * The context menu and the arity control are rendered inside the canvas, so
    * the canvas' own capture-phase click handler and the block pointer
@@ -3508,7 +3513,7 @@ export function GuiCanvasEditor({
         );
     applyForestChange(next);
     setEditingNode(null);
-    window.setTimeout(() => canvasRef.current?.focus(), 0);
+    restoreCanvasFocus();
   };
 
   React.useEffect(() => {
@@ -3525,7 +3530,7 @@ export function GuiCanvasEditor({
       }, { once: true });
       // Clicking away has the same semantics as Escape: discard the draft.
       closeCanvasInputs();
-      window.setTimeout(() => canvasRef.current?.focus(), 0);
+      restoreCanvasFocus();
     };
     document.addEventListener('pointerdown', commitOnOutsidePointer, true);
     return () => document.removeEventListener('pointerdown', commitOnOutsidePointer, true);
@@ -3685,7 +3690,7 @@ export function GuiCanvasEditor({
               } else if (event.key === 'Escape') {
                 event.preventDefault();
                 setEditingNode(null);
-                window.setTimeout(() => canvasRef.current?.focus(), 0);
+                restoreCanvasFocus();
               }
             }}
             title={
@@ -3748,7 +3753,7 @@ export function GuiCanvasEditor({
                     );
                 setAddingRootFromMacro(false);
                 applyForestChange(reconciled, { rootIndex, path: [] });
-                window.setTimeout(() => canvasRef.current?.focus(), 0);
+                restoreCanvasFocus();
               })();
             }}
             onKeyDown={(event) => {
@@ -3756,7 +3761,7 @@ export function GuiCanvasEditor({
               if (event.key === 'Escape') {
                 event.preventDefault();
                 closeCanvasInputs();
-                window.setTimeout(() => canvasRef.current?.focus(), 0);
+                restoreCanvasFocus();
               }
             }}
             style={{

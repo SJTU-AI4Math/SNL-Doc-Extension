@@ -481,9 +481,11 @@ describe('GuiCanvasEditor', () => {
     const canvas = view.getByLabelText('GUI 编辑器画布');
     expect(view.getByRole('button', { name: '从 SNL 重置画布' })).toBeTruthy();
     canvas.focus();
+    const restoreFocus = vi.spyOn(canvas, 'focus');
     fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
     expect(await view.findByRole('textbox', { name: '插入画布根宏' })).toBeTruthy();
     fireEvent.keyDown(view.getByRole('textbox', { name: '插入画布根宏' }), { key: 'Escape' });
+    await waitFor(() => expect(restoreFocus).toHaveBeenCalledWith({ preventScroll: true }));
 
     const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
     fireEvent.click(root);

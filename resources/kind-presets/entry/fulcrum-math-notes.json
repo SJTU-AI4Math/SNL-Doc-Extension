@@ -1,0 +1,172 @@
+{
+  "schema": "snl-doc.kind-preset",
+  "version": 1,
+  "domain": "entry",
+  "id": "fulcrum-math-notes",
+  "copyKeys": {
+    "label": "fulcrumLabel",
+    "description": "fulcrumDescription"
+  },
+  "kinds": [
+    {
+      "id": "chapter",
+      "name": "Chapter",
+      "coloring": {
+        "stroke": "#787878",
+        "background": "#F0F0F0"
+      },
+      "defaultCounterName": "chapter",
+      "style": "section"
+    },
+    {
+      "id": "section",
+      "name": "Section",
+      "coloring": {
+        "stroke": "#787878",
+        "background": "#F0F0F0"
+      },
+      "defaultCounterName": "section",
+      "style": "section"
+    },
+    {
+      "id": "subsection",
+      "name": "Subsection",
+      "coloring": {
+        "stroke": "#787878",
+        "background": "#F0F0F0"
+      },
+      "defaultCounterName": "subsection",
+      "style": "section"
+    },
+    {
+      "id": "definition",
+      "name": "Definition",
+      "coloring": {
+        "stroke": "#009C27",
+        "background": "#D6FEE0"
+      },
+      "defaultCounterName": "definition",
+      "style": ""
+    },
+    {
+      "id": "axiom",
+      "name": "Axiom",
+      "coloring": {
+        "stroke": "#C1C103",
+        "background": "#FFFFAC"
+      },
+      "defaultCounterName": "axiom",
+      "style": ""
+    },
+    {
+      "id": "lemma",
+      "name": "Lemma",
+      "coloring": {
+        "stroke": "#005B9C",
+        "background": "#DAF0FF"
+      },
+      "defaultCounterName": "lemma",
+      "style": ""
+    },
+    {
+      "id": "theorem",
+      "name": "Theorem",
+      "coloring": {
+        "stroke": "#005B9C",
+        "background": "#DAF0FF"
+      },
+      "defaultCounterName": "theorem",
+      "style": ""
+    },
+    {
+      "id": "corollary",
+      "name": "Corollary",
+      "coloring": {
+        "stroke": "#005B9C",
+        "background": "#DAF0FF"
+      },
+      "defaultCounterName": "corollary",
+      "style": ""
+    },
+    {
+      "id": "property",
+      "name": "Property",
+      "coloring": {
+        "stroke": "#AC00AF",
+        "background": "#FFEDFF"
+      },
+      "defaultCounterName": "property",
+      "style": ""
+    },
+    {
+      "id": "remark",
+      "name": "Remark",
+      "coloring": {
+        "stroke": "#E07B00",
+        "background": "#FFEBD2"
+      },
+      "defaultCounterName": "remark",
+      "style": "remark"
+    },
+    {
+      "id": "example",
+      "name": "Example",
+      "coloring": {
+        "stroke": "#7700E4",
+        "background": "#EFDFFF"
+      },
+      "defaultCounterName": "example",
+      "style": ""
+    },
+    {
+      "id": "counterexample",
+      "name": "Counterexample",
+      "coloring": {
+        "stroke": "#D20022",
+        "background": "#FFD6DC"
+      },
+      "defaultCounterName": "counterexample",
+      "style": ""
+    },
+    {
+      "id": "construction",
+      "name": "Construction",
+      "coloring": {
+        "stroke": "#787878",
+        "background": "#F0F0F0"
+      },
+      "defaultCounterName": "construction",
+      "style": "proof"
+    },
+    {
+      "id": "proof",
+      "name": "Proof",
+      "coloring": {
+        "stroke": "#787878",
+        "background": "#F0F0F0"
+      },
+      "defaultCounterName": "proof",
+      "style": "proof"
+    },
+    {
+      "id": "problem",
+      "name": "Problem",
+      "coloring": {
+        "stroke": "#005B9C",
+        "background": "#DAF0FF"
+      },
+      "defaultCounterName": "problem",
+      "style": "problem"
+    },
+    {
+      "id": "context",
+      "name": "Context",
+      "coloring": {
+        "stroke": "#8B5CF6",
+        "background": "#EDE9FE"
+      },
+      "defaultCounterName": "context",
+      "style": ""
+    }
+  ]
+}

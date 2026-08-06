@@ -21,6 +21,21 @@ npm run build:webview    # build every webview bundle
 Then launch the extension from VS Code (F5 / Run Extension). See
 `package.json` for the full script list.
 
+## Kind preset packages
+
+The Initialize Entry/Macro Kinds panels load extension resources from
+`resources/kind-presets/{entry,macro}/*.json`. Each preset is an independently
+versioned `snl-doc.kind-preset` package with an explicit domain, stable id,
+localized-copy keys, and a non-empty kind catalog. The host validates every
+package and fails closed on invalid JSON, schema/version/domain mismatches, or
+duplicate preset/kind ids; presets are exposed in deterministic id order and
+can only initialize an empty workspace catalog.
+
+Shipped Entry Kind catalogs cover Fulcrum math notes, Lean 4, TypeScript, and
+Python. The Macro Kind catalog intentionally remains the SNL-Basics defaults;
+language-specific macro catalogs are not included without a concrete SNL macro
+semantics mapping.
+
 ## Dependencies
 
 - [`react`](https://react.dev/) / `react-dom` (v19), [`katex`](https://katex.org/)

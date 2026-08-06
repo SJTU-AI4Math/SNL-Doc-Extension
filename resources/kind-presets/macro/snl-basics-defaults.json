@@ -1,0 +1,66 @@
+{
+  "schema": "snl-doc.kind-preset",
+  "version": 1,
+  "domain": "macro",
+  "id": "snl-basics-defaults",
+  "copyKeys": {
+    "label": "basicsLabel",
+    "description": "basicsDescription"
+  },
+  "kinds": [
+    {
+      "id": "rule",
+      "name": "Rule",
+      "description": "Meta-mathematical rule symbols (∀, ∃, `:`, `def`, apply, implies, paren…).",
+      "coloring": {
+        "stroke": "#009C27",
+        "background": "#D6FEE0"
+      }
+    },
+    {
+      "id": "const",
+      "name": "Const",
+      "description": "Mathematical constants / defined terms (add, mul, and, or…).",
+      "coloring": {
+        "stroke": "#005B9C",
+        "background": "#DAF0FF"
+      }
+    },
+    {
+      "id": "bvar",
+      "name": "Bound variable",
+      "description": "Bound-variable occurrences.",
+      "coloring": {
+        "stroke": "#7700E4",
+        "background": "#EFDFFF"
+      }
+    },
+    {
+      "id": "binder",
+      "name": "Binder",
+      "description": "Binding sites (∀-`x`, λ parameter, informal `dx`…).",
+      "coloring": {
+        "stroke": "#E07B00",
+        "background": "#FFEBD2"
+      }
+    },
+    {
+      "id": "fvar",
+      "name": "Free variable",
+      "description": "Free variables (undefined, effectively `sorry`s).",
+      "coloring": {
+        "stroke": "#D20022",
+        "background": "#FFD6DC"
+      }
+    },
+    {
+      "id": "partial",
+      "name": "Partial",
+      "description": "Helper subtree that is NOT a complete syntactic node — e.g. a matrix.row inside a Matrix macro. Rendered with no visual frame, and hover feedback skips over it to its parent macro. Use for implementation-only intermediate macros that shouldn't attract user attention.",
+      "coloring": {
+        "stroke": "inherit",
+        "background": "transparent"
+      }
+    }
+  ]
+}

@@ -227,6 +227,11 @@
 | InitEntryKinds | Preset | select | 选择预设的 entry-kinds 集合 | local state only | 已有 entry_kinds 时或 applying 时禁用 |
 | InitEntryKinds | Apply Preset / Applying… | button | 将所选预设写入 `config.json#entry_kinds` | `apply {presetId}` | catalog 非空 / 未选 / applying 时禁用 |
 
+预设由扩展资源 `resources/kind-presets/entry/*.json` 提供，按稳定 ID 排序；
+内置非空目录为 Fulcrum 数学笔记（16 种）、Lean 4（14 种）、TypeScript
+（13 种）和 Python（12 种）。每个文件都声明 schema/version/domain/id、
+本地化 copy keys 与 kinds；宿主在使用前严格校验，错误时 fail closed。
+
 ### 2.12 InitMacroKinds (`InitMacroKindsApp.tsx`)
 
 | Panel | 单元 label/文字 | 类型 | 作用 | 触发的 command / message | 状态/校验 |
@@ -234,6 +239,10 @@
 | InitMacroKinds | Dashboard | button (nav) | 返回 Dashboard 面板 | `nav.openDashboard` | — |
 | InitMacroKinds | Preset | select | 选择预设的 macro-kinds 集合 | local state only | 已有 macro_kinds 时或 applying 时禁用 |
 | InitMacroKinds | Apply Preset / Applying… | button | 将所选预设写入 `config.json#macro_kinds` | `apply {presetId}` | catalog 非空 / 未选 / applying 时禁用 |
+
+Macro 预设由 `resources/kind-presets/macro/*.json` 提供。目前只发布语义已有
+依据的 SNL-Basics defaults（rule / const / bvar / binder / fvar / partial），
+不为各编程语言伪造占位 Macro Kind。
 
 ### 2.13 CreateLibrary (`CreateLibraryApp.tsx`)
 

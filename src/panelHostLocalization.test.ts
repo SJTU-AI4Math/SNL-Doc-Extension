@@ -35,8 +35,7 @@ describe('panel-controller host localization', () => {
   it('projects built-in preset copy in Chinese by stable id without mutating stored presets', () => {
     const source = [{
       id: 'fulcrum-math-notes',
-      label: "Fulcrum's Math Notes",
-      description: 'A broad mathematical writing set.',
+      copyKeys: { label: 'fulcrumLabel', description: 'fulcrumDescription' },
       kinds: [{ id: 'definition' }]
     }];
     const projected = projectKindPresets('entry', 'zh-CN', source);
@@ -47,16 +46,15 @@ describe('panel-controller host localization', () => {
       description: '提供章/节/小节层级结构，以及 12 种 Fulcrum-Notes-Typst 内容类型（定义/公理/引理/定理/推论/性质/备注/例子/反例/构造/证明/问题）。每种类型都会设置 defaultCounterName（其英文名称的 slug）。',
       count: 1
     }]);
-    expect(source[0].label).toBe("Fulcrum's Math Notes");
-    expect(source[0].description).toBe('A broad mathematical writing set.');
+    expect(source[0].copyKeys).toEqual({ label: 'fulcrumLabel', description: 'fulcrumDescription' });
   });
 
-  it('keeps unknown preset ids as dynamic authored data', () => {
+  it('projects copy from package-declared keys rather than an in-code preset-id table', () => {
     const projected = projectKindPresets('macro', 'zh-CN', [{
-      id: 'custom', label: 'Team preset', description: 'Team-owned copy', kinds: []
+      id: 'custom-id', copyKeys: { label: 'basicsLabel', description: 'basicsDescription' }, kinds: []
     }]);
     expect(projected[0]).toMatchObject({
-      id: 'custom', label: 'Team preset', description: 'Team-owned copy', count: 0
+      id: 'custom-id', label: 'SNL-Basics 默认类型', count: 0
     });
   });
 

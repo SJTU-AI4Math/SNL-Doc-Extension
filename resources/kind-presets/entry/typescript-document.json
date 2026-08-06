@@ -1,0 +1,142 @@
+{
+  "schema": "snl-doc.kind-preset",
+  "version": 1,
+  "domain": "entry",
+  "id": "typescript-document",
+  "copyKeys": {
+    "label": "tsLabel",
+    "description": "tsDescription"
+  },
+  "kinds": [
+    {
+      "id": "module",
+      "name": "Module",
+      "coloring": {
+        "stroke": "#475569",
+        "background": "#F1F5F9"
+      },
+      "defaultCounterName": "module",
+      "style": "section"
+    },
+    {
+      "id": "namespace",
+      "name": "Namespace",
+      "coloring": {
+        "stroke": "#0369A1",
+        "background": "#E0F2FE"
+      },
+      "defaultCounterName": "namespace",
+      "style": "section"
+    },
+    {
+      "id": "class",
+      "name": "Class",
+      "coloring": {
+        "stroke": "#7E22CE",
+        "background": "#F3E8FF"
+      },
+      "defaultCounterName": "class",
+      "style": ""
+    },
+    {
+      "id": "interface",
+      "name": "Interface",
+      "coloring": {
+        "stroke": "#0F766E",
+        "background": "#CCFBF1"
+      },
+      "defaultCounterName": "interface",
+      "style": ""
+    },
+    {
+      "id": "type-alias",
+      "name": "Type alias",
+      "coloring": {
+        "stroke": "#A16207",
+        "background": "#FEF9C3"
+      },
+      "defaultCounterName": "type-alias",
+      "style": ""
+    },
+    {
+      "id": "enum",
+      "name": "Enum",
+      "coloring": {
+        "stroke": "#BE123C",
+        "background": "#FFE4E6"
+      },
+      "defaultCounterName": "enum",
+      "style": ""
+    },
+    {
+      "id": "function",
+      "name": "Function",
+      "coloring": {
+        "stroke": "#1D4ED8",
+        "background": "#DBEAFE"
+      },
+      "defaultCounterName": "function",
+      "style": ""
+    },
+    {
+      "id": "method",
+      "name": "Method",
+      "coloring": {
+        "stroke": "#2563EB",
+        "background": "#E0E7FF"
+      },
+      "defaultCounterName": "method",
+      "style": ""
+    },
+    {
+      "id": "constructor",
+      "name": "Constructor",
+      "coloring": {
+        "stroke": "#C2410C",
+        "background": "#FFEDD5"
+      },
+      "defaultCounterName": "constructor",
+      "style": ""
+    },
+    {
+      "id": "property",
+      "name": "Property",
+      "coloring": {
+        "stroke": "#15803D",
+        "background": "#DCFCE7"
+      },
+      "defaultCounterName": "property",
+      "style": ""
+    },
+    {
+      "id": "variable",
+      "name": "Variable",
+      "coloring": {
+        "stroke": "#4B5563",
+        "background": "#F3F4F6"
+      },
+      "defaultCounterName": "variable",
+      "style": ""
+    },
+    {
+      "id": "import",
+      "name": "Import",
+      "coloring": {
+        "stroke": "#64748B",
+        "background": "#F8FAFC"
+      },
+      "defaultCounterName": "import",
+      "style": ""
+    },
+    {
+      "id": "export",
+      "name": "Export",
+      "coloring": {
+        "stroke": "#0E7490",
+        "background": "#CFFAFE"
+      },
+      "defaultCounterName": "export",
+      "style": ""
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { invariantHostText } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -47,6 +48,8 @@ import {
 } from './workspaceDataMigration';
 import { withWorkspaceDataLock } from './workspaceDataLock';
 import { stripJsonExt } from './macroPackageName';
+import { loadKindPresetPackages, type KindPresetPackage } from './kindPresets';
+import { prepareKindPresetApplication } from './kindPresetApplication';
 
 /**
  * Filesystem helpers for the `.SNL_Doc/` tree.
@@ -3261,23 +3264,13 @@ export async function applyEntryKindsPreset(
     return { status: 'noSnlDoc' };
   }
   return withExtensionWriterLock(workspaceRoot, 'apply entry kind preset', async () => {
-    const preset = ENTRY_KIND_PRESETS.find((p) => p.id === presetId);
-  if (!preset) {
-    return { status: 'unknownPreset', presetId };
-  }
-  const existing = await readEntryKinds(workspaceRoot);
-  if (existing.length > 0) {
-    return { status: 'nonEmpty', existing: existing.length };
-  }
-  // Clone the preset kinds so callers can't accidentally mutate the source
-  // table by editing the returned config later.
-  const kinds = preset.kinds.map((k) => ({
-    id: k.id,
-    name: k.name,
-    coloring: { stroke: k.coloring.stroke, background: k.coloring.background },
-    defaultCounterName: k.defaultCounterName,
-    style: k.style
-  }));
+    const prepared = prepareKindPresetApplication(
+      ENTRY_KIND_PRESETS,
+      presetId,
+      await readEntryKinds(workspaceRoot)
+    );
+    if (prepared.status !== 'applied') return prepared;
+    const kinds = prepared.kinds;
     await writeEntryKinds(workspaceRoot, kinds);
     return { status: 'applied', count: kinds.length };
   });
@@ -3409,20 +3402,13 @@ export async function applyMacroKindsPreset(
     return { status: 'noSnlDoc' };
   }
   return withExtensionWriterLock(workspaceRoot, 'apply Macro kind preset', async () => {
-    const preset = MACRO_KIND_PRESETS.find((p) => p.id === presetId);
-  if (!preset) {
-    return { status: 'unknownPreset', presetId };
-  }
-  const existing = await readMacroKinds(workspaceRoot);
-  if (existing.length > 0) {
-    return { status: 'nonEmpty', existing: existing.length };
-  }
-  const kinds = preset.kinds.map((k) => ({
-    id: k.id,
-    name: k.name,
-    description: k.description,
-    coloring: { stroke: k.coloring.stroke, background: k.coloring.background }
-  }));
+    const prepared = prepareKindPresetApplication(
+      MACRO_KIND_PRESETS,
+      presetId,
+      await readMacroKinds(workspaceRoot)
+    );
+    if (prepared.status !== 'applied') return prepared;
+    const kinds = prepared.kinds;
     await writeMacroKinds(workspaceRoot, kinds);
     return { status: 'applied', count: kinds.length };
   });
@@ -3731,247 +3717,26 @@ export async function readEntries(
 }
 
 // ---------------------------------------------------------------------------
-// Entry Kind Presets
+// Kind Presets — independently versioned JSON extension resources
 // ---------------------------------------------------------------------------
 
-export interface EntryKindPreset {
-  id: string;
-  label: string;
-  description: string;
+export interface EntryKindPreset extends Omit<KindPresetPackage<'entry'>, 'kinds'> {
   kinds: EntryKind[];
 }
 
-/**
- * Built-in preset catalog. `Fulcrum's Math Notes` is transcribed from the
- * 12 `#let *条目 = entry(...)` declarations in
- * `Fulcrum-Notes-Typst/Fulcrum-Template-Typst/FulcrumCN.typ` (colours,
- * counter role, and box style preserved). The other three presets are
- * placeholders — their concrete kind lists will be filled in as each
- * ecosystem's writing conventions get formalized.
- *
- * `defaultCounterName` — 2026-07-16: each kind seeds the NAME of a
- * Library-scoped counter (a plain string matched by `counter.name`), not a
- * DSL. The slug of the English kind name is used (`Definition` →
- * `"definition"`). No counter is auto-created; if a library has no counter
- * with that name, the kind simply contributes no numbering.
- */
-export const ENTRY_KIND_PRESETS: EntryKindPreset[] = [
-  {
-    id: 'fulcrum-math-notes',
-    label: "Fulcrum's Math Notes",
-    description:
-      'Chapter/Section/Subsection scaffolding + 12 Fulcrum-Notes-Typst content kinds (Definition/Axiom/Lemma/Theorem/Corollary/Property/Remark/Example/Counterexample/Construction/Proof/Problem). Each kind seeds a defaultCounterName (slug of its English name).',
-    kinds: [
-      // Structural kinds — parents that decide the numbering of their level.
-      {
-        id: 'chapter',
-        name: 'Chapter',
-        coloring: { stroke: '#787878', background: '#F0F0F0' },
-        defaultCounterName: 'chapter',
-        style: 'section'
-      },
-      {
-        id: 'section',
-        name: 'Section',
-        coloring: { stroke: '#787878', background: '#F0F0F0' },
-        defaultCounterName: 'section',
-        style: 'section'
-      },
-      {
-        id: 'subsection',
-        name: 'Subsection',
-        coloring: { stroke: '#787878', background: '#F0F0F0' },
-        defaultCounterName: 'subsection',
-        style: 'section'
-      },
-      // Content kinds.
-      {
-        id: 'definition',
-        name: 'Definition',
-        coloring: { stroke: '#009C27', background: '#D6FEE0' },
-        defaultCounterName: 'definition',
-        style: ''
-      },
-      {
-        id: 'axiom',
-        name: 'Axiom',
-        coloring: { stroke: '#C1C103', background: '#FFFFAC' },
-        defaultCounterName: 'axiom',
-        style: ''
-      },
-      {
-        id: 'lemma',
-        name: 'Lemma',
-        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        defaultCounterName: 'lemma',
-        style: ''
-      },
-      {
-        id: 'theorem',
-        name: 'Theorem',
-        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        defaultCounterName: 'theorem',
-        style: ''
-      },
-      {
-        id: 'corollary',
-        name: 'Corollary',
-        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        defaultCounterName: 'corollary',
-        style: ''
-      },
-      {
-        id: 'property',
-        name: 'Property',
-        coloring: { stroke: '#AC00AF', background: '#FFEDFF' },
-        defaultCounterName: 'property',
-        style: ''
-      },
-      {
-        id: 'remark',
-        name: 'Remark',
-        coloring: { stroke: '#E07B00', background: '#FFEBD2' },
-        defaultCounterName: 'remark',
-        style: 'remark'
-      },
-      {
-        id: 'example',
-        name: 'Example',
-        coloring: { stroke: '#7700E4', background: '#EFDFFF' },
-        defaultCounterName: 'example',
-        style: ''
-      },
-      {
-        id: 'counterexample',
-        name: 'Counterexample',
-        coloring: { stroke: '#D20022', background: '#FFD6DC' },
-        defaultCounterName: 'counterexample',
-        style: ''
-      },
-      {
-        id: 'construction',
-        name: 'Construction',
-        coloring: { stroke: '#787878', background: '#F0F0F0' },
-        defaultCounterName: 'construction',
-        style: 'proof'
-      },
-      {
-        id: 'proof',
-        name: 'Proof',
-        coloring: { stroke: '#787878', background: '#F0F0F0' },
-        defaultCounterName: 'proof',
-        style: 'proof'
-      },
-      {
-        id: 'problem',
-        name: 'Problem',
-        coloring: { stroke: '#005B9C', background: '#DAF0FF' },
-        defaultCounterName: 'problem',
-        style: 'problem'
-      },
-      // Cat 2026-07-09: `context` = an entry whose top-level `@x` bvar
-      // decls are meant to be referenced from OTHER entries via the
-      // `x@<this-entry-id>` src postfix. Behaviorally identical to any
-      // other content kind — the UI does NOT branch on it; it's here
-      // just so the pattern has a name users can pick. Numbering ''
-      // (unnumbered) because a shared-variable block usually isn't a
-      // theorem-numbering peer.
-      {
-        id: 'context',
-        name: 'Context',
-        coloring: { stroke: '#8B5CF6', background: '#EDE9FE' },
-        defaultCounterName: 'context',
-        style: ''
-      }
-    ]
-  },
-  {
-    id: 'lean4-document',
-    label: 'Lean 4 Document',
-    description:
-      'Entry kinds for a Lean 4 code-mirrored document (placeholder — to be filled in with the Lean side of the mirror).',
-    kinds: []
-  },
-  {
-    id: 'typescript-document',
-    label: 'TypeScript Document',
-    description:
-      'Entry kinds for a TypeScript code-mirrored document (placeholder).',
-    kinds: []
-  },
-  {
-    id: 'python-document',
-    label: 'Python Document',
-    description:
-      'Entry kinds for a Python code-mirrored document (placeholder).',
-    kinds: []
-  }
-];
-
-// ---------------------------------------------------------------------------
-// Macro Kind Presets
-// ---------------------------------------------------------------------------
-
-export interface MacroKindPreset {
-  id: string;
-  label: string;
-  description: string;
+export interface MacroKindPreset extends Omit<KindPresetPackage<'macro'>, 'kinds'> {
   kinds: MacroKind[];
 }
 
-/**
- * Built-in macro-kind preset catalog. The single `snl-basics-defaults` preset
- * mirrors SNL-Basics's `DEFAULT_KIND_PALETTE` (the 5 Lean-Expr default kinds),
- * so a fresh project's macro kinds match the library's out-of-the-box colors.
- */
-export const MACRO_KIND_PRESETS: MacroKindPreset[] = [
-  {
-    id: 'snl-basics-defaults',
-    label: 'SNL-Basics defaults',
-    description:
-      "The 5 default macro kinds from SNL-Basics's DEFAULT_KIND_PALETTE (rule / const / bvar / binder / fvar), plus a 'partial' kind for helper subtrees that shouldn't fire hover feedback (e.g. matrix rows).",
-    kinds: [
-      {
-        id: 'rule',
-        name: 'Rule',
-        description:
-          'Meta-mathematical rule symbols (∀, ∃, `:`, `def`, apply, implies, paren…).',
-        coloring: { stroke: '#009C27', background: '#D6FEE0' }
-      },
-      {
-        id: 'const',
-        name: 'Const',
-        description: 'Mathematical constants / defined terms (add, mul, and, or…).',
-        coloring: { stroke: '#005B9C', background: '#DAF0FF' }
-      },
-      {
-        id: 'bvar',
-        name: 'Bound variable',
-        description: 'Bound-variable occurrences.',
-        coloring: { stroke: '#7700E4', background: '#EFDFFF' }
-      },
-      {
-        id: 'binder',
-        name: 'Binder',
-        description: 'Binding sites (∀-`x`, λ parameter, informal `dx`…).',
-        coloring: { stroke: '#E07B00', background: '#FFEBD2' }
-      },
-      {
-        id: 'fvar',
-        name: 'Free variable',
-        description: 'Free variables (undefined, effectively `sorry`s).',
-        coloring: { stroke: '#D20022', background: '#FFD6DC' }
-      },
-      {
-        id: 'partial',
-        name: 'Partial',
-        description:
-          "Helper subtree that is NOT a complete syntactic node — e.g. a matrix.row inside a Matrix macro. Rendered with no visual frame, and hover feedback skips over it to its parent macro. Use for implementation-only intermediate macros that shouldn't attract user attention.",
-        coloring: { stroke: 'inherit', background: 'transparent' }
-      }
-    ]
-  }
-];
+const KIND_PRESET_RESOURCES = resolve(__dirname, '..', 'resources', 'kind-presets');
+
+/** Validated at host startup; malformed, duplicate, or wrong-domain packages fail closed. */
+export const ENTRY_KIND_PRESETS: EntryKindPreset[] =
+  loadKindPresetPackages(KIND_PRESET_RESOURCES, 'entry');
+
+/** Validated at host startup; language-specific macro packages are intentionally not invented. */
+export const MACRO_KIND_PRESETS: MacroKindPreset[] =
+  loadKindPresetPackages(KIND_PRESET_RESOURCES, 'macro');
 
 // ---------------------------------------------------------------------------
 // UPDATE ops

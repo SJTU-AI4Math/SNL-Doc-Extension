@@ -21,6 +21,7 @@ import {
   type RelationshipData
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { entryPackageIdentities, readPopoverEntry } from './popoverEntryReader';
 
 /**
  * Singleton graph-viewer panels (cat 2026-07-10 Phase 2).
@@ -213,9 +214,20 @@ export class GraphPanel {
       case 'requestEntryDetails': {
         // Popover full-Entry render. Same protocol as InfoviewPanel so
         // the shared HoverPopoverProvider works unchanged (cat 2026-07-10).
-        const id = (msg as { entryId?: unknown }).entryId;
+        const request = msg as {
+          entryId?: unknown;
+          entryPackage?: unknown;
+          popoverRequestKey?: unknown;
+        };
+        const id = request.entryId;
         if (typeof id === 'string' && id.trim()) {
-          await this.pushPopoverEntryDetails(id.trim());
+          const entryPackage = typeof request.entryPackage === 'string' && request.entryPackage.trim()
+            ? request.entryPackage.trim()
+            : undefined;
+          const popoverRequestKey = typeof request.popoverRequestKey === 'string' && request.popoverRequestKey
+            ? request.popoverRequestKey
+            : undefined;
+          await this.pushPopoverEntryDetails(id.trim(), entryPackage, popoverRequestKey);
         }
         return;
       }
@@ -411,36 +423,58 @@ export class GraphPanel {
       edges,
       warnings,
       entryOptions,
+      entryPackages: entryPackageIdentities(entries),
       macros: allMacros,
       macroKinds
     });
   }
 
-  private async pushPopoverEntryDetails(id: string): Promise<void> {
+  private async pushPopoverEntryDetails(
+    id: string,
+    entryPackage?: string,
+    popoverRequestKey?: string
+  ): Promise<void> {
     const root = firstWorkspaceFolder();
-    if (!root) return;
+    if (!root) {
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId: id,
+        popoverRequestKey,
+        message: hostText()('noWorkspace')
+      });
+      return;
+    }
     try {
-      const entries = await readEntries(root);
-      const entry = entries.find((e) => e.id === id);
+      const [entry, kinds] = await Promise.all([
+        readPopoverEntry(root, entryPackage, id),
+        readEntryKinds(root)
+      ]);
       if (!entry) {
-        void this.panel.webview.postMessage({
+        await this.panel.webview.postMessage({
           type: 'popoverEntryDetails',
           entryId: id,
+          popoverRequestKey,
           entry: null,
           kind: null
         });
         return;
       }
-      const kinds = await readEntryKinds(root);
       const kind = kinds.find((k) => k.id === entry.kind) ?? null;
-      void this.panel.webview.postMessage({
+      await this.panel.webview.postMessage({
         type: 'popoverEntryDetails',
         entryId: id,
+        popoverRequestKey,
         entry,
         kind
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId: id,
+        popoverRequestKey,
+        message: text
+      });
       vscode.window.showErrorMessage(
         hostText()('popoverFailed', { error: text })
       );

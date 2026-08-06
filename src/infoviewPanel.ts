@@ -38,11 +38,9 @@ import {
   type LibraryGraph
 } from './libraryGraph';
 import {
-  assertCurrentEntityStorageMetadata,
-  readEntryEntityRecordWithOwner,
-  type EntityReadStorage
-} from './entityStorageIo';
-import { compareDataVersions, CURRENT_DATA_VERSION } from './dataMigrationCore';
+  entryPackageIdentities,
+  readPopoverEntry
+} from './popoverEntryReader';
 
 /**
  * One node in the outline tree pushed to the webview for the Library page
@@ -1016,7 +1014,7 @@ export class InfoviewPanel {
       // hashed-path read. Id-only requests are retained only for legacy
       // aggregate payloads/workspaces that cannot supply package identity.
       const [entry, kinds] = await Promise.all([
-        this.readPopoverEntry(root, entryPackage, id),
+        readPopoverEntry(root, entryPackage, id),
         readEntryKinds(root)
       ]);
       if (!entry) {
@@ -1056,59 +1054,6 @@ export class InfoviewPanel {
     }
   }
 
-  private async readPopoverEntry(
-    root: vscode.Uri,
-    entryPackage: string | undefined,
-    id: string
-  ): Promise<EntryData | undefined> {
-    const configUri = vscode.Uri.joinPath(root, '.SNL_Doc', 'config.json');
-    const configBytes = await vscode.workspace.fs.readFile(configUri);
-    const config = JSON.parse(new TextDecoder('utf-8').decode(configBytes)) as unknown;
-    if (!config || typeof config !== 'object' || Array.isArray(config) ||
-        typeof (config as Record<string, unknown>).version !== 'string') {
-      throw new Error('config.json must contain a string version.');
-    }
-    const version = (config as Record<string, unknown>).version as string;
-    const relation = compareDataVersions(version, CURRENT_DATA_VERSION);
-    if (relation > 0) {
-      throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
-    }
-    if (relation === 0) {
-      assertCurrentEntityStorageMetadata(config);
-      if (!entryPackage) {
-        throw new Error(`Current Entry ${JSON.stringify(id)} request is missing its package identity.`);
-      }
-      return this.readPopoverEntryEntity(root, entryPackage, id);
-    }
-    // Older workspaces have only entries.json, so an id scan is unavoidable.
-    return readEntries(root).then((entries) => entries.find((candidate) => candidate.id === id));
-  }
-
-  private async readPopoverEntryEntity(
-    root: vscode.Uri,
-    entryPackage: string,
-    id: string
-  ): Promise<EntryData | undefined> {
-    const snlRoot = vscode.Uri.joinPath(root, '.SNL_Doc');
-    const storage: EntityReadStorage = {
-      listJsonFiles: async () => {
-        throw new Error('Popover point reads must not list the Entry directory.');
-      },
-      readJson: async (path) => {
-        const uri = vscode.Uri.joinPath(snlRoot, ...path.split('/'));
-        try {
-          const bytes = await vscode.workspace.fs.readFile(uri);
-          return JSON.parse(new TextDecoder('utf-8').decode(bytes)) as unknown;
-        } catch (error) {
-          if (error && typeof error === 'object' &&
-              (error as { code?: unknown }).code === 'FileNotFound') return null;
-          throw error;
-        }
-      }
-    };
-    const record = await readEntryEntityRecordWithOwner(storage, entryPackage, id);
-    return record?.entry as unknown as EntryData | undefined;
-  }
 
   /** Resolve the active package that wins for a macro name using the same
    * last-writer collision rule as readAllMacros. */
@@ -1143,16 +1088,6 @@ export class InfoviewPanel {
   }
 }
 
-/** Operation-local stable identity for exact current-storage popover reads. */
-function entryPackageIdentities(entries: EntryData[]): Record<string, string> {
-  const identities: Record<string, string> = {};
-  for (const entry of entries) {
-    if (typeof entry.package === 'string' && entry.package) {
-      identities[entry.id] = entry.package;
-    }
-  }
-  return identities;
-}
 
 // ---------------------------------------------------------------------------
 // Outline construction (Library page tree)

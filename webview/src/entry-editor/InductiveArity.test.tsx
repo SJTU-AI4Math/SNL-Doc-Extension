@@ -76,7 +76,7 @@ describe('Inductive editor arity auto-fill', () => {
     ]);
     expect(await localized.view.findByRole('combobox', { name: '上下文条目 ID' })).toBeTruthy();
     expect(localized.view.getByPlaceholderText('条目 ID')).toBeTruthy();
-    expect(localized.view.getByRole('combobox', { name: 'styled 的 Macro 样式' }).getAttribute('title'))
+    expect(localized.view.getByRole('combobox', { name: 'styled 的宏样式' }).getAttribute('title'))
       .toBe('默认样式（隐式）：[default]');
     expect(localized.view.getByText('当前条目池中没有此 ID 对应的条目。')).toBeTruthy();
 

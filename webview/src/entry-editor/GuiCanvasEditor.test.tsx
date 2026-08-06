@@ -117,12 +117,12 @@ describe('GuiCanvasEditor', () => {
       />
     );
 
-    const canvas = view.getByLabelText('GUI 编辑器 Canvas');
-    expect(view.getByRole('button', { name: '从 SNL 重置 Canvas' })).toBeTruthy();
+    const canvas = view.getByLabelText('GUI 编辑器画布');
+    expect(view.getByRole('button', { name: '从 SNL 重置画布' })).toBeTruthy();
     canvas.focus();
     fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
-    expect(await view.findByRole('textbox', { name: '插入 Canvas 根 Macro' })).toBeTruthy();
-    fireEvent.keyDown(view.getByRole('textbox', { name: '插入 Canvas 根 Macro' }), { key: 'Escape' });
+    expect(await view.findByRole('textbox', { name: '插入画布根宏' })).toBeTruthy();
+    fireEvent.keyDown(view.getByRole('textbox', { name: '插入画布根宏' }), { key: 'Escape' });
 
     const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
     fireEvent.click(root);
@@ -130,13 +130,13 @@ describe('GuiCanvasEditor', () => {
     expect(within(argumentsControl).getByLabelText('移除参数')).toBeTruthy();
     expect(within(argumentsControl).getByLabelText('参数数量值').textContent).toBe('1');
     expect(within(argumentsControl).getByLabelText('添加参数')).toBeTruthy();
-    expect(view.getByRole('combobox', { name: 'Macro 样式' }).getAttribute('title'))
-      .toBe('选择 Macro 样式');
-    expect(view.getByRole('button', { name: '编辑 Macro' })).toBeTruthy();
+    expect(view.getByRole('combobox', { name: '宏样式' }).getAttribute('title'))
+      .toBe('选择宏样式');
+    expect(view.getByRole('button', { name: '编辑宏' })).toBeTruthy();
 
     fireEvent.contextMenu(root);
-    const menu = await view.findByRole('menu', { name: 'Canvas 块操作' });
-    expect(within(menu).getByRole('menuitem', { name: /编辑 Macro/ })).toBeTruthy();
+    const menu = await view.findByRole('menu', { name: '画布块操作' });
+    expect(within(menu).getByRole('menuitem', { name: /编辑宏/ })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: /添加参数/ })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: /移除参数/ })).toBeTruthy();
     expect(within(menu).getByRole('menuitem', { name: /删除/ })).toBeTruthy();

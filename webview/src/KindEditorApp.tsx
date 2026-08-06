@@ -1,6 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { PANEL_STYLE } from './vscodeApi';
-import { useSaveShortcut } from './components/draftState';
+import {
+  editorDraftKey,
+  loadDraft,
+  saveDraft,
+  usePersistedDraft,
+  useSaveShortcut
+} from './components/draftState';
 import { Button } from './components/Button';
 import { Alert } from './components/FormControls';
 import { ColorField, ColorPreview, KindTextField } from './components/KindFormFields';
@@ -59,7 +65,10 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const kindName = t(domain === 'entry' ? 'entryKind' : 'macroKind');
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
+  const [contextReady, setContextReady] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
   const [mode, setMode] = useState<Mode>('create');
+  const [targetId, setTargetId] = useState('');
   const [id, setId] = useState('');
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [name, setName] = useState('');
@@ -70,6 +79,13 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
+  const draftKey = editorDraftKey(
+    `${domain}-kind`,
+    mode,
+    mode === 'edit' ? targetId : ''
+  );
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
   const { apiRef, post } = useVsCodeBridge<{
     type?: string;
     mode?: Mode;
@@ -87,6 +103,8 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       const nextMode = msg.mode === 'edit' ? 'edit' : 'create';
       setMode(nextMode);
       setTargetState(nextMode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
+      setContextReady(true);
+      setTargetId(nextMode === 'edit' ? (msg.id ?? '') : '');
       setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
       if (nextMode === 'edit' && !dirtyRef.current) {
         revisionRef.current = msg.kindRevision;
@@ -102,12 +120,62 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       }
     } else if ((msg.type === 'created' || msg.type === 'updated') && msg.kind) {
       dirtyRef.current = false;
+      setFormDirty(false);
+      saveDraft(apiRef.current, draftKeyRef.current, undefined);
+      if (msg.type === 'created') {
+        saveDraft(
+          apiRef.current,
+          editorDraftKey(`${domain}-kind`, 'edit', msg.kind.id),
+          undefined
+        );
+      }
       setStatus({ kind: msg.type, id: msg.kind.id, name: msg.kind.name });
     } else if (['duplicate', 'notFound', 'conflict', 'invalid', 'noSnlDoc', 'noWorkspace', 'error'].includes(msg.type)) {
       if (msg.type === 'notFound') setTargetState('notFound');
       setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? t('unknownError') });
     }
   });
+
+  useEffect(() => {
+    if (!contextReady) return;
+    const restored = loadDraft<{
+      id: string;
+      name: string;
+      description: string;
+      stroke: string;
+      background: string;
+      defaultCounterName: string;
+      style: string;
+      expectedRevision?: string;
+    }>(apiRef.current, draftKey);
+    if (!restored) return;
+    dirtyRef.current = true;
+    setFormDirty(true);
+    revisionRef.current = restored.expectedRevision;
+    setId(restored.id);
+    setName(restored.name);
+    setDescription(restored.description);
+    setStroke(restored.stroke);
+    setBackground(restored.background);
+    setDefaultCounterName(restored.defaultCounterName);
+    setStyle(restored.style);
+  }, [contextReady, draftKey]);
+
+  usePersistedDraft(
+    apiRef.current,
+    draftKey,
+    {
+      id,
+      name,
+      description,
+      stroke,
+      background,
+      defaultCounterName,
+      style,
+      expectedRevision: mode === 'edit' ? revisionRef.current : undefined
+    },
+    contextReady && formDirty
+  );
 
   const trimmedId = id.trim();
   const trimmedName = name.trim();
@@ -140,11 +208,11 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   if (mode === 'edit' && targetState === 'notFound') {
     return <main style={PANEL_STYLE}>
       <PanelHeader title={t('edit', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />
-      <MissingEditorTarget target={domain === 'entry' ? 'entryKind' : 'macroKind'} id={id} />
+      <MissingEditorTarget target={domain === 'entry' ? 'entryKind' : 'macroKind'} id={targetId || id} />
     </main>;
   }
 
-  return <main style={PANEL_STYLE} onChangeCapture={() => { dirtyRef.current = true; }}>
+  return <main style={PANEL_STYLE} onChangeCapture={() => { dirtyRef.current = true; setFormDirty(true); }}>
     <PanelHeader title={t(mode === 'edit' ? 'edit' : 'create', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />
     <p style={{ opacity: .85 }}>{t('updateConfig')}<code>.SNL_Doc/config.json#{descriptor.configKey}</code>{t('immutable')}</p>
     {mode === 'edit' ? <KindTextField label={t('idReadonly')} value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label={t('id')} entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={t(domain === 'entry' ? 'entryIdExample' : 'macroIdExample')} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}

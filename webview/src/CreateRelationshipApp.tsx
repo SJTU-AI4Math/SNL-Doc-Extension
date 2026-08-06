@@ -28,7 +28,13 @@ import {
   resolveEntryOption
 } from './components/EntityIdSearchBox';
 import type { EntryOption } from './render/EntryRender';
-import { useSaveShortcut } from './components/draftState';
+import {
+  editorDraftKey,
+  loadDraft,
+  saveDraft,
+  usePersistedDraft,
+  useSaveShortcut
+} from './components/draftState';
 import { defineUiMessages, invariantText, useUiMessages } from './i18n/uiMessages';
 
 const MESSAGES = defineUiMessages(
@@ -155,7 +161,9 @@ export function CreateRelationshipApp(): React.ReactElement {
   const apiRef = useVsCodeApiRef();
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
+  const [formDirty, setFormDirty] = useState(false);
   const [mode, setMode] = useState<'create' | 'edit'>('create');
+  const [targetId, setTargetId] = useState('');
   const [id, setId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -168,6 +176,48 @@ export function CreateRelationshipApp(): React.ReactElement {
   const [banner, setBanner] = useState<Banner | null>(null);
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
 
+  const draftKey = editorDraftKey(
+    'relationship',
+    mode,
+    mode === 'edit' ? targetId : ''
+  );
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
+  useEffect(() => {
+    if (!loaded) return;
+    const restored = loadDraft<{
+      id: string;
+      from: string;
+      to: string;
+      label: string;
+      metadata: string;
+      expectedRevision?: string;
+    }>(apiRef.current, draftKey);
+    if (!restored) return;
+    dirtyRef.current = true;
+    setFormDirty(true);
+    revisionRef.current = restored.expectedRevision;
+    setId(restored.id);
+    setFrom(restored.from);
+    setTo(restored.to);
+    setLabel(restored.label);
+    setMetadata(restored.metadata);
+  }, [draftKey, loaded]);
+
+  usePersistedDraft(
+    apiRef.current,
+    draftKey,
+    {
+      id,
+      from,
+      to,
+      label,
+      metadata,
+      expectedRevision: mode === 'edit' ? revisionRef.current : undefined
+    },
+    loaded && formDirty
+  );
+
   useEffect(() => {
 
     function onMessage(event: MessageEvent): void {
@@ -178,6 +228,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         case 'context': {
           setMode(msg.mode);
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
+          setTargetId(msg.mode === 'edit' ? (msg.id ?? msg.existing?.id ?? '') : '');
           const pool: EntryOption[] = msg.entryPool.map((e) => ({
             id: e.id,
             title: e.title,
@@ -208,11 +259,16 @@ export function CreateRelationshipApp(): React.ReactElement {
         }
         case 'created':
           dirtyRef.current = false;
+          setFormDirty(false);
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
+          saveDraft(apiRef.current, editorDraftKey('relationship', 'edit', msg.id), undefined);
           setBanner({ kind: 'ok', text: translate('created', { id: msg.id }) });
           setBusy(false);
           return;
         case 'updated':
           dirtyRef.current = false;
+          setFormDirty(false);
+          saveDraft(apiRef.current, draftKeyRef.current, undefined);
           setBanner({ kind: 'ok', text: translate('updated', { id: msg.id }) });
           setBusy(false);
           return;
@@ -370,7 +426,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           type="text"
           value={id}
           readOnly={mode === 'edit'}
-          onChange={(e) => { dirtyRef.current = true; setId(e.target.value); }}
+          onChange={(e) => { dirtyRef.current = true; setFormDirty(true); setId(e.target.value); }}
           placeholder={t('idPlaceholder')}
           style={{
             ...MONO_INPUT_STYLE,
@@ -398,7 +454,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           label={t('from')}
           entries={entryPool}
           value={from}
-          onChange={(value) => { dirtyRef.current = true; setFrom(value); }}
+          onChange={(value) => { dirtyRef.current = true; setFormDirty(true); setFrom(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
           placeholder={t('fromPlaceholder')}
           idPrefix="rel-from"
@@ -410,7 +466,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           label={t('to')}
           entries={entryPool}
           value={to}
-          onChange={(value) => { dirtyRef.current = true; setTo(value); }}
+          onChange={(value) => { dirtyRef.current = true; setFormDirty(true); setTo(value); }}
           validate={ENTRY_VALIDATE_RULES.requireMatch}
           placeholder={t('toPlaceholder')}
           idPrefix="rel-to"
@@ -425,7 +481,7 @@ export function CreateRelationshipApp(): React.ReactElement {
           id="rel-label"
           type="text"
           value={label}
-          onChange={(e) => { dirtyRef.current = true; setLabel(e.target.value); }}
+          onChange={(e) => { dirtyRef.current = true; setFormDirty(true); setLabel(e.target.value); }}
           placeholder={t('labelPlaceholder')}
           style={INPUT_STYLE}
         />
@@ -438,7 +494,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         <textarea
           id="rel-metadata"
           value={metadata}
-          onChange={(e) => { dirtyRef.current = true; setMetadata(e.target.value); }}
+          onChange={(e) => { dirtyRef.current = true; setFormDirty(true); setMetadata(e.target.value); }}
           placeholder={invariantText('{"weight": 1, "note": "..."}', 'protocol-token')}
           rows={8}
           style={{

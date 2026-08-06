@@ -12,7 +12,13 @@
 //      All graph mutations post `{ type: 'graphOp', op }` to the host.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSaveShortcut } from './components/draftState';
+import {
+  editorDraftKey,
+  loadDraft,
+  saveDraft,
+  usePersistedDraft,
+  useSaveShortcut
+} from './components/draftState';
 import {
   useVsCodeApiRef,
   PANEL_STYLE
@@ -181,9 +187,40 @@ export function CreateLibraryApp(): React.ReactElement {
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
   const [counterError, setCounterError] = useState<string | null>(null);
+  const [contextReady, setContextReady] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
   const apiRef = useVsCodeApiRef();
   const titleDirtyRef = useRef(false);
   const libraryRevisionRef = useRef<string | undefined>(undefined);
+
+  const draftKey = editorDraftKey('library', mode, mode === 'edit' ? slug : '');
+  useEffect(() => {
+    if (!contextReady) return;
+    const restored = loadDraft<{ title: string; expectedRevision?: string }>(
+      apiRef.current,
+      draftKey
+    );
+    if (!restored) return;
+    titleDirtyRef.current = true;
+    setFormDirty(true);
+    libraryRevisionRef.current = restored.expectedRevision;
+    setTitle(restored.title);
+  }, [contextReady, draftKey]);
+
+  usePersistedDraft(
+    apiRef.current,
+    draftKey,
+    {
+      title,
+      expectedRevision: mode === 'edit' ? libraryRevisionRef.current : undefined
+    },
+    contextReady && formDirty && status.kind !== 'created' && status.kind !== 'updated'
+  );
+
+  useEffect(() => {
+    if (status.kind !== 'created' && status.kind !== 'updated') return;
+    saveDraft(apiRef.current, draftKey, undefined);
+  }, [draftKey, status.kind]);
 
   useEffect(() => {
 
@@ -225,6 +262,7 @@ export function CreateLibraryApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setMode(msg.mode);
+          setContextReady(true);
           if (msg.mode === 'edit') {
             setSlug(msg.slug ?? '');
             if (msg.existing && !titleDirtyRef.current) {
@@ -234,11 +272,15 @@ export function CreateLibraryApp(): React.ReactElement {
           }
           break;
         case 'created':
+          titleDirtyRef.current = false;
+          setFormDirty(false);
+          saveDraft(apiRef.current, editorDraftKey('library', 'edit', msg.slug), undefined);
           setStatus({ kind: 'created', slug: msg.slug, title: msg.title });
           setTitle('');
           break;
         case 'updated':
           titleDirtyRef.current = false;
+          setFormDirty(false);
           setStatus({ kind: 'updated', slug: msg.slug, title: msg.title });
           break;
         case 'duplicate':
@@ -422,7 +464,7 @@ export function CreateLibraryApp(): React.ReactElement {
               type="text"
               value={title}
               placeholder={t('titlePlaceholder')}
-              onChange={(e) => { titleDirtyRef.current = true; setTitle(e.target.value); }}
+              onChange={(e) => { titleDirtyRef.current = true; setFormDirty(true); setTitle(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   handleSubmit();
@@ -462,7 +504,7 @@ export function CreateLibraryApp(): React.ReactElement {
             type="text"
             value={title}
             placeholder={t('titlePlaceholder')}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => { titleDirtyRef.current = true; setFormDirty(true); setTitle(e.target.value); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 handleSubmit();

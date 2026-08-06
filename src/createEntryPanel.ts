@@ -549,7 +549,7 @@ export class CreateEntryPanel {
       return;
     }
 
-    const requestTargetGeneration = this.targetGeneration;
+    let requestTargetGeneration = this.targetGeneration;
     const requestMode = this.mode;
     const requestId = this.id;
     const targetIsCurrent = (): boolean =>
@@ -653,19 +653,25 @@ export class CreateEntryPanel {
           this.mode = 'edit';
           this.id = result.id;
           this.targetGeneration += 1;
+          requestTargetGeneration = this.targetGeneration;
           this.seedId = '';
           this.panel.title = hostText()('editTitle', { id: result.id });
-          const completionGeneration = this.targetGeneration;
-          const completionIsCurrent = (): boolean =>
-            this.targetGeneration === completionGeneration;
+          // The Entry commit is durable before relationship reconciliation.
+          // Tell the webview to migrate create→edit ownership immediately so
+          // a later reconciliation error/context cannot overwrite edits made
+          // after submission. This is not a full-save success acknowledgement.
+          await this.panel.webview.postMessage({
+            type: 'createCommitted',
+            id: result.id
+          });
           if (!(await this.regenerateSavedEntryDependencies(
             root,
             result.id,
-            completionIsCurrent
+            targetIsCurrent
           ))) {
             return;
           }
-          if (!completionIsCurrent()) {
+          if (!targetIsCurrent()) {
             await this.pushContext();
             return;
           }
@@ -722,9 +728,14 @@ export class CreateEntryPanel {
           return;
       }
     } catch (err) {
+      if (!targetIsCurrent()) {
+        await this.pushContext();
+        return;
+      }
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));
-      void this.panel.webview.postMessage({ type: 'error', message: text });
+      await this.panel.webview.postMessage({ type: 'error', message: text });
+      await this.pushContext();
     }
   }
 

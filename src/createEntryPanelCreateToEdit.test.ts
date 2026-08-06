@@ -77,6 +77,7 @@ let releaseAddEntry: (() => void) | undefined;
 let delayAddEntry = false;
 let releaseUpdateEntry: (() => void) | undefined;
 let delayUpdateEntry = false;
+let updateEntryFailure: Error | undefined;
 
 vi.mock('./snlDoc', () => ({
   entityRevision: () => 'test-revision',
@@ -93,6 +94,7 @@ vi.mock('./snlDoc', () => ({
     if (delayUpdateEntry) {
       await new Promise<void>((resolve) => { releaseUpdateEntry = resolve; });
     }
+    if (updateEntryFailure) throw updateEntryFailure;
     return { status: 'updated', id };
   }),
   regenerateDependencyRelationships: vi.fn(async (_root: unknown, scope: { entryIds: Set<string> }) => {
@@ -135,6 +137,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
     releaseAddEntry = undefined;
     delayUpdateEntry = false;
     releaseUpdateEntry = undefined;
+    updateEntryFailure = undefined;
   });
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {
@@ -193,6 +196,34 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(contexts().at(-1)?.id).toBe('entry-b');
   });
 
+  it('does not leak a rejected create regeneration after its committed target retargets', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    let rejectRegeneration!: (error: Error) => void;
+    vi.mocked(snlDoc.regenerateDependencyRelationships).mockImplementationOnce(
+      () => new Promise((_, reject) => { rejectRegeneration = reject; })
+    );
+
+    const pending = messageHandler!({
+      type: 'create',
+      entry: { id: 'committed-a', kind: 'definition', title: 'Committed A', content: {} }
+    });
+    await vi.waitFor(() => expect(posted).toContainEqual({
+      type: 'createCommitted', id: 'committed-a'
+    }));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    rejectRegeneration(new Error('stale regeneration exploded'));
+    await pending;
+
+    expect(posted.some((message) =>
+      message?.type === 'error' && message.message === 'stale regeneration exploded'
+    )).toBe(false);
+    expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
+    expect(contexts().at(-1)?.id).toBe('entry-b');
+  });
+
   it('does not publish a stale update completion into a retargeted panel', async () => {
     const { CreateEntryPanel } = await import('./createEntryPanel');
     CreateEntryPanel.editOrShow(extUri, 'entry-a');
@@ -211,6 +242,30 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
     expect(posted.some((message) => message?.type === 'updated' && message.id === 'entry-a'))
       .toBe(false);
+    expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
+    expect(contexts().at(-1)?.id).toBe('entry-b');
+  });
+
+  it('does not leak a rejected stale update into a retargeted panel', async () => {
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.editOrShow(extUri, 'entry-a');
+    posted.length = 0;
+    events.length = 0;
+    delayUpdateEntry = true;
+    updateEntryFailure = new Error('stale update exploded');
+
+    const pending = messageHandler!({
+      type: 'update',
+      entry: { id: 'entry-a', kind: 'definition', title: 'Slow update', content: {} }
+    });
+    await vi.waitFor(() => expect(events).toContain('save:update'));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    releaseUpdateEntry!();
+    await pending;
+
+    expect(posted.some((message) =>
+      message?.type === 'error' && message.message === 'stale update exploded'
+    )).toBe(false);
     expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
     expect(contexts().at(-1)?.id).toBe('entry-b');
   });
@@ -263,6 +318,8 @@ describe('CreateEntryPanel create -> edit flip', () => {
     });
 
     expect(posted.some((message) => message?.type === 'created')).toBe(false);
+    const committed = posted.find((message) => message?.type === 'createCommitted');
+    expect(committed).toEqual({ type: 'createCommitted', id: 'saved-despite-regen-error' });
     const error = posted.find((message) => message?.type === 'error');
     const context = contexts().at(-1);
     expect(error?.message).toContain('relationships write failed');
@@ -271,6 +328,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
       id: 'saved-despite-regen-error',
       existing: { id: 'saved-despite-regen-error' }
     });
+    expect(posted.indexOf(committed)).toBeLessThan(posted.indexOf(error));
     expect(posted.indexOf(error)).toBeLessThan(posted.indexOf(context));
   });
 

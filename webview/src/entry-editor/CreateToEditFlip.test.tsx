@@ -796,6 +796,32 @@ describe('CreateEntryApp create → edit flip', () => {
     );
   });
 
+  it('preserves post-submit edits when create commits but dependency regeneration fails', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => { send(createContext()); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    const idInput = view.container.querySelector<HTMLInputElement>('#snl-entry-id')!;
+    fireEvent.input(title, { target: { value: 'Submitted create title' } });
+    fireEvent.input(idInput, { target: { value: 'created-with-regen-error' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    fireEvent.input(title, { target: { value: 'Edited during regeneration' } });
+
+    act(() => {
+      send({ type: 'createCommitted', id: 'created-with-regen-error' });
+      send({ type: 'error', message: 'relationships write failed' });
+      send(editContext({
+        id: 'created-with-regen-error',
+        title: 'Submitted create title',
+        kind: 'definition',
+        content: { snl: '' }
+      }));
+    });
+
+    await waitFor(() => expect(title.value).toBe('Edited during regeneration'));
+    expect(view.getByRole('button', { name: 'Update Entry' })).toBeTruthy();
+    expect(view.getByText(/relationships write failed/)).toBeTruthy();
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

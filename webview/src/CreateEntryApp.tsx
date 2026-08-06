@@ -797,6 +797,7 @@ export function CreateEntryApp(): React.ReactElement {
             relationships?: EntryRelationshipRow[];
           }
         | { type: 'created'; id: string }
+        | { type: 'createCommitted'; id: string }
         | { type: 'packageCreated'; packageId: string; requestId: string }
         | { type: 'packageCreateFailed'; message: string; requestId: string }
         | { type: 'updated'; id: string }
@@ -981,6 +982,22 @@ export function CreateEntryApp(): React.ReactElement {
             });
           }
           break;
+        case 'createCommitted': {
+          // The Entry itself is durable and the host target has changed to
+          // Edit, but dependency reconciliation is still pending. Migrate
+          // ownership without clearing dirty state or claiming save success.
+          const createdId = typeof msg.id === 'string' ? msg.id : '';
+          editingIdRef.current = createdId;
+          justSavedIdRef.current = createdId;
+          setMode('edit');
+          setId(createdId);
+          activePackageRequestRef.current = null;
+          setPackageCreating(false);
+          setPackageCreateError('');
+          setNewPackageId('');
+          setShowPackageCreator(false);
+          break;
+        }
         case 'created': {
           // Cat 2026-07-27: the host now flips this panel into Edit mode for
           // the entry we just created and re-pushes context. Record the id so

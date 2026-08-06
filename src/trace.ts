@@ -132,19 +132,21 @@ export function startTrace(label: string, detail?: string): Trace {
 
   const t0 = Date.now();
   let previous = t0;
-  out.appendLine(
-    `─── ${label} ${detail ?? ''} @ ${new Date(t0).toISOString()}`
-  );
+  out.appendLine(invariantHostText(
+    `─── ${label} ${detail ?? ''} @ ${new Date(t0).toISOString()}`,
+    'output-channel'
+  ));
   return {
     mark(stage: string, markDetail?: string): void {
       const now = Date.now();
       const total = now - t0;
       const delta = now - previous;
       previous = now;
-      out.appendLine(
+      out.appendLine(invariantHostText(
         `[${format(total, 7)}ms] (+${format(delta, 6)}) ${stage.padEnd(30)}` +
-          `${markDetail ?? ''}`
-      );
+          `${markDetail ?? ''}`,
+        'output-channel'
+      ));
     },
     elapsed(): number {
       return Date.now() - t0;

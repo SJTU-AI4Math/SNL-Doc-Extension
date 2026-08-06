@@ -32,6 +32,10 @@ function isRawCopy(node: ts.Expression): boolean {
 
 function isRawHumanCopy(node: ts.Expression): boolean {
   if (ts.isStringLiteralLike(node)) return /\p{L}/u.test(node.text);
+  if (ts.isTemplateExpression(node)) {
+    const authored = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
+    return /\p{L}/u.test(authored);
+  }
   return isRawCopy(node);
 }
 
@@ -88,6 +92,10 @@ function audit(file: string): string[] {
           if (ts.isObjectLiteralExpression(arg)) inspectMessageProperty(arg);
           else if (isRawHumanCopy(arg)) report(arg, `raw ${method} action`);
         }
+      }
+      if (method === 'append' || method === 'appendLine') {
+        const first = node.arguments[0];
+        if (first && isRawHumanCopy(first)) report(first, `raw ${method} output`);
       }
       if (method === 'postMessage') {
         const first = node.arguments[0];

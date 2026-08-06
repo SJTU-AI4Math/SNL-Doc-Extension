@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
 import { invariantHostText } from './hostI18n';
+import { read_extension_preferences } from './preferences';
+import { formatMacroConflict } from './macroOutputI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
@@ -325,6 +327,16 @@ async function applyJsonFileOperations(
  * has no `vscode.window`) degrade to a no-op instead of throwing.
  */
 let snlMacrosOutput: vscode.OutputChannel | null = null;
+function macroOutputLanguage(): string {
+  let language = vscode.env?.language ?? 'en';
+  try {
+    language = read_extension_preferences().language;
+  } catch {
+    // Core tests and non-extension hosts may not provide workspace configuration.
+  }
+  return language;
+}
+
 function macrosOutput(): vscode.OutputChannel | null {
   if (snlMacrosOutput) {
     return snlMacrosOutput;
@@ -2282,11 +2294,9 @@ export async function readAllMacrosWithOrigin(
     for (const macro of read.macros) {
       if (typeof macro.name === 'string' && macro.name.length > 0) {
         if (Object.prototype.hasOwnProperty.call(out, macro.name)) {
-          macrosOutput()?.appendLine(
-            `[warn] macro name conflict: "${macro.name}" in packages: ` +
-              `${origin[macro.name]}, ${bare}. ` +
-              `Last write wins (order-dependent).`
-          );
+          macrosOutput()?.appendLine(formatMacroConflict(
+            macroOutputLanguage(), macro.name, origin[macro.name], bare
+          ));
         }
         out[macro.name] = macro;
         origin[macro.name] = bare;

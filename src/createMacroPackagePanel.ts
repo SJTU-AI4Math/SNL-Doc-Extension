@@ -109,8 +109,7 @@ export class CreateMacroPackagePanel {
       this.extensionUri,
       this.panel.webview,
       'createMacroPackage',
-      mode === 'edit' ? hostText()('editTitle', { file }) : hostText()('createTitle')
-    );
+      mode === 'edit' ? hostText()('editTitle', { file }) : hostText()('createTitle'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

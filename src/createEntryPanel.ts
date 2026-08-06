@@ -241,8 +241,7 @@ export class CreateEntryPanel {
       this.extensionUri,
       this.panel.webview,
       'createEntry',
-      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle')
-    );
+      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle'), this.disposables);
     // The webview now starts fetching + parsing its bundle on its own clock;
     // `webview:*` marks below come back from inside it.
     trace?.mark('html-set');

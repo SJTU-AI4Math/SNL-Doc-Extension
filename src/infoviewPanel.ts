@@ -250,8 +250,7 @@ export class InfoviewPanel {
       this.extensionUri,
       this.panel.webview,
       webviewEntry,
-      title
-    );
+      title, this.disposables);
     this.openTrace?.mark('html-set');
 
     this.panel.webview.onDidReceiveMessage(

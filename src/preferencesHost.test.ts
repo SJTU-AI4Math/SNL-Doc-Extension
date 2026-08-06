@@ -55,18 +55,24 @@ describe('PreferencesHost language writes', () => {
     receive: (message: unknown) => void;
     postMessage: ReturnType<typeof vi.fn>;
     listenerDispose: ReturnType<typeof vi.fn>;
+    disposeRegistration: () => void;
   } {
     let receive = (_message: unknown): void => undefined;
     const postMessage = vi.fn().mockResolvedValue(true);
     const listenerDispose = vi.fn();
-    host.register({
+    const registration = host.register({
       onDidReceiveMessage: (listener: (message: unknown) => void) => {
         receive = listener;
         return { dispose: listenerDispose };
       },
       postMessage
     } as never);
-    return { receive: (message) => receive(message), postMessage, listenerDispose };
+    return {
+      receive: (message) => receive(message),
+      postMessage,
+      listenerDispose,
+      disposeRegistration: () => registration.dispose()
+    };
   }
 
   it('writes at workspace scope when a workspace override is effective', async () => {
@@ -90,12 +96,13 @@ describe('PreferencesHost language writes', () => {
     host.dispose();
   });
 
-  it('does not retain every Webview listener until extension deactivation', () => {
+  it('lets the owning panel release its Webview preference listener', () => {
     const host = new PreferencesHost();
-    const { listenerDispose } = register(host);
+    const { listenerDispose, disposeRegistration } = register(host);
 
+    disposeRegistration();
+    expect(listenerDispose).toHaveBeenCalledOnce();
     host.dispose();
-    expect(listenerDispose).not.toHaveBeenCalled();
   });
 
   it('reports a rejected configuration write through the VS Code error UI', async () => {

@@ -23,7 +23,10 @@ export interface PreferencesSnapshotMessage {
 
 export class PreferencesHost implements vscode.Disposable {
   private readonly webviews = new Set<WeakRef<vscode.Webview>>();
-  private readonly webviewRefs = new WeakMap<vscode.Webview, WeakRef<vscode.Webview>>();
+  private readonly webviewRefs = new WeakMap<
+    vscode.Webview,
+    { ref: WeakRef<vscode.Webview>; listener: vscode.Disposable }
+  >();
   private readonly disposables: vscode.Disposable[] = [];
   private readonly generation = randomUUID();
   private revision = 0;
@@ -42,20 +45,15 @@ export class PreferencesHost implements vscode.Disposable {
     );
   }
 
-  register(webview: vscode.Webview): void {
+  register(webview: vscode.Webview): vscode.Disposable {
     const existing = this.webviewRefs.get(webview);
     if (existing) {
-      this.webviews.add(existing);
-      return;
+      this.webviews.add(existing.ref);
+      return { dispose: () => undefined };
     }
     const ref = new WeakRef(webview);
-    this.webviewRefs.set(webview, ref);
     this.webviews.add(ref);
-    // Do not retain this disposable in the host-wide list: that would keep one
-    // listener subscription alive for every panel ever opened until extension
-    // deactivation. The subscription is owned by the Webview emitter itself;
-    // all host-side references to the Webview remain weak.
-    webview.onDidReceiveMessage((message: unknown) => {
+    const listener = webview.onDidReceiveMessage((message: unknown) => {
       const incoming = message as { type?: unknown; language?: unknown } | null;
       if (incoming?.type === 'snl.preferences/ready') {
         const target = ref.deref();
@@ -69,6 +67,14 @@ export class PreferencesHost implements vscode.Disposable {
         void this.setLanguage(incoming.language);
       }
     });
+    this.webviewRefs.set(webview, { ref, listener });
+    return {
+      dispose: () => {
+        listener.dispose();
+        this.webviews.delete(ref);
+        this.webviewRefs.delete(webview);
+      }
+    };
   }
 
   private async setLanguage(language: LanguagePreference): Promise<void> {
@@ -144,8 +150,8 @@ export function initialize_preferences_host(context: vscode.ExtensionContext): v
   context.subscriptions.push(host);
 }
 
-export function register_preferences_webview(webview: vscode.Webview): void {
-  host?.register(webview);
+export function register_preferences_webview(webview: vscode.Webview): vscode.Disposable {
+  return host?.register(webview) ?? { dispose: () => undefined };
 }
 
 /** Run a callback while a panel is alive whenever the interface locale changes. */

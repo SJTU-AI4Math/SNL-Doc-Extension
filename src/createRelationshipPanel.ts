@@ -110,8 +110,7 @@ export class CreateRelationshipPanel {
       this.extensionUri,
       this.panel.webview,
       'createRelationship',
-      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle')
-    );
+      mode === 'edit' ? hostText()('editTitle', { id }) : hostText()('createTitle'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

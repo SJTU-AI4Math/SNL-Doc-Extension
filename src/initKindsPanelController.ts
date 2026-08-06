@@ -94,7 +94,7 @@ export class InitKindsPanelController {
     extensionUri: vscode.Uri
   ) {
     const descriptor = initKindsPanelDescriptor(domain);
-    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, descriptor.entry, hostText()(domain === 'entry' ? 'entryTitle' : 'macroTitle'));
+    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, descriptor.entry, hostText()(domain === 'entry' ? 'entryTitle' : 'macroTitle'), this.disposables);
     panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }

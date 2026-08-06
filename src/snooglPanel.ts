@@ -121,8 +121,7 @@ export class SnoogLPanel {
       this.extensionUri,
       this.panel.webview,
       'snoogl',
-      hostText()('title')
-    );
+      hostText()('title'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (m) => this.handleMessage(m),

@@ -110,8 +110,7 @@ export class ExportOptionsPanel {
       createHostTranslator(
         this.payload.locale ?? read_extension_preferences().language,
         MESSAGES
-      )('panelTitle')
-    );
+      )('panelTitle'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

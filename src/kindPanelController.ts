@@ -67,7 +67,7 @@ export class KindPanelController {
     extensionUri: vscode.Uri,
     title: string
   ) {
-    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, kindPanelDescriptor(domain).entry, title);
+    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, kindPanelDescriptor(domain).entry, title, this.disposables);
     panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, this.disposables);
     installSnlDocWatcher(this.disposables, () => this.pushContext());
     panel.onDidDispose(() => this.dispose(), null, this.disposables);

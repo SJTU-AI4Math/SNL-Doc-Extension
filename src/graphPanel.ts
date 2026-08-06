@@ -131,8 +131,7 @@ export class GraphPanel {
       this.extensionUri,
       this.panel.webview,
       'snlGraph',
-      title
-    );
+      title, this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (m) => this.handleMessage(m),

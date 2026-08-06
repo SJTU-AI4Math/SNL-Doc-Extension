@@ -216,8 +216,7 @@ export class CreateLibraryPanel {
       this.extensionUri,
       this.panel.webview,
       'createLibrary',
-      mode === 'edit' ? libraryT()('editTitle', { slug }) : libraryT()('createTitle')
-    );
+      mode === 'edit' ? libraryT()('editTitle', { slug }) : libraryT()('createTitle'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

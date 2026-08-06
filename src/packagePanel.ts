@@ -154,8 +154,7 @@ export class PackagePanel {
       this.extensionUri,
       this.panel.webview,
       'packagePanel',
-      packageT()('title', { file: this.file })
-    );
+      packageT()('title', { file: this.file }), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

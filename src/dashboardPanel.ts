@@ -120,8 +120,7 @@ export class DashboardPanel {
       this.extensionUri,
       this.panel.webview,
       'dashboard',
-      dashboardT()('title')
-    );
+      dashboardT()('title'), this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

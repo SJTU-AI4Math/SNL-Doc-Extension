@@ -19,8 +19,10 @@ vi.mock('../render/HoverPopoverProvider', () => ({
   HoverPopoverProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
 }));
 vi.mock('../render/EntrySurface', () => ({
-  EntrySurface: () => <div data-testid="entry-preview-surface" />
+  EntrySurface: ({ entry }: { entry: { content?: { snl?: string } } }) =>
+    <div data-testid="entry-preview-surface">{entry.content?.snl ?? ''}</div>
 }));
+const renderedMacroDrivers: unknown[] = [];
 vi.mock('./MonacoTextEditor', () => ({
   MonacoTextEditor: ({ value, ariaLabel, onChange }: {
     value: string;
@@ -42,7 +44,13 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
     );
   return {
     ...actual,
-    SnlSyntaxTreeView: ({ tree }: { tree: SnlSyntaxTree }) => renderNode(tree)
+    SnlSyntaxTreeView: ({ tree, macro_data_driver }: {
+      tree: SnlSyntaxTree;
+      macro_data_driver: unknown;
+    }) => {
+      renderedMacroDrivers.push(macro_data_driver);
+      return renderNode(tree);
+    }
   };
 });
 
@@ -124,6 +132,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   posted.length = 0;
+  renderedMacroDrivers.length = 0;
   state = undefined;
 });
 
@@ -516,5 +525,60 @@ describe('CreateEntryApp create → edit flip', () => {
     // The clean-form guard again: the host's echoed title must not land.
     expect(view.container.querySelector<HTMLInputElement>('#snl-entry-title')!.value)
       .toBe('Canvas Entry');
+  });
+
+  it('keeps Preview and Canvas content through the immediate post-update context', async () => {
+    const view = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'saved-canvas',
+      title: 'Saved Canvas',
+      kind: 'definition',
+      content: { snl: 'root(child)' }
+    }));
+
+    await waitFor(() => {
+      expect(view.getByTestId('entry-preview-surface').textContent).toBe('root(child)');
+      expect(view.container.querySelector<HTMLElement>('[data-canvas-root]')?.textContent)
+        .toContain('root');
+    });
+    const driverBeforeSaveRefresh = renderedMacroDrivers.at(-1);
+
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const update = posted.findLast((message) => message?.type === 'update');
+    expect(update?.entry.content.snl).toBe('root(child)');
+
+    act(() => {
+      send({ type: 'updated', id: 'saved-canvas' });
+      // The save's follow-up read can race a watcher/cache and briefly carry an
+      // older empty snapshot. It must update revision/metadata without erasing
+      // the content that was just acknowledged as successfully persisted.
+      send(editContext({
+        id: 'saved-canvas',
+        title: 'STALE HOST ECHO',
+        kind: 'definition',
+        content: {}
+      }));
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId('entry-preview-surface').textContent).toBe('root(child)');
+      expect(view.container.querySelector<HTMLElement>('[data-canvas-root]')?.textContent)
+        .toContain('root');
+    });
+    expect(renderedMacroDrivers.at(-1)).toBe(driverBeforeSaveRefresh);
+
+    act(() => {
+      send(editContext({
+        id: 'saved-canvas',
+        title: 'Later authoritative refresh',
+        kind: 'definition',
+        content: { snl: 'replacement(next)' }
+      }));
+    });
+    await waitFor(() => {
+      expect(view.getByTestId('entry-preview-surface').textContent).toBe('replacement(next)');
+      expect(view.container.querySelector<HTMLElement>('[data-canvas-root]')?.textContent)
+        .toContain('replacement');
+    });
   });
 });

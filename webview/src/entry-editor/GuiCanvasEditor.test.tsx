@@ -36,7 +36,11 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
         className: tree.kind === 'argPlaceholder' ? 'snlArgPlaceholder' : undefined
       },
       tree.macro_name,
-      tree.children.map((child, index) => renderNode(child, [...path, index]))
+      // Production temporary-Macro rendering treats the delimited payload as
+      // raw text/LaTeX and does not interpolate structural children.
+      tree.env_mode === undefined
+        ? tree.children.map((child, index) => renderNode(child, [...path, index]))
+        : null
     );
   };
   return {
@@ -615,6 +619,33 @@ describe('GuiCanvasEditor', () => {
 
     await waitFor(() =>
       expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(2)
+    );
+  });
+
+  it('adds one placeholder when a temporary Macro is inserted as a new root', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={driver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Insert Canvas root Macro' }) as HTMLInputElement
+    );
+    fireEvent.change(input, { target: { value: '$x$' } });
+
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1)
     );
   });
 

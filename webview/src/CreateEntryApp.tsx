@@ -559,6 +559,23 @@ function newUuid(): string {
 // fed `counterLabel={undefined}` so the header just shows "<KindName> --
 // <title>" without a mock digit.
 
+function sameWireCatalogValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameWireCatalogValue(value, right[index]));
+  }
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+      sameWireCatalogValue(leftRecord[key], rightRecord[key]));
+}
+
 export function CreateEntryApp(): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const preferencesRevision = use_preferences_revision();
@@ -706,13 +723,12 @@ export function CreateEntryApp(): React.ReactElement {
   const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
   const editingIdRef = useRef('');
   /**
-   * Id of an entry this panel just created, until the host's follow-up
-   * `edit` context has been absorbed. Cat 2026-07-27: after a create the
-   * panel flips itself into Edit mode in place, and the context that lands
-   * a moment later must NOT re-fill the form from the host's copy — see the
-   * `preserveDraft` computation in the `context` handler.
+   * Id of the entry this panel just created or updated, until the host's
+   * immediate follow-up context has been absorbed. The acknowledged on-screen
+   * form is the save authority for that one refresh: a racing stale snapshot
+   * must not blank Preview/Canvas or rebuild the Canvas forest.
    */
-  const justCreatedIdRef = useRef<string | null>(null);
+  const justSavedIdRef = useRef<string | null>(null);
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     pointer: unknown;
@@ -834,8 +850,9 @@ export function CreateEntryApp(): React.ReactElement {
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
-          setWireMacros(
-            msg.macros && typeof msg.macros === 'object' ? msg.macros : {},
+          const incomingMacros = msg.macros && typeof msg.macros === 'object' ? msg.macros : {};
+          setWireMacros((previous) =>
+            sameWireCatalogValue(previous, incomingMacros) ? previous : incomingMacros
           );
           setKindPalette(macroKindsToPalette(msg.macroKinds));
           setMacroOrigin(
@@ -858,8 +875,8 @@ export function CreateEntryApp(): React.ReactElement {
             // and it carries state the host's copy cannot reproduce (Canvas
             // node identity / multi-root forests are not recoverable from
             // `content.snl`). Always preserve, never re-fill.
-            const justCreated = justCreatedIdRef.current === incomingId;
-            const preserveDraft = justCreated ||
+            const justSaved = justSavedIdRef.current === incomingId;
+            const preserveDraft = justSaved ||
               (!!msg.existing &&
               formDirtyRef.current &&
               editingIdRef.current === incomingId) ||
@@ -867,7 +884,7 @@ export function CreateEntryApp(): React.ReactElement {
               // being hidden; the host's copy is by definition older.
               (restoredDraftIdRef.current !== null &&
                 restoredDraftIdRef.current === incomingId);
-            if (!preserveDraft || justCreated) {
+            if (!preserveDraft || justSaved) {
               entryRevisionRef.current = msg.entryRevision;
             }
             if (msg.id) {
@@ -896,12 +913,14 @@ export function CreateEntryApp(): React.ReactElement {
                 );
                 contributorDirtyRef.current = false;
               }
-              setContentI18n({
-                ...(typst.i18n ? { typst: typst.i18n } : {}),
-                ...(latex.i18n ? { latex: latex.i18n } : {}),
-                ...(markdown.i18n ? { markdown: markdown.i18n } : {}),
-                ...(text.i18n ? { text: text.i18n } : {})
-              });
+              if (!justSaved) {
+                setContentI18n({
+                  ...(typst.i18n ? { typst: typst.i18n } : {}),
+                  ...(latex.i18n ? { latex: latex.i18n } : {}),
+                  ...(markdown.i18n ? { markdown: markdown.i18n } : {}),
+                  ...(text.i18n ? { text: text.i18n } : {})
+                });
+              }
               if (!preserveDraft) {
                 editingIdRef.current = incomingId;
                 setTitle(msg.existing.title || '');
@@ -941,7 +960,7 @@ export function CreateEntryApp(): React.ReactElement {
             // One-shot: consumed by the single context push that follows the
             // create. Later pushes (file watcher, retarget) must go through
             // the normal dirty-form rules.
-            if (justCreated) justCreatedIdRef.current = null;
+            if (justSaved) justSavedIdRef.current = null;
           } else {
             // Cat 2026-07-15: seed the id field with the caller-provided
             // hint (e.g. the id the user typed into the Library outline's
@@ -964,7 +983,7 @@ export function CreateEntryApp(): React.ReactElement {
           // preserves what is already on screen instead of re-filling it.
           const createdId = typeof msg.id === 'string' ? msg.id : '';
           editingIdRef.current = createdId;
-          justCreatedIdRef.current = createdId;
+          justSavedIdRef.current = createdId;
           // The host now treats Package responses from the create target as
           // stale. Reset the matching local request state so the new Edit
           // target cannot remain stuck on a disabled “Creating…” control.
@@ -975,7 +994,7 @@ export function CreateEntryApp(): React.ReactElement {
           setShowPackageCreator(false);
           // The form was just persisted, so it is by definition no longer
           // dirty (mirrors `updated` below). This also makes
-          // `justCreatedIdRef` the SOLE reason the follow-up context
+          // `justSavedIdRef` the sole reason the follow-up context
           // preserves the form rather than one of two redundant guards —
           // without it a mutation to the flip logic would be masked by the
           // ordinary dirty-form rule and no test could see the difference.
@@ -1011,6 +1030,7 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError(msg.message);
           break;
         case 'updated':
+          justSavedIdRef.current = typeof msg.id === 'string' ? msg.id : null;
           markFormDirty(false);
           contentDirtyRef.current.clear();
           setStatus({ kind: 'updated', id: msg.id });
@@ -3386,11 +3406,15 @@ export function GuiCanvasEditor({
     applyForestChange(next);
   };
 
-  /** Resolve whether an inserted Macro is fixed, variadic, or unknown. */
-  const macroArityForName = async (
-    macroName: string
+  /** Resolve whether an inserted Macro is fixed, variadic/temporary, or unknown. */
+  const macroArityForNode = async (
+    node: SnlSyntaxTree
   ): Promise<number | 'dynamic' | null> => {
-    const name = macroName.trim();
+    // Delimited `%…%` / `$…$` / `$$…$$` nodes are temporary Macros. They
+    // intentionally bypass the Macro DB, but remain structurally extensible;
+    // a newly created one therefore follows the variadic one-slot affordance.
+    if (node.env_mode !== undefined) return 'dynamic';
+    const name = node.macro_name.trim();
     if (!name) return null;
     try {
       const macro = await macroDataDriver.query_macro({ macro_name: name });
@@ -3487,7 +3511,7 @@ export function GuiCanvasEditor({
     // children — surplus subtrees pop out as their own root blocks, missing
     // slots become empty placeholders the author fills in manually. Never
     // swallow a subtree and never resurrect one.
-    const arity = await macroArityForName(replacement.macro_name);
+    const arity = await macroArityForNode(replacement);
     if (
       request !== nodeEditRequestRef.current ||
       forestRef.current !== sourceForest
@@ -3495,7 +3519,8 @@ export function GuiCanvasEditor({
     const isNewMacro =
       !previousNode ||
       isCanvasHole(previousNode) ||
-      previousNode.macro_name !== replacement.macro_name;
+      previousNode.macro_name !== replacement.macro_name ||
+      previousNode.env_mode !== replacement.env_mode;
     const targetArity: number | null =
       arity === 'dynamic'
         ? (isNewMacro && replacement.children.length === 0 ? 1 : null)
@@ -3569,6 +3594,71 @@ export function GuiCanvasEditor({
     observer.observe(canvas, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [forest, focused, dropTarget]);
+
+  const renderTemporaryChildRails = (
+    node: SnlSyntaxTree,
+    path: number[]
+  ): React.ReactNode => {
+    if (node.env_mode === undefined) {
+      return node.children.map((child, index) =>
+        renderTemporaryChildRails(child, [...path, index])
+      );
+    }
+    if (node.children.length === 0) return null;
+    return (
+      <div
+        data-canvas-temporary-children
+        style={{ display: 'flex', gap: '0.35rem', alignItems: 'flex-start', marginTop: '0.35rem' }}
+      >
+        {node.children.map((child, index) => {
+          const childPath = [...path, index];
+          const hole = isCanvasHole(child);
+          return (
+            <div
+              key={treeIdentity(child)}
+              data-canvas-temporary-child
+              data-tree-path={childPath.join('.')}
+              data-kind={child.kind}
+              className={hole ? 'snlArgPlaceholder' : undefined}
+              title={hole ? t('leafPlaceholder') : undefined}
+              style={{
+                minWidth: hole ? '2.5rem' : undefined,
+                minHeight: hole ? '1.75rem' : undefined,
+                padding: '0.2rem 0.35rem',
+                boxSizing: 'border-box',
+                border: hole
+                  ? '1px dashed var(--vscode-input-placeholderForeground, #888)'
+                  : '1px solid var(--vscode-panel-border, #555)',
+                borderRadius: '4px',
+                background: hole
+                  ? 'var(--vscode-input-background, #2a2a2a)'
+                  : 'var(--vscode-editorWidget-background, #252526)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {hole ? (
+                <span aria-hidden="true" style={{ opacity: 0.65 }}>+</span>
+              ) : (
+                <div style={{ pointerEvents: 'none' }}>
+                  <SnlSyntaxTreeView
+                    tree={child}
+                    macro_data_driver={macroDataDriver}
+                    reader_runtime={webview_language_runtime}
+                    kindPalette={kindPalette}
+                    hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
+                  />
+                </div>
+              )}
+              {renderTemporaryChildRails(child, childPath)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <section>
@@ -3662,6 +3752,7 @@ export function GuiCanvasEditor({
                 kindPalette={kindPalette}
                 hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
               />
+              {renderTemporaryChildRails(root, [])}
             </div>
           );
         })}
@@ -3731,7 +3822,7 @@ export function GuiCanvasEditor({
                 const request = ++addRootRequestRef.current;
                 const sourceForest = forestRef.current;
                 ensureTreeIdentity(parsed.tree);
-                const arity = await macroArityForName(parsed.tree.macro_name);
+                const arity = await macroArityForNode(parsed.tree);
                 if (
                   request !== addRootRequestRef.current ||
                   forestRef.current !== sourceForest

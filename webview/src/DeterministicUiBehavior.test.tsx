@@ -62,6 +62,42 @@ describe('deterministic panel refresh behavior', () => {
     )).toHaveLength(queryCount);
   });
 
+  it('SNoogL does not let stale result refreshes overwrite faster local typing', () => {
+    render(<SnooglApp />);
+    send({
+      type: 'results',
+      query: { q: 'abc', mode: 'entry', filters: {} },
+      results: [{ kind: 'entry', id: 'current', title: 'Current result', entryKind: null, score: 2 }],
+      kindsByMode: { entry: [], macro: [] },
+      counterpartIdsByMode: { entry: [], macro: [] }
+    });
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'abcdef' } });
+
+    send({
+      type: 'results',
+      query: { q: 'abc', mode: 'entry', filters: {} },
+      results: [{ kind: 'entry', id: 'stale', title: 'Stale result', entryKind: null, score: 2 }],
+      kindsByMode: { entry: [], macro: [] },
+      counterpartIdsByMode: { entry: [], macro: [] }
+    });
+
+    expect(input.value).toBe('abcdef');
+    expect(screen.queryByText('Stale result')).toBeNull();
+    expect(screen.getByText('Current result')).toBeTruthy();
+
+    send({
+      type: 'results',
+      query: { q: 'abcdef', mode: 'entry', filters: {} },
+      results: [{ kind: 'entry', id: 'fresh', title: 'Fresh result', entryKind: null, score: 2 }],
+      kindsByMode: { entry: [], macro: [] },
+      counterpartIdsByMode: { entry: [], macro: [] }
+    });
+    expect(input.value).toBe('abcdef');
+    expect(screen.getByText('Fresh result')).toBeTruthy();
+    expect(screen.queryByText('Current result')).toBeNull();
+  });
+
   it('SNoogL uses the opposite ID domain only as an explicit filter', async () => {
     render(<SnooglApp />);
     send({
@@ -78,6 +114,11 @@ describe('deterministic panel refresh behavior', () => {
       type: 'query', q: '', mode: 'entry', filters: { counterpartId: 'Logic.rule' }
     }), { timeout: 500 });
 
+    // A separate fresh panel may be initialized from a Macro-domain snapshot.
+    // Do not reuse the locally edited Entry panel: mismatched result snapshots
+    // are stale once local query intent exists and must not take over controls.
+    cleanup();
+    render(<SnooglApp />);
     send({
       type: 'results',
       query: { q: '', mode: 'macro', filters: { counterpartId: 'entry-a' } },

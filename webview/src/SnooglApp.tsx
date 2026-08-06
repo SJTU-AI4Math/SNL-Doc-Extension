@@ -127,6 +127,33 @@ export function SnooglApp(): React.ReactElement {
   const queryTimerRef = useRef<number | null>(null);
   const pendingQueryKeyRef = useRef<string | null>(null);
   const adoptedQueryKeyRef = useRef<string | null>(null);
+  const currentQueryRef = useRef<{ q: string; mode: Mode; filters: Filters }>({
+    q: '', mode: 'entry', filters: {}
+  });
+  const hasLocalQueryIntentRef = useRef(false);
+
+  const setLocalQ = (next: string): void => {
+    hasLocalQueryIntentRef.current = true;
+    currentQueryRef.current = { ...currentQueryRef.current, q: next };
+    setQ(next);
+  };
+  const setLocalMode = (next: Mode): void => {
+    hasLocalQueryIntentRef.current = true;
+    currentQueryRef.current = { ...currentQueryRef.current, mode: next };
+    setMode(next);
+  };
+  const setSyncedFilters = (
+    update: React.SetStateAction<Filters>,
+    localIntent: boolean
+  ): void => {
+    const previous = currentQueryRef.current.filters;
+    const next = typeof update === 'function' ? update(previous) : update;
+    if (localIntent) hasLocalQueryIntentRef.current = true;
+    currentQueryRef.current = { ...currentQueryRef.current, filters: next };
+    setFilters(next);
+  };
+  const setLocalFilters: React.Dispatch<React.SetStateAction<Filters>> = (update) =>
+    setSyncedFilters(update, true);
 
   const dispatchQuery = (
     query: { q: string; mode: Mode; filters: Filters },
@@ -156,18 +183,31 @@ export function SnooglApp(): React.ReactElement {
           // header button — Entry Search vs Macro Search live on
           // different rows now.
           if (msg.mode === 'entry' || msg.mode === 'macro') {
-            setMode(msg.mode as Mode);
+            currentQueryRef.current = { ...currentQueryRef.current, mode: msg.mode };
+            setMode(msg.mode);
           }
           break;
         case 'results':
           if (!isResultsMsg(msg)) return;
-          // A result payload is a snapshot of one complete host query. Adopt
-          // all query fields in the same React batch so refreshes cannot mix
-          // a new result list with stale controls.
-          adoptedQueryKeyRef.current = queryKey(msg.query);
-          setQ(msg.query.q);
-          setMode(msg.query.mode);
-          setFilters({ ...msg.query.filters });
+          // Before the first local interaction, a result snapshot may initialize
+          // the panel. Afterwards the local controls own query identity: a host
+          // refresh for an older query must not roll back typed text or publish
+          // mismatched results while the newer query is still debouncing.
+          const incomingKey = queryKey(msg.query);
+          if (
+            hasLocalQueryIntentRef.current &&
+            incomingKey !== queryKey(currentQueryRef.current)
+          ) return;
+          const adoptedQuery = {
+            q: msg.query.q,
+            mode: msg.query.mode,
+            filters: { ...msg.query.filters }
+          };
+          currentQueryRef.current = adoptedQuery;
+          adoptedQueryKeyRef.current = incomingKey;
+          setQ(adoptedQuery.q);
+          setMode(adoptedQuery.mode);
+          setFilters(adoptedQuery.filters);
           setError(null);
           setResults(Array.isArray(msg.results) ? msg.results : []);
           if (msg.kindsByMode && typeof msg.kindsByMode === 'object') {
@@ -229,7 +269,7 @@ export function SnooglApp(): React.ReactElement {
   // from Entry mode doesn't hide every macro).
   useEffect(() => {
     if (filters.kindId && !kindsByMode[mode].includes(filters.kindId)) {
-      setFilters((f) => ({ ...f, kindId: undefined }));
+      setSyncedFilters((f) => ({ ...f, kindId: undefined }), false);
     }
   }, [mode, kindsByMode, filters.kindId]);
 
@@ -238,7 +278,7 @@ export function SnooglApp(): React.ReactElement {
       filters.counterpartId &&
       !counterpartIdsByMode[mode].includes(filters.counterpartId)
     ) {
-      setFilters((current) => ({ ...current, counterpartId: undefined }));
+      setSyncedFilters((current) => ({ ...current, counterpartId: undefined }), false);
     }
   }, [mode, counterpartIdsByMode, filters.counterpartId]);
 
@@ -269,9 +309,9 @@ export function SnooglApp(): React.ReactElement {
 
       <SearchBar
         q={q}
-        setQ={setQ}
+        setQ={setLocalQ}
         mode={mode}
-        setMode={setMode}
+        setMode={setLocalMode}
         onSubmit={() => {
           // Send immediately after cancelling the matching pending debounce,
           // so one Enter press produces exactly one host query.
@@ -298,7 +338,7 @@ export function SnooglApp(): React.ReactElement {
         <FiltersRail
           mode={mode}
           filters={filters}
-          setFilters={setFilters}
+          setFilters={setLocalFilters}
           kinds={kindsByMode[mode]}
           counterpartIds={counterpartIdsByMode[mode]}
         />

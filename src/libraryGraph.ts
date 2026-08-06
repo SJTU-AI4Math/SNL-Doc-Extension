@@ -41,6 +41,54 @@ export interface LibraryGraph {
   relationships: GraphRelationship[];
 }
 
+export type RenameGraphNodeResult<N extends GraphNode, R extends GraphRelationship> =
+  | { ok: true; nodes: N[]; relationships: R[] }
+  | { ok: false; reason: 'invalid' | 'duplicate' | 'notFound' };
+
+/**
+ * Rename a graph-local node identity without touching the Entry identity in
+ * `props.entryId`. Every incident edge is rewritten in the same immutable
+ * projection so branch topology and non-branch references stay attached.
+ */
+export function renameGraphNodeId<
+  N extends GraphNode,
+  R extends GraphRelationship
+>(
+  nodes: readonly N[],
+  relationships: readonly R[],
+  oldNodeId: string,
+  newNodeId: string
+): RenameGraphNodeResult<N, R> {
+  const nextId = newNodeId.trim();
+  if (
+    nextId.length === 0 ||
+    nextId !== newNodeId ||
+    /[\u0000-\u001f\u007f]/u.test(nextId)
+  ) {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (!nodes.some((node) => node.id === oldNodeId)) {
+    return { ok: false, reason: 'notFound' };
+  }
+  if (nextId !== oldNodeId && nodes.some((node) => node.id === nextId)) {
+    return { ok: false, reason: 'duplicate' };
+  }
+  if (nextId === oldNodeId) {
+    return { ok: true, nodes: nodes.slice(), relationships: relationships.slice() };
+  }
+  return {
+    ok: true,
+    nodes: nodes.map((node) =>
+      node.id === oldNodeId ? ({ ...node, id: nextId } as N) : node
+    ),
+    relationships: relationships.map((relationship) => ({
+      ...relationship,
+      from: relationship.from === oldNodeId ? nextId : relationship.from,
+      to: relationship.to === oldNodeId ? nextId : relationship.to
+    }))
+  };
+}
+
 /** Kind lookup shape needed by numberFor — a thin view of EntryKind. Since
  *  the 2026-07-16 rename, a kind names a Library-scoped counter (by
  *  `counter.name`) rather than carrying a numbering DSL directly. */

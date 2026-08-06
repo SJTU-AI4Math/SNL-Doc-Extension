@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('vscode', () => ({}));
+vi.mock('vscode', () => ({
+  env: { language: 'en' },
+  FileType: { Directory: 2 },
+  Uri: { joinPath: (...parts: any[]) => parts.join('/') },
+  workspace: {
+    fs: { stat: vi.fn(async () => ({ type: 2 })) },
+    getConfiguration: vi.fn(() => ({ get: vi.fn(() => undefined) }))
+  },
+  window: { showInformationMessage: vi.fn(), showWarningMessage: vi.fn(), showErrorMessage: vi.fn() }
+}));
 
 const graphReads: Array<{ resolve: (value: any) => void; promise: Promise<any> }> = [];
 const counterReads: Array<{ resolve: (value: any) => void; promise: Promise<any> }> = [];
@@ -8,6 +17,7 @@ let operationMode = false;
 let operationGraph: { nodes: any[]; relationships: any[] } = { nodes: [], relationships: [] };
 let operationCounterMode = false;
 let operationCounters: any[] = [];
+let createResult: any = { status: 'created', slug: 'new-library', title: 'New Library' };
 function deferred(queue: Array<{ resolve: (value: any) => void; promise: Promise<any> }>): Promise<any> {
   let resolve!: (value: any) => void;
   const promise = new Promise<any>((done) => { resolve = done; });
@@ -16,7 +26,7 @@ function deferred(queue: Array<{ resolve: (value: any) => void; promise: Promise
 }
 
 vi.mock('./snlDoc', () => ({
-  addEntry: vi.fn(), createLibrary: vi.fn(), entityRevision: vi.fn(), updateLibrary: vi.fn(),
+  addEntry: vi.fn(), createLibrary: vi.fn(async () => createResult), entityRevision: vi.fn(() => 'revision'), updateLibrary: vi.fn(),
   writeLibraryCounters: vi.fn(async (_root: unknown, _slug: string, counters: any[]) => {
     operationCounters = structuredClone(counters);
   }),
@@ -24,7 +34,7 @@ vi.mock('./snlDoc', () => ({
     operationGraph = structuredClone(graph);
     return { status: 'ok' };
   }),
-  readLibraryMeta: vi.fn(),
+  readLibraryMeta: vi.fn(async () => ({ status: 'ok', meta: { title: createResult.title } })),
   readLibraryGraph: vi.fn(() => operationMode
     ? Promise.resolve({ status: 'ok', result: { graph: structuredClone(operationGraph), warnings: [] } })
     : deferred(graphReads)),
@@ -38,6 +48,9 @@ vi.mock('./panelUtil', () => ({
   handlePanelNavMessage: async () => false, installSnlDocWatcher: () => undefined
 }));
 vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) }));
+vi.mock('./preferences', () => ({
+  extension_preferences_runtime: { query_environment: () => ({ language: 'en' }) }
+}));
 vi.mock('./graphSiblingOrder', () => ({ moveGraphSibling: vi.fn() }));
 
 function panelHarness(prototype: object, posted: any[]): any {
@@ -56,6 +69,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
     operationGraph = { nodes: [], relationships: [] };
     operationCounterMode = false;
     operationCounters = [];
+    createResult = { status: 'created', slug: 'new-library', title: 'New Library' };
   });
 
   it('lets only the latest graph refresh publish', async () => {
@@ -114,6 +128,61 @@ describe('CreateLibraryPanel refresh ordering', () => {
     expect(operationGraph.nodes.map((node) => node.props.entryId).sort()).toEqual(['entry-a', 'entry-b']);
   });
 
+  it('persists graph-local node renames with all incident edges rewritten', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [
+        { id: 'root', label: 'Entry', props: { entryId: 'entry-a' } },
+        { id: 'child', label: 'Entry', props: { entryId: 'entry-b' } }
+      ],
+      relationships: [
+        { from: 'root', to: 'child', label: 'branch' },
+        { from: 'child', to: 'root', label: 'reference' }
+      ]
+    };
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'renameNode', nodeId: 'root', newNodeId: 'intro' }
+    });
+
+    expect(operationGraph.nodes.map((node) => node.id)).toEqual(['intro', 'child']);
+    expect(operationGraph.nodes[0].props.entryId).toBe('entry-a');
+    expect(operationGraph.relationships).toEqual([
+      { from: 'intro', to: 'child', label: 'branch' },
+      { from: 'child', to: 'intro', label: 'reference' }
+    ]);
+  });
+
+  it('rejects a duplicate node id without writing the graph', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [
+        { id: 'root', label: 'Entry', props: { entryId: 'entry-a' } },
+        { id: 'child', label: 'Entry', props: { entryId: 'entry-b' } }
+      ],
+      relationships: [{ from: 'root', to: 'child', label: 'branch' }]
+    };
+    const before = structuredClone(operationGraph);
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'renameNode', nodeId: 'root', newNodeId: 'child' }
+    });
+
+    expect(operationGraph).toEqual(before);
+    expect(posted).toContainEqual({
+      type: 'graphError',
+      message: 'A node with ID "child" already exists.'
+    });
+  });
+
   it('serializes rapid counter operations so both mutations survive', async () => {
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     operationCounterMode = true;
@@ -124,5 +193,28 @@ describe('CreateLibraryPanel refresh ordering', () => {
       panel.handleMessage({ type: 'counterOp', op: { op: 'addRoot', insertAfter: null, seed: { name: 'B', numbering: '' } } })
     ]);
     expect(operationCounters.map((node) => node.name).sort()).toEqual(['A', 'B']);
+  });
+
+  it('rekeys the create singleton and turns the same host panel into the created library editor', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationCounterMode = true;
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    panel.mode = 'create';
+    panel.slug = '';
+    panel.panel.title = 'SNL Create Library';
+    const instances = (CreateLibraryPanel as any).instances as Map<string, any>;
+    instances.clear();
+    instances.set('create:', panel);
+
+    await panel.handleMessage({ type: 'create', title: 'New Library' });
+
+    expect(panel.mode).toBe('edit');
+    expect(panel.slug).toBe('new-library');
+    expect(panel.panel.title).toBe('SNL Edit Library — new-library');
+    expect(instances.get('edit:new-library')).toBe(panel);
+    expect(instances.has('create:')).toBe(false);
+    expect(posted.some((message) => message.type === 'context' && message.mode === 'edit')).toBe(true);
   });
 });

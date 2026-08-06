@@ -61,6 +61,7 @@ describe('Library editor localization', () => {
     expect(view.getByRole('heading', { name: '编辑文库' })).toBeTruthy();
     expect(view.getByText('标识（只读）')).toBeTruthy();
     expect(view.getByRole('heading', { name: '计数器（2）' })).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: '展开计数器' }));
     expect(view.getAllByText('（名称重复）')).toHaveLength(2);
     expect(view.getByRole('heading', { name: '大纲' })).toBeTruthy();
     expect(view.getByText('0 个节点 · 0 条分支边')).toBeTruthy();

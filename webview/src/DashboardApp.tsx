@@ -312,32 +312,14 @@ function NotInitialized({
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         {t('setupIntroBefore')} <code>.SNL_Doc/</code> {t('setupIntroAfter')}
       </p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <Button
-          type="button"
-          onClick={() => onStart('init')}
-          disabled={busy}
-          variant="primary"
-        >
-          {t('runInit')}
-        </Button>
-        <Button
-          type="button"
-          onClick={() => onStart('initEntryKinds')}
-          disabled={busy}
-          variant="secondary"
-        >
-          {t('initEntryKinds')}
-        </Button>
-        <Button
-          type="button"
-          onClick={() => onStart('initMacroKinds')}
-          disabled={busy}
-          variant="secondary"
-        >
-          {t('initMacroKinds')}
-        </Button>
-      </div>
+      <Button
+        type="button"
+        onClick={() => onStart('init')}
+        disabled={busy}
+        variant="primary"
+      >
+        {t('runInit')}
+      </Button>
       <p role="status" aria-live="polite" aria-label={t('setupStatus')} style={{ minHeight: '1.25rem' }}>
         {busy ? t('initializing') : ''}
       </p>
@@ -367,7 +349,6 @@ function Initialized({
   const [openMacros, setOpenMacros] = useState(false);
   const [openEntryKinds, setOpenEntryKinds] = useState(false);
   const [openMacroKinds, setOpenMacroKinds] = useState(false);
-  const [openDataMaintenance, setOpenDataMaintenance] = useState(false);
 
   const totalEntries =
     overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
@@ -403,11 +384,9 @@ function Initialized({
       <p role="status" aria-live="polite" aria-label={t('setupStatus')} style={{ minHeight: '1.25rem' }}>
         {setupBusy ? t('initializing') : ''}
       </p>
-      <CollapsibleSection
+      <StaticSection
         title={t('dataMaintenance')}
         subtitle={`${overview.dataStatus.currentVersion ?? t('unknown')} → ${overview.dataStatus.targetVersion}`}
-        expanded={openDataMaintenance}
-        onToggle={() => setOpenDataMaintenance((value) => !value)}
         headerActions={
           <>
             <HeaderActionButton
@@ -433,7 +412,7 @@ function Initialized({
             {t('pendingMigrations', { count: overview.dataStatus.pendingCount })}
           </p>
         ) : null}
-      </CollapsibleSection>
+      </StaticSection>
       {dataOperation.status === 'running' ? (
         <span
           role="status"
@@ -661,6 +640,29 @@ function Initialized({
         />
       </CollapsibleSection>
     </main>
+  );
+}
+
+function StaticSection({
+  title,
+  subtitle,
+  headerActions,
+  children
+}: {
+  title: string;
+  subtitle: string;
+  headerActions?: React.ReactNode;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', borderBottom: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))' }}>
+        <span style={{ fontWeight: 600, fontSize: '1.05rem' }}>{title}</span>
+        <span style={{ opacity: 0.7, fontSize: '0.9rem' }}>{subtitle}</span>
+        {headerActions ? <div style={{ display: 'flex', gap: '0.35rem', marginLeft: 'auto' }}>{headerActions}</div> : null}
+      </div>
+      <div style={{ marginTop: '0.5rem' }}>{children}</div>
+    </section>
   );
 }
 

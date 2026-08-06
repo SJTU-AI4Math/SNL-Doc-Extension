@@ -48,7 +48,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     openInfoview: 'Open library "{slug}" in the Infoview reading surface',
     editHelp: 'Update this library’s display title and outline. The slug (directory name) is immutable — delete + recreate to rename.',
     createHelp: 'Add a new library to the existing .SNL_Doc/. The title is written to libraries/<slug>/meta.json; the slug (directory name) is derived from the title.',
-    slugReadonly: 'Slug (readonly)', slugImmutable: 'IDs / slugs are immutable; delete + recreate to rename',
+    slugReadonly: 'Slug (readonly)', slugImmutable: 'The library slug is immutable; delete + recreate the library to rename it',
     libraryTitle: 'Library title', titlePlaceholder: 'e.g. Real Analysis', updating: 'Updating…',
     creating: 'Creating…', updateTitle: 'Update Title',
     expandCounters: 'Expand counters', collapseCounters: 'Collapse counters', expand: 'Expand', collapse: 'Collapse',
@@ -63,6 +63,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
     noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
     defaultCounter: '<default>', copyEntryId: 'Click to copy entry id\n{id}', entryId: 'Entry id',
+    nodeId: 'Node ID {id}', nodeIdTitle: 'Graph-local node ID; changing it does not rename the Entry',
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
@@ -74,7 +75,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     viewInfoview: '在信息视图中查看', openInfoview: '在信息视图阅读界面中打开文库“{slug}”',
     editHelp: '更新此文库的显示标题和大纲。标识（目录名）不可更改；如需重命名，请删除后重新创建。',
     createHelp: '向现有 .SNL_Doc/ 添加新文库。标题将写入 libraries/<slug>/meta.json；标识（目录名）根据标题生成。',
-    slugReadonly: '标识（只读）', slugImmutable: 'ID 和标识不可更改；如需重命名，请删除后重新创建',
+    slugReadonly: '标识（只读）', slugImmutable: '文库标识不可更改；如需重命名文库，请删除后重新创建',
     libraryTitle: '文库标题', titlePlaceholder: '例如：实分析', updating: '正在更新…', creating: '正在创建…', updateTitle: '更新标题',
     expandCounters: '展开计数器', collapseCounters: '折叠计数器', expand: '展开', collapse: '折叠',
     counters: '计数器（{count}）', addFirstCounter: '+ 添加第一个计数器', addRootCounter: '+ 添加根计数器',
@@ -86,7 +87,8 @@ const LIBRARY_MESSAGES = defineUiMessages(
     addRootEntry: '+ 添加根条目', untitled: '（无标题）', openEntry: '打开“编辑条目”：{id}\n类型：{kind}',
     pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
     pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
-    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
+    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', nodeId: '节点 ID {id}',
+    nodeIdTitle: '图中的局部节点 ID；修改它不会重命名条目', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
     graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
@@ -279,8 +281,11 @@ export function CreateLibraryApp(): React.ReactElement {
           titleDirtyRef.current = false;
           setFormDirty(false);
           saveDraft(apiRef.current, editorDraftKey('library', 'edit', msg.slug), undefined);
+          setMode('edit');
+          setSlug(msg.slug);
+          setTargetState('found');
           setStatus({ kind: 'created', slug: msg.slug, title: msg.title });
-          setTitle('');
+          setTitle(msg.title);
           break;
         case 'updated':
           titleDirtyRef.current = false;
@@ -609,7 +614,7 @@ function CountersSection({
   onCounterOp: (op: Record<string, unknown>) => void;
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const total = useMemo(() => countCounterTree(counters), [counters]);
 
   // Parent lookup so "add sibling" can resolve the containing list, and the
@@ -1194,6 +1199,9 @@ function OutlineEditor({
       metricThresholds={graph.metricThresholds}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
+      onRenameNode={(nodeId, newNodeId) =>
+        onGraphOp({ op: 'renameNode', nodeId, newNodeId })
+      }
     />
   );
 
@@ -1276,7 +1284,7 @@ function OutlineEditor({
         <Button
           type="button"
           onClick={() => startAdd(null, null)}
-          style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem' }}
+          style={{ ...toolbarButtonStyle(false), marginTop: '0.75rem', width: '100%', display: 'block', textAlign: 'left' }}
         >
           {t('addRootEntry')}
         </Button>
@@ -1295,6 +1303,7 @@ interface OutlineRowContentProps {
   metricThresholds: EntryMetricThresholds;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
+  onRenameNode: (nodeId: string, newNodeId: string) => void;
 }
 
 /**
@@ -1311,7 +1320,8 @@ function OutlineRowContent({
   metricResult,
   metricThresholds,
   onOpenEntry,
-  onUpdateNodeCounter
+  onUpdateNodeCounter,
+  onRenameNode
 }: OutlineRowContentProps): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const entry = node.props.entryId
@@ -1346,6 +1356,11 @@ function OutlineRowContent({
       >
         {num ?? '—'}
       </span>
+
+      <OutlineNodeIdEditor
+        nodeId={node.id}
+        onCommit={(newNodeId) => onRenameNode(node.id, newNodeId)}
+      />
 
       {kind ? <KindBadge kind={kind} /> : null}
 
@@ -1509,6 +1524,56 @@ function OutlineRowContent({
   );
 }
 
+function OutlineNodeIdEditor({
+  nodeId,
+  onCommit
+}: {
+  nodeId: string;
+  onCommit: (newNodeId: string) => void;
+}): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
+  const [draft, setDraft] = useState(nodeId);
+  useEffect(() => setDraft(nodeId), [nodeId]);
+  const commit = (): void => {
+    if (draft !== nodeId) onCommit(draft);
+  };
+  return (
+    <input
+      value={draft}
+      aria-label={t('nodeId', { id: nodeId })}
+      title={t('nodeIdTitle')}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          setDraft(nodeId);
+          event.currentTarget.blur();
+        }
+      }}
+      style={{
+        width: '5.5rem',
+        flex: '0 1 5.5rem',
+        minWidth: '3.5rem',
+        boxSizing: 'border-box',
+        padding: '0.1rem 0.3rem',
+        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+        fontSize: '0.72rem',
+        color: 'var(--vscode-input-foreground, inherit)',
+        background: 'var(--vscode-input-background, #2a2a2a)',
+        border: '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+        borderRadius: '2px'
+      }}
+    />
+  );
+}
+
 function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
   const color = kind.coloring;
   return (
@@ -1643,6 +1708,7 @@ function AddNodeForm({
             validate={ENTRY_VALIDATE_RULES.permitNew}
             hideResolvedChip
             autoFocus
+            suggestionsInFlow
             idPrefix="snl-outline-entryid"
             placeholder={t('entryPlaceholder')}
             onChange={(next) =>

@@ -200,6 +200,10 @@ export interface EntityIdSearchBoxProps {
    *  input on match. Useful when the caller already renders its own
    *  status line (e.g. Library AddNodeForm). Default: false. */
   hideResolvedChip?: boolean;
+  /** Render suggestions in normal document flow instead of overlaying the
+   *  controls below. Intended for compact forms with primary actions directly
+   *  under the search box. */
+  suggestionsInFlow?: boolean;
 }
 
 /**
@@ -232,7 +236,8 @@ export function EntityIdSearchBox(
     inputStyle,
     autoFocus = false,
     idPrefix,
-    hideResolvedChip = false
+    hideResolvedChip = false,
+    suggestionsInFlow = false
   } = props;
   const t = useUiMessages(MESSAGES);
 
@@ -472,18 +477,18 @@ export function EntityIdSearchBox(
           id={listboxId}
           role="listbox"
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 100,
-            margin: 0,
+            position: suggestionsInFlow ? 'static' : 'absolute',
+            top: suggestionsInFlow ? undefined : '100%',
+            left: suggestionsInFlow ? undefined : 0,
+            right: suggestionsInFlow ? undefined : 0,
+            zIndex: suggestionsInFlow ? undefined : 100,
+            margin: suggestionsInFlow ? '2px 0 0' : 0,
             padding: 0,
             listStyle: 'none',
             maxHeight: '260px',
             overflowY: 'auto',
             background:
-              'var(--vscode-quickInput-background, var(--vscode-editor-background, white))',
+              'var(--vscode-quickInput-background, var(--vscode-editor-background, #1e1e1e))',
             border:
               '1px solid var(--vscode-quickInput-list-focusBackground, rgba(0,0,0,0.15))',
             boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
@@ -560,15 +565,15 @@ export function EntityIdSearchBox(
       {open && results.length === 0 && trimmed.length > 0 ? (
         <div
           style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 100,
+            position: suggestionsInFlow ? 'static' : 'absolute',
+            top: suggestionsInFlow ? undefined : '100%',
+            left: suggestionsInFlow ? undefined : 0,
+            right: suggestionsInFlow ? undefined : 0,
+            zIndex: suggestionsInFlow ? undefined : 100,
             marginTop: '2px',
             padding: '0.5rem',
             background:
-              'var(--vscode-quickInput-background, var(--vscode-editor-background, white))',
+              'var(--vscode-quickInput-background, var(--vscode-editor-background, #1e1e1e))',
             border:
               '1px solid var(--vscode-quickInput-list-focusBackground, rgba(0,0,0,0.15))',
             boxShadow: '0 4px 12px rgba(0,0,0,0.25)',

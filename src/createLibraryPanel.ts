@@ -22,6 +22,7 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
+import { renameGraphNodeId } from './libraryGraph';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
 
@@ -60,6 +61,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent: nodeId required',
     updateNodeRequired: 'updateNodeProps: nodeId is required',
     updateNodeNotFound: 'updateNodeProps: node "{node}" not found',
+    renameNodeRequired: 'renameNode: nodeId and newNodeId are required',
+    renameNodeInvalid: 'Node ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
+    renameNodeDuplicate: 'A node with ID "{node}" already exists.',
+    renameNodeNotFound: 'Node "{node}" no longer exists.',
     unknownGraphOp: 'unknown graphOp: {op}'
   },
   {
@@ -96,6 +101,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent：必须指定 nodeId',
     updateNodeRequired: 'updateNodeProps：必须指定 nodeId',
     updateNodeNotFound: 'updateNodeProps：找不到节点“{node}”',
+    renameNodeRequired: 'renameNode：必须指定 nodeId 和 newNodeId',
+    renameNodeInvalid: '节点 ID 不能为空、不能包含首尾空白或控制字符。',
+    renameNodeDuplicate: '节点 ID“{node}”已存在。',
+    renameNodeNotFound: '节点“{node}”已不存在。',
     unknownGraphOp: '未知 graphOp：{op}'
   }
 );
@@ -145,9 +154,9 @@ export class CreateLibraryPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
-  private readonly mode: 'create' | 'edit';
+  private mode: 'create' | 'edit';
   /** Only set when mode === 'edit'; the library slug being edited. */
-  private readonly slug: string;
+  private slug: string;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
   private graphGeneration = 0;
@@ -191,14 +200,9 @@ export class CreateLibraryPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
-    bind_preferences_panel_title(panel, () => mode === 'edit'
-      ? libraryT()('editTitle', { slug })
-      : libraryT()('createTitle'));
 
-    CreateLibraryPanel.instances.set(
-      key,
-      new CreateLibraryPanel(panel, extensionUri, mode, slug)
-    );
+    const instance = new CreateLibraryPanel(panel, extensionUri, mode, slug);
+    CreateLibraryPanel.instances.set(key, instance);
   }
 
   private constructor(
@@ -211,6 +215,9 @@ export class CreateLibraryPanel {
     this.extensionUri = extensionUri;
     this.mode = mode;
     this.slug = slug;
+    bind_preferences_panel_title(this.panel, () => this.mode === 'edit'
+      ? libraryT()('editTitle', { slug: this.slug })
+      : libraryT()('createTitle'));
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -322,6 +329,22 @@ export class CreateLibraryPanel {
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({ type: 'error', message: text });
     }
+  }
+
+  private transitionToEdit(slug: string): void {
+    const currentKey = `${this.mode}:${this.slug}`;
+    if (CreateLibraryPanel.instances.get(currentKey) === this) {
+      CreateLibraryPanel.instances.delete(currentKey);
+    }
+    const editKey = `edit:${slug}`;
+    const conflictingEditor = CreateLibraryPanel.instances.get(editKey);
+    if (conflictingEditor && conflictingEditor !== this) {
+      conflictingEditor.dispose();
+    }
+    this.mode = 'edit';
+    this.slug = slug;
+    CreateLibraryPanel.instances.set(editKey, this);
+    this.panel.title = libraryT()('editTitle', { slug });
   }
 
   /** Push the current graph + entry pool + kinds to the webview so the
@@ -555,11 +578,13 @@ export class CreateLibraryPanel {
           vscode.window.showInformationMessage(
             libraryT()('libraryCreated', { title: result.title, slug: result.slug })
           );
-          void this.panel.webview.postMessage({
+          this.transitionToEdit(result.slug);
+          await this.panel.webview.postMessage({
             type: 'created',
             slug: result.slug,
             title: result.title
           });
+          await this.pushContext();
           return;
       }
     } catch (err) {
@@ -954,6 +979,30 @@ export class CreateLibraryPanel {
               from: grandparentId
             };
           }
+          break;
+        }
+        case 'renameNode': {
+          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+          const newNodeId = typeof op.newNodeId === 'string' ? op.newNodeId : '';
+          if (!nodeId || !newNodeId) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: libraryT()('renameNodeRequired')
+            });
+            return;
+          }
+          const renamed = renameGraphNodeId(nodes, relationships, nodeId, newNodeId);
+          if (!renamed.ok) {
+            const message = renamed.reason === 'invalid'
+              ? libraryT()('renameNodeInvalid')
+              : renamed.reason === 'duplicate'
+                ? libraryT()('renameNodeDuplicate', { node: newNodeId })
+                : libraryT()('renameNodeNotFound', { node: nodeId });
+            void this.panel.webview.postMessage({ type: 'graphError', message });
+            return;
+          }
+          nodes = renamed.nodes;
+          relationships = renamed.relationships;
           break;
         }
         case 'updateNodeProps': {

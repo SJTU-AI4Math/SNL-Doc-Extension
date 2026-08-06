@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('Dashboard library actions', () => {
-  it('offers Entry and Macro Kind initialization from the initial setup panel', async () => {
+  it('offers exactly one initialization action before the workspace is initialized', async () => {
     render(<DashboardApp />);
 
     window.dispatchEvent(new MessageEvent('message', {
@@ -27,28 +27,15 @@ describe('Dashboard library actions', () => {
       }
     }));
 
-    expect(await screen.findByRole('button', { name: 'Run SNL: Init' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Initialize Entry Kinds' }));
+    const init = await screen.findByRole('button', { name: 'Run SNL: Init' });
+    expect(screen.queryByRole('button', { name: 'Initialize Entry Kinds' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Initialize Macro Kinds' })).toBeNull();
 
+    fireEvent.click(init);
+    expect((init as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole('status', { name: 'SNL setup status' }).textContent).toContain('Initializing SNL workspace');
-    for (const name of ['Run SNL: Init', 'Initialize Entry Kinds', 'Initialize Macro Kinds']) {
-      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
-    }
 
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { type: 'setupStatus', status: 'idle' }
-    }));
-    await waitFor(() => {
-      expect(
-        (screen.getByRole('button', { name: 'Initialize Macro Kinds' }) as HTMLButtonElement).disabled
-      ).toBe(false);
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Initialize Macro Kinds' }));
-
-    await waitFor(() => {
-      expect(postMessage).toHaveBeenCalledWith({ type: 'initEntryKinds' });
-      expect(postMessage).toHaveBeenCalledWith({ type: 'initMacroKinds' });
-    });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'init' }));
   });
 
   it('offers Create as well as Initialize when both Kind catalogs are empty', async () => {
@@ -176,6 +163,9 @@ describe('Dashboard library actions', () => {
 
     expect(await screen.findByText('Data maintenance')).toBeTruthy();
     expect(screen.getByText('0.0.3 → 0.0.4')).toBeTruthy();
+    expect(screen.getByText('1 migration step required.')).toBeTruthy();
+    expect(screen.getByText('1 pending migration step(s).')).toBeTruthy();
+    expect(screen.getByText('Data maintenance').closest('button')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Check data' }));
     fireEvent.click(screen.getByRole('button', { name: 'Repair / migrate data' }));
     window.dispatchEvent(new MessageEvent('message', {
@@ -250,7 +240,8 @@ describe('Dashboard Chinese localization', () => {
       data: { type: 'overview', overview: { hasSnlDoc: false } }
     }));
     expect(await screen.findByRole('button', { name: '运行 SNL：初始化' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '初始化条目类别' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '初始化条目类别' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '初始化宏类别' })).toBeNull();
     expect(screen.getByRole('status', { name: 'SNL 设置状态' })).toBeTruthy();
 
     unmount();

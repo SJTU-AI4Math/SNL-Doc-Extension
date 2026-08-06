@@ -154,10 +154,16 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
     await messageHandler!({
       type: 'update',
-      entry: { id: 'thm-second', kind: 'definition', title: 'Second edited', content: {} }
+      entry: {
+        id: 'thm-second', kind: 'definition', title: 'Second edited', content: {},
+        contribution_info: 'Grace Hopper'
+      }
     });
     expect(snlDoc.addEntry).toHaveBeenCalledTimes(1);
     expect(snlDoc.updateEntry).toHaveBeenCalledTimes(1);
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][1]).toBe('thm-second');
+    expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][2]).toMatchObject({
+      contribution_info: 'Grace Hopper'
+    });
   });
 });

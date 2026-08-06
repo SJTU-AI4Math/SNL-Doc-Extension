@@ -26,6 +26,9 @@ import {
   type MacroEnvelope
 } from './entityStorage';
 import {
+  normalizeEntryContributor
+} from './entryContributor';
+import {
   readEntryEntityRecords,
   readMacroEntityRecords,
   readPackageManifestRecords,
@@ -3495,7 +3498,10 @@ export async function listMacroKinds(
  *  - `title`: display title (English for now; i18n later).
  *  - `content`: at most one non-empty format in practice, but all optional —
  *    the editor lets the author fill any subset.
- *  - `contribution_info` / `pointer`: schemas deferred; stored verbatim.
+ *  - `contribution_info`: TEMPORARY single Contributor string. This shape may
+ *    change; objects/arrays are deliberately unsupported. Missing values from
+ *    older Entries remain readable.
+ *  - `pointer`: schema deferred; stored verbatim.
  */
 export interface EntryData {
   id: string;
@@ -3510,7 +3516,11 @@ export interface EntryData {
     markdown?: Localized<string, string>;
     text?: Localized<string, string>;
   };
-  contribution_info: unknown;
+  /**
+   * TEMPORARY Contributor shape: exactly one string, or null/missing for
+   * backward compatibility. This is not a stable author/credit schema.
+   */
+  contribution_info?: string | null;
   // Optional structured pointer to a location in a source file (cat
   // 2026-07-11). `null` when unset. See src/pointer.ts for the shape
   // and resolver.
@@ -3616,6 +3626,15 @@ export async function addEntry(
       reason: error instanceof Error ? error.message : String(error)
     };
   }
+  let contributor: string | null;
+  try {
+    contributor = normalizeEntryContributor(entry.contribution_info);
+  } catch (error) {
+    return {
+      status: 'invalid',
+      reason: error instanceof Error ? error.message : String(error)
+    };
+  }
   const packageId = typeof entry.package === 'string' && entry.package.trim()
     ? entry.package.trim()
     : UNPACKAGED_PACKAGE_ID;
@@ -3636,7 +3655,7 @@ export async function addEntry(
     kind,
     title,
     content: normalizedContent,
-    contribution_info: entry.contribution_info ?? null,
+    contribution_info: contributor,
     pointer: entry.pointer ?? null
   };
   // Drop undefined content fields so entries.json stays tidy.
@@ -4230,6 +4249,15 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
+  let contributor: string | null;
+  try {
+    contributor = normalizeEntryContributor(entry.contribution_info);
+  } catch (error) {
+    return {
+      status: 'invalid',
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
   const currentPackageId = pool[idx].package ?? UNPACKAGED_PACKAGE_ID;
   const packageId = entityMode && typeof entry.package === 'string' && entry.package.trim()
     ? entry.package.trim()
@@ -4259,7 +4287,7 @@ export async function updateEntry(
     kind,
     title,
     content: mergedContent as EntryData['content'],
-    contribution_info: entry.contribution_info ?? null,
+    contribution_info: contributor,
     pointer: entry.pointer ?? null
   };
   for (const key of Object.keys(record.content) as Array<

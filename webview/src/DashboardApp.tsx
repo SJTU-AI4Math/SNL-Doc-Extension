@@ -128,7 +128,8 @@ interface EntryData {
     markdown?: string;
     text?: string;
   };
-  contribution_info?: unknown;
+  /** TEMPORARY: exactly one Contributor string; this shape may change. */
+  contribution_info?: string | null;
   pointer?: unknown;
 }
 

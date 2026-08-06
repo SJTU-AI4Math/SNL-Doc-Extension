@@ -7,7 +7,7 @@
 //   4. Content   — SNL / Typst / LaTeX / Markdown / Text tabs (each its own
 //                  textarea; SNL has a Text / GUI (Inductive) sub-switch)
 //   5. Relationships — edit-only, collapsed by default
-//   6. Contributor — deferred placeholder, collapsed by default
+//   6. Contributor — temporary single-string field, collapsed by default
 //   7. Pointer     — schema-driven source binding editor, collapsed by default
 //   8. Submit/Cancel + result banner
 //
@@ -158,7 +158,8 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   sourcePlaceholder: '{format} source…',
   monacoPlanned: 'Monaco editor integration planned; for now a plain textarea.',
   contributor: 'Contributor',
-  contributorDeferred: 'Not implemented yet — deferred until the contribution_info schema is defined.',
+  contributorPlaceholder: 'e.g. Ada Lovelace',
+  contributorTemporary: 'Temporary single-string field — this Contributor shape may change.',
   pointer: 'Pointer',
   canvasMultipleRoots: 'Save is disabled while the Canvas syntax forest has multiple roots. Attach the loose blocks or reset the Canvas.',
   canvasSingleSlot: 'Save is disabled because a Macro has a single unfilled slot, which cannot be written to SNL — an empty slot needs a comma, so give that Macro another argument or fill the slot.',
@@ -299,7 +300,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   missingPackage: '所选宏包已不存在。草稿已保留；保存前请选择其他宏包。', packageHint: '以后可以更改宏包归属；移动条目会保留其 ID 和引用。',
   kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
-  monacoPlanned: '计划集成 Monaco 编辑器；目前暂用普通文本框。', contributor: '贡献者', contributorDeferred: '尚未实现——待 contribution_info 模式定义后再实现。', pointer: '指针',
+  monacoPlanned: '计划集成 Monaco 编辑器；目前暂用普通文本框。', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
   canvasSingleSlot: '某个宏只有一个未填槽位，无法写入 SNL，因此无法保存——空槽位需要逗号；请为该宏再添加一个参数或填充此槽位。',
   updating: '正在更新…', creating: '正在创建…', updateEntry: '更新条目', resetBanner: '重置横幅', cancel: '取消',
@@ -375,7 +376,8 @@ interface ExistingEntry {
     markdown?: Localized<string, string>;
     text?: Localized<string, string>;
   };
-  contribution_info?: unknown;
+  /** TEMPORARY: exactly one Contributor string; this shape may change. */
+  contribution_info?: string | null;
   pointer?: unknown;
 }
 
@@ -634,6 +636,8 @@ export function CreateEntryApp(): React.ReactElement {
   const [contentI18n, setContentI18n] = useState<
     Partial<Record<LocalizableContentFormat, I18n<string, string>>>
   >({});
+  const [contributor, setContributor] = useState('');
+  const contributorDirtyRef = useRef(false);
   const [pointerDraft, setPointerDraft] = useState<PointerDraft>(() => ({
     ...EMPTY_POINTER_DRAFT
   }));
@@ -676,9 +680,8 @@ export function CreateEntryApp(): React.ReactElement {
   const justCreatedIdRef = useRef<string | null>(null);
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
-    contribution_info: unknown;
     pointer: unknown;
-  }>({ contribution_info: null, pointer: null });
+  }>({ pointer: null });
 
   useEffect(() => {
     const nextLanguage = webview_language_runtime.query_environment().language;
@@ -768,6 +771,8 @@ export function CreateEntryApp(): React.ReactElement {
           setSelectedPackage('_unpackaged');
           setSelectedKind('');
           setContentI18n({});
+          setContributor('');
+          contributorDirtyRef.current = false;
           setPointerDraft({ ...EMPTY_POINTER_DRAFT });
           pointerDirtyRef.current = false;
           setRelationships([]);
@@ -827,19 +832,26 @@ export function CreateEntryApp(): React.ReactElement {
             }
             if (msg.existing) {
               // Metadata the panel does not edit but DOES write back on
-              // Update. It must be absorbed even when a draft wins, or
-              // saving from a restored draft silently nulls out
-              // contribution_info/pointer and drops every non-current
-              // language, because updateEntry overwrites the whole record.
-              // Review 2026-07-25.
+              // Update. It must be absorbed even when a draft wins, or saving
+              // from a restored draft silently drops the pointer and every
+              // non-current language, because updateEntry overwrites the whole
+              // record. Contributor is edited directly and therefore lives in
+              // identity-scoped draft state instead. Review 2026-07-25.
               existingMetadataRef.current = {
-                contribution_info: msg.existing.contribution_info ?? null,
                 pointer: msg.existing.pointer ?? null
               };
               const typst = projectLocalizedContent(msg.existing.content?.typst);
               const latex = projectLocalizedContent(msg.existing.content?.latex);
               const markdown = projectLocalizedContent(msg.existing.content?.markdown);
               const text = projectLocalizedContent(msg.existing.content?.text);
+              if (!preserveDraft || !contributorDirtyRef.current) {
+                setContributor(
+                  typeof msg.existing.contribution_info === 'string'
+                    ? msg.existing.contribution_info
+                    : ''
+                );
+                contributorDirtyRef.current = false;
+              }
               setContentI18n({
                 ...(typst.i18n ? { typst: typst.i18n } : {}),
                 ...(latex.i18n ? { latex: latex.i18n } : {}),
@@ -1035,8 +1047,7 @@ export function CreateEntryApp(): React.ReactElement {
         snl: content.snl || undefined,
         ...persistedContent
       },
-      contribution_info:
-        mode === 'edit' ? existingMetadataRef.current.contribution_info : null,
+      contribution_info: contributor.trim() || null,
       pointer:
         mode === 'edit' && !pointerDirtyRef.current
           ? existingMetadataRef.current.pointer
@@ -1074,6 +1085,7 @@ export function CreateEntryApp(): React.ReactElement {
       snlMode: 'text' | 'gui' | 'canvas';
       canvasForest?: SnlSyntaxTree[];
       pointerDraft?: PointerDraft;
+      contributor?: string;
       entryRevision?: string;
     }>(draftApi, draftKey);
     if (!restored) return;
@@ -1094,6 +1106,12 @@ export function CreateEntryApp(): React.ReactElement {
     setSelectedKind(restored.selectedKind);
     setSelectedPackage(restored.selectedPackage || '_unpackaged');
     setContent(restored.content);
+    if (typeof restored.contributor === 'string') {
+      setContributor(restored.contributor);
+      contributorDirtyRef.current = true;
+    } else {
+      contributorDirtyRef.current = false;
+    }
     setActiveFormat(restored.activeFormat);
     setSnlMode(restored.snlMode);
     if (restored.pointerDraft) {
@@ -1125,6 +1143,7 @@ export function CreateEntryApp(): React.ReactElement {
       activeFormat,
       snlMode,
       canvasForest,
+      contributor,
       pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined,
       entryRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     },
@@ -1599,9 +1618,29 @@ export function CreateEntryApp(): React.ReactElement {
           />
         ) : null}
 
-        {/* 6. Contributor ============================================= */}
+        {/* 6. Contributor (temporary single-string shape) ============== */}
         <CollapsibleEntrySection title={t('contributor')}>
-          <PlaceholderBox text={t('contributorDeferred')} />
+          <div data-testid="entry-contributor-editor">
+            <label htmlFor="snl-entry-contributor" style={{ display: 'block', fontWeight: 600 }}>
+              {t('contributor')}
+            </label>
+            <input
+              id="snl-entry-contributor"
+              className="snl-control"
+              type="text"
+              value={contributor}
+              placeholder={t('contributorPlaceholder')}
+              onChange={(event) => {
+                contributorDirtyRef.current = true;
+                markFormDirty(true);
+                setContributor(event.target.value);
+              }}
+              style={{ width: '100%', boxSizing: 'border-box' }}
+            />
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', opacity: 0.7 }}>
+              {t('contributorTemporary')}
+            </p>
+          </div>
         </CollapsibleEntrySection>
 
         {/* 7. Pointer ================================================= */}
@@ -2042,24 +2081,6 @@ function SubTabButton({
     >
       {children}
     </Button>
-  );
-}
-
-function PlaceholderBox({ text }: { text: string }): React.ReactElement {
-  return (
-    <div
-      style={{
-        padding: '0.7rem 0.9rem',
-        border:
-          '1px dashed var(--vscode-panel-border, var(--vscode-contrastBorder, #555))',
-        borderRadius: '3px',
-        opacity: 0.7,
-        fontStyle: 'italic',
-        fontSize: '0.9rem'
-      }}
-    >
-      {text}
-    </div>
   );
 }
 

@@ -307,14 +307,14 @@ interface EntryData {
     markdown?: string
     text?: string
   }
-  contribution_info: unknown  // TODO: schema deferred
+  contribution_info?: string | null // TEMPORARY: exactly one Contributor string; shape may change
   pointer: unknown            // TODO: schema deferred (binding to code)
 }
 ```
 
 - `addEntry(workspaceRoot, entry)` 追加单条、按 id 去重，校验：id 非空+唯一、`kind` 命中现存 `entry_kinds[].id`、title 非空、`content` 为 object（各格式字段皆可选）。返回 `{status:'ok',id} | {status:'duplicate',id} | {status:'unknownKind',kind} | {status:'invalid',reason} | {status:'noSnlDoc'} | {status:'error',message}`。
 - `content` 中的空字符串字段落盘时会被剔除，保持 `entries.json` 精简。
-- `contribution_info` / `pointer` 的 schema 尚未定稿，暂存 `null`（webview 侧留占位）。
+- `contribution_info` 暂时只接受一个 Contributor 字符串（或缺失/`null`，以兼容旧 Entry）；此结构不是稳定 schema，后续可能更改，当前不支持对象或数组。`pointer` 的 schema 尚未定稿。
 
 ### Entry Editor panel plan
 

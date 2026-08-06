@@ -7,12 +7,9 @@ import type { VsCodeApi } from '../vscodeApi';
 /**
  * A restored draft must not cost the entry its metadata.
  *
- * `updateEntry` on the host overwrites the whole record, so anything the
- * panel fails to send back is destroyed. Under `retainContextWhenHidden:
- * false` the panel is rebuilt from a stashed draft, and the metadata the
- * panel does not edit (contribution_info, pointer, other languages' i18n)
- * used to be absorbed only on the branch that a restored draft skipped.
- * Saving then silently nulled all of it. Review 2026-07-25.
+ * `updateEntry` overwrites the whole record, so a restored draft must still merge host-only metadata
+ * (pointer and other languages' i18n). Contributor is now an editable,
+ * identity-scoped draft field rather than deferred metadata.
  */
 
 const posted: unknown[] = [];
@@ -69,7 +66,7 @@ function sendInit(): void {
             values: { en: 'typst only in english' }
           }
         },
-        contribution_info: { author: 'someone' },
+        contribution_info: 'someone',
         pointer: { file: 'a.lean' }
       }
     }
@@ -121,7 +118,7 @@ describe('restored draft in edit mode', () => {
     });
 
     // ...but the metadata the panel never shows must survive untouched.
-    expect(submission.entry.contribution_info).toEqual({ author: 'someone' });
+    expect(submission.entry.contribution_info).toBe('someone');
     expect(submission.entry.pointer).toEqual({ file: 'a.lean' });
 
     // And the other language is still there, with only the edited one replaced.

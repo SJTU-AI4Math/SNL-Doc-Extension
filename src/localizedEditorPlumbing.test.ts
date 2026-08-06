@@ -6,10 +6,11 @@ const root = resolve(__dirname, '..');
 const source = (path: string): string => readFileSync(resolve(root, path), 'utf8');
 
 describe('localized editor data-loss guards', () => {
-  it('protects Entry drafts from watcher refresh and preserves deferred metadata', () => {
+  it('protects Entry drafts, including temporary Contributor, from watcher refresh', () => {
     const entry = source('webview/src/CreateEntryApp.tsx');
     expect(entry).toContain('formDirtyRef.current &&');
-    expect(entry).toContain('existingMetadataRef.current.contribution_info');
+    expect(entry).toContain('contributor,');
+    expect(entry).toContain('contribution_info: contributor.trim() || null');
     expect(entry).toContain('contentDirtyRef.current.has(format)');
   });
 

@@ -37,7 +37,11 @@ import {
   type CounterNode,
   type LibraryGraph
 } from './libraryGraph';
-import { readEntryEntityRecord, type EntityReadStorage } from './entityStorageIo';
+import {
+  assertCurrentEntityStorageMetadata,
+  readEntryEntityRecordWithOwner,
+  type EntityReadStorage
+} from './entityStorageIo';
 import { compareDataVersions, CURRENT_DATA_VERSION } from './dataMigrationCore';
 
 /**
@@ -387,6 +391,7 @@ export class InfoviewPanel {
           slug?: string;
           entryId?: string;
           entryPackage?: string;
+          popoverRequestKey?: string;
           level?: string;
           msg?: string;
         }
@@ -539,7 +544,14 @@ export class InfoviewPanel {
           const entryPackage = typeof msg.entryPackage === 'string' && msg.entryPackage.trim()
             ? msg.entryPackage.trim()
             : undefined;
-          await this.pushPopoverEntryDetails(msg.entryId.trim(), entryPackage);
+          const popoverRequestKey = typeof msg.popoverRequestKey === 'string' && msg.popoverRequestKey
+            ? msg.popoverRequestKey
+            : undefined;
+          await this.pushPopoverEntryDetails(
+            msg.entryId.trim(),
+            entryPackage,
+            popoverRequestKey
+          );
         }
         return;
       case 'log': {
@@ -984,12 +996,17 @@ export class InfoviewPanel {
    * entryId so the requesting webview popover can match it. Distinct from
    * `entryDetails` so it never disturbs the browser's main selection.
    */
-  private async pushPopoverEntryDetails(id: string, entryPackage?: string): Promise<void> {
+  private async pushPopoverEntryDetails(
+    id: string,
+    entryPackage?: string,
+    popoverRequestKey?: string
+  ): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
       await this.panel.webview.postMessage({
         type: 'popoverEntryDetailsError',
         entryId: id,
+        popoverRequestKey,
         message: hostText()('noWorkspace')
       });
       return;
@@ -1010,6 +1027,7 @@ export class InfoviewPanel {
         void this.panel.webview.postMessage({
           type: 'popoverEntryDetails',
           entryId: id,
+          popoverRequestKey,
           entry: null,
           kind: null
         });
@@ -1020,6 +1038,7 @@ export class InfoviewPanel {
       void this.panel.webview.postMessage({
         type: 'popoverEntryDetails',
         entryId: id,
+        popoverRequestKey,
         entry,
         kind
       });
@@ -1028,6 +1047,7 @@ export class InfoviewPanel {
       await this.panel.webview.postMessage({
         type: 'popoverEntryDetailsError',
         entryId: id,
+        popoverRequestKey,
         message: text
       });
       vscode.window.showErrorMessage(
@@ -1054,6 +1074,7 @@ export class InfoviewPanel {
       throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
     }
     if (relation === 0) {
+      assertCurrentEntityStorageMetadata(config);
       if (!entryPackage) {
         throw new Error(`Current Entry ${JSON.stringify(id)} request is missing its package identity.`);
       }
@@ -1085,7 +1106,7 @@ export class InfoviewPanel {
         }
       }
     };
-    const record = await readEntryEntityRecord(storage, entryPackage, id);
+    const record = await readEntryEntityRecordWithOwner(storage, entryPackage, id);
     return record?.entry as unknown as EntryData | undefined;
   }
 

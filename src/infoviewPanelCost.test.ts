@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { entryEntityPath } from './entityStorage';
+import { entryEntityPath, packageManifestPath } from './entityStorage';
 
 /**
  * Infoview is the main READING surface, so it is the panel cat opens most.
@@ -28,6 +28,8 @@ let entityMode = false;
 let malformedEntityEnvelope = false;
 let emptySecondEntitySnl = false;
 let missingSecondEntity = false;
+let missingEntityStorageMetadata = false;
+let missingOwnerManifest = false;
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -68,7 +70,23 @@ vi.mock('vscode', () => {
           version: entityMode ? '0.0.6' : '0.0.4',
           active_macro_packages: entityMode ? [] : ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c' }],
-          macro_kinds: [{ id: 'mk1', name: 'Operator' }]
+          macro_kinds: [{ id: 'mk1', name: 'Operator' }],
+          ...(entityMode && !missingEntityStorageMetadata ? {
+            entity_storage: {
+              version: 1,
+              legacy_backup_version: '0.0.5',
+              entry_default_package: '_unpackaged',
+              receipt: {
+                legacy_backup_present: false,
+                legacy_entries_present: false,
+                entry_count: 0,
+                macro_package_count: 0,
+                macro_count: 0,
+                entries_digest: 'entries',
+                macro_packages_digest: 'macros'
+              }
+            }
+          } : {})
         });
       case 'entries.json':
         return JSON.stringify([
@@ -101,6 +119,11 @@ vi.mock('vscode', () => {
                 format: 'snl-entry', version: 1, package: 'logic',
                 entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' } }
               });
+        }
+        if (path.includes('/packages/')) {
+          return JSON.stringify({
+            format: 'snl-package', version: 1, id: 'logic', name: 'Logic', description: ''
+          });
         }
         return '{}';
     }
@@ -204,6 +227,10 @@ vi.mock('vscode', () => {
               name === entryEntityPath('logic', 'e2').split('/').pop()) {
             throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
           }
+          if (missingOwnerManifest &&
+              name === packageManifestPath('logic').split('/').pop()) {
+            throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
+          }
           return encoder.encode(payloadFor(uri.path));
         }
       }
@@ -226,6 +253,8 @@ function reset(): void {
   malformedEntityEnvelope = false;
   emptySecondEntitySnl = false;
   missingSecondEntity = false;
+  missingEntityStorageMetadata = false;
+  missingOwnerManifest = false;
   posted.length = 0;
   commands.length = 0;
   dashboardGate = null;
@@ -339,7 +368,41 @@ describe('infoview panel read cost', () => {
       entry: expect.objectContaining({ id: 'e1', package: 'logic' })
     }));
     expect(readCounts[entityPath.split('/').pop()!]).toBe(1);
+    expect(readCounts[packageManifestPath('logic').split('/').pop()!]).toBe(1);
     expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+    expect(directoryReadCounts['/ws/.SNL_Doc/packages'] ?? 0).toBe(0);
+  });
+
+  it('rejects a current-storage popover when entity_storage metadata is missing', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+    missingEntityStorageMetadata = true;
+
+    await expect(send({ type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic' }))
+      .rejects.toThrow(/missing.*entity_storage/i);
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'popoverEntryDetailsError',
+      entryId: 'e1',
+      message: expect.stringMatching(/missing.*entity_storage/i)
+    }));
+    expect(readCounts[entryEntityPath('logic', 'e1').split('/').pop()!] ?? 0).toBe(0);
+  });
+
+  it('rejects an orphan current-storage Entry with no owner Package manifest', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+    missingOwnerManifest = true;
+
+    await expect(send({ type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic' }))
+      .rejects.toThrow(/missing Package manifest.*logic/i);
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'popoverEntryDetailsError',
+      entryId: 'e1',
+      message: expect.stringMatching(/missing Package manifest.*logic/i)
+    }));
+    expect(directoryReadCounts['/ws/.SNL_Doc/packages'] ?? 0).toBe(0);
   });
 
   it('ships package identity for current-storage Entries outside the Library outline', async () => {
@@ -397,11 +460,13 @@ describe('infoview panel read cost', () => {
     missingSecondEntity = true;
 
     await send({
-      type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic'
+      type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic',
+      popoverRequestKey: 'missing-e2'
     });
 
     expect(posted).toContainEqual({
-      type: 'popoverEntryDetails', entryId: 'e2', entry: null, kind: null
+      type: 'popoverEntryDetails', entryId: 'e2', popoverRequestKey: 'missing-e2',
+      entry: null, kind: null
     });
     expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
   });
@@ -412,12 +477,19 @@ describe('infoview panel read cost', () => {
     entityMode = true;
 
     await Promise.all([
-      send({ type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic' }),
-      send({ type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic' })
+      send({
+        type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic',
+        popoverRequestKey: 'request-e1'
+      }),
+      send({
+        type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic',
+        popoverRequestKey: 'request-e2'
+      })
     ]);
 
     expect(posted.filter((message) => message.type === 'popoverEntryDetails')
-      .map((message) => message.entryId).sort()).toEqual(['e1', 'e2']);
+      .map((message) => [message.entryId, message.popoverRequestKey]).sort())
+      .toEqual([['e1', 'request-e1'], ['e2', 'request-e2']]);
     expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
   });
 

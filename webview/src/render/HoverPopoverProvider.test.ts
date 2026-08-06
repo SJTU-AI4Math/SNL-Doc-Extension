@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   entryDetailsRequest,
+  popoverRequestIdentity,
   popoverTerminalDetail
 } from './HoverPopoverProvider';
 import type { EntryOption } from './EntrySurface';
@@ -33,6 +34,18 @@ describe('popover Entry identity requests', () => {
       entryPackage: 'analysis'
     });
   });
+
+  it('re-keys a moved Entry and a fixed Entry snapshot without changing within one snapshot', () => {
+    const first = popoverRequestIdentity('entry-1', [], { 'entry-1': 'logic' }, 4);
+    const repeated = popoverRequestIdentity('entry-1', [], { 'entry-1': 'logic' }, 4);
+    const moved = popoverRequestIdentity('entry-1', [], { 'entry-1': 'analysis' }, 5);
+    const fixed = popoverRequestIdentity('entry-1', [], { 'entry-1': 'analysis' }, 6);
+
+    expect(repeated).toEqual(first);
+    expect(moved.key).not.toBe(first.key);
+    expect(fixed.key).not.toBe(moved.key);
+    expect(moved.request).toMatchObject({ entryPackage: 'analysis' });
+  });
 });
 
 describe('popover terminal responses', () => {
@@ -53,5 +66,15 @@ describe('popover terminal responses', () => {
       type: 'popoverEntryDetails',
       entryId: 'broken'
     }, 'broken')).toBeNull();
+  });
+
+  it('rejects a terminal response from an older snapshot of the same Entry', () => {
+    expect(popoverTerminalDetail({
+      type: 'popoverEntryDetails',
+      entryId: 'entry-1',
+      popoverRequestKey: 'old',
+      entry: null,
+      kind: null
+    }, 'entry-1', 'new')).toBeNull();
   });
 });

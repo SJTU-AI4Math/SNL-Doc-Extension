@@ -44,6 +44,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+const RECEIPT_FIELDS = [
+  'legacy_backup_present',
+  'legacy_entries_present',
+  'entry_count',
+  'macro_package_count',
+  'macro_count',
+  'entries_digest',
+  'macro_packages_digest'
+] as const;
+
+/** Constant-cost structural gate for the current entity-storage topology. */
+export function assertCurrentEntityStorageMetadata(config: unknown): void {
+  if (!isRecord(config)) {
+    throw new Error('Current entity topology requires an object config.');
+  }
+  const metadata = config.entity_storage;
+  if (!isRecord(metadata)) {
+    throw new Error('Current entity topology is missing config.json#entity_storage metadata.');
+  }
+  const receipt = metadata.receipt;
+  const receiptKeys = isRecord(receipt) ? Object.keys(receipt).sort() : [];
+  const expectedKeys = [...RECEIPT_FIELDS].sort();
+  const validReceipt = isRecord(receipt) &&
+    receiptKeys.length === expectedKeys.length &&
+    receiptKeys.every((key, index) => key === expectedKeys[index]) &&
+    typeof receipt.legacy_backup_present === 'boolean' &&
+    typeof receipt.legacy_entries_present === 'boolean' &&
+    typeof receipt.entry_count === 'number' && Number.isInteger(receipt.entry_count) && receipt.entry_count >= 0 &&
+    typeof receipt.macro_package_count === 'number' && Number.isInteger(receipt.macro_package_count) && receipt.macro_package_count >= 0 &&
+    typeof receipt.macro_count === 'number' && Number.isInteger(receipt.macro_count) && receipt.macro_count >= 0 &&
+    typeof receipt.entries_digest === 'string' &&
+    typeof receipt.macro_packages_digest === 'string';
+  if (metadata.version !== 1 || metadata.legacy_backup_version !== '0.0.5' ||
+      metadata.entry_default_package !== '_unpackaged' || !validReceipt) {
+    throw new Error('Current entity topology is missing config.json#entity_storage v1 metadata and receipt.');
+  }
+}
+
 const ENTITY_READ_CONCURRENCY = 8;
 
 type ReadOutcome =
@@ -140,19 +178,58 @@ export async function readEntryEntityRecords(storage: EntityReadStorage): Promis
   return records.sort((left, right) => left.envelope.package.localeCompare(right.envelope.package) || left.entry.id.localeCompare(right.entry.id));
 }
 
+function validatePackageManifest(path: string, value: unknown): PackageManifestRecord {
+  if (!isRecord(value) || value.format !== 'snl-package' || value.version !== PACKAGE_STORAGE_VERSION ||
+      typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.description !== 'string') {
+    throw new Error(`${path} is not a valid SNL Package manifest.`);
+  }
+  assertExpectedPath(path, packageManifestPath(value.id));
+  return { path, manifest: value as PackageManifest };
+}
+
+/** Read exactly one Package manifest from its deterministic identity path. */
+export async function readPackageManifestRecord(
+  storage: EntityReadStorage,
+  packageId: string
+): Promise<PackageManifestRecord | null> {
+  const path = packageManifestPath(packageId);
+  const value = await storage.readJson(path);
+  if (value === null) return null;
+  const record = validatePackageManifest(path, value);
+  if (record.manifest.id !== packageId) {
+    throw new Error(`${path} Package identity does not match the requested identity.`);
+  }
+  return record;
+}
+
+/**
+ * Point-read one Entry and validate its requested owner Package before
+ * returning it. A missing Entry remains a normal miss; an orphan Entry is
+ * invalid current topology.
+ */
+export async function readEntryEntityRecordWithOwner(
+  storage: EntityReadStorage,
+  packageId: string,
+  entryId: string
+): Promise<EntryEntityRecord | null> {
+  const entry = await readEntryEntityRecord(storage, packageId, entryId);
+  if (!entry) return null;
+  const owner = await readPackageManifestRecord(storage, packageId);
+  if (!owner) {
+    throw new Error(`Entry ${JSON.stringify(entryId)} references missing Package manifest ${JSON.stringify(packageId)}.`);
+  }
+  return entry;
+}
+
 export async function readPackageManifestRecords(storage: EntityReadStorage): Promise<PackageManifestRecord[]> {
   const records: PackageManifestRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'packages')) {
-    if (!isRecord(value) || value.format !== 'snl-package' || value.version !== PACKAGE_STORAGE_VERSION ||
-        typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.description !== 'string') {
-      throw new Error(`${path} is not a valid SNL Package manifest.`);
-    }
-    assertExpectedPath(path, packageManifestPath(value.id));
-    const folded = value.id.toLowerCase();
-    if (ids.has(folded)) throw new Error(`Duplicate Package identity under case-folding: ${value.id}.`);
+    const record = validatePackageManifest(path, value);
+    const folded = record.manifest.id.toLowerCase();
+    if (ids.has(folded)) throw new Error(`Duplicate Package identity under case-folding: ${record.manifest.id}.`);
     ids.add(folded);
-    records.push({ path, manifest: value as PackageManifest });
+    records.push(record);
   }
   return records.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
 }

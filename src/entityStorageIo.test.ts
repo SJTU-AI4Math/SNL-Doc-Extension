@@ -6,7 +6,9 @@ import {
   packageManifestPath
 } from './entityStorage';
 import {
+  assertCurrentEntityStorageMetadata,
   readEntryEntityRecord,
+  readEntryEntityRecordWithOwner,
   readPackageManifestRecords,
   type EntityReadStorage
 } from './entityStorageIo';
@@ -14,6 +16,35 @@ import {
 const fileFor = (id: string): string => packageManifestPath(id).slice('packages/'.length);
 
 describe('entity storage reads', () => {
+  it('rejects current config with missing entity-storage metadata or receipt fields', () => {
+    const receipt = {
+      legacy_backup_present: false,
+      legacy_entries_present: false,
+      entry_count: 0,
+      macro_package_count: 0,
+      macro_count: 0,
+      entries_digest: 'entries',
+      macro_packages_digest: 'macros'
+    };
+    const valid = {
+      version: '0.0.6',
+      entity_storage: {
+        version: 1,
+        legacy_backup_version: '0.0.5',
+        entry_default_package: '_unpackaged',
+        receipt
+      }
+    };
+
+    expect(() => assertCurrentEntityStorageMetadata(valid)).not.toThrow();
+    expect(() => assertCurrentEntityStorageMetadata({ version: '0.0.6' }))
+      .toThrow(/missing.*entity_storage/i);
+    expect(() => assertCurrentEntityStorageMetadata({
+      ...valid,
+      entity_storage: { ...valid.entity_storage, receipt: { ...receipt, entries_digest: undefined } }
+    })).toThrow(/metadata and receipt/i);
+  });
+
   it('point-reads one Entry from its identity path without listing the directory', async () => {
     const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
     const expectedPath = entryEntityPath(entry.package, entry.id);
@@ -42,6 +73,43 @@ describe('entity storage reads', () => {
     };
 
     await expect(readEntryEntityRecord(storage, 'logic', 'missing')).resolves.toBeNull();
+  });
+
+  it('point-validates the requested owner manifest without directory scans', async () => {
+    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
+    const entryPath = entryEntityPath(entry.package, entry.id);
+    const manifestPath = packageManifestPath(entry.package);
+    const reads: string[] = [];
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => {
+        throw new Error('point reads must not list entity directories');
+      },
+      readJson: async (path) => {
+        reads.push(path);
+        if (path === entryPath) return makeEntryEnvelope(entry.package, entry);
+        if (path === manifestPath) return makePackageManifest('logic', 'Logic', '');
+        return null;
+      }
+    };
+
+    await expect(readEntryEntityRecordWithOwner(storage, 'logic', 'entry-1'))
+      .resolves.toMatchObject({ entry });
+    expect(reads).toEqual([entryPath, manifestPath]);
+  });
+
+  it('rejects an orphan Entry whose requested owner manifest is missing', async () => {
+    const entry = { id: 'entry-1', package: 'logic' };
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => {
+        throw new Error('point reads must not list entity directories');
+      },
+      readJson: async (path) => path.startsWith('entries/')
+        ? makeEntryEnvelope('logic', entry)
+        : null
+    };
+
+    await expect(readEntryEntityRecordWithOwner(storage, 'logic', 'entry-1'))
+      .rejects.toThrow(/missing Package manifest.*logic/i);
   });
 
   it.each([

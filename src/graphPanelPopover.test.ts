@@ -8,7 +8,8 @@ const state = vi.hoisted(() => ({
   missingEntry: false,
   malformedEntry: false,
   missingMetadata: false,
-  missingOwner: false
+  missingOwner: false,
+  entryPackages: { e1: 'logic' } as Record<string, string>
 }));
 
 vi.mock('vscode', () => {
@@ -78,13 +79,15 @@ vi.mock('./preferences', () => ({
   read_extension_preferences: () => ({ language: 'en' })
 }));
 vi.mock('./snlDoc', () => ({
-  readEntries: vi.fn(async () => [{
-    id: 'e1', package: 'logic', title: 'First', kind: 'k1', content: { snl: 'x' }
-  }]),
+  readEntries: vi.fn(async () => Object.entries(state.entryPackages).map(([id, entryPackage]) => ({
+    id, package: entryPackage, title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: 'x' }
+  }))),
   readEntryKinds: vi.fn(async () => [{
     id: 'k1', name: 'Definition', coloring: { stroke: '#111', background: '#fff' }
   }]),
-  readRelationships: vi.fn(async () => []),
+  readRelationships: vi.fn(async () => Object.keys(state.entryPackages).length > 1 ? [{
+    id: 'r1', from: 'e1', to: 'e2', label: 'uses', metadata: null
+  }] : []),
   listLibraries: vi.fn(async () => []),
   readLibraryGraph: vi.fn(),
   readAllMacros: vi.fn(async () => ({})),
@@ -140,6 +143,7 @@ describe('GraphPanel correlated topology-aware popovers', () => {
     state.malformedEntry = false;
     state.missingMetadata = false;
     state.missingOwner = false;
+    state.entryPackages = { e1: 'logic' };
   });
 
   it('ships package identities in the Graph snapshot', async () => {
@@ -148,6 +152,17 @@ describe('GraphPanel correlated topology-aware popovers', () => {
     expect(state.posted).toContainEqual(expect.objectContaining({
       type: 'graph', entryPackages: { e1: 'logic' }
     }));
+  });
+
+  it('assigns each participating node its own Entry package for clustering', async () => {
+    state.entryPackages = { e1: 'logic', e2: '_unpackaged' };
+    const panel = await harness();
+    await panel.pushGraph();
+    const graph = state.posted.find((message) => message.type === 'graph');
+    expect(graph?.nodes).toEqual([
+      expect.objectContaining({ id: 'e1', packageId: 'logic' }),
+      expect.objectContaining({ id: 'e2', packageId: '_unpackaged' })
+    ]);
   });
 
   it('echoes the request key after an exact current-storage success', async () => {

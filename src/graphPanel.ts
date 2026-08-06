@@ -47,6 +47,8 @@ import { entryPackageIdentities, readPopoverEntry } from './popoverEntryReader';
 
 interface GraphNodeOut {
   id: string;
+  /** Current-storage Entry package identity; never derived from Library membership. */
+  packageId: string;
   title: string;
   kind: string; // entry kind name (fallback: kind id)
   kindId: string;
@@ -376,6 +378,9 @@ export class GraphPanel {
       const kind = e ? kindById.get(e.kind) : undefined;
       nodes.push({
         id,
+        packageId: e && typeof e.package === 'string' && e.package.trim()
+          ? e.package.trim()
+          : '_unpackaged',
         title: e ? e.title || hostText()('untitled') : `⚠ ${id}`,
         kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',

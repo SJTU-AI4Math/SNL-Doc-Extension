@@ -132,8 +132,8 @@ describe('graph keyboard accessibility', () => {
     send({
       type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [], entryOptions: [], macros: {}, macroKinds: [],
       nodes: [
-        { id: 'a', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
-        { id: 'b', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
+        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
       ],
       edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
     });
@@ -157,8 +157,8 @@ describe('graph keyboard accessibility', () => {
       entryOptions: [{ id: 'a', title: 'Alpha', hasContent: false }],
       entryPackages: { a: 'logic' }, macros: {}, macroKinds: [],
       nodes: [
-        { id: 'a', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
-        { id: 'b', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
+        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
       ],
       edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
     });
@@ -168,5 +168,56 @@ describe('graph keyboard accessibility', () => {
     await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
       type: 'requestEntryDetails', entryId: 'a', entryPackage: 'logic'
     })), { timeout: 1600 });
+  });
+
+  it('creates deterministic accessible package lanes containing every node and a cross-package edge', () => {
+    render(<SnlGraphApp />);
+    const graph = (nodes: Array<Record<string, unknown>>) => ({
+      type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [], entryOptions: [], macros: {}, macroKinds: [],
+      nodes,
+      edges: [{ id: 'cross', from: 'a', to: 'z', label: 'uses', isDependency: false, isAtomic: null }]
+    });
+    const alpha = { id: 'a', packageId: 'alpha', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' };
+    const zeta = { id: 'z', packageId: 'zeta', title: 'Zeta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' };
+    send(graph([zeta, alpha]));
+
+    const alphaLane = screen.getByRole('group', { name: 'Package alpha: 1 entry' });
+    const zetaLane = screen.getByRole('group', { name: 'Package zeta: 1 entry' });
+    const firstBounds = [alphaLane.getAttribute('data-cluster-bounds'), zetaLane.getAttribute('data-cluster-bounds')];
+    expect(Number(firstBounds[0]?.split(',')[0])).toBeLessThan(Number(firstBounds[1]?.split(',')[0]));
+    for (const [lane, nodeName] of [[alphaLane, 'Entry Alpha (a)'], [zetaLane, 'Entry Zeta (z)']] as const) {
+      const [x, , width] = (lane.getAttribute('data-cluster-bounds') ?? '').split(',').map(Number);
+      const node = screen.getByRole('button', { name: nodeName });
+      const nodeX = Number(node.getAttribute('transform')?.match(/translate\(([^ ]+)/)?.[1]);
+      expect(nodeX).toBeGreaterThan(x);
+      expect(nodeX).toBeLessThan(x + width);
+      expect(node.getAttribute('data-package-id')).toBe(lane.getAttribute('data-package-id'));
+    }
+    expect(screen.getByRole('button', { name: 'Relationship uses: a to z' }).querySelector('path')?.getAttribute('d')).toMatch(/^M /);
+
+    send(graph([alpha, zeta]));
+    expect([
+      screen.getByRole('group', { name: 'Package alpha: 1 entry' }).getAttribute('data-cluster-bounds'),
+      screen.getByRole('group', { name: 'Package zeta: 1 entry' }).getAttribute('data-cluster-bounds')
+    ]).toEqual(firstBounds);
+  });
+
+  it('localizes the Unpackaged cluster label', () => {
+    const previous = document.documentElement.lang;
+    document.documentElement.lang = 'zh-CN';
+    try {
+      render(<SnlGraphApp />);
+      send({
+        type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [], entryOptions: [], macros: {}, macroKinds: [],
+        nodes: [
+          { id: 'a', packageId: '_unpackaged', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
+          { id: 'b', packageId: '_unpackaged', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+        ],
+        edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
+      });
+      expect(screen.getByText('未分包')).toBeTruthy();
+    } finally {
+      document.documentElement.lang = previous;
+    }
   });
 });

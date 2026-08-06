@@ -42,8 +42,9 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   hidingComposite: 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.',
   showingAllEdges: 'Currently showing every edge. Check to hide non-atomic dependency edges.',
   entryKinds: 'Entry kinds', all: 'all', none: 'none', allTitle: 'Show every entry kind (reset kind filter)',
-  noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.',
-  relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})'
+  noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.', unpackaged: 'Unpackaged',
+ packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
+ relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})'
 }, {
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
   nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
@@ -56,11 +57,14 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   hidingComposite: '当前已隐藏非原子（组合）依赖边。取消勾选可显示所有边。',
   showingAllEdges: '当前正在显示所有边。勾选可隐藏非原子依赖边。', entryKinds: '条目种类',
   all: '全部', none: '无', allTitle: '显示所有条目种类（重置种类筛选器）', noneTitle: '隐藏所有条目种类',
-  noKinds: '此关系图中尚无条目种类。', relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）'
+  noKinds: '此关系图中尚无条目种类。', unpackaged: '未分包',
+  packageClusterOne: '包 {name}：1 个条目', packageClusterMany: '包 {name}：{count} 个条目',
+  relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）'
 });
 
 interface GraphNode {
   id: string;
+  packageId: string;
   title: string;
   kind: string;
   kindId: string;
@@ -117,6 +121,7 @@ interface LaidOutNode {
   kindId: string;
   color: string;
   background: string;
+  packageId: string;
   x: number;
   y: number;
   w: number;
@@ -134,14 +139,27 @@ interface LaidOutEdge extends GraphEdge {
 interface Layout {
   nodes: LaidOutNode[];
   edges: LaidOutEdge[];
+  clusters: LaidOutCluster[];
   width: number;
   height: number;
+}
+
+interface LaidOutCluster {
+  packageId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  nodeCount: number;
 }
 
 const NODE_H = 44;
 const LAYER_GAP_Y = 90;
 const NODE_GAP_X = 24;
 const MARGIN = 40;
+const CLUSTER_GAP_X = 28;
+const CLUSTER_PADDING_X = 24;
+const CLUSTER_HEADER_H = 34;
 /** Virtual dummies get zero width — they occupy an x slot for routing but
  *  don't reserve display width in the row (their neighbours pack tight). */
 const DUMMY_W = 0;
@@ -194,9 +212,13 @@ function renderTitleKatex(title: string): string {
   }
 }
 
-function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
+function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
+  // Normalize protocol ordering up front so storage iteration order cannot
+  // move packages, nodes, cycle breaks, or edge routes between refreshes.
+  const nodes = [...inputNodes].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const edges = [...inputEdges].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   if (nodes.length === 0) {
-    return { nodes: [], edges: [], width: 0, height: 0 };
+    return { nodes: [], edges: [], clusters: [], width: 0, height: 0 };
   }
 
   const nodeIndex = new Map<string, number>();
@@ -472,6 +494,7 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
           kindId: src.kindId,
           color: src.color,
           background: src.background,
+          packageId: src.packageId || '_unpackaged',
           x,
           y,
           w,
@@ -482,14 +505,73 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
     }
   });
 
-  // ---- 5. Build edges with waypoints threaded through dummies.
+  // ---- 5. Deterministic package lanes.
+  // Package is an Entry storage identity. It intentionally has no connection
+  // to the Library tree, which is a separate authored graph projection.
+  const clusterNodes = new Map<string, LaidOutNode[]>();
+  for (const node of laidNodesById.values()) {
+    const members = clusterNodes.get(node.packageId) ?? [];
+    members.push(node);
+    clusterNodes.set(node.packageId, members);
+  }
+  const packageIds = [...clusterNodes.keys()].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  const clusters: LaidOutCluster[] = [];
+  let clusterX = MARGIN;
+  for (const packageId of packageIds) {
+    const members = clusterNodes.get(packageId)!;
+    const rows = new Map<number, LaidOutNode[]>();
+    for (const node of members) {
+      const row = rows.get(node.y) ?? [];
+      row.push(node);
+      rows.set(node.y, row);
+    }
+    const rowWidths = [...rows.values()].map((row) =>
+      row.reduce((sum, node) => sum + node.w, 0) + Math.max(0, row.length - 1) * NODE_GAP_X
+    );
+    const laneW = Math.max(160, ...rowWidths) + CLUSTER_PADDING_X * 2;
+    for (const row of rows.values()) {
+      row.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      const rowW = row.reduce((sum, node) => sum + node.w, 0) + Math.max(0, row.length - 1) * NODE_GAP_X;
+      let nodeX = clusterX + (laneW - rowW) / 2;
+      for (const node of row) {
+        node.x = nodeX;
+        node.y += CLUSTER_HEADER_H;
+        nodeX += node.w + NODE_GAP_X;
+      }
+    }
+    clusters.push({
+      packageId,
+      x: clusterX,
+      y: MARGIN / 2,
+      w: laneW,
+      h: totalHeight + CLUSTER_HEADER_H,
+      nodeCount: members.length
+    });
+    clusterX += laneW + CLUSTER_GAP_X;
+  }
+
+  const clusteredWidth = clusterX - CLUSTER_GAP_X + MARGIN;
+  const clusteredHeight = totalHeight + CLUSTER_HEADER_H + MARGIN / 2;
+
+  // ---- 6. Build edges with waypoints threaded through dummies.
   const laidEdges: LaidOutEdge[] = [];
   for (const e of edges) {
     if (!laidNodesById.has(e.from) || !laidNodesById.has(e.to)) continue;
+    const fromNode = laidNodesById.get(e.from)!;
+    const toNode = laidNodesById.get(e.to)!;
+    const fromCentreY = fromNode.y + fromNode.h / 2;
+    const toCentreY = toNode.y + toNode.h / 2;
     const dummies = dummiesByEdge.get(e.id) ?? [];
     const waypoints = dummies
       .map((d) => dummyCentres.get(d.id))
-      .filter((p): p is { x: number; y: number } => !!p);
+      .filter((p): p is { x: number; y: number } => !!p)
+      .map((point) => {
+        const y = point.y + CLUSTER_HEADER_H;
+        const t = toCentreY === fromCentreY ? 0.5 : (y - fromCentreY) / (toCentreY - fromCentreY);
+        const fromX = fromNode.x + fromNode.w / 2;
+        const toX = toNode.x + toNode.w / 2;
+        return { x: fromX + t * (toX - fromX), y };
+      });
     laidEdges.push({
       ...e,
       isBack: backEdgeIds.has(e.id),
@@ -500,8 +582,9 @@ function layout(nodes: GraphNode[], edges: GraphEdge[]): Layout {
   return {
     nodes: Array.from(laidNodesById.values()),
     edges: laidEdges,
-    width: totalWidth,
-    height: totalHeight
+    clusters,
+    width: clusteredWidth,
+    height: clusteredHeight
   };
 }
 
@@ -971,6 +1054,50 @@ function SnlGraphInner({
             <g
               transform={`translate(${vp.x} ${vp.y}) scale(${vp.scale})`}
             >
+              {/* Package lanes paint behind edges and nodes. They use only
+                  VS Code semantic tokens. Planned follow-up: refine graph
+                  colors globally across dark/light/high-contrast themes. */}
+              {laid.clusters.map((cluster) => {
+                const name = cluster.packageId === '_unpackaged'
+                  ? t('unpackaged')
+                  : cluster.packageId;
+                const ariaLabel = cluster.nodeCount === 1
+                  ? t('packageClusterOne', { name })
+                  : t('packageClusterMany', { name, count: cluster.nodeCount });
+                return (
+                  <g
+                    key={cluster.packageId}
+                    role="group"
+                    aria-label={ariaLabel}
+                    data-package-id={cluster.packageId}
+                    data-cluster-bounds={`${cluster.x},${cluster.y},${cluster.w},${cluster.h}`}
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    <rect
+                      x={cluster.x}
+                      y={cluster.y}
+                      width={cluster.w}
+                      height={cluster.h}
+                      rx={8}
+                      ry={8}
+                      fill="var(--vscode-editorWidget-background)"
+                      fillOpacity={0.24}
+                      stroke="var(--vscode-panel-border, var(--vscode-contrastBorder))"
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={cluster.x + CLUSTER_PADDING_X}
+                      y={cluster.y + 22}
+                      fill="var(--vscode-foreground)"
+                      fontSize={12}
+                      fontWeight={600}
+                      fontFamily="var(--vscode-font-family)"
+                    >
+                      {name}
+                    </text>
+                  </g>
+                );
+              })}
               {/* Edges first so nodes paint on top. */}
               {laid.edges.map((e) => {
                 const from = nodesById.get(e.from)!;
@@ -1046,6 +1173,7 @@ function SnlGraphInner({
                     role="button"
                     tabIndex={0}
                     aria-label={t('entryAria', { title: n.title || n.id, id: n.id })}
+                    data-package-id={n.packageId}
                     transform={`translate(${n.x} ${n.y})`}
                     style={{ cursor: 'pointer' }}
                     onPointerEnter={(ev) => handleNodePointerEnter(n, ev)}

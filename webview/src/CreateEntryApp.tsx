@@ -1257,17 +1257,17 @@ export function CreateEntryApp(): React.ReactElement {
       pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined,
       entryRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     },
-    formDirty && status.kind !== 'created' && status.kind !== 'updated'
+    formDirty
   );
 
   // A completed save makes the stash obsolete — keeping it would resurrect
   // old text the next time the panel opens.
   useEffect(() => {
-    if (status.kind === 'created' || status.kind === 'updated') {
+    if ((status.kind === 'created' || status.kind === 'updated') && !formDirty) {
       restoredDraftIdRef.current = null;
       saveDraft(draftApi, draftKey, undefined);
     }
-  }, [status.kind]);
+  }, [status.kind, formDirty]);
 
   useSaveShortcut(handleSubmit, canCreate, () => {
     // A save already in flight is not a refusal: reporting one here would
@@ -1460,7 +1460,10 @@ export function CreateEntryApp(): React.ReactElement {
                 <Button
                   variant="ghost"
                   size="md"
-                  onClick={() => setId(newUuid())}
+                  onClick={() => {
+                    markFormDirty(true);
+                    setId(newUuid());
+                  }}
                   title={
                     trimmedId
                       ? t('overwriteUuidTitle')
@@ -1715,10 +1718,12 @@ export function CreateEntryApp(): React.ReactElement {
               }
               kindPalette={kindPalette}
               onForestChange={(nextForest) => {
+                // Forest state is authored work even when it is temporarily
+                // multi-root or contains holes and therefore cannot serialize.
+                markFormDirty(true);
                 setCanvasForest(nextForest);
                 if (canPersistCanvasForest(nextForest)) {
                   const nextSnl = serializeTreePreserving(nextForest[0]);
-                  markFormDirty(true);
                   setContent((previous) => {
                     if (previous.snl === nextSnl) return previous;
                     canvasAuthoredSnlRef.current = nextSnl;
@@ -1727,6 +1732,7 @@ export function CreateEntryApp(): React.ReactElement {
                 }
               }}
               onResetFromSnl={() => {
+                markFormDirty(true);
                 const root = parseOrDefault(content.snl);
                 ensureTreeIdentity(root);
                 setCanvasForest([root]);

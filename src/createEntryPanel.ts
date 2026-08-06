@@ -396,12 +396,17 @@ export class CreateEntryPanel {
    */
   private async regenerateSavedEntryDependencies(
     root: vscode.Uri,
-    savedId: string
+    savedId: string,
+    targetIsCurrent: () => boolean = () => true
   ): Promise<boolean> {
     const result = await regenerateDependencyRelationships(root, {
       entryIds: new Set([savedId])
     });
     if (result.status === 'ok') return true;
+    if (!targetIsCurrent()) {
+      await this.pushContext();
+      return false;
+    }
     const detail = result.status === 'noSnlDoc'
       ? hostText()('initFirst')
       : result.message;
@@ -544,9 +549,15 @@ export class CreateEntryPanel {
       return;
     }
 
+    const requestTargetGeneration = this.targetGeneration;
+    const requestMode = this.mode;
+    const requestId = this.id;
+    const targetIsCurrent = (): boolean =>
+      this.targetGeneration === requestTargetGeneration;
+
     try {
-      if (msg.type === 'update' || this.mode === 'edit') {
-        const result = await updateEntry(root, this.id, {
+      if (msg.type === 'update' || requestMode === 'edit') {
+        const result = await updateEntry(root, requestId, {
           kind: entry.kind,
           package: entry.package,
           title: entry.title,
@@ -554,9 +565,17 @@ export class CreateEntryPanel {
           contribution_info: entry.contribution_info,
           pointer: entry.pointer
         }, typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined);
-                switch (result.status) {
+        if (result.status !== 'updated' && !targetIsCurrent()) {
+          await this.pushContext();
+          return;
+        }
+        switch (result.status) {
           case 'updated':
-            if (!(await this.regenerateSavedEntryDependencies(root, result.id))) {
+            if (!(await this.regenerateSavedEntryDependencies(root, result.id, targetIsCurrent))) {
+              return;
+            }
+            if (!targetIsCurrent()) {
+              await this.pushContext();
               return;
             }
             vscode.window.showInformationMessage(
@@ -613,8 +632,18 @@ export class CreateEntryPanel {
       }
       // Create path.
       const result = await addEntry(root, entry);
+      if (result.status !== 'ok' && !targetIsCurrent()) {
+        await this.pushContext();
+        return;
+      }
       switch (result.status) {
-        case 'ok':
+        case 'ok': {
+          if (!targetIsCurrent()) {
+            if (await this.regenerateSavedEntryDependencies(root, result.id, targetIsCurrent)) {
+              await this.pushContext();
+            }
+            return;
+          }
           // Cat 2026-07-27: after creating something the natural next action
           // is to keep editing THAT entry, not to create another one. Flip the
           // live panel into edit mode in place — same panel, same webview, no
@@ -626,7 +655,18 @@ export class CreateEntryPanel {
           this.targetGeneration += 1;
           this.seedId = '';
           this.panel.title = hostText()('editTitle', { id: result.id });
-          if (!(await this.regenerateSavedEntryDependencies(root, result.id))) {
+          const completionGeneration = this.targetGeneration;
+          const completionIsCurrent = (): boolean =>
+            this.targetGeneration === completionGeneration;
+          if (!(await this.regenerateSavedEntryDependencies(
+            root,
+            result.id,
+            completionIsCurrent
+          ))) {
+            return;
+          }
+          if (!completionIsCurrent()) {
+            await this.pushContext();
             return;
           }
           vscode.window.showInformationMessage(
@@ -638,6 +678,7 @@ export class CreateEntryPanel {
           });
           await this.pushContext();
           return;
+        }
         case 'duplicate': {
           const text = hostText()('duplicate', { id: result.id });
           vscode.window.showWarningMessage(text);

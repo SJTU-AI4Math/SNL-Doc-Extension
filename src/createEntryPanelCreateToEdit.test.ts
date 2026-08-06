@@ -73,16 +73,26 @@ vi.mock('vscode', () => ({
 
 const stored: any[] = [];
 const packageFiles = ['core.json'];
+let releaseAddEntry: (() => void) | undefined;
+let delayAddEntry = false;
+let releaseUpdateEntry: (() => void) | undefined;
+let delayUpdateEntry = false;
 
 vi.mock('./snlDoc', () => ({
   entityRevision: () => 'test-revision',
   addEntry: vi.fn(async (_root: unknown, entry: any) => {
     events.push('save:create');
+    if (delayAddEntry) {
+      await new Promise<void>((resolve) => { releaseAddEntry = resolve; });
+    }
     stored.push({ ...entry });
     return { status: 'ok', id: entry.id };
   }),
   updateEntry: vi.fn(async (_root: unknown, id: string) => {
     events.push('save:update');
+    if (delayUpdateEntry) {
+      await new Promise<void>((resolve) => { releaseUpdateEntry = resolve; });
+    }
     return { status: 'updated', id };
   }),
   regenerateDependencyRelationships: vi.fn(async (_root: unknown, scope: { entryIds: Set<string> }) => {
@@ -121,6 +131,10 @@ describe('CreateEntryPanel create -> edit flip', () => {
     posted.length = 0;
     events.length = 0;
     packageFiles.splice(0, packageFiles.length, 'core.json');
+    delayAddEntry = false;
+    releaseAddEntry = undefined;
+    delayUpdateEntry = false;
+    releaseUpdateEntry = undefined;
   });
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {
@@ -156,6 +170,49 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(events.indexOf('save:create')).toBeLessThan(events.indexOf('regenerate:thm-new'));
     expect(events.indexOf('regenerate:thm-new')).toBeLessThan(events.indexOf('post:created'));
     expect(events.indexOf('post:created')).toBeLessThan(events.indexOf('post:context'));
+  });
+
+  it('does not let a stale create completion hijack a retargeted panel', async () => {
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    delayAddEntry = true;
+
+    const pending = messageHandler!({
+      type: 'create',
+      entry: { id: 'slow-a', kind: 'definition', title: 'Slow A', content: {} }
+    });
+    await vi.waitFor(() => expect(events).toContain('save:create'));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    releaseAddEntry!();
+    await pending;
+
+    expect(posted.some((message) => message?.type === 'created' && message.id === 'slow-a'))
+      .toBe(false);
+    expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
+    expect(contexts().at(-1)?.id).toBe('entry-b');
+  });
+
+  it('does not publish a stale update completion into a retargeted panel', async () => {
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.editOrShow(extUri, 'entry-a');
+    posted.length = 0;
+    events.length = 0;
+    delayUpdateEntry = true;
+
+    const pending = messageHandler!({
+      type: 'update',
+      entry: { id: 'entry-a', kind: 'definition', title: 'Slow update', content: {} }
+    });
+    await vi.waitFor(() => expect(events).toContain('save:update'));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    releaseUpdateEntry!();
+    await pending;
+
+    expect(posted.some((message) => message?.type === 'updated' && message.id === 'entry-a'))
+      .toBe(false);
+    expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
+    expect(contexts().at(-1)?.id).toBe('entry-b');
   });
 
   it('routes the next save to updateEntry instead of creating a duplicate', async () => {

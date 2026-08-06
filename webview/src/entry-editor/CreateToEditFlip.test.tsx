@@ -634,14 +634,22 @@ describe('CreateEntryApp create → edit flip', () => {
 
     act(() => {
       send({ type: 'updated', id: 'pending-save' });
+    });
+    await waitFor(() => {
+      expect(loadDraft<{ title: string }>(api, 'createEntry:edit:pending-save')?.title)
+        .toBe('Edited while saving');
+    });
+
+    act(() => {
+      send({ type: 'retarget', mode: 'edit', id: 'other-entry' });
       send(editContext({
-        id: 'pending-save',
-        title: 'Submitted title',
-        kind: 'definition',
-        content: { snl: 'root(child)' }
+        id: 'other-entry', title: 'Other entry', kind: 'definition',
+        content: { snl: 'other(child)' }
       }));
-      // Once the one-shot save echo is consumed, an ordinary refresh must
-      // still defer to the edit made after dispatch.
+    });
+    await waitFor(() => expect(title.value).toBe('Other entry'));
+    act(() => {
+      send({ type: 'retarget', mode: 'edit', id: 'pending-save' });
       send(editContext({
         id: 'pending-save',
         title: 'Submitted title',
@@ -722,5 +730,85 @@ describe('CreateEntryApp create → edit flip', () => {
     });
 
     await waitFor(() => expect(title.value).toBe('Edited while creating'));
+  });
+
+  it('keeps an incomplete Canvas edit made while an update is pending', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send({
+        ...(editContext({
+          id: 'pending-canvas',
+          title: 'Pending Canvas',
+          kind: 'definition',
+          content: { snl: 'list(child)' }
+        }) as Record<string, unknown>),
+        macros: {
+          list: {
+            name: 'list', description: '', kind: 'fvar', tags: [],
+            dynamic_arity: true, source: { entries: [], urls: [] },
+            default_style: 'default',
+            styles: [{
+              style_name: 'default', mode: 'formula_inline', template: '#*',
+              separator: ', ', tags: []
+            }]
+          }
+        }
+      });
+    });
+    const canvas = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+    );
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const root = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    fireEvent.click(root);
+    await waitFor(() => expect(view.getByLabelText('Argument count')).toBeTruthy());
+    fireEvent.keyDown(canvas, { key: '+', code: 'Equal' });
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1)
+    );
+    await waitFor(() => {
+      const draft = loadDraft<{ canvasForest: SnlSyntaxTree[] }>(
+        api,
+        'createEntry:edit:pending-canvas'
+      );
+      expect(draft?.canvasForest?.[0]?.children.at(-1)?.kind).toBe('argPlaceholder');
+    });
+
+    act(() => {
+      send({ type: 'updated', id: 'pending-canvas' });
+      send(editContext({
+        id: 'pending-canvas', title: 'Pending Canvas', kind: 'definition',
+        content: { snl: 'list(child)' }
+      }));
+    });
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1)
+    );
+    act(() => {
+      send(editContext({
+        id: 'pending-canvas', title: 'Later authoritative Canvas', kind: 'definition',
+        content: { snl: 'replacement(next)' }
+      }));
+    });
+
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1)
+    );
+  });
+
+  it('persists UUID regeneration as an authored draft change', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => { send(createContext()); });
+    const idInput = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('input#snl-entry-id, #snl-entry-id-input')
+        ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!
+    );
+    const before = idInput.value;
+    const uuidButton = view.getByRole('button', { name: /fresh UUID v4/ });
+    fireEvent.click(uuidButton);
+    await waitFor(() => expect(idInput.value).not.toBe(before));
+    await waitFor(() => {
+      expect(loadDraft<{ id: string }>(api, 'createEntry:create:')?.id).toBe(idInput.value);
+    });
   });
 });

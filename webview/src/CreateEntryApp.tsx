@@ -2523,7 +2523,7 @@ export function GuiCanvasEditor({
   } | null>(null);
   const wheelFrameRef = React.useRef<number | null>(null);
   const wheelBatchRef = React.useRef<{
-    deltaY: number;
+    nextZoom: number;
     clientX: number;
     clientY: number;
   } | null>(null);
@@ -2577,7 +2577,7 @@ export function GuiCanvasEditor({
       wheelBatchRef.current = null;
       if (!batch) return;
       const current = canvasZoomRef.current;
-      const next = canvasZoomFromWheel(current, batch.deltaY);
+      const next = batch.nextZoom;
       if (next === current) return;
       const rect = viewport.getBoundingClientRect();
       const canvasRect = canvasRef.current?.getBoundingClientRect();
@@ -2608,7 +2608,10 @@ export function GuiCanvasEditor({
       event.preventDefault();
       const pending = wheelBatchRef.current;
       wheelBatchRef.current = {
-        deltaY: (pending?.deltaY ?? 0) + normalizedDeltaY,
+        nextZoom: canvasZoomFromWheel(
+          pending?.nextZoom ?? canvasZoomRef.current,
+          normalizedDeltaY
+        ),
         clientX: event.clientX,
         clientY: event.clientY
       };

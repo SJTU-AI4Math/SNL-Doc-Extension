@@ -191,6 +191,37 @@ describe('GuiCanvasEditor', () => {
     expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * finalZoom - 150);
   });
 
+  it('preserves same-frame wheel order when a delta is clamped at a zoom bound', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+
+    const clampedZoomIn = createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    });
+    const followingZoomOut = createEvent.wheel(viewport, {
+      deltaY: 1000, clientX: 50, clientY: 50, cancelable: true
+    });
+    viewport.dispatchEvent(clampedZoomIn);
+    viewport.dispatchEvent(followingZoomOut);
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(0.5));
+  });
+
   it('normalizes line and page wheel deltas but leaves editable descendants alone', async () => {
     vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
     const view = render(

@@ -38,7 +38,7 @@
 | 30 | `snlDoc.deleteLibrary` | SNL: Delete Library | 删除 library（弹确认） | 删除 |
 | 31 | `snlDoc.deleteMacroPackage` | SNL: Delete Macro Package | 删除 macro package（弹确认） | 删除 |
 | 32 | `snlDoc.deleteRelationship` | SNL: Delete Relationship | 删除 relationship（弹确认） | 删除 |
-| 33 | `snlDoc.regenerateDependencies` | SNL: Regenerate Dependency Relationships | 扫全部 entries 重建 `dependency` 关系 | 关系图 |
+| 33 | `snlDoc.regenerateDependencies` | SNL: Regenerate Dependency Relationships | 扫全部 entries 重建系统维护的 `depends` / `uses_context` 关系 | 关系图 |
 | 34 | `snlDoc.checkDataVersion` | SNL: Check Data Version | 严格检查 workspace 数据版本与 topology，不写入 | 数据维护 |
 | 35 | `snlDoc.repairData` | SNL: Repair / Migrate Data | 执行确认后的相邻 migration chain | 数据维护 |
 | 36 | `snlDoc.toggleTrace` | SNL: Toggle Performance Trace | 切换 Panel 性能追踪 | 诊断 |
@@ -134,9 +134,10 @@
 | Panel | 单元 label/文字 | 类型 | 作用 | 触发的 command / message | 状态/校验 |
 |---|---|---|---|---|---|
 | EntryInfoview | ✎ Edit | button | 打开 Edit Entry 面板 | `editEntry {entryId}` | 仅 entry 加载后显示 |
-| EntryInfoview | Context 折叠头 | button | 展开/收起 Context 列表 | local state only | — |
-| EntryInfoview | Dependencies 折叠头 | button | 展开/收起 Dependencies 列表 | local state only | — |
-| EntryInfoview | Related 条目链接 | link/list-item | 打开该关联 Entry 的 Infoview | `openEntryInfoview {entryId}` | （每行一个） |
+| EntryInfoview | 动态 Relationship section | disclosure | 按关系 label 与 incoming/outgoing 方向分区，展开/收起关联 Entry | local state only | `depends` / `uses_context` 使用本地化友好名；其他 label 原样显示 |
+| EntryInfoview | Related 条目链接 | link/list-item | 在同一 Infoview Panel 内进入关联 Entry | `navigateEntry {entryId,entryPackage}` | 保留并行关系与 package identity |
+| EntryInfoview | ← Back / Library chooser | button/select | 优先返回协议记录的来源 Entry/Library；无来源时按所属 Library 数量回退 | `back` / `returnToLibrary {slug}` | 多 Library 时显示选择器 |
+| EntryInfoview | Relationships unavailable / Retry | alert/button | 关系文件损坏时只隔离关系区，正文继续可用 | `retryRelationships` | — |
 
 ### 2.5 SNoogL (`SnooglApp.tsx`)
 
@@ -146,6 +147,7 @@
 | SnoogL | Entry / Macro | tab | 切换搜索目标类型 | local state only（触发 `query`） | — |
 | SnoogL | 搜索输入框 | text-input | 输入查询词 | `query {q,mode,filters}`（120ms 防抖） | placeholder 随 mode 变化，Enter 立即提交 |
 | SnoogL | Kind 下拉 | select | 按 kind 过滤结果 | 触发 `query` 重发 | 选项随 mode 变化 |
+| SnoogL | Uses Macro ID / Source Entry ID | select | Entry 按精确 Macro ID 过滤；Macro 按 `source.entries` 中的 Entry ID 过滤 | 触发 `query` 重发 | 两套 ID namespace 独立 |
 | SnoogL | 结果行 | list-item | 打开命中的 Entry 或 Macro | `openEntry {id}` 或 `openMacro {packageFile,name}` | （每行一个）无结果时显示 No matches |
 
 ### 2.6 CreateEntry (`CreateEntryApp.tsx`)
@@ -161,14 +163,16 @@
 | CreateEntry | Live Preview | preview | KaTeX + EntryRender 实时预览当前草稿 | 无 | — |
 | CreateEntry | SNL / Typst / LaTeX / Markdown / Text | tab | 切换正文源码格式 | local state only | 单选，activeFormat |
 | CreateEntry | Text Editor / GUI Editor (Inductive) | tab | 切换 SNL 的文本 / 归纳树 编辑模式 | local state only | 仅当 activeFormat=snl |
-| CreateEntry | 正文 textarea | textarea | 编辑当前格式的源码 | local state only | — |
+| CreateEntry | Monaco Text Editor | code editor | 编辑当前格式源码；按需加载 Monaco | local state only | Ctrl/Cmd+S 保存；SNL 支持 Shift+Alt+F |
+| CreateEntry | Format SNL | button/shortcut | 调用 SNL-Basics `SnlDslFormatter` | local state only | 缩进与叶端小子树单行深度来自 Extension Settings |
 | CreateEntry | Inductive 行 name 输入 | text-input | （每行一个）编辑树节点头，识别 `$…$` / `%…%` / `@` / `[style]` 并按 kind 上色 | local state only；识别到定 arity Macro 时自动补齐子节点 | 空占位行序列化前被剥除 |
 | CreateEntry | Inductive 行 style 输入 | text-input | （每行一个）指定 macro 的 style tag | local state only | 无匹配 macro 时 disabled |
 | CreateEntry | ▶ / ▼ chevron | button | （每行一个）折叠 / 展开子树 | local state only | 仅当有子节点 |
 | CreateEntry | ↗ new / ↗ edit | button | （每行一个）跳到 Create/Edit Macro，预填 macro_name/env_mode/style_name | `openMacroEditor` | — |
 | CreateEntry | + child | button | （每行一个）在当前节点下追加空子节点 | local state only | hover 显示 |
 | CreateEntry | − delete | button | （每行一个）删除该子树 | local state only | 根节点不显示 |
-| CreateEntry | Contributor / Pointer | preview | 占位区，尚未实现 | — | — |
+| CreateEntry | Contributor | text-input | 编辑临时单字符串 `contribution_info` | 随 `create` / `update` 保存 | UI 明示该 schema 未来会变化 |
+| CreateEntry | Pointer | editor | 编辑 Entry pointer 元数据 | 随 `create` / `update` 保存 | 采用现有 Pointer schema 与校验 |
 | CreateEntry | Create Entry / Update Entry (Creating…/Updating…) | button | 提交 entry 到 host 保存 | `create` / `update`（entry payload） | title/id/kind 非空且非 creating 时才可点 |
 | CreateEntry | Cancel / Reset banner | button | create: 清空表单；edit: 只清 status banner | local state only | — |
 
@@ -310,6 +314,7 @@ Macro 预设由 `resources/kind-presets/macro/*.json` 提供。目前只发布�
 |---|---|---|---|---|---|
 | SnlGraph | ← Infoview | button (nav) | 回到 SNL Infoview | `nav.openInfoview` | — |
 | SnlGraph | Graph SVG 画布 | canvas (svg) | 滚轮缩放、拖拽平移图形 | local viewport state | — |
+| SnlGraph | Package clusters | SVG group/lane | 按 Entry Package 确定性聚类并标注；跨 Package 边保持可见 | local layout | `_unpackaged` 本地化；全局明暗主题配色仍单独 planned |
 | SnlGraph | 节点（矩形） | canvas node | 悬浮显示 popover；点击选中/取消；Ctrl+Click 打开 Entry Infoview | 选中 local；`openEntryInfoview {entryId}` | — |
 | SnlGraph | 边（箭头路径） | canvas edge | 点击进入关系编辑面板 | `editRelationship {id}` | — |
 | SnlGraph | ▶/◀ Filters | button | 展开/收起右侧筛选侧栏 | local state only | — |

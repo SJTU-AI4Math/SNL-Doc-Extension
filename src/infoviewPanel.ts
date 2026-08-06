@@ -5,10 +5,10 @@ import { read_extension_preferences } from './preferences';
 
 const MESSAGES = defineHostMessages(
   {
-    browserTitle: 'SNL Infoview', outputChannel: 'SNL Infoview', entryTitle: 'SNL — {id}', deleteMacro: 'Delete macro “{name}” from package “{file}”?', cannotUndo: 'This cannot be undone.', delete: 'Delete', deleteMacroFailed: 'Delete macro failed: {error}', listLibrariesFailed: 'SNL Infoview: failed to list libraries: {error}', loadLibraryFailed: 'SNL Infoview: failed to load library “{slug}”: {error}', counterMissing: 'Entry node “{nodeId}” pins counterId “{counterId}” which is not in the counter tree; falling back to the kind’s default counter', loadEntryFailed: 'SNL Infoview: failed to load entry: {error}', loadPopoverFailed: 'SNL Infoview: failed to load popover entry: {error}', sharedEntryMissing: 'Entry “{entryId}” referenced by node “{nodeId}” not found in shared pool'
+    browserTitle: 'SNL Infoview', outputChannel: 'SNL Infoview', entryTitle: 'SNL — {id}', deleteMacro: 'Delete macro “{name}” from package “{file}”?', cannotUndo: 'This cannot be undone.', delete: 'Delete', deleteMacroFailed: 'Delete macro failed: {error}', listLibrariesFailed: 'SNL Infoview: failed to list libraries: {error}', loadLibraryFailed: 'SNL Infoview: failed to load library “{slug}”: {error}', counterMissing: 'Entry node “{nodeId}” pins counterId “{counterId}” which is not in the counter tree; falling back to the kind’s default counter', loadEntryFailed: 'SNL Infoview: failed to load entry: {error}', loadPopoverFailed: 'SNL Infoview: failed to load popover entry: {error}', noWorkspace: 'No workspace folder is open.', sharedEntryMissing: 'Entry “{entryId}” referenced by node “{nodeId}” not found in shared pool'
   },
   {
-    browserTitle: 'SNL 信息视图', outputChannel: 'SNL 信息视图', entryTitle: 'SNL — {id}', deleteMacro: '要从包“{file}”中删除宏“{name}”吗？', cannotUndo: '此操作无法撤销。', delete: '删除', deleteMacroFailed: '删除宏失败：{error}', listLibrariesFailed: 'SNL 信息视图：无法列出库：{error}', loadLibraryFailed: 'SNL 信息视图：无法加载库“{slug}”：{error}', counterMissing: '条目节点“{nodeId}”指定的计数器 ID“{counterId}”不在计数器树中；将回退到该类型的默认计数器', loadEntryFailed: 'SNL 信息视图：无法加载条目：{error}', loadPopoverFailed: 'SNL 信息视图：无法加载弹出条目：{error}', sharedEntryMissing: '节点“{nodeId}”引用的条目“{entryId}”未在共享池中找到'
+    browserTitle: 'SNL 信息视图', outputChannel: 'SNL 信息视图', entryTitle: 'SNL — {id}', deleteMacro: '要从包“{file}”中删除宏“{name}”吗？', cannotUndo: '此操作无法撤销。', delete: '删除', deleteMacroFailed: '删除宏失败：{error}', listLibrariesFailed: 'SNL 信息视图：无法列出库：{error}', loadLibraryFailed: 'SNL 信息视图：无法加载库“{slug}”：{error}', counterMissing: '条目节点“{nodeId}”指定的计数器 ID“{counterId}”不在计数器树中；将回退到该类型的默认计数器', loadEntryFailed: 'SNL 信息视图：无法加载条目：{error}', loadPopoverFailed: 'SNL 信息视图：无法加载弹出条目：{error}', noWorkspace: '未打开工作区文件夹。', sharedEntryMissing: '节点“{nodeId}”引用的条目“{entryId}”未在共享池中找到'
   }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
@@ -133,7 +133,6 @@ export class InfoviewPanel {
   private entryDisplayTitle: string | null = null;
   private disposables: vscode.Disposable[] = [];
   private viewGeneration = 0;
-  private popoverGeneration = 0;
 
   /** Open (or reveal) the singleton browser panel. */
   /**
@@ -735,6 +734,7 @@ export class InfoviewPanel {
         title: displayTitle,
         description,
         entries: flatEntries,
+        entryPackages: entryPackageIdentities(entryPool),
         outline,
         macros,
         macroKinds,
@@ -827,6 +827,7 @@ export class InfoviewPanel {
         entry,
         kind,
         entries: options,
+        entryPackages: entryPackageIdentities(entries),
         macros,
         macroKinds,
         assetBaseUri: this.assetBaseUri(root)
@@ -889,6 +890,7 @@ export class InfoviewPanel {
           entry: null,
           kind: null,
           entries: options,
+          entryPackages: entryPackageIdentities(entries),
           macros,
           macroKinds,
           relatedEntries: null
@@ -957,6 +959,7 @@ export class InfoviewPanel {
         entry,
         kind,
         entries: options,
+        entryPackages: entryPackageIdentities(entries),
         macros,
         macroKinds,
         assetBaseUri: this.assetBaseUri(root),
@@ -982,9 +985,13 @@ export class InfoviewPanel {
    * `entryDetails` so it never disturbs the browser's main selection.
    */
   private async pushPopoverEntryDetails(id: string, entryPackage?: string): Promise<void> {
-    const generation = ++this.popoverGeneration;
     const root = firstWorkspaceFolder();
     if (!root) {
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId: id,
+        message: hostText()('noWorkspace')
+      });
       return;
     }
     try {
@@ -995,7 +1002,6 @@ export class InfoviewPanel {
         this.readPopoverEntry(root, entryPackage, id),
         readEntryKinds(root)
       ]);
-      if (generation !== this.popoverGeneration) return;
       if (!entry) {
         // Cat 2026-07-10: cross-library hover should still resolve
         // against the shared pool — but if the id genuinely doesn't
@@ -1019,6 +1025,11 @@ export class InfoviewPanel {
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId: id,
+        message: text
+      });
       vscode.window.showErrorMessage(
         hostText()('loadPopoverFailed', { error: text })
       );
@@ -1109,6 +1120,17 @@ export class InfoviewPanel {
       }
     }
   }
+}
+
+/** Operation-local stable identity for exact current-storage popover reads. */
+function entryPackageIdentities(entries: EntryData[]): Record<string, string> {
+  const identities: Record<string, string> = {};
+  for (const entry of entries) {
+    if (typeof entry.package === 'string' && entry.package) {
+      identities[entry.id] = entry.package;
+    }
+  }
+  return identities;
 }
 
 // ---------------------------------------------------------------------------

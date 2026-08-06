@@ -103,6 +103,7 @@ type Incoming =
       title: string;
       description?: string;
       entries: EntryOption[];
+      entryPackages?: Record<string, string>;
       outline: OutlineNode[];
       macros?: MacroRecord;
       macroKinds?: MacroKindPaletteSource[];
@@ -131,6 +132,7 @@ export function App(): React.ReactElement {
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
+  const [entryPackages, setEntryPackages] = useState<Record<string, string>>({});
   const [assetBaseUri, setAssetBaseUri] = useState('');
   const apiRef = useVsCodeApiRef();
 
@@ -169,6 +171,9 @@ export function App(): React.ReactElement {
           if (Array.isArray(msg.entries)) {
             setEntryPool(msg.entries);
           }
+          setEntryPackages(msg.entryPackages && typeof msg.entryPackages === 'object'
+            ? msg.entryPackages
+            : {});
           setView({
             kind: 'library',
             slug: msg.slug,
@@ -242,7 +247,7 @@ export function App(): React.ReactElement {
     // each Entry must settle — so the export message is sent afterwards. A
     // failure degrades to a popover-less document instead of aborting.
     void prerenderPopovers(html, {
-      loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool }),
+      loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool, entryPackages }),
       entries: entryPool,
       userMacros,
       kindPalette,
@@ -293,6 +298,7 @@ export function App(): React.ReactElement {
     <HoverPopoverProvider
       postMessage={postMessage}
       entries={entryPool}
+      entryPackages={entryPackages}
       userMacros={userMacros}
       kindPalette={kindPalette}
       markdownImageUrlTransform={markdownImageUrlTransform}

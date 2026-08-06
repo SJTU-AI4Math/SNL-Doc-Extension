@@ -26,6 +26,8 @@ let inFlight = 0;
 let maxConcurrent = 0;
 let entityMode = false;
 let malformedEntityEnvelope = false;
+let emptySecondEntitySnl = false;
+let missingSecondEntity = false;
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -97,7 +99,7 @@ vi.mock('vscode', () => {
             ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id, package: 'logic' } }
             : {
                 format: 'snl-entry', version: 1, package: 'logic',
-                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : 'y' } }
+                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' } }
               });
         }
         return '{}';
@@ -198,6 +200,10 @@ vi.mock('vscode', () => {
           maxConcurrent = Math.max(maxConcurrent, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 5));
           inFlight -= 1;
+          if (missingSecondEntity && uri.path.includes('/entries/') &&
+              name === entryEntityPath('logic', 'e2').split('/').pop()) {
+            throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
+          }
           return encoder.encode(payloadFor(uri.path));
         }
       }
@@ -218,6 +224,8 @@ function reset(): void {
   maxConcurrent = 0;
   entityMode = false;
   malformedEntityEnvelope = false;
+  emptySecondEntitySnl = false;
+  missingSecondEntity = false;
   posted.length = 0;
   commands.length = 0;
   dashboardGate = null;
@@ -334,6 +342,85 @@ describe('infoview panel read cost', () => {
     expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
   });
 
+  it('ships package identity for current-storage Entries outside the Library outline', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+
+    await send({ type: 'selectLibrary', slug: LIBRARY });
+
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'libraryEntries',
+      // e2 is in the shared pool but deliberately absent from graph.json.
+      entryPackages: { e1: 'logic', e2: 'logic' }
+    }));
+  });
+
+  it('ships package identity for Entries omitted from the per-entry SNL-only pool', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    reset();
+    entityMode = true;
+    emptySecondEntitySnl = true;
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+
+    await onMessage({ type: 'ready' });
+
+    const payload = posted.find((message) => message.type === 'entryDetails');
+    expect(payload?.entries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'e2' })
+    ]));
+    expect(payload?.entryPackages).toEqual({ e1: 'logic', e2: 'logic' });
+  });
+
+  it('posts a terminal error for a current-storage request missing package identity', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+
+    await expect(send({ type: 'requestEntryDetails', entryId: 'e2' }))
+      .rejects.toThrow(/missing its package identity/);
+
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'popoverEntryDetailsError',
+      entryId: 'e2',
+      message: expect.stringMatching(/missing its package identity/)
+    }));
+    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+  });
+
+  it('posts a correlated terminal not-found response when the exact entity is missing', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+    missingSecondEntity = true;
+
+    await send({
+      type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic'
+    });
+
+    expect(posted).toContainEqual({
+      type: 'popoverEntryDetails', entryId: 'e2', entry: null, kind: null
+    });
+    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+  });
+
+  it('posts one correlated terminal response for every concurrent request', async () => {
+    const send = await openBrowser();
+    reset();
+    entityMode = true;
+
+    await Promise.all([
+      send({ type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic' }),
+      send({ type: 'requestEntryDetails', entryId: 'e2', entryPackage: 'logic' })
+    ]);
+
+    expect(posted.filter((message) => message.type === 'popoverEntryDetails')
+      .map((message) => message.entryId).sort()).toEqual(['e1', 'e2']);
+    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+  });
+
   it('fails closed when the exact current-storage entity has a malformed envelope', async () => {
     const send = await openBrowser();
     reset();
@@ -344,6 +431,11 @@ describe('infoview panel read cost', () => {
       type: 'requestEntryDetails', entryId: 'e1', entryPackage: 'logic'
     })).rejects.toThrow(/valid SNL Entry envelope/);
 
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'popoverEntryDetailsError',
+      entryId: 'e1',
+      message: expect.stringMatching(/valid SNL Entry envelope/)
+    }));
     expect(posted.some((message) => message.type === 'popoverEntryDetails')).toBe(false);
     expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
   });

@@ -70,6 +70,7 @@ type Incoming =
       entry: EntryData | null;
       kind: EntryKind | null;
       entries: EntryOption[];
+      entryPackages?: Record<string, string>;
       macros?: MacroRecord;
       macroKinds?: MacroKind[];
       relatedEntries?: RelatedEntries | null;
@@ -86,6 +87,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     entry: EntryData;
     kind: EntryKind | null;
     entries: EntryOption[];
+    entryPackages: Record<string, string>;
     related: RelatedEntries;
   } | null>(null);
   const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
@@ -124,6 +126,9 @@ export function EntryInfoviewApp(): React.ReactElement {
           entry: msg.entry,
           kind: msg.kind,
           entries: Array.isArray(msg.entries) ? msg.entries : [],
+          entryPackages: msg.entryPackages && typeof msg.entryPackages === 'object'
+            ? msg.entryPackages
+            : {},
           related: msg.relatedEntries ?? { context: [], dependencies: [] }
         });
       }
@@ -148,6 +153,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     <HoverPopoverProvider
       postMessage={postMessage}
       entries={state?.entries ?? []}
+      entryPackages={state?.entryPackages ?? {}}
       userMacros={userMacros}
       kindPalette={kindPalette}
       markdownImageUrlTransform={markdownImageUrlTransform}

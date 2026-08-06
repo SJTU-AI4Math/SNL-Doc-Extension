@@ -31,6 +31,8 @@ export interface DetailBridgeOptions {
   timeoutMs?: number;
   /** Stable identities for exact current-storage reads. */
   entries?: EntryOption[];
+  /** Operation-local identities for Entries omitted from the rendered pool. */
+  entryPackages?: Readonly<Record<string, string>>;
 }
 
 export const DETAIL_TIMEOUT_MS = 5000;
@@ -73,7 +75,11 @@ export function createEntryDetailLoader(
       // popover is a degraded export, a rejected promise is a failed one.
       const timer = setTimeout(() => finish({ entry: null, kind: null }), timeoutMs);
       target.addEventListener('message', onMessage as EventListener);
-      options.postMessage(entryDetailsRequest(entryId, options.entries ?? []));
+      options.postMessage(entryDetailsRequest(
+        entryId,
+        options.entries ?? [],
+        options.entryPackages
+      ));
     });
 
     cache.set(entryId, pending);

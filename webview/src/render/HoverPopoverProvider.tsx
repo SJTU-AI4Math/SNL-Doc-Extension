@@ -28,12 +28,14 @@ const MESSAGES = defineUiMessages(
   {
     loading: 'Loading…',
     notFoundPrefix: 'Entry ',
-    notFoundSuffix: ' not found in the shared pool.'
+    notFoundSuffix: ' not found in the shared pool.',
+    loadFailed: 'Could not load Entry {id}: {message}'
   },
   {
     loading: '正在加载…',
     notFoundPrefix: '条目 ',
-    notFoundSuffix: ' 不在共享池中。'
+    notFoundSuffix: ' 不在共享池中。',
+    loadFailed: '无法加载条目 {id}：{message}'
   }
 );
 
@@ -41,15 +43,46 @@ export type PopoverInstance = HoverPopover<string>;
 export type HoverPopoverContextValue = HoverPopoverApi<string>;
 export type { PopoverPhase };
 
-export function entryDetailsRequest(entryId: string, entries: EntryOption[]): {
+export function entryDetailsRequest(
+  entryId: string,
+  entries: EntryOption[],
+  entryPackages: Readonly<Record<string, string>> = {}
+): {
   type: 'requestEntryDetails';
   entryId: string;
   entryPackage?: string;
 } {
-  const entryPackage = entries.find((entry) => entry.id === entryId)?.package;
+  const entryPackage = entries.find((entry) => entry.id === entryId)?.package
+    ?? entryPackages[entryId];
   return typeof entryPackage === 'string' && entryPackage
     ? { type: 'requestEntryDetails', entryId, entryPackage }
     : { type: 'requestEntryDetails', entryId };
+}
+
+export interface PopoverDetail {
+  entry: EntryData | null;
+  kind: EntryKind | null;
+  error?: string;
+}
+
+/** Parse only correlated, terminal host responses; malformed messages remain pending. */
+export function popoverTerminalDetail(message: unknown, entryId: string): PopoverDetail | null {
+  if (!message || typeof message !== 'object') return null;
+  const msg = message as Record<string, unknown>;
+  if (msg.entryId !== entryId) return null;
+  if (msg.type === 'popoverEntryDetailsError') {
+    return typeof msg.message === 'string' && msg.message
+      ? { entry: null, kind: null, error: msg.message }
+      : null;
+  }
+  if (msg.type !== 'popoverEntryDetails' || !Object.hasOwn(msg, 'entry')) return null;
+  if (msg.entry !== null && (typeof msg.entry !== 'object' || Array.isArray(msg.entry))) return null;
+  if (msg.kind !== undefined && msg.kind !== null &&
+      (typeof msg.kind !== 'object' || Array.isArray(msg.kind))) return null;
+  return {
+    entry: msg.entry as EntryData | null,
+    kind: (msg.kind as EntryKind | null | undefined) ?? null
+  };
 }
 
 export function useHoverPopovers(): HoverPopoverContextValue {
@@ -66,6 +99,8 @@ interface HoverPopoverProviderProps {
   postMessage: (msg: unknown) => void;
   /** Entry pool forwarded to popover EntrySurfaces for source resolution. */
   entries: EntryOption[];
+  /** Operation-local id→package identity, including Entries outside that pool. */
+  entryPackages?: Readonly<Record<string, string>>;
   /** User macro DB forwarded to nested EntrySurfaces. */
   userMacros?: MacroRecord;
   /** Workspace Macro Kind colors shared by every nested EntrySurface. */
@@ -91,7 +126,7 @@ function EntryPopoverContent({
   markdownImageUrlTransform
 }: {
   entryId: string;
-  detail: { entry: EntryData | null; kind: EntryKind | null } | undefined;
+  detail: PopoverDetail | undefined;
   requestDetails: (entryId: string) => void;
   entries: EntryOption[];
   postMessage: (msg: unknown) => void;
@@ -106,6 +141,13 @@ function EntryPopoverContent({
 
   if (detail === undefined) {
     return <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>{t('loading')}</div>;
+  }
+  if (detail.error) {
+    return (
+      <div role="alert" style={{ padding: '0.6rem 0.8rem', color: 'var(--vscode-errorForeground, #a1260d)' }}>
+        {t('loadFailed', { id: entryId, message: detail.error })}
+      </div>
+    );
   }
   if (detail.entry === null) {
     return (
@@ -134,35 +176,26 @@ export function HoverPopoverProvider({
   children,
   postMessage,
   entries,
+  entryPackages,
   userMacros,
   kindPalette,
   markdownImageUrlTransform,
   localDetails
 }: HoverPopoverProviderProps): React.ReactElement {
-  const [details, setDetails] = useState<
-    Record<string, { entry: EntryData | null; kind: EntryKind | null }>
-  >({});
+  const [details, setDetails] = useState<Record<string, PopoverDetail>>({});
   const requestedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     function onMessage(event: MessageEvent): void {
-      const msg = event.data as
-        | {
-            type?: string;
-            entryId?: string;
-            entry?: EntryData | null;
-            kind?: EntryKind | null;
-          }
-        | undefined;
-      if (!msg || msg.type !== 'popoverEntryDetails' || typeof msg.entryId !== 'string') {
-        return;
-      }
+      const entryId = event.data && typeof event.data === 'object'
+        ? (event.data as { entryId?: unknown }).entryId
+        : undefined;
+      if (typeof entryId !== 'string') return;
+      const detail = popoverTerminalDetail(event.data, entryId);
+      if (!detail) return;
       setDetails((previous) => ({
         ...previous,
-        [msg.entryId as string]: {
-          entry: msg.entry ?? null,
-          kind: msg.kind ?? null
-        }
+        [entryId]: detail
       }));
     }
     window.addEventListener('message', onMessage);
@@ -178,9 +211,9 @@ export function HoverPopoverProvider({
       }
       if (requestedRef.current.has(entryId)) return;
       requestedRef.current.add(entryId);
-      postMessage(entryDetailsRequest(entryId, entries));
+      postMessage(entryDetailsRequest(entryId, entries, entryPackages));
     },
-    [entries, localDetails, postMessage]
+    [entries, entryPackages, localDetails, postMessage]
   );
 
   const renderPopover = useCallback(

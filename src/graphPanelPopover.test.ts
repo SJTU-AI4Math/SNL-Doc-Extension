@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { entryPackageIdentities } from './popoverEntryReader';
 
 const state = vi.hoisted(() => ({
   posted: [] as Array<Record<string, unknown>>,
@@ -123,6 +124,14 @@ function expectNoEntityDirectoryScans(): void {
 }
 
 describe('GraphPanel correlated topology-aware popovers', () => {
+  it('preserves prototype-shaped Entry ids as own package identities', () => {
+    const identities = entryPackageIdentities([
+      { id: '__proto__', package: 'logic' } as never
+    ]);
+    expect(Object.hasOwn(identities, '__proto__')).toBe(true);
+    expect(identities.__proto__).toBe('logic');
+  });
+
   beforeEach(() => {
     state.posted.length = 0;
     state.readDirectories.length = 0;

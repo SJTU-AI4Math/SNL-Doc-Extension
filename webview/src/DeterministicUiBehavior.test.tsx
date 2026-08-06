@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const posted: unknown[] = [];
@@ -119,5 +119,25 @@ describe('graph keyboard accessibility', () => {
     posted.length = 0;
     fireEvent.keyDown(node, { key: 'Enter', ctrlKey: true });
     expect(posted).toContainEqual({ type: 'openEntryInfoview', entryId: 'a' });
+  });
+
+  it('forwards host package identities into lazy Graph popover requests', async () => {
+    render(<SnlGraphApp />);
+    send({
+      type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [],
+      entryOptions: [{ id: 'a', title: 'Alpha', hasContent: false }],
+      entryPackages: { a: 'logic' }, macros: {}, macroKinds: [],
+      nodes: [
+        { id: 'a', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
+        { id: 'b', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+      ],
+      edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
+    });
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Entry Alpha (a)' }), {
+      clientX: 100, clientY: 100
+    });
+    await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
+      type: 'requestEntryDetails', entryId: 'a', entryPackage: 'logic'
+    })), { timeout: 1600 });
   });
 });

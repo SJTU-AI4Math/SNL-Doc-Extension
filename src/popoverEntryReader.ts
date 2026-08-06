@@ -61,7 +61,7 @@ export async function readPopoverEntry(
 
 /** Operation-local stable identity for exact current-storage popover reads. */
 export function entryPackageIdentities(entries: EntryData[]): Record<string, string> {
-  const identities: Record<string, string> = {};
+  const identities = Object.create(null) as Record<string, string>;
   for (const entry of entries) {
     if (typeof entry.package === 'string' && entry.package) {
       identities[entry.id] = entry.package;

@@ -88,6 +88,8 @@ interface GraphMessage {
   warnings: string[];
   /** Full pool for popover render (cross-entry macro source resolution). */
   entryOptions?: EntryOption[];
+  /** Operation-local package identities for exact lazy Entry reads. */
+  entryPackages?: Readonly<Record<string, string>>;
   /** Workspace-wide macros for popover EntryRender. */
   macros?: MacroRecord;
   macroKinds?: MacroKindPaletteSource[];
@@ -586,6 +588,7 @@ export function SnlGraphApp(): React.ReactElement {
     <HoverPopoverProvider
       postMessage={post}
       entries={msg?.entryOptions ?? []}
+      entryPackages={msg?.entryPackages}
       userMacros={msg?.macros ?? {}}
       kindPalette={kindPalette}
     >

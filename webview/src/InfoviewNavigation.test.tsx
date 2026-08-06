@@ -18,6 +18,7 @@ import { App } from './App';
 
 afterEach(() => {
   cleanup();
+  document.documentElement.lang = 'en';
   api.postMessage.mockReset();
   api.getState.mockReset();
   api.setState.mockReset();
@@ -45,5 +46,16 @@ describe('Infoview navigation', () => {
     fireEvent.click(view.getByRole('button', { name: 'Back to libraries' }));
     expect(api.postMessage).toHaveBeenCalledTimes(1);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'back' });
+  });
+
+  it('shows the localized command title in the Chinese empty state', () => {
+    document.documentElement.lang = 'zh-CN';
+    const view = render(<App />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'libraries', libraries: [] }
+      }));
+    });
+    expect(view.getByText('SNL：创建文档库')).toBeTruthy();
   });
 });

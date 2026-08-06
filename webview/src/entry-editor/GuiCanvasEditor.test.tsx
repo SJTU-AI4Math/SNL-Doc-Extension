@@ -78,6 +78,7 @@ afterEach(() => {
   readingHoverCount = 0;
   readingClickCount = 0;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   Reflect.deleteProperty(document, 'elementsFromPoint');
 });
 
@@ -146,6 +147,161 @@ describe('GuiCanvasEditor', () => {
     expect(scrollBy.mock.calls[0]?.[1]).toBeCloseTo(
       (120 - 30) * expectedZoom - (120 - 30)
     );
+  });
+
+  it('preserves the pointer anchor across wheel events that arrive before commit', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 }
+    });
+    viewport.getBoundingClientRect = () => ({
+      x: 10, y: 20, left: 10, top: 20, right: 810, bottom: 520,
+      width: 800, height: 500, toJSON: () => undefined
+    });
+    viewport.scrollLeft = 100;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    canvas.getBoundingClientRect = () => ({
+      x: 10, y: 30, left: 10, top: 30, right: 810, bottom: 542,
+      width: 800, height: 512, toJSON: () => undefined
+    });
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const first = createEvent.wheel(viewport, {
+      deltaY: -120, clientX: 160, clientY: 120, cancelable: true
+    });
+    const second = createEvent.wheel(viewport, {
+      deltaY: -120, clientX: 160, clientY: 120, cancelable: true
+    });
+    viewport.dispatchEvent(first);
+    viewport.dispatchEvent(second);
+
+    const finalZoom = canvasZoomFromWheel(canvasZoomFromWheel(1, -120), -120);
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(finalZoom));
+    expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * finalZoom - 150);
+  });
+
+  it('normalizes line and page wheel deltas but leaves editable descendants alone', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, value: 500 });
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+
+    const lineWheel = createEvent.wheel(viewport, {
+      deltaY: -1,
+      deltaMode: WheelEvent.DOM_DELTA_LINE,
+      clientX: 50,
+      clientY: 50,
+      cancelable: true
+    });
+    fireEvent(viewport, lineWheel);
+    const lineZoom = canvasZoomFromWheel(1, -16);
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(lineZoom));
+
+    const pageWheel = createEvent.wheel(viewport, {
+      deltaY: 0.1,
+      deltaMode: WheelEvent.DOM_DELTA_PAGE,
+      clientX: 50,
+      clientY: 50,
+      cancelable: true
+    });
+    fireEvent(viewport, pageWheel);
+    const pageZoom = canvasZoomFromWheel(lineZoom, 50);
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(pageZoom));
+
+    const input = document.createElement('input');
+    viewport.append(input);
+    const inputWheel = createEvent.wheel(input, {
+      deltaY: -1000,
+      clientX: 50,
+      clientY: 50,
+      cancelable: true
+    });
+    fireEvent(input, inputWheel);
+    expect(inputWheel.defaultPrevented).toBe(false);
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    expect(Number(canvas.style.zoom)).toBe(pageZoom);
+  });
+
+  it('cancels a queued wheel frame when the Canvas unmounts', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 42);
+    const cancelAnimationFrame = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -120, clientX: 50, clientY: 50, cancelable: true
+    }));
+    view.unmount();
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
+  });
+
+  it('fills the viewport on zoom-out and keeps context-menu coordinates logical', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperty(viewport, 'clientWidth', { configurable: true, value: 800 });
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: 1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(0.5));
+    expect(canvas.style.width).toBe('1600px');
+
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    canvas.getBoundingClientRect = () => ({
+      x: 100, y: 200, left: 100, top: 200, right: 1700, bottom: 1224,
+      width: 1600, height: 1024, toJSON: () => undefined
+    });
+    fireEvent.contextMenu(canvas, { clientX: 300, clientY: 400 });
+    const menu = view.container.querySelector<HTMLElement>('[data-canvas-menu]')!;
+    expect(menu.style.left).toBe('100px');
+    expect(menu.style.top).toBe('100px');
   });
 
   it('keeps wheel events inside the Canvas at the zoom bounds', async () => {

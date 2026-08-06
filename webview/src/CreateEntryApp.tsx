@@ -23,6 +23,7 @@
 // 里的 Syntax Tree Editor 先给它搬过来，变成 {t('guiInductive')}".
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './entry-editor/canvas.css';
@@ -2520,6 +2521,12 @@ export function GuiCanvasEditor({
     pointerX: number;
     pointerClientY: number;
   } | null>(null);
+  const wheelFrameRef = React.useRef<number | null>(null);
+  const wheelBatchRef = React.useRef<{
+    deltaY: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   // Async arity lookup belongs to the exact SNooGL selection that launched it.
@@ -2564,6 +2571,28 @@ export function GuiCanvasEditor({
   React.useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    const commitWheelBatch = (): void => {
+      wheelFrameRef.current = null;
+      const batch = wheelBatchRef.current;
+      wheelBatchRef.current = null;
+      if (!batch) return;
+      const current = canvasZoomRef.current;
+      const next = canvasZoomFromWheel(current, batch.deltaY);
+      if (next === current) return;
+      const rect = viewport.getBoundingClientRect();
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const pointerX = batch.clientX - rect.left;
+      pendingZoomAnchorRef.current = {
+        logicalX: (viewport.scrollLeft + pointerX) / current,
+        canvasLogicalY: canvasRect ? (batch.clientY - canvasRect.top) / current : 0,
+        pointerX,
+        pointerClientY: batch.clientY
+      };
+      // One synchronous commit per animation frame keeps the DOM geometry and
+      // zoom ref coherent before the next wheel batch, without forcing layout
+      // for every high-frequency trackpad event.
+      flushSync(() => setCanvasZoom(next));
+    };
     const onWheel = (event: WheelEvent): void => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [role="listbox"], [role="dialog"], [role="menu"]')) {
@@ -2577,23 +2606,25 @@ export function GuiCanvasEditor({
       const normalizedDeltaY = event.deltaY * lineScale;
       if (normalizedDeltaY === 0) return;
       event.preventDefault();
-      const current = canvasZoomRef.current;
-      const next = canvasZoomFromWheel(current, normalizedDeltaY);
-      if (next === current) return;
-      const rect = viewport.getBoundingClientRect();
-      const canvasRect = canvasRef.current?.getBoundingClientRect();
-      const pointerX = event.clientX - rect.left;
-      pendingZoomAnchorRef.current = {
-        logicalX: (viewport.scrollLeft + pointerX) / current,
-        canvasLogicalY: canvasRect ? (event.clientY - canvasRect.top) / current : 0,
-        pointerX,
-        pointerClientY: event.clientY
+      const pending = wheelBatchRef.current;
+      wheelBatchRef.current = {
+        deltaY: (pending?.deltaY ?? 0) + normalizedDeltaY,
+        clientX: event.clientX,
+        clientY: event.clientY
       };
-      canvasZoomRef.current = next;
-      setCanvasZoom(next);
+      if (wheelFrameRef.current === null) {
+        wheelFrameRef.current = window.requestAnimationFrame(commitWheelBatch);
+      }
     };
     viewport.addEventListener('wheel', onWheel, { passive: false });
-    return () => viewport.removeEventListener('wheel', onWheel);
+    return () => {
+      viewport.removeEventListener('wheel', onWheel);
+      if (wheelFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelFrameRef.current);
+        wheelFrameRef.current = null;
+      }
+      wheelBatchRef.current = null;
+    };
   }, []);
 
   React.useLayoutEffect(() => {

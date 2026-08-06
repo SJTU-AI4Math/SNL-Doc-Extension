@@ -52,6 +52,7 @@ const MESSAGES = defineUiMessages('infoview', {
   editLibrary: 'Edit this Library', editLibraryTitle: 'Open the editor for library "{slug}"',
   emptyLibrary: 'This library has no entries yet. Add some via the Dashboard.',
   placeholder: 'placeholder node · {nodeId}', expand: 'Expand', collapse: 'Collapse',
+  librariesLoadError: 'Could not load libraries: {message}', retry: 'Retry',
   expandChildren: { arg: 'count', one: 'Expand {count} child', other: 'Expand {count} children' },
   collapseChildren: { arg: 'count', one: 'Collapse {count} child', other: 'Collapse {count} children' },
   graphWarnings: { arg: 'count', one: '⚠️ {count} warning in graph.json', other: '⚠️ {count} warnings in graph.json' },
@@ -67,6 +68,7 @@ const MESSAGES = defineUiMessages('infoview', {
   exportTitle: '将文档库“{slug}”导出为静态 HTML 文档', editLibrary: '编辑此文档库',
   editLibraryTitle: '打开文档库“{slug}”的编辑器', emptyLibrary: '此文档库尚无条目。请通过仪表板添加。',
   placeholder: '占位节点 · {nodeId}', expand: '展开', collapse: '折叠',
+  librariesLoadError: '无法加载文档库：{message}', retry: '重试',
   expandChildren: '展开 {count} 个子节点', collapseChildren: '折叠 {count} 个子节点',
   graphWarnings: '⚠️ graph.json 中有 {count} 条警告', moreWarnings: '……另有 {count} 条'
 });
@@ -369,19 +371,17 @@ function LibrariesErrorLayer({
   previous: LibraryEntry[] | null;
   ctx: RenderCtx;
 }): React.ReactElement {
-  const title = use_localized(ui('SNL Infoview', 'SNL 信息视图'));
-  const prefix = use_localized(ui('Could not load libraries:', '无法加载文档库：'));
-  const retry = use_localized(ui('Retry', '重试'));
+  const t = useUiMessages(MESSAGES);
   const alert = (
     <div role="alert" style={{ marginBottom: 16 }}>
-      <p>{prefix} {message}</p>
-      <Button onClick={() => ctx.postMessage({ type: 'ready' })}>{retry}</Button>
+      <p>{t('librariesLoadError', { message })}</p>
+      <Button onClick={() => ctx.postMessage({ type: 'ready' })}>{t('retry')}</Button>
     </div>
   );
   if (previous) {
     return <>{alert}<LibrariesLayer libraries={previous} ctx={ctx} /></>;
   }
-  return <><TopBar title={title} />{alert}</>;
+  return <><TopBar title={t('title')} />{alert}</>;
 }
 
 function LibrariesLayer({

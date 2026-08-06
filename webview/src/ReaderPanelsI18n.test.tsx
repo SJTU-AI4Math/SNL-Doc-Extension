@@ -10,7 +10,8 @@ const api = vi.hoisted(() => ({
 
 vi.mock('./vscodeApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./vscodeApi')>()),
-  getVsCodeApi: () => api
+  getVsCodeApi: () => api,
+  useVsCodeApiRef: () => ({ current: api })
 }));
 vi.mock('./render/EntrySurface', () => ({
   EntrySurface: ({ entry }: { entry: { title: string } }) => <div>{entry.title}</div>

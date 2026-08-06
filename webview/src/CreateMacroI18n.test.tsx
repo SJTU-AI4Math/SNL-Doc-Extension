@@ -3,13 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./vscodeApi', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./vscodeApi');
+  const api = {
+    postMessage: () => undefined,
+    getState: () => undefined,
+    setState: () => undefined
+  };
   return {
     ...actual,
-    getVsCodeApi: () => ({
-      postMessage: () => undefined,
-      getState: () => undefined,
-      setState: () => undefined
-    })
+    getVsCodeApi: () => api,
+    useVsCodeApiRef: () => ({ current: api })
   };
 });
 

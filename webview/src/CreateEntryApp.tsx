@@ -145,6 +145,12 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   immutableIdHint: 'IDs are stable references used by relationship links; they cannot be edited here.',
   semanticIdHint: "Prefer a semantic id like 'pythagorean-theorem' or 'context-linalg-vars' — human-readable ids render better in cross-entry references (macro sources, library graph nodes, bvar `x@<id>` context refs). The UUID button is a fallback for when no meaningful name fits. IDs are immutable once created.",
   package: 'Package',
+  createPackage: 'Create Package',
+  newPackageId: 'New Package ID',
+  packageIdPlaceholder: 'e.g. algebra',
+  addPackage: 'Add Package',
+  cancelPackageCreate: 'Cancel',
+  packageCreating: 'Creating…',
   missingPackageOption: '{packageId} (missing; choose another Package)',
   unpackaged: 'Unpackaged (_unpackaged)',
   missingPackage: 'The selected Package no longer exists. Your draft was preserved; choose another Package before saving.',
@@ -302,7 +308,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   fillUuidTitle: '用新的 UUID v4 填充 ID（仅当没有合适的语义化 ID 时使用）', regenerateUuid: '重新生成 UUID', useUuid: '改用 UUID',
   immutableIdHint: 'ID 是关系链接使用的稳定引用，无法在此处编辑。',
   semanticIdHint: "建议使用 'pythagorean-theorem' 或 'context-linalg-vars' 等语义化 ID——人类可读的 ID 在跨条目引用（宏源、库图节点、bvar `x@<id>` 上下文引用）中显示效果更好。没有合适名称时才使用 UUID 按钮。ID 创建后不可变。",
-  package: '宏包', missingPackageOption: '{packageId}（已丢失；请选择其他宏包）', unpackaged: '未归入宏包（_unpackaged）',
+  package: '宏包', createPackage: '创建宏包', newPackageId: '新宏包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加宏包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他宏包）', unpackaged: '未归入宏包（_unpackaged）',
   missingPackage: '所选宏包已不存在。草稿已保留；保存前请选择其他宏包。', packageHint: '以后可以更改宏包归属；移动条目会保留其 ID 和引用。',
   kind: '种类', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
@@ -628,6 +634,10 @@ export function CreateEntryApp(): React.ReactElement {
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [entryPackages, setEntryPackages] = useState<string[]>(['_unpackaged']);
   const [selectedPackage, setSelectedPackage] = useState<string>('_unpackaged');
+  const [showPackageCreator, setShowPackageCreator] = useState(false);
+  const [newPackageId, setNewPackageId] = useState('');
+  const [packageCreating, setPackageCreating] = useState(false);
+  const [packageCreateError, setPackageCreateError] = useState('');
   const [selectedKind, setSelectedKind] = useState<string>('');
 
   const [activeFormat, setActiveFormat] = useState<ContentFormat>('snl');
@@ -765,6 +775,8 @@ export function CreateEntryApp(): React.ReactElement {
             relationships?: EntryRelationshipRow[];
           }
         | { type: 'created'; id: string }
+        | { type: 'packageCreated'; packageId: string }
+        | { type: 'packageCreateFailed'; message: string }
         | { type: 'updated'; id: string }
         | { type: 'duplicate'; id: string; message: string }
         | { type: 'notFound'; id: string; message: string }
@@ -960,6 +972,24 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'created', id: msg.id });
           break;
         }
+        case 'packageCreated': {
+          const packageId = typeof msg.packageId === 'string' ? msg.packageId : '';
+          if (!packageId) break;
+          setEntryPackages((previous) =>
+            previous.includes(packageId) ? previous : [...previous, packageId]
+          );
+          setSelectedPackage(packageId);
+          markFormDirty(true);
+          setPackageCreating(false);
+          setPackageCreateError('');
+          setNewPackageId('');
+          setShowPackageCreator(false);
+          break;
+        }
+        case 'packageCreateFailed':
+          setPackageCreating(false);
+          setPackageCreateError(msg.message);
+          break;
         case 'updated':
           markFormDirty(false);
           contentDirtyRef.current.clear();
@@ -1389,53 +1419,108 @@ export function CreateEntryApp(): React.ReactElement {
                 </Button>
               </div>
             )}
-            <p
-              style={{
-                margin: '0.35rem 0 0',
-                fontSize: '0.8rem',
-                opacity: 0.75,
-                lineHeight: 1.4
-              }}
-            >
-              {mode === 'edit'
-                ? t('immutableIdHint')
-                : t('semanticIdHint')}
-            </p>
+            {mode === 'create' ? (
+              <p
+                style={{
+                  margin: '0.35rem 0 0',
+                  fontSize: '0.8rem',
+                  opacity: 0.75,
+                  lineHeight: 1.4
+                }}
+              >
+                {t('semanticIdHint')}
+              </p>
+            ) : null}
           </div>
         </div>
 
         {/* 2. Package + Kind =========================================== */}
         <div style={{ marginBottom: '1rem' }}>
           <Label htmlFor="snl-entry-package">{t('package')}</Label>
-          <select
-            id="snl-entry-package"
-            value={selectedPackage}
-            onChange={(e) => {
-              markFormDirty(true);
-              setSelectedPackage(e.target.value);
-            }}
-            style={inputStyle}
-          >
-            {!entryPackages.includes(selectedPackage) && selectedPackage ? (
-              <option value={selectedPackage} disabled>
-                {t('missingPackageOption', { packageId: selectedPackage })}
-              </option>
-            ) : null}
-            {entryPackages.map((packageId) => (
-              <option key={packageId} value={packageId}>
-                {packageId === '_unpackaged' ? t('unpackaged') : packageId}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+            <select
+              id="snl-entry-package"
+              value={selectedPackage}
+              onChange={(e) => {
+                markFormDirty(true);
+                setSelectedPackage(e.target.value);
+              }}
+              style={{ ...inputStyle, marginBottom: 0, flex: '1 1 auto' }}
+            >
+              {!entryPackages.includes(selectedPackage) && selectedPackage ? (
+                <option value={selectedPackage} disabled>
+                  {t('missingPackageOption', { packageId: selectedPackage })}
+                </option>
+              ) : null}
+              {entryPackages.map((packageId) => (
+                <option key={packageId} value={packageId}>
+                  {packageId === '_unpackaged' ? t('unpackaged') : packageId}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowPackageCreator(true);
+                setPackageCreateError('');
+              }}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {t('createPackage')}
+            </Button>
+          </div>
+          {showPackageCreator ? (
+            <div style={{ marginTop: '0.5rem' }}>
+              <Label htmlFor="snl-entry-new-package">{t('newPackageId')}</Label>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+                <input
+                  id="snl-entry-new-package"
+                  value={newPackageId}
+                  placeholder={t('packageIdPlaceholder')}
+                  onChange={(event) => setNewPackageId(event.target.value)}
+                  style={{ ...inputStyle, ...monoStyle, marginBottom: 0, flex: '1 1 auto' }}
+                />
+                <Button
+                  variant="primary"
+                  disabled={packageCreating || newPackageId.trim().length === 0}
+                  onClick={() => {
+                    const packageId = newPackageId.trim();
+                    if (!packageId) return;
+                    setPackageCreating(true);
+                    setPackageCreateError('');
+                    apiRef.current?.postMessage({ type: 'createPackage', packageId });
+                  }}
+                >
+                  {packageCreating ? t('packageCreating') : t('addPackage')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={packageCreating}
+                  onClick={() => {
+                    setShowPackageCreator(false);
+                    setNewPackageId('');
+                    setPackageCreateError('');
+                  }}
+                >
+                  {t('cancelPackageCreate')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {packageCreateError ? (
+            <p role="alert" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
+              {packageCreateError}
+            </p>
+          ) : null}
           {!entryPackages.includes(selectedPackage) && selectedPackage ? (
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
               {t('missingPackage')}
             </p>
-          ) : (
+          ) : mode === 'create' ? (
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
               {t('packageHint')}
             </p>
-          )}
+          ) : null}
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
@@ -1471,7 +1556,10 @@ export function CreateEntryApp(): React.ReactElement {
         </div>
 
         {/* 3. Live preview ============================================= */}
-        <CollapsibleEntrySection title={t('livePreview')}>
+        <section style={{ marginBottom: '1rem' }}>
+          <h2 style={{ margin: '0 0 0.55rem', fontSize: '1rem', fontWeight: 600 }}>
+            {t('livePreview')}
+          </h2>
           <LivePreview
             kind={kind}
             entryId={trimmedId || t('newEntryId')}
@@ -1482,7 +1570,7 @@ export function CreateEntryApp(): React.ReactElement {
             kindPalette={kindPalette}
             postMessage={(message) => apiRef.current?.postMessage(message)}
           />
-        </CollapsibleEntrySection>
+        </section>
 
         {/* 4. Content tabs ============================================= */}
         <div style={{ marginBottom: '1rem' }}>

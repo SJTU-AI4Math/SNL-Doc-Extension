@@ -18,7 +18,9 @@ import type { VsCodeApi } from '../vscodeApi';
 vi.mock('../render/HoverPopoverProvider', () => ({
   HoverPopoverProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
 }));
-vi.mock('../render/EntrySurface', () => ({ EntrySurface: () => null }));
+vi.mock('../render/EntrySurface', () => ({
+  EntrySurface: () => <div data-testid="entry-preview-surface" />
+}));
 vi.mock('./MonacoTextEditor', () => ({
   MonacoTextEditor: ({ value, ariaLabel, onChange }: {
     value: string;
@@ -204,6 +206,80 @@ describe('CreateEntryApp create → edit flip', () => {
     await waitFor(() => expect(posted.some((message) => message?.type === 'update')).toBe(true));
     expect(posted.findLast((message) => message?.type === 'update').entry.package)
       .toBe('_unpackaged');
+  });
+
+  it('keeps Live Preview visible without a disclosure control', async () => {
+    const view = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'preview-entry', package: '_unpackaged', title: 'Preview Entry',
+      kind: 'definition', content: {}
+    }));
+
+    await waitFor(() => expect(view.getByTestId('entry-preview-surface')).toBeTruthy());
+    const previewHeading = view.getByRole('heading', { name: 'Live Preview' });
+    expect(previewHeading.closest('button')).toBeNull();
+    expect(view.queryByRole('button', { name: /Live Preview.*section/i })).toBeNull();
+  });
+
+  it('removes redundant edit prose while preserving create-mode ID and Package guidance', async () => {
+    const editView = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'compact-entry', package: '_unpackaged', title: 'Compact Entry',
+      kind: 'definition', content: {}
+    }));
+
+    await waitFor(() => expect(editView.getByLabelText('ID (readonly)')).toBeTruthy());
+    expect(editView.queryByText(/stable references used by relationship links/i)).toBeNull();
+    expect(editView.queryByText(/Prefer a semantic id/i)).toBeNull();
+    expect(editView.queryByText(/Package membership may be changed later/i)).toBeNull();
+    expect(editView.getByLabelText('Package')).toBeTruthy();
+    editView.unmount();
+
+    const createView = render(<CreateEntryApp />);
+    send(createContext());
+    await waitFor(() => expect(createView.getByText(/Prefer a semantic id/i)).toBeTruthy());
+    expect(createView.getByText(/Package membership may be changed later/i)).toBeTruthy();
+  });
+
+  it('creates a Package from the selector and selects the host-confirmed Package', async () => {
+    const view = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'package-create-entry', package: '_unpackaged', title: 'Package Create Entry',
+      kind: 'definition', content: {}
+    }));
+
+    const createButton = await view.findByRole('button', { name: 'Create Package' });
+    fireEvent.click(createButton);
+    const packageId = view.getByLabelText('New Package ID');
+    fireEvent.change(packageId, { target: { value: 'Algebra' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+
+    expect(posted.findLast((message) => message?.type === 'createPackage')).toEqual({
+      type: 'createPackage', packageId: 'Algebra'
+    });
+    send({ type: 'packageCreated', packageId: 'Algebra' });
+
+    const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    await waitFor(() => expect(selector.value).toBe('Algebra'));
+    expect(Array.from(selector.options).some((option) => option.value === 'Algebra')).toBe(true);
+    expect(view.queryByLabelText('New Package ID')).toBeNull();
+  });
+
+  it('keeps the Package creator open with an actionable host error', async () => {
+    const view = render(<CreateEntryApp />);
+    send(editContext({
+      id: 'package-error-entry', package: '_unpackaged', title: 'Package Error Entry',
+      kind: 'definition', content: {}
+    }));
+
+    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
+    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'bad/package' } });
+    fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
+    send({ type: 'packageCreateFailed', message: 'Could not create Package: invalid ID' });
+
+    expect((await view.findByRole('alert')).textContent).toContain('Could not create Package: invalid ID');
+    expect(view.getByLabelText('New Package ID')).toBeTruthy();
+    expect((view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('preserves a dirty Package selection when that Package disappears', async () => {

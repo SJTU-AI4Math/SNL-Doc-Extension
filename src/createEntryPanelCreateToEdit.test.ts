@@ -72,6 +72,7 @@ vi.mock('vscode', () => ({
 }));
 
 const stored: any[] = [];
+const packageFiles = ['core.json'];
 
 vi.mock('./snlDoc', () => ({
   entityRevision: () => 'test-revision',
@@ -88,11 +89,15 @@ vi.mock('./snlDoc', () => ({
     events.push(`regenerate:${Array.from(scope.entryIds).join(',')}`);
     return { status: 'ok', report: {} };
   }),
+  createMacroPackage: vi.fn(async (_root: unknown, file: string) => {
+    packageFiles.push(`${file}.json`);
+    return { status: 'ok', file: `${file}.json` };
+  }),
   listEntryKinds: async () => [{ id: 'definition', name: 'Definition' }],
   readAllMacrosWithOrigin: async () => ({ macros: {}, origin: {} }),
   readMacroKinds: async () => [],
   readMacroPackage: async () => null,
-  readMacroPackages: async () => [],
+  readMacroPackages: async () => packageFiles.map((file) => ({ file })),
   resolveActiveMacroPackages: async () => [],
   readEntries: async () => stored,
   readRelationships: async () => []
@@ -115,6 +120,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
   beforeEach(() => {
     posted.length = 0;
     events.length = 0;
+    packageFiles.splice(0, packageFiles.length, 'core.json');
   });
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {
@@ -209,5 +215,41 @@ describe('CreateEntryPanel create -> edit flip', () => {
       existing: { id: 'saved-despite-regen-error' }
     });
     expect(posted.indexOf(error)).toBeLessThan(posted.indexOf(context));
+  });
+
+  it('uses canonical Package creation and confirms the refreshed Package to the webview', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    vi.mocked(snlDoc.createMacroPackage).mockClear();
+
+    await messageHandler!({ type: 'createPackage', packageId: 'Algebra' });
+
+    expect(snlDoc.createMacroPackage).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/ws' }),
+      'Algebra',
+      'Algebra'
+    );
+    const confirmation = posted.find((message) => message?.type === 'packageCreated');
+    expect(confirmation).toEqual({ type: 'packageCreated', packageId: 'Algebra' });
+    const refreshed = contexts().at(-1);
+    expect(refreshed.entryPackages).toContain('Algebra');
+    expect(posted.indexOf(confirmation)).toBeLessThan(posted.indexOf(refreshed));
+  });
+
+  it('reports canonical Package creation exceptions without dropping the request', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+    vi.mocked(snlDoc.createMacroPackage).mockRejectedValueOnce(new Error('disk full'));
+
+    await messageHandler!({ type: 'createPackage', packageId: 'Algebra' });
+
+    expect(posted.find((message) => message?.type === 'packageCreateFailed')).toEqual({
+      type: 'packageCreateFailed',
+      message: 'Could not create Package: disk full'
+    });
   });
 });

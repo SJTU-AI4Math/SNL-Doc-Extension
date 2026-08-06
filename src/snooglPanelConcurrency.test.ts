@@ -37,10 +37,10 @@ function deferredEntries(): Promise<any[]> {
 
 vi.mock('./snlDoc', () => ({
   readEntries: vi.fn(() => deferredEntries()),
-  readAllMacros: async () => ({}),
-  resolveActiveMacroPackages: async () => [],
-  readMacroPackages: async () => [],
-  readMacroPackage: async () => ({ status: 'noFile' })
+  readPackageMacroSnapshot: async () => ({
+    workspaceMacros: {},
+    activePackages: []
+  })
 }));
 
 vi.mock('./panelUtil', () => ({

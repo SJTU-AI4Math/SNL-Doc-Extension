@@ -15,11 +15,8 @@ export const SNOOGL_WATCHED_PATH = new RegExp(
   'i'
 );
 import {
-  readAllMacros,
   readEntries,
-  readMacroPackage,
-  readMacroPackages,
-  resolveActiveMacroPackages,
+  readPackageMacroSnapshot,
   type EntryData
 } from './snlDoc';
 import {
@@ -243,48 +240,22 @@ export class SnoogLPanel {
         });
         return;
       }
-      // For macro origin (package file + display name), we need the
-      // per-package read. Read them concurrently — they are independent
-      // files and the serial await was pure latency on every panel open.
-      // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
-      const [entries, macrosByName, macroPackages] = await Promise.all([
+      const [entries, macroSnapshot] = await Promise.all([
         readEntries(root),
-        readAllMacros(root),
-        (async (): Promise<SnoogLHitMacro[]> => {
-          const [active, packages] = await Promise.all([
-            resolveActiveMacroPackages(root).then((names) => new Set(names)),
-            readMacroPackages(root)
-          ]);
-          const loaded = await Promise.all(
-            packages
-              .filter((summary) => active.has(summary.file.replace(/\.json$/i, '')))
-              .map(async (summary) => ({
-                bare: summary.file.replace(/\.json$/i, ''),
-                read: await readMacroPackage(root, summary.file)
-              }))
-          );
-          const out: SnoogLHitMacro[] = [];
-          for (const { bare, read } of loaded) {
-            if (read.status === 'error') {
-              throw new Error(hostText()('packageReadFailed', { file: bare, error: read.message }));
-            }
-            if (read.status === 'noFile') continue;
-            for (const m of read.macros) {
-              if (typeof m.name !== 'string' || !m.name) continue;
-              out.push({
-                kind: 'macro',
-                id: m.name,
-                packageFile: bare,
-                packageName: read.pkg?.name ?? bare,
-                macroKind: typeof m.kind === 'string' && m.kind ? m.kind : null,
-                tags: Array.isArray(m.tags) ? m.tags : [],
-                score: 0
-              });
-            }
-          }
-          return out;
-        })()
+        readPackageMacroSnapshot(root)
       ]);
+      const macrosByName = macroSnapshot.workspaceMacros;
+      const macroPackages: SnoogLHitMacro[] = macroSnapshot.activePackages.flatMap((pkg) =>
+        pkg.macros.map((macro) => ({
+          kind: 'macro' as const,
+          id: macro.name,
+          packageFile: pkg.file,
+          packageName: pkg.name,
+          macroKind: typeof macro.kind === 'string' && macro.kind ? macro.kind : null,
+          tags: Array.isArray(macro.tags) ? macro.tags : [],
+          score: 0
+        }))
+      );
       if (generation !== this.queryGeneration) return;
       const kindsByMode = {
         entry: uniqueSorted(entries.map((e) => e.kind).filter(Boolean) as string[]),

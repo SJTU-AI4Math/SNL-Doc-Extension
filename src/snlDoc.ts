@@ -2080,16 +2080,25 @@ function buildMacroPackageResult(
   return { status: 'ok', pkg, macros };
 }
 
-export interface PackagePanelSnapshot {
+export interface PackageMacroSnapshot {
   readonly selected:
     | { readonly status: 'ok'; readonly pkg: MacroPackageFile; readonly macros: readonly MacroPackageEntry[] }
     | { readonly status: 'noFile' }
     | { readonly status: 'error'; readonly message: string };
   readonly workspaceMacros: Readonly<Record<string, MacroPackageEntry>>;
+  readonly macroOrigins: Readonly<Record<string, string>>;
+  readonly activePackages: readonly {
+    readonly file: string;
+    readonly name: string;
+    readonly macros: readonly MacroPackageEntry[];
+  }[];
   readonly macroKinds: readonly MacroKind[];
   readonly active: readonly string[];
   readonly otherPackages: readonly { readonly file: string; readonly name: string }[];
 }
+
+/** PackagePanel consumes the same generalized Package/Macro snapshot. */
+export type PackagePanelSnapshot = PackageMacroSnapshot;
 
 const PACKAGE_SNAPSHOT_READ_CONCURRENCY = 8;
 
@@ -2122,10 +2131,10 @@ async function mapPackageSnapshotReads<T, U>(
  * likewise listed and read once. All derived products are folded only after
  * those bounded reads settle, preserving file-name collision ordering.
  */
-export async function readPackagePanelSnapshot(
+export async function readPackageMacroSnapshot(
   workspaceRoot: vscode.Uri,
-  selectedFile: string
-): Promise<PackagePanelSnapshot> {
+  selectedFile = ''
+): Promise<PackageMacroSnapshot> {
   const selectedBare = stripJsonExt(selectedFile);
   let configRaw: unknown;
   try {
@@ -2145,6 +2154,19 @@ export async function readPackagePanelSnapshot(
       const storage = entityReadStorage(workspaceRoot);
       const packageRecords = await readPackageManifestRecords(storage);
       const macroRecords = await readMacroEntityRecords(storage);
+      const packageIds = new Set(packageRecords.map(({ manifest }) => manifest.id));
+      if (Array.isArray(config.active_macro_packages)) {
+        for (const packageId of config.active_macro_packages) {
+          if (!packageIds.has(packageId)) {
+            throw new Error(`Active Macro Package ${JSON.stringify(packageId)} has no Package manifest.`);
+          }
+        }
+      }
+      for (const { envelope } of macroRecords) {
+        if (!packageIds.has(envelope.package)) {
+          throw new Error(`Macro entity references missing Package ${envelope.package}.`);
+        }
+      }
       packageNames = packageRecords
         .map(({ manifest }) => manifest.id)
         .filter((id) => id !== UNPACKAGED_PACKAGE_ID)
@@ -2248,6 +2270,22 @@ export async function readPackagePanelSnapshot(
     }
   }
 
+  const activePackages = activeInFileOrder.map((bare) => {
+    const result = normalizePackage(bare);
+    if (!result || result.status === 'error') {
+      throw new Error(
+        result?.status === 'error'
+          ? `Could not read Macro Package ${JSON.stringify(bare)}: ${result.message}`
+          : `Macro Package ${JSON.stringify(bare)} disappeared while loading Macros.`
+      );
+    }
+    return Object.freeze({
+      file: bare,
+      name: result.pkg.name,
+      macros: Object.freeze(result.macros)
+    });
+  });
+
   const otherPackages = active
     .filter((bare) => bare !== selectedBare)
     .map((bare) => {
@@ -2260,12 +2298,22 @@ export async function readPackagePanelSnapshot(
   return Object.freeze({
     selected,
     workspaceMacros: Object.freeze(workspaceMacros),
+    macroOrigins: Object.freeze(origin),
+    activePackages: Object.freeze(activePackages),
     macroKinds: Object.freeze(config.macro_kinds ?? []),
     active: Object.freeze(active),
     otherPackages: Object.freeze(
       otherPackages.map((entry) => Object.freeze(entry))
     )
   });
+}
+
+/** PackagePanel-specific view over the shared operation-local snapshot. */
+export async function readPackagePanelSnapshot(
+  workspaceRoot: vscode.Uri,
+  selectedFile: string
+): Promise<PackagePanelSnapshot> {
+  return readPackageMacroSnapshot(workspaceRoot, selectedFile);
 }
 
 /**
@@ -2451,56 +2499,11 @@ export async function readAllMacrosWithOrigin(
   macros: Record<string, MacroPackageEntry>;
   origin: Record<string, string>;
 }> {
-  // `listMacroPackageNames` instead of `readMacroPackages`: we are about to
-  // read each package in full anyway, so parsing them once more just to
-  // compute a discarded macroCount is wasted work.
-  const [onDisk, active] = await Promise.all([
-    listMacroPackageNames(workspaceRoot),
-    resolveActiveMacroPackages(workspaceRoot)
-  ]);
-  const activeSet = new Set(active);
-  const out: Record<string, MacroPackageEntry> = {};
-  // Track which active package first defined each name so we can report the
-  // two colliding packages (Feature 3 will make this actionable).
-  const origin: Record<string, string> = {};
-
-  // Sort on the FILE name, not the bare name, so "last write wins" resolves
-  // name collisions exactly as it did when this walked `readMacroPackages`
-  // output. The two orders differ: `core.json` sorts before `core-extra.json`,
-  // but bare `core-extra` sorts before `core`. Review 2026-07-25.
-  const activePackages = onDisk
-    .filter((bare) => activeSet.has(bare))
-    .sort((a, b) => `${a}.json`.localeCompare(`${b}.json`));
-  // Read concurrently, then fold in that order regardless of which I/O
-  // finished first.
-  const loaded = await Promise.all(
-    activePackages.map(async (bare) => ({
-      bare,
-      read: await readMacroPackage(workspaceRoot, `${bare}.json`)
-    }))
-  );
-
-  for (const { bare, read } of loaded) {
-    if (read.status !== 'ok') {
-      throw new Error(
-        read.status === 'error'
-          ? `Could not read Macro Package ${JSON.stringify(bare)}: ${read.message}`
-          : `Macro Package ${JSON.stringify(bare)} disappeared while loading Macros.`
-      );
-    }
-    for (const macro of read.macros) {
-      if (typeof macro.name === 'string' && macro.name.length > 0) {
-        if (Object.prototype.hasOwnProperty.call(out, macro.name)) {
-          macrosOutput()?.appendLine(formatMacroConflict(
-            macroOutputLanguage(), macro.name, origin[macro.name], bare
-          ));
-        }
-        out[macro.name] = macro;
-        origin[macro.name] = bare;
-      }
-    }
-  }
-  return { macros: out, origin };
+  const snapshot = await readPackageMacroSnapshot(workspaceRoot);
+  return {
+    macros: snapshot.workspaceMacros as Record<string, MacroPackageEntry>,
+    origin: snapshot.macroOrigins as Record<string, string>
+  };
 }
 
 /**

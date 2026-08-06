@@ -108,13 +108,18 @@ vi.mock('vscode', () => ({
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
   firstWorkspaceFolder: () => ({ path: '/ws' }),
-  handlePanelNavMessage: async () => false
+  handlePanelNavMessage: async () => false,
+  installSnlDocWatcher: () => undefined
 }));
 
 vi.mock('./snlDoc', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./snlDoc')>();
   return {
     ...actual,
+    readPackageMacroSnapshot: async (...args: Parameters<typeof actual.readPackageMacroSnapshot>) => {
+      state.snapshotCalls += 1;
+      return actual.readPackageMacroSnapshot(...args);
+    },
     readPackagePanelSnapshot: async () => {
       state.snapshotCalls += 1;
       return {
@@ -168,6 +173,22 @@ describe('PackagePanel read cost', () => {
     ]);
   });
 
+  it('uses one current-storage Package/Macro snapshot per SNoogL query', async () => {
+    const { SnoogLPanel } = await import('./snooglPanel');
+    (SnoogLPanel as unknown as { instance: { dispose(): void } | null }).instance?.dispose();
+    SnoogLPanel.open(extensionUri, 'macro');
+
+    await state.receive?.({ type: 'ready' });
+
+    expect(state.snapshotCalls).toBe(1);
+    expect(state.directoryReads.filter((path) => path === 'packages')).toHaveLength(1);
+    expect(state.directoryReads.filter((path) => path === 'macros')).toHaveLength(1);
+    expect(state.entityReads.filter((path) => path.startsWith('packages/'))).toHaveLength(PACKAGE_COUNT);
+    expect(state.entityReads.filter((path) => path.startsWith('macros/'))).toHaveLength(PACKAGE_COUNT);
+    expect(new Set(state.entityReads).size).toBe(state.entityReads.length);
+    expect(state.maxEntityInFlight).toBeLessThanOrEqual(8);
+  });
+
   it('lists and reads every Package/Macro entity at most once with bounded fan-out', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
     const snapshot = await actual.readPackagePanelSnapshot({ path: '/ws' } as never, 'pkg-00');
@@ -180,6 +201,47 @@ describe('PackagePanel read cost', () => {
     expect(state.entityReads.filter((path) => path.startsWith('macros/'))).toHaveLength(PACKAGE_COUNT);
     expect(state.maxEntityInFlight).toBeGreaterThan(1);
     expect(state.maxEntityInFlight).toBeLessThanOrEqual(8);
+  });
+
+  it('gives readAllMacros the same single-snapshot P-package/M-macro read cost', async () => {
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const macros = await actual.readAllMacros({ path: '/ws' } as never);
+
+    expect(Object.keys(macros)).toHaveLength(PACKAGE_COUNT);
+    expect(state.directoryReads.sort()).toEqual(['macros', 'packages']);
+    expect(state.entityReads.filter((path) => path.startsWith('packages/'))).toHaveLength(PACKAGE_COUNT);
+    expect(state.entityReads.filter((path) => path.startsWith('macros/'))).toHaveLength(PACKAGE_COUNT);
+    expect(new Set(state.entityReads).size).toBe(state.entityReads.length);
+    expect(state.maxEntityInFlight).toBeLessThanOrEqual(8);
+  });
+
+  it('folds collisions deterministically in file order and exposes the winning origin', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', {
+      version: '0.0.6', macro_kinds: [], active_macro_packages: ['core', 'core-extra']
+    });
+    for (const id of ['core', 'core-extra']) {
+      jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
+      jsonByPath.set(`macros/${macroEntityPath(id, 'Shared.name').slice('macros/'.length)}`, makeMacroEnvelope(id, {
+        name: 'Shared.name',
+        description: id,
+        source: { entries: [], urls: [] },
+        dynamic_arity: false,
+        default_style: { en: 'default' },
+        styles: [{ style_name: 'default', mode: 'formula_inline', template: id, tags: [] }],
+        tags: []
+      }));
+    }
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const snapshot = await actual.readPackageMacroSnapshot({ path: '/ws' } as never);
+
+    expect(snapshot.activePackages.map(({ file }) => file)).toEqual(['core-extra', 'core']);
+    expect(snapshot.macroOrigins['Shared.name']).toBe('core');
+    expect(snapshot.workspaceMacros['Shared.name'].description).toBe('core');
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.workspaceMacros)).toBe(true);
   });
 
   it('uses the same one-read snapshot contract for legacy package files', async () => {
@@ -235,5 +297,36 @@ describe('PackagePanel read cost', () => {
     await expect(
       actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
     ).rejects.toThrow('is not a valid SNL Macro envelope');
+  });
+
+  it('fails closed when a configured active package has no manifest', async () => {
+    jsonByPath.set('config.json', {
+      version: '0.0.6',
+      macro_kinds: [],
+      active_macro_packages: [...packageIds, 'missing-active']
+    });
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    await expect(
+      actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
+    ).rejects.toThrow('Active Macro Package "missing-active" has no Package manifest.');
+  });
+
+  it('fails closed when a Macro owner has no manifest', async () => {
+    const name = 'macro.orphan';
+    jsonByPath.set(`macros/${macroEntityPath('orphan', name).slice('macros/'.length)}`, makeMacroEnvelope('orphan', {
+      name,
+      description: '',
+      source: { entries: [], urls: [] },
+      dynamic_arity: false,
+      default_style: { en: 'default' },
+      styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
+      tags: []
+    }));
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    await expect(
+      actual.readPackagePanelSnapshot({ path: '/ws' } as never, packageIds[0])
+    ).rejects.toThrow('Macro entity references missing Package orphan.');
   });
 });

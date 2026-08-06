@@ -1026,15 +1026,20 @@ describe('CreateEntryApp create → edit flip', () => {
         type: 'error', message: 'dependency regeneration failed',
         targetGeneration: 7, saveRequestId: firstRequest
       });
-      // A newer external context must not become this local form's CAS base.
-      send(contextAt('External after commit', 'r3'));
     });
     await waitFor(() => expect(title.value).toBe('Post-submit edit'));
 
+    // Retry before the host's follow-up context arrives.
     fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
     const retry = posted.findLast((message) => message?.type === 'update');
     expect(retry.expectedRevision).toBe('r2');
     expect(retry.saveRequestId).not.toBe(firstRequest);
+
+    act(() => {
+      // A newer external context must not become this local form's CAS base.
+      send(contextAt('External after commit', 'r3'));
+    });
+    await waitFor(() => expect(title.value).toBe('Post-submit edit'));
   });
 
   it('persists UUID regeneration as an authored draft change', async () => {

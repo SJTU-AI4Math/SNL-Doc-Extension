@@ -1095,6 +1095,7 @@ export function CreateEntryApp(): React.ReactElement {
           if (!committedId || !revision) break;
           committedUpdateRequestIdRef.current = requestId;
           committedUpdateRevisionRef.current = { id: committedId, revision };
+          entryRevisionRef.current = revision;
           justSavedIdRef.current = committedId;
           break;
         }

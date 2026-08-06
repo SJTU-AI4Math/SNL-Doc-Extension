@@ -16,6 +16,7 @@ export interface ExtensionPreferences {
   motion: MotionPreference;
   formatter_indent_spaces: number;
   formatter_inline_parenthesis_depth: number;
+  popover_hover_enabled: boolean;
 }
 
 export const FORMATTER_INDENT_SPACES_DEFAULT = 4;

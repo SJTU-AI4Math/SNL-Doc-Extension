@@ -14,11 +14,16 @@ interface WebviewPreferences {
   motion: string;
   formatter_indent_spaces?: number;
   formatter_inline_parenthesis_depth?: number;
+  popover_hover_enabled?: boolean;
 }
 
 export interface FormatterPreferences {
   indentSpaces: number;
   inlineParenthesisDepth: number;
+}
+
+export interface PopoverPreferences {
+  hoverEnabled: boolean;
 }
 
 export interface PreferencesSnapshotMessage {
@@ -39,6 +44,7 @@ let formatterPreferences: FormatterPreferences = {
   indentSpaces: 4,
   inlineParenthesisDepth: 3
 };
+let popoverPreferences: PopoverPreferences = { hoverEnabled: true };
 const subscribers = new Set<() => void>();
 
 function safe_formatter_integer(value: unknown, fallback: number, maximum: number): number {
@@ -49,6 +55,10 @@ function safe_formatter_integer(value: unknown, fallback: number, maximum: numbe
 
 export function get_formatter_preferences(): FormatterPreferences {
   return { ...formatterPreferences };
+}
+
+export function get_popover_preferences(): PopoverPreferences {
+  return { ...popoverPreferences };
 }
 
 function effective_motion(value: string): string {
@@ -100,6 +110,9 @@ export function apply_preferences_snapshot(
       3,
       Number.MAX_SAFE_INTEGER
     )
+  };
+  popoverPreferences = {
+    hoverEnabled: message.preferences.popover_hover_enabled !== false
   };
   renderRevision += 1;
   for (const subscriber of subscribers) subscriber();

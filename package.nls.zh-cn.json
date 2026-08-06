@@ -7,6 +7,7 @@
   "snlDoc.settings.motion.description": "动画偏好。自动模式跟随 Webview 的减少动态效果系统设置。",
   "snlDoc.settings.formatter.indentSpaces.description": "格式化 SNL 时每级缩进使用的空格数。",
   "snlDoc.settings.formatter.inlineParenthesisDepth.description": "格式化 SNL 时保持在同一行的最大括号深度。",
+  "snlDoc.settings.popovers.openOnHover.description": "指针悬停时打开条目预览浮窗。关闭后仍可单击锁定浮窗。",
   "snlDoc.settings.openBeside.description": "在当前编辑器旁的新分组中打开 SNL 编辑面板，而不是替换当前编辑器。这只是布局偏好，不是性能设置。",
   "snlDoc.settings.trace.description": "将毫秒级面板打开与渲染耗时记录到 SNL Trace 输出通道。仅用于诊断，默认关闭。",
   "snlDoc.settings.structuralIndexRedBelow.description": "低于此阈值的 SNL 结构索引百分比显示为红色。",

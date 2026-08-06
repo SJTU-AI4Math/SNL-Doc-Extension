@@ -61,7 +61,8 @@ export function read_extension_preferences(): ExtensionPreferences {
     ),
     formatter_inline_parenthesis_depth: resolve_formatter_inline_parenthesis_depth(
       config.get('editor.formatter.inlineParenthesisDepth')
-    )
+    ),
+    popover_hover_enabled: config.get<boolean>('popovers.openOnHover', true)
   };
 }
 

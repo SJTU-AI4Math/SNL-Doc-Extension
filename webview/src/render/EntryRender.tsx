@@ -18,6 +18,7 @@ import {
   type SnlRenderHooks
 } from '@sjtu-ai4math/snl-basics/entry';
 import {
+  get_popover_preferences,
   use_preferences_revision,
   webview_language_runtime
 } from '../runtime/preferencesRuntime';
@@ -132,9 +133,8 @@ function createEntryDataDriver(entry: EntryData, entries: EntryOption[]): EntryD
 }
 
 function referencedEntryId(context: SnlInteractionContext): string | null {
-  return context.macro?.source.entries[0] ??
-    context.target.getAttribute('data-src') ??
-    null;
+  const explicit = context.target.getAttribute('data-src')?.trim();
+  return explicit || context.macro?.source.entries[0] || null;
 }
 
 export function EntryRender({
@@ -151,6 +151,7 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
+  const hoverEnabled = get_popover_preferences().hoverEnabled;
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const macroDataDriver = useMemo(
@@ -192,10 +193,13 @@ export function EntryRender({
     state.popoverId = null;
   }, [popovers]);
 
+  useEffect(() => {
+    if (!hoverEnabled) clearCurrentHover();
+  }, [clearCurrentHover, hoverEnabled]);
+
   useEffect(() => () => {
-    const timer = hoverStateRef.current.timer;
-    if (timer) clearTimeout(timer);
-  }, []);
+    clearCurrentHover();
+  }, [clearCurrentHover]);
 
   const activateReferencedEntry = useCallback((context: SnlInteractionContext): void => {
     const entryId = referencedEntryId(context);
@@ -204,6 +208,10 @@ export function EntryRender({
 
   const interactionDriver = useMemo(() => new SnlInteractionDriver({
     on_hover: (context) => {
+      if (!hoverEnabled) {
+        clearCurrentHover();
+        return;
+      }
       const entryId = referencedEntryId(context);
       if (!entryId) return;
       const state = hoverStateRef.current;
@@ -238,9 +246,28 @@ export function EntryRender({
     // Basics deliberately keeps Meta distinct from Ctrl. Preserve the former
     // Extension behavior by handling Cmd-click through the regular callback.
     on_click: (context) => {
-      if (context.meta_key) activateReferencedEntry(context);
+      if (context.meta_key) {
+        activateReferencedEntry(context);
+        return;
+      }
+      const entryId = referencedEntryId(context);
+      if (!entryId) return;
+      const state = hoverStateRef.current;
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      const id = popovers.pin(
+        entryId,
+        context.target,
+        context.client_x,
+        context.client_y,
+        currentPopoverId
+      );
+      state.target = context.target;
+      state.popoverId = id;
     }
-  }), [activateReferencedEntry, clearCurrentHover, currentPopoverId, popovers]);
+  }), [activateReferencedEntry, clearCurrentHover, currentPopoverId, hoverEnabled, popovers]);
 
   const hooks = useMemo<SnlRenderHooks>(() => ({
     renderTooltip: () => null,

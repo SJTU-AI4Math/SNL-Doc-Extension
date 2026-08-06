@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   apply_preferences_snapshot,
   create_webview_reader_runtime,
-  get_formatter_preferences
+  get_formatter_preferences,
+  get_popover_preferences
 } from './preferencesRuntime';
 
 describe('webview preference Reader runtime', () => {
@@ -26,7 +27,8 @@ describe('webview preference Reader runtime', () => {
         color_scheme: 'dark',
         motion: 'reduced',
         formatter_indent_spaces: 8,
-        formatter_inline_parenthesis_depth: 2
+        formatter_inline_parenthesis_depth: 2,
+        popover_hover_enabled: false
       }
     })).toBe(true);
     expect(document.documentElement.lang).toBe('zh-CN');
@@ -36,6 +38,7 @@ describe('webview preference Reader runtime', () => {
       indentSpaces: 8,
       inlineParenthesisDepth: 2
     });
+    expect(get_popover_preferences()).toEqual({ hoverEnabled: false });
     expect(apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
       generation: 'host-a',

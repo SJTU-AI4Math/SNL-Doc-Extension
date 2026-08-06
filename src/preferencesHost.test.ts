@@ -36,7 +36,8 @@ vi.mock('./preferences', () => ({
       language: mocks.language,
       language_preference: 'en',
       color_scheme: 'dark',
-      motion: 'full'
+      motion: 'full',
+      popover_hover_enabled: false
     })
   }
 }));
@@ -150,6 +151,22 @@ describe('PreferencesHost language writes', () => {
     expect(firstSnapshot.generation).toBeTruthy();
     expect(secondSnapshot.generation).not.toBe(firstSnapshot.generation);
     second.dispose();
+  });
+
+  it('broadcasts hover-popover preference changes to live Webviews', async () => {
+    const host = new PreferencesHost();
+    const { postMessage } = register(host);
+    const listener = mocks.configListener.mock.calls.at(-1)?.[0] as
+      ((event: { affectsConfiguration: (key: string) => boolean }) => void);
+
+    listener({ affectsConfiguration: (key) => key === 'snlDoc.popovers' });
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'snl.preferences/snapshot',
+        preferences: expect.objectContaining({ popover_hover_enabled: false })
+      })
+    ));
+    host.dispose();
   });
 
   it('refreshes a live panel title when the interface locale changes', () => {

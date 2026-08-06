@@ -36,7 +36,8 @@ export class PreferencesHost implements vscode.Disposable {
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('snlDoc.locale') ||
             event.affectsConfiguration('snlDoc.appearance') ||
-            event.affectsConfiguration('snlDoc.editor.formatter')) {
+            event.affectsConfiguration('snlDoc.editor.formatter') ||
+            event.affectsConfiguration('snlDoc.popovers')) {
           void this.broadcast();
         }
       }),

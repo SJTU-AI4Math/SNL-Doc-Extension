@@ -122,6 +122,7 @@ describe('GuiCanvasEditor', () => {
       width: 800, height: 500, toJSON: () => undefined
     });
     viewport.scrollLeft = 100;
+    viewport.scrollTop = 60;
     const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
     canvas.getBoundingClientRect = () => ({
       x: 10, y: 30, left: 10, top: 30, right: 810, bottom: 542,
@@ -142,11 +143,27 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(Number(canvas.style.zoom)).toBe(expectedZoom));
     expect(canvas.style.width).toBe('800px');
     expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * expectedZoom - 150);
-    expect(scrollBy).toHaveBeenCalledOnce();
-    expect(scrollBy.mock.calls[0]?.[0]).toBe(0);
-    expect(scrollBy.mock.calls[0]?.[1]).toBeCloseTo(
-      (120 - 30) * expectedZoom - (120 - 30)
+    expect(viewport.scrollTop).toBeCloseTo((60 + 100) * expectedZoom - 100);
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Canvas frame fixed while only the inner world zooms', () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
     );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    expect(viewport.style.height).toBe('32rem');
+    expect(viewport.style.border).toContain('1px solid');
+    expect(canvas.style.border).toBe('');
   });
 
   it('preserves the pointer anchor across wheel events that arrive before commit', async () => {

@@ -2517,9 +2517,9 @@ export function GuiCanvasEditor({
   const canvasZoomRef = React.useRef(1);
   const pendingZoomAnchorRef = React.useRef<{
     logicalX: number;
-    canvasLogicalY: number;
+    logicalY: number;
     pointerX: number;
-    pointerClientY: number;
+    pointerY: number;
   } | null>(null);
   const wheelFrameRef = React.useRef<number | null>(null);
   const wheelBatchRef = React.useRef<{
@@ -2580,13 +2580,13 @@ export function GuiCanvasEditor({
       const next = batch.nextZoom;
       if (next === current) return;
       const rect = viewport.getBoundingClientRect();
-      const canvasRect = canvasRef.current?.getBoundingClientRect();
       const pointerX = batch.clientX - rect.left;
+      const pointerY = batch.clientY - rect.top;
       pendingZoomAnchorRef.current = {
         logicalX: (viewport.scrollLeft + pointerX) / current,
-        canvasLogicalY: canvasRect ? (batch.clientY - canvasRect.top) / current : 0,
+        logicalY: (viewport.scrollTop + pointerY) / current,
         pointerX,
-        pointerClientY: batch.clientY
+        pointerY
       };
       // One synchronous commit per animation frame keeps the DOM geometry and
       // zoom ref coherent before the next wheel batch, without forcing layout
@@ -2635,13 +2635,7 @@ export function GuiCanvasEditor({
     const anchor = pendingZoomAnchorRef.current;
     if (!viewport || !anchor) return;
     viewport.scrollLeft = anchor.logicalX * canvasZoom - anchor.pointerX;
-    const canvasRect = canvasRef.current?.getBoundingClientRect();
-    if (canvasRect) {
-      window.scrollBy(
-        0,
-        canvasRect.top + anchor.canvasLogicalY * canvasZoom - anchor.pointerClientY
-      );
-    }
+    viewport.scrollTop = anchor.logicalY * canvasZoom - anchor.pointerY;
     pendingZoomAnchorRef.current = null;
   }, [canvasZoom]);
 
@@ -2722,9 +2716,12 @@ export function GuiCanvasEditor({
     const canvas = canvasRef.current;
     if (!viewport || !canvas || viewport.clientWidth <= 0) return;
     const computedMinHeight = Number.parseFloat(window.getComputedStyle(canvas).minHeight);
-    const minimumHeight = Number.isFinite(computedMinHeight) && computedMinHeight > 0
+    const fallbackHeight = Number.isFinite(computedMinHeight) && computedMinHeight > 0
       ? computedMinHeight
       : 512;
+    const minimumHeight = viewport.clientHeight > 0
+      ? canvasLogicalViewportWidth(viewport.clientHeight, canvasZoom)
+      : fallbackHeight;
     const blocks = [...canvas.querySelectorAll<HTMLElement>('[data-canvas-root-index]')]
       .map((block): CanvasBlockBounds => ({
         x: block.offsetLeft,
@@ -3579,10 +3576,13 @@ export function GuiCanvasEditor({
           maxWidth: '100%',
           boxSizing: 'border-box',
           contain: 'inline-size',
+          height: '32rem',
           overflowX: 'auto',
-          overflowY: 'visible',
+          overflowY: 'auto',
           overscrollBehavior: 'contain',
-          paddingBottom: '0.25rem'
+          border: '1px solid var(--vscode-panel-border, #444)',
+          borderRadius: '6px',
+          backgroundColor: 'var(--vscode-editor-background)'
         }}
       >
       <div
@@ -3602,16 +3602,12 @@ export function GuiCanvasEditor({
         style={{
           position: 'relative',
           zoom: canvasZoom,
-          minHeight: '32rem',
           minWidth: '100%',
           width: canvasExtent.width > 0 ? canvasExtent.width : '100%',
-          height: canvasExtent.height > 0 ? canvasExtent.height : undefined,
+          height: canvasExtent.height > 0 ? canvasExtent.height : '32rem',
           boxSizing: 'border-box',
           overflow: 'visible',
           fontSize: '1.05rem',
-          border: '1px solid var(--vscode-panel-border, #444)',
-          borderRadius: '6px',
-          backgroundColor: 'var(--vscode-editor-background)',
           backgroundImage:
             'radial-gradient(circle, var(--vscode-editorWidget-border, #555) 1px, transparent 1px)',
           backgroundSize: '20px 20px'

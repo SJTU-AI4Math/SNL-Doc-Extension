@@ -28,6 +28,20 @@ afterEach(() => {
 });
 
 describe('EntryInfoview relationship availability', () => {
+  it('ignores malformed macro-kind arrays without replacing the last valid Entry', () => {
+    render(<EntryInfoviewApp />);
+    push({ ...base, relationshipSections: [], returnRoute: { kind: 'root' } });
+    expect(screen.getByRole('heading', { level: 1, name: 'Entry One' })).toBeTruthy();
+
+    expect(() => push({
+      ...base,
+      macroKinds: [null],
+      relationshipSections: [],
+      returnRoute: { kind: 'root' }
+    })).not.toThrow();
+    expect(screen.getByRole('heading', { level: 1, name: 'Entry One' })).toBeTruthy();
+  });
+
   it('keeps the Entry body available when relationships are unreadable and retries only that region', () => {
     render(<EntryInfoviewApp />);
     push({

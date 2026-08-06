@@ -14,7 +14,8 @@ import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import type { MacroRecord } from './render/macroData';
 import {
-  macroKindsToPalette
+  macroKindsToPalette,
+  type MacroKindPaletteSource
 } from './render/macroKindPalette';
 import { Disclosure } from './components/Disclosure';
 import { Button } from './components/Button';
@@ -91,6 +92,10 @@ const isEntryKind = (value: unknown): value is EntryKind =>
   typeof value.coloring.background === 'string' && typeof value.style === 'string' &&
   (value.numbering === undefined || typeof value.numbering === 'string') &&
   (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
+const isMacroKindPaletteSource = (value: unknown): value is MacroKindPaletteSource =>
+  isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
+  typeof value.coloring.stroke === 'string' &&
+  typeof value.coloring.background === 'string';
 const isRelationshipSection = (value: unknown): value is EntryRelationshipSection =>
   isRecord(value) && typeof value.label === 'string' &&
   (value.direction === 'incoming' || value.direction === 'outgoing') &&
@@ -118,7 +123,8 @@ const isEntryDetails = (value: unknown): value is Exclude<Incoming, undefined | 
   value.entries.every(isEntryOption) &&
   (value.entryPackages === undefined || isStringRecord(value.entryPackages)) &&
   (value.macros === undefined || isRecord(value.macros)) &&
-  (value.macroKinds === undefined || Array.isArray(value.macroKinds)) &&
+  (value.macroKinds === undefined ||
+    (Array.isArray(value.macroKinds) && value.macroKinds.every(isMacroKindPaletteSource))) &&
   (value.relationshipSections === undefined || value.relationshipSections === null ||
     (Array.isArray(value.relationshipSections) &&
       value.relationshipSections.every(isRelationshipSection))) &&

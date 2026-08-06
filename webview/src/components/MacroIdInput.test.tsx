@@ -135,6 +135,34 @@ describe('MacroIdInput', () => {
     expect(input.selectionStart).toBe(1);
   });
 
+  it('does not duplicate a formula delimiter already authored at the far right', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('foo$');
+      return <MacroIdInput value={value} onChange={setValue} aria-label="Terminated formula" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Terminated formula' }) as HTMLInputElement;
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key: '$' });
+    expect(input.value).toBe('$foo$');
+  });
+
+  it.each([
+    ['%', 'text%', '%text%'],
+    ['$', 'display$$', '$display$$'],
+    ['%', 'formula$', '%formula$%']
+  ])('preserves existing %s delimiter semantics for %s', (key, initial, expected) => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState(initial);
+      return <MacroIdInput value={value} onChange={setValue} aria-label="Terminated shorthand" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Terminated shorthand' }) as HTMLInputElement;
+    input.setSelectionRange(0, 0);
+    fireEvent.keyDown(input, { key });
+    expect(input.value).toBe(expected);
+  });
+
   it('opens an embedded SNoogL picker with Ctrl+F and Tab inserts the selected Macro', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');

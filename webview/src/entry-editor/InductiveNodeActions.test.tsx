@@ -36,6 +36,14 @@ afterEach(() => {
 });
 
 describe('Inductive node action dial', () => {
+  it('numbers visible child nodes from #0 at every depth', () => {
+    const { view } = renderEditor('root(a,b(c,d))');
+    const labels = Array.from(view.container.querySelectorAll('.snl-tree-row'))
+      .map((row) => row.querySelector('[data-snl-node-number]')?.textContent ?? '');
+
+    expect(labels).toEqual(['', '#0', '#1', '#1.0', '#1.1']);
+  });
+
   it('localizes Inductive actions, tooltips, accessibility, and add-position menus in Simplified Chinese', () => {
     document.documentElement.lang = 'zh-CN';
     const { view } = renderEditor();
@@ -220,6 +228,50 @@ describe('Inductive node action dial', () => {
 
     fireEvent.click(within(secondRow).getByRole('button', { name: 'Move up' }));
     expect(rendered.latest()).toBe('root(b(c),a)');
+  });
+
+  it('Ctrl+click moves a subtree to the furthest valid sibling above', () => {
+    const rendered = renderEditor('root(a,b(c),d,e(f))');
+    const row = rowForInput(
+      rendered.view.getAllByRole('textbox').find((input) => (input as HTMLInputElement).value === 'e')!
+    );
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Move up' }), { ctrlKey: true });
+
+    expect(rendered.latest()).toBe('root(e(f),a,b(c),d)');
+  });
+
+  it('Ctrl+click moves a subtree to the furthest valid sibling below', () => {
+    const rendered = renderEditor('root(a(x),b(c),d,e)');
+    const row = rowForInput(
+      rendered.view.getAllByRole('textbox').find((input) => (input as HTMLInputElement).value === 'a')!
+    );
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Move down' }), { ctrlKey: true });
+
+    expect(rendered.latest()).toBe('root(b(c),d,e,a(x))');
+  });
+
+  it('Ctrl+click outdents a subtree to the furthest valid ancestor level', () => {
+    const rendered = renderEditor('root(a(b(c(d(e)))),z)');
+    const row = rowForInput(
+      rendered.view.getAllByRole('textbox').find((input) => (input as HTMLInputElement).value === 'd')!
+    );
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Outdent' }), { ctrlKey: true });
+
+    expect(rendered.latest()).toBe('root(a(b(c)),d(e),z)');
+  });
+
+  it('Ctrl+click indents a subtree to the furthest valid descendant position', () => {
+    const rendered = renderEditor('root(a(x,y),b(c),d(e))');
+    const row = rowForInput(
+      rendered.view.getAllByRole('textbox').find((input) => (input as HTMLInputElement).value === 'd')!
+    );
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Indent' }), { ctrlKey: true });
+
+    expect(rendered.latest()).toBe('root(a(x,y),b(c(d(e))))');
   });
 
   it('keeps deletion independent from the dial', () => {

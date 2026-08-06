@@ -3941,14 +3941,14 @@ function CanvasContextMenuView({
 // unconditional +child button and a light-mode inline input. This version
 // mimics the Library outline (see CreateLibraryApp.tsx `OutlineRow`):
 //
-//   [chevron?] [#1.2.3] [ ─────── name input ─────── ] [+ child] [− delete]
+//   [chevron?] [#0.1.2] [ ─────── name input ─────── ] [+ child] [− delete]
 //                                                       (hover only)
 //
 // Design notes:
 //   1. Input CSS unified to the dark-mode `inputStyle` used across the panel
 //      so it stops looking pasted-in.
 //   2. Number label sits on the SAME line as the input, and is a full path
-//      (`1.2.3`) that grows with depth. Indent + label length correlate so
+//      (`0.1.2`) that grows with depth. Indent + label length correlate so
 //      deeper rows look visually anchored.
 //   3. Rows with children render a chevron (▶/▼) on the far left; leaves
 //      render a same-width spacer so numbers align. Toggle is per-row, held
@@ -4294,8 +4294,12 @@ export function GuiInductiveEditor({
   // stale-state onChange calls up the tree. Path is the same dotted
   // form used by `collapsed` — '' for root, '0', '0.1', etc.
   const treeOp = useCallback(
-    (op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown', path: string): void => {
-      const next = applyTreeOp(tree, op, path);
+    (
+      op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
+      path: string,
+      furthest = false
+    ): void => {
+      const next = furthest ? applyTreeOpFurthest(tree, op, path) : applyTreeOp(tree, op, path);
       if (next !== tree) propagate(next);
     },
     [tree, propagate]
@@ -4638,6 +4642,35 @@ function applyTreeOp(
   return tree;
 }
 
+function findNodePath(tree: SnlSyntaxTree, target: SnlSyntaxTree): string | undefined {
+  if (tree === target) return '';
+  for (let index = 0; index < tree.children.length; index += 1) {
+    const childPath = findNodePath(tree.children[index], target);
+    if (childPath !== undefined) return childPath === '' ? String(index) : `${index}.${childPath}`;
+  }
+  return undefined;
+}
+
+function applyTreeOpFurthest(
+  tree: SnlSyntaxTree,
+  op: 'indent' | 'outdent' | 'moveUp' | 'moveDown' | 'wrapParent' | 'addSibling',
+  path: string
+): SnlSyntaxTree {
+  if (op === 'wrapParent' || op === 'addSibling') return applyTreeOp(tree, op, path);
+  const target = getNodeAtPath(tree, path);
+  if (!target) return tree;
+  let current = tree;
+  let currentPath = path;
+  while (true) {
+    const next = applyTreeOp(current, op, currentPath);
+    if (next === current) return current;
+    const nextPath = findNodePath(next, target);
+    if (nextPath === undefined || nextPath === currentPath) return current;
+    current = next;
+    currentPath = nextPath;
+  }
+}
+
 function transformAtPath(
   tree: SnlSyntaxTree,
   path: string,
@@ -4707,7 +4740,7 @@ function InductiveNode({
   node: SnlSyntaxTree;
   /** Dotted path from root; root = "", children = "0", "0.1", ... */
   path: string;
-  /** Human-visible number, e.g. "1", "1.2", "1.2.3" (root = ""). */
+  /** Zero-based visible number, e.g. "0", "1.0", "1.0.1" (root = ""). */
   numberPath: string;
   depth: number;
   /**
@@ -4735,7 +4768,8 @@ function InductiveNode({
   setRowArity: (path: string, count: number) => void;
   treeOp: (
     op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
-    path: string
+    path: string,
+    furthest?: boolean
   ) => void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
@@ -4988,10 +5022,11 @@ function InductiveNode({
           />
         )}
 
-        {/* Full number path (e.g. #1.2.3). Root shows nothing so the input
+        {/* Full zero-based number path (e.g. #1.0.2). Root shows nothing so the input
             starts flush. Width scales with depth so indent visually
             correlates with number length. */}
         <span
+          data-snl-node-number
           style={{
             fontFamily: 'var(--vscode-editor-font-family, monospace)',
             fontSize: '0.9rem',
@@ -5206,7 +5241,7 @@ function InductiveNode({
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--up"
-                    onClick={() => canMoveUp && treeOp('moveUp', path)}
+                    onClick={(event) => canMoveUp && treeOp('moveUp', path, event.ctrlKey)}
                     disabled={!canMoveUp}
                     title={canMoveUp ? t('moveUpAvailable') : t('moveUpUnavailable')}
                     aria-label={t('moveUp')}
@@ -5217,7 +5252,7 @@ function InductiveNode({
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--outdent"
-                    onClick={() => canOutdent && treeOp('outdent', path)}
+                    onClick={(event) => canOutdent && treeOp('outdent', path, event.ctrlKey)}
                     disabled={!canOutdent}
                     title={canOutdent ? t('outdentAvailable') : t('outdentUnavailable')}
                     aria-label={t('outdent')}
@@ -5242,7 +5277,7 @@ function InductiveNode({
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--indent"
-                    onClick={() => canIndent && treeOp('indent', path)}
+                    onClick={(event) => canIndent && treeOp('indent', path, event.ctrlKey)}
                     disabled={!canIndent}
                     title={canIndent ? t('indentAvailable') : t('indentUnavailable')}
                     aria-label={t('indent')}
@@ -5253,7 +5288,7 @@ function InductiveNode({
                     variant="ghost"
                     size="sm"
                     className="snl-tree-dial-action snl-tree-dial-action--down"
-                    onClick={() => canMoveDown && treeOp('moveDown', path)}
+                    onClick={(event) => canMoveDown && treeOp('moveDown', path, event.ctrlKey)}
                     disabled={!canMoveDown}
                     title={canMoveDown ? t('moveDownAvailable') : t('moveDownUnavailable')}
                     aria-label={t('moveDown')}
@@ -5320,7 +5355,7 @@ function InductiveNode({
           {node.children.map((child, i) => {
             const childPath = path === '' ? String(i) : `${path}.${i}`;
             const childNumber =
-              numberPath === '' ? String(i + 1) : `${numberPath}.${i + 1}`;
+              numberPath === '' ? String(i) : `${numberPath}.${i}`;
             return (
               <InductiveNode
                 key={treeIdentity(child)}

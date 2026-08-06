@@ -1,5 +1,5 @@
 
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -363,6 +363,19 @@ describe('Inductive editor arity auto-fill', () => {
     fireEvent.change(box, { target: { value: 'pair' } });
 
     await waitFor(() => expect(latest).toBe('pair(,)'), { timeout: 2000 });
+  });
+
+  it('resolves fixed arity after a temporary child row is named', async () => {
+    const { view, latest } = renderEditor('root');
+    const rootRow = view.getAllByRole('textbox')[0].closest<HTMLElement>('.snl-tree-row')!;
+    fireEvent.click(within(rootRow).getByRole('button', { name: 'Choose add position' }));
+    fireEvent.click(within(rootRow).getByRole('menuitem', { name: 'Add child' }));
+
+    const temporary = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    expect(temporary.value).toBe('');
+    fireEvent.change(temporary, { target: { value: 'pair' } });
+
+    await waitFor(() => expect(latest()).toBe('root(pair(,))'), { timeout: 2000 });
   });
 
   it('opens the right number of rows for a three-argument Macro', async () => {

@@ -33,6 +33,7 @@ const MESSAGES = defineUiMessages('entryInfoview', {
   loading: 'Loading entry…', notFound: 'Entry not found in this workspace.',
   loadError: 'Could not load entry data: {message}',
   back: 'Back', relationships: 'Relationships', incoming: 'Incoming', outgoing: 'Outgoing',
+  dependsLabel: 'Dependencies', usesContextLabel: 'Context',
   relationshipsEmpty: 'No relationships involve this Entry.',
   relationshipsUnavailable: 'Relationships unavailable: {message}', retryRelationships: 'Retry relationships',
   chooseLibrary: 'Choose a Library to return to', chooseLibraryPlaceholder: 'Select a Library…',
@@ -45,6 +46,7 @@ const MESSAGES = defineUiMessages('entryInfoview', {
   loading: '正在加载条目……', notFound: '在此工作区中找不到该条目。',
   loadError: '无法加载条目数据：{message}',
   back: '返回', relationships: '关系', incoming: '传入', outgoing: '传出',
+  dependsLabel: '依赖项', usesContextLabel: '上下文',
   relationshipsEmpty: '没有涉及此条目的关系。',
   relationshipsUnavailable: '关系不可用：{message}', retryRelationships: '重试关系',
   chooseLibrary: '选择返回的文档库', chooseLibraryPlaceholder: '选择文档库……',
@@ -248,6 +250,12 @@ function RelationshipsRegion({ sections, error, postMessage }: {
   postMessage: (m: unknown) => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const sectionLabel = (label: string): string =>
+    label === 'depends'
+      ? t('dependsLabel')
+      : label === 'uses_context'
+        ? t('usesContextLabel')
+        : label;
   if (error) {
     return (
       <section style={{ marginTop: '1.25rem' }}>
@@ -273,13 +281,19 @@ function RelationshipsRegion({ sections, error, postMessage }: {
         <RelatedSection
           key={`${section.label}:${section.direction}`}
           id={`${section.label}-${section.direction}`}
-          title={`${section.label} · ${t(section.direction)}`}
+          title={`${sectionLabel(section.label)} · ${t(section.direction)}`}
           rows={section.rows}
           postMessage={postMessage}
         />
       ))}
     </section>
   );
+}
+
+function relationshipAtomicState(metadata: unknown): boolean | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const value = (metadata as { isAtomic?: unknown }).isAtomic;
+  return typeof value === 'boolean' ? value : null;
 }
 
 function RelatedSection({
@@ -355,7 +369,7 @@ function RelatedSection({
               }}
             >
               {rows.map((r) => (
-                <li key={r.id}>
+                <li key={r.relationshipId}>
                   <Button
                     type="button"
                     onClick={() =>
@@ -392,6 +406,13 @@ function RelatedSection({
                         }}
                       >
                         [{r.kindId}]
+                      </span>
+                    ) : null}
+                    {relationshipAtomicState(r.metadata) !== null ? (
+                      <span title={relationshipAtomicState(r.metadata)
+                        ? t('atomicTitle')
+                        : t('compositeTitle')}>
+                        {relationshipAtomicState(r.metadata) ? t('atomic') : t('composite')}
                       </span>
                     ) : null}
 

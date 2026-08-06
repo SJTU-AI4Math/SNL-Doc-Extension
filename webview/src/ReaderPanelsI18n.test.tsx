@@ -71,13 +71,25 @@ describe('reader panel Chinese UI', () => {
       entry: { id: 'target', title: 'Target', kind: 'theorem', content: {} },
       kind: null,
       entries: [],
-      relatedEntries: {
-        context: [{ id: 'ctx', title: '', kindId: 'definition' }],
-        dependencies: [{ id: 'dep', title: 'Dependency', isAtomic: true }]
-      }
+      relationshipSections: [
+        {
+          label: 'uses_context', direction: 'outgoing',
+          rows: [{
+            id: 'ctx', title: '', kindId: 'definition',
+            relationshipId: 'ctx-target', metadata: null
+          }]
+        },
+        {
+          label: 'depends', direction: 'outgoing',
+          rows: [{
+            id: 'dep', title: 'Dependency',
+            relationshipId: 'dep-target', metadata: { isAtomic: true }
+          }]
+        }
+      ]
     });
-    expect(view.getByRole('heading', { name: '上下文' })).toBeTruthy();
-    expect(view.getByRole('heading', { name: '依赖项' })).toBeTruthy();
+    expect(view.getByRole('heading', { name: '上下文 · 传出' })).toBeTruthy();
+    expect(view.getByRole('heading', { name: '依赖项 · 传出' })).toBeTruthy();
     expect(view.getByText('（无标题）')).toBeTruthy();
     expect(view.getByText('原子').getAttribute('title')).toBe('原子依赖项——条目池中不存在更短的组合路径。');
     expect(view.getByRole('button', { name: '在“编辑条目”面板中打开此条目' }).textContent).toBe('✎ 编辑');

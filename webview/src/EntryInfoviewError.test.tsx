@@ -54,8 +54,8 @@ describe('EntryInfoview relationship availability', () => {
       returnRoute: { kind: 'root' }
     });
 
-    expect(screen.getByText('depends · Incoming')).toBeTruthy();
-    expect(screen.getByText('depends · Outgoing')).toBeTruthy();
+    expect(screen.getByText('Dependencies · Incoming')).toBeTruthy();
+    expect(screen.getByText('Dependencies · Outgoing')).toBeTruthy();
     api.postMessage.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /Open Infoview for Entry Two/ }));
     expect(api.postMessage).toHaveBeenCalledWith({

@@ -362,6 +362,42 @@ describe('GuiCanvasEditor', () => {
     expect(Number.parseFloat(block.style.top)).toBe(topBefore + 20);
   });
 
+  it('positions the focused Macro controls in logical coordinates while zoomed', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    const target = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    canvas.getBoundingClientRect = () => ({
+      x: 10, y: 20, left: 10, top: 20, right: 810, bottom: 1044,
+      width: 800, height: 1024, toJSON: () => undefined
+    });
+    target.getBoundingClientRect = () => ({
+      x: 210, y: 120, left: 210, top: 120, right: 410, bottom: 160,
+      width: 200, height: 40, toJSON: () => undefined
+    });
+    fireEvent.click(target, { clientX: 220, clientY: 130 });
+    const control = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-canvas-macro-control]')!
+    );
+    expect(Number.parseFloat(control.style.left)).toBe(100);
+    expect(Number.parseFloat(control.style.top)).toBe(74);
+  });
+
   it('localizes Canvas controls, Macro actions, styles, and context menus in Simplified Chinese', async () => {
     document.documentElement.lang = 'zh-CN';
     const localizedDriver = new MacroDataDriver({

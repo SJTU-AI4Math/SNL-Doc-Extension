@@ -3415,8 +3415,8 @@ export function GuiCanvasEditor({
       node,
       dynamic: isDynamicMacro(node.macro_name),
       count: node.children.length,
-      left: rect.left - canvasRect.left + canvas.scrollLeft,
-      top: rect.bottom - canvasRect.top + canvas.scrollTop + 4
+      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
+      top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused, editingNode, contextMenu, forest, dynamicArityVersion]);

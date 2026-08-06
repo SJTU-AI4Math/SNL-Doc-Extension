@@ -99,8 +99,7 @@ export class PackagePanel {
       this.extensionUri,
       this.panel.webview,
       'packagePanel',
-      `SNL Macros — ${this.file}`
-    );
+      `SNL Macros — ${this.file}`, this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

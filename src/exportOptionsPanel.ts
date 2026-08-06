@@ -74,8 +74,7 @@ export class ExportOptionsPanel {
       this.extensionUri,
       this.panel.webview,
       'exportOptions',
-      'SNL Export HTML'
-    );
+      'SNL Export HTML', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

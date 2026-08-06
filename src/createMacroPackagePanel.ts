@@ -101,8 +101,7 @@ export class CreateMacroPackagePanel {
       'createMacroPackage',
       mode === 'edit'
         ? `SNL Edit Macro Package — ${file}`
-        : 'SNL Create Macro Package'
-    );
+        : 'SNL Create Macro Package', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

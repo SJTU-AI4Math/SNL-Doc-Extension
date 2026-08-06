@@ -40,7 +40,7 @@ export class InitKindsPanelController {
     extensionUri: vscode.Uri
   ) {
     const descriptor = initKindsPanelDescriptor(domain);
-    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, descriptor.entry, descriptor.title);
+    panel.webview.html = buildPanelHtml(extensionUri, panel.webview, descriptor.entry, descriptor.title, this.disposables);
     panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }

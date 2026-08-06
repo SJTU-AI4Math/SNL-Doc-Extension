@@ -191,8 +191,7 @@ export class CreateMacroPanel {
       this.extensionUri,
       this.panel.webview,
       'createMacro',
-      title
-    );
+      title, this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

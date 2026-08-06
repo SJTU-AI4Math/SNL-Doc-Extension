@@ -218,8 +218,7 @@ export class CreateEntryPanel {
       this.extensionUri,
       this.panel.webview,
       'createEntry',
-      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry'
-    );
+      mode === 'edit' ? `SNL Edit Entry — ${id}` : 'SNL Create Entry', this.disposables);
     // The webview now starts fetching + parsing its bundle on its own clock;
     // `webview:*` marks below come back from inside it.
     trace?.mark('html-set');

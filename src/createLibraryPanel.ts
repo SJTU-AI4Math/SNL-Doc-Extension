@@ -124,8 +124,7 @@ export class CreateLibraryPanel {
       this.extensionUri,
       this.panel.webview,
       'createLibrary',
-      mode === 'edit' ? `SNL Edit Library — ${slug}` : 'SNL Create Library'
-    );
+      mode === 'edit' ? `SNL Edit Library — ${slug}` : 'SNL Create Library', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

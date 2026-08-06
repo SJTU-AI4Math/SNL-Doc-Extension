@@ -101,8 +101,7 @@ export class CreateRelationshipPanel {
       'createRelationship',
       mode === 'edit'
         ? `SNL Edit Relationship — ${id}`
-        : 'SNL Create Relationship'
-    );
+        : 'SNL Create Relationship', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

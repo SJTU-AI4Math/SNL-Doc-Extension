@@ -77,8 +77,7 @@ export class DashboardPanel {
       this.extensionUri,
       this.panel.webview,
       'dashboard',
-      'SNL Dashboard'
-    );
+      'SNL Dashboard', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (message) => this.handleMessage(message),

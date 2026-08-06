@@ -36,7 +36,8 @@ export function buildPanelHtml(
   extensionUri: vscode.Uri,
   webview: vscode.Webview,
   entry: string,
-  title: string
+  title: string,
+  ownerDisposables?: vscode.Disposable[]
 ): string {
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, 'media', 'webview', `${entry}.js`)
@@ -63,7 +64,8 @@ export function buildPanelHtml(
     `font-src ${webview.cspSource}`
   ].join('; ');
 
-  register_preferences_webview(webview);
+  const preferencesDisposable = register_preferences_webview(webview);
+  ownerDisposables?.push(preferencesDisposable);
   const preferences = extension_preferences_runtime.query_environment();
   const htmlAttributes = preference_html_attributes(preferences);
   const blackLogoUri = webview.asWebviewUri(

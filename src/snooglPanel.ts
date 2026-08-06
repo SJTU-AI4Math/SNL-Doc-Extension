@@ -110,8 +110,7 @@ export class SnoogLPanel {
       this.extensionUri,
       this.panel.webview,
       'snoogl',
-      'SNoogL — Search'
-    );
+      'SNoogL — Search', this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
       (m) => this.handleMessage(m),

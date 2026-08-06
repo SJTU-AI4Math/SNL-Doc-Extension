@@ -1533,9 +1533,17 @@ function OutlineNodeIdEditor({
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const [draft, setDraft] = useState(nodeId);
-  useEffect(() => setDraft(nodeId), [nodeId]);
+  const submittedSinceFocusRef = useRef(false);
+  const cancelBlurRef = useRef(false);
+  useEffect(() => {
+    setDraft(nodeId);
+    submittedSinceFocusRef.current = false;
+  }, [nodeId]);
   const commit = (): void => {
-    if (draft !== nodeId) onCommit(draft);
+    if (draft !== nodeId && !submittedSinceFocusRef.current) {
+      submittedSinceFocusRef.current = true;
+      onCommit(draft);
+    }
   };
   return (
     <input
@@ -1543,8 +1551,20 @@ function OutlineNodeIdEditor({
       aria-label={t('nodeId', { id: nodeId })}
       title={t('nodeIdTitle')}
       onClick={(event) => event.stopPropagation()}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
+      onFocus={() => {
+        submittedSinceFocusRef.current = false;
+      }}
+      onChange={(event) => {
+        submittedSinceFocusRef.current = false;
+        setDraft(event.target.value);
+      }}
+      onBlur={() => {
+        if (cancelBlurRef.current) {
+          cancelBlurRef.current = false;
+          return;
+        }
+        commit();
+      }}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === 'Enter') {
@@ -1553,6 +1573,7 @@ function OutlineNodeIdEditor({
           event.currentTarget.blur();
         } else if (event.key === 'Escape') {
           event.preventDefault();
+          cancelBlurRef.current = true;
           setDraft(nodeId);
           event.currentTarget.blur();
         }

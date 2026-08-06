@@ -308,6 +308,7 @@ export function App(): React.ReactElement {
           postMessage,
           goBack,
           entryPool,
+          entryPackages,
           userMacros,
           kindPalette,
           markdownImageUrlTransform,
@@ -323,6 +324,8 @@ interface RenderCtx {
   postMessage: (m: unknown) => void;
   goBack: () => void;
   entryPool: EntryOption[];
+  entryPackages: Record<string, string>;
+  originLibrarySlug?: string;
   userMacros: MacroRecord | undefined;
   kindPalette: KindPalette | undefined;
   markdownImageUrlTransform?: (source: string) => string;
@@ -596,7 +599,7 @@ function LibraryLayer({
           nodes={outline}
           collapsed={collapsed}
           toggle={toggle}
-          ctx={ctx}
+          ctx={{ ...ctx, originLibrarySlug: slug }}
           outlineRef={ctx.outlineRef}
         />
       )}
@@ -728,7 +731,14 @@ function OutlineTreeNode({
             counterLabel={node.counterLabel ?? undefined}
             disableTitleJump={false}
             onTitleCtrlClick={(entryId) =>
-              ctx.postMessage({ type: 'openEntryInfoview', entryId })
+              ctx.postMessage({
+                type: 'openEntryInfoview',
+                entryId,
+                entryPackage: ctx.entryPackages[entryId],
+                origin: ctx.originLibrarySlug
+                  ? { kind: 'library', slug: ctx.originLibrarySlug }
+                  : undefined
+              })
             }
           />
         ) : (

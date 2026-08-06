@@ -41,6 +41,11 @@ import {
   entryPackageIdentities,
   readPopoverEntry
 } from './popoverEntryReader';
+import {
+  chooseEntryReturn,
+  groupEntryRelationships,
+  type EntryReturnRoute
+} from './entryInfoviewRelationships';
 
 /**
  * One node in the outline tree pushed to the webview for the Library page
@@ -125,6 +130,10 @@ export class InfoviewPanel {
   private readonly extensionUri: vscode.Uri;
   /** null → browser instance; non-null → dedicated panel for this entryId. */
   private readonly entryId: string | null;
+  private currentEntryId: string | null;
+  private currentEntryPackage: string | undefined;
+  private readonly entryHistory: EntryReturnRoute[] = [];
+  private fallbackReturnRoute: EntryReturnRoute = { kind: 'root' };
   /**
    * Browser-mode navigation memory: the slug the webview last requested via
    * `selectLibrary`. `null` means the webview is on the Library-list root
@@ -206,11 +215,18 @@ export class InfoviewPanel {
    */
   public static createOrShowForEntry(
     extensionUri: vscode.Uri,
-    entryId: string
+    entryId: string,
+    origin?: EntryReturnRoute,
+    entryPackage?: string
   ): void {
     const existing = InfoviewPanel.panels.get(entryId);
     if (existing) {
+      existing.currentEntryId = entryId;
+      existing.currentEntryPackage = entryPackage;
+      existing.entryHistory.length = 0;
+      if (origin) existing.entryHistory.push(origin);
       existing.panel.reveal(vscode.ViewColumn.Beside);
+      void existing.pushEntryDetailsForEntry(entryId);
       return;
     }
 
@@ -231,6 +247,8 @@ export class InfoviewPanel {
       'entryInfoview',
       hostText()('entryTitle', { id: entryId })
     );
+    instance.currentEntryPackage = entryPackage;
+    if (origin) instance.entryHistory.push(origin);
     bind_preferences_panel_title(panel, () => hostText()('entryTitle', {
       id: instance.entryDisplayTitle ?? entryId
     }));
@@ -248,6 +266,7 @@ export class InfoviewPanel {
     this.panel = panel;
     this.extensionUri = extensionUri;
     this.entryId = entryId;
+    this.currentEntryId = entryId;
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -332,9 +351,9 @@ export class InfoviewPanel {
    * on a disposed panel — the webview.postMessage no-ops after dispose.
    */
   public async refresh(): Promise<void> {
-    if (this.entryId !== null) {
+    if (this.currentEntryId !== null) {
       // Per-entry panel: re-push that entry's details.
-      await this.pushEntryDetailsForEntry(this.entryId);
+      await this.pushEntryDetailsForEntry(this.currentEntryId);
       return;
     }
     // Browser panel: preserve the user's spot in the 2-layer stack.
@@ -389,6 +408,7 @@ export class InfoviewPanel {
           slug?: string;
           entryId?: string;
           entryPackage?: string;
+          origin?: EntryReturnRoute;
           popoverRequestKey?: string;
           level?: string;
           msg?: string;
@@ -407,7 +427,7 @@ export class InfoviewPanel {
             await this.pushLibraries();
           }
         } else {
-          await this.pushEntryDetailsForEntry(this.entryId);
+          await this.pushEntryDetailsForEntry(this.currentEntryId ?? this.entryId);
         }
         return;
       case 'selectLibrary':
@@ -421,8 +441,34 @@ export class InfoviewPanel {
           await this.pushEntryDetails(msg.id);
         }
         return;
+      case 'navigateEntry':
+        if (this.entryId !== null && typeof msg.entryId === 'string' && msg.entryId.trim()) {
+          if (this.currentEntryId) {
+            this.entryHistory.push({
+              kind: 'entry', entryId: this.currentEntryId,
+              entryPackage: this.currentEntryPackage
+            });
+          }
+          this.currentEntryId = msg.entryId.trim();
+          this.currentEntryPackage = typeof msg.entryPackage === 'string' ? msg.entryPackage : undefined;
+          await this.pushEntryDetailsForEntry(this.currentEntryId);
+        }
+        return;
+      case 'retryRelationships':
+        if (this.entryId !== null && this.currentEntryId) {
+          await this.pushEntryDetailsForEntry(this.currentEntryId);
+        }
+        return;
+      case 'returnToLibrary':
+        if (this.entryId !== null && typeof msg.slug === 'string' && msg.slug.trim()) {
+          InfoviewPanel.createOrShow(this.extensionUri, msg.slug.trim());
+        }
+        return;
       case 'back':
-        // Client-driven navigation in the browser view. Host doesn't track
+        if (this.entryId !== null) {
+          await this.goBackFromEntry();
+          return;
+        }
         // history; on 'back' from the entry view the webview re-requests the
         // library entries (needs slug it already knows), and 'back' from the
         // library view re-requests libraries. We just re-push the libraries
@@ -468,7 +514,9 @@ export class InfoviewPanel {
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {
           void vscode.commands.executeCommand(
             'snlDoc.openEntryInfoview',
-            msg.entryId.trim()
+            msg.entryId.trim(),
+            msg.origin,
+            msg.entryPackage
           );
         }
         return;
@@ -851,6 +899,38 @@ export class InfoviewPanel {
     }
   }
 
+  private async goBackFromEntry(): Promise<void> {
+    const route = this.entryHistory.pop() ?? this.fallbackReturnRoute;
+    if (route.kind === 'entry') {
+      this.currentEntryId = route.entryId;
+      this.currentEntryPackage = route.entryPackage;
+      await this.pushEntryDetailsForEntry(route.entryId);
+      return;
+    }
+    if (route.kind === 'library') {
+      InfoviewPanel.createOrShow(this.extensionUri, route.slug);
+      return;
+    }
+    if (route.kind === 'chooseLibrary') return;
+    InfoviewPanel.createOrShow(this.extensionUri);
+  }
+
+  private async containingLibraries(
+    root: vscode.Uri,
+    id: string,
+    entries: EntryData[]
+  ): Promise<Array<{ slug: string; title: string }>> {
+    const libraries = await listLibraries(root);
+    const reads = await Promise.all(libraries.map(async (library) => ({
+      library,
+      read: await readLibraryGraph(root, library.slug, { entryPool: entries })
+    })));
+    return reads
+      .filter(({ read }) => read.status === 'ok' && read.result.graph.nodes.some((node) =>
+        node.label === 'Entry' && node.props?.entryId === id))
+      .map(({ library }) => ({ slug: library.slug, title: library.title }));
+  }
+
   /**
    * Per-entry panel payload: the single entry + its kind, PLUS the full entry
    * pool (so the webview's resolveSource can link macros to other entries).
@@ -912,57 +992,24 @@ export class InfoviewPanel {
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
-      // Cat 2026-07-10 §2: single-Entry panel now surfaces two
-      // collapsible lists — the entries providing CONTEXT bindings
-      // (uses_context edges FROM this entry) and the entries this
-      // entry DEPENDS on (depends edges FROM this entry). Rows outgoing
-      // from `id` win: cat's rule is "下面的条目依赖上面的" so we list
-      // things this entry consumes, sorted by title.
-      let relatedEntries: {
-        context: Array<{ id: string; title: string; kindId?: string }>;
-        dependencies: Array<{
-          id: string;
-          title: string;
-          kindId?: string;
-          isAtomic: boolean | null;
-        }>;
-      } = { context: [], dependencies: [] };
-      const rels = await readRelationships(root);
-      const byId = new Map(entries.map((e) => [e.id, e]));
-      const ctxRows: typeof relatedEntries.context = [];
-      const depRows: typeof relatedEntries.dependencies = [];
-      const seenCtx = new Set<string>();
-      const seenDep = new Set<string>();
-      for (const r of rels) {
-        if (r.from !== id) continue;
-        const target = byId.get(r.to);
-        if (!target) continue;
-        if (r.label === 'uses_context' && !seenCtx.has(r.to)) {
-          seenCtx.add(r.to);
-          ctxRows.push({
-            id: target.id,
-            title: target.title ?? '',
-            kindId: target.kind
-          });
-        } else if (r.label === 'depends' && !seenDep.has(r.to)) {
-          seenDep.add(r.to);
-          const isAtomic =
-            r.metadata &&
-            typeof r.metadata === 'object' &&
-            typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'
-              ? (r.metadata as { isAtomic: boolean }).isAtomic
-              : null;
-          depRows.push({
-            id: target.id,
-            title: target.title ?? '',
-            kindId: target.kind,
-            isAtomic
-          });
-        }
+      let relationshipSections = null as ReturnType<typeof groupEntryRelationships> | null;
+      let relationshipsError: string | undefined;
+      try {
+        const relationships = await readRelationships(root);
+        relationshipSections = groupEntryRelationships(
+          id,
+          relationships,
+          new Map(entries.map((candidate) => [candidate.id, candidate]))
+        );
+      } catch (error) {
+        relationshipsError = error instanceof Error ? error.message : String(error);
       }
-      ctxRows.sort((a, b) => a.title.localeCompare(b.title));
-      depRows.sort((a, b) => a.title.localeCompare(b.title));
-      relatedEntries = { context: ctxRows, dependencies: depRows };
+      if (this.entryHistory.length === 0) {
+        this.fallbackReturnRoute = chooseEntryReturn(
+          await this.containingLibraries(root, id, entries)
+        );
+      }
+      const returnRoute = this.entryHistory.at(-1) ?? this.fallbackReturnRoute;
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
@@ -973,7 +1020,9 @@ export class InfoviewPanel {
         macros,
         macroKinds,
         assetBaseUri: this.assetBaseUri(root),
-        relatedEntries
+        relationshipSections,
+        relationshipsError,
+        returnRoute
       });
     } catch (err) {
       if (generation !== this.viewGeneration) return;

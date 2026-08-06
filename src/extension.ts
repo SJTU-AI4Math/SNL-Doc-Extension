@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { InfoviewPanel } from './infoviewPanel';
+import { parseEntryReturnRoute } from './entryInfoviewRelationships';
 import { CreateLibraryPanel } from './createLibraryPanel';
 import { DashboardPanel } from './dashboardPanel';
 import { disposeTraceResources, isTraceEnabled, refreshTraceEnabled, setTraceEnabled, startTrace, traceChannel } from './trace';
@@ -266,11 +267,21 @@ export function activate(context: vscode.ExtensionContext): void {
   // an EntryRender title or a hover popover.
   const openEntryInfoview = vscode.commands.registerCommand(
     'snlDoc.openEntryInfoview',
-    (entryId?: unknown) => {
+    (entryId?: unknown, originValue?: unknown, entryPackageValue?: unknown) => {
       if (typeof entryId !== 'string' || !entryId.trim()) {
         return;
       }
-      InfoviewPanel.createOrShowForEntry(context.extensionUri, entryId.trim());
+      const origin = parseEntryReturnRoute(originValue);
+      const entryPackage =
+        typeof entryPackageValue === 'string' && entryPackageValue.trim()
+          ? entryPackageValue.trim()
+          : undefined;
+      InfoviewPanel.createOrShowForEntry(
+        context.extensionUri,
+        entryId.trim(),
+        origin,
+        entryPackage
+      );
     }
   );
 

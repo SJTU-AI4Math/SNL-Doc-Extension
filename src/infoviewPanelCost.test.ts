@@ -30,6 +30,7 @@ let emptySecondEntitySnl = false;
 let missingSecondEntity = false;
 let missingEntityStorageMetadata = false;
 let missingOwnerManifest = false;
+let malformedRelationships = false;
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -94,6 +95,7 @@ vi.mock('vscode', () => {
           { id: 'e2', title: 'Second', kind: 'k1', content: { snl: 'y' } }
         ]);
       case 'relationships.json':
+        if (malformedRelationships) return '{not json';
         return JSON.stringify({
           version: 1,
           relationships: [
@@ -255,6 +257,7 @@ function reset(): void {
   missingSecondEntity = false;
   missingEntityStorageMetadata = false;
   missingOwnerManifest = false;
+  malformedRelationships = false;
   posted.length = 0;
   commands.length = 0;
   dashboardGate = null;
@@ -291,6 +294,53 @@ describe('infoview panel read cost', () => {
 
     configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(panelTitle).toBe('SNL — First');
+  });
+
+  it('derives a one-Library return route when no origin was supplied', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'entryDetails',
+      returnRoute: { kind: 'library', slug: LIBRARY, title: 'Algebra' }
+    }));
+  });
+
+  it('keeps Entry details available when relationships are malformed', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    malformedRelationships = true;
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'entryDetails',
+      entry: expect.objectContaining({ id: 'e1' }),
+      relationshipSections: null,
+      relationshipsError: expect.any(String)
+    }));
+    expect(posted.some((message) => message.type === 'entryDetailsError')).toBe(false);
+  });
+
+  it('owns an in-panel Entry stack and Back restores the prior Entry', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+    posted.length = 0;
+    await onMessage({ type: 'navigateEntry', entryId: 'e2', entryPackage: 'logic' });
+    expect(posted.at(-1)).toEqual(expect.objectContaining({
+      type: 'entryDetails', entry: expect.objectContaining({ id: 'e2' }),
+      returnRoute: { kind: 'entry', entryId: 'e1' }
+    }));
+    posted.length = 0;
+    await onMessage({ type: 'back' });
+    expect(posted.at(-1)).toEqual(expect.objectContaining({
+      type: 'entryDetails', entry: expect.objectContaining({ id: 'e1' })
+    }));
   });
 
   it('opens a requested Library directly on first ready', async () => {

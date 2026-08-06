@@ -554,8 +554,14 @@ async function main() {
   }, entityRevision(localizedEntry));
   assert(updateLocalized.status === 'updated', 'updateEntry accepts I18n content');
   const afterLocalizedUpdate = await readEntriesApi(root);
+  const localizedAfterUpdate = afterLocalizedUpdate.find((e) => e.id === localizedEntry.id);
   assert(
-    afterLocalizedUpdate.find((e) => e.id === localizedEntry.id)?.content?.text?.values?.['zh-CN'] === '公理',
+    updateLocalized.status === 'updated' &&
+      updateLocalized.revision === entityRevision(localizedAfterUpdate),
+    'updateEntry returns the exact committed revision'
+  );
+  assert(
+    localizedAfterUpdate?.content?.text?.values?.['zh-CN'] === '公理',
     'updateEntry round-trips I18n content without deleting it'
   );
   const overview = await readOverview(root);

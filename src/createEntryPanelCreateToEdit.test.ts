@@ -97,7 +97,7 @@ vi.mock('./snlDoc', () => ({
       await new Promise<void>((resolve) => { releaseUpdateEntry = resolve; });
     }
     if (updateEntryFailure) throw updateEntryFailure;
-    return { status: 'updated', id };
+    return { status: 'updated', id, revision: `revision-${id}` };
   }),
   regenerateDependencyRelationships: vi.fn(async (_root: unknown, scope: { entryIds: Set<string> }) => {
     events.push(`regenerate:${Array.from(scope.entryIds).join(',')}`);
@@ -358,10 +358,15 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
     await messageHandler!({
       type: 'update',
+      saveRequestId: 'update-request-1',
       entry: {
         id: 'thm-second', kind: 'definition', title: 'Second edited', content: {},
         contribution_info: 'Grace Hopper'
       }
+    });
+    const updateCommitted = posted.findLast((message) => message?.type === 'updateCommitted');
+    expect(updateCommitted).toMatchObject({
+      id: 'thm-second', revision: 'revision-thm-second', saveRequestId: 'update-request-1'
     });
     expect(snlDoc.addEntry).toHaveBeenCalledTimes(1);
     expect(snlDoc.updateEntry).toHaveBeenCalledTimes(1);

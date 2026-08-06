@@ -573,6 +573,7 @@ export class CreateEntryPanel {
     const requestMode = this.mode;
     const requestId = this.id;
     let committedCreateId: string | undefined;
+    let committedUpdate: { id: string; revision: string } | undefined;
     const targetIsCurrent = (): boolean =>
       this.targetGeneration === requestTargetGeneration;
     const postRequestMessage = (message: Record<string, unknown>): Thenable<boolean> =>
@@ -598,6 +599,12 @@ export class CreateEntryPanel {
         }
         switch (result.status) {
           case 'updated':
+            committedUpdate = { id: result.id, revision: result.revision };
+            await postRequestMessage({
+              type: 'updateCommitted',
+              id: result.id,
+              revision: result.revision
+            });
             if (!(await this.regenerateSavedEntryDependencies(
               root, result.id, targetIsCurrent, postRequestMessage
             ))) {
@@ -768,6 +775,17 @@ export class CreateEntryPanel {
       // The Entry may already be durable even if the first ownership message
       // rejected. Retry it before error/context; the webview handles duplicates
       // idempotently, giving this transition at-least-once delivery semantics.
+      if (committedUpdate) {
+        await postRequestMessage({
+          type: 'updateCommitted',
+          id: committedUpdate.id,
+          revision: committedUpdate.revision
+        });
+        if (!targetIsCurrent()) {
+          await this.pushContext();
+          return;
+        }
+      }
       if (committedCreateId) {
         await postRequestMessage({
           type: 'createCommitted',

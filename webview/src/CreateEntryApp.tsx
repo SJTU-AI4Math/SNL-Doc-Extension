@@ -735,6 +735,8 @@ export function CreateEntryApp(): React.ReactElement {
    */
   const justSavedIdRef = useRef<string | null>(null);
   const committedCreateIdRef = useRef<string | null>(null);
+  const committedUpdateRequestIdRef = useRef<string | null>(null);
+  const committedUpdateRevisionRef = useRef<{ id: string; revision: string } | null>(null);
   const targetGenerationRef = useRef<number | null>(null);
   const contextEstablishedGenerationRef = useRef<number | null>(null);
   const pendingTargetMessagesRef = useRef<Map<number, unknown[]>>(new Map());
@@ -804,6 +806,7 @@ export function CreateEntryApp(): React.ReactElement {
           }
         | { type: 'created'; id: string }
         | { type: 'createCommitted'; id: string }
+        | { type: 'updateCommitted'; id: string; revision: string }
         | { type: 'packageCreated'; packageId: string; requestId: string }
         | { type: 'packageCreateFailed'; message: string; requestId: string }
         | { type: 'updated'; id: string }
@@ -869,7 +872,8 @@ export function CreateEntryApp(): React.ReactElement {
         msg.type === 'created' || msg.type === 'updated' || msg.type === 'duplicate' ||
         msg.type === 'notFound' || msg.type === 'unknownKind' || msg.type === 'invalid' ||
         msg.type === 'noSnlDoc' || msg.type === 'noWorkspace' || msg.type === 'error';
-      const isSaveScoped = isSaveTerminal || msg.type === 'createCommitted';
+      const isSaveScoped =
+        isSaveTerminal || msg.type === 'createCommitted' || msg.type === 'updateCommitted';
       if (hasTargetGeneration && isSaveScoped) {
         if (typeof saveRequestId !== 'string' || saveRequestId.length === 0) return;
         if (saveRequestId !== submittedSaveRequestIdRef.current) return;
@@ -884,6 +888,8 @@ export function CreateEntryApp(): React.ReactElement {
           restoredDraftIdRef.current = null;
           justSavedIdRef.current = null;
           committedCreateIdRef.current = null;
+          committedUpdateRequestIdRef.current = null;
+          committedUpdateRevisionRef.current = null;
           submittedEditGenerationRef.current = null;
           editingIdRef.current = '';
           entryRevisionRef.current = undefined;
@@ -954,7 +960,10 @@ export function CreateEntryApp(): React.ReactElement {
               // being hidden; the host's copy is by definition older.
               (restoredDraftIdRef.current !== null &&
                 restoredDraftIdRef.current === incomingId);
-            if (!preserveDraft || justSaved) {
+            const committedUpdate = committedUpdateRevisionRef.current;
+            if (justSaved && committedUpdate?.id === incomingId) {
+              entryRevisionRef.current = committedUpdate.revision;
+            } else if (!preserveDraft || justSaved) {
               entryRevisionRef.current = msg.entryRevision;
             }
             if (msg.id) {
@@ -1030,7 +1039,12 @@ export function CreateEntryApp(): React.ReactElement {
             // One-shot: consumed by the single context push that follows the
             // create. Later pushes (file watcher, retarget) must go through
             // the normal dirty-form rules.
-            if (justSaved) justSavedIdRef.current = null;
+            if (justSaved) {
+              justSavedIdRef.current = null;
+              if (committedUpdateRevisionRef.current?.id === incomingId) {
+                committedUpdateRevisionRef.current = null;
+              }
+            }
           } else {
             // Cat 2026-07-15: seed the id field with the caller-provided
             // hint (e.g. the id the user typed into the Library outline's
@@ -1071,6 +1085,17 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError('');
           setNewPackageId('');
           setShowPackageCreator(false);
+          break;
+        }
+        case 'updateCommitted': {
+          const requestId = typeof saveRequestId === 'string' ? saveRequestId : '';
+          if (committedUpdateRequestIdRef.current === requestId) break;
+          const committedId = typeof msg.id === 'string' ? msg.id : '';
+          const revision = typeof msg.revision === 'string' ? msg.revision : '';
+          if (!committedId || !revision) break;
+          committedUpdateRequestIdRef.current = requestId;
+          committedUpdateRevisionRef.current = { id: committedId, revision };
+          justSavedIdRef.current = committedId;
           break;
         }
         case 'created': {

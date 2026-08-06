@@ -1001,6 +1001,42 @@ describe('CreateEntryApp create → edit flip', () => {
     await waitFor(() => expect(title.value).toBe('Second local save'));
   });
 
+  it('retries a committed update from its exact committed revision after regeneration failure', async () => {
+    const contextAt = (title: string, revision: string): Record<string, unknown> => ({
+      ...(editContext({
+        id: 'entry-a', title, kind: 'definition', content: { snl: 'a(child)' }
+      }) as Record<string, unknown>),
+      entryRevision: revision,
+      targetGeneration: 7
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => { send(contextAt('Initial', 'r1')); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    fireEvent.input(title, { target: { value: 'Submitted title' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const firstRequest = posted.findLast((message) => message?.type === 'update')?.saveRequestId;
+    fireEvent.input(title, { target: { value: 'Post-submit edit' } });
+
+    act(() => {
+      send({
+        type: 'updateCommitted', id: 'entry-a', revision: 'r2',
+        targetGeneration: 7, saveRequestId: firstRequest
+      });
+      send({
+        type: 'error', message: 'dependency regeneration failed',
+        targetGeneration: 7, saveRequestId: firstRequest
+      });
+      // A newer external context must not become this local form's CAS base.
+      send(contextAt('External after commit', 'r3'));
+    });
+    await waitFor(() => expect(title.value).toBe('Post-submit edit'));
+
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const retry = posted.findLast((message) => message?.type === 'update');
+    expect(retry.expectedRevision).toBe('r2');
+    expect(retry.saveRequestId).not.toBe(firstRequest);
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

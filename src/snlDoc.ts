@@ -3966,7 +3966,7 @@ export async function updateLibrary(
 }
 
 export type UpdateEntryResult = UpdateResult<
-  { status: 'updated'; id: string },
+  { status: 'updated'; id: string; revision: string },
   { status: 'unknownKind'; kind: string }
 >;
 
@@ -4126,7 +4126,7 @@ export async function updateEntry(
       message: err instanceof Error ? err.message : String(err)
     };
   }
-    return { status: 'updated', id: targetId };
+    return { status: 'updated', id: targetId, revision: entityRevision(record) };
   });
 }
 

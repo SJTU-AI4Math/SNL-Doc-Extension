@@ -90,6 +90,7 @@ export function SnooglApp(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const queryTimerRef = useRef<number | null>(null);
   const pendingQueryKeyRef = useRef<string | null>(null);
+  const adoptedQueryKeyRef = useRef<string | null>(null);
 
   const dispatchQuery = (
     query: { q: string; mode: Mode; filters: Filters },
@@ -123,6 +124,13 @@ export function SnooglApp(): React.ReactElement {
           }
           break;
         case 'results':
+          // A result payload is a snapshot of one complete host query. Adopt
+          // all query fields in the same React batch so refreshes cannot mix
+          // a new result list with stale controls.
+          adoptedQueryKeyRef.current = queryKey(msg.query);
+          setQ(msg.query.q);
+          setMode(msg.query.mode);
+          setFilters({ ...msg.query.filters });
           setError(null);
           setResults(Array.isArray(msg.results) ? msg.results : []);
           if (msg.kindsByMode && typeof msg.kindsByMode === 'object') {
@@ -148,6 +156,10 @@ export function SnooglApp(): React.ReactElement {
   useEffect(() => {
     const query = { q, mode, filters };
     const key = queryKey(query);
+    if (adoptedQueryKeyRef.current === key) {
+      adoptedQueryKeyRef.current = null;
+      return;
+    }
     pendingQueryKeyRef.current = key;
     const handle = window.setTimeout(() => {
       if (pendingQueryKeyRef.current !== key) return;

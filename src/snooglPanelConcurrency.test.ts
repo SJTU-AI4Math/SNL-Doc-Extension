@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const posted: any[] = [];
 let messageHandler: ((message: unknown) => Promise<void>) | undefined;
+let workspaceRefresh: (() => void | Promise<void>) | undefined;
 
 vi.mock('vscode', () => ({
   Uri: { joinPath: (base: any, ...parts: string[]) => ({ path: [base.path, ...parts].join('/'), fsPath: [base.path, ...parts].join('/') }) },
@@ -45,7 +46,10 @@ vi.mock('./snlDoc', () => ({
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
   firstWorkspaceFolder: () => ({ path: '/workspace', fsPath: '/workspace' }),
-  handlePanelNavMessage: async () => false
+  handlePanelNavMessage: async () => false,
+  installSnlDocWatcher: (_disposables: unknown[], refresh: () => void | Promise<void>) => {
+    workspaceRefresh = refresh;
+  }
 }));
 vi.mock('./preferences', () => ({
   read_extension_preferences: () => ({ language: 'en' })
@@ -93,5 +97,33 @@ describe('SNoogLPanel query ordering', () => {
     expect(errors[0].message).toContain('newest failure');
     expect(posted.filter((message) => message.type === 'results').flatMap((message) =>
       message.results.map((hit: any) => hit.id))).not.toContain('stale-success');
+  });
+
+  it('refreshes the exact current query after relevant workspace changes', async () => {
+    expect(messageHandler).toBeTruthy();
+    const query = messageHandler!({
+      type: 'query', q: 'needle', mode: 'entry', filters: { kindId: 'definition' }
+    });
+    await vi.waitFor(() => expect(pendingEntries.length).toBeGreaterThanOrEqual(7));
+    pendingEntries[6].resolve([
+      { id: 'needle-old', title: 'Needle old', kind: 'definition' },
+      { id: 'other', title: 'Other', kind: 'theorem' }
+    ]);
+    await query;
+
+    expect(workspaceRefresh).toBeTypeOf('function');
+    const refresh = workspaceRefresh!();
+    await vi.waitFor(() => expect(pendingEntries.length).toBeGreaterThanOrEqual(8));
+    pendingEntries[7].resolve([
+      { id: 'needle-new', title: 'Needle new', kind: 'definition' },
+      { id: 'other-new', title: 'Other new', kind: 'theorem' }
+    ]);
+    await refresh;
+
+    const latest = posted.filter((message) => message.type === 'results').at(-1);
+    expect(latest.query).toEqual({
+      q: 'needle', mode: 'entry', filters: { kindId: 'definition' }
+    });
+    expect(latest.results.map((hit: any) => hit.id)).toEqual(['needle-new']);
   });
 });

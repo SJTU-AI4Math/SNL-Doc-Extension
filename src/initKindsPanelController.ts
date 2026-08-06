@@ -53,7 +53,7 @@ export function projectKindPresets(
   source: PresetProjectionSource
 ): Array<{ id: string; label: string; description: string; count: number }> {
   const t = createHostTranslator(language, MESSAGES);
-  return source.map((preset) => {
+  return source.filter((preset) => preset.kinds.length > 0).map((preset) => {
     const keys = (PRESET_COPY_KEYS[domain] as Partial<Record<string, readonly [PresetCopyKey, PresetCopyKey]>>)[preset.id];
     return {
       id: preset.id,
@@ -88,6 +88,7 @@ export class InitKindsPanelController {
   }
 
   private readonly disposables: vscode.Disposable[] = [];
+  private initGeneration = 0;
   private constructor(
     private readonly domain: KindsDomain,
     private readonly panel: vscode.WebviewPanel,
@@ -100,15 +101,33 @@ export class InitKindsPanelController {
   }
 
   private async pushInit(): Promise<void> {
-    const root = firstWorkspaceFolder();
-    const existing = root
-      ? this.domain === 'entry'
-        ? (await readEntryKinds(root)).length
-        : (await readMacroKinds(root)).length
-      : 0;
-    const source = this.domain === 'entry' ? ENTRY_KIND_PRESETS : MACRO_KIND_PRESETS;
-    const presets = projectKindPresets(this.domain, read_extension_preferences().language, source);
-    void this.panel.webview.postMessage({ type: 'init', presets, existing });
+    const generation = ++this.initGeneration;
+    try {
+      const root = firstWorkspaceFolder();
+      const existing = root
+        ? this.domain === 'entry'
+          ? (await readEntryKinds(root)).length
+          : (await readMacroKinds(root)).length
+        : 0;
+      if (generation !== this.initGeneration) return;
+      const source = this.domain === 'entry' ? ENTRY_KIND_PRESETS : MACRO_KIND_PRESETS;
+      const presets = projectKindPresets(
+        this.domain,
+        read_extension_preferences().language,
+        source
+      );
+      void this.panel.webview.postMessage({ type: 'init', presets, existing });
+    } catch (error) {
+      if (generation !== this.initGeneration) return;
+      const text = error instanceof Error ? error.message : String(error);
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: hostText()('failed', {
+          title: hostText()(this.domain === 'entry' ? 'entryTitle' : 'macroTitle'),
+          error: text
+        })
+      });
+    }
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -131,6 +150,15 @@ export class InitKindsPanelController {
     const presetId = typeof msg.presetId === 'string' ? msg.presetId : '';
     if (!presetId) {
       void this.panel.webview.postMessage({ type: 'error', message: hostText()('noPreset') });
+      return;
+    }
+    const source = this.domain === 'entry' ? ENTRY_KIND_PRESETS : MACRO_KIND_PRESETS;
+    const selectedPreset = source.find((preset) => preset.id === presetId);
+    if (selectedPreset?.kinds.length === 0) {
+      void this.panel.webview.postMessage({
+        type: 'error',
+        message: `Preset “${presetId}” has no kinds and cannot be applied.`
+      });
       return;
     }
     try {

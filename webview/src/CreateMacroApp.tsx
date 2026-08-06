@@ -1104,7 +1104,6 @@ export function CreateMacroApp(): React.ReactElement {
     <main
       style={PANEL_STYLE}
       onInputCapture={() => { formDirtyRef.current = true; }}
-      onClickCapture={() => { formDirtyRef.current = true; }}
     >
       <PanelHeader
         vsApi={apiRef.current}

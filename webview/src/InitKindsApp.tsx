@@ -17,7 +17,7 @@ const MESSAGES = defineUiMessages(
     entryKind: { arg: 'count', one: 'entry kind', other: 'entry kinds' },
     macroKind: { arg: 'count', one: 'macro kind', other: 'macro kinds' },
     preset: 'Preset', optionKinds: { arg: 'count', one: '{count} kind', other: '{count} kinds' },
-    emptyPreset: ' Applying this preset writes an empty catalog.', applying: 'Applying…', apply: 'Apply Preset',
+    emptyPreset: ' Applying this preset writes an empty catalog.', noPresets: 'No populated presets are available.', applying: 'Applying…', apply: 'Apply Preset',
     applied: 'Applied “{label}” — {count} {kind} added.'
   },
   {
@@ -28,7 +28,7 @@ const MESSAGES = defineUiMessages(
     entryKind: { arg: 'count', other: '条目类型' },
     macroKind: { arg: 'count', other: '宏类型' },
     preset: '预设', optionKinds: { arg: 'count', other: '{count} 个类型' },
-    emptyPreset: ' 应用此预设会写入空目录。', applying: '正在应用…', apply: '应用预设',
+    emptyPreset: ' 应用此预设会写入空目录。', noPresets: '没有可用的非空预设。', applying: '正在应用…', apply: '应用预设',
     applied: '已应用“{label}”— 新增 {count} 个{kind}。'
   }
 );
@@ -68,10 +68,16 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
     | { type: 'noSnlDoc' | 'noWorkspace' | 'unknownPreset' | 'error'; message: string }
   >((msg) => {
     if (msg.type === 'init') {
-      const nextPresets = Array.isArray(msg.presets) ? msg.presets : [];
+      const nextPresets = Array.isArray(msg.presets)
+        ? msg.presets.filter((preset) => preset.count > 0)
+        : [];
       setPresets(nextPresets);
       setExisting(msg.existing);
-      setSelected((previous) => previous || nextPresets[0]?.id || '');
+      setSelected((previous) =>
+        nextPresets.some((preset) => preset.id === previous)
+          ? previous
+          : nextPresets[0]?.id || ''
+      );
       setLoaded(true);
     } else if (msg.type === 'applied') {
       setStatus({ kind: 'applied', presetId: msg.presetId, count: msg.count });
@@ -81,6 +87,7 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
       setExisting(msg.existing);
     } else {
       setStatus({ kind: msg.type, message: msg.message });
+      setLoaded(true);
     }
   });
   const observedInitialPreferences = useRef(false);
@@ -95,7 +102,9 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
   }, [post, preferenceRevision]);
 
   const catalogBusy = existing > 0;
-  const canApply = loaded && !catalogBusy && !!selected && status.kind !== 'applying';
+  const canApply = loaded && !catalogBusy && !!selected &&
+    !!presets.find((preset) => preset.id === selected && preset.count > 0) &&
+    status.kind !== 'applying';
   const selectedPreset = presets.find((preset) => preset.id === selected);
   const apply = (): void => {
     if (!canApply) return;
@@ -111,11 +120,11 @@ export function InitKindsApp({ domain }: { domain: KindDomain }): React.ReactEle
       </p>
       {catalogBusy ? <Alert severity="warning">{t('busy', { key: copy.configKey, count: existing, kind })}</Alert> : null}
       <FormField label={t('preset')}>
-        <Select value={selected} onChange={(event) => setSelected(event.target.value)} disabled={catalogBusy || status.kind === 'applying'}>
+        <Select value={selected} onChange={(event) => setSelected(event.target.value)} disabled={catalogBusy || presets.length === 0 || status.kind === 'applying'}>
           {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label} ({t('optionKinds', { count: preset.count })})</option>)}
         </Select>
       </FormField>
-      {selectedPreset ? <p style={{ opacity: .75, fontStyle: 'italic' }}>{selectedPreset.description}{selectedPreset.count === 0 ? t('emptyPreset') : ''}</p> : null}
+      {selectedPreset ? <p style={{ opacity: .75, fontStyle: 'italic' }}>{selectedPreset.description}</p> : <Alert severity="warning">{t('noPresets')}</Alert>}
       <Button variant="primary" onClick={apply} disabled={!canApply} loading={status.kind === 'applying'} loadingLabel={t('applying')}>{t('apply')}</Button>
       <InitStatus status={status} presets={presets} kind={kind} t={t} />
     </>}

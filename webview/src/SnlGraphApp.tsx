@@ -982,6 +982,9 @@ function SnlGraphInner({
                 return (
                   <g
                     key={e.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Relationship ${e.label || e.id}: ${e.from} to ${e.to}`}
                     onPointerEnter={() => setHoverEdgeId(e.id)}
                     onPointerLeave={() =>
                       setHoverEdgeId((c) => (c === e.id ? null : c))
@@ -990,6 +993,13 @@ function SnlGraphInner({
                     onClick={() =>
                       post({ type: 'editRelationship', id: e.id })
                     }
+                    onFocus={() => setHoverEdgeId(e.id)}
+                    onBlur={() => setHoverEdgeId((c) => (c === e.id ? null : c))}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      post({ type: 'editRelationship', id: e.id });
+                    }}
                   >
                     <title>
                       {e.label}
@@ -1029,12 +1039,22 @@ function SnlGraphInner({
                 return (
                   <g
                     key={n.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Entry ${n.title || n.id} (${n.id})`}
                     transform={`translate(${n.x} ${n.y})`}
                     style={{ cursor: 'pointer' }}
                     onPointerEnter={(ev) => handleNodePointerEnter(n, ev)}
                     onPointerMove={(ev) => handleNodePointerMove(n, ev)}
                     onPointerLeave={() => handleNodePointerLeave(n)}
                     onClick={(ev) => handleNodeClick(n, ev)}
+                    onFocus={() => setHoverNodeId(n.id)}
+                    onBlur={() => setHoverNodeId((c) => (c === n.id ? null : c))}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      setSelectedId((previous) => previous === n.id ? null : n.id);
+                    }}
                   >
                     {/* Cat 2026-07-10 §3: dropped the native <title>
                         tooltip — the full-Entry hover popover already

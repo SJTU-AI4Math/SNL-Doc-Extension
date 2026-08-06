@@ -200,6 +200,7 @@ export function DashboardApp(): React.ReactElement {
   const [dataOperation, setDataOperation] = useState<DataOperationStatus>({ status: 'idle' });
   const [setupBusy, setSetupBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const apiRef = useVsCodeApiRef();
 
   useEffect(() => {
@@ -209,6 +210,7 @@ export function DashboardApp(): React.ReactElement {
         | { type: 'overview'; overview: SnlOverview }
         | ({ type: 'dataMigrationStatus' } & DataOperationStatus)
         | { type: 'setupStatus'; status: 'idle' | 'running' }
+        | { type: 'overviewError'; message: string }
         | undefined;
       if (!msg) return;
       if (msg.type === 'dataMigrationStatus') {
@@ -223,7 +225,13 @@ export function DashboardApp(): React.ReactElement {
         setSetupBusy(msg.status === 'running');
         return;
       }
+      if (msg.type === 'overviewError') {
+        setLoadError(msg.message);
+        setLoaded(true);
+        return;
+      }
       if (msg.type !== 'overview') return;
+      setLoadError(null);
       setOverview({
         ...EMPTY,
         ...msg.overview,
@@ -250,6 +258,17 @@ export function DashboardApp(): React.ReactElement {
       <main style={PANEL_STYLE}>
         <PanelHeader vsApi={apiRef.current} title={t('title')} />
         <p style={{ opacity: 0.7 }}>{t('loading')}</p>
+      </main>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <main style={PANEL_STYLE}>
+        <PanelHeader vsApi={apiRef.current} title="SNL Dashboard" />
+        <p role="alert" style={{ color: 'var(--vscode-errorForeground)' }}>
+          Could not load project overview: {loadError}
+        </p>
       </main>
     );
   }

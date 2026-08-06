@@ -156,6 +156,9 @@ export class ExportOptionsPanel {
       case 'ready':
         await this.pushContext();
         return;
+      case 'nav.refresh':
+        await this.pushContext();
+        return;
       case 'openInfoview':
         void vscode.commands.executeCommand('snlDoc.openInfoview');
         return;

@@ -16,7 +16,12 @@ import {
   resolveActiveMacroPackages,
   type EntryData
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import {
+  buildPanelHtml,
+  firstWorkspaceFolder,
+  handlePanelNavMessage,
+  installSnlDocWatcher
+} from './panelUtil';
 import {
   createSnooglSearchDocument,
   rankSnooglDocuments
@@ -79,6 +84,11 @@ export class SnoogLPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private queryGeneration = 0;
+  private currentQuery: {
+    q: string;
+    mode: 'entry' | 'macro';
+    filters: SnoogLFilters;
+  };
 
   public static open(
     extensionUri: vscode.Uri,
@@ -87,12 +97,7 @@ export class SnoogLPanel {
     const column = vscode.ViewColumn.Active;
     if (SnoogLPanel.instance) {
       SnoogLPanel.instance.panel.reveal(column);
-      // Push mode to already-open panel so header clicks always land on
-      // the requested tab regardless of previous state.
-      void SnoogLPanel.instance.panel.webview.postMessage({
-        type: 'setMode',
-        mode: initialMode
-      });
+      SnoogLPanel.instance.adoptMode(initialMode);
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -116,6 +121,7 @@ export class SnoogLPanel {
   ) {
     this.panel = panel;
     this.extensionUri = extensionUri;
+    this.currentQuery = { q: '', mode: initialMode, filters: {} };
 
     this.panel.webview.html = buildPanelHtml(
       this.extensionUri,
@@ -129,11 +135,13 @@ export class SnoogLPanel {
       this.disposables
     );
 
+    installSnlDocWatcher(this.disposables, () => this.refreshCurrentQuery());
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
   private async handleMessage(message: unknown): Promise<void> {
-    if (await handlePanelNavMessage(message, () => this.doQuery({ q: '', mode: 'entry', filters: {} }))) return;
+    if (await handlePanelNavMessage(message, () => this.refreshCurrentQuery())) return;
     const msg = message as { type?: string } | undefined;
     if (!msg || typeof msg.type !== 'string') return;
 
@@ -148,7 +156,7 @@ export class SnoogLPanel {
         });
         // Kick a blank query so the webview can populate its kind
         // dropdown from the returned `kindsByMode`.
-        await this.doQuery({ q: '', mode: this.initialMode, filters: {} });
+        await this.runCurrentQuery({ q: '', mode: this.initialMode, filters: {} });
         return;
       case 'query': {
         const q = typeof (msg as { q?: unknown }).q === 'string' ? (msg as { q: string }).q : '';
@@ -160,7 +168,7 @@ export class SnoogLPanel {
           const kindId = (rawFilters as { kindId?: unknown }).kindId;
           if (typeof kindId === 'string' && kindId) filters.kindId = kindId;
         }
-        await this.doQuery({ q, mode, filters });
+        await this.runCurrentQuery({ q, mode, filters });
         return;
       }
       case 'openEntry': {
@@ -181,6 +189,28 @@ export class SnoogLPanel {
       default:
         return;
     }
+  }
+
+  private runCurrentQuery(query: {
+    q: string;
+    mode: 'entry' | 'macro';
+    filters: SnoogLFilters;
+  }): Promise<void> {
+    this.currentQuery = { ...query, filters: { ...query.filters } };
+    return this.doQuery(this.currentQuery);
+  }
+
+  private adoptMode(mode: 'entry' | 'macro'): void {
+    this.currentQuery = { ...this.currentQuery, mode };
+    void this.panel.webview.postMessage({ type: 'setMode', mode });
+    void this.refreshCurrentQuery();
+  }
+
+  private refreshCurrentQuery(): Promise<void> {
+    return this.doQuery({
+      ...this.currentQuery,
+      filters: { ...this.currentQuery.filters }
+    });
   }
 
   /**

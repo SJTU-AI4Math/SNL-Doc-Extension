@@ -228,6 +228,7 @@ export function CreateRelationshipApp(): React.ReactElement {
         case 'error':
           setBanner({ kind: 'error', text: msg.message });
           setBusy(false);
+          setLoaded(true);
           return;
         case 'invalid':
           setBanner({ kind: 'error', text: translate('invalid', { reason: msg.reason }) });

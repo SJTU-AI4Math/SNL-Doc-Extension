@@ -241,6 +241,7 @@ export class DashboardPanel {
       if (generation !== this.overviewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(dashboardT()('refreshFailed', { error: text }));
+      void this.panel.webview.postMessage({ type: 'overviewError', message: text });
     }
   }
 
@@ -251,6 +252,9 @@ export class DashboardPanel {
     }
     switch (msg.type) {
       case 'ready':
+        await this.pushOverview();
+        return;
+      case 'nav.refresh':
         await this.pushOverview();
         return;
       case 'checkDataVersion':

@@ -34,16 +34,13 @@ vi.mock('./snlDoc', () => ({
     operationGraph = structuredClone(graph);
     return { status: 'ok' };
   }),
-  renameLibraryGraphNodeId: vi.fn(async (_root: unknown, _slug: string, oldId: string, newId: string) => {
-    if (!operationGraph.nodes.some((node) => node.id === oldId)) return { status: 'notFound' };
-    if (operationGraph.nodes.some((node) => node.id === newId)) return { status: 'duplicate' };
+  updateLibraryGraphNodeEntryId: vi.fn(async (_root: unknown, _slug: string, nodeId: string, entryId: string) => {
+    if (!operationGraph.nodes.some((node) => node.id === nodeId)) return { status: 'notFound' };
     operationGraph = {
-      nodes: operationGraph.nodes.map((node) => node.id === oldId ? { ...node, id: newId } : node),
-      relationships: operationGraph.relationships.map((relationship) => ({
-        ...relationship,
-        from: relationship.from === oldId ? newId : relationship.from,
-        to: relationship.to === oldId ? newId : relationship.to
-      }))
+      nodes: operationGraph.nodes.map((node) => node.id === nodeId
+        ? { ...node, props: { ...node.props, entryId } }
+        : node),
+      relationships: operationGraph.relationships
     };
     return { status: 'ok' };
   }),
@@ -141,7 +138,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
     expect(operationGraph.nodes.map((node) => node.props.entryId).sort()).toEqual(['entry-a', 'entry-b']);
   });
 
-  it('persists graph-local node renames with all incident edges rewritten', async () => {
+  it('updates only the Entry indexed by a stable graph node', async () => {
     const snlDoc = await import('./snlDoc');
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     operationMode = true;
@@ -157,30 +154,31 @@ describe('CreateLibraryPanel refresh ordering', () => {
     };
     const posted: any[] = [];
     const panel = panelHarness(CreateLibraryPanel.prototype, posted);
-    vi.mocked(snlDoc.renameLibraryGraphNodeId).mockClear();
+    vi.mocked(snlDoc.updateLibraryGraphNodeEntryId).mockClear();
     vi.mocked(snlDoc.writeLibraryGraph).mockClear();
 
     await panel.handleMessage({
       type: 'graphOp',
-      op: { op: 'renameNode', nodeId: 'root', newNodeId: 'intro' }
+      op: { op: 'updateNodeEntry', nodeId: 'root', entryId: 'entry-c' }
     });
 
-    expect(operationGraph.nodes.map((node) => node.id)).toEqual(['intro', 'child']);
-    expect(operationGraph.nodes[0].props.entryId).toBe('entry-a');
+    expect(operationGraph.nodes.map((node) => node.id)).toEqual(['root', 'child']);
+    expect(operationGraph.nodes[0].props.entryId).toBe('entry-c');
     expect(operationGraph.relationships).toEqual([
-      { from: 'intro', to: 'child', label: 'branch' },
-      { from: 'child', to: 'intro', label: 'reference' }
+      { from: 'root', to: 'child', label: 'branch' },
+      { from: 'child', to: 'root', label: 'reference' }
     ]);
-    expect(snlDoc.renameLibraryGraphNodeId).toHaveBeenCalledWith(
+    expect(snlDoc.updateLibraryGraphNodeEntryId).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/workspace' }),
       'lib',
       'root',
-      'intro'
+      'entry-c'
     );
     expect(snlDoc.writeLibraryGraph).not.toHaveBeenCalled();
   });
 
-  it('rejects a duplicate node id without writing the graph', async () => {
+  it('rejects an empty indexed Entry id without writing the graph', async () => {
+    const snlDoc = await import('./snlDoc');
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     operationMode = true;
     operationGraph = {
@@ -190,19 +188,19 @@ describe('CreateLibraryPanel refresh ordering', () => {
       ],
       relationships: [{ from: 'root', to: 'child', label: 'branch' }]
     };
-    const before = structuredClone(operationGraph);
     const posted: any[] = [];
     const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    vi.mocked(snlDoc.updateLibraryGraphNodeEntryId).mockClear();
 
     await panel.handleMessage({
       type: 'graphOp',
-      op: { op: 'renameNode', nodeId: 'root', newNodeId: 'child' }
+      op: { op: 'updateNodeEntry', nodeId: 'root', entryId: '' }
     });
 
-    expect(operationGraph).toEqual(before);
+    expect(snlDoc.updateLibraryGraphNodeEntryId).not.toHaveBeenCalled();
     expect(posted).toContainEqual({
       type: 'graphError',
-      message: 'A node with ID "child" already exists.'
+      message: 'updateNodeEntry: nodeId and entryId are required'
     });
   });
 

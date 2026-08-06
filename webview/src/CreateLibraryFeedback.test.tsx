@@ -104,43 +104,41 @@ describe('Create Library feedback', () => {
     expect(screen.getByRole('button', { name: 'Create' })).toBeTruthy();
   });
 
-  it('posts a graph-local node id rename without changing the Entry id', () => {
+  it('changes which Entry an outline node indexes without changing graph-local identity', () => {
     setupApi();
     render(<CreateLibraryApp />);
     send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
     sendGraph({
       nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
-      entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }]
+      relationships: [],
+      entries: [
+        { id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true },
+        { id: 'entry-two', title: 'Entry Two', kind: 'definition', hasContent: true }
+      ]
     });
 
-    const nodeId = screen.getByLabelText('Node ID n_1');
-    nodeId.focus();
-    expect(document.activeElement).toBe(nodeId);
-    fireEvent.change(nodeId, { target: { value: 'intro' } });
-    fireEvent.keyDown(nodeId, { key: 'Enter' });
-    fireEvent.blur(nodeId);
+    const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
+    expect(entryId.value).toBe('entry-one');
+    expect(document.querySelector('datalist option[value="entry-two"]')?.textContent)
+      .toContain('Entry Two');
+    entryId.focus();
+    fireEvent.change(entryId, { target: { value: 'entry-two' } });
+    fireEvent.keyDown(entryId, { key: 'Enter' });
+    fireEvent.blur(entryId);
 
     expect(postMessage).toHaveBeenCalledWith({
       type: 'graphOp',
-      op: { op: 'renameNode', nodeId: 'n_1', newNodeId: 'intro' }
+      op: { op: 'updateNodeEntry', nodeId: 'n_1', entryId: 'entry-two' }
     });
     expect(postMessage.mock.calls.filter(([message]) =>
-      message?.type === 'graphOp' && message?.op?.op === 'renameNode'
+      message?.type === 'graphOp' && message?.op?.op === 'updateNodeEntry'
     )).toHaveLength(1);
-
-    // A later focus is a deliberate retry (for example after resolving a
-    // duplicate-id error), not the duplicate blur from the first Enter.
-    nodeId.focus();
-    expect(document.activeElement).toBe(nodeId);
-    fireEvent.keyDown(nodeId, { key: 'Enter' });
-    fireEvent.blur(nodeId);
-    expect(postMessage.mock.calls.filter(([message]) =>
+    expect(postMessage.mock.calls.some(([message]) =>
       message?.type === 'graphOp' && message?.op?.op === 'renameNode'
-    )).toHaveLength(2);
-    expect(screen.getAllByTitle(/entry-one/).length).toBeGreaterThan(0);
+    )).toBe(false);
   });
 
-  it('cancels a graph-local node id edit with Escape', () => {
+  it('cancels an indexed Entry id edit with Escape', () => {
     setupApi();
     render(<CreateLibraryApp />);
     send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
@@ -149,16 +147,15 @@ describe('Create Library feedback', () => {
       entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }]
     });
 
-    const nodeId = screen.getByLabelText('Node ID n_1') as HTMLInputElement;
-    nodeId.focus();
-    expect(document.activeElement).toBe(nodeId);
-    fireEvent.change(nodeId, { target: { value: 'discard-me' } });
-    fireEvent.keyDown(nodeId, { key: 'Escape' });
-    fireEvent.blur(nodeId);
+    const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
+    entryId.focus();
+    fireEvent.change(entryId, { target: { value: 'discard-me' } });
+    fireEvent.keyDown(entryId, { key: 'Escape' });
+    fireEvent.blur(entryId);
 
-    expect(nodeId.value).toBe('n_1');
+    expect(entryId.value).toBe('entry-one');
     expect(postMessage.mock.calls.some(([message]) =>
-      message?.type === 'graphOp' && message?.op?.op === 'renameNode'
+      message?.type === 'graphOp' && message?.op?.op === 'updateNodeEntry'
     )).toBe(false);
   });
 });

@@ -47,7 +47,7 @@ vi.mock('vscode', () => ({
   }
 }));
 
-import { renameLibraryGraphNodeId } from './snlDoc';
+import { updateLibraryGraphNodeEntryId } from './snlDoc';
 
 const root = uri('/ws') as never;
 
@@ -71,26 +71,26 @@ beforeEach(() => {
   })));
 });
 
-describe('renameLibraryGraphNodeId raw CAS writer', () => {
-  it('preserves unknown data and rewrites all incident relationships', async () => {
-    expect(await renameLibraryGraphNodeId(root, 'lib', 'root', 'intro')).toEqual({ status: 'ok' });
+describe('updateLibraryGraphNodeEntryId raw CAS writer', () => {
+  it('preserves unknown data, node identity, and every relationship', async () => {
+    expect(await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-b')).toEqual({ status: 'ok' });
     const graph = JSON.parse(dec.decode(files.get(graphPath)!));
     expect(graph.extension).toEqual({ keep: true });
     expect(graph.nodes).toEqual([
-      { id: 'intro', label: 'Entry', props: { entryId: 'entry-a' }, extra: 7 },
+      { id: 'root', label: 'Entry', props: { entryId: 'entry-b' }, extra: 7 },
       { id: 'child', label: 'Entry', props: {} },
       'malformed'
     ]);
     expect(graph.relationships).toEqual([
-      { from: 'intro', to: 'child', label: 'branch', properties: { order: 1 } },
-      { from: 'child', to: 'intro', label: 'custom', extra: true },
+      { from: 'root', to: 'child', label: 'branch', properties: { order: 1 } },
+      { from: 'child', to: 'root', label: 'custom', extra: true },
       9
     ]);
   });
 
   it('rejects a stale snapshot instead of overwriting a concurrent writer', async () => {
     injectConcurrentWrite = true;
-    const result = await renameLibraryGraphNodeId(root, 'lib', 'root', 'intro');
+    const result = await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-b');
     expect(result).toMatchObject({ status: 'error' });
     expect(result.status === 'error' ? result.message : '').toContain('Refusing stale write');
     const graph = JSON.parse(dec.decode(files.get(graphPath)!));

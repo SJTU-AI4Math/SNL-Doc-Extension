@@ -41,69 +41,27 @@ export interface LibraryGraph {
   relationships: GraphRelationship[];
 }
 
-export type RenameGraphNodeResult<N extends GraphNode, R extends GraphRelationship> =
-  | { ok: true; nodes: N[]; relationships: R[] }
-  | { ok: false; reason: 'invalid' | 'duplicate' | 'notFound' };
+export type UpdateRawLibraryGraphNodeEntryResult =
+  | { ok: true; value: Record<string, unknown>; changed: boolean }
+  | { ok: false; reason: 'invalid' | 'notFound' };
 
 /**
- * Rename a graph-local node identity without touching the Entry identity in
- * `props.entryId`. Every incident edge is rewritten in the same immutable
- * projection so branch topology and non-branch references stay attached.
+ * Change which shared Entry a graph-local outline node indexes.
+ *
+ * Node identity and every relationship endpoint stay byte-for-byte stable.
+ * The transform works on the raw graph envelope so unknown wrapper, node,
+ * property, relationship, and malformed sibling records survive unchanged.
  */
-export function renameGraphNodeId<
-  N extends GraphNode,
-  R extends GraphRelationship
->(
-  nodes: readonly N[],
-  relationships: readonly R[],
-  oldNodeId: string,
-  newNodeId: string
-): RenameGraphNodeResult<N, R> {
-  const nextId = newNodeId.trim();
-  if (
-    nextId.length === 0 ||
-    nextId !== newNodeId ||
-    /[\u0000-\u001f\u007f]/u.test(nextId)
-  ) {
-    return { ok: false, reason: 'invalid' };
-  }
-  if (!nodes.some((node) => node.id === oldNodeId)) {
-    return { ok: false, reason: 'notFound' };
-  }
-  if (nextId !== oldNodeId && nodes.some((node) => node.id === nextId)) {
-    return { ok: false, reason: 'duplicate' };
-  }
-  if (nextId === oldNodeId) {
-    return { ok: true, nodes: nodes.slice(), relationships: relationships.slice() };
-  }
-  return {
-    ok: true,
-    nodes: nodes.map((node) =>
-      node.id === oldNodeId ? ({ ...node, id: nextId } as N) : node
-    ),
-    relationships: relationships.map((relationship) => ({
-      ...relationship,
-      from: relationship.from === oldNodeId ? nextId : relationship.from,
-      to: relationship.to === oldNodeId ? nextId : relationship.to
-    }))
-  };
-}
-
-export type RenameRawLibraryGraphNodeResult =
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; reason: 'invalid' | 'duplicate' | 'notFound' };
-
-/** Preserve the raw graph envelope and unknown records while changing only node identity. */
-export function renameRawLibraryGraphNodeId(
+export function updateRawLibraryGraphNodeEntryId(
   raw: unknown,
-  oldNodeId: string,
-  newNodeId: string
-): RenameRawLibraryGraphNodeResult {
-  const nextId = newNodeId.trim();
+  nodeId: string,
+  entryId: string
+): UpdateRawLibraryGraphNodeEntryResult {
+  const nextEntryId = entryId.trim();
   if (
-    nextId.length === 0 ||
-    nextId !== newNodeId ||
-    /[\u0000-\u001f\u007f]/u.test(nextId) ||
+    nextEntryId.length === 0 ||
+    nextEntryId !== entryId ||
+    /[\u0000-\u001f\u007f]/u.test(nextEntryId) ||
     !raw ||
     typeof raw !== 'object' ||
     Array.isArray(raw)
@@ -111,44 +69,30 @@ export function renameRawLibraryGraphNodeId(
     return { ok: false, reason: 'invalid' };
   }
   const wrapper = raw as Record<string, unknown>;
-  if (!Array.isArray(wrapper.nodes) || !Array.isArray(wrapper.relationships)) {
+  if (!Array.isArray(wrapper.nodes)) return { ok: false, reason: 'invalid' };
+  const matches = wrapper.nodes.filter((node) =>
+    node !== null && typeof node === 'object' && !Array.isArray(node) &&
+    (node as Record<string, unknown>).id === nodeId
+  );
+  if (matches.length === 0) return { ok: false, reason: 'notFound' };
+  if (matches.length !== 1) return { ok: false, reason: 'invalid' };
+  const target = matches[0] as Record<string, unknown>;
+  if (!target.props || typeof target.props !== 'object' || Array.isArray(target.props)) {
     return { ok: false, reason: 'invalid' };
   }
-  const sourceCount = wrapper.nodes.filter((node) =>
-    node !== null && typeof node === 'object' && !Array.isArray(node) &&
-    (node as Record<string, unknown>).id === oldNodeId
-  ).length;
-  if (sourceCount === 0) return { ok: false, reason: 'notFound' };
-  if (sourceCount !== 1) return { ok: false, reason: 'invalid' };
-  if (
-    nextId !== oldNodeId &&
-    wrapper.nodes.some((node) =>
-      node !== null && typeof node === 'object' && !Array.isArray(node) &&
-      (node as Record<string, unknown>).id === nextId
-    )
-  ) {
-    return { ok: false, reason: 'duplicate' };
-  }
-  if (nextId === oldNodeId) return { ok: true, value: wrapper };
+  const props = target.props as Record<string, unknown>;
+  if (props.entryId === nextEntryId) return { ok: true, value: wrapper, changed: false };
   return {
     ok: true,
+    changed: true,
     value: {
       ...wrapper,
       nodes: wrapper.nodes.map((node) => {
         if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
         const record = node as Record<string, unknown>;
-        return record.id === oldNodeId ? { ...record, id: nextId } : node;
-      }),
-      relationships: wrapper.relationships.map((relationship) => {
-        if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) {
-          return relationship;
-        }
-        const record = relationship as Record<string, unknown>;
-        return {
-          ...record,
-          ...(record.from === oldNodeId ? { from: nextId } : {}),
-          ...(record.to === oldNodeId ? { to: nextId } : {})
-        };
+        return record.id === nodeId
+          ? { ...record, props: { ...(record.props as Record<string, unknown>), entryId: nextEntryId } }
+          : node;
       })
     }
   };

@@ -10,7 +10,7 @@ import {
   readLibraryCounters,
   readLibraryGraph,
   readLibraryMeta,
-  renameLibraryGraphNodeId,
+  updateLibraryGraphNodeEntryId,
   updateLibrary,
   writeLibraryCounters,
   writeLibraryGraph,
@@ -61,10 +61,9 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent: nodeId required',
     updateNodeRequired: 'updateNodeProps: nodeId is required',
     updateNodeNotFound: 'updateNodeProps: node "{node}" not found',
-    renameNodeRequired: 'renameNode: nodeId and newNodeId are required',
-    renameNodeInvalid: 'Node ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
-    renameNodeDuplicate: 'A node with ID "{node}" already exists.',
-    renameNodeNotFound: 'Node "{node}" no longer exists.',
+    updateNodeEntryRequired: 'updateNodeEntry: nodeId and entryId are required',
+    updateNodeEntryInvalid: 'Entry ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
+    updateNodeEntryNotFound: 'Outline node "{node}" no longer exists.',
     unknownGraphOp: 'unknown graphOp: {op}'
   },
   {
@@ -101,10 +100,9 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent：必须指定 nodeId',
     updateNodeRequired: 'updateNodeProps：必须指定 nodeId',
     updateNodeNotFound: 'updateNodeProps：找不到节点“{node}”',
-    renameNodeRequired: 'renameNode：必须指定 nodeId 和 newNodeId',
-    renameNodeInvalid: '节点 ID 不能为空、不能包含首尾空白或控制字符。',
-    renameNodeDuplicate: '节点 ID“{node}”已存在。',
-    renameNodeNotFound: '节点“{node}”已不存在。',
+    updateNodeEntryRequired: 'updateNodeEntry：必须指定 nodeId 和 entryId',
+    updateNodeEntryInvalid: '条目 ID 不能为空、不能包含首尾空白或控制字符。',
+    updateNodeEntryNotFound: '大纲节点“{node}”已不存在。',
     unknownGraphOp: '未知 graphOp：{op}'
   }
 );
@@ -659,25 +657,23 @@ export class CreateLibraryPanel {
     }
 
     try {
-      if (op.op === 'renameNode') {
+      if (op.op === 'updateNodeEntry') {
         const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
-        const newNodeId = typeof op.newNodeId === 'string' ? op.newNodeId : '';
-        if (!nodeId || !newNodeId) {
+        const entryId = typeof op.entryId === 'string' ? op.entryId : '';
+        if (!nodeId || !entryId) {
           void this.panel.webview.postMessage({
             type: 'graphError',
-            message: libraryT()('renameNodeRequired')
+            message: libraryT()('updateNodeEntryRequired')
           });
           return;
         }
-        const renamed = await renameLibraryGraphNodeId(root, this.slug, nodeId, newNodeId);
-        if (renamed.status !== 'ok') {
-          const message = renamed.status === 'invalid'
-            ? libraryT()('renameNodeInvalid')
-            : renamed.status === 'duplicate'
-              ? libraryT()('renameNodeDuplicate', { node: newNodeId })
-              : renamed.status === 'notFound'
-                ? libraryT()('renameNodeNotFound', { node: nodeId })
-                : renamed.message;
+        const updated = await updateLibraryGraphNodeEntryId(root, this.slug, nodeId, entryId);
+        if (updated.status !== 'ok') {
+          const message = updated.status === 'invalid'
+            ? libraryT()('updateNodeEntryInvalid')
+            : updated.status === 'notFound'
+              ? libraryT()('updateNodeEntryNotFound', { node: nodeId })
+              : updated.message;
           void this.panel.webview.postMessage({ type: 'graphError', message });
           return;
         }

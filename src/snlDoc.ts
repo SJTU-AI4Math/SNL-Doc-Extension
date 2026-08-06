@@ -15,7 +15,7 @@ import {
 } from './localizedContent';
 import { slugify } from './slug';
 import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
-import { renameRawLibraryGraphNodeId } from './libraryGraph';
+import { updateRawLibraryGraphNodeEntryId } from './libraryGraph';
 import {
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
@@ -5132,23 +5132,22 @@ export async function writeLibraryGraph(
 }
 
 /**
- * CAS-safe scoped node-ID rename. It intentionally transforms the raw JSON
- * instead of the forgiving reader projection, so unrelated extensions and
- * malformed records survive unchanged.
+ * CAS-safe scoped update of the shared Entry indexed by one outline node.
+ * It transforms raw JSON so node identity, topology, and unrelated extension
+ * fields survive byte-for-byte at the value level.
  */
-export async function renameLibraryGraphNodeId(
+export async function updateLibraryGraphNodeEntryId(
   workspaceRoot: vscode.Uri,
   slug: string,
-  oldNodeId: string,
-  newNodeId: string
+  nodeId: string,
+  entryId: string
 ): Promise<
   | { status: 'ok' }
   | { status: 'invalid' }
-  | { status: 'duplicate' }
   | { status: 'notFound' }
   | { status: 'error'; message: string }
 > {
-  return withExtensionWriterLock(workspaceRoot, 'rename Library graph node', async () => {
+  return withExtensionWriterLock(workspaceRoot, 'update Library graph Entry reference', async () => {
     const uri = libraryGraphUri(workspaceRoot, slug);
     let raw: unknown;
     try {
@@ -5163,11 +5162,11 @@ export async function renameLibraryGraphNodeId(
         message: error instanceof Error ? error.message : String(error)
       } as const;
     }
-    const renamed = renameRawLibraryGraphNodeId(raw, oldNodeId, newNodeId);
-    if (!renamed.ok) return { status: renamed.reason } as const;
-    if (oldNodeId === newNodeId) return { status: 'ok' } as const;
+    const updated = updateRawLibraryGraphNodeEntryId(raw, nodeId, entryId);
+    if (!updated.ok) return { status: updated.reason } as const;
+    if (!updated.changed) return { status: 'ok' } as const;
     try {
-      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(renamed.value), raw);
+      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(updated.value), raw);
       return { status: 'ok' } as const;
     } catch (error) {
       return {

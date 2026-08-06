@@ -63,7 +63,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
     noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
     defaultCounter: '<default>', copyEntryId: 'Click to copy entry id\n{id}', entryId: 'Entry id',
-    nodeId: 'Node ID {id}', nodeIdTitle: 'Graph-local node ID; changing it does not rename the Entry',
+    entryTargetId: 'Entry ID indexed by node {id}', entryTargetTitle: 'Changes which Entry this row indexes; node identity and topology stay unchanged',
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
@@ -87,8 +87,8 @@ const LIBRARY_MESSAGES = defineUiMessages(
     addRootEntry: '+ 添加根条目', untitled: '（无标题）', openEntry: '打开“编辑条目”：{id}\n类型：{kind}',
     pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
     pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
-    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', nodeId: '节点 ID {id}',
-    nodeIdTitle: '图中的局部节点 ID；修改它不会重命名条目', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
+    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryTargetId: '节点 {id} 索引的条目 ID',
+    entryTargetTitle: '修改此行索引的条目；节点标识和拓扑保持不变', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
     graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
@@ -1200,8 +1200,8 @@ function OutlineEditor({
       metricThresholds={graph.metricThresholds}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
-      onRenameNode={(nodeId, newNodeId) =>
-        onGraphOp({ op: 'renameNode', nodeId, newNodeId })
+      onUpdateNodeEntry={(nodeId, entryId) =>
+        onGraphOp({ op: 'updateNodeEntry', nodeId, entryId })
       }
     />
   );
@@ -1304,7 +1304,7 @@ interface OutlineRowContentProps {
   metricThresholds: EntryMetricThresholds;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
-  onRenameNode: (nodeId: string, newNodeId: string) => void;
+  onUpdateNodeEntry: (nodeId: string, entryId: string) => void;
 }
 
 /**
@@ -1322,7 +1322,7 @@ function OutlineRowContent({
   metricThresholds,
   onOpenEntry,
   onUpdateNodeCounter,
-  onRenameNode
+  onUpdateNodeEntry
 }: OutlineRowContentProps): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const entry = node.props.entryId
@@ -1358,9 +1358,11 @@ function OutlineRowContent({
         {num ?? '—'}
       </span>
 
-      <OutlineNodeIdEditor
+      <OutlineEntryTargetEditor
         nodeId={node.id}
-        onCommit={(newNodeId) => onRenameNode(node.id, newNodeId)}
+        entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
+        entries={Array.from(entriesById.values())}
+        onCommit={(entryId) => onUpdateNodeEntry(node.id, entryId)}
       />
 
       {kind ? <KindBadge kind={kind} /> : null}
@@ -1525,74 +1527,89 @@ function OutlineRowContent({
   );
 }
 
-function OutlineNodeIdEditor({
+function OutlineEntryTargetEditor({
   nodeId,
+  entryId,
+  entries,
   onCommit
 }: {
   nodeId: string;
-  onCommit: (newNodeId: string) => void;
+  entryId: string;
+  entries: EntryPoolItem[];
+  onCommit: (entryId: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
-  const [draft, setDraft] = useState(nodeId);
+  const [draft, setDraft] = useState(entryId);
   const submittedSinceFocusRef = useRef(false);
   const cancelBlurRef = useRef(false);
+  const listId = React.useId();
   useEffect(() => {
-    setDraft(nodeId);
+    setDraft(entryId);
     submittedSinceFocusRef.current = false;
-  }, [nodeId]);
+  }, [entryId]);
   const commit = (): void => {
-    if (draft !== nodeId && !submittedSinceFocusRef.current) {
+    if (draft.length > 0 && draft !== entryId && !submittedSinceFocusRef.current) {
       submittedSinceFocusRef.current = true;
       onCommit(draft);
     }
   };
   return (
-    <input
-      value={draft}
-      aria-label={t('nodeId', { id: nodeId })}
-      title={t('nodeIdTitle')}
-      onClick={(event) => event.stopPropagation()}
-      onFocus={() => {
-        submittedSinceFocusRef.current = false;
-      }}
-      onChange={(event) => {
-        submittedSinceFocusRef.current = false;
-        setDraft(event.target.value);
-      }}
-      onBlur={() => {
-        if (cancelBlurRef.current) {
-          cancelBlurRef.current = false;
-          return;
-        }
-        commit();
-      }}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === 'Enter') {
-          event.preventDefault();
+    <>
+      <input
+        value={draft}
+        list={listId}
+        aria-label={t('entryTargetId', { id: nodeId })}
+        title={t('entryTargetTitle')}
+        onClick={(event) => event.stopPropagation()}
+        onFocus={() => {
+          submittedSinceFocusRef.current = false;
+        }}
+        onChange={(event) => {
+          submittedSinceFocusRef.current = false;
+          setDraft(event.target.value);
+        }}
+        onBlur={() => {
+          if (cancelBlurRef.current) {
+            cancelBlurRef.current = false;
+            return;
+          }
           commit();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          cancelBlurRef.current = true;
-          setDraft(nodeId);
-          event.currentTarget.blur();
-        }
-      }}
-      style={{
-        width: '5.5rem',
-        flex: '0 1 5.5rem',
-        minWidth: '3.5rem',
-        boxSizing: 'border-box',
-        padding: '0.1rem 0.3rem',
-        fontFamily: 'var(--vscode-editor-font-family, monospace)',
-        fontSize: '0.72rem',
-        color: 'var(--vscode-input-foreground, inherit)',
-        background: 'var(--vscode-input-background, #2a2a2a)',
-        border: '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
-        borderRadius: '2px'
-      }}
-    />
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+            event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            cancelBlurRef.current = true;
+            setDraft(entryId);
+            event.currentTarget.blur();
+          }
+        }}
+        style={{
+          width: '9rem',
+          flex: '0 1 9rem',
+          minWidth: '5rem',
+          boxSizing: 'border-box',
+          padding: '0.1rem 0.3rem',
+          fontFamily: 'var(--vscode-editor-font-family, monospace)',
+          fontSize: '0.72rem',
+          color: 'var(--vscode-input-foreground, inherit)',
+          background: 'var(--vscode-input-background, #2a2a2a)',
+          border: '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
+          borderRadius: '2px'
+        }}
+      />
+      <datalist id={listId}>
+        {entries.map((candidate) => (
+          <option key={candidate.id} value={candidate.id}>
+            {candidate.id} — {candidate.title || t('untitled')}
+          </option>
+        ))}
+      </datalist>
+    </>
   );
 }
 

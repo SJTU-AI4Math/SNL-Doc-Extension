@@ -700,6 +700,8 @@ export function CreateEntryApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
+  const editGenerationRef = useRef(0);
+  const submittedEditGenerationRef = useRef<number | null>(null);
   /**
    * Mirror of `formDirtyRef` as real state.
    *
@@ -709,6 +711,7 @@ export function CreateEntryApp(): React.ReactElement {
    */
   const [formDirty, setFormDirty] = useState(false);
   const markFormDirty = React.useCallback((dirty: boolean): void => {
+    if (dirty) editGenerationRef.current += 1;
     formDirtyRef.current = dirty;
     setFormDirty(dirty);
   }, []);
@@ -813,8 +816,10 @@ export function CreateEntryApp(): React.ReactElement {
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous
           // entry's text is never shown against the new id, and drop the
-          // dirty/draft bookkeeping that belonged to the old target.
+          // dirty/draft/save-ack bookkeeping that belonged to the old target.
           restoredDraftIdRef.current = null;
+          justSavedIdRef.current = null;
+          submittedEditGenerationRef.current = null;
           editingIdRef.current = '';
           entryRevisionRef.current = undefined;
           contentDirtyRef.current.clear();
@@ -992,13 +997,13 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError('');
           setNewPackageId('');
           setShowPackageCreator(false);
-          // The form was just persisted, so it is by definition no longer
-          // dirty (mirrors `updated` below). This also makes
-          // `justSavedIdRef` the sole reason the follow-up context
-          // preserves the form rather than one of two redundant guards —
-          // without it a mutation to the flip logic would be masked by the
-          // ordinary dirty-form rule and no test could see the difference.
-          markFormDirty(false);
+          // Clear dirty state only when the acknowledged payload is still
+          // the latest local generation. Authors may keep typing while the host
+          // persists; those later edits were not part of this create request.
+          const acknowledgesCurrentGeneration =
+            submittedEditGenerationRef.current === editGenerationRef.current;
+          submittedEditGenerationRef.current = null;
+          if (acknowledgesCurrentGeneration) markFormDirty(false);
           // `draftKey` embeds `mode`, so the flip switches to
           // `createEntry:edit:<id>`. A stale stash left there by an earlier
           // session for the same id would be restored on top of the content
@@ -1029,12 +1034,18 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreating(false);
           setPackageCreateError(msg.message);
           break;
-        case 'updated':
+        case 'updated': {
           justSavedIdRef.current = typeof msg.id === 'string' ? msg.id : null;
-          markFormDirty(false);
-          contentDirtyRef.current.clear();
+          const acknowledgesCurrentGeneration =
+            submittedEditGenerationRef.current === editGenerationRef.current;
+          submittedEditGenerationRef.current = null;
+          if (acknowledgesCurrentGeneration) {
+            markFormDirty(false);
+            contentDirtyRef.current.clear();
+          }
           setStatus({ kind: 'updated', id: msg.id });
           break;
+        }
         case 'duplicate':
           setStatus({ kind: 'duplicate', id: msg.id, message: msg.message });
           break;
@@ -1151,6 +1162,7 @@ export function CreateEntryApp(): React.ReactElement {
           ? existingMetadataRef.current.pointer
           : pointerFromDraft(pointerDraft, t)
     };
+    submittedEditGenerationRef.current = editGenerationRef.current;
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
       entry,
@@ -2502,6 +2514,49 @@ export function canvasVisualDeltaToLogical(visualDelta: number, zoom: number): n
   return Number.isFinite(zoom) && zoom > 0 ? visualDelta / zoom : visualDelta;
 }
 
+type CanvasPathPrefixedTreeProps = React.ComponentProps<typeof SnlSyntaxTreeView> & {
+  canonicalPath: number[];
+};
+
+/**
+ * A nested SnlSyntaxTreeView reports paths relative to its own root. Canvas
+ * interactions, however, require paths relative to the forest root. Prefix the
+ * renderer-owned annotations whenever its imperative DOM changes.
+ */
+function CanvasPathPrefixedTreeView({
+  canonicalPath,
+  ...props
+}: CanvasPathPrefixedTreeProps): React.ReactElement {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const prefix = canonicalPath.join('.');
+
+  React.useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const decorate = (): void => {
+      host.querySelectorAll<HTMLElement>('[data-tree-path]').forEach((element) => {
+        const relative = element.dataset.canvasRelativeTreePath ??
+          element.getAttribute('data-tree-path') ?? '';
+        element.dataset.canvasRelativeTreePath = relative;
+        const canonical = relative ? `${prefix}.${relative}` : prefix;
+        if (element.getAttribute('data-tree-path') !== canonical) {
+          element.setAttribute('data-tree-path', canonical);
+        }
+      });
+    };
+    decorate();
+    const observer = new MutationObserver(decorate);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [prefix]);
+
+  return (
+    <div ref={hostRef}>
+      <SnlSyntaxTreeView {...props} />
+    </div>
+  );
+}
+
 export function GuiCanvasEditor({
   forest,
   macroDataDriver,
@@ -3642,15 +3697,14 @@ export function GuiCanvasEditor({
               {hole ? (
                 <span aria-hidden="true" style={{ opacity: 0.65 }}>+</span>
               ) : (
-                <div style={{ pointerEvents: 'none' }}>
-                  <SnlSyntaxTreeView
-                    tree={child}
-                    macro_data_driver={macroDataDriver}
-                    reader_runtime={webview_language_runtime}
-                    kindPalette={kindPalette}
-                    hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
-                  />
-                </div>
+                <CanvasPathPrefixedTreeView
+                  canonicalPath={childPath}
+                  tree={child}
+                  macro_data_driver={macroDataDriver}
+                  reader_runtime={webview_language_runtime}
+                  kindPalette={kindPalette}
+                  hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
+                />
               )}
               {renderTemporaryChildRails(child, childPath)}
             </div>

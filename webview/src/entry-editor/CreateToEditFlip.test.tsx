@@ -581,4 +581,146 @@ describe('CreateEntryApp create → edit flip', () => {
         .toContain('replacement');
     });
   });
+
+  it('does not carry a saved-context guard across retargets', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(editContext({
+        id: 'entry-a',
+        title: 'Entry A',
+        kind: 'definition',
+        content: { snl: 'oldA(child)' }
+      }));
+      send({ type: 'updated', id: 'entry-a' });
+      send({ type: 'retarget', mode: 'edit', id: 'entry-b' });
+      send(editContext({
+        id: 'entry-b',
+        title: 'Entry B',
+        kind: 'definition',
+        content: { snl: 'entryB(child)' }
+      }));
+      send({ type: 'retarget', mode: 'edit', id: 'entry-a' });
+      send(editContext({
+        id: 'entry-a',
+        title: 'Entry A reloaded',
+        kind: 'definition',
+        content: { snl: 'authoritativeA(next)' }
+      }));
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId('entry-preview-surface').textContent)
+        .toBe('authoritativeA(next)');
+      expect(view.container.querySelector<HTMLElement>('[data-canvas-root]')?.textContent)
+        .toContain('authoritativeA');
+    });
+  });
+
+  it('keeps edits made after an update request dirty when the acknowledgement arrives', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(editContext({
+        id: 'pending-save',
+        title: 'Submitted title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+    });
+    const title = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('#snl-entry-title')!
+    );
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    fireEvent.input(title, { target: { value: 'Edited while saving' } });
+
+    act(() => {
+      send({ type: 'updated', id: 'pending-save' });
+      send(editContext({
+        id: 'pending-save',
+        title: 'Submitted title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+      // Once the one-shot save echo is consumed, an ordinary refresh must
+      // still defer to the edit made after dispatch.
+      send(editContext({
+        id: 'pending-save',
+        title: 'Submitted title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+    });
+
+    await waitFor(() => expect(title.value).toBe('Edited while saving'));
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    expect(posted.findLast((message) => message?.type === 'update')?.entry.title)
+      .toBe('Edited while saving');
+  });
+
+  it('clears dirty state when an update acknowledges the current edit generation', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => {
+      send(editContext({
+        id: 'current-save',
+        title: 'Original title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+    });
+    const title = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('#snl-entry-title')!
+    );
+    fireEvent.input(title, { target: { value: 'Saved local title' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    act(() => {
+      send({ type: 'updated', id: 'current-save' });
+      send(editContext({
+        id: 'current-save',
+        title: 'Saved local title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+      send(editContext({
+        id: 'current-save',
+        title: 'Later authoritative title',
+        kind: 'definition',
+        content: { snl: 'root(child)' }
+      }));
+    });
+
+    await waitFor(() => expect(title.value).toBe('Later authoritative title'));
+  });
+
+  it('keeps edits made after a create request dirty across the create-to-edit flip', async () => {
+    const view = render(<CreateEntryApp />);
+    act(() => { send(createContext()); });
+    const title = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('#snl-entry-title')!
+    );
+    const idInput = view.container.querySelector<HTMLInputElement>('input#snl-entry-id, #snl-entry-id-input')
+      ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!;
+    fireEvent.input(title, { target: { value: 'Submitted create title' } });
+    fireEvent.input(idInput, { target: { value: 'pending-create' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    const create = posted.findLast((message) => message?.type === 'create');
+    expect(create?.entry.title).toBe('Submitted create title');
+
+    fireEvent.input(title, { target: { value: 'Edited while creating' } });
+    act(() => {
+      send({ type: 'created', id: 'pending-create' });
+      send(editContext({
+        id: 'pending-create',
+        title: 'Submitted create title',
+        kind: 'definition',
+        content: create.entry.content
+      }));
+      send(editContext({
+        id: 'pending-create',
+        title: 'Submitted create title',
+        kind: 'definition',
+        content: create.entry.content
+      }));
+    });
+
+    await waitFor(() => expect(title.value).toBe('Edited while creating'));
+  });
 });

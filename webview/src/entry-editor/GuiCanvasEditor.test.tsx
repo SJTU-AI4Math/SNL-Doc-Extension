@@ -649,6 +649,34 @@ describe('GuiCanvasEditor', () => {
     );
   });
 
+  it('keeps canonical paths for descendants rendered below a temporary Macro', async () => {
+    const temporary: SnlSyntaxTree = {
+      ...node('x', [node('filled', [node('grandchild')])]),
+      env_mode: 'formula_inline'
+    };
+    const view = render(
+      <GuiCanvasEditor
+        forest={[temporary]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    const grandchild = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')!
+    );
+    expect(grandchild).toBeTruthy();
+
+    fireEvent.click(grandchild);
+    fireEvent.keyDown(canvas, { key: 'F2', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement
+    );
+    expect(input.value).toBe('grandchild');
+  });
+
   it('does not insert a root after Escape cancels a slow arity lookup', async () => {
     const slowDriver = new MacroDataDriver({
       queries: {

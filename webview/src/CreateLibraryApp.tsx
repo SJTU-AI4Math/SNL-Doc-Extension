@@ -24,6 +24,7 @@ import {
   PANEL_STYLE
 } from './vscodeApi';
 import { PanelHeader } from './components/PanelHeader';
+import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { EmptyAction } from './components/EmptyAction';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
@@ -180,6 +181,7 @@ function flattenCounters(roots: CounterNode[]): CounterNode[] {
 export function CreateLibraryApp(): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const [mode, setMode] = useState<Mode>('create');
+  const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const [slug, setSlug] = useState('');
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -229,6 +231,7 @@ export function CreateLibraryApp(): React.ReactElement {
         | {
             type: 'context';
             mode: Mode;
+            targetState?: 'found' | 'notFound';
             slug?: string;
             libraryRevision?: string;
             existing?: ExistingLibrary | null;
@@ -262,6 +265,7 @@ export function CreateLibraryApp(): React.ReactElement {
       switch (msg.type) {
         case 'context':
           setMode(msg.mode);
+          setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setContextReady(true);
           if (msg.mode === 'edit') {
             setSlug(msg.slug ?? '');
@@ -294,6 +298,7 @@ export function CreateLibraryApp(): React.ReactElement {
           setStatus({ kind: 'error', message: msg.message });
           break;
         case 'notFound':
+          setTargetState('notFound');
           setStatus({
             kind: 'notFound',
             slug: msg.slug,
@@ -349,7 +354,7 @@ export function CreateLibraryApp(): React.ReactElement {
   const trimmed = title.trim();
   // Edit mode allows empty title changes? No — updateLibrary requires a
   // non-empty title, so keep the same gate.
-  const canSubmit = trimmed.length > 0 && status.kind !== 'creating';
+  const canSubmit = targetState !== 'notFound' && trimmed.length > 0 && status.kind !== 'creating';
 
   // Ctrl/Cmd+S is the same action as the Create/Update button.
   useSaveShortcut(() => handleSubmit(), canSubmit);
@@ -373,6 +378,17 @@ export function CreateLibraryApp(): React.ReactElement {
   const postCounterOp = (op: Record<string, unknown>): void => {
     apiRef.current?.postMessage({ type: 'counterOp', op });
   };
+
+  if (mode === 'edit' && targetState === 'notFound') {
+    return <main style={PANEL_STYLE}>
+      <PanelHeader
+        vsApi={apiRef.current}
+        title={t('editLibrary')}
+        back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }}
+      />
+      <MissingEditorTarget target="library" id={slug} />
+    </main>;
+  }
 
   return (
     <main style={PANEL_STYLE}>

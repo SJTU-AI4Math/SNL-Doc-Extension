@@ -622,6 +622,7 @@ export function CreateMacroApp(): React.ReactElement {
   const formDirtyRef = useRef(false);
   const macroRevisionRef = useRef<string | undefined>(undefined);
   const editingNameRef = useRef('');
+  const fileRef = useRef('');
   const draftKeyRef = useRef('');
   const [draftKey, setDraftKey] = useState('');
   // Preserve consumer/backend extension fields that this editor does not know
@@ -815,6 +816,7 @@ export function CreateMacroApp(): React.ReactElement {
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setTargetId(msg.targetId ?? msg.existing?.name ?? '');
           setFile(msg.file);
+          fileRef.current = msg.file;
           setPackageName(msg.packageName);
           setExistingNames(Array.isArray(msg.existingNames) ? msg.existingNames : []);
           setMacroCandidates(
@@ -896,6 +898,11 @@ export function CreateMacroApp(): React.ReactElement {
           // as our editing identity now so the follow-up context is
           // recognised as "the thing I am already editing".
           saveDraft(apiRef.current, draftKeyRef.current, undefined);
+          saveDraft(
+            apiRef.current,
+            editorDraftKey('macro', 'edit', `${fileRef.current}\u0000${msg.name}`),
+            undefined
+          );
           editingNameRef.current = msg.name;
           formDirtyRef.current = false;
           setStatus({ kind: 'created', name: msg.name, at: Date.now() });

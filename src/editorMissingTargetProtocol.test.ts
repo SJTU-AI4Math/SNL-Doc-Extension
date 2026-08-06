@@ -7,6 +7,7 @@ const source = (file: string): string => readFileSync(join(root, 'src', file), '
 
 describe('editor missing-target host protocol', () => {
   for (const file of [
+    'createLibraryPanel.ts',
     'createEntryPanel.ts',
     'createMacroPanel.ts',
     'createMacroPackagePanel.ts',
@@ -23,5 +24,11 @@ describe('editor missing-target host protocol', () => {
     const text = source('createMacroPanel.ts');
     expect(text).not.toContain('concurrently removed Package is represented as an empty create context');
     expect(text).toContain("targetState: this.mode === 'edit' ? 'notFound' : 'found'");
+  });
+
+  it('publishes both found and notFound Library edit refreshes', () => {
+    const text = source('createLibraryPanel.ts');
+    expect(text).toContain("targetState: 'found'");
+    expect(text).toContain("targetState: 'notFound'");
   });
 });

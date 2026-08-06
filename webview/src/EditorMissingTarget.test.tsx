@@ -1,6 +1,7 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CreateEntryApp } from './CreateEntryApp';
+import { CreateLibraryApp } from './CreateLibraryApp';
 import { CreateMacroApp } from './CreateMacroApp';
 import { CreateMacroPackageApp } from './CreateMacroPackageApp';
 import { CreateRelationshipApp } from './CreateRelationshipApp';
@@ -37,6 +38,29 @@ function expectTerminalMissing(view: ReturnType<typeof render>, id: string): voi
 }
 
 describe('editor missing-target terminal states', () => {
+  it('terminates a missing Library edit, blocks save, and recovers when it reappears', async () => {
+    const view = render(<CreateLibraryApp />);
+    const base = { type: 'context', mode: 'edit', slug: 'library-gone' };
+    await send({ ...base, targetState: 'notFound', existing: null });
+    await waitFor(() => expectTerminalMissing(view, 'library-gone'));
+
+    const beforeShortcut = posted.length;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+    expect(posted.slice(beforeShortcut)).not.toContainEqual(expect.objectContaining({ type: 'update' }));
+
+    await send({
+      ...base,
+      targetState: 'found',
+      libraryRevision: 'fresh-revision',
+      existing: { slug: 'library-gone', title: 'Restored' }
+    });
+    expect(await view.findByDisplayValue('Restored')).not.toBeNull();
+    expect(view.queryByRole('alert')).toBeNull();
+
+    await send({ ...base, targetState: 'notFound', existing: null });
+    await waitFor(() => expectTerminalMissing(view, 'library-gone'));
+  });
+
   it('replaces an Entry form when a watcher reports that the target was deleted', async () => {
     const view = render(<CreateEntryApp />);
     const base = {

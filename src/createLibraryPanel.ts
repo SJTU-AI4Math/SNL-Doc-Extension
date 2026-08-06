@@ -252,7 +252,7 @@ export class CreateLibraryPanel {
   private async pushContext(): Promise<void> {
     const generation = ++this.contextGeneration;
     if (this.mode === 'create') {
-      void this.panel.webview.postMessage({ type: 'context', mode: 'create' });
+      void this.panel.webview.postMessage({ type: 'context', mode: 'create', targetState: 'found' });
       return;
     }
     const root = firstWorkspaceFolder();
@@ -261,11 +261,34 @@ export class CreateLibraryPanel {
         type: 'context',
         mode: 'edit',
         slug: this.slug,
+        targetState: 'notFound',
         existing: null
       });
       return;
     }
     try {
+      try {
+        const target = await vscode.workspace.fs.stat(
+          vscode.Uri.joinPath(root, '.SNL_Doc', 'libraries', this.slug)
+        );
+        if ((target.type & vscode.FileType.Directory) === 0) {
+          throw vscode.FileSystemError.FileNotFound();
+        }
+      } catch (err) {
+        if (generation !== this.contextGeneration) return;
+        const code = err && typeof err === 'object' && 'code' in err
+          ? (err as { code?: unknown }).code
+          : undefined;
+        if (code !== 'FileNotFound' && code !== 'ENOENT') throw err;
+        void this.panel.webview.postMessage({
+          type: 'context',
+          mode: 'edit',
+          slug: this.slug,
+          targetState: 'notFound',
+          existing: null
+        });
+        return;
+      }
       // meta.json is the source of truth for title (per Task 1 refactor).
       const metaResult = await readLibraryMeta(root, this.slug);
       if (generation !== this.contextGeneration) return;
@@ -281,6 +304,7 @@ export class CreateLibraryPanel {
         type: 'context',
         mode: 'edit',
         slug: this.slug,
+        targetState: 'found',
         libraryRevision,
         existing: { slug: this.slug, title }
       });

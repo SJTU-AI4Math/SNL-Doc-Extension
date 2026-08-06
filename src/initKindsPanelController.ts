@@ -154,7 +154,7 @@ export class InitKindsPanelController {
     }
     const source = this.domain === 'entry' ? ENTRY_KIND_PRESETS : MACRO_KIND_PRESETS;
     const selectedPreset = source.find((preset) => preset.id === presetId);
-    if (selectedPreset?.kinds.length === 0) {
+    if (!selectedPreset || selectedPreset.kinds.length === 0) {
       void this.panel.webview.postMessage({
         type: 'error',
         message: `Preset “${presetId}” has no kinds and cannot be applied.`

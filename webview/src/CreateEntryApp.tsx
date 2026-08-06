@@ -987,6 +987,12 @@ export function CreateEntryApp(): React.ReactElement {
           // Edit, but dependency reconciliation is still pending. Migrate
           // ownership without clearing dirty state or claiming save success.
           const createdId = typeof msg.id === 'string' ? msg.id : '';
+          // The key switch itself must be atomic with draft ownership. A stale
+          // edit draft from an older session for the newly-created ID must not
+          // hydrate over the current in-memory form; the dirty effect below
+          // repopulates the destination key from current state.
+          saveDraft(getVsCodeApi(), 'createEntry:create:', undefined);
+          saveDraft(getVsCodeApi(), `createEntry:edit:${createdId}`, undefined);
           editingIdRef.current = createdId;
           justSavedIdRef.current = createdId;
           setMode('edit');

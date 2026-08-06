@@ -822,6 +822,34 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(view.getByText(/relationships write failed/)).toBeTruthy();
   });
 
+  it('does not restore a stale destination edit draft on createCommitted', async () => {
+    saveDraft(api, 'createEntry:edit:fresh-committed', {
+      id: 'fresh-committed',
+      title: 'STALE DESTINATION DRAFT',
+      selectedPackage: '_unpackaged',
+      selectedKind: 'definition',
+      content: { snl: 'stale(content)' },
+      contentI18n: {},
+      contributor: '',
+      pointer: null,
+      canvasForest: [],
+      activeFormat: 'snl',
+      snlMode: 'canvas'
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => { send(createContext()); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    const idInput = view.container.querySelector<HTMLInputElement>('#snl-entry-id')!;
+    fireEvent.input(title, { target: { value: 'Fresh committed title' } });
+    fireEvent.input(idInput, { target: { value: 'fresh-committed' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+
+    act(() => { send({ type: 'createCommitted', id: 'fresh-committed' }); });
+
+    await waitFor(() => expect(title.value).toBe('Fresh committed title'));
+    expect(loadDraft(api, 'createEntry:create:')).toBeUndefined();
+  });
+
   it('persists UUID regeneration as an authored draft change', async () => {
     const view = render(<CreateEntryApp />);
     act(() => { send(createContext()); });

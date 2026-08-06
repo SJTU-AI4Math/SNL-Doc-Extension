@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './monaco.css';
+import { resolveSnlMonacoTheme } from './snlMonacoLanguage';
 
 interface Disposable { dispose(): void }
 interface MonacoModel {
@@ -123,12 +124,23 @@ export function MonacoTextEditor({
         fontSize: 14,
         lineNumbers: 'on',
         padding: { top: 8, bottom: 8 },
-        placeholder
+        placeholder,
+        ...(language === 'snl' ? {
+          bracketPairColorization: {
+            enabled: true,
+            independentColorPoolPerBracketType: false
+          },
+          guides: {
+            bracketPairs: true,
+            highlightActiveBracketPair: true
+          },
+          matchBrackets: 'always'
+        } : {})
       });
       modelRef.current = model;
       editorRef.current = editor;
       monacoRef.current = monaco;
-      monaco.editor.setTheme(theme);
+      monaco.editor.setTheme(language === 'snl' ? resolveSnlMonacoTheme(theme) : theme);
       changeDisposable = editor.onDidChangeModelContent(() => {
         if (syncingControlledValueRef.current) return;
         onChangeRef.current(model.getValue());
@@ -178,8 +190,12 @@ export function MonacoTextEditor({
   }, [value]);
 
   useEffect(() => {
-    if (ready) monacoRef.current?.editor.setTheme(theme);
-  }, [ready, theme]);
+    if (ready) {
+      monacoRef.current?.editor.setTheme(
+        language === 'snl' ? resolveSnlMonacoTheme(theme) : theme
+      );
+    }
+  }, [language, ready, theme]);
 
   return <div className="snl-monaco-shell">
     {format && formatLabel ? (

@@ -13,6 +13,7 @@ function fakeMonaco(initial = ''): {
   };
   editor: {
     commands: Map<number, () => void>;
+    create: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
     layout: ReturnType<typeof vi.fn>;
   };
@@ -40,6 +41,7 @@ function fakeMonaco(initial = ''): {
     dispose: vi.fn()
   };
   const commands = new Map<number, () => void>();
+  const create = vi.fn();
   const editor = {
     addCommand: vi.fn((key: number, callback: () => void) => {
       commands.set(key, callback);
@@ -53,6 +55,7 @@ function fakeMonaco(initial = ''): {
     dispose: vi.fn(),
     commands
   };
+  create.mockReturnValue(editor);
   const monaco = {
     KeyMod: { CtrlCmd: 1, Shift: 2, Alt: 4 },
     KeyCode: { KeyS: 8, KeyF: 16 },
@@ -61,14 +64,14 @@ function fakeMonaco(initial = ''): {
         model.value = value;
         return model;
       }),
-      create: vi.fn(() => editor),
+      create,
       setTheme: vi.fn()
     }
   };
   return {
     load: vi.fn(async () => monaco) as MonacoLoader,
     model,
-    editor,
+    editor: { ...editor, create },
     contentChanged: () => change()
   };
 }
@@ -79,6 +82,27 @@ afterEach(() => {
 });
 
 describe('MonacoTextEditor', () => {
+  it('enables bracket-pair coloring and matching guides for SNL', async () => {
+    const fake = fakeMonaco('outer(inner(a,b), c)');
+    const view = render(
+      <MonacoTextEditor
+        value="outer(inner(a,b), c)"
+        language="snl"
+        ariaLabel="SNL source"
+        onChange={vi.fn()}
+        onSave={vi.fn()}
+        loadMonaco={fake.load}
+      />
+    );
+
+    await waitFor(() => expect(view.getByTestId('monaco-editor').getAttribute('data-ready')).toBe('true'));
+    expect(fake.editor.create).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({
+      bracketPairColorization: { enabled: true, independentColorPoolPerBracketType: false },
+      guides: expect.objectContaining({ bracketPairs: true, highlightActiveBracketPair: true }),
+      matchBrackets: 'always'
+    }));
+  });
+
   it('loads lazily, preserves controlled edits, and keeps formatting as one undoable edit', async () => {
     const fake = fakeMonaco('root(child)');
     const onChange = vi.fn();

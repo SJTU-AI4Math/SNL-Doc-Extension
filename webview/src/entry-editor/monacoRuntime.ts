@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import EditorWorker from './monacoEditor.worker?worker';
+import {
+  configureSnlMonaco,
+  type SnlMonacoConfigurationApi
+} from './snlMonacoLanguage';
 
 interface MonacoEnvironmentShape {
   getWorker(_moduleId: string, _label: string): Worker;
@@ -17,5 +21,7 @@ for (const id of ['snl', 'typst', 'latex', 'markdown']) {
     monaco.languages.register({ id });
   }
 }
+
+configureSnlMonaco(monaco as unknown as SnlMonacoConfigurationApi);
 
 export { monaco };

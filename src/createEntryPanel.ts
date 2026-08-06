@@ -449,7 +449,7 @@ export class CreateEntryPanel {
       return;
     }
     const msg = message as
-      | { type?: string; entry?: EntryData; expectedRevision?: string }
+      | { type?: string; entry?: EntryData; expectedRevision?: string; saveRequestId?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -544,6 +544,7 @@ export class CreateEntryPanel {
       return;
     }
 
+    const saveRequestId = typeof msg.saveRequestId === 'string' ? msg.saveRequestId : undefined;
     const root = firstWorkspaceFolder();
     if (!root) {
       const text = hostText()('noWorkspace');
@@ -551,6 +552,7 @@ export class CreateEntryPanel {
       void this.panel.webview.postMessage({
         type: 'noWorkspace',
         targetGeneration: this.targetGeneration,
+        ...(saveRequestId ? { saveRequestId } : {}),
         message: text
       });
       return;
@@ -561,6 +563,7 @@ export class CreateEntryPanel {
       void this.panel.webview.postMessage({
         type: 'invalid',
         targetGeneration: this.targetGeneration,
+        ...(saveRequestId ? { saveRequestId } : {}),
         reason: hostText()('noPayload')
       });
       return;
@@ -575,7 +578,8 @@ export class CreateEntryPanel {
     const postRequestMessage = (message: Record<string, unknown>): Thenable<boolean> =>
       this.panel.webview.postMessage({
         ...message,
-        targetGeneration: requestTargetGeneration
+        targetGeneration: requestTargetGeneration,
+        ...(saveRequestId ? { saveRequestId } : {})
       });
 
     try {

@@ -702,6 +702,8 @@ export function CreateEntryApp(): React.ReactElement {
   const formDirtyRef = useRef(false);
   const editGenerationRef = useRef(0);
   const submittedEditGenerationRef = useRef<number | null>(null);
+  const submittedSaveRequestIdRef = useRef<string | null>(null);
+  const saveRequestSequenceRef = useRef(0);
   /**
    * Mirror of `formDirtyRef` as real state.
    *
@@ -861,6 +863,17 @@ export function CreateEntryApp(): React.ReactElement {
           contextEstablishedGenerationRef.current = incomingGeneration;
         }
         if (establishesTarget) flushGeneration = incomingGeneration;
+      }
+      const saveRequestId = (event.data as { saveRequestId?: unknown }).saveRequestId;
+      const isSaveTerminal =
+        msg.type === 'created' || msg.type === 'updated' || msg.type === 'duplicate' ||
+        msg.type === 'notFound' || msg.type === 'unknownKind' || msg.type === 'invalid' ||
+        msg.type === 'noSnlDoc' || msg.type === 'noWorkspace' || msg.type === 'error';
+      const isSaveScoped = isSaveTerminal || msg.type === 'createCommitted';
+      if (hasTargetGeneration && isSaveScoped) {
+        if (typeof saveRequestId !== 'string' || saveRequestId.length === 0) return;
+        if (saveRequestId !== submittedSaveRequestIdRef.current) return;
+        if (isSaveTerminal) submittedSaveRequestIdRef.current = null;
       }
       switch (msg.type) {
         case 'retarget': {
@@ -1250,8 +1263,12 @@ export function CreateEntryApp(): React.ReactElement {
           : pointerFromDraft(pointerDraft, t)
     };
     submittedEditGenerationRef.current = editGenerationRef.current;
+    const saveRequestId =
+      `save:${Date.now().toString(36)}:${++saveRequestSequenceRef.current}`;
+    submittedSaveRequestIdRef.current = saveRequestId;
     apiRef.current?.postMessage({
       type: mode === 'edit' ? 'update' : 'create',
+      saveRequestId,
       entry,
       expectedRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     });

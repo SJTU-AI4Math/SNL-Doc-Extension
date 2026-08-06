@@ -150,10 +150,14 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
     await messageHandler!({
       type: 'create',
+      saveRequestId: 'save-request-1',
       entry: { id: 'thm-new', kind: 'definition', title: 'Brand New', content: { snl: 'root(child)' } }
     });
 
+    const committed = posted.find((m) => m?.type === 'createCommitted');
     const created = posted.find((m) => m?.type === 'created');
+    expect(committed?.saveRequestId).toBe('save-request-1');
+    expect(created?.saveRequestId).toBe('save-request-1');
     expect(created?.id).toBe('thm-new');
 
     // No `retarget`: that path blanks the webview form.

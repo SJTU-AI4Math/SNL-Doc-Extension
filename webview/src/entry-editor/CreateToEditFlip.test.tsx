@@ -927,10 +927,11 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.input(title, { target: { value: 'Buffered terminal' } });
     fireEvent.input(idInput, { target: { value: 'buffered-terminal' } });
     fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    const saveRequestId = posted.findLast((message) => message?.type === 'create')?.saveRequestId;
 
     act(() => {
-      send({ type: 'created', id: 'buffered-terminal', targetGeneration: 1 });
-      send({ type: 'createCommitted', id: 'buffered-terminal', targetGeneration: 1 });
+      send({ type: 'created', id: 'buffered-terminal', targetGeneration: 1, saveRequestId });
+      send({ type: 'createCommitted', id: 'buffered-terminal', targetGeneration: 1, saveRequestId });
     });
 
     const update = await waitFor(() =>
@@ -962,6 +963,42 @@ describe('CreateEntryApp create → edit flip', () => {
       }));
     });
     await waitFor(() => expect(title.value).toBe('Unsaved correlated B'));
+  });
+
+  it('consumes each correlated update terminal once without blocking the next save', async () => {
+    const contextAt = (title: string, revision: string): Record<string, unknown> => ({
+      ...(editContext({
+        id: 'entry-a', title, kind: 'definition', content: { snl: 'a(child)' }
+      }) as Record<string, unknown>),
+      entryRevision: revision,
+      targetGeneration: 7
+    });
+    const view = render(<CreateEntryApp />);
+    act(() => { send(contextAt('Initial', 'r1')); });
+    const title = await waitFor(() => view.getByLabelText('Title') as HTMLInputElement);
+    fireEvent.input(title, { target: { value: 'Saved local' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const firstRequest = posted.findLast((message) => message?.type === 'update')?.saveRequestId;
+    expect(firstRequest).toEqual(expect.any(String));
+
+    act(() => {
+      send({ type: 'updated', id: 'entry-a', targetGeneration: 7, saveRequestId: firstRequest });
+      send(contextAt('Saved local', 'r2'));
+      send({ type: 'updated', id: 'entry-a', targetGeneration: 7, saveRequestId: firstRequest });
+      send(contextAt('External authoritative', 'r3'));
+    });
+    await waitFor(() => expect(title.value).toBe('External authoritative'));
+
+    fireEvent.input(title, { target: { value: 'Second local save' } });
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const secondRequest = posted.findLast((message) => message?.type === 'update')?.saveRequestId;
+    expect(secondRequest).toEqual(expect.any(String));
+    expect(secondRequest).not.toBe(firstRequest);
+    act(() => {
+      send({ type: 'updated', id: 'entry-a', targetGeneration: 7, saveRequestId: secondRequest });
+      send(contextAt('Second local save', 'r4'));
+    });
+    await waitFor(() => expect(title.value).toBe('Second local save'));
   });
 
   it('persists UUID regeneration as an authored draft change', async () => {

@@ -46,10 +46,30 @@ function audit(file: string): string[] {
     for (const property of object.properties) {
       if (!ts.isPropertyAssignment(property)) continue;
       const name = property.name.getText(source).replace(/["']/g, '');
-      if ((name === 'message' || name === 'detail' || name === 'title' || name === 'placeHolder' || name === 'openLabel' ||
+      if ((name === 'message' || name === 'detail' || name === 'title' || name === 'placeHolder' || name === 'openLabel' || name === 'saveLabel' ||
            name === 'prompt' || name === 'reason' || name === 'warnings') &&
           isRawHumanCopy(property.initializer)) {
         report(property.initializer, `raw ${name}`);
+      }
+    }
+  };
+  const inspectQuickPickItems = (expression: ts.Expression): void => {
+    if (!ts.isArrayLiteralExpression(expression)) {
+      if (isRawHumanCopy(expression)) report(expression, 'raw showQuickPick items');
+      return;
+    }
+    for (const item of expression.elements) {
+      if (ts.isStringLiteralLike(item) && /\p{L}/u.test(item.text)) {
+        report(item, 'raw showQuickPick item');
+      } else if (ts.isObjectLiteralExpression(item)) {
+        for (const property of item.properties) {
+          if (!ts.isPropertyAssignment(property)) continue;
+          const name = property.name.getText(source).replace(/["']/g, '');
+          if ((name === 'label' || name === 'description' || name === 'detail') &&
+              isRawHumanCopy(property.initializer)) {
+            report(property.initializer, `raw showQuickPick item ${name}`);
+          }
+        }
       }
     }
   };
@@ -66,6 +86,7 @@ function audit(file: string): string[] {
         if (first && isRawCopy(first)) report(first, `raw ${method}`);
         for (const arg of node.arguments.slice(1)) {
           if (ts.isObjectLiteralExpression(arg)) inspectMessageProperty(arg);
+          else if (isRawHumanCopy(arg)) report(arg, `raw ${method} action`);
         }
       }
       if (method === 'postMessage') {
@@ -88,7 +109,7 @@ function audit(file: string): string[] {
           method === 'showSaveDialog' || method === 'showOpenDialog') {
         for (const arg of node.arguments) {
           if (ts.isObjectLiteralExpression(arg)) inspectMessageProperty(arg);
-          else if (method === 'showQuickPick' && isRawCopy(arg)) report(arg, `raw ${method}`);
+          else if (method === 'showQuickPick') inspectQuickPickItems(arg);
         }
       }
     }

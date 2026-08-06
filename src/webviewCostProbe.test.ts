@@ -12,7 +12,8 @@ vi.mock('vscode', () => ({
   ProgressLocation: { Notification: 15 }
 }));
 
-import { classifyProbe, type ProbeSample } from './webviewCostProbe';
+import { createHostTranslator } from './hostI18n';
+import { classifyProbe, UI_MESSAGES, type ProbeSample } from './webviewCostProbe';
 
 /**
  * The probe's verdict picks between two mutually exclusive fixes for the
@@ -87,5 +88,14 @@ describe('classifyProbe', () => {
     const result = classifyProbe(samples(0, 100, 100));
     expect(Number.isFinite(result.decayRatio)).toBe(true);
     expect(result.decayRatio).toBe(1);
+  });
+
+  it('localizes diagnostic advice for Chinese output', () => {
+    const result = classifyProbe(
+      samples(1090, 55, 61),
+      createHostTranslator('zh-CN', UI_MESSAGES)
+    );
+    expect(result.advice).toContain('预热');
+    expect(result.advice).not.toContain('PREWARM');
   });
 });

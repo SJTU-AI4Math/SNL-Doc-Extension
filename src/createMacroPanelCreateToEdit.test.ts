@@ -17,6 +17,7 @@ const created: Array<{ title: string; disposed: boolean }> = [];
 const posted: unknown[] = [];
 let revealCount = 0;
 let handlers: Array<(e: unknown) => void> = [];
+let configurationHandlers: Array<(event: { affectsConfiguration(key: string): boolean }) => void> = [];
 
 vi.mock('vscode', () => ({
   Uri: {
@@ -61,7 +62,10 @@ vi.mock('vscode', () => ({
     }
   },
   workspace: {
-    onDidChangeConfiguration: () => ({ dispose: () => undefined }),
+    onDidChangeConfiguration: (handler: (event: { affectsConfiguration(key: string): boolean }) => void) => {
+      configurationHandlers.push(handler);
+      return { dispose: () => undefined };
+    },
     workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws' } }],
     getConfiguration: () => ({ get: () => undefined }),
     createFileSystemWatcher: () => ({
@@ -118,6 +122,7 @@ function reset(): void {
   created.length = 0;
   posted.length = 0;
   handlers = [];
+  configurationHandlers = [];
   revealCount = 0;
   macros.length = 0;
 }
@@ -195,6 +200,8 @@ describe('macro panel create -> edit flip', () => {
     )).toBe(true);
 
     // Title now advertises edit mode for the created macro.
+    expect(created[0].title).toBe('SNL Edit Macro — foo (algebra)');
+    configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(created[0].title).toBe('SNL Edit Macro — foo (algebra)');
 
     const last = contexts().at(-1)!;

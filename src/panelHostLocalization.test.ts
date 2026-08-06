@@ -44,7 +44,7 @@ describe('panel-controller host localization', () => {
     expect(projected).toEqual([{
       id: 'fulcrum-math-notes',
       label: 'Fulcrum 数学笔记',
-      description: '章节层级结构以及 Fulcrum 数学内容类型。',
+      description: '提供章/节/小节层级结构，以及 12 种 Fulcrum-Notes-Typst 内容类型（定义/公理/引理/定理/推论/性质/备注/例子/反例/构造/证明/问题）。每种类型都会设置 defaultCounterName（其英文名称的 slug）。',
       count: 1
     }]);
     expect(source[0].label).toBe("Fulcrum's Math Notes");
@@ -79,5 +79,13 @@ describe('panel-controller host localization', () => {
     expect(source).toContain("title: t('saveDialogTitle')");
     expect(source).toContain("title: t('folderDialogTitle')");
     expect(source).toContain("openLabel: t('exportHere')");
+  });
+
+  it('keeps Chinese preset descriptions semantically complete', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'initKindsPanelController.ts'), 'utf8');
+    expect(source).toContain('12 种 Fulcrum-Notes-Typst 内容类型');
+    expect(source).toContain('defaultCounterName');
+    expect(source).toContain('rule / const / bvar / binder / fvar');
+    expect(source).toContain('不应触发悬停反馈');
   });
 });

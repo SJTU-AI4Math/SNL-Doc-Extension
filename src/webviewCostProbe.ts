@@ -2,16 +2,36 @@ import * as vscode from 'vscode';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 
-const UI_MESSAGES = defineHostMessages(
+export const UI_MESSAGES = defineHostMessages(
   {
     pickCount: 'How many empty webviews to time?', probeTitle: 'SNL probe {index}', timing: 'Timing {count} empty webviews…',
-    result: 'Webview cost: {verdict} — first {first}ms, rest ~{rest}ms. See "SNL Trace" output.'
+    result: 'Webview cost: {verdict} — first {first}ms, rest ~{rest}ms. See "SNL Trace" output.',
+    needSamples: 'Need at least 2 samples; re-run with a higher count.',
+    perWindowAdvice: 'Cost is a ONE-TIME per-window webview host boot. Fix = PREWARM: create a hidden throwaway webview during activation so the first panel the user opens is never the one that pays. Pooling would be wasted effort here.',
+    perPanelAdvice: 'Cost is charged PER PANEL. Prewarming one hidden webview will not help. Fix = POOLING: keep panels alive (hide instead of dispose) and retarget them, the way the Entry editor singleton already does.',
+    inconclusiveAdvice: 'Partial decay — neither a clean one-time boot nor a flat per-panel cost. Re-run with a higher count on an idle machine before choosing a fix.',
+    reportHeader: '─── Webview cost probe: {count} empty panels @ {timestamp}',
+    reportScope: '    (no bundle, no CSS, no data reads — pure createWebviewPanel cost)',
+    reportPanel: '    panel #{index}: {ms}ms',
+    reportStats: '    first={first}ms restMedian={rest}ms ratio={ratio}',
+    reportVerdict: '    VERDICT: {verdict}'
   },
   {
     pickCount: '要测量多少个空 Webview？', probeTitle: 'SNL 探针 {index}', timing: '正在测量 {count} 个空 Webview…',
-    result: 'Webview 开销：{verdict}；首个 {first}ms，其余约 {rest}ms。详情见“SNL Trace”输出。'
+    result: 'Webview 开销：{verdict}；首个 {first}ms，其余约 {rest}ms。详情见“SNL Trace”输出。',
+    needSamples: '至少需要 2 个样本；请提高数量后重新运行。',
+    perWindowAdvice: '开销来自每个窗口仅一次的 Webview Host 启动。修复方案 = 预热：在激活期间创建一个隐藏的临时 Webview，让用户打开的第一个面板无需承担启动开销；此时做面板池没有意义。',
+    perPanelAdvice: '每个面板都会产生开销。预热一个隐藏 Webview 无法解决；修复方案 = 面板池：保持面板存活（隐藏而非销毁）并重新定向，类似条目编辑器单例。',
+    inconclusiveAdvice: '开销只部分下降，既不是干净的一次性启动，也不是恒定的逐面板开销。请在机器空闲时提高数量后重跑，再选择修复方案。',
+    reportHeader: '─── Webview 开销探针：{count} 个空面板 @ {timestamp}',
+    reportScope: '    （无 bundle、无 CSS、无数据读取，仅测量 createWebviewPanel 开销）',
+    reportPanel: '    面板 #{index}：{ms}ms',
+    reportStats: '    首个={first}ms 其余中位数={rest}ms 比率={ratio}',
+    reportVerdict: '    结论：{verdict}'
   }
 );
+const hostText = () => createHostTranslator(read_extension_preferences().language, UI_MESSAGES);
+const englishText = createHostTranslator('en', UI_MESSAGES);
 
 /**
  * Measure what a bare `createWebviewPanel` costs, N times in a row.
@@ -83,7 +103,10 @@ export interface ProbeSample {
  * and the rest cost 60ms gives 0.06 -> clearly per-window. A run where every
  * panel costs ~1000ms gives ~1.0 -> clearly per-panel.
  */
-export function classifyProbe(samples: readonly ProbeSample[]): {
+export function classifyProbe(
+  samples: readonly ProbeSample[],
+  t = englishText
+): {
   verdict: 'per-window' | 'per-panel' | 'inconclusive';
   first: number;
   restMedian: number;
@@ -96,7 +119,7 @@ export function classifyProbe(samples: readonly ProbeSample[]): {
       first: samples[0]?.ms ?? 0,
       restMedian: 0,
       decayRatio: 1,
-      advice: 'Need at least 2 samples; re-run with a higher count.'
+      advice: t('needSamples')
     };
   }
   const first = samples[0].ms;
@@ -113,11 +136,7 @@ export function classifyProbe(samples: readonly ProbeSample[]): {
       first,
       restMedian,
       decayRatio,
-      advice:
-        'Cost is a ONE-TIME per-window webview host boot. Fix = PREWARM: ' +
-        'create a hidden throwaway webview during activation so the first ' +
-        'panel the user opens is never the one that pays. Pooling would be ' +
-        'wasted effort here.'
+      advice: t('perWindowAdvice')
     };
   }
   if (decayRatio >= 0.7) {
@@ -126,10 +145,7 @@ export function classifyProbe(samples: readonly ProbeSample[]): {
       first,
       restMedian,
       decayRatio,
-      advice:
-        'Cost is charged PER PANEL. Prewarming one hidden webview will not ' +
-        'help. Fix = POOLING: keep panels alive (hide instead of dispose) ' +
-        'and retarget them, the way the Entry editor singleton already does.'
+      advice: t('perPanelAdvice')
     };
   }
   return {
@@ -137,10 +153,7 @@ export function classifyProbe(samples: readonly ProbeSample[]): {
     first,
     restMedian,
     decayRatio,
-    advice:
-      'Partial decay — neither a clean one-time boot nor a flat per-panel ' +
-      'cost. Re-run with a higher count on an idle machine before choosing ' +
-      'a fix.'
+    advice: t('inconclusiveAdvice')
   };
 }
 
@@ -212,23 +225,21 @@ export async function runWebviewCostProbe(
 ): Promise<ProbeSample[]> {
   const samples: ProbeSample[] = [];
   out.show(true);
-  out.appendLine(
-    `─── webview cost probe: ${count} empty panels @ ${new Date().toISOString()}`
-  );
-  out.appendLine(
-    '    (no bundle, no CSS, no data reads — pure createWebviewPanel cost)'
-  );
+  const t = hostText();
+  out.appendLine(t('reportHeader', { count, timestamp: new Date().toISOString() }));
+  out.appendLine(t('reportScope'));
   for (let i = 1; i <= count; i++) {
     const sample = await timeOneWebview(i, panelTitle(i));
     samples.push(sample);
-    out.appendLine(`    panel #${i}: ${sample.ms.toFixed(0)}ms`);
+    out.appendLine(t('reportPanel', { index: i, ms: sample.ms.toFixed(0) }));
   }
-  const verdict = classifyProbe(samples);
-  out.appendLine(
-    `    first=${verdict.first.toFixed(0)}ms restMedian=${verdict.restMedian.toFixed(0)}ms ` +
-      `ratio=${verdict.decayRatio.toFixed(2)}`
-  );
-  out.appendLine(`    VERDICT: ${verdict.verdict}`);
+  const verdict = classifyProbe(samples, t);
+  out.appendLine(t('reportStats', {
+    first: verdict.first.toFixed(0),
+    rest: verdict.restMedian.toFixed(0),
+    ratio: verdict.decayRatio.toFixed(2)
+  }));
+  out.appendLine(t('reportVerdict', { verdict: verdict.verdict }));
   out.appendLine(`    ${verdict.advice}`);
   return samples;
 }
@@ -254,7 +265,7 @@ export function registerWebviewCostProbe(
         },
         () => runWebviewCostProbe(count, out, (index) => t('probeTitle', { index }))
       );
-      const verdict = classifyProbe(samples);
+      const verdict = classifyProbe(samples, t);
       void vscode.window.showInformationMessage(
         t('result', {
           verdict: verdict.verdict,

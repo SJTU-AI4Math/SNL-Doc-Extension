@@ -28,6 +28,8 @@ const posted: Array<Record<string, unknown>> = [];
 const commands: Array<{ command: string; args: unknown[] }> = [];
 /** The panel's `onDidReceiveMessage` handler, captured at construction. */
 let onMessage: ((message: unknown) => unknown) | null = null;
+let panelTitle = '';
+let configurationHandlers: Array<(event: { affectsConfiguration(key: string): boolean }) => void> = [];
 
 const PACKAGES = ['alpha', 'beta', 'gamma', 'delta'];
 // `core.json` sorts BEFORE `core-extra.json`, but bare `core-extra` sorts
@@ -113,8 +115,11 @@ vi.mock('vscode', () => {
       },
       showWarningMessage: async () => undefined,
       onDidChangeActiveColorTheme: () => ({ dispose: () => undefined }),
-      createWebviewPanel: () => ({
-        title: '',
+      createWebviewPanel: (_type: string, title: string) => {
+        panelTitle = title;
+        return {
+        get title() { return panelTitle; },
+        set title(value: string) { panelTitle = value; },
         webview: {
           html: '',
           cspSource: 'vscode-webview:',
@@ -131,12 +136,16 @@ vi.mock('vscode', () => {
         onDidDispose: () => ({ dispose: () => undefined }),
         reveal: () => undefined,
         dispose: () => undefined
-      })
+        };
+      }
     },
     workspace: {
       workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws', toString: () => '/ws' } }],
       getConfiguration: () => ({ get: () => undefined }),
-      onDidChangeConfiguration: () => ({ dispose: () => undefined }),
+      onDidChangeConfiguration: (handler: (event: { affectsConfiguration(key: string): boolean }) => void) => {
+        configurationHandlers.push(handler);
+        return { dispose: () => undefined };
+      },
       createFileSystemWatcher: () => ({
         onDidCreate: () => ({ dispose: () => undefined }),
         onDidChange: () => ({ dispose: () => undefined }),
@@ -183,6 +192,8 @@ function reset(): void {
   posted.length = 0;
   commands.length = 0;
   onMessage = null;
+  panelTitle = '';
+  configurationHandlers = [];
 }
 
 /** Open the singleton browser panel fresh and return its message pump. */
@@ -201,6 +212,18 @@ async function openBrowser(initialLibrarySlug?: string): Promise<(message: unkno
 describe('infoview panel read cost', () => {
   beforeEach(() => {
     reset();
+  });
+
+  it('keeps the resolved Entry display title across a locale refresh', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+    expect(panelTitle).toBe('SNL — First');
+
+    configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
+    expect(panelTitle).toBe('SNL — First');
   });
 
   it('opens a requested Library directly on first ready', async () => {

@@ -171,14 +171,14 @@ export class CreateMacroPanel {
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
       }
     );
-    bind_preferences_panel_title(panel, () => mode === 'edit'
-      ? hostText()('editTitle', { name: macroName, file })
-      : hostText()('createTitle', { file }));
-
-    CreateMacroPanel.instances.set(
-      key,
-      new CreateMacroPanel(panel, extensionUri, mode, file, macroName, prefill, key)
+    const instance = new CreateMacroPanel(
+      panel, extensionUri, mode, file, macroName, prefill, key
     );
+    bind_preferences_panel_title(panel, () => instance.mode === 'edit'
+      ? hostText()('editTitle', { name: instance.macroName, file: instance.file })
+      : hostText()('createTitle', { file: instance.file }));
+
+    CreateMacroPanel.instances.set(key, instance);
   }
 
   private constructor(

@@ -129,6 +129,7 @@ export class InfoviewPanel {
    * by the auto-refresh path — the webview drives normal navigation.
    */
   private currentLibrarySlug: string | null = null;
+  private entryDisplayTitle: string | null = null;
   private disposables: vscode.Disposable[] = [];
   private viewGeneration = 0;
   private popoverGeneration = 0;
@@ -221,8 +222,6 @@ export class InfoviewPanel {
         localResourceRoots: infoviewLocalResourceRoots(extensionUri)
       }
     );
-    bind_preferences_panel_title(panel, () => hostText()('entryTitle', { id: entryId }));
-
     const instance = new InfoviewPanel(
       panel,
       extensionUri,
@@ -230,6 +229,9 @@ export class InfoviewPanel {
       'entryInfoview',
       hostText()('entryTitle', { id: entryId })
     );
+    bind_preferences_panel_title(panel, () => hostText()('entryTitle', {
+      id: instance.entryDisplayTitle ?? entryId
+    }));
 
     InfoviewPanel.panels.set(entryId, instance);
   }
@@ -867,6 +869,8 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
+        this.entryDisplayTitle = null;
+        this.panel.title = hostText()('entryTitle', { id });
         void this.panel.webview.postMessage({
           type: 'entryDetails',
           entry: null,
@@ -878,7 +882,8 @@ export class InfoviewPanel {
         });
         return;
       }
-      this.panel.title = hostText()('entryTitle', { id: entry.title });
+      this.entryDisplayTitle = entry.title;
+      this.panel.title = hostText()('entryTitle', { id: this.entryDisplayTitle });
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;

@@ -1,5 +1,11 @@
 export type HostMessageValue = string | number | boolean;
 export type HostMessageParams = Readonly<Record<string, HostMessageValue>>;
+export type HostInvariantTextReason = 'brand' | 'output-channel' | 'protocol-token' | 'file-format';
+
+/** Mark deliberately language-invariant Host display text for source gates. */
+export function invariantHostText(value: string, _reason: HostInvariantTextReason): string {
+  return value;
+}
 
 export interface HostPluralMessage {
   readonly arg: string;

@@ -80,6 +80,10 @@ function audit(file: string): string[] {
         const title = node.arguments[1];
         if (title && isRawHumanCopy(title)) report(title, 'raw panel title');
       }
+      if (method === 'createOutputChannel') {
+        const name = node.arguments[0];
+        if (name && isRawHumanCopy(name)) report(name, 'raw output channel name');
+      }
       if (method === 'showQuickPick' || method === 'showInputBox' ||
           method === 'showSaveDialog' || method === 'showOpenDialog') {
         for (const arg of node.arguments) {

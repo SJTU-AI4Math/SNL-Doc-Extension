@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import * as vscode from 'vscode';
+import { invariantHostText } from './hostI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
@@ -331,7 +332,7 @@ function macrosOutput(): vscode.OutputChannel | null {
   try {
     const win = (vscode as { window?: typeof vscode.window }).window;
     if (win && typeof win.createOutputChannel === 'function') {
-      snlMacrosOutput = win.createOutputChannel('SNL Macros');
+      snlMacrosOutput = win.createOutputChannel(invariantHostText('SNL Macros', 'output-channel'));
       return snlMacrosOutput;
     }
   } catch {

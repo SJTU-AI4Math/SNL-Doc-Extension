@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { invariantHostText } from './hostI18n';
 
 /**
  * Millisecond-resolution tracing for the Entry panel open path.
@@ -60,7 +61,7 @@ function output(): vscode.OutputChannel | null {
   try {
     const win = (vscode as { window?: typeof vscode.window }).window;
     if (win && typeof win.createOutputChannel === 'function') {
-      channel = win.createOutputChannel('SNL Trace');
+      channel = win.createOutputChannel(invariantHostText('SNL Trace', 'output-channel'));
       return channel;
     }
   } catch {

@@ -1,11 +1,14 @@
 import React from 'react';
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import {
   GuiCanvasEditor,
   canvasExtentForBlocks,
   canvasInitialPosition,
+  canvasLogicalViewportWidth,
+  canvasVisualDeltaToLogical,
+  canvasZoomFromWheel,
   resolveCanvasPointerTarget
 } from '../CreateEntryApp';
 import { createCanvasHole } from './canvasForest';
@@ -85,6 +88,124 @@ afterAll(() => {
 });
 
 describe('GuiCanvasEditor', () => {
+  it('maps wheel direction to bounded Canvas zoom', () => {
+    expect(canvasZoomFromWheel(1, -100)).toBeGreaterThan(1);
+    expect(canvasZoomFromWheel(1, 100)).toBeLessThan(1);
+    expect(canvasZoomFromWheel(2, -1000)).toBe(2);
+    expect(canvasZoomFromWheel(0.5, 1000)).toBe(0.5);
+    expect(canvasLogicalViewportWidth(800, 1.25)).toBe(800);
+    expect(canvasLogicalViewportWidth(800, 0.5)).toBe(1600);
+    expect(canvasVisualDeltaToLogical(80, 2)).toBe(40);
+    expect(canvasVisualDeltaToLogical(80, 0.5)).toBe(160);
+  });
+
+  it('uses a cancelable native wheel listener to zoom the Canvas', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 }
+    });
+    viewport.getBoundingClientRect = () => ({
+      x: 10, y: 20, left: 10, top: 20, right: 810, bottom: 520,
+      width: 800, height: 500, toJSON: () => undefined
+    });
+    viewport.scrollLeft = 100;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    canvas.getBoundingClientRect = () => ({
+      x: 10, y: 30, left: 10, top: 30, right: 810, bottom: 542,
+      width: 800, height: 512, toJSON: () => undefined
+    });
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    expect(canvas.style.zoom).toBe('1');
+
+    const wheel = createEvent.wheel(viewport, {
+      deltaY: -120,
+      clientX: 160,
+      clientY: 120,
+      cancelable: true
+    });
+    fireEvent(viewport, wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    const expectedZoom = canvasZoomFromWheel(1, -120);
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(expectedZoom));
+    expect(canvas.style.width).toBe('800px');
+    expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * expectedZoom - 150);
+    expect(scrollBy).toHaveBeenCalledOnce();
+    expect(scrollBy.mock.calls[0]?.[0]).toBe(0);
+    expect(scrollBy.mock.calls[0]?.[1]).toBeCloseTo(
+      (120 - 30) * expectedZoom - (120 - 30)
+    );
+  });
+
+  it('keeps wheel events inside the Canvas at the zoom bounds', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() =>
+      expect(Number(view.getByLabelText('GUI Editor canvas').style.zoom)).toBe(2)
+    );
+    const atMaximum = createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    });
+    fireEvent(viewport, atMaximum);
+    expect(atMaximum.defaultPrevented).toBe(true);
+  });
+
+  it('converts pointer movement back to logical coordinates while zoomed', async () => {
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    const block = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    const leftBefore = Number.parseFloat(block.style.left);
+    const topBefore = Number.parseFloat(block.style.top);
+
+    fireEvent.pointerDown(block, { pointerId: 101, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(block, { pointerId: 101, clientX: 90, clientY: 50 });
+    fireEvent.pointerUp(block, { pointerId: 101, clientX: 90, clientY: 50 });
+
+    await waitFor(() => expect(Number.parseFloat(block.style.left)).toBe(leftBefore + 40));
+    expect(Number.parseFloat(block.style.top)).toBe(topBefore + 20);
+  });
+
   it('localizes Canvas controls, Macro actions, styles, and context menus in Simplified Chinese', async () => {
     document.documentElement.lang = 'zh-CN';
     const localizedDriver = new MacroDataDriver({

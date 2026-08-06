@@ -2460,6 +2460,27 @@ export function canvasInitialPosition(
   };
 }
 
+const CANVAS_ZOOM_MIN = 0.5;
+const CANVAS_ZOOM_MAX = 2;
+
+export function canvasZoomFromWheel(current: number, deltaY: number): number {
+  const bounded = Math.min(CANVAS_ZOOM_MAX, Math.max(CANVAS_ZOOM_MIN, current));
+  if (!Number.isFinite(deltaY) || deltaY === 0) return bounded;
+  const next = bounded * Math.exp(-deltaY * 0.0015);
+  return Math.round(
+    Math.min(CANVAS_ZOOM_MAX, Math.max(CANVAS_ZOOM_MIN, next)) * 1000
+  ) / 1000;
+}
+
+export function canvasLogicalViewportWidth(viewportWidth: number, zoom: number): number {
+  const boundedZoom = Math.min(CANVAS_ZOOM_MAX, Math.max(CANVAS_ZOOM_MIN, zoom));
+  return viewportWidth / Math.min(1, boundedZoom);
+}
+
+export function canvasVisualDeltaToLogical(visualDelta: number, zoom: number): number {
+  return Number.isFinite(zoom) && zoom > 0 ? visualDelta / zoom : visualDelta;
+}
+
 export function GuiCanvasEditor({
   forest,
   macroDataDriver,
@@ -2482,6 +2503,7 @@ export function GuiCanvasEditor({
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
   const [canvasExtent, setCanvasExtent] = React.useState<CanvasExtent>({ width: 0, height: 0 });
+  const [canvasZoom, setCanvasZoom] = React.useState(1);
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
   const [focused, setFocused] = React.useState<CanvasFocus | null>(null);
@@ -2491,6 +2513,13 @@ export function GuiCanvasEditor({
   const [contextMenu, setContextMenu] = React.useState<CanvasContextMenu | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  const canvasZoomRef = React.useRef(1);
+  const pendingZoomAnchorRef = React.useRef<{
+    logicalX: number;
+    canvasLogicalY: number;
+    pointerX: number;
+    pointerClientY: number;
+  } | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   // Async arity lookup belongs to the exact SNooGL selection that launched it.
@@ -2530,6 +2559,57 @@ export function GuiCanvasEditor({
     [macroCandidates]
   );
   forestRef.current = forest;
+  canvasZoomRef.current = canvasZoom;
+
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [role="listbox"], [role="dialog"], [role="menu"]')) {
+        return;
+      }
+      const lineScale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? Math.max(1, viewport.clientHeight)
+          : 1;
+      const normalizedDeltaY = event.deltaY * lineScale;
+      if (normalizedDeltaY === 0) return;
+      event.preventDefault();
+      const current = canvasZoomRef.current;
+      const next = canvasZoomFromWheel(current, normalizedDeltaY);
+      if (next === current) return;
+      const rect = viewport.getBoundingClientRect();
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      pendingZoomAnchorRef.current = {
+        logicalX: (viewport.scrollLeft + pointerX) / current,
+        canvasLogicalY: canvasRect ? (event.clientY - canvasRect.top) / current : 0,
+        pointerX,
+        pointerClientY: event.clientY
+      };
+      canvasZoomRef.current = next;
+      setCanvasZoom(next);
+    };
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const anchor = pendingZoomAnchorRef.current;
+    if (!viewport || !anchor) return;
+    viewport.scrollLeft = anchor.logicalX * canvasZoom - anchor.pointerX;
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (canvasRect) {
+      window.scrollBy(
+        0,
+        canvasRect.top + anchor.canvasLogicalY * canvasZoom - anchor.pointerClientY
+      );
+    }
+    pendingZoomAnchorRef.current = null;
+  }, [canvasZoom]);
 
   React.useEffect(() => () => {
     // A MacroDataDriver request may outlive the Canvas. Never publish into the
@@ -2619,18 +2699,18 @@ export function GuiCanvasEditor({
         height: Math.max(block.offsetHeight, block.scrollHeight)
       }));
     const next = canvasExtentForBlocks(
-      { width: viewport.clientWidth, height: minimumHeight },
+      { width: canvasLogicalViewportWidth(viewport.clientWidth, canvasZoom), height: minimumHeight },
       blocks,
       24
     );
     setCanvasExtent((previous) =>
       previous.width === next.width && previous.height === next.height ? previous : next
     );
-  }, []);
+  }, [canvasZoom]);
 
   React.useLayoutEffect(() => {
     measureCanvasExtent();
-  }, [forest, positions, measureCanvasExtent]);
+  }, [forest, positions, canvasZoom, measureCanvasExtent]);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
@@ -2771,8 +2851,8 @@ export function GuiCanvasEditor({
     const startPosition =
       resolved.path.length > 0 && canvas && canvasRect
         ? {
-            x: resolved.rect.left - canvasRect.left + canvas.scrollLeft,
-            y: resolved.rect.top - canvasRect.top + canvas.scrollTop
+            x: canvasVisualDeltaToLogical(resolved.rect.left - canvasRect.left, canvasZoomRef.current),
+            y: canvasVisualDeltaToLogical(resolved.rect.top - canvasRect.top, canvasZoomRef.current)
           }
         : positions[blockId] ?? { x: 24, y: 24 };
     // Pointer-down must suppress the browser's native text-selection gesture;
@@ -2799,9 +2879,11 @@ export function GuiCanvasEditor({
   const movePointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const dx = event.clientX - drag.startClientX;
-    const dy = event.clientY - drag.startClientY;
-    if (!drag.active && Math.hypot(dx, dy) < 6) return;
+    const visualDx = event.clientX - drag.startClientX;
+    const visualDy = event.clientY - drag.startClientY;
+    const dx = canvasVisualDeltaToLogical(visualDx, canvasZoomRef.current);
+    const dy = canvasVisualDeltaToLogical(visualDy, canvasZoomRef.current);
+    if (!drag.active && Math.hypot(visualDx, visualDy) < 6) return;
 
     if (!drag.active) {
       drag.active = true;
@@ -2857,8 +2939,8 @@ export function GuiCanvasEditor({
       ? (() => {
           const targetRect = targetElement.getBoundingClientRect();
           return {
-            x: targetRect.left - canvasRect.left + canvas.scrollLeft,
-            y: targetRect.top - canvasRect.top + canvas.scrollTop
+            x: canvasVisualDeltaToLogical(targetRect.left - canvasRect.left, canvasZoomRef.current),
+            y: canvasVisualDeltaToLogical(targetRect.top - canvasRect.top, canvasZoomRef.current)
           };
         })()
       : null;
@@ -2976,8 +3058,8 @@ export function GuiCanvasEditor({
     setEditingNode({
       ...target,
       scope: effectiveScope,
-      left: rect.left - canvasRect.left + canvas.scrollLeft,
-      top: rect.top - canvasRect.top + canvas.scrollTop,
+      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
+      top: canvasVisualDeltaToLogical(rect.top - canvasRect.top, canvasZoomRef.current),
       value: isCanvasHole(node)
         ? ''
         : effectiveScope === 'macro'
@@ -3116,10 +3198,10 @@ export function GuiCanvasEditor({
     const canvas = canvasRef.current;
     const canvasRect = canvas?.getBoundingClientRect();
     const left = canvas && canvasRect
-      ? event.clientX - canvasRect.left + canvas.scrollLeft
+      ? canvasVisualDeltaToLogical(event.clientX - canvasRect.left, canvasZoomRef.current)
       : event.clientX;
     const top = canvas && canvasRect
-      ? event.clientY - canvasRect.top + canvas.scrollTop
+      ? canvasVisualDeltaToLogical(event.clientY - canvasRect.top, canvasZoomRef.current)
       : event.clientY;
     closeCanvasInputs();
     // Blank canvas space gets its own menu whose only action adds a root.
@@ -3465,6 +3547,7 @@ export function GuiCanvasEditor({
           contain: 'inline-size',
           overflowX: 'auto',
           overflowY: 'visible',
+          overscrollBehavior: 'contain',
           paddingBottom: '0.25rem'
         }}
       >
@@ -3484,6 +3567,7 @@ export function GuiCanvasEditor({
         onKeyDown={handleCanvasKeyDown}
         style={{
           position: 'relative',
+          zoom: canvasZoom,
           minHeight: '32rem',
           minWidth: '100%',
           width: canvasExtent.width > 0 ? canvasExtent.width : '100%',

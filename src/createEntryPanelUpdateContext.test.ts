@@ -11,7 +11,9 @@ describe('CreateEntryPanel update roundtrip', () => {
     );
     expect(updatedCase).toContain("type: 'updated'");
     expect(updatedCase).toContain('await this.pushContext();');
-    expect(updatedCase.indexOf("type: 'updated'"))
-      .toBeLessThan(updatedCase.indexOf('await this.pushContext();'));
+    const acknowledgement = updatedCase.indexOf("type: 'updated'");
+    expect(acknowledgement).toBeGreaterThanOrEqual(0);
+    expect(updatedCase.indexOf('await this.pushContext();', acknowledgement))
+      .toBeGreaterThan(acknowledgement);
   });
 });

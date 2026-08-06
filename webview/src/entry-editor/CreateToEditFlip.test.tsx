@@ -189,6 +189,28 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(update.entry.title).toBe('Brand New');
   });
 
+  it('blocks Package mutation while the primary Entry save is pending', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+
+    fireEvent.click(await view.findByRole('button', { name: 'Create Package' }));
+    fireEvent.change(view.getByLabelText('New Package ID'), { target: { value: 'Deferred' } });
+
+    const titleInput = view.container.querySelector<HTMLInputElement>('#snl-entry-title')!;
+    const idInput = view.container.querySelector<HTMLInputElement>(
+      'input#snl-entry-id, #snl-entry-id-input'
+    ) ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!;
+    fireEvent.change(titleInput, { target: { value: 'Primary Pending' } });
+    fireEvent.change(idInput, { target: { value: 'primary-pending' } });
+    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    expect(posted.some((message) => message?.type === 'create')).toBe(true);
+
+    const addPackage = view.getByRole('button', { name: 'Add Package' }) as HTMLButtonElement;
+    expect(addPackage.disabled).toBe(true);
+    fireEvent.click(addPackage);
+    expect(posted.some((message) => message?.type === 'createPackage')).toBe(false);
+  });
+
   it('resets a pending Package request when create mode becomes edit mode', async () => {
     const view = render(<CreateEntryApp />);
     send(createContext());

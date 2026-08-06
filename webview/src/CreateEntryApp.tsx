@@ -1480,6 +1480,7 @@ export function CreateEntryApp(): React.ReactElement {
             </select>
             <Button
               variant="secondary"
+              disabled={status.kind === 'creating'}
               onClick={() => {
                 setShowPackageCreator(true);
                 setPackageCreateError('');
@@ -1502,10 +1503,14 @@ export function CreateEntryApp(): React.ReactElement {
                 />
                 <Button
                   variant="primary"
-                  disabled={packageCreating || newPackageId.trim().length === 0}
+                  disabled={
+                    status.kind === 'creating' ||
+                    packageCreating ||
+                    newPackageId.trim().length === 0
+                  }
                   onClick={() => {
                     const packageId = newPackageId.trim();
-                    if (!packageId) return;
+                    if (status.kind === 'creating' || !packageId) return;
                     const requestId = `package-${++packageRequestSequenceRef.current}`;
                     activePackageRequestRef.current = requestId;
                     setPackageCreating(true);

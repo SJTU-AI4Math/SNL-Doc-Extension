@@ -429,15 +429,7 @@ function entityReadStorage(workspaceRoot: vscode.Uri): EntityReadStorage {
   };
 }
 
-async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
-  const uri = configUri(workspaceRoot);
-  if (!(await exists(uri))) return false;
-  let raw: unknown;
-  try {
-    raw = await readJson<unknown>(uri);
-  } catch (error) {
-    throw new Error(`Could not read config.json: ${error instanceof Error ? error.message : String(error)}`);
-  }
+function entityStorageModeFromConfig(raw: unknown): boolean {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('config.json must be a JSON object.');
   }
@@ -448,6 +440,18 @@ async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
     throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
   }
   return relation === 0;
+}
+
+async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
+  const uri = configUri(workspaceRoot);
+  if (!(await exists(uri))) return false;
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(uri);
+  } catch (error) {
+    throw new Error(`Could not read config.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return entityStorageModeFromConfig(raw);
 }
 
 export function librariesDirUri(workspaceRoot: vscode.Uri): vscode.Uri {
@@ -2074,6 +2078,194 @@ function buildMacroPackageResult(
   }
 
   return { status: 'ok', pkg, macros };
+}
+
+export interface PackagePanelSnapshot {
+  readonly selected:
+    | { readonly status: 'ok'; readonly pkg: MacroPackageFile; readonly macros: readonly MacroPackageEntry[] }
+    | { readonly status: 'noFile' }
+    | { readonly status: 'error'; readonly message: string };
+  readonly workspaceMacros: Readonly<Record<string, MacroPackageEntry>>;
+  readonly macroKinds: readonly MacroKind[];
+  readonly active: readonly string[];
+  readonly otherPackages: readonly { readonly file: string; readonly name: string }[];
+}
+
+const PACKAGE_SNAPSHOT_READ_CONCURRENCY = 8;
+
+async function mapPackageSnapshotReads<T, U>(
+  values: readonly T[],
+  read: (value: T) => Promise<U>
+): Promise<U[]> {
+  const results = new Array<U>(values.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await read(values[index]);
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(PACKAGE_SNAPSHOT_READ_CONCURRENCY, values.length) },
+      () => worker()
+    )
+  );
+  return results;
+}
+
+/**
+ * Capture all Package/Macro state needed by one PackagePanel refresh.
+ *
+ * The snapshot is operation-local: current entity directories are listed once
+ * and every manifest/Macro entity is read once; legacy package files are
+ * likewise listed and read once. All derived products are folded only after
+ * those bounded reads settle, preserving file-name collision ordering.
+ */
+export async function readPackagePanelSnapshot(
+  workspaceRoot: vscode.Uri,
+  selectedFile: string
+): Promise<PackagePanelSnapshot> {
+  const selectedBare = stripJsonExt(selectedFile);
+  let configRaw: unknown;
+  try {
+    configRaw = await readJson<unknown>(configUri(workspaceRoot));
+  } catch (error) {
+    throw new Error(`Could not read config.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const entityMode = entityStorageModeFromConfig(configRaw);
+  const config = normalizeConfig(configRaw);
+  const rawByPackage = new Map<string, unknown>();
+  let packageNames: string[];
+
+  if (entityMode) {
+    try {
+      // Keep the two bounded directory walks sequential so their worker pools
+      // cannot multiply into a wider fan-out at this call site.
+      const storage = entityReadStorage(workspaceRoot);
+      const packageRecords = await readPackageManifestRecords(storage);
+      const macroRecords = await readMacroEntityRecords(storage);
+      packageNames = packageRecords
+        .map(({ manifest }) => manifest.id)
+        .filter((id) => id !== UNPACKAGED_PACKAGE_ID)
+        .sort((left, right) => left.localeCompare(right));
+      const macrosByPackage = new Map<string, Record<string, unknown>>();
+      for (const { envelope, macro } of macroRecords) {
+        const packageMacros = macrosByPackage.get(envelope.package) ?? {};
+        const { name, ...body } = macro;
+        packageMacros[name] = body;
+        macrosByPackage.set(envelope.package, packageMacros);
+      }
+      for (const { manifest } of packageRecords) {
+        if (manifest.id === UNPACKAGED_PACKAGE_ID) continue;
+        const {
+          format: _format,
+          version: _version,
+          id: _id,
+          name,
+          description,
+          ...extensions
+        } = manifest;
+        rawByPackage.set(manifest.id, {
+          ...extensions,
+          version: MACRO_PACKAGE_VERSION,
+          name,
+          ...(description ? { description } : {}),
+          macros: macrosByPackage.get(manifest.id) ?? {}
+        });
+      }
+    } catch (error) {
+      throw new Error(
+        `Could not read per-entity Package/Macro snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } else {
+    const dir = termMacrosDirUri(workspaceRoot);
+    if (!(await exists(dir))) {
+      packageNames = [];
+    } else {
+      const files = (await vscode.workspace.fs.readDirectory(dir))
+        .filter(([name, type]) =>
+          type === vscode.FileType.File && name.toLowerCase().endsWith('.json') && !name.startsWith('.')
+        )
+        .map(([name]) => name)
+        .sort((left, right) => left.localeCompare(right));
+      const raws = await mapPackageSnapshotReads(files, async (file) =>
+        readJson<unknown>(vscode.Uri.joinPath(dir, file))
+      );
+      packageNames = files.map(stripJsonExt);
+      files.forEach((file, index) => rawByPackage.set(stripJsonExt(file), raws[index]));
+    }
+  }
+
+  const active = resolveActiveFromConfig(packageNames, config);
+  const activeSet = new Set(active);
+  const normalized = new Map<string, ReturnType<typeof buildMacroPackageResult>>();
+  const normalizePackage = (bare: string): ReturnType<typeof buildMacroPackageResult> | undefined => {
+    const raw = rawByPackage.get(bare);
+    if (raw === undefined) return undefined;
+    let result = normalized.get(bare);
+    if (!result) {
+      result = buildMacroPackageResult(bare, raw);
+      normalized.set(bare, result);
+    }
+    return result;
+  };
+
+  const selectedResult = normalizePackage(selectedBare);
+  const selected: PackagePanelSnapshot['selected'] = selectedResult === undefined
+    ? Object.freeze({ status: 'noFile' as const })
+    : selectedResult.status === 'error'
+      ? Object.freeze({ status: 'error' as const, message: selectedResult.message })
+      : Object.freeze({
+          status: 'ok' as const,
+          pkg: Object.freeze(selectedResult.pkg),
+          macros: Object.freeze(selectedResult.macros)
+        });
+
+  const workspaceMacros: Record<string, MacroPackageEntry> = {};
+  const origin: Record<string, string> = {};
+  const activeInFileOrder = packageNames
+    .filter((bare) => activeSet.has(bare))
+    .sort((left, right) => `${left}.json`.localeCompare(`${right}.json`));
+  for (const bare of activeInFileOrder) {
+    const result = normalizePackage(bare);
+    if (!result || result.status === 'error') {
+      throw new Error(
+        result?.status === 'error'
+          ? `Could not read Macro Package ${JSON.stringify(bare)}: ${result.message}`
+          : `Macro Package ${JSON.stringify(bare)} disappeared while loading Macros.`
+      );
+    }
+    for (const macro of result.macros) {
+      if (Object.prototype.hasOwnProperty.call(workspaceMacros, macro.name)) {
+        macrosOutput()?.appendLine(formatMacroConflict(
+          macroOutputLanguage(), macro.name, origin[macro.name], bare
+        ));
+      }
+      workspaceMacros[macro.name] = macro;
+      origin[macro.name] = bare;
+    }
+  }
+
+  const otherPackages = active
+    .filter((bare) => bare !== selectedBare)
+    .map((bare) => {
+      const result = normalizePackage(bare);
+      if (!result || result.status === 'error') return { file: bare, name: bare };
+      return { file: bare, name: result.pkg.name };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name) || left.file.localeCompare(right.file));
+
+  return Object.freeze({
+    selected,
+    workspaceMacros: Object.freeze(workspaceMacros),
+    macroKinds: Object.freeze(config.macro_kinds ?? []),
+    active: Object.freeze(active),
+    otherPackages: Object.freeze(
+      otherPackages.map((entry) => Object.freeze(entry))
+    )
+  });
 }
 
 /**

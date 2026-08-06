@@ -1,20 +1,14 @@
 import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
-  readAllMacros,
-  readMacroKinds,
-  readMacroPackage,
-  resolveActiveMacroPackages,
+  readPackagePanelSnapshot,
   setMacroPackageActive,
   batchDeleteMacros,
   batchMoveMacros,
   batchCopyMacros,
   batchPackageAsNew,
   batchMoveToNewPackage,
-  readEntries,
-  type MacroKind,
-  type MacroPackageFile,
-  type MacroPackageEntry
+  readEntries
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
 import { packageManifestPath } from './entityStorage';
@@ -225,8 +219,9 @@ export class PackagePanel {
       return;
     }
     try {
-      const result = await readMacroPackage(root, this.file);
+      const snapshot = await readPackagePanelSnapshot(root, this.file);
       if (generation !== this.packageGeneration) return;
+      const result = snapshot.selected;
       if (result.status === 'noFile') {
         void this.panel.webview.postMessage({
           type: 'noFile',
@@ -241,42 +236,9 @@ export class PackagePanel {
         });
         return;
       }
-      const pkg: MacroPackageFile = result.pkg;
-      const macros: MacroPackageEntry[] = result.macros;
-
-      const [macroKinds, workspaceMacros, active, entryPool]: [
-        MacroKind[],
-        Record<string, MacroPackageEntry>,
-        string[],
-        Awaited<ReturnType<typeof readEntries>>
-      ] = await Promise.all([
-        readMacroKinds(root),
-        readAllMacros(root),
-        resolveActiveMacroPackages(root),
-        readEntries(root)
-      ]);
-
-      // Bootstrap the "Move to package" dropdown with OTHER active packages
-      // (bare file + display name). Missing packages are omitted; malformed
-      // packages retain the historical bare-name fallback.
-      // The active list already identifies every candidate. Reading a full
-      // package summary pass first parsed all package files only to parse the
-      // active ones again here (an N+1), and the second pass was serial.
-      const candidates = [...new Set(active)].filter((bare) => bare !== this.file);
-      const loadedPackages = await Promise.all(
-        candidates.map(async (bare) => ({ bare, result: await readMacroPackage(root, bare) }))
-      );
-      const otherPackages: Array<{ file: string; name: string }> = [];
-      for (const { bare, result: other } of loadedPackages) {
-        if (other.status === 'noFile') continue;
-        otherPackages.push({
-          file: bare,
-          name: other.status === 'ok' ? other.pkg.name : bare
-        });
-      }
-      otherPackages.sort(
-        (a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file)
-      );
+      const pkg = result.pkg;
+      const macros = result.macros;
+      const entryPool = await readEntries(root);
 
       // Ship the entry-pool id set so the macro table can render each
       // row's src status (green/yellow/red) without an extra round-trip.
@@ -289,10 +251,10 @@ export class PackagePanel {
         pkg,
         file: `${this.file}.json`,
         macros,
-        workspaceMacros,
-        macroKinds,
-        otherPackages,
-        active: active.includes(this.file),
+        workspaceMacros: snapshot.workspaceMacros,
+        macroKinds: snapshot.macroKinds,
+        otherPackages: snapshot.otherPackages,
+        active: snapshot.active.includes(this.file),
         entryPoolIds
       });
     } catch (err) {

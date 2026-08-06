@@ -10,11 +10,14 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('vscode', () => ({
+  ColorThemeKind: { Dark: 2 },
+  env: { language: 'en' },
   Uri: { joinPath: (base: { path: string }, ...parts: string[]) => ({ path: [base.path, ...parts].join('/') }) },
   ViewColumn: { Active: -1 },
   RelativePattern: class {},
   commands: { executeCommand: async () => undefined },
   window: {
+    activeColorTheme: { kind: 2 },
     createWebviewPanel: () => ({
       webview: {
         html: '',
@@ -31,6 +34,8 @@ vi.mock('vscode', () => ({
     showWarningMessage: async () => undefined
   },
   workspace: {
+    getConfiguration: () => ({ get: () => undefined, inspect: () => undefined }),
+    onDidChangeConfiguration: () => ({ dispose: () => undefined }),
     createFileSystemWatcher: () => ({
       onDidCreate: () => undefined,
       onDidChange: () => undefined,

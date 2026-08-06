@@ -75,6 +75,7 @@ vi.mock('vscode', () => {
         ]);
       case 'relationships.json':
         return JSON.stringify({
+          version: 1,
           relationships: [
             { id: 'r1', from: 'e1', to: 'e2', label: 'depends' }
           ]

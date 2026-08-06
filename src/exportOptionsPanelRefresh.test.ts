@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('vscode', () => ({
   ViewColumn: { Active: 1 },
+  ColorThemeKind: { Dark: 2 },
+  env: { language: 'en' },
   Uri: {
     joinPath: (base: any, ...parts: string[]) => ({
       path: [base.path, ...parts].join('/'),
@@ -15,6 +17,7 @@ vi.mock('vscode', () => ({
     file: (fsPath: string) => ({ fsPath })
   },
   window: {
+    activeColorTheme: { kind: 2 },
     createWebviewPanel: () => ({
       webview: {
         html: '', cspSource: 'test',
@@ -29,7 +32,11 @@ vi.mock('vscode', () => ({
     })
   },
   commands: { executeCommand: vi.fn() },
-  workspace: { fs: { readFile: vi.fn() } }
+  workspace: {
+    fs: { readFile: vi.fn() },
+    getConfiguration: () => ({ get: () => undefined, inspect: () => undefined }),
+    onDidChangeConfiguration: () => ({ dispose() {} })
+  }
 }));
 
 vi.mock('./panelUtil', () => ({

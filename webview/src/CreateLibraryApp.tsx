@@ -60,7 +60,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
     graphWarnings: { arg: 'count', one: '⚠️ {count} graph warning', other: '⚠️ {count} graph warnings' },
-    moreWarnings: '… {count} more'
+    moreWarnings: '… {count} more', counterUpdateFailed: 'Counter update failed: {message}'
   },
   {
     editLibrary: '编辑文库', createLibrary: '创建文库', dashboard: '仪表板', backDashboard: '返回仪表板',
@@ -82,7 +82,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
-    graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条'
+    graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
   }
 );
 
@@ -665,7 +665,7 @@ function CountersSection({
 
       {error ? (
         <p role="alert" style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
-          Counter update failed: {error}
+          {t('counterUpdateFailed', { message: error })}
         </p>
       ) : null}
 

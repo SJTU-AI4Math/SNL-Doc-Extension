@@ -128,9 +128,8 @@ describe('PreferencesHost language writes', () => {
     await vi.waitFor(() => expect(mocks.showErrorMessage).toHaveBeenCalledWith(
       '无法更改 SNL 界面语言：read only'
     ));
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'snl.preferences/error',
-      message: '无法更改 SNL 界面语言：read only'
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'snl.preferences/error'
     }));
     host.dispose();
   });

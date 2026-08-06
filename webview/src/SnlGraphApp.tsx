@@ -42,7 +42,8 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   hidingComposite: 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.',
   showingAllEdges: 'Currently showing every edge. Check to hide non-atomic dependency edges.',
   entryKinds: 'Entry kinds', all: 'all', none: 'none', allTitle: 'Show every entry kind (reset kind filter)',
-  noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.'
+  noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.',
+  relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})'
 }, {
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
   nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
@@ -55,7 +56,7 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   hidingComposite: '当前已隐藏非原子（组合）依赖边。取消勾选可显示所有边。',
   showingAllEdges: '当前正在显示所有边。勾选可隐藏非原子依赖边。', entryKinds: '条目种类',
   all: '全部', none: '无', allTitle: '显示所有条目种类（重置种类筛选器）', noneTitle: '隐藏所有条目种类',
-  noKinds: '此关系图中尚无条目种类。'
+  noKinds: '此关系图中尚无条目种类。', relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）'
 });
 
 interface GraphNode {
@@ -984,7 +985,7 @@ function SnlGraphInner({
                     key={e.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Relationship ${e.label || e.id}: ${e.from} to ${e.to}`}
+                    aria-label={t('relationshipAria', { label: e.label || e.id, from: e.from, to: e.to })}
                     onPointerEnter={() => setHoverEdgeId(e.id)}
                     onPointerLeave={() =>
                       setHoverEdgeId((c) => (c === e.id ? null : c))
@@ -1041,7 +1042,7 @@ function SnlGraphInner({
                     key={n.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Entry ${n.title || n.id} (${n.id})`}
+                    aria-label={t('entryAria', { title: n.title || n.id, id: n.id })}
                     transform={`translate(${n.x} ${n.y})`}
                     style={{ cursor: 'pointer' }}
                     onPointerEnter={(ev) => handleNodePointerEnter(n, ev)}

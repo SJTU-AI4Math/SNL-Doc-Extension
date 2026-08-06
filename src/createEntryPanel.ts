@@ -742,6 +742,11 @@ export class CreateEntryPanel {
           type: 'createCommitted',
           id: committedCreateId
         });
+        // Retarget can occur while the retry itself is pending.
+        if (!targetIsCurrent()) {
+          await this.pushContext();
+          return;
+        }
       }
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(hostText()('editorFailed', { error: text }));

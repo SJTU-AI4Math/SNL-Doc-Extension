@@ -229,6 +229,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
   it('retries committed ownership before error/context when its first delivery rejects', async () => {
     const { CreateEntryPanel } = await import('./createEntryPanel');
     CreateEntryPanel.createOrShow(extUri);
+    await vi.waitFor(() => expect(contexts().length).toBeGreaterThan(0));
     posted.length = 0;
     panelRecord.postMessage!.mockRejectedValueOnce(
       new Error('createCommitted transport failed')
@@ -251,6 +252,38 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(context).toMatchObject({ mode: 'edit', id: 'committed-retry' });
     expect(posted.indexOf(committed)).toBeLessThan(posted.indexOf(error));
     expect(posted.indexOf(error)).toBeLessThan(posted.indexOf(context));
+  });
+
+  it('rechecks target ownership after a pending createCommitted retry', async () => {
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    await vi.waitFor(() => expect(contexts().length).toBeGreaterThan(0));
+    posted.length = 0;
+    let resolveRetry!: () => void;
+    panelRecord.postMessage!
+      .mockRejectedValueOnce(new Error('stale ownership transport failed'))
+      .mockImplementationOnce((message: any) => new Promise<boolean>((resolve) => {
+        resolveRetry = () => {
+          posted.push(message);
+          events.push(`post:${String(message?.type)}`);
+          resolve(true);
+        };
+      }));
+
+    const pending = messageHandler!({
+      type: 'create',
+      entry: { id: 'ownership-a', kind: 'definition', title: 'Ownership A', content: {} }
+    });
+    await vi.waitFor(() => expect(typeof resolveRetry).toBe('function'));
+    CreateEntryPanel.editOrShow(extUri, 'entry-b');
+    resolveRetry();
+    await pending;
+
+    expect(posted.some((message) =>
+      message?.type === 'error' && message.message === 'stale ownership transport failed'
+    )).toBe(false);
+    expect(panelRecord.title).toBe('SNL Edit Entry — entry-b');
+    expect(contexts().at(-1)?.id).toBe('entry-b');
   });
 
   it('does not publish a stale update completion into a retargeted panel', async () => {

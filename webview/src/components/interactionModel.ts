@@ -97,11 +97,16 @@ export function listboxKeyAction(
 export interface SearchQueryShape {
   q: string;
   mode: string;
-  filters: { kindId?: string };
+  filters: { kindId?: string; counterpartId?: string };
 }
 
 export function queryKey(query: SearchQueryShape): string {
-  return JSON.stringify([query.q, query.mode, query.filters.kindId ?? null]);
+  return JSON.stringify([
+    query.q,
+    query.mode,
+    query.filters.kindId ?? null,
+    query.filters.counterpartId ?? null
+  ]);
 }
 
 export function matchesPendingQuery(

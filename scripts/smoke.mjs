@@ -1130,12 +1130,15 @@ async function main() {
   const extensionEntryPath = nodePath.join(tmpRoot, '.SNL_Doc', 'entries', entityEntryFiles[0]);
   const extensionEntryEnvelope = JSON.parse(await fs.readFile(extensionEntryPath, 'utf8'));
   extensionEntryEnvelope.vendor_envelope = { keep: true };
+  extensionEntryEnvelope.entry.contribution_info = { name: 'Legacy Contributor' };
   await fs.writeFile(extensionEntryPath, JSON.stringify(extensionEntryEnvelope));
   const extensionEntry = extensionEntryEnvelope.entry;
   assert((await updateEntry(root, extensionEntry.id, extensionEntry, entityRevision(extensionEntry))).status === 'updated',
     'Entry edit succeeds with an envelope extension');
   assert(JSON.parse(await fs.readFile(extensionEntryPath, 'utf8')).vendor_envelope?.keep === true,
     'Entry edit preserves unknown envelope fields');
+  assert(JSON.parse(await fs.readFile(extensionEntryPath, 'utf8')).entry.contribution_info?.name === 'Legacy Contributor',
+    'Entry edit preserves an untouched legacy structured Contributor');
 
   const macroDirPath = nodePath.join(tmpRoot, '.SNL_Doc', 'macros');
   let extensionMacroName;

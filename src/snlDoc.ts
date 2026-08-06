@@ -27,7 +27,8 @@ import {
   type MacroEnvelope
 } from './entityStorage';
 import {
-  normalizeEntryContributor
+  normalizeEntryContributor,
+  normalizeUpdatedEntryContributor
 } from './entryContributor';
 import {
   readEntryEntityRecords,
@@ -3503,10 +3504,12 @@ export interface EntryData {
     text?: Localized<string, string>;
   };
   /**
-   * TEMPORARY Contributor shape: exactly one string, or null/missing for
-   * backward compatibility. This is not a stable author/credit schema.
+   * TEMPORARY Contributor write shape: exactly one string, or null/missing.
+   * Legacy structured values remain readable and are preserved by unrelated
+   * updates, but cannot be created or replaced through the scalar editor.
+   * This is not a stable author/credit schema.
    */
-  contribution_info?: string | null;
+  contribution_info?: unknown;
   // Optional structured pointer to a location in a source file (cat
   // 2026-07-11). `null` when unset. See src/pointer.ts for the shape
   // and resolver.
@@ -4014,9 +4017,12 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
-  let contributor: string | null;
+  let contributor: unknown;
   try {
-    contributor = normalizeEntryContributor(entry.contribution_info);
+    contributor = normalizeUpdatedEntryContributor(
+      entry.contribution_info,
+      pool[idx].contribution_info
+    );
   } catch (error) {
     return {
       status: 'invalid',
@@ -5930,23 +5936,27 @@ export function reconcileDependencyRelationships(
   scope: DependencyScope
 ): { relationships: RelationshipData[]; report: DependencyGenReport } {
   const poolIds = new Set(entries.map((entry) => entry.id));
-  const isAutoRow = (relationship: RelationshipData): boolean =>
+  const isSystemAutoRow = (relationship: RelationshipData): boolean =>
     AUTO_LABELS.includes(relationship.label) &&
     relationship.metadata !== null &&
     typeof relationship.metadata === 'object' &&
     (relationship.metadata as { generator?: unknown }).generator === AUTO_GENERATOR_TAG;
+  const isManagedDependencyRow = (relationship: RelationshipData): boolean =>
+    relationship.label === AUTO_LABEL && isSystemAutoRow(relationship);
 
   const preservedRows: RelationshipData[] = [];
   const inScopeAuto = new Map<string, RelationshipData>();
   for (const relationship of existing) {
     const inScope = scope.entryIds === null || scope.entryIds.has(relationship.from);
-    if (isAutoRow(relationship) && inScope) {
+    if (isManagedDependencyRow(relationship) && inScope) {
       inScopeAuto.set(`${relationship.label}|${relationship.from}|${relationship.to}`, relationship);
     } else {
       preservedRows.push(relationship);
     }
   }
-  const preservedUser = preservedRows.filter((relationship) => !isAutoRow(relationship)).length;
+  const preservedUser = preservedRows.filter((relationship) =>
+    !isSystemAutoRow(relationship)
+  ).length;
 
   const generated = new Map<string, { rel: RelationshipData; witnesses: Set<string> }>();
   const idPrefix: Record<string, string> = {
@@ -5957,6 +5967,24 @@ export function reconcileDependencyRelationships(
     [AUTO_LABEL]: 'macros',
     [AUTO_LABEL_USES_CONTEXT]: 'postfixes'
   };
+  const allocatedIds = new Set(preservedRows.map(({ id }) => id));
+  const allocateGeneratedId = (
+    label: string,
+    from: string,
+    to: string,
+    previous: RelationshipData | undefined
+  ): string => {
+    if (previous && !allocatedIds.has(previous.id)) {
+      allocatedIds.add(previous.id);
+      return previous.id;
+    }
+    const base = `${idPrefix[label]}.${from}.${to}`;
+    let candidate = base;
+    let suffix = 1;
+    while (allocatedIds.has(candidate)) candidate = `${base}.${suffix++}`;
+    allocatedIds.add(candidate);
+    return candidate;
+  };
   const upsert = (label: string, from: string, to: string, witness: string): void => {
     if (!to || from === to || !poolIds.has(to)) return;
     const key = `${label}|${from}|${to}`;
@@ -5965,7 +5993,7 @@ export function reconcileDependencyRelationships(
       const previous = inScopeAuto.get(key);
       bucket = {
         rel: {
-          id: previous?.id ?? `${idPrefix[label]}.${from}.${to}`,
+          id: allocateGeneratedId(label, from, to, previous),
           from,
           to,
           label,
@@ -5992,9 +6020,6 @@ export function reconcileDependencyRelationships(
       if (!macro || !Array.isArray(macro.source?.entries)) continue;
       for (const source of macro.source.entries) upsert(AUTO_LABEL, entry.id, source, name);
     }
-    for (const source of references.contextSrcs) {
-      upsert(AUTO_LABEL_USES_CONTEXT, entry.id, source, source);
-    }
   }
 
   for (const bucket of generated.values()) {
@@ -6005,7 +6030,9 @@ export function reconcileDependencyRelationships(
   const relationships = [...preservedRows, ...Array.from(generated.values(), ({ rel }) => rel)];
   const generatedRows = new Set(Array.from(generated.values(), ({ rel }) => rel));
   computeAtomicityInPlace(relationships, (relationship) => generatedRows.has(relationship));
-  relationships.sort((left, right) => left.id.localeCompare(right.id));
+  relationships.sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+  );
 
   let added = 0;
   let updated = 0;
@@ -6038,16 +6065,13 @@ export function reconcileDependencyRelationships(
 
 /**
  * Regenerate the auto-managed subset of `relationships.json` for a scope.
- * Auto rows are identified by (label ∈ AUTO_LABELS) AND
+ * Managed rows are identified by (label === "depends") AND
  * (metadata.generator === "macro-source-scan"). User-authored rows and
- * out-of-scope auto rows are preserved verbatim.
+ * out-of-scope auto rows are preserved verbatim. `uses_context` and every
+ * other relationship label are outside this reconciler and remain unchanged.
  *
- * Two auto label kinds (cat 2026-07-10):
- *   - "depends"      — source: `macros[name].source.entries` for each
- *                      macro name used in the entry's SNL.
- *   - "uses_context" — source: the `<foo>` target of every `x@<foo>`
- *                      postfix in the entry's SNL (cross-entry context
- *                      binding, Stage 1 §src-postfix).
+ * The managed dependency source is `macros[name].source.entries` for each
+ * macro name used in the Entry's SNL.
  *
  * Atomicity (metadata.isAtomic) is recomputed PER LABEL over the merged
  * graph: A→B in label L is atomic iff no alternative path A→…→B exists
@@ -6120,6 +6144,7 @@ export function computeAtomicityInPlace(
       adj.get(rel.from)!.push({ to: rel.to, edgeIdx: idx });
     });
     bucket.forEach(({ rel, idx: thisIdx }) => {
+      if (!shouldUpdate(rel)) return;
       const seen = new Set<string>([rel.from]);
       const queue: string[] = [rel.from];
       let hit = false;
@@ -6132,7 +6157,6 @@ export function computeAtomicityInPlace(
           if (!seen.has(e.to)) { seen.add(e.to); queue.push(e.to); }
         }
       }
-      if (!shouldUpdate(rel)) return;
       const md = (rel.metadata ?? {}) as { isAtomic?: boolean } & Record<string, unknown>;
       md.isAtomic = !hit;
       rel.metadata = md;

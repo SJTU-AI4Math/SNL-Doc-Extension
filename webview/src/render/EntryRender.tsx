@@ -42,8 +42,8 @@ export interface EntryData {
   kind: string;
   title: string;
   content: EntryContent;
-  /** TEMPORARY: exactly one Contributor string; this shape may change. */
-  contribution_info?: string | null;
+  /** New writes are scalar; older structured values remain opaque/read-only. */
+  contribution_info?: unknown;
   pointer: unknown;
 }
 
@@ -51,7 +51,9 @@ export interface EntryKind {
   id: string;
   name: string;
   coloring: { stroke: string; background: string };
-  numbering: string;
+  /** Legacy reader field; current host data uses defaultCounterName. */
+  numbering?: string;
+  defaultCounterName?: string;
   style: string;
 }
 

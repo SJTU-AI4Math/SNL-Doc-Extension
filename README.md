@@ -44,10 +44,12 @@ semantics mapping.
   formats SNL.
 - `contribution_info` is currently one optional Contributor string. The UI and
   schema comments mark this as temporary because the Contributor shape will
-  change in a future data version.
+  change in a future data version. Structured values written by older builds
+  remain readable and survive unrelated edits; new/replacement values must be
+  scalar.
 - Every successful Entry save synchronously reconciles that Entry's
-  system-owned `depends` and `uses_context` rows. User-authored relationships,
-  foreign generators, and all other labels are preserved unchanged.
+  system-owned `depends` rows. `uses_context`, user-authored relationships,
+  foreign generators, and every other label are preserved unchanged.
 - Single-Entry Infoview groups all touching relationships by label and
   direction, keeps the Entry body usable when relationship storage is corrupt,
   and records an explicit return route with a containing-Library fallback.

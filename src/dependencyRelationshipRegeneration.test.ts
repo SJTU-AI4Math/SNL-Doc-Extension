@@ -58,10 +58,12 @@ describe('scoped dependency relationship reconciliation', () => {
     };
     const otherEntryAuto = auto('dep.other.target', 'other', 'target');
     const bridgeAuto = auto('dep.mid.target', 'mid', 'target');
+    const savedContextAuto = auto('ctx.saved.stale', 'saved', 'stale', 'uses_context');
     const customBefore = structuredClone(customDepends);
     const foreignBefore = structuredClone(foreignGenerator);
     const otherBefore = structuredClone(otherEntryAuto);
     const bridgeBefore = structuredClone(bridgeAuto);
+    const savedContextBefore = structuredClone(savedContextAuto);
 
     const result = reconcileDependencyRelationships(
       [
@@ -75,7 +77,7 @@ describe('scoped dependency relationship reconciliation', () => {
       { freshMacro: macro('freshMacro', ['mid', 'target']) },
       [
         auto('dep.saved.stale', 'saved', 'stale'),
-        auto('ctx.saved.stale', 'saved', 'stale', 'uses_context'),
+        savedContextAuto,
         customDepends,
         foreignGenerator,
         otherEntryAuto,
@@ -85,7 +87,8 @@ describe('scoped dependency relationship reconciliation', () => {
     );
 
     expect(result.relationships.some(({ id }) => id === 'dep.saved.stale')).toBe(false);
-    expect(result.relationships.some(({ id }) => id === 'ctx.saved.stale')).toBe(false);
+    expect(result.relationships.find(({ id }) => id === savedContextAuto.id))
+      .toEqual(savedContextBefore);
     expect(result.relationships).toContainEqual(expect.objectContaining({
       id: 'dep.saved.mid', from: 'saved', to: 'mid', label: 'depends'
     }));
@@ -93,9 +96,7 @@ describe('scoped dependency relationship reconciliation', () => {
       id: 'dep.saved.target',
       metadata: expect.objectContaining({ generator: 'macro-source-scan', isAtomic: false })
     }));
-    expect(result.relationships).toContainEqual(expect.objectContaining({
-      id: 'ctx.saved.context', from: 'saved', to: 'context', label: 'uses_context'
-    }));
+    expect(result.relationships.some(({ id }) => id === 'ctx.saved.context')).toBe(false);
 
     expect(result.relationships.find(({ id }) => id === customDepends.id)).toEqual(customBefore);
     expect(result.relationships.find(({ id }) => id === foreignGenerator.id)).toEqual(foreignBefore);
@@ -105,5 +106,32 @@ describe('scoped dependency relationship reconciliation', () => {
     expect(foreignGenerator).toEqual(foreignBefore);
     expect(otherEntryAuto).toEqual(otherBefore);
     expect(bridgeAuto).toEqual(bridgeBefore);
+    expect(savedContextAuto).toEqual(savedContextBefore);
+  });
+
+  it('allocates a unique system id when the readable id is already user-owned', () => {
+    const userRow: RelationshipData = {
+      id: 'dep.saved.target',
+      from: 'saved',
+      to: 'target',
+      label: 'custom',
+      metadata: { owner: 'author' }
+    };
+    const result = reconcileDependencyRelationships(
+      [entry('saved', 'freshMacro'), entry('target', '')],
+      { freshMacro: macro('freshMacro', ['target']) },
+      [userRow],
+      { entryIds: new Set(['saved']) }
+    );
+
+    expect(new Set(result.relationships.map(({ id }) => id)).size)
+      .toBe(result.relationships.length);
+    expect(result.relationships).toContainEqual(userRow);
+    expect(result.relationships).toContainEqual(expect.objectContaining({
+      id: 'dep.saved.target.1',
+      from: 'saved',
+      to: 'target',
+      label: 'depends'
+    }));
   });
 });

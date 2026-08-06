@@ -51,6 +51,8 @@ describe('deterministic panel refresh behavior', () => {
     expect(screen.getByRole('tab', { name: 'Macro' }).getAttribute('aria-selected')).toBe('true');
     expect((screen.getByRole('combobox', { name: 'Kind (Macro)' }) as HTMLSelectElement).value)
       .toBe('const');
+    send({ type: 'results' });
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('group');
     const queryCount = posted.filter(
       (message) => (message as { type?: string }).type === 'query'
     ).length;
@@ -139,6 +141,8 @@ describe('graph keyboard accessibility', () => {
     });
     const node = screen.getByRole('button', { name: 'Entry Alpha (a)' });
     const edge = screen.getByRole('button', { name: 'Relationship uses: a to b' });
+    send({ type: 'graph', nodes: null });
+    expect(screen.getByRole('button', { name: 'Entry Alpha (a)' })).toBeTruthy();
     expect(node.getAttribute('tabindex')).toBe('0');
     expect(edge.getAttribute('tabindex')).toBe('0');
     fireEvent.keyDown(node, { key: 'Enter' });

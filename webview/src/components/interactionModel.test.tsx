@@ -104,6 +104,15 @@ describe('SNoogL listbox keyboard model', () => {
       mode: 'entry',
       filters: { kindId: 'definition' }
     })).toBe(true);
+    expect(queryKey({
+      q: 'lemma',
+      mode: 'entry',
+      filters: { kindId: 'definition', counterpartId: 'Logic.imp' }
+    })).not.toBe(queryKey({
+      q: 'lemma',
+      mode: 'entry',
+      filters: { kindId: 'definition', counterpartId: 'Logic.and' }
+    }));
   });
 });
 

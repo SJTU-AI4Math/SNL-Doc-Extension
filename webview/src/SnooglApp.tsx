@@ -71,7 +71,7 @@ interface ResultsMsg {
   query: { q: string; mode: Mode; filters: Filters };
   results: Hit[];
   kindsByMode: KindsByMode;
-  counterpartIdsByMode: KindsByMode;
+  counterpartIdsByMode?: KindsByMode;
 }
 
 type Incoming =
@@ -80,6 +80,37 @@ type Incoming =
   | ResultsMsg
   | { type: 'error'; message: string }
   | undefined;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+const isKindsByMode = (value: unknown): value is KindsByMode =>
+  isRecord(value) && isStringArray(value.entry) && isStringArray(value.macro);
+const isFilters = (value: unknown): value is Filters =>
+  isRecord(value) &&
+  (value.kindId === undefined || typeof value.kindId === 'string') &&
+  (value.counterpartId === undefined || typeof value.counterpartId === 'string');
+const isHit = (value: unknown): value is Hit => {
+  if (!isRecord(value) || typeof value.id !== 'string' ||
+      typeof value.score !== 'number') return false;
+  if (value.kind === 'entry') {
+    return typeof value.title === 'string' &&
+      (value.entryKind === null || typeof value.entryKind === 'string');
+  }
+  return value.kind === 'macro' && typeof value.packageFile === 'string' &&
+    typeof value.packageName === 'string' && isStringArray(value.tags) &&
+    (value.macroKind === null || typeof value.macroKind === 'string');
+};
+const isResultsMsg = (value: unknown): value is ResultsMsg => {
+  if (!isRecord(value) || value.type !== 'results' || !isRecord(value.query) ||
+      typeof value.query.q !== 'string' ||
+      (value.query.mode !== 'entry' && value.query.mode !== 'macro') ||
+      !isFilters(value.query.filters) || !Array.isArray(value.results) ||
+      !value.results.every(isHit) || !isKindsByMode(value.kindsByMode)) return false;
+  return value.counterpartIdsByMode === undefined ||
+    isKindsByMode(value.counterpartIdsByMode);
+};
 
 export function SnooglApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
@@ -129,6 +160,7 @@ export function SnooglApp(): React.ReactElement {
           }
           break;
         case 'results':
+          if (!isResultsMsg(msg)) return;
           // A result payload is a snapshot of one complete host query. Adopt
           // all query fields in the same React batch so refreshes cannot mix
           // a new result list with stale controls.
@@ -156,7 +188,7 @@ export function SnooglApp(): React.ReactElement {
           }
           break;
         case 'error':
-          setError(msg.message);
+          if (typeof msg.message === 'string') setError(msg.message);
           break;
       }
     };

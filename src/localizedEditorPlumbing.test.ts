@@ -10,7 +10,9 @@ describe('localized editor data-loss guards', () => {
     const entry = source('webview/src/CreateEntryApp.tsx');
     expect(entry).toContain('formDirtyRef.current &&');
     expect(entry).toContain('contributor,');
-    expect(entry).toContain('contribution_info: contributor.trim() || null');
+    expect(entry).toContain("mode === 'edit' && !contributorDirtyRef.current");
+    expect(entry).toContain('existingMetadataRef.current.contributionInfo');
+    expect(entry).toContain(': contributor.trim() || null');
     expect(entry).toContain('contentDirtyRef.current.has(format)');
   });
 

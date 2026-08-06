@@ -70,6 +70,7 @@ export function MonacoTextEditor({
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const valueRef = useRef(value);
+  const syncingControlledValueRef = useRef(false);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const formatRef = useRef(format);
@@ -129,6 +130,7 @@ export function MonacoTextEditor({
       monacoRef.current = monaco;
       monaco.editor.setTheme(theme);
       changeDisposable = editor.onDidChangeModelContent(() => {
+        if (syncingControlledValueRef.current) return;
         onChangeRef.current(model.getValue());
       });
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current());
@@ -165,7 +167,14 @@ export function MonacoTextEditor({
 
   useEffect(() => {
     const model = modelRef.current;
-    if (model && model.getValue() !== value) model.setValue(value);
+    if (model && model.getValue() !== value) {
+      syncingControlledValueRef.current = true;
+      try {
+        model.setValue(value);
+      } finally {
+        syncingControlledValueRef.current = false;
+      }
+    }
   }, [value]);
 
   useEffect(() => {

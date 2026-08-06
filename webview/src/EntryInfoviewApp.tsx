@@ -73,6 +73,59 @@ type Incoming =
   | { type: 'entryDetailsError'; entryId: string; message: string }
   | undefined;
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
+const isEntryData = (value: unknown): value is EntryData =>
+  isRecord(value) && typeof value.id === 'string' && typeof value.kind === 'string' &&
+  typeof value.title === 'string' && isRecord(value.content);
+const isEntryOption = (value: unknown): value is EntryOption =>
+  isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' &&
+  typeof value.hasContent === 'boolean' &&
+  (value.package === undefined || typeof value.package === 'string') &&
+  (value.snl === undefined || typeof value.snl === 'string');
+const isEntryKind = (value: unknown): value is EntryKind =>
+  isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
+  isRecord(value.coloring) && typeof value.coloring.stroke === 'string' &&
+  typeof value.coloring.background === 'string' && typeof value.style === 'string' &&
+  (value.numbering === undefined || typeof value.numbering === 'string') &&
+  (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
+const isRelationshipSection = (value: unknown): value is EntryRelationshipSection =>
+  isRecord(value) && typeof value.label === 'string' &&
+  (value.direction === 'incoming' || value.direction === 'outgoing') &&
+  Array.isArray(value.rows) && value.rows.every((row) =>
+    isRecord(row) && typeof row.id === 'string' && typeof row.title === 'string' &&
+    typeof row.relationshipId === 'string' &&
+    (row.kindId === undefined || typeof row.kindId === 'string') &&
+    (row.package === undefined || typeof row.package === 'string'));
+const isReturnRoute = (value: unknown): value is EntryReturnRoute => {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'root') return true;
+  if (value.kind === 'library') return typeof value.slug === 'string' &&
+    (value.title === undefined || typeof value.title === 'string');
+  if (value.kind === 'entry') return typeof value.entryId === 'string' &&
+    (value.entryPackage === undefined || typeof value.entryPackage === 'string');
+  return value.kind === 'chooseLibrary' && Array.isArray(value.libraries) &&
+    value.libraries.every((library) => isRecord(library) &&
+      typeof library.slug === 'string' && typeof library.title === 'string');
+};
+const isEntryDetails = (value: unknown): value is Exclude<Incoming, undefined | {
+  type: 'entryDetailsError'; entryId: string; message: string;
+}> => isRecord(value) && value.type === 'entryDetails' &&
+  (value.entry === null || isEntryData(value.entry)) &&
+  (value.kind === null || isEntryKind(value.kind)) && Array.isArray(value.entries) &&
+  value.entries.every(isEntryOption) &&
+  (value.entryPackages === undefined || isStringRecord(value.entryPackages)) &&
+  (value.macros === undefined || isRecord(value.macros)) &&
+  (value.macroKinds === undefined || Array.isArray(value.macroKinds)) &&
+  (value.relationshipSections === undefined || value.relationshipSections === null ||
+    (Array.isArray(value.relationshipSections) &&
+      value.relationshipSections.every(isRelationshipSection))) &&
+  (value.relationshipsError === undefined || typeof value.relationshipsError === 'string') &&
+  (value.returnRoute === undefined || isReturnRoute(value.returnRoute)) &&
+  (value.assetBaseUri === undefined || typeof value.assetBaseUri === 'string');
+
 export function EntryInfoviewApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const [loaded, setLoaded] = useState(false);
@@ -95,17 +148,16 @@ export function EntryInfoviewApp(): React.ReactElement {
   useEffect(() => {
 
     function onMessage(event: MessageEvent): void {
-      const msg = event.data as Incoming;
-      if (!msg || typeof msg.type !== 'string') {
-        return;
-      }
-      if (msg.type === 'entryDetailsError') {
+      const incoming: unknown = event.data;
+      if (isRecord(incoming) && incoming.type === 'entryDetailsError' &&
+          typeof incoming.entryId === 'string' && typeof incoming.message === 'string') {
         setLoaded(true);
         setState(null);
-        setLoadError(msg.message);
+        setLoadError(incoming.message);
         return;
       }
-      if (msg.type === 'entryDetails') {
+      if (isEntryDetails(incoming)) {
+        const msg = incoming;
         setLoaded(true);
         setLoadError(null);
         if (msg.macros && typeof msg.macros === 'object') {
@@ -277,10 +329,10 @@ function RelationshipsRegion({ sections, error, postMessage }: {
   }
   return (
     <section aria-label={t('relationships')}>
-      {sections.map((section) => (
+      {sections.map((section, index) => (
         <RelatedSection
           key={`${section.label}:${section.direction}`}
-          id={`${section.label}-${section.direction}`}
+          id={`relationship-section-${index}`}
           title={`${sectionLabel(section.label)} · ${t(section.direction)}`}
           rows={section.rows}
           postMessage={postMessage}

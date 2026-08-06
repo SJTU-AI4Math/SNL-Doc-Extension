@@ -22,7 +22,10 @@ function fakeMonaco(initial = ''): {
   const model = {
     value: initial,
     getValue() { return this.value; },
-    setValue: vi.fn(function (this: { value: string }, value: string) { this.value = value; }),
+    setValue: vi.fn(function (this: { value: string }, value: string) {
+      this.value = value;
+      change();
+    }),
     getFullModelRange: () => ({ marker: 'full-range' }),
     pushEditOperations: vi.fn(function (
       this: { value: string },
@@ -153,6 +156,26 @@ describe('MonacoTextEditor', () => {
       view.getByTestId('monaco-editor').getAttribute('data-ready')
     ).toBe('true'));
     expect(fake.model.value).toBe('latest draft');
+  });
+
+  it('does not report a controlled prop refresh as a user edit', async () => {
+    const fake = fakeMonaco('disk value');
+    const onChange = vi.fn();
+    const props = {
+      language: 'snl',
+      ariaLabel: 'SNL source',
+      onChange,
+      onSave: vi.fn(),
+      loadMonaco: fake.load
+    };
+    const view = render(<MonacoTextEditor {...props} value="disk value" />);
+    await waitFor(() => expect(
+      view.getByTestId('monaco-editor').getAttribute('data-ready')
+    ).toBe('true'));
+
+    view.rerender(<MonacoTextEditor {...props} value="fresh host value" />);
+    await waitFor(() => expect(fake.model.value).toBe('fresh host value'));
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('lays out on resize and disposes editor, model, listener, and observer', async () => {

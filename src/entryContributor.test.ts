@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeEntryContributor } from './entryContributor';
+import {
+  normalizeEntryContributor,
+  normalizeUpdatedEntryContributor
+} from './entryContributor';
 
 describe('temporary Entry Contributor schema', () => {
   it('accepts exactly one string and trims surrounding whitespace', () => {
@@ -18,4 +21,12 @@ describe('temporary Entry Contributor schema', () => {
       expect(() => normalizeEntryContributor(value)).toThrow(/Contributor must be a single string/i);
     }
   );
+
+  it('preserves the stored legacy shape but never accepts a structured replacement', () => {
+    const stored = { name: 'Legacy' };
+    expect(normalizeUpdatedEntryContributor({ injected: true }, stored)).toBe(stored);
+    expect(() => normalizeUpdatedEntryContributor({ injected: true }, 'Current'))
+      .toThrow(/single string/i);
+    expect(normalizeUpdatedEntryContributor(' Grace ', stored)).toBe('Grace');
+  });
 });

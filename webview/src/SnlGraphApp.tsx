@@ -106,7 +106,46 @@ interface GraphErrorMessage {
   message: string;
 }
 
-type GraphHostMessage = GraphMessage | GraphErrorMessage;
+const compareLexically = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
+const isScope = (value: unknown): value is Scope =>
+  isRecord(value) && (value.mode === 'pool' ||
+    (value.mode === 'library' && typeof value.slug === 'string'));
+const isGraphNode = (value: unknown): value is GraphNode =>
+  isRecord(value) && ['id', 'packageId', 'title', 'kind', 'kindId', 'color', 'background']
+    .every((key) => typeof value[key] === 'string');
+const isGraphEdge = (value: unknown): value is GraphEdge =>
+  isRecord(value) && ['id', 'from', 'to', 'label']
+    .every((key) => typeof value[key] === 'string') &&
+  typeof value.isDependency === 'boolean' &&
+  (value.isAtomic === null || typeof value.isAtomic === 'boolean');
+const isEntryOption = (value: unknown): value is EntryOption =>
+  isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' &&
+  (value.hasContent === undefined || typeof value.hasContent === 'boolean') &&
+  (value.snl === undefined || typeof value.snl === 'string');
+const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
+  isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
+  typeof value.coloring.stroke === 'string' &&
+  typeof value.coloring.background === 'string';
+const isGraphMessage = (value: unknown): value is GraphMessage =>
+  isRecord(value) && value.type === 'graph' && isScope(value.scope) &&
+  typeof value.title === 'string' && Array.isArray(value.nodes) &&
+  value.nodes.every(isGraphNode) && Array.isArray(value.edges) &&
+  value.edges.every(isGraphEdge) && Array.isArray(value.warnings) &&
+  value.warnings.every((warning) => typeof warning === 'string') &&
+  (value.entryOptions === undefined || (Array.isArray(value.entryOptions) &&
+    value.entryOptions.every(isEntryOption))) &&
+  (value.entryPackages === undefined || isStringRecord(value.entryPackages)) &&
+  (value.macros === undefined || isRecord(value.macros)) &&
+  (value.macroKinds === undefined || (Array.isArray(value.macroKinds) &&
+    value.macroKinds.every(isMacroKind)));
+const isGraphErrorMessage = (value: unknown): value is GraphErrorMessage =>
+  isRecord(value) && value.type === 'graphError' && isScope(value.scope) &&
+  typeof value.title === 'string' && typeof value.message === 'string';
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -393,7 +432,7 @@ function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
       const ad = a.startsWith('__dummy_');
       const bd = b.startsWith('__dummy_');
       if (ad !== bd) return ad ? 1 : -1;
-      return a.localeCompare(b);
+      return compareLexically(a, b);
     });
   }
   const orderIdx = new Map<string, number>();
@@ -428,7 +467,7 @@ function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
       layer.sort((a, b) => {
         const ka = key.get(a) ?? -1;
         const kb = key.get(b) ?? -1;
-        if (ka === kb) return a.localeCompare(b);
+        if (ka === kb) return compareLexically(a, b);
         return ka - kb;
       });
     }
@@ -445,7 +484,7 @@ function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
       layer.sort((a, b) => {
         const ka = key.get(a) ?? -1;
         const kb = key.get(b) ?? -1;
-        if (ka === kb) return a.localeCompare(b);
+        if (ka === kb) return compareLexically(a, b);
         return ka - kb;
       });
     }
@@ -642,14 +681,13 @@ export function SnlGraphApp(): React.ReactElement {
 
   useEffect(() => {
     function onMessage(event: MessageEvent): void {
-      const m = event.data as GraphHostMessage | undefined;
-      if (!m) return;
-      if (m.type === 'graph') {
-        setMsg(m);
+      const incoming: unknown = event.data;
+      if (isGraphMessage(incoming)) {
+        setMsg(incoming);
         setGraphError(null);
-      } else if (m.type === 'graphError') {
+      } else if (isGraphErrorMessage(incoming)) {
         // Preserve the last valid snapshot, but make the stale state explicit.
-        setGraphError(m);
+        setGraphError(incoming);
       }
     }
     window.addEventListener('message', onMessage);
@@ -767,7 +805,7 @@ function SnlGraphInner({
       if (seen.has(n.kindId)) continue;
       seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color: n.color });
     }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
+    return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
   }, [msg]);
 
   // Fit-to-view on first load.

@@ -382,8 +382,8 @@ interface ExistingEntry {
     markdown?: Localized<string, string>;
     text?: Localized<string, string>;
   };
-  /** TEMPORARY: exactly one Contributor string; this shape may change. */
-  contribution_info?: string | null;
+  /** New writes are scalar; legacy structured values are preserved untouched. */
+  contribution_info?: unknown;
   pointer?: unknown;
 }
 
@@ -703,7 +703,8 @@ export function CreateEntryApp(): React.ReactElement {
   const entryRevisionRef = useRef<string | undefined>(undefined);
   const existingMetadataRef = useRef<{
     pointer: unknown;
-  }>({ pointer: null });
+    contributionInfo: unknown;
+  }>({ pointer: null, contributionInfo: null });
 
   useEffect(() => {
     const nextLanguage = webview_language_runtime.query_environment().language;
@@ -860,7 +861,8 @@ export function CreateEntryApp(): React.ReactElement {
               // record. Contributor is edited directly and therefore lives in
               // identity-scoped draft state instead. Review 2026-07-25.
               existingMetadataRef.current = {
-                pointer: msg.existing.pointer ?? null
+                pointer: msg.existing.pointer ?? null,
+                contributionInfo: msg.existing.contribution_info
               };
               const typst = projectLocalizedContent(msg.existing.content?.typst);
               const latex = projectLocalizedContent(msg.existing.content?.latex);
@@ -1069,7 +1071,10 @@ export function CreateEntryApp(): React.ReactElement {
         snl: content.snl || undefined,
         ...persistedContent
       },
-      contribution_info: contributor.trim() || null,
+      contribution_info:
+        mode === 'edit' && !contributorDirtyRef.current
+          ? existingMetadataRef.current.contributionInfo
+          : contributor.trim() || null,
       pointer:
         mode === 'edit' && !pointerDirtyRef.current
           ? existingMetadataRef.current.pointer

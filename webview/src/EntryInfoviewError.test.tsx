@@ -30,13 +30,29 @@ afterEach(() => {
 describe('EntryInfoview relationship availability', () => {
   it('keeps the Entry body available when relationships are unreadable and retries only that region', () => {
     render(<EntryInfoviewApp />);
-    push({ ...base, relationshipSections: null, relationshipsError: 'relationships.json has duplicate ids', returnRoute: { kind: 'root' } });
+    push({
+      ...base,
+      kind: {
+        id: 'definition',
+        name: 'Definition',
+        coloring: { stroke: '#888888', background: '#222222' },
+        defaultCounterName: 'definition',
+        style: ''
+      },
+      relationshipSections: null,
+      relationshipsError: 'relationships.json has duplicate ids',
+      returnRoute: { kind: 'root' }
+    });
 
     expect(screen.getByRole('heading', { level: 1, name: 'Entry One' })).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain(
       'Relationships unavailable: relationships.json has duplicate ids'
     );
     expect(screen.queryByText(/Could not load entry data/)).toBeNull();
+
+    push({ type: 'entryDetails', entry: {}, entries: null, returnRoute: { kind: 'broken' } });
+    expect(screen.getByRole('heading', { level: 1, name: 'Entry One' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('relationships.json has duplicate ids');
 
     api.postMessage.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Retry relationships' }));
@@ -49,13 +65,18 @@ describe('EntryInfoview relationship availability', () => {
       ...base,
       relationshipSections: [
         { label: 'depends', direction: 'incoming', rows: [{ id: 'entry-2', package: 'logic', title: 'Entry Two', relationshipId: 'r1', metadata: null }] },
-        { label: 'depends', direction: 'outgoing', rows: [{ id: 'entry-3', package: 'other', title: 'Entry Three', relationshipId: 'r2', metadata: null }] }
+        { label: 'depends', direction: 'outgoing', rows: [{ id: 'entry-3', package: 'other', title: 'Entry Three', relationshipId: 'r2', metadata: null }] },
+        { label: 'custom label', direction: 'outgoing', rows: [{ id: 'entry-4', title: 'Entry Four', relationshipId: 'r3', metadata: null }] }
       ],
       returnRoute: { kind: 'root' }
     });
 
     expect(screen.getByText('Dependencies · Incoming')).toBeTruthy();
     expect(screen.getByText('Dependencies · Outgoing')).toBeTruthy();
+    const customDisclosure = screen.getByRole('button', { name: 'custom label · Outgoing' });
+    const controlledId = customDisclosure.getAttribute('aria-controls') ?? '';
+    expect(controlledId).not.toMatch(/\s/);
+    expect(document.getElementById(controlledId)).toBeTruthy();
     api.postMessage.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /Open Infoview for Entry Two/ }));
     expect(api.postMessage).toHaveBeenCalledWith({

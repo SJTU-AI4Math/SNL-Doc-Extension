@@ -38,7 +38,7 @@
 | 30 | `snlDoc.deleteLibrary` | SNL: Delete Library | 删除 library（弹确认） | 删除 |
 | 31 | `snlDoc.deleteMacroPackage` | SNL: Delete Macro Package | 删除 macro package（弹确认） | 删除 |
 | 32 | `snlDoc.deleteRelationship` | SNL: Delete Relationship | 删除 relationship（弹确认） | 删除 |
-| 33 | `snlDoc.regenerateDependencies` | SNL: Regenerate Dependency Relationships | 扫全部 entries 重建系统维护的 `depends` / `uses_context` 关系 | 关系图 |
+| 33 | `snlDoc.regenerateDependencies` | SNL: Regenerate Dependency Relationships | 扫全部 entries 重建系统维护的 `depends`；`uses_context` 和其他标签不动 | 关系图 |
 | 34 | `snlDoc.checkDataVersion` | SNL: Check Data Version | 严格检查 workspace 数据版本与 topology，不写入 | 数据维护 |
 | 35 | `snlDoc.repairData` | SNL: Repair / Migrate Data | 执行确认后的相邻 migration chain | 数据维护 |
 | 36 | `snlDoc.toggleTrace` | SNL: Toggle Performance Trace | 切换 Panel 性能追踪 | 诊断 |

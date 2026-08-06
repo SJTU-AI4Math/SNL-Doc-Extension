@@ -12,7 +12,7 @@ const api: VsCodeApi = {
 };
 (globalThis as { acquireVsCodeApi?: () => VsCodeApi }).acquireVsCodeApi = () => api;
 
-function context(id: string, contributor?: string): void {
+function context(id: string, contributor?: unknown): void {
   window.dispatchEvent(new MessageEvent('message', { data: {
     type: 'context', mode: 'edit', targetState: 'found', id,
     entryRevision: `revision-${id}`,
@@ -52,5 +52,19 @@ describe('temporary single-string Contributor editor', () => {
     });
     await waitFor(() => expect(JSON.stringify(state)).toContain('Draft Author'));
     expect(JSON.stringify(state)).toContain('createEntry:edit:entry-a');
+  });
+
+  it('preserves an untouched legacy structured Contributor during unrelated edits', async () => {
+    const legacy = { name: 'Legacy Author', roles: ['writer'] };
+    const view = render(<CreateEntryApp />);
+    context('entry-a', legacy);
+    await waitFor(() => view.getByRole('button', { name: 'Update Entry' }));
+    fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
+    const update = posted.find((message): message is {
+      type: string;
+      entry: { contribution_info: unknown };
+    } => !!message && typeof message === 'object' &&
+      (message as { type?: string }).type === 'update');
+    expect(update?.entry.contribution_info).toEqual(legacy);
   });
 });

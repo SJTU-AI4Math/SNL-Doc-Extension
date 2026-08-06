@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ postMessage: vi.fn() }));
@@ -42,6 +42,7 @@ describe('Library counter errors', () => {
     expect(screen.getByRole('alert').textContent).toContain(
       'Counter update failed: revision conflict'
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));
     expect(screen.getByDisplayValue('theorem')).toBeDefined();
   });
 });

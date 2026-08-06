@@ -74,18 +74,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Entry editor secondary sections', () => {
-  it('keeps every section except basic information and content collapsed by default', async () => {
+  it('keeps Preview visible while secondary metadata sections start collapsed', async () => {
     const view = await renderEditor();
 
-    for (const name of ['Live Preview', 'Relationships', 'Contributor', 'Pointer']) {
+    for (const name of ['Relationships', 'Contributor', 'Pointer']) {
       expect(sectionButton(view, name).getAttribute('aria-expanded')).toBe('false');
     }
+    expect(view.getByRole('heading', { name: 'Live Preview' })).toBeTruthy();
+    expect(view.queryByRole('button', { name: 'Live Preview' })).toBeNull();
+    expect(view.getAllByText(/Theorem One/).length).toBeGreaterThan(0);
     expect(view.getByText('Content')).toBeTruthy();
     expect(view.queryByText(/Not implemented yet — deferred until the contribution_info schema/i)).toBeNull();
-
-    fireEvent.click(sectionButton(view, 'Live Preview'));
-    expect(sectionButton(view, 'Live Preview').getAttribute('aria-expanded')).toBe('true');
-    expect(view.getAllByText(/Theorem One/).length).toBeGreaterThan(0);
   });
 });
 

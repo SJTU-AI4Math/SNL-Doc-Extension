@@ -206,7 +206,10 @@ describe('CreateEntryApp create → edit flip', () => {
     ) ?? view.container.querySelector<HTMLInputElement>('[id^="snl-entry-id"]')!;
     fireEvent.change(titleInput, { target: { value: 'Created While Package Pending' } });
     fireEvent.change(idInput, { target: { value: 'created-while-package-pending' } });
-    fireEvent.click(view.getByRole('button', { name: 'Create Entry' }));
+    const createEntryButton = view.getByRole('button', { name: 'Create Entry' }) as HTMLButtonElement;
+    expect(createEntryButton.disabled).toBe(true);
+    fireEvent.click(createEntryButton);
+    expect(posted.some((message) => message?.type === 'create')).toBe(false);
 
     send({ type: 'created', id: 'created-while-package-pending' });
     send({
@@ -304,6 +307,8 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.click(view.getByRole('button', { name: 'Add Package' }));
 
     const selector = view.getByLabelText('Package') as HTMLSelectElement;
+    const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
+    expect(updateButton.disabled).toBe(true);
     const request = posted.findLast((message) => message?.type === 'createPackage');
     expect(request).toMatchObject({ type: 'createPackage', packageId: 'Algebra' });
     expect(typeof request?.requestId).toBe('string');
@@ -318,6 +323,7 @@ describe('CreateEntryApp create → edit flip', () => {
     await waitFor(() => expect(selector.value).toBe('Algebra'));
     expect(Array.from(selector.options).some((option) => option.value === 'Algebra')).toBe(true);
     expect(view.queryByLabelText('New Package ID')).toBeNull();
+    expect(updateButton.disabled).toBe(false);
   });
 
   it('keeps the Package creator open with an actionable host error', async () => {

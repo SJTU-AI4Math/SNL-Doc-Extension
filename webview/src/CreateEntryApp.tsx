@@ -1067,6 +1067,7 @@ export function CreateEntryApp(): React.ReactElement {
       : pointerDraftError(pointerDraft, t);
   const canCreate =
     targetState !== 'notFound' &&
+    !packageCreating &&
     kinds.length > 0 &&
     trimmedTitle.length > 0 &&
     trimmedId.length > 0 &&

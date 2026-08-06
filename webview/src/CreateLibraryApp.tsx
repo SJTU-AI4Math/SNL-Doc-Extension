@@ -280,6 +280,7 @@ export function CreateLibraryApp(): React.ReactElement {
         case 'created':
           titleDirtyRef.current = false;
           setFormDirty(false);
+          saveDraft(apiRef.current, editorDraftKey('library', 'create', ''), undefined);
           saveDraft(apiRef.current, editorDraftKey('library', 'edit', msg.slug), undefined);
           setMode('edit');
           setSlug(msg.slug);

@@ -34,6 +34,19 @@ vi.mock('./snlDoc', () => ({
     operationGraph = structuredClone(graph);
     return { status: 'ok' };
   }),
+  renameLibraryGraphNodeId: vi.fn(async (_root: unknown, _slug: string, oldId: string, newId: string) => {
+    if (!operationGraph.nodes.some((node) => node.id === oldId)) return { status: 'notFound' };
+    if (operationGraph.nodes.some((node) => node.id === newId)) return { status: 'duplicate' };
+    operationGraph = {
+      nodes: operationGraph.nodes.map((node) => node.id === oldId ? { ...node, id: newId } : node),
+      relationships: operationGraph.relationships.map((relationship) => ({
+        ...relationship,
+        from: relationship.from === oldId ? newId : relationship.from,
+        to: relationship.to === oldId ? newId : relationship.to
+      }))
+    };
+    return { status: 'ok' };
+  }),
   readLibraryMeta: vi.fn(async () => ({ status: 'ok', meta: { title: createResult.title } })),
   readLibraryGraph: vi.fn(() => operationMode
     ? Promise.resolve({ status: 'ok', result: { graph: structuredClone(operationGraph), warnings: [] } })
@@ -129,6 +142,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
   });
 
   it('persists graph-local node renames with all incident edges rewritten', async () => {
+    const snlDoc = await import('./snlDoc');
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     operationMode = true;
     operationGraph = {
@@ -143,6 +157,8 @@ describe('CreateLibraryPanel refresh ordering', () => {
     };
     const posted: any[] = [];
     const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    vi.mocked(snlDoc.renameLibraryGraphNodeId).mockClear();
+    vi.mocked(snlDoc.writeLibraryGraph).mockClear();
 
     await panel.handleMessage({
       type: 'graphOp',
@@ -155,6 +171,13 @@ describe('CreateLibraryPanel refresh ordering', () => {
       { from: 'intro', to: 'child', label: 'branch' },
       { from: 'child', to: 'intro', label: 'reference' }
     ]);
+    expect(snlDoc.renameLibraryGraphNodeId).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/workspace' }),
+      'lib',
+      'root',
+      'intro'
+    );
+    expect(snlDoc.writeLibraryGraph).not.toHaveBeenCalled();
   });
 
   it('rejects a duplicate node id without writing the graph', async () => {

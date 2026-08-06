@@ -16,6 +16,26 @@ const roots: Item[] = [
 afterEach(cleanup);
 
 describe('TreeOutlineEditor move modifiers', () => {
+  it('provides a wrapping narrow-panel layout for row content and toolbar', () => {
+    const view = render(
+      <TreeOutlineEditor
+        roots={[roots[0]]}
+        getId={(node) => node.id}
+        getChildren={(node) => node.children}
+        renderRow={(node) => <><span>{node.id}</span><input aria-label="Node ID" /></>}
+        onOp={() => undefined}
+        emptyState={null}
+      />
+    );
+    const row = view.container.querySelector<HTMLElement>('.snl-outline-row');
+    const content = view.container.querySelector<HTMLElement>('.snl-outline-row-content');
+    const toolbar = view.container.querySelector<HTMLElement>('.snl-outline-row-toolbar');
+    expect(row?.style.flexWrap).toBe('wrap');
+    expect(content?.style.minWidth).toBe('0px');
+    expect(content?.style.flexWrap).toBe('wrap');
+    expect(toolbar?.style.marginLeft).toBe('auto');
+  });
+
   it('marks Ctrl+move as a direct move to the sibling edge', () => {
     const onOp = vi.fn();
     const view = render(

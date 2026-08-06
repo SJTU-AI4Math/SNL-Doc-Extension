@@ -15,6 +15,7 @@ import {
 } from './localizedContent';
 import { slugify } from './slug';
 import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
+import { renameRawLibraryGraphNodeId } from './libraryGraph';
 import {
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
@@ -1860,9 +1861,16 @@ export async function createMacroPackage(
   }
 
   const entityMode = await usesEntityStorage(workspaceRoot);
+  let legacyActive: string[] = [];
+  let legacyConfigRaw: unknown;
   if (!entityMode) {
     try {
-      await resolveActiveMacroPackages(workspaceRoot);
+      const [onDisk, configRaw] = await Promise.all([
+        listMacroPackageNames(workspaceRoot, false),
+        readJson<unknown>(configUri(workspaceRoot))
+      ]);
+      legacyConfigRaw = configRaw;
+      legacyActive = resolveActiveFromConfig(onDisk, normalizeConfig(configRaw));
     } catch (error) {
       return { status: 'error', message: error instanceof Error ? error.message : String(error) };
     }
@@ -1937,21 +1945,31 @@ export async function createMacroPackage(
       return { status: 'ok', file: `${bare}.json` } as const;
     } else {
       await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
-      await writeWorkspaceFile(workspaceRoot, target, jsonBytes(pkg), null);
+      if (!legacyConfigRaw || typeof legacyConfigRaw !== 'object' || Array.isArray(legacyConfigRaw)) {
+        throw new Error('config.json must be an object');
+      }
+      const active = new Set(legacyActive);
+      active.add(bare);
+      const nextConfig = {
+        ...(legacyConfigRaw as Record<string, unknown>),
+        active_macro_packages: [...active].sort((left, right) => left.localeCompare(right))
+      };
+      await applyJsonFileOperations(workspaceRoot, `create Package ${bare}`, [
+        { kind: 'write', uri: target, value: pkg, expected: null },
+        {
+          kind: 'write',
+          uri: configUri(workspaceRoot),
+          value: nextConfig,
+          expected: legacyConfigRaw
+        }
+      ]);
+      return { status: 'ok', file: `${bare}.json` } as const;
     }
   } catch (err) {
     return {
       status: 'error',
       message: err instanceof Error ? err.message : String(err)
     };
-  }
-  // Newly-created packages default to active. Resolve the current effective
-  // active set (migrating older configs to "all on disk") and persist it with
-  // this package included, materializing the field on first create.
-  try {
-    await setMacroPackageActive(workspaceRoot, bare, true);
-  } catch {
-    // Config missing/unwritable — the package file was still created.
   }
     return { status: 'ok', file: `${bare}.json` };
   });
@@ -5111,6 +5129,53 @@ export async function writeLibraryGraph(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+}
+
+/**
+ * CAS-safe scoped node-ID rename. It intentionally transforms the raw JSON
+ * instead of the forgiving reader projection, so unrelated extensions and
+ * malformed records survive unchanged.
+ */
+export async function renameLibraryGraphNodeId(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  oldNodeId: string,
+  newNodeId: string
+): Promise<
+  | { status: 'ok' }
+  | { status: 'invalid' }
+  | { status: 'duplicate' }
+  | { status: 'notFound' }
+  | { status: 'error'; message: string }
+> {
+  return withExtensionWriterLock(workspaceRoot, 'rename Library graph node', async () => {
+    const uri = libraryGraphUri(workspaceRoot, slug);
+    let raw: unknown;
+    try {
+      raw = await readJson<unknown>(uri);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      if (code === 'FileNotFound' || code === 'ENOENT') return { status: 'notFound' } as const;
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      } as const;
+    }
+    const renamed = renameRawLibraryGraphNodeId(raw, oldNodeId, newNodeId);
+    if (!renamed.ok) return { status: renamed.reason } as const;
+    if (oldNodeId === newNodeId) return { status: 'ok' } as const;
+    try {
+      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(renamed.value), raw);
+      return { status: 'ok' } as const;
+    } catch (error) {
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      } as const;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

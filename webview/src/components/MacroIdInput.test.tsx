@@ -150,7 +150,8 @@ describe('MacroIdInput', () => {
   it.each([
     ['%', 'text%', '%text%'],
     ['$', 'display$$', '$display$$'],
-    ['%', 'formula$', '%formula$%']
+    ['%', 'formula$', '%formula$'],
+    ['$', 'text%', '$text%']
   ])('preserves existing %s delimiter semantics for %s', (key, initial, expected) => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState(initial);

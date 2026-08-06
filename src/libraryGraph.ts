@@ -89,6 +89,71 @@ export function renameGraphNodeId<
   };
 }
 
+export type RenameRawLibraryGraphNodeResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; reason: 'invalid' | 'duplicate' | 'notFound' };
+
+/** Preserve the raw graph envelope and unknown records while changing only node identity. */
+export function renameRawLibraryGraphNodeId(
+  raw: unknown,
+  oldNodeId: string,
+  newNodeId: string
+): RenameRawLibraryGraphNodeResult {
+  const nextId = newNodeId.trim();
+  if (
+    nextId.length === 0 ||
+    nextId !== newNodeId ||
+    /[\u0000-\u001f\u007f]/u.test(nextId) ||
+    !raw ||
+    typeof raw !== 'object' ||
+    Array.isArray(raw)
+  ) {
+    return { ok: false, reason: 'invalid' };
+  }
+  const wrapper = raw as Record<string, unknown>;
+  if (!Array.isArray(wrapper.nodes) || !Array.isArray(wrapper.relationships)) {
+    return { ok: false, reason: 'invalid' };
+  }
+  const sourceCount = wrapper.nodes.filter((node) =>
+    node !== null && typeof node === 'object' && !Array.isArray(node) &&
+    (node as Record<string, unknown>).id === oldNodeId
+  ).length;
+  if (sourceCount === 0) return { ok: false, reason: 'notFound' };
+  if (sourceCount !== 1) return { ok: false, reason: 'invalid' };
+  if (
+    nextId !== oldNodeId &&
+    wrapper.nodes.some((node) =>
+      node !== null && typeof node === 'object' && !Array.isArray(node) &&
+      (node as Record<string, unknown>).id === nextId
+    )
+  ) {
+    return { ok: false, reason: 'duplicate' };
+  }
+  if (nextId === oldNodeId) return { ok: true, value: wrapper };
+  return {
+    ok: true,
+    value: {
+      ...wrapper,
+      nodes: wrapper.nodes.map((node) => {
+        if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
+        const record = node as Record<string, unknown>;
+        return record.id === oldNodeId ? { ...record, id: nextId } : node;
+      }),
+      relationships: wrapper.relationships.map((relationship) => {
+        if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) {
+          return relationship;
+        }
+        const record = relationship as Record<string, unknown>;
+        return {
+          ...record,
+          ...(record.from === oldNodeId ? { from: nextId } : {}),
+          ...(record.to === oldNodeId ? { to: nextId } : {})
+        };
+      })
+    }
+  };
+}
+
 /** Kind lookup shape needed by numberFor — a thin view of EntryKind. Since
  *  the 2026-07-16 rename, a kind names a Library-scoped counter (by
  *  `counter.name`) rather than carrying a numbering DSL directly. */

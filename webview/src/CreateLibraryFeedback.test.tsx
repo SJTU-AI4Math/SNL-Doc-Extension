@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateLibraryApp } from './CreateLibraryApp';
 import type { VsCodeApi } from './vscodeApi';
+import { editorDraftKey, loadDraft } from './components/draftState';
 
 const postMessage = vi.fn();
+let persistedState: unknown = {};
+const testApi: VsCodeApi = {
+  postMessage,
+  getState: () => persistedState,
+  setState: (next) => { persistedState = next; }
+};
 
 afterEach(() => {
   cleanup();
   postMessage.mockReset();
+  persistedState = {};
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
 
@@ -24,7 +32,7 @@ function sendGraph(overrides: Record<string, unknown> = {}): void {
 }
 
 function setupApi(): void {
-  (globalThis as { __snlApi?: VsCodeApi }).__snlApi = { postMessage };
+  (globalThis as { __snlApi?: VsCodeApi }).__snlApi = testApi;
 }
 
 describe('Create Library feedback', () => {
@@ -62,6 +70,21 @@ describe('Create Library feedback', () => {
     expect(screen.getByDisplayValue('real-analysis')).toBeTruthy();
     expect(screen.getByDisplayValue('Real Analysis')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Update Title' })).toBeTruthy();
+  });
+
+  it('clears both the completed create draft and the destination edit draft', async () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'create' });
+    fireEvent.change(screen.getByLabelText('Library title'), { target: { value: 'Real Analysis' } });
+    await waitFor(() => expect(loadDraft(testApi, editorDraftKey('library', 'create', ''))).toBeTruthy());
+
+    send({ type: 'created', slug: 'real-analysis', title: 'Real Analysis' });
+
+    await waitFor(() => {
+      expect(loadDraft(testApi, editorDraftKey('library', 'create', ''))).toBeUndefined();
+      expect(loadDraft(testApi, editorDraftKey('library', 'edit', 'real-analysis'))).toBeUndefined();
+    });
   });
 
   it('keeps Entry suggestions opaque and in flow above the Create action', () => {

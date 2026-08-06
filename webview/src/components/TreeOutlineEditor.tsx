@@ -222,6 +222,7 @@ function TreeRow<T>({
         style={{
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
           gap: '0.4rem',
           ...treeRowStyle(depth),
           borderBottom:
@@ -250,11 +251,23 @@ function TreeRow<T>({
           <span style={{ width: '1.2rem', display: 'inline-block' }} />
         )}
 
-        {renderRow(node, depth)}
+        <div
+          className="snl-outline-row-content"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flex: '1 1 30rem',
+            minWidth: 0,
+            gap: '0.4rem',
+            flexWrap: 'wrap'
+          }}
+        >
+          {renderRow(node, depth)}
+        </div>
 
         <div
           className="snl-outline-row-toolbar"
-          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
+          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, marginLeft: 'auto' }}
         >
           <ToolbarButton
             label={t('addChildLabel')}

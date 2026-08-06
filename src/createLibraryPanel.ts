@@ -10,6 +10,7 @@ import {
   readLibraryCounters,
   readLibraryGraph,
   readLibraryMeta,
+  renameLibraryGraphNodeId,
   updateLibrary,
   writeLibraryCounters,
   writeLibraryGraph,
@@ -22,7 +23,6 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
-import { renameGraphNodeId } from './libraryGraph';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
 
@@ -659,6 +659,31 @@ export class CreateLibraryPanel {
     }
 
     try {
+      if (op.op === 'renameNode') {
+        const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
+        const newNodeId = typeof op.newNodeId === 'string' ? op.newNodeId : '';
+        if (!nodeId || !newNodeId) {
+          void this.panel.webview.postMessage({
+            type: 'graphError',
+            message: libraryT()('renameNodeRequired')
+          });
+          return;
+        }
+        const renamed = await renameLibraryGraphNodeId(root, this.slug, nodeId, newNodeId);
+        if (renamed.status !== 'ok') {
+          const message = renamed.status === 'invalid'
+            ? libraryT()('renameNodeInvalid')
+            : renamed.status === 'duplicate'
+              ? libraryT()('renameNodeDuplicate', { node: newNodeId })
+              : renamed.status === 'notFound'
+                ? libraryT()('renameNodeNotFound', { node: nodeId })
+                : renamed.message;
+          void this.panel.webview.postMessage({ type: 'graphError', message });
+          return;
+        }
+        await this.pushGraph();
+        return;
+      }
       // Read → mutate → write in one shot. readLibraryGraph tolerates
       // no-file by returning noFile; treat it as empty and write fresh.
       const gRead = await readLibraryGraph(root, this.slug);
@@ -981,30 +1006,7 @@ export class CreateLibraryPanel {
           }
           break;
         }
-        case 'renameNode': {
-          const nodeId = typeof op.nodeId === 'string' ? op.nodeId : '';
-          const newNodeId = typeof op.newNodeId === 'string' ? op.newNodeId : '';
-          if (!nodeId || !newNodeId) {
-            void this.panel.webview.postMessage({
-              type: 'graphError',
-              message: libraryT()('renameNodeRequired')
-            });
-            return;
-          }
-          const renamed = renameGraphNodeId(nodes, relationships, nodeId, newNodeId);
-          if (!renamed.ok) {
-            const message = renamed.reason === 'invalid'
-              ? libraryT()('renameNodeInvalid')
-              : renamed.reason === 'duplicate'
-                ? libraryT()('renameNodeDuplicate', { node: newNodeId })
-                : libraryT()('renameNodeNotFound', { node: nodeId });
-            void this.panel.webview.postMessage({ type: 'graphError', message });
-            return;
-          }
-          nodes = renamed.nodes;
-          relationships = renamed.relationships;
-          break;
-        }
+
         case 'updateNodeProps': {
           // Per-node property patch (2026-07-16). Currently only `counterId`
           // is patchable — an explicit counter override for this outline node.

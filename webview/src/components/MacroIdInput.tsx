@@ -303,7 +303,7 @@ export const MacroIdInput = forwardRef<
     ) {
       event.preventDefault();
       const inner = selectionEnd === value.length ? '' : value;
-      const closingDelimiter = inner.endsWith(event.key) ? '' : event.key;
+      const closingDelimiter = inner.endsWith('$') || inner.endsWith('%') ? '' : event.key;
       const next = `${event.key}${inner}${closingDelimiter}`;
       pendingCaretRef.current = 1;
       setCaretPosition(1);

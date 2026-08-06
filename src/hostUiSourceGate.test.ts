@@ -46,7 +46,7 @@ function audit(file: string): string[] {
     for (const property of object.properties) {
       if (!ts.isPropertyAssignment(property)) continue;
       const name = property.name.getText(source).replace(/["']/g, '');
-      if ((name === 'message' || name === 'detail' || name === 'title' || name === 'placeHolder' ||
+      if ((name === 'message' || name === 'detail' || name === 'title' || name === 'placeHolder' || name === 'openLabel' ||
            name === 'prompt' || name === 'reason' || name === 'warnings') &&
           isRawHumanCopy(property.initializer)) {
         report(property.initializer, `raw ${name}`);
@@ -80,7 +80,8 @@ function audit(file: string): string[] {
         const title = node.arguments[1];
         if (title && isRawHumanCopy(title)) report(title, 'raw panel title');
       }
-      if (method === 'showQuickPick' || method === 'showInputBox') {
+      if (method === 'showQuickPick' || method === 'showInputBox' ||
+          method === 'showSaveDialog' || method === 'showOpenDialog') {
         for (const arg of node.arguments) {
           if (ts.isObjectLiteralExpression(arg)) inspectMessageProperty(arg);
           else if (method === 'showQuickPick' && isRawCopy(arg)) report(arg, `raw ${method}`);

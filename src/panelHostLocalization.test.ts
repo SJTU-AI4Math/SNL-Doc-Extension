@@ -76,5 +76,8 @@ describe('panel-controller host localization', () => {
     expect(source).toContain('instance.payload = { ...instance.payload, locale }');
     expect(source).toContain('void instance.pushContext()');
     expect(source).not.toContain("'exportOptions',\n      'SNL Export HTML'");
+    expect(source).toContain("title: t('saveDialogTitle')");
+    expect(source).toContain("title: t('folderDialogTitle')");
+    expect(source).toContain("openLabel: t('exportHere')");
   });
 });

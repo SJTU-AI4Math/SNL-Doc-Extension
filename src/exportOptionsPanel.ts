@@ -9,13 +9,15 @@ import { bind_preferences_panel_locale_change } from './preferencesHost';
 
 const MESSAGES = defineHostMessages(
   {
-    panelTitle: 'SNL Export HTML',
+    panelTitle: 'SNL Export HTML', saveDialogTitle: 'Export SNL document',
+    folderDialogTitle: 'Choose a folder for the exported document', exportHere: 'Export here',
     noWorkspace: 'No workspace folder is open.', chooseDestination: 'Choose a destination first.',
     runtimeMissing: 'Interactive runtime not found (run `npm run build:export-runtime`); exporting a static document instead.',
     done: 'Exported {count} file(s) to {path}'
   },
   {
-    panelTitle: 'SNL 导出 HTML',
+    panelTitle: 'SNL 导出 HTML', saveDialogTitle: '导出 SNL 文档',
+    folderDialogTitle: '选择导出文档的文件夹', exportHere: '导出到此处',
     noWorkspace: '没有打开的工作区文件夹。', chooseDestination: '请先选择导出位置。',
     runtimeMissing: '未找到交互运行时（请运行 `npm run build:export-runtime`）；将改为导出静态文档。',
     done: '已将 {count} 个文件导出到 {path}'
@@ -180,21 +182,25 @@ export class ExportOptionsPanel {
 
   private async pickDestination(shape: 'single' | 'directory'): Promise<void> {
     const fallback = this.defaultDestination(shape);
+    const t = createHostTranslator(
+      this.payload.locale ?? read_extension_preferences().language,
+      MESSAGES
+    );
     const picked =
       shape === 'single'
         ? await vscode.window.showSaveDialog({
-            title: 'Export SNL document',
+            title: t('saveDialogTitle'),
             defaultUri: fallback,
             filters: { HTML: ['html'] }
           })
         : await vscode.window
             .showOpenDialog({
-              title: 'Choose a folder for the exported document',
+              title: t('folderDialogTitle'),
               canSelectFiles: false,
               canSelectFolders: true,
               canSelectMany: false,
               defaultUri: firstWorkspaceFolder(),
-              openLabel: 'Export here'
+              openLabel: t('exportHere')
             })
             .then((dirs) =>
               dirs?.[0]

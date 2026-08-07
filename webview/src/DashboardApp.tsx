@@ -716,6 +716,7 @@ function CollapsibleSection({
             display: 'flex',
             flex: 1,
             alignItems: 'baseline',
+            justifyContent: 'flex-start',
             gap: '0.6rem',
             padding: '0.4rem 0',
             background: 'transparent',

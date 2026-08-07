@@ -123,6 +123,8 @@ describe('Dashboard library actions', () => {
     expect(createButton.textContent).toBe('+ Create Library');
     expect(createButton.getAttribute('title')).toBe('Open the Create Library panel');
     expect(librariesToggle.getAttribute('aria-expanded')).toBe('false');
+    expect((librariesToggle as HTMLButtonElement).style.justifyContent).toBe('flex-start');
+    expect((librariesToggle as HTMLButtonElement).style.textAlign).toBe('left');
 
     fireEvent.click(createButton);
 

@@ -117,6 +117,10 @@ export function MonacoTextEditor({
         model,
         ariaLabel,
         automaticLayout: false,
+        // Electron webviews currently expose Chromium EditContext, but its
+        // clipboard path can consume Ctrl/Cmd+V without applying the paste.
+        // Monaco's textarea input path is mature and preserves native paste.
+        editContext: false,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         wordWrap: 'on',

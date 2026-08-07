@@ -82,6 +82,25 @@ afterEach(() => {
 });
 
 describe('MonacoTextEditor', () => {
+  it('uses the textarea input path so Electron webview paste is not routed through EditContext', async () => {
+    const fake = fakeMonaco('before');
+    const view = render(
+      <MonacoTextEditor
+        value="before"
+        language="snl"
+        ariaLabel="SNL source"
+        onChange={vi.fn()}
+        onSave={vi.fn()}
+        loadMonaco={fake.load}
+      />
+    );
+
+    await waitFor(() => expect(view.getByTestId('monaco-editor').getAttribute('data-ready')).toBe('true'));
+    expect(fake.editor.create).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({
+      editContext: false
+    }));
+  });
+
   it('enables bracket-pair coloring and matching guides for SNL', async () => {
     const fake = fakeMonaco('outer(inner(a,b), c)');
     const view = render(

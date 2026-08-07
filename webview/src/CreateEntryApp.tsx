@@ -1703,7 +1703,6 @@ export function CreateEntryApp(): React.ReactElement {
               label={t('kind')}
               selectionLabel={(item) => t('kindSelection', { name: item.name })}
               details={(item) => t('kindDetails', {
-                name: item.name,
                 id: item.id,
                 stroke: item.coloring.stroke,
                 background: item.coloring.background

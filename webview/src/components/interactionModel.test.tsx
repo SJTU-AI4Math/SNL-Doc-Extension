@@ -59,6 +59,8 @@ describe('native controls', () => {
     expect(html).toContain('<button');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-controls="related-context"');
+    expect(html).toContain('justify-content:flex-start');
+    expect(html).toContain('text-align:left');
   });
 
   it('renders a real primary-cell button without changing cell text', () => {

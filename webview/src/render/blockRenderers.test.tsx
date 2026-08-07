@@ -145,30 +145,6 @@ describe('CollapsibleRenderer', () => {
     return el;
   };
 
-  it('keeps summary and body text left-aligned inside a centered parent', () => {
-    const style = document.createElement('style');
-    style.textContent = readFileSync(resolve(__dirname, '../components/ui.css'), 'utf8');
-    document.head.append(style);
-    try {
-      const { container } = render(
-        <div style={{ textAlign: 'center' }}>
-          <CollapsibleRenderer
-            node={blockNode([node('summary'), node('body1')])}
-            macro_data_driver={{} as never}
-            renderChild={renderChild}
-          />
-        </div>
-      );
-      const host = container.querySelector<HTMLElement>('.snl-collapsible')!;
-      expect(getComputedStyle(host).textAlign).toBe('left');
-      expect(getComputedStyle(container.querySelector<HTMLElement>('.snl-collapsible__summary')!)
-        .textAlign).toBe('left');
-      expect(getComputedStyle(bodyHost()).textAlign).toBe('left');
-    } finally {
-      style.remove();
-    }
-  });
-
   it('toggles body visibility on click', () => {
     mount(blockNode([node('summary'), node('body1'), node('body2')]));
     expect(screen.getByTestId('child-summary')).toBeTruthy();

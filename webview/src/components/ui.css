@@ -221,13 +221,13 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
    the style template's `separator`, so each body part needs real block-level
    separation here — otherwise consecutive proof steps run together as inline
    prose. */
-.snl-collapsible { padding-left:20px; text-align:left; }
+.snl-collapsible { padding-left:20px; }
 /* The summary row — NOT the host — is the positioning context: the toggle's
    `left:-20px` is then measured from the row's left edge, which the host's
    padding has already pushed 20px inward, so the glyph lands exactly in the
    reserved gutter instead of outside the block. */
-.snl-collapsible__summary { position:relative; cursor:pointer; text-align:left; }
-.snl-collapsible__body { margin-top:.5rem; padding-left:.9rem; border-left:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#444)); text-align:left; }
+.snl-collapsible__summary { position:relative; cursor:pointer; }
+.snl-collapsible__body { margin-top:.5rem; padding-left:.9rem; border-left:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#444)); }
 /* Collapse must win over any `display` the body ends up carrying. Today it
    carries none, so the UA's `[hidden] { display:none }` suffices — but an
    inline `display` would silently outrank it and the fold would stop working

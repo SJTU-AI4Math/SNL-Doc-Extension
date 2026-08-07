@@ -13,12 +13,14 @@ export function Disclosure({
   controls,
   onToggle,
   children,
+  style,
   ...buttonProps
 }: DisclosureProps): React.ReactElement {
   return (
     <Button
       {...buttonProps}
       variant="ghost"
+      style={{ justifyContent: 'flex-start', textAlign: 'left', ...style }}
       aria-expanded={expanded}
       aria-controls={controls}
       onClick={onToggle}

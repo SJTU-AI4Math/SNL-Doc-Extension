@@ -48,5 +48,13 @@
   "snlDoc.command.regenerateDependencies": "SNL: Regenerate Dependency Relationships",
   "snlDoc.command.openSnoogL": "SNL: Open SNoogL (Search)",
   "snlDoc.command.toggleTrace": "SNL: Toggle Panel Timing Trace",
-  "snlDoc.command.probeWebviewCost": "SNL: Probe Webview Open Cost"
+  "snlDoc.command.probeWebviewCost": "SNL: Probe Webview Open Cost",
+  "snlDoc.command.inductive.moveUp": "SNL: Move Node Up",
+  "snlDoc.command.inductive.moveDown": "SNL: Move Node Down",
+  "snlDoc.command.inductive.outdent": "SNL: Outdent Node",
+  "snlDoc.command.inductive.indent": "SNL: Indent Node",
+  "snlDoc.command.inductive.extractSelection": "SNL: Extract Selection as Child Node",
+  "snlDoc.command.inductive.openStyle": "SNL: Open Node Style",
+  "snlDoc.command.inductive.nextNode": "SNL: Edit Next Node",
+  "snlDoc.command.inductive.undo": "SNL: Undo Inductive Edit"
 }

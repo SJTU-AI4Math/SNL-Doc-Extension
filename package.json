@@ -178,6 +178,38 @@
       {
         "command": "snlDoc.openSnoogL",
         "title": "%snlDoc.command.openSnoogL%"
+      },
+      {
+        "command": "snlDoc.inductive.moveUp",
+        "title": "%snlDoc.command.inductive.moveUp%"
+      },
+      {
+        "command": "snlDoc.inductive.moveDown",
+        "title": "%snlDoc.command.inductive.moveDown%"
+      },
+      {
+        "command": "snlDoc.inductive.outdent",
+        "title": "%snlDoc.command.inductive.outdent%"
+      },
+      {
+        "command": "snlDoc.inductive.indent",
+        "title": "%snlDoc.command.inductive.indent%"
+      },
+      {
+        "command": "snlDoc.inductive.extractSelection",
+        "title": "%snlDoc.command.inductive.extractSelection%"
+      },
+      {
+        "command": "snlDoc.inductive.openStyle",
+        "title": "%snlDoc.command.inductive.openStyle%"
+      },
+      {
+        "command": "snlDoc.inductive.nextNode",
+        "title": "%snlDoc.command.inductive.nextNode%"
+      },
+      {
+        "command": "snlDoc.inductive.undo",
+        "title": "%snlDoc.command.inductive.undo%"
       }
     ],
     "menus": {
@@ -322,7 +354,50 @@
           "description": "%snlDoc.settings.structuralIndexGreenAtLeast.description%"
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "snlDoc.inductive.moveUp",
+        "key": "alt+up",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.moveDown",
+        "key": "alt+down",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.outdent",
+        "key": "alt+left",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.indent",
+        "key": "alt+right",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.extractSelection",
+        "key": "alt+x",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.openStyle",
+        "key": "tab",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.nextNode",
+        "key": "enter",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      }
+    ]
   },
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",

@@ -48,5 +48,13 @@
   "snlDoc.command.regenerateDependencies": "SNL：重新生成依赖关系",
   "snlDoc.command.openSnoogL": "SNL：打开 SNoogL（搜索）",
   "snlDoc.command.toggleTrace": "SNL：开关面板计时跟踪",
-  "snlDoc.command.probeWebviewCost": "SNL：测量 Webview 打开开销"
+  "snlDoc.command.probeWebviewCost": "SNL：测量 Webview 打开开销",
+  "snlDoc.command.inductive.moveUp": "SNL：上移节点",
+  "snlDoc.command.inductive.moveDown": "SNL：下移节点",
+  "snlDoc.command.inductive.outdent": "SNL：减少节点缩进",
+  "snlDoc.command.inductive.indent": "SNL：增加节点缩进",
+  "snlDoc.command.inductive.extractSelection": "SNL：将选区拆分为子节点",
+  "snlDoc.command.inductive.openStyle": "SNL：打开节点样式",
+  "snlDoc.command.inductive.nextNode": "SNL：编辑下一个节点",
+  "snlDoc.command.inductive.undo": "SNL：撤回归纳式编辑"
 }

@@ -108,6 +108,12 @@ export class CreateEntryPanel {
   /** Trace still waiting on the webview's own mount/paint marks. */
   private tracePending: Trace | undefined;
 
+  public static dispatchShortcut(action: string): void {
+    const current = CreateEntryPanel.instance;
+    if (!current) return;
+    void current.panel.webview.postMessage({ type: 'shortcutAction', action });
+  }
+
   public static createOrShow(
     extensionUri: vscode.Uri,
     seedId?: string
@@ -455,6 +461,15 @@ export class CreateEntryPanel {
       return;
     }
 
+    if (msg.type === 'shortcutContext') {
+      const contextMessage = message as { inductiveInputFocus?: unknown };
+      await vscode.commands.executeCommand(
+        'setContext',
+        'snlDoc.inductiveInputFocus',
+        contextMessage.inductiveInputFocus === true
+      );
+      return;
+    }
     if (msg.type === 'ready') {
       await this.pushContext();
       return;
@@ -932,6 +947,7 @@ export class CreateEntryPanel {
 
   public dispose(): void {
     CreateEntryPanel.instance = undefined;
+    void vscode.commands.executeCommand('setContext', 'snlDoc.inductiveInputFocus', false);
 
     this.panel.dispose();
 

@@ -36,6 +36,147 @@ afterEach(() => {
 });
 
 describe('Inductive node action dial', () => {
+  it('clears undo when retargeting to a different Entry with identical SNL', () => {
+    let latest = 'root(a,b,c)';
+    const renderProps = (editorIdentity: string, snl: string) => (
+      <GuiInductiveEditor
+        editorIdentity={editorIdentity}
+        snl={snl}
+        macroDataDriver={driver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={(next) => { latest = next; }}
+      />
+    );
+    const view = render(renderProps('edit:entry-a', latest));
+    const input = view.getAllByRole('textbox')[2] as HTMLInputElement;
+    input.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.moveUp' }
+    }));
+    expect(latest).toBe('root(b,a,c)');
+    view.rerender(renderProps('edit:entry-b', latest));
+    (view.getAllByRole('textbox')[1] as HTMLInputElement).focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.undo' }
+    }));
+    expect(latest).toBe('root(b,a,c)');
+  });
+
+  it('undoes the latest Inductive tree mutation through the routed VS Code command', async () => {
+    const { view, latest } = renderEditor('root(a,b,c)');
+    const input = view.getAllByRole('textbox')[2] as HTMLInputElement;
+    input.focus();
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.moveUp' } }));
+    expect(latest()).toBe('root(b,a,c)');
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.undo' }
+    }));
+    expect(latest()).toBe('root(a,b,c)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect((view.getAllByRole('textbox')[2] as HTMLInputElement).value).toBe('b');
+  });
+
+  it('moves the active node with a routed Alt+Arrow command and keeps its editor focused', async () => {
+    const { view, latest } = renderEditor('root(a,b,c)');
+    const input = view.getAllByRole('textbox')[2] as HTMLInputElement;
+    input.focus();
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.moveUp' } }));
+    expect(latest()).toBe('root(b,a,c)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const moved = view.getAllByRole('textbox').find(
+      (candidate: HTMLElement) => (candidate as HTMLInputElement).value === 'b'
+    );
+    expect(document.activeElement).toBe(moved);
+  });
+
+  it('extracts the selected delimited text into the next placeholder with a routed Alt+X command', () => {
+    const { view, latest } = renderEditor('$#0 + b$(a)');
+    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    input.focus();
+    input.setSelectionRange(6, 7);
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.extractSelection' } }));
+    expect(latest()).toBe('$#0 + #1$(a,$b$)');
+  });
+
+  it('allocates after the maximum real placeholder and ignores escaped placeholders', () => {
+    const { view, latest } = renderEditor('%#0 \\#9 tail%(a)');
+    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    input.focus();
+    const start = input.value.indexOf('tail');
+    input.setSelectionRange(start, start + 4);
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.extractSelection' } }));
+    expect(latest()).toBe('%#0 \\#9 #1%(a,%tail%)');
+  });
+
+  it('allocates a placeholder that points at the appended child when prior children have no placeholders', () => {
+    const { view, latest } = renderEditor('%tail%(a,b)');
+    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    input.focus();
+    input.setSelectionRange(1, 5);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+    expect(latest()).toBe('%#2%(a,b,%tail%)');
+  });
+
+  it('preserves an authored binder and delimiter when extracting selection', () => {
+    const { view, latest } = renderEditor('@$x+y$');
+    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    input.focus();
+    input.setSelectionRange(4, 5);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+    expect(latest()).toBe('@$x+#0$($y$)');
+  });
+
+  it('Tab skips a disabled Style and edits the next node instead of toolbar actions', () => {
+    const { view } = renderEditor('root(a,b)');
+    const first = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    first.focus();
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.openStyle' } }));
+    expect(document.activeElement).toBe(view.getAllByRole('textbox')[2]);
+    expect((document.activeElement as HTMLElement).closest('.snl-tree-row-toolbar')).toBeNull();
+  });
+
+  it('routes Macro Tab to Style and Style Enter to the next visible Macro editor', async () => {
+    const styledDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) =>
+          macro_name === 'a'
+            ? ({ name: 'a', dynamic_arity: true, styles: [
+                { style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] },
+                { style_name: 'compact', mode: 'formula_inline', template: '#*', tags: [] }
+              ] } as never)
+            : null
+      }
+    });
+    let latest = 'root(a,b)';
+    const view = render(
+      <GuiInductiveEditor
+        snl={latest}
+        macroDataDriver={styledDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={(next) => { latest = next; }}
+      />
+    );
+    const first = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    first.focus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.openStyle' } }));
+    const style = rowForInput(first).querySelector('select') as HTMLSelectElement;
+    expect(document.activeElement).toBe(style);
+    style.value = 'compact';
+    fireEvent.change(style);
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.nextNode' } }));
+    expect(document.activeElement).toBe(view.getAllByRole('textbox')[2]);
+    expect(latest).toContain('a[compact]');
+  });
+
   it('numbers visible child nodes from #0 at every depth', () => {
     const { view } = renderEditor('root(a,b(c,d))');
     const labels = Array.from(view.container.querySelectorAll('.snl-tree-row'))

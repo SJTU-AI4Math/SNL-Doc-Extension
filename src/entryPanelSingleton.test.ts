@@ -98,6 +98,15 @@ describe('entry panel singleton', () => {
     expect(created[0].title).toContain('thm-2');
   });
 
+  it('forwards registered shortcut actions to the singleton webview', async () => {
+    reset();
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.editOrShow(extUri, 'thm-1');
+    posted.length = 0;
+    CreateEntryPanel.dispatchShortcut('inductive.indent');
+    expect(posted).toContainEqual({ type: 'shortcutAction', action: 'inductive.indent' });
+  });
+
   it('tells the webview to reset when the target changes', async () => {
     reset();
     const { CreateEntryPanel } = await import('./createEntryPanel');

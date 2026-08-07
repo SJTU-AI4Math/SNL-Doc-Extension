@@ -894,8 +894,23 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  const inductiveShortcutCommands = [
+    'moveUp',
+    'moveDown',
+    'outdent',
+    'indent',
+    'extractSelection',
+    'openStyle',
+    'nextNode',
+    'undo'
+  ].map((action) => vscode.commands.registerCommand(
+    `snlDoc.inductive.${action}`,
+    () => CreateEntryPanel.dispatchShortcut(`inductive.${action}`)
+  ));
+
   context.subscriptions.push(
     openInfoview,
+    ...inductiveShortcutCommands,
     openEntryInfoview,
     refreshInfoview,
     revealEntryPointer,

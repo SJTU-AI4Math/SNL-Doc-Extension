@@ -1840,6 +1840,7 @@ export function CreateEntryApp(): React.ReactElement {
 
           {activeFormat === 'snl' && snlMode === 'gui' ? (
             <GuiInductiveEditor
+              editorIdentity={`${mode}:${id}`}
               snl={content.snl}
               entryCandidates={existingIds}
               macroDataDriver={macroDataDriver}
@@ -3785,8 +3786,14 @@ export function GuiCanvasEditor({
         kind: parsedHead.tree.kind,
         env_mode: parsedHead.tree.env_mode,
         binder_explicit: parsedHead.tree.binder_explicit,
-        scope: parsedHead.tree.scope,
-        mdata: parsedHead.tree.mdata,
+        scope: parsedHead.tree.binder_explicit ? parsedHead.tree.scope : base.scope,
+        mdata: parsedHead.tree.binder_explicit
+          ? { ...((base.mdata && typeof base.mdata === 'object' && !Array.isArray(base.mdata))
+              ? base.mdata as Record<string, unknown>
+              : {}), ...((parsedHead.tree.mdata && typeof parsedHead.tree.mdata === 'object' && !Array.isArray(parsedHead.tree.mdata))
+              ? parsedHead.tree.mdata as Record<string, unknown>
+              : {}) }
+          : withoutBindingMetadata(base.mdata),
         style_name: previousNode ? previousNode.style_name : undefined,
         children: previousNode ? previousNode.children : parsedHead.tree.children
       };
@@ -4782,6 +4789,7 @@ interface MacroOpenRequest {
 }
 
 export function GuiInductiveEditor({
+  editorIdentity,
   snl,
   entryCandidates = [],
   macroDataDriver,
@@ -4790,6 +4798,7 @@ export function GuiInductiveEditor({
   onOpenMacroEditor,
   onChange
 }: {
+  editorIdentity?: string;
   snl: string;
   entryCandidates?: readonly EntryOption[];
   macroDataDriver: MacroDataDriver;
@@ -4807,6 +4816,13 @@ export function GuiInductiveEditor({
   const [parseError, setParseError] = useState<string | null>(null);
   // Collapse follows stable UI node identity, not a dotted array-index path.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const undoStackRef = useRef<SnlSyntaxTree[]>([]);
+  const previousEditorIdentityRef = useRef(editorIdentity);
+  if (previousEditorIdentityRef.current !== editorIdentity) {
+    previousEditorIdentityRef.current = editorIdentity;
+    undoStackRef.current = [];
+  }
 
   const lastSerializedRef = useRef<string>(serializeTreePreserving(tree));
 
@@ -4815,6 +4831,7 @@ export function GuiInductiveEditor({
     const parsed = tryParseSnlSyntaxTree(snl.trim() || '_snl_stub');
     if (parsed.ok) {
       ensureTreeIdentity(parsed.tree);
+      undoStackRef.current = [];
       setTree(parsed.tree);
       setParseError(null);
       lastSerializedRef.current = serializeTreePreserving(parsed.tree);
@@ -4824,9 +4841,15 @@ export function GuiInductiveEditor({
   }, [snl]);
 
   const propagate = useCallback(
-    (nextTree: SnlSyntaxTree): void => {
+    (nextTree: SnlSyntaxTree, recordUndo = true): void => {
       ensureTreeIdentity(nextTree);
-      setTree(nextTree);
+      setTree((previous: SnlSyntaxTree) => {
+        if (recordUndo && nextTree !== previous) {
+          undoStackRef.current.push(previous);
+          if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+        }
+        return nextTree;
+      });
       // Unfilled `+ child` rows now survive serialization: `foo(a,)` and
       // `foo(,b)` are valid SNL that round trips (cat 2026-07-25), so the
       // Inductive and Canvas editors agree on what a half-finished tree
@@ -4856,6 +4879,8 @@ export function GuiInductiveEditor({
       setTree((previous) => {
         const next = withArityAtPath(previous, path, count);
         if (next === previous) return previous;
+        undoStackRef.current.push(previous);
+        if (undoStackRef.current.length > 100) undoStackRef.current.shift();
         ensureTreeIdentity(next);
         const nextSnl = serializeTreePreserving(stripEmptyPlaceholders(next));
         lastSerializedRef.current = nextSnl;
@@ -4892,9 +4917,120 @@ export function GuiInductiveEditor({
     });
   }, []);
 
+  const runShortcutAction = useCallback((action: string): void => {
+    const active = document.activeElement as HTMLElement | null;
+    const row = active?.closest<HTMLElement>('[data-snl-tree-node-id]');
+    if (!row || !editorRootRef.current?.contains(row)) return;
+    const nodeId = row.dataset.snlTreeNodeId ?? '';
+    const path = row.dataset.snlTreePath ?? '';
+    if (action === 'inductive.undo') {
+      const previous = undoStackRef.current.pop();
+      if (previous) propagate(previous, false);
+      return;
+    }
+    if (action === 'inductive.openStyle') {
+      if (active?.matches('.snl-tree-style-select')) {
+        const editors = Array.from<HTMLElement>(
+          editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
+        );
+        const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
+        const next = current ? editors[editors.indexOf(current) + 1] : undefined;
+        next?.focus();
+        return;
+      }
+      const style = row.querySelector<HTMLSelectElement>('.snl-tree-style-select:not(:disabled)');
+      if (style) style.focus();
+      else {
+        const editors = Array.from<HTMLElement>(
+          editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
+        );
+        const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
+        const next = current ? editors[editors.indexOf(current) + 1] : undefined;
+        next?.focus();
+      }
+      return;
+    }
+    if (action === 'inductive.nextNode') {
+      const editors = Array.from<HTMLElement>(
+        editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
+      );
+      const current = active?.matches('[data-snl-macro-input]')
+        ? active
+        : row.querySelector<HTMLElement>('[data-snl-macro-input]');
+      const next = current ? editors[editors.indexOf(current) + 1] : undefined;
+      next?.focus();
+      return;
+    }
+    if (action === 'inductive.extractSelection') {
+      const input = active?.matches('[data-snl-macro-input]')
+        ? active as HTMLInputElement
+        : row.querySelector<HTMLInputElement>('[data-snl-macro-input]');
+      if (!input) return;
+      const start = input.selectionStart ?? 0;
+      const end = input.selectionEnd ?? start;
+      const current = getNodeAtPath(tree, path);
+      if (!current) return;
+      const extracted = extractInductiveSelection(current, input.value, start, end);
+      if (extracted) propagate(transformAtPath(tree, path, () => extracted));
+      return;
+    }
+    const op = action === 'inductive.moveUp' ? 'moveUp'
+      : action === 'inductive.moveDown' ? 'moveDown'
+        : action === 'inductive.outdent' ? 'outdent'
+          : action === 'inductive.indent' ? 'indent'
+            : null;
+    if (!op) return;
+    treeOp(op, path);
+    requestAnimationFrame(() => {
+      const rows = editorRootRef.current?.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]');
+      const moved = rows
+        ? Array.from(rows as NodeListOf<HTMLElement>).find(
+            (candidate: HTMLElement) => candidate.dataset.snlTreeNodeId === nodeId
+          )
+        : undefined;
+      moved?.querySelector<HTMLElement>('[data-snl-macro-input]')?.focus();
+    });
+  }, [treeOp, tree, propagate]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent): void => {
+      const message = event.data as { type?: string; action?: string } | undefined;
+      if (message?.type === 'shortcutAction' && typeof message.action === 'string') {
+        runShortcutAction(message.action);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [runShortcutAction]);
+
+  useEffect(() => {
+    return () => {
+      getVsCodeApi()?.postMessage({ type: 'shortcutContext', inductiveInputFocus: false });
+    };
+  }, []);
+
   return (
     <div
+      ref={editorRootRef}
       className="snl-inductive-editor"
+      onFocusCapture={(event: React.FocusEvent<HTMLDivElement>) => {
+        const target = event.target as HTMLElement;
+        getVsCodeApi()?.postMessage({
+          type: 'shortcutContext',
+          inductiveInputFocus: target.matches('[data-snl-macro-input], .snl-tree-style-select')
+        });
+      }}
+      onBlurCapture={(event: React.FocusEvent<HTMLDivElement>) => {
+        const next = event.relatedTarget as HTMLElement | null;
+        getVsCodeApi()?.postMessage({
+          type: 'shortcutContext',
+          inductiveInputFocus: Boolean(
+            next &&
+            event.currentTarget.contains(next) &&
+            next.matches('[data-snl-macro-input], .snl-tree-style-select')
+          )
+        });
+      }}
       style={{
         border:
           '1px solid var(--vscode-input-border, var(--vscode-contrastBorder, #555))',
@@ -5166,6 +5302,47 @@ export function withArityAtPath(
   };
 
   return walk(tree, 0);
+}
+
+export function extractInductiveSelection(
+  node: SnlSyntaxTree,
+  surface: string,
+  start: number,
+  end: number
+): SnlSyntaxTree | null {
+  if (start < 0 || end <= start || end > surface.length) return null;
+  const selected = surface.slice(start, end);
+  const binderPrefix = surface.startsWith('@') ? '@' : '';
+  const headSurface = binderPrefix ? surface.slice(1) : surface;
+  const delimiter = headSurface.startsWith('$$') && headSurface.endsWith('$$') ? '$$'
+    : headSurface.startsWith('$') && headSurface.endsWith('$') ? '$'
+      : headSurface.startsWith('%') && headSurface.endsWith('%') ? '%'
+        : '';
+  const bodyStart = binderPrefix.length + delimiter.length;
+  const bodyEnd = delimiter ? surface.length - delimiter.length : surface.length;
+  if (start < bodyStart || end > bodyEnd) return null;
+  const body = surface.slice(bodyStart, bodyEnd);
+  let max = node.children.length - 1;
+  const placeholder = /(?<!\\)#(\d+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = placeholder.exec(body)) !== null) max = Math.max(max, Number(match[1]));
+  const nextIndex = max + 1;
+  const relativeStart = start - bodyStart;
+  const relativeEnd = end - bodyStart;
+  const nextBody = `${body.slice(0, relativeStart)}#${nextIndex}${body.slice(relativeEnd)}`;
+  const nextHead = `${binderPrefix}${delimiter ? `${delimiter}${nextBody}${delimiter}` : nextBody}`;
+  const childSurface = delimiter ? `${delimiter}${selected}${delimiter}` : selected;
+  const nextParsed = tryParseSnlSyntaxTree(nextHead);
+  const childParsed = tryParseSnlSyntaxTree(childSurface);
+  if (!nextParsed.ok || !childParsed.ok) return null;
+  inheritTreeIdentity(node, nextParsed.tree);
+  ensureTreeIdentity(childParsed.tree);
+  return {
+    ...nextParsed.tree,
+    style_name: node.style_name,
+    mdata: node.mdata,
+    children: [...node.children, childParsed.tree]
+  };
 }
 
 function applyTreeOp(
@@ -5612,6 +5789,7 @@ function InductiveNode({
       <div
         className="snl-tree-row"
         data-snl-tree-node-id={nodeId}
+        data-snl-tree-path={path}
         style={{
           display: 'flex',
           position: 'relative',
@@ -5661,6 +5839,7 @@ function InductiveNode({
 
         {/* Name input — dark-mode uniform styling + kind-colored frame. */}
         <MacroIdInput
+          data-snl-macro-input
           value={rawInput}
           macroCandidates={macroCandidates}
           onChange={commitRaw}

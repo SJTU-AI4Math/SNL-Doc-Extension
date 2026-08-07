@@ -3784,6 +3784,9 @@ export function GuiCanvasEditor({
         macro_name: parsedHead.tree.macro_name,
         kind: parsedHead.tree.kind,
         env_mode: parsedHead.tree.env_mode,
+        binder_explicit: parsedHead.tree.binder_explicit,
+        scope: parsedHead.tree.scope,
+        mdata: parsedHead.tree.mdata,
         style_name: previousNode ? previousNode.style_name : undefined,
         children: previousNode ? previousNode.children : parsedHead.tree.children
       };
@@ -4050,7 +4053,6 @@ export function GuiCanvasEditor({
                 kindPalette={kindPalette}
                 hooks={{ renderTooltip: () => null, renderers: extensionRenderers }}
               />
-              {renderTemporaryChildRails(root, [])}
             </div>
           );
         })}

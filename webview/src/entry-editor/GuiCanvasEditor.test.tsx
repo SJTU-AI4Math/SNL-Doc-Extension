@@ -24,7 +24,7 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
       return ReactModule.createElement(
         'section',
         { key: path.join('.') || 'matrix-root', className: 'dynamic-shell' },
-        tree.children.map((child, index) => renderNode(child, [...path, index]))
+        tree.children.map((child: SnlSyntaxTree, index: number) => renderNode(child, [...path, index]))
       );
     }
     return ReactModule.createElement(
@@ -36,11 +36,7 @@ vi.mock('@sjtu-ai4math/snl-basics', async (importOriginal) => {
         className: tree.kind === 'argPlaceholder' ? 'snlArgPlaceholder' : undefined
       },
       tree.macro_name,
-      // Production temporary-Macro rendering treats the delimited payload as
-      // raw text/LaTeX and does not interpolate structural children.
-      tree.env_mode === undefined
-        ? tree.children.map((child, index) => renderNode(child, [...path, index]))
-        : null
+      tree.children.map((child: SnlSyntaxTree, index: number) => renderNode(child, [...path, index]))
     );
   };
   return {
@@ -1076,6 +1072,34 @@ describe('GuiCanvasEditor', () => {
     fireEvent.change(cancelled, { target: { value: 'discarded' } });
     fireEvent.keyDown(cancelled, { key: 'Escape' });
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
+  });
+
+  it('preserves an explicitly typed binder when committing a focused Macro edit', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('plain')]);
+      return (
+        <>
+          <output data-testid="surface">{forest[0]?.binder_explicit ? `@${forest[0].macro_name}` : forest[0]?.macro_name}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement
+    );
+    fireEvent.change(editor, { target: { value: '@binder' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(view.getByTestId('surface').textContent).toBe('@binder'));
   });
 
   it('lets Ctrl+F2 subtree editing keep and display newline input', async () => {

@@ -189,6 +189,9 @@ export interface EntityIdSearchBoxProps {
   maxResults?: number;
   /** Optional inline label. Rendered as a `<label>` above the input. */
   label?: string;
+  /** Accessible name used when a compact caller intentionally renders no
+   * visible label. */
+  ariaLabel?: string;
   /** Optional wrapper style. The wrapper is `position: relative` so the
    *  dropdown anchors correctly. */
   style?: React.CSSProperties;
@@ -239,6 +242,7 @@ export function EntityIdSearchBox(
     placeholder,
     maxResults = 30,
     label,
+    ariaLabel,
     style,
     inputStyle,
     autoFocus = false,
@@ -407,6 +411,7 @@ export function EntityIdSearchBox(
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         role="combobox"
+        aria-label={ariaLabel}
         aria-autocomplete="list"
         aria-expanded={open && results.length > 0}
         aria-controls={listboxId}

@@ -62,8 +62,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     noEntries: 'No entries yet — click "Add root entry" below.', addRootEntry: '+ Add root entry', untitled: '(untitled)',
     openEntry: 'Open Edit Entry: {id}\nkind: {kind}', pendingHelp: 'pending entry — "{id}" not in the pool yet (finish it in the Create Entry panel)',
     noEntryId: 'no entryId assigned (node {id})', pending: '⚠ pending', counterOverride: "Counter override for this entry (default = kind's default counter name)",
-    defaultCounter: '<default>', copyEntryId: 'Click to copy entry id\n{id}', entryId: 'Entry id',
-    entryTargetId: 'Entry ID indexed by node {id}',
+    defaultCounter: '<default>', entryId: 'Entry id',
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
@@ -87,7 +86,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     addRootEntry: '+ 添加根条目', untitled: '（无标题）', openEntry: '打开“编辑条目”：{id}\n类型：{kind}',
     pendingHelp: '待创建条目 — “{id}”尚未加入条目池（请在“创建条目”面板中完成创建）', noEntryId: '未指定条目 ID（节点 {id}）',
     pending: '⚠ 待创建', counterOverride: '覆盖此条目的计数器（默认值为条目类型的默认计数器名称）', defaultCounter: '<默认>',
-    copyEntryId: '点击复制条目 ID\n{id}', entryId: '条目 ID', entryTargetId: '节点 {id} 索引的条目 ID',
+    entryId: '条目 ID',
     entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
@@ -1370,17 +1369,6 @@ function OutlineRowContent({
         {num ?? '—'}
       </span>
 
-      <OutlineEntryTargetEditor
-        nodeId={node.id}
-        entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
-        entries={entryOptions}
-        onCommit={(entryId) => onUpdateNodeEntry(
-          node.id,
-          typeof node.props.entryId === 'string' ? node.props.entryId : null,
-          entryId
-        )}
-      />
-
       {kind ? <KindBadge kind={kind} /> : null}
 
       {/* Title = click target that opens Edit Entry for this row's entry.
@@ -1454,6 +1442,17 @@ function OutlineRowContent({
         </span>
       )}
 
+      <OutlineEntryTargetEditor
+        nodeId={node.id}
+        entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
+        entries={entryOptions}
+        onCommit={(entryId) => onUpdateNodeEntry(
+          node.id,
+          typeof node.props.entryId === 'string' ? node.props.entryId : null,
+          entryId
+        )}
+      />
+
       {entry && metricResult ? (
         <EntryMetricValue
           result={metricResult}
@@ -1494,52 +1493,6 @@ function OutlineRowContent({
         </select>
       ) : null}
 
-      {/* Compact entryId badge — click to copy, so you can paste it into
-          another library's Add form to reference this same entry. */}
-      {entry ? (
-        <Button
-          type="button"
-          aria-label={t('copyEntryId', { id: entry.id })}
-          title={t('copyEntryId', { id: entry.id })}
-          onClick={() => {
-            const id = entry.id;
-            void (async () => {
-              try {
-                await navigator.clipboard.writeText(id);
-              } catch {
-                const ta = document.createElement('textarea');
-                ta.value = id;
-                document.body.appendChild(ta);
-                ta.select();
-                try {
-                  document.execCommand('copy');
-                } catch {
-                  // give up silently
-                }
-                document.body.removeChild(ta);
-              }
-            })();
-          }}
-          style={{
-            fontFamily: 'var(--vscode-editor-font-family, monospace)',
-            fontSize: '0.7rem',
-            padding: '0.15rem 0.35rem',
-            border:
-              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-            borderRadius: '2px',
-            background: 'transparent',
-            color: 'var(--vscode-descriptionForeground, #999)',
-            cursor: 'pointer',
-            flexShrink: 0,
-            maxWidth: '9rem',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {entry.id.slice(0, 8)}…
-        </Button>
-      ) : null}
     </>
   );
 }
@@ -1570,7 +1523,7 @@ function OutlineEntryTargetEditor({
       }}
       onCancel={() => setDraft(entryId)}
       validate={ENTRY_VALIDATE_RULES.requireMatch}
-      label={t('entryTargetId', { id: nodeId })}
+      ariaLabel={t('entryId')}
       idPrefix={`snl-library-node-entry-${nodeId}`}
       hideResolvedChip
       suggestionsInFlow

@@ -112,13 +112,23 @@ describe('Create Library feedback', () => {
       nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
       relationships: [],
       entries: [
-        { id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true },
+        {
+          id: 'entry-one',
+          title: 'Entry One',
+          kind: 'definition',
+          hasContent: true,
+          content: { snl: 'entry_one' }
+        },
         { id: 'entry-two', title: 'Entry Two', kind: 'definition', hasContent: true }
       ]
     });
 
-    expect(screen.getByRole('button', { name: /Click to copy entry id\s+entry-one/ })).toBeTruthy();
-    const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
+    expect(screen.queryByRole('button', { name: /copy entry id/i })).toBeNull();
+    expect(screen.queryByText('Entry ID indexed by node n_1')).toBeNull();
+    const entryId = screen.getByRole('combobox', { name: 'Entry id' }) as HTMLInputElement;
+    const entryIdEditor = entryId.parentElement;
+    const ssi = screen.getByText(/^SSI /);
+    expect(ssi.previousElementSibling).toBe(entryIdEditor);
     expect(entryId.value).toBe('entry-one');
     entryId.focus();
     fireEvent.change(entryId, { target: { value: 'entry-t' } });
@@ -154,7 +164,7 @@ describe('Create Library feedback', () => {
       entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }]
     });
 
-    const entryId = screen.getByLabelText('Entry ID indexed by node n_1') as HTMLInputElement;
+    const entryId = screen.getByRole('combobox', { name: 'Entry id' }) as HTMLInputElement;
     entryId.focus();
     fireEvent.change(entryId, { target: { value: 'discard-me' } });
     fireEvent.keyDown(entryId, { key: 'Escape' });

@@ -52,6 +52,23 @@ describe('responsive full-width panel layout', () => {
     expect(css).toContain('max-width:calc(100vw - 1rem)');
   });
 
+  it('renders the shared header logo at the enlarged compact size', () => {
+    const css = fs.readFileSync(
+      path.join(repo, 'webview/src/components/ui.css'),
+      'utf8'
+    );
+    const rules = [...css.matchAll(/\.snl-panel-header__logo\s*\{([^{}]*)\}/g)];
+    expect(rules).toHaveLength(1);
+    const declarations = new Map(
+      rules[0][1].split(';').map((item) => item.trim()).filter(Boolean).map((item) => {
+        const separator = item.indexOf(':');
+        return [item.slice(0, separator).trim(), item.slice(separator + 1).trim()];
+      })
+    );
+    expect(declarations.get('width')).toBe('2rem');
+    expect(declarations.get('height')).toBe('2rem');
+  });
+
   it('contains Entry preview errors instead of letting long source widen the editor', () => {
     const source = fs.readFileSync(
       path.join(repo, 'webview/src/CreateEntryApp.tsx'),

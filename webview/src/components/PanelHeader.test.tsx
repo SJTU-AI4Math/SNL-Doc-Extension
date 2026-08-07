@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanelHeader } from './PanelHeader';
 import { apply_preferences_snapshot } from '../runtime/preferencesRuntime';
@@ -48,7 +50,12 @@ describe('PanelHeader', () => {
     );
 
     expect(view.getByRole('heading', { name: 'Create Entry' })).toBeTruthy();
-    expect(view.getByText('SJTU AI4Math')).toBeTruthy();
+    const brandLink = view.getByRole('link', { name: 'SJTU AI4Math' });
+    expect(brandLink.getAttribute('aria-label')).toBe('SJTU AI4Math');
+    expect(brandLink.getAttribute('href')).toBe('https://sjtu-ai4math.github.io/');
+    expect(brandLink.getAttribute('target')).toBe('_blank');
+    expect(brandLink.getAttribute('rel')).toContain('noopener');
+    expect(within(brandLink).getByText('SJTU AI4Math')).toBeTruthy();
     expect(view.container.querySelector('.snl-panel-header__logo')).toBeTruthy();
     const backButton = view.getByRole('button', { name: 'Back' });
     expect(backButton.querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
@@ -158,5 +165,19 @@ describe('PanelHeader', () => {
     const heading = view.getByRole('heading', { name: 'Edit entry Pythagoras' });
     const action = view.getByRole('button', { name: 'Edit title' });
     expect(heading.parentElement).toBe(action.parentElement);
+  });
+
+  it('keeps the enlarged logo size after the effective CSS cascade', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(path.resolve(__dirname, 'ui.css'), 'utf8');
+    document.head.appendChild(style);
+    document.documentElement.dataset.snlLogoBlack = 'webview://logo-black.svg';
+    document.documentElement.dataset.snlLogoWhite = 'webview://logo-white.svg';
+    const view = render(<PanelHeader vsApi={undefined} title="Dashboard" />);
+    const logo = view.container.querySelector<HTMLElement>('.snl-panel-header__logo');
+    expect(logo).not.toBeNull();
+    expect(getComputedStyle(logo!).width).toBe('2rem');
+    expect(getComputedStyle(logo!).height).toBe('2rem');
+    style.remove();
   });
 });

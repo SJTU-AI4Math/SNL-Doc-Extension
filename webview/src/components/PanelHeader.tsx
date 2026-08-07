@@ -112,12 +112,18 @@ export function PanelHeader({
               : back.message && vsApi?.postMessage(back.message)}
           />
         ) : null}
-        <div className="snl-panel-header__brand">
+        <a
+          className="snl-panel-header__brand"
+          href="https://sjtu-ai4math.github.io/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={invariantText('SJTU AI4Math', 'brand')}
+        >
           <img className="snl-panel-header__logo" src={logo} alt="" aria-hidden="true" />
           <span className="snl-panel-header__watermark">
             {invariantText('SJTU AI4Math', 'brand')}
           </span>
-        </div>
+        </a>
       </div>
 
       <div className="snl-panel-header__identity">

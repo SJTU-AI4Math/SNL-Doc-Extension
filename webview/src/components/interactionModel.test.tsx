@@ -47,6 +47,12 @@ describe('TreeOutlineEditor interaction model', () => {
     expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('@media (hover: none), (pointer: coarse)');
   });
 
+  it('puts an open narrow add menu in row flow instead of covering the next row', () => {
+    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('.snl-outline-row:has(.snl-tree-add-menu)');
+    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('position: static');
+    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('flex: 1 0 100%');
+  });
+
   it('exposes disclosure state and its controlled child list', () => {
     expect(treeDisclosureA11y(false, 'children-a')).toEqual({
       'aria-expanded': false,

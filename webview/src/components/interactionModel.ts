@@ -73,9 +73,20 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
       bottom: 0.2rem;
       transform: none;
     }
+    .snl-outline-row:has(.snl-tree-add-menu) {
+      padding-bottom: 0.3rem !important;
+    }
+    .snl-outline-row:has(.snl-tree-add-menu) .snl-outline-row-toolbar {
+      position: static;
+      flex: 1 0 100%;
+      margin-left: auto;
+      justify-content: flex-end;
+    }
   }
   @media (hover: none), (pointer: coarse) {
     .snl-outline-row {
+      flex-wrap: wrap;
+      align-items: flex-start;
       padding-right: 0 !important;
       padding-bottom: 4.9rem !important;
     }
@@ -88,10 +99,13 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
       pointer-events: auto;
     }
     .snl-outline-row:has(.snl-tree-add-menu) {
-      padding-bottom: 6.9rem !important;
+      padding-bottom: 0.3rem !important;
     }
     .snl-outline-row:has(.snl-tree-add-menu) .snl-outline-row-toolbar {
-      bottom: 2.15rem;
+      position: static;
+      flex: 1 0 100%;
+      margin-left: auto;
+      justify-content: flex-end;
     }
   }
 `;

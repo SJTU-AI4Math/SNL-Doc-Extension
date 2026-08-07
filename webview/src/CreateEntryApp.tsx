@@ -4961,14 +4961,19 @@ export function GuiInductiveEditor({
             transform: none;
           }
           .snl-tree-row:has(.snl-tree-add-menu) {
-            padding-bottom: 6.9rem;
+            padding-bottom: 0.3rem;
           }
           .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
-            bottom: 2.15rem;
+            position: static;
+            flex: 1 0 100%;
+            margin-left: auto;
+            justify-content: flex-end;
           }
         }
         @media (hover: none), (pointer: coarse) {
           .snl-tree-row {
+            flex-wrap: wrap;
+            align-items: flex-start;
             padding-right: 0.3rem;
             padding-bottom: 4.9rem;
           }
@@ -4980,10 +4985,13 @@ export function GuiInductiveEditor({
             pointer-events: auto;
           }
           .snl-tree-row:has(.snl-tree-add-menu) {
-            padding-bottom: 6.9rem;
+            padding-bottom: 0.3rem;
           }
           .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
-            bottom: 2.15rem;
+            position: static;
+            flex: 1 0 100%;
+            margin-left: auto;
+            justify-content: flex-end;
           }
         }
       `}</style>

@@ -103,8 +103,9 @@ describe('Inductive node action dial', () => {
     expect(responsiveCss).toContain('@container snl-inductive (max-width: 30rem)');
     expect(responsiveCss).toContain('@media (hover: none), (pointer: coarse)');
     expect(responsiveCss).toContain('padding-bottom: 4.9rem');
-    expect(responsiveCss).toContain('padding-bottom: 6.9rem');
-    expect(responsiveCss).toContain('bottom: 2.15rem');
+    expect(responsiveCss).toContain('padding-bottom: 0.3rem');
+    expect(responsiveCss).toContain('position: static');
+    expect(responsiveCss).toContain('flex: 1 0 100%');
     const styleSelect = within(childRow).getByRole('combobox') as HTMLSelectElement;
     expect(styleSelect.style.flexShrink).toBe('1');
     expect(styleSelect.style.minWidth).toBe('4rem');

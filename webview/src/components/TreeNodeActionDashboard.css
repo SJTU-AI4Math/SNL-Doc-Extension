@@ -56,9 +56,71 @@
   white-space: normal;
 }
 
-@media (max-width: 30rem) {
+@media (max-width: 30rem), (hover: none), (pointer: coarse) {
+  .snl-tree-operation-cluster:has(.snl-tree-add-menu) {
+    width: 100%;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+  .snl-tree-operation-dial:has(.snl-tree-add-menu) {
+    grid-template-rows: repeat(3, 1.5rem) auto;
+  }
   .snl-tree-add-menu {
+    position: static;
+    grid-area: 4 / 1 / 5 / 4;
+    justify-self: end;
     flex-direction: column;
     align-items: stretch;
+    width: min(12rem, calc(100vw - 1rem));
+    margin-top: 0.25rem;
+  }
+  .snl-tree-add-menu > .snl-btn {
+    white-space: nowrap;
+  }
+}
+
+@container snl-outline (max-width: 30rem) {
+  .snl-tree-operation-cluster:has(.snl-tree-add-menu) {
+    width: 100%;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+  .snl-tree-operation-dial:has(.snl-tree-add-menu) {
+    grid-template-rows: repeat(3, 1.5rem) auto;
+  }
+  .snl-tree-add-menu {
+    position: static;
+    grid-area: 4 / 1 / 5 / 4;
+    justify-self: end;
+    flex-direction: column;
+    align-items: stretch;
+    width: min(12rem, calc(100vw - 1rem));
+    margin-top: 0.25rem;
+  }
+  .snl-tree-add-menu > .snl-btn {
+    white-space: nowrap;
+  }
+}
+
+@container snl-inductive (max-width: 30rem) {
+  .snl-tree-operation-cluster:has(.snl-tree-add-menu) {
+    width: 100%;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+  .snl-tree-operation-dial:has(.snl-tree-add-menu) {
+    grid-template-rows: repeat(3, 1.5rem) auto;
+  }
+  .snl-tree-add-menu {
+    position: static;
+    grid-area: 4 / 1 / 5 / 4;
+    justify-self: end;
+    flex-direction: column;
+    align-items: stretch;
+    width: min(12rem, calc(100vw - 1rem));
+    margin-top: 0.25rem;
+  }
+  .snl-tree-add-menu > .snl-btn {
+    white-space: nowrap;
   }
 }

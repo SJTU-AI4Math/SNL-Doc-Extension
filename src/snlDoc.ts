@@ -15,7 +15,10 @@ import {
 } from './localizedContent';
 import { slugify } from './slug';
 import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
-import { updateRawLibraryGraphNodeEntryId } from './libraryGraph';
+import {
+  updateRawLibraryGraphNodeEntryId,
+  wrapRawLibraryGraphNodeWithParent
+} from './libraryGraph';
 import {
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
@@ -5188,6 +5191,46 @@ export async function updateLibraryGraphNodeEntryId(
   });
 }
 
+/** Writer-locked raw graph transform used by the Library add-parent command. */
+export async function wrapLibraryGraphNodeWithParent(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  targetId: string,
+  parent: GraphNodeDto
+): Promise<
+  | { status: 'ok' }
+  | { status: 'invalid' | 'notFound' | 'malformed' }
+  | { status: 'error'; message: string }
+> {
+  return withExtensionWriterLock(workspaceRoot, 'wrap Library graph node', async () => {
+    const uri = libraryGraphUri(workspaceRoot, slug);
+    let raw: unknown;
+    try {
+      raw = await readJson<unknown>(uri);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      if (code === 'FileNotFound' || code === 'ENOENT') return { status: 'notFound' } as const;
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      } as const;
+    }
+    const wrapped = wrapRawLibraryGraphNodeWithParent(raw, targetId, parent);
+    if (!wrapped.ok) return { status: wrapped.reason } as const;
+    try {
+      await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(wrapped.value), raw);
+      return { status: 'ok' } as const;
+    } catch (error) {
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      } as const;
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Library counters: read / write (2026-07-16)
 // ---------------------------------------------------------------------------
@@ -5255,6 +5298,83 @@ export async function writeLibraryCounters(
     libraryCountersUri(workspaceRoot, slug),
     jsonBytes({ counters: roots } satisfies LibraryCountersFile)
   );
+}
+
+/**
+ * Writer-locked counter-tree mutation. The callback receives the latest
+ * snapshot under the shared workspace lock, and persisted unknown wrapper or
+ * node fields are overlaid back by stable counter id.
+ */
+export async function mutateLibraryCounters(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  mutate: (roots: CounterNode[]) => boolean
+): Promise<
+  | { status: 'ok'; changed: boolean }
+  | { status: 'invalid' }
+  | { status: 'error'; message: string }
+> {
+  return withExtensionWriterLock(workspaceRoot, 'mutate Library counters', async () => {
+    const uri = libraryCountersUri(workspaceRoot, slug);
+    let raw: unknown;
+    let existed = true;
+    try {
+      raw = await readJson<unknown>(uri);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      if (code !== 'FileNotFound' && code !== 'ENOENT') {
+        return {
+          status: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        } as const;
+      }
+      existed = false;
+      raw = { counters: [] };
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { status: 'invalid' } as const;
+    }
+    const wrapper = raw as Record<string, unknown>;
+    if (!Array.isArray(wrapper.counters)) return { status: 'invalid' } as const;
+
+    const rawById = new Map<string, Record<string, unknown>>();
+    const validateAndCollect = (records: unknown[]): boolean => records.every((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+      const record = value as Record<string, unknown>;
+      if (
+        typeof record.id !== 'string' || record.id.length === 0 || rawById.has(record.id) ||
+        typeof record.name !== 'string' || typeof record.numbering !== 'string' ||
+        !Array.isArray(record.children)
+      ) return false;
+      rawById.set(record.id, record);
+      return validateAndCollect(record.children);
+    });
+    if (!validateAndCollect(wrapper.counters)) return { status: 'invalid' } as const;
+
+    const roots = wrapper.counters.map((record) => normalizeCounterNode(record)!);
+    const changed = mutate(roots);
+    if (!changed) return { status: 'ok', changed: false } as const;
+    const preserve = (node: CounterNode): Record<string, unknown> => ({
+      ...(rawById.get(node.id) ?? {}),
+      id: node.id,
+      name: node.name,
+      numbering: node.numbering,
+      children: node.children.map(preserve)
+    });
+    const next = { ...wrapper, counters: roots.map(preserve) };
+    try {
+      if (existed) await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(next), raw);
+      else await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(next));
+      return { status: 'ok', changed: true } as const;
+    } catch (error) {
+      return {
+        status: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      } as const;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,27 @@ const roots: Item[] = [
 afterEach(cleanup);
 
 describe('TreeOutlineEditor move modifiers', () => {
+  it('uses the shared node dashboard and emits add-parent for the current node', () => {
+    const onOp = vi.fn();
+    const view = render(
+      <TreeOutlineEditor
+        roots={[roots[0]]}
+        getId={(node) => node.id}
+        getChildren={(node) => node.children}
+        renderRow={(node) => node.id}
+        renderDashboardLeadingActions={() => <button type="button">Domain action</button>}
+        onOp={onOp}
+        emptyState={null}
+      />
+    );
+
+    expect(view.container.querySelector('.snl-tree-operation-dial')).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Domain action' })).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
+    fireEvent.click(view.getByRole('menuitem', { name: 'Add parent node' }));
+    expect(onOp).toHaveBeenCalledWith({ kind: 'addParent', id: 'a' });
+  });
+
   it('provides a wrapping narrow-panel layout for row content and toolbar', () => {
     const view = render(
       <TreeOutlineEditor
@@ -33,7 +54,11 @@ describe('TreeOutlineEditor move modifiers', () => {
     expect(row?.style.flexWrap).toBe('wrap');
     expect(content?.style.minWidth).toBe('0px');
     expect(content?.style.flexWrap).toBe('wrap');
-    expect(toolbar?.style.marginLeft).toBe('auto');
+    expect(getComputedStyle(toolbar!).position).toBe('absolute');
+    expect(getComputedStyle(toolbar!).pointerEvents).toBe('none');
+    const css = document.getElementById('snl-tree-outline-hover-style')?.textContent ?? '';
+    expect(css).toContain('.snl-outline-row:hover .snl-outline-row-toolbar');
+    expect(css).toContain('@container snl-outline (max-width: 30rem)');
   });
 
   it('marks Ctrl+move as a direct move to the sibling edge', () => {
@@ -50,9 +75,9 @@ describe('TreeOutlineEditor move modifiers', () => {
       />
     );
 
-    fireEvent.click(view.getAllByRole('button', {
-      name: 'Move up (Ctrl/Cmd-click: move to first sibling)'
-    })[0], {
+    const moveUp = view.getAllByRole('button', { name: 'Move up' })
+      .find((button: HTMLElement) => !(button as HTMLButtonElement).disabled)!;
+    fireEvent.click(moveUp, {
       ctrlKey: true
     });
     expect(onOp).toHaveBeenCalledWith({
@@ -77,9 +102,9 @@ describe('TreeOutlineEditor move modifiers', () => {
       />
     );
 
-    fireEvent.click(view.getAllByRole('button', {
-      name: 'Move down (Ctrl/Cmd-click: move to last sibling)'
-    })[1]);
+    const moveDown = view.getAllByRole('button', { name: 'Move down' })
+      .filter((button: HTMLElement) => !(button as HTMLButtonElement).disabled);
+    fireEvent.click(moveDown[1]);
     expect(onOp).toHaveBeenCalledWith({
       kind: 'move',
       id: 'b',
@@ -101,10 +126,8 @@ describe('TreeOutlineEditor move modifiers', () => {
         moveToEdge
       />
     );
-    expect(view.getAllByRole('button', { name: '添加子条目' })).toHaveLength(3);
-    expect(view.getAllByRole('button', {
-      name: '上移（Ctrl/Cmd + 单击：移到同级首位）'
-    })).toHaveLength(2);
+    expect(view.getAllByRole('button', { name: '选择添加位置' })).toHaveLength(3);
+    expect(view.getAllByRole('button', { name: '上移' })).toHaveLength(3);
     document.documentElement.lang = 'en';
   });
 });

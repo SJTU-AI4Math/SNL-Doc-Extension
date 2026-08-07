@@ -4,6 +4,7 @@ import {
   addEntry,
   createLibrary,
   entityRevision,
+  mutateLibraryCounters,
   readAllMacros,
   readEntries,
   readEntryKinds,
@@ -12,7 +13,7 @@ import {
   readLibraryMeta,
   updateLibraryGraphNodeEntryId,
   updateLibrary,
-  writeLibraryCounters,
+  wrapLibraryGraphNodeWithParent,
   writeLibraryGraph,
   type CounterNode,
   type GraphNodeDto,
@@ -25,6 +26,7 @@ import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
+import { wrapNestedNodeWithParent } from './treeWrapParent';
 
 const LIBRARY_HOST_MESSAGES = defineHostMessages(
   {
@@ -43,6 +45,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     graphEditOnly: 'graphOp only valid in edit mode',
     graphMissingOp: 'graphOp: missing op field',
     parentNotFound: 'addNode: parent "{parent}" not found',
+    wrapTargetRequired: 'wrapNode: wrapTargetId is required',
+    wrapTargetNotFound: 'wrapNode: target "{target}" not found',
+    wrapTargetMalformed: 'wrapNode: target "{target}" has multiple parents',
+    wrapCreateUnsupported: 'wrapNode: create the Entry stub before wrapping the target',
     entryNotFound: 'addNode: entry "{entry}" not found in shared pool. Leave the id field empty to create a new entry.',
     kindRequired: 'addNode: kind is required when creating a new entry',
     unknownKind: 'kind "{kind}" is not registered',
@@ -61,6 +67,7 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent: nodeId required',
     updateNodeRequired: 'updateNodeProps: nodeId is required',
     updateNodeNotFound: 'updateNodeProps: node "{node}" not found',
+    countersMalformed: 'counters.json is malformed; refusing structural mutation',
     updateNodeEntryRequired: 'setNodeEntryId: nodeId, expectedEntryId, and entryId are required',
     updateNodeEntryInvalid: 'Entry ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
     updateNodeEntryNotFound: 'Outline node "{node}" no longer exists.',
@@ -83,6 +90,10 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     graphEditOnly: 'graphOp 仅在编辑模式下有效',
     graphMissingOp: 'graphOp：缺少 op 字段',
     parentNotFound: 'addNode：找不到父节点“{parent}”',
+    wrapTargetRequired: 'wrapNode：必须指定 wrapTargetId',
+    wrapTargetNotFound: 'wrapNode：找不到目标节点“{target}”',
+    wrapTargetMalformed: 'wrapNode：目标节点“{target}”存在多个父节点',
+    wrapCreateUnsupported: 'wrapNode：请先创建条目占位引用，再包装目标节点',
     entryNotFound: 'addNode：共享池中找不到条目“{entry}”。将 ID 字段留空可创建新条目。',
     kindRequired: 'addNode：创建新条目时必须指定类型',
     unknownKind: '类型“{kind}”尚未注册',
@@ -101,6 +112,7 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     outdentRequired: 'outdent：必须指定 nodeId',
     updateNodeRequired: 'updateNodeProps：必须指定 nodeId',
     updateNodeNotFound: 'updateNodeProps：找不到节点“{node}”',
+    countersMalformed: 'counters.json 格式损坏；已拒绝结构修改',
     updateNodeEntryRequired: 'setNodeEntryId：必须指定 nodeId、expectedEntryId 和 entryId',
     updateNodeEntryInvalid: '条目 ID 不能为空、不能包含首尾空白或控制字符。',
     updateNodeEntryNotFound: '大纲节点“{node}”已不存在。',
@@ -712,9 +724,21 @@ export class CreateLibraryPanel {
       }
 
       switch (op.op) {
-        case 'addNode': {
+        case 'addNode':
+        case 'wrapNode': {
           const parentId =
             typeof op.parentId === 'string' ? op.parentId : null;
+          const wrapTargetId =
+            op.op === 'wrapNode' && typeof op.wrapTargetId === 'string'
+              ? op.wrapTargetId
+              : null;
+          if (op.op === 'wrapNode' && wrapTargetId === null) {
+            void this.panel.webview.postMessage({
+              type: 'graphError',
+              message: libraryT()('wrapTargetRequired')
+            });
+            return;
+          }
           const rawEntryId =
             typeof op.entryId === 'string' ? op.entryId.trim() : '';
           const kind = typeof op.kind === 'string' ? op.kind.trim() : '';
@@ -728,6 +752,26 @@ export class CreateLibraryPanel {
           // the node lands in the outline immediately and resolves organically
           // once the Create Entry panel saves that id into the pool.
           const isStub = op.isStub === true || op.allowUnresolved === true;
+          if (wrapTargetId !== null) {
+            if (!nodes.some((node) => node.id === wrapTargetId)) {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: libraryT()('wrapTargetNotFound', { target: wrapTargetId })
+              });
+              return;
+            }
+            const parentCount = relationships.filter(
+              (relationship) =>
+                relationship.label === 'branch' && relationship.to === wrapTargetId
+            ).length;
+            if (parentCount > 1) {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: libraryT()('wrapTargetMalformed', { target: wrapTargetId })
+              });
+              return;
+            }
+          }
           // Validate parent exists in the graph (or is null for a root).
           if (parentId !== null && !nodes.some((n) => n.id === parentId)) {
             void this.panel.webview.postMessage({
@@ -755,6 +799,13 @@ export class CreateLibraryPanel {
             entryUuid = rawEntryId;
           } else {
             // CREATE mode: need a kind; make a fresh shared-pool row.
+            if (wrapTargetId !== null) {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: libraryT()('wrapCreateUnsupported')
+              });
+              return;
+            }
             if (!kind) {
               void this.panel.webview.postMessage({
                 type: 'graphError',
@@ -795,12 +846,35 @@ export class CreateLibraryPanel {
           // Optional per-node counter override (2026-07-16). Empty = unset,
           // falling back to the kind's defaultCounterName at numbering time.
           if (counterId) nodeProps.counterId = counterId;
-          nodes.push({
+          const newNode: GraphNodeDto = {
             id: nodeLocalId,
             label: 'Entry',
             props: nodeProps
-          });
-          if (parentId !== null) {
+          };
+          if (wrapTargetId !== null) {
+            const wrapResult = await wrapLibraryGraphNodeWithParent(
+              root,
+              this.slug,
+              wrapTargetId,
+              newNode
+            );
+            if (wrapResult.status !== 'ok') {
+              void this.panel.webview.postMessage({
+                type: 'graphError',
+                message: wrapResult.status === 'error'
+                  ? wrapResult.message
+                  : wrapResult.status === 'notFound'
+                    ? libraryT()('wrapTargetNotFound', { target: wrapTargetId })
+                    : libraryT()('wrapTargetMalformed', { target: wrapTargetId })
+              });
+              return;
+            }
+            await this.pushGraph();
+            return;
+          } else {
+            nodes.push(newNode);
+          }
+          if (wrapTargetId === null && parentId !== null) {
             const newRel: GraphRelationshipDto = {
               from: parentId,
               to: nodeLocalId,
@@ -1129,93 +1203,21 @@ export class CreateLibraryPanel {
     if (!op || typeof op.op !== 'string') return;
 
     try {
-      const roots = await readLibraryCounters(root, this.slug);
-      switch (op.op) {
-        case 'addRoot': {
-          const node = makeCounterNode(readCounterSeed(op.seed));
-          insertIntoList(
-            roots,
-            node,
-            typeof op.insertAfter === 'string' ? op.insertAfter : null
-          );
-          break;
-        }
-        case 'addChild': {
-          const parentId = typeof op.parentId === 'string' ? op.parentId : '';
-          const loc = locateCounter(roots, parentId);
-          if (!loc) return;
-          const parentNode = loc.list[loc.index];
-          const node = makeCounterNode(readCounterSeed(op.seed));
-          insertIntoList(
-            parentNode.children,
-            node,
-            typeof op.insertAfter === 'string' ? op.insertAfter : null
-          );
-          break;
-        }
-        case 'updateFields': {
-          const id = typeof op.id === 'string' ? op.id : '';
-          const loc = locateCounter(roots, id);
-          if (!loc) return;
-          const node = loc.list[loc.index];
-          const patch = op.patch as
-            | { name?: unknown; numbering?: unknown }
-            | undefined;
-          if (patch && typeof patch.name === 'string') node.name = patch.name;
-          if (patch && typeof patch.numbering === 'string') {
-            node.numbering = patch.numbering;
-          }
-          break;
-        }
-        case 'move': {
-          const id = typeof op.id === 'string' ? op.id : '';
-          const direction =
-            op.direction === 'up' ? 'up' : op.direction === 'down' ? 'down' : null;
-          if (!direction) return;
-          const loc = locateCounter(roots, id);
-          if (!loc) return;
-          const j = direction === 'up' ? loc.index - 1 : loc.index + 1;
-          if (j < 0 || j >= loc.list.length) return;
-          const tmp = loc.list[loc.index];
-          loc.list[loc.index] = loc.list[j];
-          loc.list[j] = tmp;
-          break;
-        }
-        case 'indent': {
-          const id = typeof op.id === 'string' ? op.id : '';
-          const loc = locateCounter(roots, id);
-          if (!loc || loc.index <= 0) return; // no previous sibling → no-op
-          const prev = loc.list[loc.index - 1];
-          const [node] = loc.list.splice(loc.index, 1);
-          prev.children.push(node);
-          break;
-        }
-        case 'outdent': {
-          const id = typeof op.id === 'string' ? op.id : '';
-          const loc = locateCounter(roots, id);
-          if (!loc || !loc.parent) return; // root node → no parent to escape
-          const parentLoc = locateCounter(roots, loc.parent.id);
-          const [node] = loc.list.splice(loc.index, 1);
-          if (!parentLoc) {
-            roots.push(node);
-          } else {
-            parentLoc.list.splice(parentLoc.index + 1, 0, node);
-          }
-          break;
-        }
-        case 'delete': {
-          const id = typeof op.id === 'string' ? op.id : '';
-          const loc = locateCounter(roots, id);
-          if (!loc) return;
-          loc.list.splice(loc.index, 1);
-          break;
-        }
-        default:
-          return;
+      const result = await mutateLibraryCounters(
+        root,
+        this.slug,
+        (roots) => applyCounterOperation(roots, op)
+      );
+      if (result.status !== 'ok') {
+        void this.panel.webview.postMessage({
+          type: 'countersError',
+          message: result.status === 'error'
+            ? result.message
+            : libraryT()('countersMalformed')
+        });
+        return;
       }
-
-      await writeLibraryCounters(root, this.slug, roots);
-      await this.pushCounters('countersPushed');
+      if (result.changed) await this.pushCounters('countersPushed');
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       void this.panel.webview.postMessage({
@@ -1237,6 +1239,94 @@ export class CreateLibraryPanel {
         d.dispose();
       }
     }
+  }
+}
+
+type CounterOperation = { op?: string; [key: string]: unknown };
+
+/** Apply one semantic counter-tree command to a writer-locked snapshot. */
+function applyCounterOperation(roots: CounterNode[], op: CounterOperation): boolean {
+  switch (op.op) {
+    case 'addRoot': {
+      const node = makeCounterNode(readCounterSeed(op.seed));
+      insertIntoList(roots, node, typeof op.insertAfter === 'string' ? op.insertAfter : null);
+      return true;
+    }
+    case 'addChild': {
+      const parentId = typeof op.parentId === 'string' ? op.parentId : '';
+      const loc = locateCounter(roots, parentId);
+      if (!loc) return false;
+      const node = makeCounterNode(readCounterSeed(op.seed));
+      insertIntoList(
+        loc.list[loc.index].children,
+        node,
+        typeof op.insertAfter === 'string' ? op.insertAfter : null
+      );
+      return true;
+    }
+    case 'wrapParent': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      return wrapNestedNodeWithParent(roots, id, makeCounterNode(readCounterSeed(op.seed)));
+    }
+    case 'updateFields': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      const loc = locateCounter(roots, id);
+      if (!loc) return false;
+      const node = loc.list[loc.index];
+      const patch = op.patch as { name?: unknown; numbering?: unknown } | undefined;
+      let changed = false;
+      if (patch && typeof patch.name === 'string' && patch.name !== node.name) {
+        node.name = patch.name;
+        changed = true;
+      }
+      if (
+        patch && typeof patch.numbering === 'string' &&
+        patch.numbering !== node.numbering
+      ) {
+        node.numbering = patch.numbering;
+        changed = true;
+      }
+      return changed;
+    }
+    case 'move': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      const direction = op.direction === 'up' ? 'up' : op.direction === 'down' ? 'down' : null;
+      if (!direction) return false;
+      const loc = locateCounter(roots, id);
+      if (!loc) return false;
+      const nextIndex = direction === 'up' ? loc.index - 1 : loc.index + 1;
+      if (nextIndex < 0 || nextIndex >= loc.list.length) return false;
+      [loc.list[loc.index], loc.list[nextIndex]] = [loc.list[nextIndex], loc.list[loc.index]];
+      return true;
+    }
+    case 'indent': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      const loc = locateCounter(roots, id);
+      if (!loc || loc.index <= 0) return false;
+      const previous = loc.list[loc.index - 1];
+      const [node] = loc.list.splice(loc.index, 1);
+      previous.children.push(node);
+      return true;
+    }
+    case 'outdent': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      const loc = locateCounter(roots, id);
+      if (!loc || !loc.parent) return false;
+      const parentLoc = locateCounter(roots, loc.parent.id);
+      if (!parentLoc) return false;
+      const [node] = loc.list.splice(loc.index, 1);
+      parentLoc.list.splice(parentLoc.index + 1, 0, node);
+      return true;
+    }
+    case 'delete': {
+      const id = typeof op.id === 'string' ? op.id : '';
+      const loc = locateCounter(roots, id);
+      if (!loc) return false;
+      loc.list.splice(loc.index, 1);
+      return true;
+    }
+    default:
+      return false;
   }
 }
 

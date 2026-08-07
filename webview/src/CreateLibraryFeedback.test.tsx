@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateLibraryApp } from './CreateLibraryApp';
 import type { VsCodeApi } from './vscodeApi';
@@ -36,6 +36,39 @@ function setupApi(): void {
 }
 
 describe('Create Library feedback', () => {
+  it('routes the shared add-parent action to counter mutation and the outline add form', async () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', existing: { slug: 'demo', title: 'Demo' } });
+    send({
+      type: 'countersLoaded',
+      counters: [{ id: 'counter-1', name: 'theorem', numbering: '1', children: [] }]
+    });
+    sendGraph({
+      nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
+      entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', content: { snl: 'foo' } }]
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));
+    const counterRow = screen.getByDisplayValue('theorem').closest<HTMLElement>('.snl-outline-row')!;
+    fireEvent.click(within(counterRow).getByRole('button', { name: 'Choose add position' }));
+    fireEvent.click(within(counterRow).getByRole('menuitem', { name: 'Add parent node' }));
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
+      type: 'counterOp',
+      op: {
+        op: 'wrapParent',
+        id: 'counter-1',
+        seed: { name: 'counter', numbering: '1' }
+      }
+    }));
+
+    const entryInput = screen.getByRole('combobox', { name: 'Entry id' });
+    const entryRow = entryInput.closest<HTMLElement>('.snl-outline-row')!;
+    fireEvent.click(within(entryRow).getByRole('button', { name: 'Choose add position' }));
+    fireEvent.click(within(entryRow).getByRole('menuitem', { name: 'Add parent node' }));
+    expect(screen.getByText('Entry id')).toBeTruthy();
+  });
+
   it('renders Add root entry as a full-width row action', () => {
     setupApi();
     render(<CreateLibraryApp />);

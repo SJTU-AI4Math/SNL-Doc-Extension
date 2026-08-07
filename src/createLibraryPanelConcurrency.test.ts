@@ -46,6 +46,32 @@ vi.mock('./snlDoc', () => ({
     };
     return { status: 'ok' };
   }),
+  wrapLibraryGraphNodeWithParent: vi.fn(async (
+    _root: unknown,
+    _slug: string,
+    targetId: string,
+    parent: any
+  ) => {
+    const targetIndex = operationGraph.nodes.findIndex((node) => node.id === targetId);
+    if (targetIndex < 0) return { status: 'notFound' };
+    const incoming = operationGraph.relationships
+      .map((relationship, index) => ({ relationship, index }))
+      .filter(({ relationship }) => relationship.label === 'branch' && relationship.to === targetId);
+    if (incoming.length > 1) return { status: 'malformed' };
+    operationGraph.nodes.splice(targetIndex, 0, structuredClone(parent));
+    if (incoming.length === 0) {
+      operationGraph.relationships.push({ from: parent.id, to: targetId, label: 'branch' });
+    } else {
+      const index = incoming[0].index;
+      operationGraph.relationships.splice(
+        index,
+        1,
+        { ...operationGraph.relationships[index], to: parent.id },
+        { from: parent.id, to: targetId, label: 'branch' }
+      );
+    }
+    return { status: 'ok' };
+  }),
   readLibraryMeta: vi.fn(async () => ({ status: 'ok', meta: { title: createResult.title } })),
   readLibraryGraph: vi.fn(() => operationMode
     ? Promise.resolve({ status: 'ok', result: { graph: structuredClone(operationGraph), warnings: [] } })
@@ -53,6 +79,16 @@ vi.mock('./snlDoc', () => ({
   readLibraryCounters: vi.fn(() => operationCounterMode
     ? Promise.resolve(structuredClone(operationCounters))
     : deferred(counterReads)),
+  mutateLibraryCounters: vi.fn(async (
+    _root: unknown,
+    _slug: string,
+    mutate: (roots: any[]) => boolean
+  ) => {
+    const roots = structuredClone(operationCounters);
+    const changed = mutate(roots);
+    if (changed) operationCounters = roots;
+    return { status: 'ok', changed };
+  }),
   readEntries: async () => [], readEntryKinds: async () => [], readAllMacros: async () => ({})
 }));
 vi.mock('./panelUtil', () => ({
@@ -138,6 +174,89 @@ describe('CreateLibraryPanel refresh ordering', () => {
       panel.handleMessage({ type: 'graphOp', op: { op: 'addNode', parentId: null, entryId: 'entry-b', isStub: true } })
     ]);
     expect(operationGraph.nodes.map((node) => node.props.entryId).sort()).toEqual(['entry-a', 'entry-b']);
+  });
+
+  it('wraps an outline node with one atomic graph operation without reordering roots', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [
+        { id: 'before', label: 'Entry', props: { entryId: 'entry-before' } },
+        { id: 'target', label: 'Entry', props: { entryId: 'entry-target' } },
+        { id: 'after', label: 'Entry', props: { entryId: 'entry-after' } }
+      ],
+      relationships: []
+    };
+    const panel = panelHarness(CreateLibraryPanel.prototype, []);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: {
+        op: 'wrapNode',
+        wrapTargetId: 'target',
+        parentId: null,
+        entryId: 'entry-parent',
+        isStub: true
+      }
+    });
+
+    const parent = operationGraph.nodes.find(
+      (node) => node.props.entryId === 'entry-parent'
+    );
+    expect(parent).toBeTruthy();
+    expect(operationGraph.nodes.map((node) => node.id)).toEqual([
+      'before', parent.id, 'target', 'after'
+    ]);
+    expect(operationGraph.relationships).toEqual([
+      { from: parent.id, to: 'target', label: 'branch' }
+    ]);
+  });
+
+  it('fails closed when wrapNode omits its target', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [{ id: 'target', label: 'Entry', props: { entryId: 'entry-target' } }],
+      relationships: []
+    };
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'wrapNode', entryId: 'entry-parent', isStub: true }
+    });
+
+    expect(operationGraph.nodes).toHaveLength(1);
+    expect(posted).toContainEqual({
+      type: 'graphError',
+      message: 'wrapNode: wrapTargetId is required'
+    });
+  });
+
+  it('does not create an orphan Entry when wrapNode lacks a pre-created reference', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    operationGraph = {
+      nodes: [{ id: 'target', label: 'Entry', props: { entryId: 'entry-target' } }],
+      relationships: []
+    };
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    vi.mocked(snlDoc.addEntry).mockClear();
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'wrapNode', wrapTargetId: 'target', kind: 'theorem' }
+    });
+
+    expect(snlDoc.addEntry).not.toHaveBeenCalled();
+    expect(operationGraph.nodes).toHaveLength(1);
+    expect(posted).toContainEqual({
+      type: 'graphError',
+      message: 'wrapNode: create the Entry stub before wrapping the target'
+    });
   });
 
   it('updates only the Entry indexed by a stable graph node', async () => {
@@ -249,6 +368,29 @@ describe('CreateLibraryPanel refresh ordering', () => {
       panel.handleMessage({ type: 'counterOp', op: { op: 'addRoot', insertAfter: null, seed: { name: 'B', numbering: '' } } })
     ]);
     expect(operationCounters.map((node) => node.name).sort()).toEqual(['A', 'B']);
+  });
+
+  it('wraps a counter node while preserving its subtree and sibling position', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationCounterMode = true;
+    operationCounters = [
+      { id: 'before', name: 'before', numbering: '1', children: [] },
+      {
+        id: 'target', name: 'target', numbering: '2',
+        children: [{ id: 'child', name: 'child', numbering: '2.1', children: [] }]
+      },
+      { id: 'after', name: 'after', numbering: '3', children: [] }
+    ];
+    const panel = panelHarness(CreateLibraryPanel.prototype, []);
+
+    await panel.handleMessage({
+      type: 'counterOp',
+      op: { op: 'wrapParent', id: 'target', seed: { name: 'parent', numbering: '2' } }
+    });
+
+    expect(operationCounters.map((node) => node.name)).toEqual(['before', 'parent', 'after']);
+    expect(operationCounters[1].children[0].name).toBe('target');
+    expect(operationCounters[1].children[0].children[0].name).toBe('child');
   });
 
   it('rekeys the create singleton and turns the same host panel into the created library editor', async () => {

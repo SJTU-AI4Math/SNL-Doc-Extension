@@ -600,7 +600,7 @@ function countCounterTree(nodes: CounterNode[]): number {
 /**
  * Collapsible "Counters (N)" section rendered between the meta header and the
  * Outline section. Uses the shared {@link TreeOutlineEditor} — the SAME tree
- * toolbar the entry outline uses — so counters get add-child / add-sibling /
+ * dashboard the entry outline uses — so counters get add-parent / add-child / add-sibling /
  * indent / outdent / move / delete for free. Row content is two inline inputs
  * (name + numbering) with a duplicate-name warning tag.
  */
@@ -642,6 +642,9 @@ function CountersSection({
 
   const handleTreeOp = (op: TreeOp): void => {
     switch (op.kind) {
+      case 'addParent':
+        onCounterOp({ op: 'wrapParent', id: op.id, seed: DEFAULT_SEED });
+        break;
       case 'addChild':
         onCounterOp({
           op: 'addChild',
@@ -975,6 +978,7 @@ function OutlineEditor({
   const [addingUnder, setAddingUnder] = useState<{
     parentId: string | null;
     insertAfter: string | null;
+    wrapTargetId?: string;
     entryId: string;
     counterId?: string;
   } | null>(null);
@@ -1062,9 +1066,10 @@ function OutlineEditor({
 
   const startAdd = (
     parentId: string | null,
-    insertAfter: string | null
+    insertAfter: string | null,
+    wrapTargetId?: string
   ): void => {
-    setAddingUnder({ parentId, insertAfter, entryId: '', counterId: '' });
+    setAddingUnder({ parentId, insertAfter, wrapTargetId, entryId: '', counterId: '' });
   };
 
   const cancelAdd = (): void => setAddingUnder(null);
@@ -1097,7 +1102,8 @@ function OutlineEditor({
       // CAN close the popover now because the outline already carries the
       // stub node and the id is preserved as the Create Entry panel's seed.
       onGraphOp({
-        op: 'addNode',
+        op: addingUnder.wrapTargetId ? 'wrapNode' : 'addNode',
+        wrapTargetId: addingUnder.wrapTargetId,
         parentId: addingUnder.parentId,
         insertAfter: addingUnder.insertAfter,
         entryId: entryIdTrimmed,
@@ -1109,7 +1115,8 @@ function OutlineEditor({
       return;
     }
     onGraphOp({
-      op: 'addNode',
+      op: addingUnder.wrapTargetId ? 'wrapNode' : 'addNode',
+      wrapTargetId: addingUnder.wrapTargetId,
       parentId: addingUnder.parentId,
       insertAfter: addingUnder.insertAfter,
       entryId: entryIdTrimmed,
@@ -1137,10 +1144,13 @@ function OutlineEditor({
       .filter((c): c is GraphNode => !!c);
 
   // Map the generic TreeOutlineEditor toolbar ops onto the entry outline's
-  // existing graphOp / add-form behavior. This is a strict move of the old
-  // per-row toolbar handlers — no behavior change.
+  // graphOp / add-form behavior. Parent insertion opens the same Entry picker
+  // and commits one atomic wrapNode host mutation.
   const handleTreeOp = (op: TreeOp): void => {
     switch (op.kind) {
+      case 'addParent':
+        startAdd(null, null, op.id);
+        break;
       case 'addChild':
         startAdd(op.id, null);
         break;
@@ -1220,7 +1230,8 @@ function OutlineEditor({
     // Root-sibling (both null) is handled by the top-level <AddNodeForm/>.
     const show =
       !!addingUnder &&
-      ((addingUnder.parentId === node.id && addingUnder.insertAfter === null) ||
+      (addingUnder.wrapTargetId === node.id ||
+        (addingUnder.parentId === node.id && addingUnder.insertAfter === null) ||
         addingUnder.insertAfter === node.id);
     if (!show || !addingUnder) return null;
     return (
@@ -1275,7 +1286,7 @@ function OutlineEditor({
       />
 
       {/* Root-level add: no parent. */}
-      {addingUnder && addingUnder.parentId === null && addingUnder.insertAfter === null ? (
+      {addingUnder && !addingUnder.wrapTargetId && addingUnder.parentId === null && addingUnder.insertAfter === null ? (
         <AddNodeForm
           kinds={graph.kinds}
           entriesById={entriesById}
@@ -1582,6 +1593,7 @@ function AddNodeForm({
   state: {
     parentId: string | null;
     insertAfter: string | null;
+    wrapTargetId?: string;
     entryId: string;
     counterId?: string;
   };
@@ -1591,6 +1603,7 @@ function AddNodeForm({
     s: {
       parentId: string | null;
       insertAfter: string | null;
+      wrapTargetId?: string;
       entryId: string;
       counterId?: string;
     } | null

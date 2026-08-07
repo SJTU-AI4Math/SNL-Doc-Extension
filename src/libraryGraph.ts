@@ -106,6 +106,95 @@ export function updateRawLibraryGraphNodeEntryId(
   };
 }
 
+export type WrapRawLibraryGraphNodeResult =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; reason: 'invalid' | 'notFound' | 'malformed' };
+
+/**
+ * Insert `parent` directly above one graph node while retaining unknown raw
+ * JSON fields. The parent occupies the target's node-array slot (root order),
+ * and an existing incoming branch edge keeps its relationship-array slot
+ * (sibling order). A non-tree multi-parent target is rejected unchanged.
+ */
+export function wrapRawLibraryGraphNodeWithParent(
+  raw: unknown,
+  targetId: string,
+  parent: GraphNode
+): WrapRawLibraryGraphNodeResult {
+  if (
+    !raw || typeof raw !== 'object' || Array.isArray(raw) ||
+    !targetId || !parent.id || parent.id === targetId
+  ) return { ok: false, reason: 'invalid' };
+  const wrapper = raw as Record<string, unknown>;
+  if (!Array.isArray(wrapper.nodes) || !Array.isArray(wrapper.relationships)) {
+    return { ok: false, reason: 'invalid' };
+  }
+  const nodeRecords = wrapper.nodes;
+  const readableNodeIds = new Set<string>();
+  for (const node of nodeRecords) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue;
+    const record = node as Record<string, unknown>;
+    if (
+      typeof record.id === 'string' && record.id.length > 0 &&
+      typeof record.label === 'string' && record.label.length > 0 &&
+      !readableNodeIds.has(record.id)
+    ) readableNodeIds.add(record.id);
+  }
+  const targetIndices = nodeRecords
+    .map((node, index) => ({ node, index }))
+    .filter(({ node }) =>
+      node !== null && typeof node === 'object' && !Array.isArray(node) &&
+      (node as Record<string, unknown>).id === targetId
+    )
+    .map(({ index }) => index);
+  if (targetIndices.length === 0) return { ok: false, reason: 'notFound' };
+  if (targetIndices.length !== 1) return { ok: false, reason: 'invalid' };
+  if (!readableNodeIds.has(targetId)) return { ok: false, reason: 'invalid' };
+  if (nodeRecords.some((node) =>
+    node !== null && typeof node === 'object' && !Array.isArray(node) &&
+    (node as Record<string, unknown>).id === parent.id
+  )) return { ok: false, reason: 'invalid' };
+
+  const incomingIndices: number[] = [];
+  for (let index = 0; index < wrapper.relationships.length; index++) {
+    const relationship = wrapper.relationships[index];
+    if (!relationship || typeof relationship !== 'object' || Array.isArray(relationship)) continue;
+    const record = relationship as Record<string, unknown>;
+    if (record.label !== 'branch' || record.to !== targetId) continue;
+    // readLibraryGraph ignores missing/dangling endpoints. Never reinterpret
+    // or rewrite such a preserved raw record as the target's structural edge.
+    if (
+      typeof record.from !== 'string' ||
+      !readableNodeIds.has(record.from) ||
+      record.from === targetId
+    ) return { ok: false, reason: 'malformed' };
+    incomingIndices.push(index);
+  }
+  if (incomingIndices.length > 1) return { ok: false, reason: 'malformed' };
+
+  const nodes = nodeRecords.slice();
+  nodes.splice(targetIndices[0], 0, parent);
+  const relationships = wrapper.relationships.slice();
+  const parentToTarget: GraphRelationship = {
+    from: parent.id,
+    to: targetId,
+    label: 'branch'
+  };
+  if (incomingIndices.length === 0) {
+    relationships.push(parentToTarget);
+  } else {
+    const incomingIndex = incomingIndices[0];
+    const incoming = relationships[incomingIndex] as Record<string, unknown>;
+    relationships.splice(
+      incomingIndex,
+      1,
+      { ...incoming, to: parent.id },
+      parentToTarget
+    );
+  }
+  return { ok: true, value: { ...wrapper, nodes, relationships } };
+}
+
 /** Kind lookup shape needed by numberFor — a thin view of EntryKind. Since
  *  the 2026-07-16 rename, a kind names a Library-scoped counter (by
  *  `counter.name`) rather than carrying a numbering DSL directly. */

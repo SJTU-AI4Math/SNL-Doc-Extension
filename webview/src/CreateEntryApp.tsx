@@ -61,6 +61,10 @@ import { IconButton } from './components/IconButton';
 import { MenuItemButton } from './components/MenuItemButton';
 import { TabButton, TabList } from './components/Tabs';
 import { Disclosure } from './components/Disclosure';
+import {
+  TreeNodeActionDashboard,
+  type TreeNodeActionCommand
+} from './components/TreeNodeActionDashboard';
 import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
 import { ensureTreeIdentity, inheritTreeIdentity, treeIdentity } from './components/treeIdentity';
@@ -4963,6 +4967,25 @@ export function GuiInductiveEditor({
             bottom: 2.15rem;
           }
         }
+        @media (hover: none), (pointer: coarse) {
+          .snl-tree-row {
+            padding-right: 0.3rem;
+            padding-bottom: 4.9rem;
+          }
+          .snl-tree-row-toolbar {
+            top: auto;
+            bottom: 0.15rem;
+            transform: none;
+            opacity: 1;
+            pointer-events: auto;
+          }
+          .snl-tree-row:has(.snl-tree-add-menu) {
+            padding-bottom: 6.9rem;
+          }
+          .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
+            bottom: 2.15rem;
+          }
+        }
       `}</style>
 
       {parseError ? (
@@ -5356,27 +5379,11 @@ function InductiveNode({
   const contextDraftOpenRef = React.useRef(false);
   const contextAutoFocusRequestedRef = React.useRef(false);
   const previousNodeIdRef = React.useRef(nodeId);
-  const [addMenuOpen, setAddMenuOpen] = React.useState(false);
-  const addControlRef = React.useRef<HTMLDivElement>(null);
-  const addMenuId = React.useId();
 
   React.useEffect(() => {
     if (contextInputOpen) contextAutoFocusRequestedRef.current = false;
   }, [contextInputOpen]);
 
-  React.useEffect(() => {
-    if (!addMenuOpen) return;
-    addControlRef.current
-      ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
-      ?.focus();
-    const closeOnOutsideClick = (event: MouseEvent): void => {
-      if (!addControlRef.current?.contains(event.target as Node)) {
-        setAddMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
-  }, [addMenuOpen]);
 
   // Sync from external changes (e.g. text mode edit → re-parse → new tree).
   // Only reset if the incoming node's stringified form differs from what we
@@ -5443,19 +5450,6 @@ function InductiveNode({
     onChange({
       ...node,
       children: [...node.children, createSnlSyntaxTreeNode('')]
-    });
-  };
-  const chooseAddPosition = (position: 'parent' | 'child' | 'sibling'): void => {
-    setAddMenuOpen(false);
-    if (position === 'parent') treeOp('wrapParent', path);
-    else if (position === 'child') addChild();
-    else if (path !== '') treeOp('addSibling', path);
-    // Structural operations may move or remount this row. Restore focus by its
-    // stable tree identity, not by a ref that can point at an unmounted dial.
-    window.requestAnimationFrame(() => {
-      const row = Array.from(document.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
-        .find((candidate) => candidate.dataset.snlTreeNodeId === nodeId);
-      row?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')?.focus();
     });
   };
   const updateChild = (i: number, next: SnlSyntaxTree): void => {
@@ -5557,6 +5551,51 @@ function InductiveNode({
     const nextStyle =
       trimmed === '' || trimmed === defaultStyleTag ? undefined : trimmed;
     onChange({ ...node, style_name: nextStyle });
+  };
+
+  const pathParts = path.split('.').filter((part) => part.length > 0);
+  const siblingIndex = pathParts.length > 0 ? Number(pathParts[pathParts.length - 1]) : -1;
+  const canIndent = pathParts.length > 0 && siblingIndex > 0;
+  const canOutdent = pathParts.length >= 2;
+  const canMoveUp = pathParts.length > 0 && siblingIndex > 0;
+  const canMoveDown = pathParts.length > 0 && siblingIndex < siblingCount - 1;
+  const trimmedMacroName = node.macro_name.trim();
+  const macroKnown = trimmedMacroName !== '' && Boolean(macroOrigin[trimmedMacroName]);
+  const macroActionTitle = macroKnown
+    ? t('openEditMacro', { name: trimmedMacroName, origin: macroOrigin[trimmedMacroName] })
+    : node.env_mode === 'text'
+      ? t('openCreateMacroText', { name: trimmedMacroName })
+      : node.env_mode === 'formula_inline'
+        ? t('openCreateMacroInline', { name: trimmedMacroName })
+        : node.env_mode === 'formula_display'
+          ? t('openCreateMacroDisplay', { name: trimmedMacroName })
+          : trimmedMacroName === ''
+            ? t('openCreateMacroBlank')
+            : t('openCreateMacroPrefill', { name: trimmedMacroName });
+
+  const restoreDashboardFocus = (): void => {
+    window.requestAnimationFrame(() => {
+      const row = Array.from(document.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
+        .find((candidate) => candidate.dataset.snlTreeNodeId === nodeId);
+      row?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')?.focus();
+    });
+  };
+
+  const handleDashboardAction = (command: TreeNodeActionCommand): void => {
+    const furthest = 'toEdge' in command && command.toEdge;
+    switch (command.kind) {
+      case 'moveUp': treeOp('moveUp', path, furthest); break;
+      case 'moveDown': treeOp('moveDown', path, furthest); break;
+      case 'outdent': treeOp('outdent', path, furthest); break;
+      case 'indent': treeOp('indent', path, furthest); break;
+      case 'addParent': treeOp('wrapParent', path); restoreDashboardFocus(); break;
+      case 'addChild': addChild(); restoreDashboardFocus(); break;
+      case 'addSibling':
+        if (path !== '') treeOp('addSibling', path);
+        restoreDashboardFocus();
+        break;
+      case 'delete': onDelete?.(); break;
+    }
   };
 
   return (
@@ -5762,157 +5801,41 @@ function InductiveNode({
           className="snl-tree-row-toolbar"
           style={{ zIndex: 10 }}
         >
-          {(() => {
-            const trimmed = node.macro_name.trim();
-            const known = trimmed !== '' && Boolean(macroOrigin[trimmed]);
-            const title = known
-              ? t('openEditMacro', { name: trimmed, origin: macroOrigin[trimmed] })
-              : node.env_mode === 'text'
-                ? t('openCreateMacroText', { name: trimmed })
-                : node.env_mode === 'formula_inline'
-                  ? t('openCreateMacroInline', { name: trimmed })
-                  : node.env_mode === 'formula_display'
-                    ? t('openCreateMacroDisplay', { name: trimmed })
-                    : trimmed === ''
-                      ? t('openCreateMacroBlank')
-                      : t('openCreateMacroPrefill', { name: trimmed });
-            return (
+          <TreeNodeActionDashboard
+            capabilities={{
+              canMoveUp,
+              canMoveDown,
+              canIndent,
+              canOutdent,
+              canAddParent: true,
+              canAddChild: true,
+              canAddSibling: path !== '',
+              canDelete: onDelete !== undefined
+            }}
+            leadingActions={
               <IconButton
-                icon={known ? 'edit' : 'add'}
-                label={known ? t('editMacro') : t('createMacro')}
+                icon={macroKnown ? 'edit' : 'add'}
+                label={macroKnown ? t('editMacro') : t('createMacro')}
                 variant="ghost"
                 size="sm"
                 className="snl-tree-compact-action"
                 onClick={() =>
                   onOpenMacroEditor({
-                    name: trimmed,
+                    name: trimmedMacroName,
                     env_mode: node.env_mode === 'block' ? undefined : node.env_mode,
                     style_name: node.style_name
                   })
                 }
-                title={title}
+                title={macroActionTitle}
                 style={{
-                  color: known
+                  color: macroKnown
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
                     : 'var(--vscode-descriptionForeground, #999)'
                 }}
               />
-            );
-          })()}
-          {(() => {
-            const parts = path.split('.').filter((part) => part.length > 0);
-            const index = parts.length > 0 ? Number(parts[parts.length - 1]) : -1;
-            const canIndent = parts.length > 0 && index > 0;
-            const canOutdent = parts.length >= 2;
-            const canMoveUp = parts.length > 0 && index > 0;
-            const canMoveDown = parts.length > 0 && index < siblingCount - 1;
-            return (
-              <div className="snl-tree-operation-cluster">
-                <div ref={addControlRef} className="snl-tree-operation-dial">
-                  <IconButton
-                    icon="move-up"
-                    label={t('moveUp')}
-                    variant="ghost"
-                    size="sm"
-                    className="snl-tree-dial-action snl-tree-dial-action--up"
-                    onClick={(event) => canMoveUp && treeOp('moveUp', path, event.ctrlKey)}
-                    disabled={!canMoveUp}
-                    title={canMoveUp ? t('moveUpAvailable') : t('moveUpUnavailable')}
-                  />
-                  <IconButton
-                    icon="outdent"
-                    label={t('outdent')}
-                    variant="ghost"
-                    size="sm"
-                    className="snl-tree-dial-action snl-tree-dial-action--outdent"
-                    onClick={(event) => canOutdent && treeOp('outdent', path, event.ctrlKey)}
-                    disabled={!canOutdent}
-                    title={canOutdent ? t('outdentAvailable') : t('outdentUnavailable')}
-                  />
-                  <IconButton
-                    icon="add"
-                    label={t('chooseAddPositionAria')}
-                    variant="ghost"
-                    size="sm"
-                    className="snl-tree-dial-action snl-tree-dial-action--add"
-                    onClick={() => setAddMenuOpen((open) => !open)}
-                    title={t('chooseAddPosition')}
-                    data-snl-add-position-trigger
-                    aria-haspopup="menu"
-                    aria-expanded={addMenuOpen}
-                    aria-controls={addMenuOpen ? addMenuId : undefined}
-                  />
-                  <IconButton
-                    icon="indent"
-                    label={t('indent')}
-                    variant="ghost"
-                    size="sm"
-                    className="snl-tree-dial-action snl-tree-dial-action--indent"
-                    onClick={(event) => canIndent && treeOp('indent', path, event.ctrlKey)}
-                    disabled={!canIndent}
-                    title={canIndent ? t('indentAvailable') : t('indentUnavailable')}
-                  />
-                  <IconButton
-                    icon="move-down"
-                    label={t('moveDown')}
-                    variant="ghost"
-                    size="sm"
-                    className="snl-tree-dial-action snl-tree-dial-action--down"
-                    onClick={(event) => canMoveDown && treeOp('moveDown', path, event.ctrlKey)}
-                    disabled={!canMoveDown}
-                    title={canMoveDown ? t('moveDownAvailable') : t('moveDownUnavailable')}
-                  />
-                  {addMenuOpen ? (
-                    <div
-                      id={addMenuId}
-                      role="menu"
-                      aria-label={t('addNodePosition')}
-                      className="snl-tree-add-menu"
-                      onBlur={(event) => {
-                        const next = event.relatedTarget as Node | null;
-                        if (!next || !addControlRef.current?.contains(next)) {
-                          setAddMenuOpen(false);
-                        }
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          event.stopPropagation();
-                          setAddMenuOpen(false);
-                          addControlRef.current
-                            ?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')
-                            ?.focus();
-                          return;
-                        }
-                        if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) return;
-                        event.preventDefault();
-                        const items = Array.from(
-                          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
-                        );
-                        const current = items.indexOf(document.activeElement as HTMLButtonElement);
-                        const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
-                        items[(current + step + items.length) % items.length]?.focus();
-                      }}
-                    >
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addParent')} onClick={() => chooseAddPosition('parent')} title={t('addParentTitle')}>{t('parent')}</Button>
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addChild')} onClick={() => chooseAddPosition('child')} title={t('addChildTitle')}>{t('child')}</Button>
-                      <Button role="menuitem" variant="secondary" size="sm" aria-label={t('addSibling')} disabled={path === ''} onClick={() => chooseAddPosition('sibling')} title={path === '' ? t('rootNoSibling') : t('addSiblingTitle')}>{t('sibling')}</Button>
-                    </div>
-                  ) : null}
-                </div>
-                {onDelete ? (
-                  <IconButton
-                    icon="delete"
-                    label={t('deleteSubtree')}
-                    variant="destructive"
-                    size="sm"
-                    className="snl-tree-compact-action snl-tree-delete-action"
-                    onClick={onDelete}
-                    title={t('deleteSubtreeTitle')}
-                  />
-                ) : null}
-              </div>
-            );
-          })()}
+            }
+            onAction={handleDashboardAction}
+          />
         </div>
       </div>
 

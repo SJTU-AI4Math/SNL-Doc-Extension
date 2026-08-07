@@ -17,8 +17,13 @@ import { RowPrimaryButton } from './RowPrimaryButton';
 
 describe('TreeOutlineEditor interaction model', () => {
   it('keeps depth indentation when applying vertical padding', () => {
-    expect(treeRowStyle(2).padding).toBe('0.3rem 0 0.3rem 3rem');
-    expect(treeRowStyle(0).padding).toBe('0.3rem 0');
+    expect(treeRowStyle(2)).toMatchObject({
+      paddingTop: '0.3rem',
+      paddingRight: 0,
+      paddingBottom: '0.3rem',
+      paddingLeft: '3rem'
+    });
+    expect(treeRowStyle(0).paddingLeft).toBe(0);
   });
 
   it('disables move controls at sibling boundaries', () => {
@@ -39,6 +44,7 @@ describe('TreeOutlineEditor interaction model', () => {
   it('does not hit-test a visually hidden toolbar', () => {
     expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('pointer-events: none');
     expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('pointer-events: auto');
+    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('@media (hover: none), (pointer: coarse)');
   });
 
   it('exposes disclosure state and its controlled child list', () => {

@@ -22,7 +22,10 @@ export function treeRowCapabilities(
 
 export function treeRowStyle(depth: number): React.CSSProperties {
   return {
-    padding: depth > 0 ? `0.3rem 0 0.3rem ${depth * 1.5}rem` : '0.3rem 0'
+    paddingTop: '0.3rem',
+    paddingRight: 0,
+    paddingBottom: '0.3rem',
+    paddingLeft: depth > 0 ? `${depth * 1.5}rem` : 0
   };
 }
 
@@ -34,7 +37,17 @@ export function treeDisclosureA11y(
 }
 
 export const TREE_OUTLINE_TOOLBAR_CSS = `
+  .snl-outline-row {
+    position: relative;
+    overflow: visible;
+    transition: padding-right 90ms ease-in, padding-bottom 90ms ease-in;
+  }
   .snl-outline-row-toolbar {
+    position: absolute;
+    z-index: 10;
+    top: 50%;
+    right: 0.3rem;
+    transform: translateY(-50%);
     opacity: 0;
     pointer-events: none;
     transition: opacity 90ms ease-in;
@@ -43,6 +56,43 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
   .snl-outline-row:focus-within .snl-outline-row-toolbar {
     opacity: 1;
     pointer-events: auto;
+  }
+  .snl-outline-row:hover,
+  .snl-outline-row:focus-within {
+    padding-right: 8.4rem !important;
+  }
+  @container snl-outline (max-width: 30rem) {
+    .snl-outline-row:hover,
+    .snl-outline-row:focus-within {
+      padding-right: 0 !important;
+      padding-bottom: 4.9rem !important;
+    }
+    .snl-outline-row-toolbar {
+      top: auto;
+      right: 0.3rem;
+      bottom: 0.2rem;
+      transform: none;
+    }
+  }
+  @media (hover: none), (pointer: coarse) {
+    .snl-outline-row {
+      padding-right: 0 !important;
+      padding-bottom: 4.9rem !important;
+    }
+    .snl-outline-row-toolbar {
+      top: auto;
+      right: 0.3rem;
+      bottom: 0.2rem;
+      transform: none;
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .snl-outline-row:has(.snl-tree-add-menu) {
+      padding-bottom: 6.9rem !important;
+    }
+    .snl-outline-row:has(.snl-tree-add-menu) .snl-outline-row-toolbar {
+      bottom: 2.15rem;
+    }
   }
 `;
 

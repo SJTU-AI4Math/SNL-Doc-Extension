@@ -5,8 +5,7 @@
 // editor in the webviews:
 //   - recursion over roots + children (via `getId` / `getChildren`),
 //   - per-node collapse / expand state,
-//   - the hover-revealed Button row toolbar
-//       (+child / +sibling / ←| outdent / →| indent / ↑ up / ↓ down / ✕),
+//   - the shared hover/focus-revealed TreeNodeActionDashboard,
 //   - indent / outdent enablement (needs a previous sibling / a parent),
 //   - the depth-tinted row container + hover CSS.
 //
@@ -21,7 +20,10 @@
 
 import React, { useState } from 'react';
 import { IconButton } from './IconButton';
-import type { IconName } from './Icon';
+import {
+  TreeNodeActionDashboard,
+  type TreeNodeActionCommand
+} from './TreeNodeActionDashboard';
 import {
   TREE_OUTLINE_TOOLBAR_CSS,
   treeDisclosureA11y,
@@ -36,38 +38,8 @@ import {
 
 const MESSAGES = defineUiMessages(
   'treeOutline',
-  {
-    expand: 'Expand', collapse: 'Collapse',
-    addChildLabel: '+ child', addChild: 'Add a child entry',
-    addSiblingLabel: '+ sibling', addSibling: 'Add a sibling after this entry',
-    outdent: 'Outdent — promote to sibling of parent',
-    outdentUnavailable: 'Outdent unavailable — already at the top level',
-    indent: 'Indent — make this entry a child of its previous sibling',
-    indentUnavailable: 'Indent unavailable — no previous sibling to nest under',
-    moveUpEdge: 'Move up (Ctrl/Cmd-click: move to first sibling)',
-    moveUp: 'Move up (swap with previous sibling)',
-    moveUpUnavailable: 'Move up unavailable — already first among siblings',
-    moveDownEdge: 'Move down (Ctrl/Cmd-click: move to last sibling)',
-    moveDown: 'Move down (swap with next sibling)',
-    moveDownUnavailable: 'Move down unavailable — already last among siblings',
-    delete: 'Delete this entry from the outline (does not delete the shared-pool entry)'
-  },
-  {
-    expand: '展开', collapse: '折叠',
-    addChildLabel: '+ 子级', addChild: '添加子条目',
-    addSiblingLabel: '+ 同级', addSibling: '在此条目后添加同级条目',
-    outdent: '减少缩进 — 提升为父节点的同级条目',
-    outdentUnavailable: '无法减少缩进 — 已在最顶层',
-    indent: '增加缩进 — 成为前一个同级条目的子条目',
-    indentUnavailable: '无法增加缩进 — 没有可作为父节点的前一个同级条目',
-    moveUpEdge: '上移（Ctrl/Cmd + 单击：移到同级首位）',
-    moveUp: '上移（与前一个同级条目交换）',
-    moveUpUnavailable: '无法上移 — 已是同级首项',
-    moveDownEdge: '下移（Ctrl/Cmd + 单击：移到同级末位）',
-    moveDown: '下移（与后一个同级条目交换）',
-    moveDownUnavailable: '无法下移 — 已是同级末项',
-    delete: '从大纲中移除此条目（不会删除共享池中的条目）'
-  }
+  { expand: 'Expand', collapse: 'Collapse' },
+  { expand: '展开', collapse: '折叠' }
 );
 
 /**
@@ -76,7 +48,7 @@ const MESSAGES = defineUiMessages(
  * caller owns how each op is realised (immediate mutation vs. add form).
  */
 export interface TreeOp {
-  kind: 'addChild' | 'addSibling' | 'move' | 'indent' | 'outdent' | 'delete';
+  kind: 'addParent' | 'addChild' | 'addSibling' | 'move' | 'indent' | 'outdent' | 'delete';
   /** The node the toolbar button was on. For `addChild` this is the parent. */
   id: string;
   /** Only present for `kind === 'move'`. */
@@ -100,6 +72,8 @@ export interface TreeOutlineEditorProps<T> {
    * by the entry outline to attach its "add child / add sibling" popover.
    */
   renderAfterRow?: (node: T, depth: number) => React.ReactNode;
+  /** Optional domain action inserted before the shared structural dial. */
+  renderDashboardLeadingActions?: (node: T, depth: number) => React.ReactNode;
   /** Enable Ctrl/Cmd-click on move buttons to jump to the sibling edge. */
   moveToEdge?: boolean;
 }
@@ -125,6 +99,7 @@ export function TreeOutlineEditor<T>({
   onOp,
   emptyState,
   renderAfterRow,
+  renderDashboardLeadingActions,
   moveToEdge = false
 }: TreeOutlineEditorProps<T>): React.ReactElement {
   ensureHoverStyle();
@@ -147,7 +122,15 @@ export function TreeOutlineEditor<T>({
   }
 
   return (
-    <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    <ol
+      style={{
+        listStyle: 'none',
+        padding: 0,
+        margin: 0,
+        containerType: 'inline-size',
+        containerName: 'snl-outline'
+      }}
+    >
       {roots.map((node, index) => (
         <TreeRow
           key={getId(node)}
@@ -160,6 +143,7 @@ export function TreeOutlineEditor<T>({
           getChildren={getChildren}
           renderRow={renderRow}
           renderAfterRow={renderAfterRow}
+          renderDashboardLeadingActions={renderDashboardLeadingActions}
           onOp={onOp}
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
@@ -181,6 +165,8 @@ interface TreeRowProps<T> {
   getChildren: (node: T) => T[];
   renderRow: (node: T, depth: number) => React.ReactNode;
   renderAfterRow?: (node: T, depth: number) => React.ReactNode;
+  /** Optional domain action inserted before the shared structural dial. */
+  renderDashboardLeadingActions?: (node: T, depth: number) => React.ReactNode;
   onOp: (op: TreeOp) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (id: string) => void;
@@ -198,6 +184,7 @@ function TreeRow<T>({
   getChildren,
   renderRow,
   renderAfterRow,
+  renderDashboardLeadingActions,
   onOp,
   collapsed,
   onToggleCollapsed,
@@ -268,73 +255,42 @@ function TreeRow<T>({
 
         <div
           className="snl-outline-row-toolbar"
-          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0, marginLeft: 'auto' }}
+          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
-          <ToolbarButton
-            icon="add-child"
-            title={t('addChild')}
-            onClick={() => onOp({ kind: 'addChild', id })}
-          />
-          <ToolbarButton
-            icon="add-sibling"
-            title={t('addSibling')}
-            onClick={() => onOp({ kind: 'addSibling', id })}
-          />
-          <ToolbarButton
-            icon="outdent"
-            title={
-              canOutdent
-                ? t('outdent')
-                : t('outdentUnavailable')
-            }
-            disabled={!canOutdent}
-            onClick={() => onOp({ kind: 'outdent', id })}
-          />
-          <ToolbarButton
-            icon="indent"
-            title={
-              canIndent
-                ? t('indent')
-                : t('indentUnavailable')
-            }
-            disabled={!canIndent}
-            onClick={() => onOp({ kind: 'indent', id })}
-          />
-          <ToolbarButton
-            icon="move-up"
-            title={canMoveUp
-              ? moveToEdge
-                ? t('moveUpEdge')
-                : t('moveUp')
-              : t('moveUpUnavailable')}
-            disabled={!canMoveUp}
-            onClick={(event) => onOp({
-              kind: 'move',
-              id,
-              direction: 'up',
-              toEdge: moveToEdge && (event.ctrlKey || event.metaKey)
-            })}
-          />
-          <ToolbarButton
-            icon="move-down"
-            title={canMoveDown
-              ? moveToEdge
-                ? t('moveDownEdge')
-                : t('moveDown')
-              : t('moveDownUnavailable')}
-            disabled={!canMoveDown}
-            onClick={(event) => onOp({
-              kind: 'move',
-              id,
-              direction: 'down',
-              toEdge: moveToEdge && (event.ctrlKey || event.metaKey)
-            })}
-          />
-          <ToolbarButton
-            icon="delete"
-            title={t('delete')}
-            destructive
-            onClick={() => onOp({ kind: 'delete', id })}
+          <TreeNodeActionDashboard
+            capabilities={{
+              canMoveUp,
+              canMoveDown,
+              canIndent,
+              canOutdent,
+              canAddParent: true,
+              canAddChild: true,
+              canAddSibling: true,
+              canDelete: true
+            }}
+            leadingActions={renderDashboardLeadingActions?.(node, depth)}
+            onAction={(command: TreeNodeActionCommand) => {
+              switch (command.kind) {
+                case 'addParent': onOp({ kind: 'addParent', id }); break;
+                case 'addChild': onOp({ kind: 'addChild', id }); break;
+                case 'addSibling': onOp({ kind: 'addSibling', id }); break;
+                case 'outdent': onOp({ kind: 'outdent', id }); break;
+                case 'indent': onOp({ kind: 'indent', id }); break;
+                case 'moveUp':
+                  onOp({
+                    kind: 'move', id, direction: 'up',
+                    toEdge: moveToEdge && command.toEdge
+                  });
+                  break;
+                case 'moveDown':
+                  onOp({
+                    kind: 'move', id, direction: 'down',
+                    toEdge: moveToEdge && command.toEdge
+                  });
+                  break;
+                case 'delete': onOp({ kind: 'delete', id }); break;
+              }
+            }}
           />
         </div>
       </div>
@@ -359,6 +315,7 @@ function TreeRow<T>({
               getChildren={getChildren}
               renderRow={renderRow}
               renderAfterRow={renderAfterRow}
+              renderDashboardLeadingActions={renderDashboardLeadingActions}
               onOp={onOp}
               collapsed={collapsed}
               onToggleCollapsed={onToggleCollapsed}
@@ -372,31 +329,6 @@ function TreeRow<T>({
   );
 }
 
-function ToolbarButton({
-  icon,
-  title,
-  onClick,
-  destructive,
-  disabled
-}: {
-  icon: IconName;
-  title: string;
-  onClick: React.MouseEventHandler<HTMLButtonElement>;
-  destructive?: boolean;
-  disabled?: boolean;
-}): React.ReactElement {
-  return (
-    <IconButton
-      icon={icon}
-      label={title}
-      variant={destructive ? 'destructive' : 'secondary'}
-      size="sm"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-    />
-  );
-}
 
 function disclosureButtonStyle(): React.CSSProperties {
   return {

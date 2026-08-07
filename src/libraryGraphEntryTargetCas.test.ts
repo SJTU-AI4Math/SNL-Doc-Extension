@@ -47,7 +47,10 @@ vi.mock('vscode', () => ({
   }
 }));
 
-import { updateLibraryGraphNodeEntryId } from './snlDoc';
+import {
+  updateLibraryGraphNodeEntryId,
+  wrapLibraryGraphNodeWithParent
+} from './snlDoc';
 
 const root = uri('/ws') as never;
 
@@ -91,6 +94,39 @@ describe('updateLibraryGraphNodeEntryId raw CAS writer', () => {
   it('rejects a stale snapshot instead of overwriting a concurrent writer', async () => {
     injectConcurrentWrite = true;
     const result = await updateLibraryGraphNodeEntryId(root, 'lib', 'root', 'entry-a', 'entry-b');
+    expect(result).toMatchObject({ status: 'error' });
+    expect(result.status === 'error' ? result.message : '').toContain('Refusing stale write');
+    const graph = JSON.parse(dec.decode(files.get(graphPath)!));
+    expect(graph).toMatchObject({ writer: 'external', nodes: [{ id: 'root', external: true }] });
+  });
+});
+
+describe('wrapLibraryGraphNodeWithParent raw CAS writer', () => {
+  const parent = {
+    id: 'parent',
+    label: 'Entry' as const,
+    props: { entryId: 'entry-parent' }
+  };
+
+  it('wraps the latest raw graph without dropping unknown fields', async () => {
+    expect(await wrapLibraryGraphNodeWithParent(root, 'lib', 'child', parent))
+      .toEqual({ status: 'ok' });
+    const graph = JSON.parse(dec.decode(files.get(graphPath)!));
+    expect(graph.extension).toEqual({ keep: true });
+    expect(graph.nodes.map((node: any) => node?.id ?? node)).toEqual([
+      'root', 'parent', 'child', 'malformed'
+    ]);
+    expect(graph.relationships).toEqual([
+      { from: 'root', to: 'parent', label: 'branch', properties: { order: 1 } },
+      { from: 'parent', to: 'child', label: 'branch' },
+      { from: 'child', to: 'root', label: 'custom', extra: true },
+      9
+    ]);
+  });
+
+  it('rejects a stale snapshot instead of undoing a concurrent CAS writer', async () => {
+    injectConcurrentWrite = true;
+    const result = await wrapLibraryGraphNodeWithParent(root, 'lib', 'root', parent);
     expect(result).toMatchObject({ status: 'error' });
     expect(result.status === 'error' ? result.message : '').toContain('Refusing stale write');
     const graph = JSON.parse(dec.decode(files.get(graphPath)!));

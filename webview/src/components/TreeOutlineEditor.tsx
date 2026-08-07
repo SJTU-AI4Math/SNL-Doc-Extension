@@ -76,6 +76,10 @@ export interface TreeOutlineEditorProps<T> {
   renderDashboardLeadingActions?: (node: T, depth: number) => React.ReactNode;
   /** Enable Ctrl/Cmd-click on move buttons to jump to the sibling edge. */
   moveToEdge?: boolean;
+  /** Optional domain class applied to every structural row. */
+  rowClassName?: string;
+  /** Optional domain layout overrides applied after shared row defaults. */
+  rowStyle?: React.CSSProperties;
 }
 
 const HOVER_STYLE_TAG_ID = 'snl-tree-outline-hover-style';
@@ -100,7 +104,9 @@ export function TreeOutlineEditor<T>({
   emptyState,
   renderAfterRow,
   renderDashboardLeadingActions,
-  moveToEdge = false
+  moveToEdge = false,
+  rowClassName,
+  rowStyle
 }: TreeOutlineEditorProps<T>): React.ReactElement {
   ensureHoverStyle();
   const t = useUiMessages(MESSAGES);
@@ -148,6 +154,8 @@ export function TreeOutlineEditor<T>({
           collapsed={collapsed}
           onToggleCollapsed={toggleCollapsed}
           moveToEdge={moveToEdge}
+          rowClassName={rowClassName}
+          rowStyle={rowStyle}
           t={t}
         />
       ))}
@@ -171,6 +179,8 @@ interface TreeRowProps<T> {
   collapsed: Set<string>;
   onToggleCollapsed: (id: string) => void;
   moveToEdge: boolean;
+  rowClassName?: string;
+  rowStyle?: React.CSSProperties;
   t: UiTranslator<typeof MESSAGES.catalogs.en>;
 }
 
@@ -189,6 +199,8 @@ function TreeRow<T>({
   collapsed,
   onToggleCollapsed,
   moveToEdge,
+  rowClassName,
+  rowStyle,
   t
 }: TreeRowProps<T>): React.ReactElement {
   const id = getId(node);
@@ -206,7 +218,7 @@ function TreeRow<T>({
   return (
     <li style={{ marginBottom: '0.15rem' }}>
       <div
-        className="snl-outline-row"
+        className={['snl-outline-row', rowClassName].filter(Boolean).join(' ')}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -221,7 +233,8 @@ function TreeRow<T>({
           background:
             depth === 0
               ? 'transparent'
-              : `rgba(255,255,255,${Math.min(0.02 * depth, 0.12)})`
+              : `rgba(255,255,255,${Math.min(0.02 * depth, 0.12)})`,
+          ...rowStyle
         }}
       >
         {hasKids ? (
@@ -320,6 +333,8 @@ function TreeRow<T>({
               collapsed={collapsed}
               onToggleCollapsed={onToggleCollapsed}
               moveToEdge={moveToEdge}
+              rowClassName={rowClassName}
+              rowStyle={rowStyle}
               t={t}
             />
           ))}

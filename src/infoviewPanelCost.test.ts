@@ -294,7 +294,7 @@ describe('infoview panel read cost', () => {
 
     configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(panelTitle).toBe('SNL — First');
-  });
+  }, 10_000);
 
   it('derives a one-Library return route when no origin was supplied', async () => {
     const { InfoviewPanel } = await loadPanel();

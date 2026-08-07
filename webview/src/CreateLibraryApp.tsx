@@ -29,6 +29,7 @@ import { Button } from './components/Button';
 import { EmptyAction } from './components/EmptyAction';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { TreeOutlineEditor, type TreeOp } from './components/TreeOutlineEditor';
+import './CreateLibraryApp.css';
 import {
   computeEntryMetricsForIds,
   DEFAULT_ENTRY_METRIC_THRESHOLDS,
@@ -1273,6 +1274,8 @@ function OutlineEditor({
       <TreeOutlineEditor<GraphNode>
         roots={rootNodes}
         moveToEdge
+        rowClassName="snl-library-outline-row"
+        rowStyle={{ alignItems: 'flex-start', paddingRight: '8.4rem' }}
         getId={(n) => n.id}
         getChildren={getChildren}
         renderRow={renderRow}
@@ -1368,37 +1371,47 @@ function OutlineRowContent({
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>{t('untitled')}</em>;
 
   return (
-    <>
-      <span
-        style={{
-          fontFamily: 'var(--vscode-editor-font-family, monospace)',
-          fontSize: '0.8rem',
-          color: 'var(--vscode-descriptionForeground, #999)',
-          minWidth: '3rem'
-        }}
-      >
-        {num ?? '—'}
-      </span>
+    <div className="snl-library-outline-row-main" data-snl-library-row-main>
+      <OutlineCounterControl
+        number={num}
+        currentCounterId={currentCounterId}
+        counters={flatCounters}
+        onChange={(counterId) => onUpdateNodeCounter(node.id, counterId)}
+      />
 
       {kind ? <KindBadge kind={kind} /> : null}
+
+      <div className="snl-library-outline-entry-id" data-testid="outline-entry-id-slot">
+        <OutlineEntryTargetEditor
+          nodeId={node.id}
+          entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
+          entries={entryOptions}
+          onCommit={(entryId) => onUpdateNodeEntry(
+            node.id,
+            typeof node.props.entryId === 'string' ? node.props.entryId : null,
+            entryId
+          )}
+        />
+      </div>
 
       {/* Title = click target that opens Edit Entry for this row's entry.
           Cat 2026-07-12. Only clickable when the row resolves to an entry. */}
       {entry ? (
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation();
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
             onOpenEntry(entry.id);
           }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onOpenEntry(entry.id);
-            }
-          }}
           style={{
+            minWidth: 0,
+            width: '100%',
+            padding: 0,
+            border: 0,
+            background: 'transparent',
+            color: 'inherit',
+            textAlign: 'left',
+            fontFamily: 'inherit',
             flex: '1 1 auto',
             fontSize: '0.95rem',
             overflow: 'hidden',
@@ -1411,9 +1424,10 @@ function OutlineRowContent({
           title={t('openEntry', { id: entry.id, kind: entry.kind })}
         >
           {displayTitle}
-        </span>
+        </button>
       ) : (
         <span
+          className="snl-outline-row-title"
           style={{
             flex: '1 1 auto',
             fontSize: '0.95rem',
@@ -1453,58 +1467,113 @@ function OutlineRowContent({
         </span>
       )}
 
-      <OutlineEntryTargetEditor
-        nodeId={node.id}
-        entryId={typeof node.props.entryId === 'string' ? node.props.entryId : ''}
-        entries={entryOptions}
-        onCommit={(entryId) => onUpdateNodeEntry(
-          node.id,
-          typeof node.props.entryId === 'string' ? node.props.entryId : null,
-          entryId
-        )}
-      />
-
       {entry && metricResult ? (
-        <EntryMetricValue
-          result={metricResult}
-          metric="structuralIndex"
-          thresholds={metricThresholds}
-          compact
-        />
+        <span className="snl-library-outline-metric">
+          <EntryMetricValue
+            result={metricResult}
+            metric="structuralIndex"
+            thresholds={metricThresholds}
+            compact
+          />
+        </span>
       ) : null}
 
-      {/* Per-entry counter override. Only meaningful when the row resolves
-          to an entry; <default> falls back to kind.defaultCounterName. */}
-      {entry ? (
+    </div>
+  );
+}
+
+function OutlineCounterControl({
+  number,
+  currentCounterId,
+  counters,
+  onChange
+}: {
+  number: string | null | undefined;
+  currentCounterId: string;
+  counters: CounterNode[];
+  onChange: (counterId: string) => void;
+}): React.ReactElement {
+  const t = useUiMessages(LIBRARY_MESSAGES);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [activated, setActivated] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const selectRef = useRef<HTMLSelectElement | null>(null);
+  const editing = hovered || focused || activated;
+  useEffect(() => {
+    if (editing && (activated || document.activeElement === wrapperRef.current)) {
+      selectRef.current?.focus();
+    }
+  }, [activated, editing]);
+  const activateEditor = (): void => {
+    setActivated(true);
+  };
+  return (
+    <div
+      ref={wrapperRef}
+      className="snl-library-outline-counter"
+      data-testid="outline-counter-control"
+      role={editing ? undefined : 'button'}
+      aria-label={editing ? undefined : t('counterOverride')}
+      tabIndex={editing ? -1 : 0}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onPointerDown={(event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.pointerType !== 'mouse') {
+          event.stopPropagation();
+          activateEditor();
+        }
+      }}
+      onClick={(event: React.MouseEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget || event.target instanceof HTMLElement && event.target.tagName === 'SPAN') {
+          event.stopPropagation();
+          activateEditor();
+        }
+      }}
+      onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          event.stopPropagation();
+          activateEditor();
+        }
+      }}
+      onFocusCapture={(event: React.FocusEvent<HTMLDivElement>) => {
+        setFocused(true);
+        if (event.target === event.currentTarget) activateEditor();
+      }}
+      onBlurCapture={(event: React.FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setFocused(false);
+          setActivated(false);
+        }
+      }}
+    >
+      {editing ? (
         <select
+          ref={selectRef}
+          aria-label={t('counter')}
           value={currentCounterId}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            onUpdateNodeCounter(node.id, e.target.value);
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            event.stopPropagation();
+            onChange(event.target.value);
+            event.currentTarget.blur();
+            setFocused(false);
+            setActivated(false);
+            setHovered(false);
           }}
           title={t('counterOverride')}
-          style={{
-            flexShrink: 0,
-            fontSize: '0.7rem',
-            maxWidth: '9rem',
-            background: 'var(--vscode-input-background, transparent)',
-            color: 'var(--vscode-input-foreground, inherit)',
-            border:
-              '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
-            borderRadius: '2px'
-          }}
         >
           <option value="">{t('defaultCounter')}</option>
-          {flatCounters.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+          {counters.map((counter) => (
+            <option key={counter.id} value={counter.id}>{counter.name}</option>
           ))}
         </select>
-      ) : null}
-
-    </>
+      ) : (
+        <span>{`【${number ?? '—'}】`}</span>
+      )}
+    </div>
   );
 }
 
@@ -1552,16 +1621,23 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
   const color = kind.coloring;
   return (
     <span
+      className="snl-library-outline-kind"
+      title={kind.name}
       style={{
         display: 'inline-block',
         padding: '0.1rem 0.45rem',
         fontSize: '0.75rem',
         borderRadius: '3px',
         border: color ? `1px solid ${color.stroke}` : '1px solid #666',
-        background: color ? color.background : 'transparent',
+        background: color ? color.stroke : 'transparent',
         color: color ? '#222' : 'inherit',
         fontWeight: 600,
-        flexShrink: 0
+        flexShrink: 0,
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
       }}
     >
       {kind.name}

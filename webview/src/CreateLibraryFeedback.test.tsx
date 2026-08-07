@@ -159,9 +159,11 @@ describe('Create Library feedback', () => {
     expect(screen.queryByRole('button', { name: /copy entry id/i })).toBeNull();
     expect(screen.queryByText('Entry ID indexed by node n_1')).toBeNull();
     const entryId = screen.getByRole('combobox', { name: 'Entry id' }) as HTMLInputElement;
-    const entryIdEditor = entryId.parentElement;
+    const entryIdEditor = entryId.closest('[data-testid="outline-entry-id-slot"]');
     const ssi = screen.getByText(/^SSI /);
-    expect(ssi.previousElementSibling).toBe(entryIdEditor);
+    const title = screen.getByRole('button', { name: 'Entry One' });
+    expect(entryIdEditor?.nextElementSibling).toBe(title);
+    expect(title.nextElementSibling?.contains(ssi)).toBe(true);
     expect(entryId.value).toBe('entry-one');
     entryId.focus();
     fireEvent.change(entryId, { target: { value: 'entry-t' } });
@@ -186,6 +188,86 @@ describe('Create Library feedback', () => {
     expect(postMessage.mock.calls.some(([message]) =>
       message?.type === 'graphOp' && message?.op?.op === 'renameNode'
     )).toBe(false);
+  });
+
+  it('opens an indexed Entry on a real primary pointer sequence', () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
+    sendGraph({
+      nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
+      entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }]
+    });
+
+    const title = screen.getByRole('button', { name: 'Entry One' });
+    expect(title).toBeInstanceOf(HTMLButtonElement);
+    fireEvent.pointerDown(title, { button: 0, clientX: 40, clientY: 30 });
+    fireEvent.pointerUp(title, { button: 0, clientX: 40, clientY: 30 });
+    fireEvent.click(title, { button: 0, clientX: 40, clientY: 30 });
+
+    expect(postMessage).toHaveBeenCalledWith({ type: 'openEditEntry', entryId: 'entry-one' });
+  });
+
+  it('keeps the counter at the left, the Entry id in a stable middle slot, and uses Kind stroke color', () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
+    send({
+      type: 'countersLoaded',
+      counters: [
+        { id: 'counter-main', name: 'theorem', numbering: '1.2.3', children: [] },
+        { id: 'counter-alt', name: 'lemma', numbering: 'I', children: [] }
+      ]
+    });
+    sendGraph({
+      nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
+      entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }],
+      kinds: [{
+        id: 'definition', name: 'Definition', defaultCounterName: 'theorem',
+        coloring: { stroke: '#00ff00', background: '#ff0000' }
+      }]
+    });
+
+    const row = screen.getByRole('combobox', { name: 'Entry id' }).closest<HTMLElement>('.snl-outline-row')!;
+    const main = row.querySelector<HTMLElement>('[data-snl-library-row-main]')!;
+    const counter = within(row).getByTestId('outline-counter-control');
+    const entryIdSlot = within(row).getByTestId('outline-entry-id-slot');
+    const kind = within(row).getByText('Definition');
+
+    expect(within(counter).getByText('【1.2.3】')).toBeTruthy();
+    expect(within(counter).queryByRole('combobox', { name: 'Counter' })).toBeNull();
+    expect(main.firstElementChild).toBe(counter);
+    expect(entryIdSlot.parentElement).toBe(main);
+    expect(getComputedStyle(row).alignItems).toBe('flex-start');
+    expect(row.style.paddingRight).toBe('8.4rem');
+    expect(getComputedStyle(main).gridTemplateColumns).not.toBe('');
+    expect(kind.style.background).toBe('rgb(0, 255, 0)');
+    expect(kind.getAttribute('title')).toBe('Definition');
+    expect(kind.style.overflow).toBe('hidden');
+    expect(kind.style.textOverflow).toBe('ellipsis');
+
+    fireEvent.mouseEnter(counter);
+    const counterSelect = within(counter).getByRole('combobox', { name: 'Counter' });
+    fireEvent.change(counterSelect, { target: { value: 'counter-alt' } });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'graphOp',
+      op: { op: 'updateNodeProps', nodeId: 'n_1', counterId: 'counter-alt' }
+    });
+    fireEvent.mouseLeave(counter);
+    expect(within(counter).getByText('【1.2.3】')).not.toBeNull();
+
+    expect(counter.tabIndex).toBe(0);
+    fireEvent.focus(counter);
+    const keyboardSelect = within(counter).getByRole('combobox', { name: 'Counter' });
+    fireEvent.mouseLeave(counter);
+    expect(within(counter).getByRole('combobox', { name: 'Counter' })).toBe(keyboardSelect);
+    fireEvent.blur(keyboardSelect, { relatedTarget: null });
+    expect(within(counter).getByText('【1.2.3】')).not.toBeNull();
+
+    fireEvent.pointerDown(counter, { pointerType: 'touch' });
+    fireEvent.click(counter);
+    const touchSelect = within(counter).getByRole('combobox', { name: 'Counter' });
+    expect(document.activeElement).toBe(touchSelect);
   });
 
   it('cancels an indexed Entry id edit with Escape', () => {

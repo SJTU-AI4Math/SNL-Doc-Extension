@@ -5,7 +5,7 @@ import { invariantHostText } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 import { formatMacroConflict } from './macroOutputI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Localized } from '@sjtu-ai4math/snl-basics';
+import { migrateMacroDocument, type Localized } from '@sjtu-ai4math/snl-basics';
 import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
 import {
   is_valid_i18n_string,
@@ -1280,11 +1280,11 @@ export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
-  /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
+  /** Legacy input may omit or customize this; canonical persistence writes const|sub. */
   kind?: string;
   dynamic_arity: boolean;
-  /** Language → implicit style name; renderer falls back through en then styles[0]. */
-  default_style: Record<string, string>;
+  /** Legacy read-only projection used while editing pre-v10 package input. */
+  default_style?: Record<string, string>;
   /** Ordered styles; styles[0] is the final fallback. */
   styles: MacroPackageStyle[];
   /** Free-text labels attached to the macro itself (backslash forbidden). */
@@ -1305,7 +1305,7 @@ export interface MacroPackageFile {
 
 /** Bare filename regex for a macro package (no path, no extension). */
 const MACRO_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const MACRO_PACKAGE_VERSION = '8';
+const MACRO_PACKAGE_VERSION = '10';
 
 /** URI of a package file given a bare-or-suffixed filename. */
 function macroPackageUri(
@@ -2352,7 +2352,7 @@ export async function readPackagePanelSnapshot(
 export function canonicalizeMacroPackageData(
   file: string,
   raw: unknown,
-  targetVersion: '7' | '8' = '8'
+  targetVersion: '7' | '8' | '10' = '10'
 ): Record<string, unknown> {
   const bare = stripJsonExt(file);
   const wrapper = raw && typeof raw === 'object' && !Array.isArray(raw) &&
@@ -2386,9 +2386,21 @@ export function canonicalizeMacroPackageData(
   if (result.status === 'error') {
     throw new Error(`${file}: ${result.message}`);
   }
-  return {
+  const v8 = {
     ...wrapper,
     ...result.pkg
+  };
+  if (targetVersion === '8') return v8;
+  const canonical = migrateMacroDocument(Object.fromEntries(
+    Object.entries(result.pkg.macros).map(([name, macro]) => [name, { ...macro, name }])
+  ));
+  return {
+    ...v8,
+    version: '10',
+    macros: Object.fromEntries(Object.entries(canonical).map(([name, macro]) => {
+      const { name: _name, ...persisted } = macro;
+      return [name, persisted];
+    }))
   };
 }
 

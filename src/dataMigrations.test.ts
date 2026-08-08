@@ -6,9 +6,11 @@ import {
   assertJsonSnapshotUnchanged,
   cloneWorkspaceDataSnapshot,
   inspectWorkspaceData,
+  makeEntityStorageReceipt,
   migrateWorkspaceSnapshot,
   type WorkspaceDataSnapshot
 } from './dataMigrations';
+import { entryEntityPath, macroEntityPath, packageManifestPath } from './entityStorage';
 
 const canonicalEntry = (version: '7' | '8'): Record<string, unknown> => ({
   description: '',
@@ -76,7 +78,8 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData({ version: '9.0.0' }).status).toBe('future');
     expect(inspectWorkspaceData({ version: '0.0.4' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.5' }).status).toBe('needsMigration');
-    expect(inspectWorkspaceData({ version: '0.0.6' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.6' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.0.7' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
@@ -84,7 +87,8 @@ describe('workspace data migrations', () => {
       '0.0.2->0.0.3',
       '0.0.3->0.0.4',
       '0.0.4->0.0.5',
-      '0.0.5->0.0.6'
+      '0.0.5->0.0.6',
+      '0.0.6->0.0.7'
     ]);
   });
 
@@ -133,10 +137,11 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, canonicalize);
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
-      '0.0.5->0.0.6'
+      '0.0.5->0.0.6',
+      '0.0.6->0.0.7'
     ]);
     expect(data.config).toMatchObject({
-      version: '0.0.6',
+      version: '0.0.7',
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',
@@ -233,7 +238,7 @@ describe('workspace data migrations', () => {
       description: 'Legacy Entries without an assigned package.'
     });
     await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw)).resolves.toMatchObject({
-      to: '0.0.6'
+      to: '0.0.7'
     });
 
     const conflict = snapshot('0.0.5');
@@ -254,7 +259,7 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
 
     expect(report.applied).toEqual(WORKSPACE_DATA_MIGRATIONS);
-    expect(data.config.version).toBe('0.0.6');
+    expect(data.config.version).toBe('0.0.7');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -399,8 +404,8 @@ describe('workspace data migrations', () => {
     const data = snapshot('0.0.3');
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
-    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5']);
-    expect(data.config.version).toBe('0.0.6');
+    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5', '0.0.6']);
+    expect(data.config.version).toBe('0.0.7');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {
@@ -414,5 +419,111 @@ describe('workspace data migrations', () => {
     })).rejects.toThrow(/bad macro/);
     expect(data.config).toEqual(original.config);
     expect([...data.macroPackages]).toEqual(original.macroPackages);
+  });
+
+  it('migrates active partial entities and config to sub while preserving extensions and frozen backups', async () => {
+    const data = snapshot('0.0.6');
+    data.config.macro_kinds = [
+      { id: 'partial', name: 'Partial', coloring: { stroke: 'inherit' }, vendor: 7 },
+      { id: 'const', name: 'Const' }
+    ];
+    data.config.entity_storage = {
+      version: 1,
+      legacy_backup_version: '0.0.5',
+      entry_default_package: '_unpackaged',
+      receipt: { frozen: true }
+    };
+    data.macroPackages.set('Frozen.json', { version: '8', macros: { old: { kind: 'partial' } } });
+    data.entries = [{ id: 'frozen', tree: { macro_name: 'old', kind: 'partial', children: [] } }];
+    data.packageManifests.set(packageManifestPath('Logic'), {
+      format: 'snl-package', version: 1, id: 'Logic', name: 'Logic', description: '', vendor: true
+    });
+    data.packageManifests.set(packageManifestPath('_unpackaged'), {
+      format: 'snl-package', version: 1, id: '_unpackaged', name: 'Unpackaged', description: ''
+    });
+    data.macroEntities.set(macroEntityPath('Logic', 'old'), {
+      format: 'snl-macro', version: 1, package: 'Logic', envelope_extension: 'keep',
+      macro: { name: 'old', kind: 'partial', backend: { keep: true } }
+    });
+    data.macroEntities.set(macroEntityPath('Logic', 'custom'), {
+      format: 'snl-macro', version: 1, package: 'Logic',
+      macro: { name: 'custom', kind: 'rule', backend: { keep: true } }
+    });
+    data.macroEntities.set(macroEntityPath('Logic', 'missing'), {
+      format: 'snl-macro', version: 1, package: 'Logic',
+      macro: { name: 'missing', backend: { keep: true } }
+    });
+    data.entryEntities.set(entryEntityPath('Logic', 'entry'), {
+      format: 'snl-entry', version: 1, package: 'Logic', envelope_extension: 'keep',
+      entry: {
+        id: 'entry', package: 'Logic',
+        canvasForest: [{
+          macro_name: 'old', kind: 'partial', children: [],
+          mdata: { bindRef: 'stale', src: 'ctx', canvas: { x: 1 } }
+        }]
+      }
+    });
+    (data.config.entity_storage as Record<string, unknown>).receipt =
+      makeEntityStorageReceipt(data.entries, data.macroPackages, true);
+
+    const frozenPackages = structuredClone([...data.macroPackages]);
+    const frozenEntries = structuredClone(data.entries);
+    const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.6->0.0.7']);
+    expect(data.config.version).toBe('0.0.7');
+    expect(data.config.macro_kinds).toEqual([
+      { id: 'sub', name: 'Partial', coloring: { stroke: 'inherit' }, vendor: 7 },
+      { id: 'const', name: 'Const' }
+    ]);
+    expect(data.macroEntities.get(macroEntityPath('Logic', 'old'))).toMatchObject({
+      envelope_extension: 'keep',
+      macro: { name: 'old', kind: 'sub', backend: { keep: true } }
+    });
+    expect(data.macroEntities.get(macroEntityPath('Logic', 'custom'))).toMatchObject({
+      macro: { name: 'custom', kind: 'const', backend: { keep: true } }
+    });
+    expect(data.macroEntities.get(macroEntityPath('Logic', 'missing'))).toMatchObject({
+      macro: { name: 'missing', kind: 'const', backend: { keep: true } }
+    });
+    expect(data.entryEntities.get(entryEntityPath('Logic', 'entry'))).toMatchObject({
+      envelope_extension: 'keep',
+      entry: { canvasForest: [{ kind: 'sub', mdata: { src: 'ctx', canvas: { x: 1 } } }] }
+    });
+    expect(JSON.stringify(data.entryEntities.get(entryEntityPath('Logic', 'entry')))).not.toContain('bindRef');
+    expect([...data.macroPackages]).toEqual(frozenPackages);
+    expect(data.entries).toEqual(frozenEntries);
+  });
+
+  it('rejects partial/sub config collisions and ambiguous compound binders atomically', async () => {
+    const base = snapshot('0.0.6');
+    base.config.entity_storage = {
+      version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged', receipt: {}
+    };
+    base.config.macro_kinds = [{ id: 'partial' }, { id: 'sub' }];
+    await expect(migrateWorkspaceSnapshot(base, (_file, raw) => raw))
+      .rejects.toThrow(/partial.*sub.*collision/i);
+    expect(base.config.version).toBe('0.0.6');
+
+    const binder = snapshot('0.0.6');
+    binder.config.entity_storage = {
+      version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged', receipt: {}
+    };
+    binder.config.macro_kinds = [];
+    binder.packageManifests.set(packageManifestPath('_unpackaged'), {
+      format: 'snl-package', version: 1, id: '_unpackaged', name: 'Unpackaged', description: ''
+    });
+    binder.packageManifests.set(packageManifestPath('Logic'), {
+      format: 'snl-package', version: 1, id: 'Logic', name: 'Logic', description: ''
+    });
+    binder.entryEntities.set(entryEntityPath('Logic', 'entry'), {
+      format: 'snl-entry', version: 1, package: 'Logic',
+      entry: { id: 'entry', package: 'Logic', content: { snl: '@Pair(x,y)' } }
+    });
+    (binder.config.entity_storage as Record<string, unknown>).receipt =
+      makeEntityStorageReceipt(binder.entries, binder.macroPackages, true);
+    await expect(migrateWorkspaceSnapshot(binder, (_file, raw) => raw))
+      .rejects.toThrow(/entries\/Logic.*compound binder.*@Pair/i);
+    expect(binder.config.version).toBe('0.0.6');
   });
 });

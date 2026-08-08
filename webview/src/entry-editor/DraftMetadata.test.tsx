@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CreateEntryApp } from '../CreateEntryApp';
 import { loadDraft, saveDraft } from '../components/draftState';
+import { CANVAS_FOREST_DRAFT_VERSION } from './canvasForest';
 import type { VsCodeApi } from '../vscodeApi';
 
 /**
@@ -217,6 +218,7 @@ describe('restored draft in edit mode', () => {
       content: { snl: 'alpha', typst: '', latex: '', markdown: '', text: '' },
       activeFormat: 'snl',
       snlMode: 'canvas',
+      canvasForestVersion: CANVAS_FOREST_DRAFT_VERSION,
       canvasForest: [
         { macro_name: 'alpha', children: [] },
         { macro_name: 'loose_block', children: [] }
@@ -247,8 +249,9 @@ describe('restored draft in edit mode', () => {
     fireEvent.input(titleInput(view), { target: { value: 'edited' } });
 
     await waitFor(() => {
-      const draft = loadDraft<{ canvasForest?: unknown[] }>(api, 'createEntry:edit:thm-1');
+      const draft = loadDraft<{ canvasForest?: unknown[]; canvasForestVersion?: number }>(api, 'createEntry:edit:thm-1');
       expect(draft).toBeTruthy();
+      expect(draft!.canvasForestVersion).toBe(CANVAS_FOREST_DRAFT_VERSION);
       expect(Array.isArray(draft!.canvasForest)).toBe(true);
       expect(draft!.canvasForest!.length).toBeGreaterThan(0);
     }, { timeout: 3000 });

@@ -424,6 +424,118 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
   };
 }
 
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assert006EntityStorage(data: WorkspaceDataSnapshot): void {
+  const storage = data.config.entity_storage;
+  if (!isRecord(storage) || storage.version !== 1 ||
+      storage.legacy_backup_version !== '0.0.5' ||
+      storage.entry_default_package !== UNPACKAGED_PACKAGE_ID ||
+      !isRecord(storage.receipt)) {
+    throw new Error('Workspace 0.0.6 requires config.json#entity_storage v1 metadata and receipt.');
+  }
+  const expectedReceipt = makeEntityStorageReceipt(data.entries, data.macroPackages, true);
+  if (!sameJson(storage.receipt, expectedReceipt)) {
+    throw new Error('Workspace 0.0.6 entity storage receipt does not match the frozen legacy backup.');
+  }
+
+  const packageIds = new Set<string>();
+  for (const [path, manifest] of data.packageManifests) {
+    if (!isRecord(manifest) || manifest.format !== 'snl-package' || manifest.version !== 1 ||
+        typeof manifest.id !== 'string' || path !== packageManifestPath(manifest.id)) {
+      throw new Error(`Invalid or non-canonical Package entity at ${path}.`);
+    }
+    packageIds.add(manifest.id);
+  }
+  if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
+    throw new Error('Workspace 0.0.6 is missing the _unpackaged Package manifest.');
+  }
+  for (const [path, envelope] of data.entryEntities) {
+    if (!isRecord(envelope) || envelope.format !== 'snl-entry' || envelope.version !== 1 ||
+        typeof envelope.package !== 'string' || !isRecord(envelope.entry) ||
+        typeof envelope.entry.id !== 'string' || envelope.entry.package !== envelope.package ||
+        path !== entryEntityPath(envelope.package, envelope.entry.id) ||
+        !packageIds.has(envelope.package)) {
+      throw new Error(`Invalid, non-canonical, or orphaned Entry entity at ${path}.`);
+    }
+  }
+  for (const [path, envelope] of data.macroEntities) {
+    if (!isRecord(envelope) || envelope.format !== 'snl-macro' || envelope.version !== 1 ||
+        typeof envelope.package !== 'string' || !isRecord(envelope.macro) ||
+        typeof envelope.macro.name !== 'string' ||
+        path !== macroEntityPath(envelope.package, envelope.macro.name) ||
+        !packageIds.has(envelope.package)) {
+      throw new Error(`Invalid, non-canonical, or orphaned Macro entity at ${path}.`);
+    }
+  }
+}
+
+function migratePersistedTreeValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(migratePersistedTreeValue);
+  if (!isRecord(value)) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'mdata' && isRecord(child)) {
+      const metadata = Object.fromEntries(
+        Object.entries(child)
+          .filter(([metadataKey]) => metadataKey !== 'bindRef')
+          .map(([metadataKey, metadataValue]) => [metadataKey, migratePersistedTreeValue(metadataValue)])
+      );
+      result[key] = Object.keys(metadata).length > 0 ? metadata : null;
+    } else {
+      result[key] = migratePersistedTreeValue(child);
+    }
+  }
+  if (typeof value.macro_name === 'string' && Array.isArray(value.children) && value.kind === 'partial') {
+    result.kind = 'sub';
+  }
+  return result;
+}
+
+function assertNoCompoundBinder(path: string, entry: Record<string, unknown>): void {
+  const content = entry.content;
+  const snl = isRecord(content) && typeof content.snl === 'string' ? content.snl : null;
+  if (!snl) return;
+  const match = /@([\p{L}\p{N}_.-]+)\s*\(/u.exec(snl);
+  if (match) {
+    throw new Error(
+      `${path} contains compound binder @${match[1]}; Basics 0.2 structural APIs are required ` +
+      'to migrate it safely.'
+    );
+  }
+}
+
+function migrate006To007SemanticKinds(context: WorkspaceMigrationContext): void {
+  const data = context.data;
+  const kinds = data.config.macro_kinds;
+  if (!Array.isArray(kinds)) throw new Error('config.json#macro_kinds must be an array before migration.');
+  const ids = new Set(kinds.map((value) => isRecord(value) ? value.id : undefined));
+  if (ids.has('partial') && ids.has('sub')) {
+    throw new Error('config.json#macro_kinds partial/sub collision cannot be merged safely.');
+  }
+  assert006EntityStorage(data);
+
+  data.config.macro_kinds = kinds.map((value) => {
+    const item = { ...object(value) };
+    if (item.id === 'partial') item.id = 'sub';
+    return item;
+  });
+  for (const [path, envelope] of data.macroEntities) {
+    const macro = { ...envelope.macro };
+    macro.kind = macro.kind === 'partial' || macro.kind === 'sub' ? 'sub' : 'const';
+    data.macroEntities.set(path, { ...envelope, macro });
+  }
+  for (const [path, envelope] of data.entryEntities) {
+    assertNoCompoundBinder(path, envelope.entry);
+    data.entryEntities.set(path, {
+      ...envelope,
+      entry: migratePersistedTreeValue(envelope.entry) as Record<string, unknown>
+    });
+  }
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -454,6 +566,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.6',
     description: 'Split aggregate Entries and Macros into stable per-entity package storage.',
     migrate: async (context) => { migrate005To006EntityStorage(context); }
+  },
+  {
+    from: '0.0.6',
+    to: '0.0.7',
+    description: 'Rename active partial kinds to sub and remove stale derived tree metadata.',
+    migrate: async (context) => { migrate006To007SemanticKinds(context); }
   }
 ];
 

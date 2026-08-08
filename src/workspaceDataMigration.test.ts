@@ -88,7 +88,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -99,7 +99,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.6');
+    expect(report.to).toBe('0.0.7');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -108,8 +108,42 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.6');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
+  });
+
+  it('writes active entity upgrades before config and leaves frozen legacy backups byte-for-byte semantic unchanged', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.6';
+    config.macro_kinds = [{ id: 'partial', vendor: true }];
+    const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
+    const macroEnvelope = storage.values.get(macroPath) as Record<string, unknown>;
+    macroEnvelope.envelope_extension = 'keep';
+    (macroEnvelope.macro as Record<string, unknown>).kind = 'partial';
+    const entryPath = [...storage.values.keys()].find((path) => path.startsWith('entries/'))!;
+    const entryEnvelope = storage.values.get(entryPath) as Record<string, unknown>;
+    (entryEnvelope.entry as Record<string, unknown>).canvasForest = [{
+      macro_name: 'x', kind: 'partial', children: [], mdata: { bindRef: 'stale', src: 'ctx' }
+    }];
+    const frozenEntries = structuredClone(storage.values.get('entries.json'));
+    const frozenMacros = structuredClone(storage.values.get('term_macros/Logic.json'));
+    storage.writes.length = 0;
+
+    await migrateStoredWorkspaceData(storage, canonicalize);
+
+    expect(storage.writes).toEqual([entryPath, macroPath, 'config.json']);
+    expect(storage.values.get('entries.json')).toEqual(frozenEntries);
+    expect(storage.values.get('term_macros/Logic.json')).toEqual(frozenMacros);
+    expect(storage.values.get(macroPath)).toMatchObject({
+      envelope_extension: 'keep', macro: { kind: 'sub' }
+    });
+    expect(JSON.stringify(storage.values.get(entryPath))).not.toContain('bindRef');
+    expect(storage.values.get(entryPath)).toMatchObject({
+      entry: { canvasForest: [{ kind: 'sub', mdata: { src: 'ctx' } }] }
+    });
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
   });
 
   it('rolls every already-written file back if the final config commit fails', async () => {

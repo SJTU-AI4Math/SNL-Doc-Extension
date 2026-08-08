@@ -9,6 +9,38 @@ export type CanvasTreePath = readonly number[];
 const CANVAS_HOLE_KEY = '__snl_canvas_hole__';
 const CANVAS_HOLE_INDEX_KEY = '__snl_canvas_hole_index__';
 
+/** Schema for persisted Canvas ASTs; old Tree2 drafts are intentionally discarded. */
+export const CANVAS_FOREST_DRAFT_VERSION = 3 as const;
+
+function sanitizeCanvasNodeForDraft(node: SnlSyntaxTree): SnlSyntaxTree {
+  let mdata = node.mdata;
+  if (mdata && typeof mdata === 'object' && !Array.isArray(mdata)) {
+    const next = { ...(mdata as Record<string, unknown>) };
+    delete next.bindRef;
+    mdata = Object.keys(next).length > 0 ? next : null;
+  }
+  return {
+    ...node,
+    kind: node.kind === 'partial' ? 'sub' : node.kind,
+    mdata,
+    children: node.children.map(sanitizeCanvasNodeForDraft)
+  };
+}
+
+/** Never persist derived binding links; they are recomputed by the renderer. */
+export function sanitizeCanvasForestForDraft(forest: readonly SnlSyntaxTree[]): SnlSyntaxTree[] {
+  return forest.map(sanitizeCanvasNodeForDraft);
+}
+
+/** Refuse stale/unversioned AST drafts rather than allowing Tree2 state to return. */
+export function restoreCanvasForestDraft(
+  value: unknown,
+  version: unknown
+): SnlSyntaxTree[] | undefined {
+  if (version !== CANVAS_FOREST_DRAFT_VERSION || !Array.isArray(value)) return undefined;
+  return sanitizeCanvasForestForDraft(value as SnlSyntaxTree[]);
+}
+
 export interface CanvasTarget {
   rootIndex: number;
   path: CanvasTreePath;

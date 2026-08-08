@@ -88,12 +88,15 @@ import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 import { extensionRenderers } from './render/blockRenderers';
 import {
   attachCanvasRoot,
+  CANVAS_FOREST_DRAFT_VERSION,
   canPersistCanvasForest,
   deleteCanvasTarget,
   detachCanvasSubtree,
   isCanvasHole,
   moveCanvasCursor,
   reconcileCanvasArity,
+  restoreCanvasForestDraft,
+  sanitizeCanvasForestForDraft,
   replaceCanvasTarget,
   setCanvasDynamicArity
 } from './entry-editor/canvasForest';
@@ -1359,6 +1362,7 @@ export function CreateEntryApp(): React.ReactElement {
       activeFormat: ContentFormat;
       snlMode: 'text' | 'gui' | 'canvas';
       canvasForest?: SnlSyntaxTree[];
+      canvasForestVersion?: number;
       pointerDraft?: PointerDraft;
       contributor?: string;
       entryRevision?: string;
@@ -1398,10 +1402,14 @@ export function CreateEntryApp(): React.ReactElement {
     // identity (which drives block positions) is lost either way. Restore it
     // directly, and suppress the reparse that `content.snl` would otherwise
     // trigger. Review 2026-07-25.
-    if (restored.canvasForest && restored.canvasForest.length > 0) {
+    const restoredCanvasForest = restoreCanvasForestDraft(
+      restored.canvasForest,
+      restored.canvasForestVersion
+    );
+    if (restoredCanvasForest && restoredCanvasForest.length > 0) {
       canvasAuthoredSnlRef.current = restored.content.snl;
-      for (const root of restored.canvasForest) ensureTreeIdentity(root);
-      setCanvasForest(restored.canvasForest);
+      for (const root of restoredCanvasForest) ensureTreeIdentity(root);
+      setCanvasForest(restoredCanvasForest);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
@@ -1417,7 +1425,8 @@ export function CreateEntryApp(): React.ReactElement {
       content,
       activeFormat,
       snlMode,
-      canvasForest,
+      canvasForest: sanitizeCanvasForestForDraft(canvasForest),
+      canvasForestVersion: CANVAS_FOREST_DRAFT_VERSION,
       contributor,
       pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined,
       entryRevision: mode === 'edit' ? entryRevisionRef.current : undefined

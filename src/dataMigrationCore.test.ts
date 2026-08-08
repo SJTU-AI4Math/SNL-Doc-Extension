@@ -24,7 +24,7 @@ const chain = [
 
 describe('data migration core', () => {
   it('uses strict SemVer ordering for workspace data versions', () => {
-    expect(CURRENT_DATA_VERSION).toBe('0.0.6');
+    expect(CURRENT_DATA_VERSION).toBe('0.0.7');
     expect(compareDataVersions('0.0.3', '0.0.4')).toBeLessThan(0);
     expect(compareDataVersions('0.10.0', '0.9.0')).toBeGreaterThan(0);
     expect(() => compareDataVersions('7', '0.0.4')).toThrow(/SemVer/);

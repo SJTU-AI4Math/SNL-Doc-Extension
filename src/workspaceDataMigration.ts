@@ -62,7 +62,9 @@ export async function inspectStoredWorkspaceData(
   try {
     const config = snapshot ? snapshot.config : await storage.readJson('config.json');
     const inspection = inspectWorkspaceData(config);
-    if (inspection.status === 'current') {
+    const requiresEntityValidation = inspection.status === 'current' ||
+      (inspection.status === 'needsMigration' && inspection.currentVersion === '0.0.6');
+    if (requiresEntityValidation) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
       }

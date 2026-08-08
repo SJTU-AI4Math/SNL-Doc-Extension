@@ -2,7 +2,33 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('vscode', () => ({}));
 import { canonicalizeMacroPackageData } from './snlDoc';
 
-describe('Macro package v7 to v8 canonicalization', () => {
+describe('Macro package v7 to v10 canonicalization', () => {
+  it('canonicalizes persisted Macro kinds to schema 10 and removes default_style', () => {
+    const result = canonicalizeMacroPackageData('Kinds.json', {
+      version: '8', name: 'Kinds', macros: {
+        Rule: {
+          description: '', source: { entries: [], urls: [] }, kind: 'rule',
+          dynamic_arity: false, tags: [], default_style: { en: 'default' },
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'R', tags: [] }],
+          backend_extension: { keep: true }
+        },
+        Transparent: {
+          description: '', source: { entries: [], urls: [] }, kind: 'partial',
+          dynamic_arity: false, tags: [], default_style: { en: 'default' },
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'T', tags: [] }]
+        }
+      }
+    }, '10');
+    expect(result).toMatchObject({
+      version: '10',
+      macros: {
+        Rule: { kind: 'const', backend_extension: { keep: true } },
+        Transparent: { kind: 'sub' }
+      }
+    });
+    expect((result as any).macros.Rule).not.toHaveProperty('default_style');
+  });
+
   it('rejects localized templates instead of silently changing explicit [style] semantics', () => {
     expect(() => canonicalizeMacroPackageData('Logic.json', {
       version: '7',

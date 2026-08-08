@@ -6,6 +6,7 @@ import {
   canPersistCanvasForest,
   canvasForestHasUnfilledSlots,
   canvasHoleIndex,
+  CANVAS_FOREST_DRAFT_VERSION,
   createCanvasHole,
   detachCanvasSubtree,
   fillCanvasHole,
@@ -14,6 +15,8 @@ import {
   listCanvasTargets,
   moveCanvasCursor,
   reconcileCanvasArity,
+  restoreCanvasForestDraft,
+  sanitizeCanvasForestForDraft,
   setCanvasDynamicArity,
   replaceCanvasTarget
 } from './canvasForest';
@@ -23,6 +26,33 @@ const node = (macro_name: string, children: SnlSyntaxTree[] = []): SnlSyntaxTree
   kind: '',
   mdata: null,
   children
+});
+
+describe('Canvas draft schema safety', () => {
+  it('discards unversioned Tree2 forests so they cannot resurrect stale state', () => {
+    expect(restoreCanvasForestDraft([node('legacy')], undefined)).toBeUndefined();
+    expect(restoreCanvasForestDraft([node('legacy')], CANVAS_FOREST_DRAFT_VERSION - 1)).toBeUndefined();
+  });
+
+  it('strips derived bindRef recursively while preserving unrelated metadata', () => {
+    const forest = [{
+      ...node('root', [{
+        ...node('child'), kind: 'partial',
+        mdata: { bindRef: 'b1', src: 'ctx', canvas: { x: 2 } }
+      }]),
+      mdata: { bindRef: 'b0', provenance: 'keep' }
+    }];
+    const sanitized = sanitizeCanvasForestForDraft(forest);
+    expect(sanitized).toEqual([{
+      ...node('root', [{
+        ...node('child'), kind: 'sub',
+        mdata: { src: 'ctx', canvas: { x: 2 } }
+      }]),
+      mdata: { provenance: 'keep' }
+    }]);
+    expect(forest[0].mdata).toHaveProperty('bindRef', 'b0');
+    expect(restoreCanvasForestDraft(sanitized, CANVAS_FOREST_DRAFT_VERSION)).toEqual(sanitized);
+  });
 });
 
 describe('Canvas forest detach semantics', () => {

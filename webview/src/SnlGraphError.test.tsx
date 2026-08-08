@@ -31,6 +31,19 @@ describe('SnlGraphApp strict refresh errors', () => {
     expect(screen.getByRole('alert').textContent).toContain('new read failed');
   });
 
+  it('rejects malformed nested node and Macro Kind palettes without replacing the last valid graph', () => {
+    render(<SnlGraphApp />);
+    const valid = { type: 'graph', scope: { mode: 'pool' }, title: 'Valid graph', nodes: [], edges: [], warnings: [], entryOptions: [], macros: {}, macroKinds: [] };
+    send(valid);
+    expect(screen.getByText('Valid graph')).toBeTruthy();
+    send({ ...valid, title: 'Bad node graph', nodes: [{ id: 'a', packageId: '_unpackaged', title: 'A', kind: 'K', kindId: 'k', color: '#111', background: '#eee', coloring: { light: { stroke: 7 }, dark: 'bad' } }] });
+    expect(screen.queryByText('Bad node graph')).toBeNull();
+    expect(screen.getByText('Valid graph')).toBeTruthy();
+    send({ ...valid, title: 'Bad Macro graph', macroKinds: [{ id: 'k', coloring: { light: { stroke: '#111', background: '#eee' }, dark: { stroke: '#fff' } } }] });
+    expect(screen.queryByText('Bad Macro graph')).toBeNull();
+    expect(screen.getByText('Valid graph')).toBeTruthy();
+  });
+
   it('switches graph node colors when the live VS Code body theme changes', async () => {
     document.body.className = 'vscode-light';
     const view = render(<SnlGraphApp />);

@@ -114,12 +114,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const isStringRecord = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
+const isColorPair = (value: unknown): boolean =>
+  isRecord(value) && typeof value.stroke === 'string' && typeof value.background === 'string';
+const isThemeColoring = (value: unknown): value is ThemeColoring =>
+  isRecord(value) && (isColorPair(value) || (isColorPair(value.light) && isColorPair(value.dark)));
 const isScope = (value: unknown): value is Scope =>
   isRecord(value) && (value.mode === 'pool' ||
     (value.mode === 'library' && typeof value.slug === 'string'));
 const isGraphNode = (value: unknown): value is GraphNode =>
   isRecord(value) && ['id', 'packageId', 'title', 'kind', 'kindId', 'color', 'background']
-    .every((key) => typeof value[key] === 'string');
+    .every((key) => typeof value[key] === 'string') &&
+  (value.coloring === undefined || isThemeColoring(value.coloring));
 const isGraphEdge = (value: unknown): value is GraphEdge =>
   isRecord(value) && ['id', 'from', 'to', 'label']
     .every((key) => typeof value[key] === 'string') &&
@@ -130,9 +135,7 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.hasContent === undefined || typeof value.hasContent === 'boolean') &&
   (value.snl === undefined || typeof value.snl === 'string');
 const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
-  isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof resolveThemeColoring(value.coloring as unknown as ThemeColoring).stroke === 'string' &&
-  typeof resolveThemeColoring(value.coloring as unknown as ThemeColoring).background === 'string';
+  isRecord(value) && typeof value.id === 'string' && isThemeColoring(value.coloring);
 const isGraphMessage = (value: unknown): value is GraphMessage =>
   isRecord(value) && value.type === 'graph' && isScope(value.scope) &&
   typeof value.title === 'string' && Array.isArray(value.nodes) &&

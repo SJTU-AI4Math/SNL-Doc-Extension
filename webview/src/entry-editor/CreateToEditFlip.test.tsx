@@ -179,6 +179,19 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(update.entry.title).toBe('Brand New');
   });
 
+  it('selects an Entry Package with one change in create mode', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+    const packageSelect = await waitFor(() =>
+      view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
+    expect(packageSelect.value).toBe('_unpackaged');
+
+    fireEvent.input(packageSelect, { target: { value: 'Logic' } });
+    fireEvent.change(packageSelect);
+
+    expect(packageSelect.value).toBe('Logic');
+  });
+
   it('loads and persists explicit Package membership', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({

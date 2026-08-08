@@ -1140,6 +1140,9 @@ export function CreateEntryApp(): React.ReactElement {
           <select
             id="snl-entry-package"
             value={selectedPackage}
+            onInput={(event) => {
+              setSelectedPackage(event.currentTarget.value);
+            }}
             onChange={(e) => {
               markFormDirty(true);
               setSelectedPackage(e.target.value);

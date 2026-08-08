@@ -149,8 +149,14 @@ function hasResolvedSemantics(
 
   if (
     node.kind === 'bvar' &&
-    (treeSource || bindRef.length > 0) &&
-    binderNames.has(node.macro_name)
+    treeSource
+  ) {
+    return true;
+  }
+
+  if (
+    node.kind === 'bvar' &&
+    bindRef.length > 0 && binderNames.has(node.macro_name)
   ) {
     return true;
   }

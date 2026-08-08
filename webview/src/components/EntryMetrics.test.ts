@@ -399,6 +399,15 @@ describe('SNL Structural Index', () => {
     expect(localWithInvalidExistingSource.weightedStrongSemanticFreedom).toBeGreaterThan(1);
   });
 
+  it('counts a resolved tree-path source even when occurrence and binder names differ', () => {
+    const metrics = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('Pair(@y,x@#y)'),
+      { Pair: { source: { entries: ['entry-ok'], urls: [] } } },
+      new Set(['entry-ok'])
+    );
+    expect(metrics.weakSemanticFreedom).toBe(0);
+  });
+
   it('does not apply length penalties to catalog constants', () => {
     const longName = 'constant.one.two.three.four.five.six.seven.eight';
     const constantMacros: SnlMacroSourceLookup = {

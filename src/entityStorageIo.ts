@@ -10,6 +10,7 @@ import {
   type PackageManifest
 } from './entityStorage';
 
+
 export interface EntityReadStorage {
   listJsonFiles(directory: string): Promise<string[]>;
   readJson(path: string): Promise<unknown | null>;
@@ -142,6 +143,7 @@ function validateEntryEntity(
   if (value.entry.package !== value.package) {
     throw new Error(`${path} Entry package disagrees with its envelope package.`);
   }
+
   assertExpectedPath(path, entryEntityPath(value.package, value.entry.id));
   if (expectedIdentity &&
       (value.package !== expectedIdentity.package || value.entry.id !== expectedIdentity.id)) {
@@ -244,6 +246,7 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
       throw new Error(`${path} is not a valid SNL Macro envelope.`);
     }
     assertExpectedPath(path, macroEntityPath(value.package, value.macro.name));
+
     const identity = `${value.package}\0${value.macro.name}`;
     if (ids.has(identity)) throw new Error(`Duplicate Macro identity ${JSON.stringify(identity)}.`);
     ids.add(identity);

@@ -7,6 +7,7 @@ import {
   readPackageManifestRecords,
   type EntityStorageSnapshot
 } from './entityStorageIo';
+import { isMacroDocumentV10, isSyntaxTreeDocumentV3 } from '@sjtu-ai4math/snl-basics/core';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
   cloneWorkspaceDataSnapshot,
@@ -215,6 +216,18 @@ async function verifyEntityStorageCommit(
       entries.length !== source.entryEntities.size ||
       macros.length !== source.macroEntities.size) {
     throw new Error('Entity migration verification failed: identity counts changed after writing.');
+  }
+  for (const { path, entry } of entries) {
+    if (entry.canvasForest !== undefined && (
+      !Array.isArray(entry.canvasForest) ||
+      !entry.canvasForest.every((tree) => tree != null && typeof tree === 'object' && !Array.isArray(tree) &&
+        isSyntaxTreeDocumentV3(tree as Record<string, unknown>))
+    )) throw new Error(`Entity migration verification failed: ${path} is not canonical Tree3.`);
+  }
+  for (const { path, macro } of macros) {
+    if (!isMacroDocumentV10({ [macro.name]: macro })) {
+      throw new Error(`Entity migration verification failed: ${path} is not canonical Macro10.`);
+    }
   }
 }
 

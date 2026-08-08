@@ -1,6 +1,8 @@
 import {
   createEmptySnlSyntaxTreeNode,
   isEmptySnlSyntaxTreeNode,
+  isSyntaxTreeDocumentV3,
+  migrateSyntaxTreeDocument,
   type SnlSyntaxTree
 } from '@sjtu-ai4math/snl-basics/core';
 
@@ -12,19 +14,20 @@ const CANVAS_HOLE_INDEX_KEY = '__snl_canvas_hole_index__';
 /** Schema for persisted Canvas ASTs; old Tree2 drafts are intentionally discarded. */
 export const CANVAS_FOREST_DRAFT_VERSION = 3 as const;
 
-function sanitizeCanvasNodeForDraft(node: SnlSyntaxTree): SnlSyntaxTree {
-  let mdata = node.mdata;
-  if (mdata && typeof mdata === 'object' && !Array.isArray(mdata)) {
-    const next = { ...(mdata as Record<string, unknown>) };
-    delete next.bindRef;
-    mdata = Object.keys(next).length > 0 ? next : null;
-  }
+function renameLegacyCanvasKinds(node: SnlSyntaxTree): SnlSyntaxTree {
   return {
     ...node,
     kind: node.kind === 'partial' ? 'sub' : node.kind,
-    mdata,
-    children: node.children.map(sanitizeCanvasNodeForDraft)
+    children: node.children.map(renameLegacyCanvasKinds)
   };
+}
+
+function sanitizeCanvasNodeForDraft(node: SnlSyntaxTree): SnlSyntaxTree {
+  const migrated = migrateSyntaxTreeDocument(renameLegacyCanvasKinds(node) as never);
+  if (!isSyntaxTreeDocumentV3(migrated as unknown as Record<string, unknown>)) {
+    throw new Error('Canvas draft could not be canonicalized to Tree3.');
+  }
+  return migrated;
 }
 
 /** Never persist derived binding links; they are recomputed by the renderer. */
@@ -38,7 +41,8 @@ export function restoreCanvasForestDraft(
   version: unknown
 ): SnlSyntaxTree[] | undefined {
   if (version !== CANVAS_FOREST_DRAFT_VERSION || !Array.isArray(value)) return undefined;
-  return sanitizeCanvasForestForDraft(value as SnlSyntaxTree[]);
+  try { return sanitizeCanvasForestForDraft(value as SnlSyntaxTree[]); }
+  catch { return undefined; }
 }
 
 export interface CanvasTarget {

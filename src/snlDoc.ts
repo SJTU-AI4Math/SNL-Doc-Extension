@@ -2054,8 +2054,22 @@ function buildMacroPackageResult(
   | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
   | { status: 'error'; message: string } {
   let macros: MacroPackageEntry[];
+  let canonicalVersion = false;
   try {
-    macros = normalizeMacros(raw);
+    const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : null;
+    if (rawRecord?.version === MACRO_PACKAGE_VERSION && rawRecord.macros &&
+        typeof rawRecord.macros === 'object' && !Array.isArray(rawRecord.macros)) {
+      const normalized = migrateMacroDocument(Object.fromEntries(
+        Object.entries(rawRecord.macros as Record<string, unknown>)
+          .map(([name, macro]) => [name, { ...(macro as Record<string, unknown>), name }])
+      ) as never);
+      macros = Object.values(normalized) as unknown as MacroPackageEntry[];
+      canonicalVersion = true;
+    } else {
+      macros = normalizeMacros(raw);
+    }
   } catch (error) {
     return {
       status: 'error',
@@ -2077,10 +2091,24 @@ function buildMacroPackageResult(
     }
   }
 
+  let canonicalMacros: MacroPackageEntry[] = macros;
+  if (!canonicalVersion) {
+    try {
+      const normalized = migrateMacroDocument(Object.fromEntries(
+        macros.map((macro) => [macro.name, macro])
+      ));
+      canonicalMacros = Object.values(normalized) as unknown as MacroPackageEntry[];
+      canonicalVersion = true;
+    } catch {
+      // Historical/opaque packages remain readable, but must never be stamped v10.
+      // Mutation paths validate before persistence and therefore cannot write this
+      // compatibility projection as canonical data.
+    }
+  }
   const macrosMap: Record<string, MacroPackageEntryWithoutName> = {};
-  for (const m of macros) {
+  for (const m of canonicalMacros) {
     const { name, ...rest } = m;
-    macrosMap[name] = rest;
+    macrosMap[name] = rest as unknown as MacroPackageEntryWithoutName;
   }
 
   const wrapperExtensions: Record<string, unknown> = {};
@@ -2097,7 +2125,11 @@ function buildMacroPackageResult(
   }
   const pkg: MacroPackageFile = {
     ...wrapperExtensions,
-    version: MACRO_PACKAGE_VERSION,
+    version: canonicalVersion
+      ? MACRO_PACKAGE_VERSION
+      : raw && typeof raw === 'object' && !Array.isArray(raw) && typeof (raw as Record<string, unknown>).version === 'string'
+        ? (raw as Record<string, unknown>).version as string
+        : 'legacy',
     name: pkgName,
     macros: macrosMap
   };
@@ -2105,8 +2137,11 @@ function buildMacroPackageResult(
     pkg.description = pkgDescription;
   }
 
-  return { status: 'ok', pkg, macros };
+  return { status: 'ok', pkg, macros: canonicalMacros as unknown as MacroPackageEntry[] };
 }
+
+/** Test-only seam for the canonical package read/write boundary. */
+export const __testBuildMacroPackageResult = buildMacroPackageResult;
 
 export interface PackageMacroSnapshot {
   readonly selected:
@@ -2488,18 +2523,32 @@ async function persistMacroPackage(
   next: MacroPackageFile,
   expectedRaw: unknown
 ): Promise<void> {
+  const canonicalDocument = migrateMacroDocument(Object.fromEntries(
+    Object.entries(next.macros).map(([name, macro]) => [name, { ...macro, name }])
+  ));
+  const canonicalMacros = Object.fromEntries(
+    Object.entries(canonicalDocument).map(([name, macro]) => {
+      const { name: _name, ...withoutName } = macro;
+      return [name, withoutName];
+    })
+  );
+  const canonicalNext: MacroPackageFile = {
+    ...next,
+    version: MACRO_PACKAGE_VERSION,
+    macros: canonicalMacros as unknown as Record<string, MacroPackageEntryWithoutName>
+  };
   if (!(await usesEntityStorage(workspaceRoot))) {
     await writeWorkspaceFile(
       workspaceRoot,
       macroPackageUri(workspaceRoot, bare),
-      jsonBytes(next),
+      jsonBytes(canonicalNext),
       expectedRaw
     );
     return;
   }
 
   await withExtensionWriterLock(workspaceRoot, `update Macro package ${bare}`, async () => {
-    const operations = await buildMacroPackageOperations(workspaceRoot, bare, next, expectedRaw);
+    const operations = await buildMacroPackageOperations(workspaceRoot, bare, canonicalNext, expectedRaw);
     await applyJsonFileOperations(workspaceRoot, `persist Macro package ${bare}`, operations);
   });
 }
@@ -2848,13 +2897,15 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       }
     }
   }
-  if (!isStringRecord(macro.default_style)) {
-    return 'default_style must be a language-to-style-name object';
-  }
-  for (const [language, styleName] of Object.entries(macro.default_style)) {
-    if (!language.trim()) return 'default_style language keys must be non-empty';
-    if (!seen.has(styleName)) {
-      return `default_style[${JSON.stringify(language)}] references unknown style "${styleName}"`;
+  if (macro.default_style !== undefined) {
+    if (!isStringRecord(macro.default_style)) {
+      return 'default_style must be a language-to-style-name object';
+    }
+    for (const [language, styleName] of Object.entries(macro.default_style)) {
+      if (!language.trim()) return 'default_style language keys must be non-empty';
+      if (!seen.has(styleName)) {
+        return `default_style[${JSON.stringify(language)}] references unknown style "${styleName}"`;
+      }
     }
   }
   // Tags are required string arrays in v8; backslashes remain forbidden.

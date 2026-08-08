@@ -220,8 +220,8 @@ describe('restored draft in edit mode', () => {
       snlMode: 'canvas',
       canvasForestVersion: CANVAS_FOREST_DRAFT_VERSION,
       canvasForest: [
-        { macro_name: 'alpha', children: [] },
-        { macro_name: 'loose_block', children: [] }
+        { macro_name: 'alpha', kind: '', mdata: null, children: [] },
+        { macro_name: 'loose_block', kind: '', mdata: null, children: [] }
       ]
     });
     const view = render(<CreateEntryApp />);

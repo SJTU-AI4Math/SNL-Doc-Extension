@@ -710,12 +710,14 @@ async function main() {
     ]
   };
   const addLocalizedMacro = await addMacro(root, 'test_pkg', localizedMacro);
-  assert(addLocalizedMacro.status === 'ok', 'addMacro accepts language-specific text styles');
+  assert(addLocalizedMacro.status === 'ok', `addMacro accepts language-specific text styles (${JSON.stringify(addLocalizedMacro)})`);
   const localizedMacroRead = await readMacroPackage(root, 'test_pkg');
+  const localizedPersisted = localizedMacroRead.macros.find((m) => m.name === 'Group.prose');
   assert(
-    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.default_style?.['zh-CN'] === 'prose_zh_CN' &&
-      localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[1]?.template === '#0 是群',
-    'language default style and plain template round-trip'
+    localizedPersisted?.default_style === undefined &&
+      localizedPersisted?.styles?.[0]?.template?.type === 'i18n' &&
+      localizedPersisted?.styles?.[0]?.template?.values?.['zh-CN'] === '#0 是群',
+    'Macro10 removes default_style and preserves localized text in an I18n template'
   );
 
   console.log('\n[16] addMacro duplicate');
@@ -757,7 +759,7 @@ async function main() {
   // Allowed: backslash, dot, hyphen, Unicode letters.
   for (const okName of ['\\foo', 'foo.bar', 'foo-bar', 'δελτα', '中文名']) {
     const r = await addMacro(root, 'test_pkg', { ...validMacro, name: okName });
-    assert(r.name === okName, `addMacro accepts non-ASCII / backslash / hyphen / dotted name: ${okName}`);
+    assert(r.name === okName, `addMacro accepts non-ASCII / backslash / hyphen / dotted name: ${okName} (${JSON.stringify(r)})`);
   }
 
   console.log('\n[17c] addMacro missing style_name -> invalid');
@@ -913,7 +915,7 @@ async function main() {
     oldMacro.styles[0].style_name === 'infix',
     `styles[0] (default) is the first legacy sibling (got ${oldMacro.styles[0].style_name})`
   );
-  assert(oldMacro.default_style.en === 'infix', 'legacy Macro receives English default style');
+  assert(oldMacro.default_style === undefined, 'Macro10 removes legacy default_style after preserving styles[0] fallback');
   assert(
     infixStyle.mode === 'formula_inline',
     "v8: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
@@ -1332,8 +1334,8 @@ async function main() {
     'v5→v8: variadic_join becomes separator and legacy dynamic fields compose #*'
   );
   assert(
-    migAdd.default_style.en === 'infix' && migMatrix.default_style.en === 'default',
-    'v5→v8 adds English default style mappings'
+    migAdd.default_style === undefined && migMatrix.default_style === undefined,
+    'v5→v10 preserves fallback in styles[0] and removes default_style'
   );
   assert(readV5.pkg.version === '10', 'readMacroPackage exposes canonical package version 10');
 
@@ -1411,13 +1413,13 @@ async function main() {
     'v6→v8 preserves macro/style extension fields and output backends'
   );
   const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6, entityRevision(migratedV6));
-  assert(rewriteV7.status === 'updated', 'updating migrated macro writes strict v8');
+  assert(rewriteV7.status === 'updated', `updating migrated macro writes strict Macro10 (${JSON.stringify(rewriteV7)})`);
   const writtenV7 = JSON.parse(await fs.readFile(
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
   ));
   const writtenStyle = writtenV7.macros.a.styles[0];
   assert(writtenV7.version === '10', 'all package writes stamp version 10');
-  assert(writtenV7.macros.a.default_style.en === 'default', 'strict v8 write persists default_style');
+  assert(writtenV7.macros.a.default_style === undefined, 'strict Macro10 write removes default_style');
   assert(
     writtenStyle.style_name === 'default' &&
       !('tag' in writtenStyle) && !('variadic_left' in writtenStyle) &&
@@ -2117,8 +2119,11 @@ async function main() {
     version: '7', name: 'Legacy', description: 'before', vendor_extension: { keep: true },
     macros: {
       'Legacy.macro': {
+        description: '',
         source: { entries: [], urls: [], vendor_source: { keep: true } },
-        styles: []
+        dynamic_arity: false,
+        tags: [],
+        styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
       }
     }
   }));

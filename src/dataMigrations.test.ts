@@ -167,7 +167,7 @@ describe('workspace data migrations', () => {
     expect([...data.macroEntities]).toEqual([
       ['macros/Logic-315ab0b5e1a20cdc1802.json', {
         format: 'snl-macro', version: 1, package: 'Logic',
-        macro: { name: 'old', ...canonicalEntry('8'), kind: 'const', custom: true }
+        macro: { name: 'old', ...canonicalEntry('7'), kind: 'const', custom: true }
       }]
     ]);
     expect(data.entries).toEqual([{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);
@@ -443,15 +443,15 @@ describe('workspace data migrations', () => {
     });
     data.macroEntities.set(macroEntityPath('Logic', 'old'), {
       format: 'snl-macro', version: 1, package: 'Logic', envelope_extension: 'keep',
-      macro: { name: 'old', kind: 'partial', backend: { keep: true } }
+      macro: { name: 'old', kind: 'partial', ...canonicalEntry('8'), backend: { keep: true } }
     });
     data.macroEntities.set(macroEntityPath('Logic', 'custom'), {
       format: 'snl-macro', version: 1, package: 'Logic',
-      macro: { name: 'custom', kind: 'rule', backend: { keep: true } }
+      macro: { name: 'custom', kind: 'rule', ...canonicalEntry('8'), backend: { keep: true } }
     });
     data.macroEntities.set(macroEntityPath('Logic', 'missing'), {
       format: 'snl-macro', version: 1, package: 'Logic',
-      macro: { name: 'missing', backend: { keep: true } }
+      macro: { name: 'missing', ...canonicalEntry('8'), backend: { keep: true } }
     });
     data.entryEntities.set(entryEntityPath('Logic', 'entry'), {
       format: 'snl-entry', version: 1, package: 'Logic', envelope_extension: 'keep',
@@ -488,7 +488,7 @@ describe('workspace data migrations', () => {
     });
     expect(data.entryEntities.get(entryEntityPath('Logic', 'entry'))).toMatchObject({
       envelope_extension: 'keep',
-      entry: { canvasForest: [{ kind: 'sub', mdata: { src: 'ctx', canvas: { x: 1 } } }] }
+      entry: { canvasForest: [{ kind: 'sub', postfix: { type: 'name', name: 'ctx' }, mdata: { canvas: { x: 1 } } }] }
     });
     expect(JSON.stringify(data.entryEntities.get(entryEntityPath('Logic', 'entry')))).not.toContain('bindRef');
     expect([...data.macroPackages]).toEqual(frozenPackages);
@@ -523,7 +523,7 @@ describe('workspace data migrations', () => {
     (binder.config.entity_storage as Record<string, unknown>).receipt =
       makeEntityStorageReceipt(binder.entries, binder.macroPackages, true);
     await expect(migrateWorkspaceSnapshot(binder, (_file, raw) => raw))
-      .rejects.toThrow(/entries\/Logic.*compound binder.*@Pair/i);
+      .rejects.toThrow(/entries\/Logic.*cannot migrate to Tree3.*Binder must be a leaf/i);
     expect(binder.config.version).toBe('0.0.6');
   });
 });

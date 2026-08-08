@@ -141,7 +141,7 @@ describe('stored workspace data migration', () => {
     });
     expect(JSON.stringify(storage.values.get(entryPath))).not.toContain('bindRef');
     expect(storage.values.get(entryPath)).toMatchObject({
-      entry: { canvasForest: [{ kind: 'sub', mdata: { src: 'ctx' } }] }
+      entry: { canvasForest: [{ kind: 'sub', postfix: { type: 'name', name: 'ctx' }, mdata: null }] }
     });
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
   });

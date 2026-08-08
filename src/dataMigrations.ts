@@ -53,7 +53,13 @@ export function makeEntityStorageReceipt(
     macro_packages_digest: semanticDigest(packages)
   };
 }
-import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
+import {
+  isSnlIdentifier,
+  isSyntaxTreeDocumentV3,
+  migrateMacroDocument,
+  migrateSyntaxTreeDocument,
+  parseSnlSyntaxTree
+} from '@sjtu-ai4math/snl-basics/core';
 
 export interface WorkspaceDataSnapshot {
   config: Record<string, unknown>;
@@ -475,6 +481,20 @@ function assert006EntityStorage(data: WorkspaceDataSnapshot): void {
 function migratePersistedTreeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(migratePersistedTreeValue);
   if (!isRecord(value)) return value;
+  if (typeof value.macro_name === 'string' && Array.isArray(value.children)) {
+    const rename = (node: Record<string, unknown>): Record<string, unknown> => ({
+      ...node,
+      kind: node.kind === 'partial' ? 'sub' : node.kind,
+      children: Array.isArray(node.children)
+        ? node.children.map((child) => isRecord(child) ? rename(child) : child)
+        : node.children
+    });
+    const migrated = migrateSyntaxTreeDocument(rename(value) as never);
+    if (!isSyntaxTreeDocumentV3(migrated as unknown as Record<string, unknown>)) {
+      throw new Error('Tree2 value could not be canonicalized to Tree3.');
+    }
+    return migrated;
+  }
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (key === 'mdata' && isRecord(child)) {
@@ -494,16 +514,19 @@ function migratePersistedTreeValue(value: unknown): unknown {
   return result;
 }
 
-function assertNoCompoundBinder(path: string, entry: Record<string, unknown>): void {
-  const content = entry.content;
-  const snl = isRecord(content) && typeof content.snl === 'string' ? content.snl : null;
-  if (!snl) return;
-  const match = /@([\p{L}\p{N}_.-]+)\s*\(/u.exec(snl);
-  if (match) {
-    throw new Error(
-      `${path} contains compound binder @${match[1]}; Basics 0.2 structural APIs are required ` +
-      'to migrate it safely.'
-    );
+function assertParsableSnlProjections(path: string, entry: Record<string, unknown>): void {
+  const snl = isRecord(entry.content) ? entry.content.snl : undefined;
+  const projections: string[] = [];
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') projections.push(value);
+    else if (isRecord(value)) Object.values(value).forEach(collect);
+  };
+  collect(snl);
+  for (const projection of projections) {
+    try { parseSnlSyntaxTree(projection); }
+    catch (error) {
+      throw new Error(`${path} contains SNL that cannot migrate to Tree3: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
@@ -523,12 +546,12 @@ function migrate006To007SemanticKinds(context: WorkspaceMigrationContext): void 
     return item;
   });
   for (const [path, envelope] of data.macroEntities) {
-    const macro = { ...envelope.macro };
-    macro.kind = macro.kind === 'partial' || macro.kind === 'sub' ? 'sub' : 'const';
-    data.macroEntities.set(path, { ...envelope, macro });
+    const name = String(envelope.macro.name);
+    const macro = migrateMacroDocument({ [name]: envelope.macro as never })[name];
+    data.macroEntities.set(path, { ...envelope, macro: macro as unknown as Record<string, unknown> });
   }
   for (const [path, envelope] of data.entryEntities) {
-    assertNoCompoundBinder(path, envelope.entry);
+    assertParsableSnlProjections(path, envelope.entry);
     data.entryEntities.set(path, {
       ...envelope,
       entry: migratePersistedTreeValue(envelope.entry) as Record<string, unknown>

@@ -1,8 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('vscode', () => ({}));
-import { canonicalizeMacroPackageData } from './snlDoc';
+import { __testBuildMacroPackageResult, canonicalizeMacroPackageData } from './snlDoc';
 
 describe('Macro package v7 to v10 canonicalization', () => {
+  it('does not stamp ordinary package reads as v10 while retaining v8 fields', () => {
+    const result = __testBuildMacroPackageResult('Kinds', {
+      version: '8', name: 'Kinds', macros: {
+        X: {
+          description: '', source: { entries: [], urls: [] },
+          dynamic_arity: false, tags: [], default_style: { en: 'default' },
+          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'X', tags: [] }]
+        }
+      }
+    });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') throw new Error(result.message);
+    expect(result.pkg.version).toBe('10');
+    expect(result.pkg.macros.X).toMatchObject({ kind: 'const' });
+    expect(result.pkg.macros.X).not.toHaveProperty('default_style');
+  });
   it('canonicalizes persisted Macro kinds to schema 10 and removes default_style', () => {
     const result = canonicalizeMacroPackageData('Kinds.json', {
       version: '8', name: 'Kinds', macros: {

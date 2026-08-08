@@ -46,7 +46,8 @@ describe('Canvas draft schema safety', () => {
     expect(sanitized).toEqual([{
       ...node('root', [{
         ...node('child'), kind: 'sub',
-        mdata: { src: 'ctx', canvas: { x: 2 } }
+        postfix: { type: 'name', name: 'ctx' },
+        mdata: { canvas: { x: 2 } }
       }]),
       mdata: { provenance: 'keep' }
     }]);

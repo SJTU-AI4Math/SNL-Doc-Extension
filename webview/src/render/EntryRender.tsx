@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import '@sjtu-ai4math/snl-basics/entry/style.css';
+import { webviewContextReader } from './themeColoring';
 import {
   EntryDataDriver,
   EntrySurface as BasicsEntrySurface,
@@ -120,6 +121,8 @@ function createEntryDataDriver(entry: EntryData, entries: EntryOption[]): EntryD
     });
   }
   return new EntryDataDriver({
+    // @ts-expect-error available in the target SNL-Basics API; local tarball is pre-migration.
+    context_reader: webviewContextReader,
     queries: {
       query_entry: async ({ entry_id, signal }) => {
         if (signal?.aborted) {
@@ -156,6 +159,8 @@ export function EntryRender({
   const currentPopoverId = useCurrentPopoverId();
   const macroDataDriver = useMemo(
     () => new MacroDataDriver({
+      // @ts-expect-error available in the target SNL-Basics API; local tarball is pre-migration.
+      context_reader: webviewContextReader,
       queries: {
         query_macro: async ({ macro_name, signal }) => {
           if (signal?.aborted) {

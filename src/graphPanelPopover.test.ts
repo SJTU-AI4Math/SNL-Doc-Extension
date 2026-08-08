@@ -33,7 +33,7 @@ vi.mock('vscode', () => {
           state.readFiles.push(uri.path);
           if (uri.path.endsWith('/config.json')) {
             return encoder.encode(JSON.stringify({
-              version: '0.0.7',
+              version: '0.0.8',
               ...(!state.missingMetadata ? {
                 entity_storage: {
                   version: 1,

@@ -206,7 +206,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.7', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.0.8', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -384,8 +384,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.7',
-    `config.version === "0.0.6" (got ${cfg.version})`
+    cfg.version === '0.0.8',
+    `config.version === "0.0.8" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -395,8 +395,10 @@ async function main() {
   assert(!!defn, 'definition kind present');
   assert(
     defn.coloring &&
-      defn.coloring.stroke === '#009C27' &&
-      defn.coloring.background === '#D6FEE0',
+      defn.coloring.light?.stroke === '#009C27' &&
+      defn.coloring.light?.background === '#D6FEE0' &&
+      defn.coloring.dark?.stroke === '#009C27' &&
+      defn.coloring.dark?.background === '#D6FEE0',
     'definition coloring matches Fulcrum preset'
   );
   // 2026-07-16: EntryKind.numbering renamed to defaultCounterName (a plain
@@ -958,15 +960,19 @@ async function main() {
   const ruleKind = mkAfterPreset.find((k) => k.id === 'rule');
   assert(!!ruleKind, 'rule macro kind present');
   assert(
-    ruleKind.coloring.stroke === '#009C27' &&
-      ruleKind.coloring.background === '#D6FEE0',
+    ruleKind.coloring.light.stroke === '#009C27' &&
+      ruleKind.coloring.light.background === '#D6FEE0' &&
+      ruleKind.coloring.dark.stroke === '#009C27' &&
+      ruleKind.coloring.dark.background === '#D6FEE0',
     'rule kind colors match DEFAULT_KIND_PALETTE (green)'
   );
   const partialKind = mkAfterPreset.find((k) => k.id === 'sub');
   assert(!!partialKind, 'sub macro kind present in preset');
   assert(
-    partialKind.coloring.stroke === 'inherit' &&
-      partialKind.coloring.background === 'transparent',
+    partialKind.coloring.light.stroke === 'inherit' &&
+      partialKind.coloring.light.background === 'transparent' &&
+      partialKind.coloring.dark.stroke === 'inherit' &&
+      partialKind.coloring.dark.background === 'transparent',
     'sub kind uses inherit / transparent (no visual frame)'
   );
 
@@ -980,7 +986,10 @@ async function main() {
     id: 'custom',
     name: 'Custom',
     description: 'A user-defined macro kind.',
-    coloring: { stroke: '#123456', background: '#abcdef' }
+    coloring: {
+      light: { stroke: '#123456', background: '#abcdef' },
+      dark: { stroke: '#fedcba', background: '#654321' }
+    }
   });
   assert(mkCreated.status === 'created', 'createMacroKind -> created');
   const mkAfterCreate = await readMacroKinds(root);
@@ -990,8 +999,10 @@ async function main() {
     !!custom &&
       custom.name === 'Custom' &&
       custom.description === 'A user-defined macro kind.' &&
-      custom.coloring.stroke === '#123456' &&
-      custom.coloring.background === '#abcdef',
+      custom.coloring.light.stroke === '#123456' &&
+      custom.coloring.light.background === '#abcdef' &&
+      custom.coloring.dark.stroke === '#fedcba' &&
+      custom.coloring.dark.background === '#654321',
     'created macro kind round-trips'
   );
 
@@ -2252,7 +2263,7 @@ async function main() {
   catch { configCreatedEarly = false; }
   assert(!configCreatedEarly, 'failed initialization does not commit config.json');
   assert((await initSnlDoc(root11)).status === 'created', 'partial initialization can be retried safely');
-  assert((await readConfig(tmpRoot11)).version === '0.0.7', 'retry commits the current config last');
+  assert((await readConfig(tmpRoot11)).version === '0.0.8', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

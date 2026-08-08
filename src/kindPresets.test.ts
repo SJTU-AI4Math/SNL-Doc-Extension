@@ -21,13 +21,13 @@ function fixtureRoot(): string {
 function entryPackage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schema: 'snl-doc.kind-preset',
-    version: 1,
+    version: 2,
     domain: 'entry',
     id: 'example-entry',
     copyKeys: { label: 'leanLabel', description: 'leanDescription' },
     kinds: [{
       id: 'module', name: 'Module',
-      coloring: { stroke: '#123456', background: '#abcdef' },
+      coloring: { light: { stroke: '#123456', background: '#abcdef' }, dark: { stroke: '#fedcba', background: '#654321' } },
       defaultCounterName: 'module', style: 'section'
     }],
     ...overrides
@@ -53,7 +53,7 @@ describe('loadKindPresetPackages', () => {
   it.each([
     ['malformed JSON', '{'],
     ['unsupported schema', entryPackage({ schema: 'other' })],
-    ['unsupported version', entryPackage({ version: 2 })],
+    ['unsupported version', entryPackage({ version: 1 })],
     ['wrong domain', entryPackage({ domain: 'macro' })],
     ['empty kinds', entryPackage({ kinds: [] })],
     ['placeholder copy', entryPackage({ copyKeys: { label: 'placeholder', description: 'todo' } })],

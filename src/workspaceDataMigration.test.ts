@@ -88,7 +88,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -99,7 +99,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.7');
+    expect(report.to).toBe('0.0.8');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -108,7 +108,7 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.8');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
@@ -143,7 +143,7 @@ describe('stored workspace data migration', () => {
     expect(storage.values.get(entryPath)).toMatchObject({
       entry: { canvasForest: [{ kind: 'sub', postfix: { type: 'name', name: 'ctx' }, mdata: null }] }
     });
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.8');
   });
 
   it('rolls every already-written file back if the final config commit fails', async () => {

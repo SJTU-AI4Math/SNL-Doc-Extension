@@ -526,10 +526,15 @@ export function libraryCountersUri(
  * round-trips via `JSON.stringify`. See `normalizeEntryKind` for the
  * forward-compat path from the v0.0.2 `color` + object-`numbering` shape.
  */
+export interface ThemeColoring {
+  light: { stroke: string; background: string };
+  dark: { stroke: string; background: string };
+}
+
 export interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -581,7 +586,7 @@ export interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
 }
 
 /** Persisted shapes. Kept minimal and forward-compatible. */
@@ -784,6 +789,34 @@ function normalizeConfig(raw: unknown): SnlConfig {
  * shape. Never throws — bad fields fall back to safe defaults so the
  * Dashboard always renders something.
  */
+function normalizeThemeColoring(obj: Record<string, unknown>): ThemeColoring {
+  const fallback = { stroke: '#888888', background: '#eeeeee' };
+  const raw = obj.coloring;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const coloring = raw as Record<string, unknown>;
+    const pair = (value: unknown): { stroke: string; background: string } | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const candidate = value as Record<string, unknown>;
+      return {
+        stroke: typeof candidate.stroke === 'string' ? candidate.stroke : fallback.stroke,
+        background: typeof candidate.background === 'string' ? candidate.background : fallback.background
+      };
+    };
+    const light = pair(coloring.light);
+    const dark = pair(coloring.dark);
+    if (light && dark) return { light, dark };
+    const legacy = {
+      stroke: typeof coloring.stroke === 'string' ? coloring.stroke : fallback.stroke,
+      background: typeof coloring.background === 'string' ? coloring.background : fallback.background
+    };
+    return { light: { ...legacy }, dark: { ...legacy } };
+  }
+  const legacy = typeof obj.color === 'string'
+    ? { stroke: obj.color, background: obj.color }
+    : fallback;
+  return { light: { ...legacy }, dark: { ...legacy } };
+}
+
 function normalizeMacroKind(raw: unknown): MacroKind {
   const obj = (raw ?? {}) as Record<string, unknown>;
 
@@ -792,17 +825,8 @@ function normalizeMacroKind(raw: unknown): MacroKind {
   const description =
     typeof obj.description === 'string' ? obj.description : '';
 
-  let stroke = '#888888';
-  let background = '#eeeeee';
   const coloringRaw = obj.coloring;
-  if (coloringRaw && typeof coloringRaw === 'object') {
-    const c = coloringRaw as Record<string, unknown>;
-    if (typeof c.stroke === 'string') stroke = c.stroke;
-    if (typeof c.background === 'string') background = c.background;
-  } else if (typeof obj.color === 'string') {
-    stroke = obj.color;
-    background = obj.color;
-  }
+  void coloringRaw;
 
   const {
     id: _id,
@@ -817,7 +841,7 @@ function normalizeMacroKind(raw: unknown): MacroKind {
     id,
     name,
     description,
-    coloring: { stroke, background }
+    coloring: normalizeThemeColoring(obj)
   };
 }
 
@@ -844,20 +868,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
   const id = typeof obj.id === 'string' ? obj.id : '';
   const name = typeof obj.name === 'string' ? obj.name : id;
 
-  // coloring: prefer the new `{stroke, background}` shape, fall back to the
-  // v0.0.2 flat `color` field.
-  let stroke = '#888888';
-  let background = '#eeeeee';
-  const coloringRaw = obj.coloring;
-  if (coloringRaw && typeof coloringRaw === 'object') {
-    const c = coloringRaw as Record<string, unknown>;
-    if (typeof c.stroke === 'string') stroke = c.stroke;
-    if (typeof c.background === 'string') background = c.background;
-  } else if (typeof obj.color === 'string') {
-    // Legacy: single colour → use it for both, user can split later.
-    stroke = obj.color;
-    background = obj.color;
-  }
+  // Theme coloring accepts the current light/dark shape and legacy flat pairs.
 
   // defaultCounterName: prefer the new plain-string name. A legacy
   // `numbering` (string or v0.0.2 `{pattern}` object) is deliberately NOT
@@ -881,7 +892,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
     ...extensions,
     id,
     name,
-    coloring: { stroke, background },
+    coloring: normalizeThemeColoring(obj),
     defaultCounterName,
     style
   };
@@ -3377,8 +3388,7 @@ export async function createEntryKind(
   input: {
     id: string;
     name: string;
-    stroke: string;
-    background: string;
+    coloring: ThemeColoring;
     defaultCounterName: string;
     style: string;
   }
@@ -3402,10 +3412,7 @@ export async function createEntryKind(
   const kind: EntryKind = {
     id,
     name,
-    coloring: {
-      stroke: (input.stroke ?? '').trim() || '#888888',
-      background: (input.background ?? '').trim() || '#eeeeee'
-    },
+    coloring: normalizeThemeColoring({ coloring: input.coloring }),
     defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
@@ -3515,7 +3522,7 @@ export async function createMacroKind(
     id: string;
     name: string;
     description: string;
-    coloring: { stroke: string; background: string };
+    coloring: ThemeColoring;
   }
 ): Promise<CreateMacroKindResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
@@ -3538,10 +3545,7 @@ export async function createMacroKind(
     id,
     name,
     description: (input.description ?? '').trim(),
-    coloring: {
-      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
-      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
-    }
+    coloring: normalizeThemeColoring({ coloring: input.coloring })
   };
     await writeMacroKinds(workspaceRoot, [...existing, kind]);
     return { status: 'created', kind };
@@ -3865,8 +3869,7 @@ export async function updateEntryKind(
   id: string,
   input: {
     name: string;
-    stroke: string;
-    background: string;
+    coloring: ThemeColoring;
     defaultCounterName: string;
     style: string;
   },
@@ -3896,10 +3899,7 @@ export async function updateEntryKind(
     ...existing[idx],
     id: targetId,
     name,
-    coloring: {
-      stroke: (input.stroke ?? '').trim() || '#888888',
-      background: (input.background ?? '').trim() || '#eeeeee'
-    },
+    coloring: normalizeThemeColoring({ coloring: input.coloring }),
     defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
@@ -3925,7 +3925,7 @@ export async function updateMacroKind(
   input: {
     name: string;
     description: string;
-    coloring: { stroke: string; background: string };
+    coloring: ThemeColoring;
   },
   expectedRevision?: string
 ): Promise<UpdateMacroKindResult> {
@@ -3954,10 +3954,7 @@ export async function updateMacroKind(
     id: targetId,
     name,
     description: (input.description ?? '').trim(),
-    coloring: {
-      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
-      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
-    }
+    coloring: normalizeThemeColoring({ coloring: input.coloring })
   };
   const kinds = existing.slice();
   kinds[idx] = next;

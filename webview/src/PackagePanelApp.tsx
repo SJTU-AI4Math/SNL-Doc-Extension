@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Macro Package panel webview: lists the macros in one package file and
 // offers a big-plus "+ Create Macro" bar. Each row shows a real KaTeX Preview
 // (macro applied to numbered argument placeholders — same style as the
@@ -107,7 +108,7 @@ export interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
 }
 
 interface MacroPackageFile {
@@ -1224,14 +1225,14 @@ function KindCell({
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
       <span
-        title={t('colorTitle', { stroke: kind.coloring.stroke, background: kind.coloring.background })}
+        title={t('colorTitle', { stroke: resolveThemeColoring(kind.coloring).stroke, background: resolveThemeColoring(kind.coloring).background })}
         style={{
           display: 'inline-block',
           width: '1.2rem',
           height: '1rem',
           borderRadius: '3px',
-          background: kind.coloring.background,
-          border: `2px solid ${kind.coloring.stroke}`
+          background: resolveThemeColoring(kind.coloring).background,
+          border: `2px solid ${resolveThemeColoring(kind.coloring).stroke}`
         }}
       />
       {kind.name}

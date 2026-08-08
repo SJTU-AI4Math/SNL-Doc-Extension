@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Dashboard webview: project overview + library management.
 //
 // The Dashboard mirrors the management/reading split: this is the *manage*
@@ -108,7 +109,7 @@ interface AllMacroIndexEntry {
 interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -117,7 +118,7 @@ interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
 }
 
 interface EntryData {
@@ -1076,8 +1077,8 @@ function EntryKindsTable({
           >
             <td style={CELL}>
               <KindPreview
-                stroke={kind.coloring.stroke}
-                background={kind.coloring.background}
+                stroke={resolveThemeColoring(kind.coloring).stroke}
+                background={resolveThemeColoring(kind.coloring).background}
               />
             </td>
             <td style={CELL}>{kind.name}</td>
@@ -1138,8 +1139,8 @@ function MacroKindsTable({
           >
             <td style={CELL}>
               <KindPreview
-                stroke={kind.coloring.stroke}
-                background={kind.coloring.background}
+                stroke={resolveThemeColoring(kind.coloring).stroke}
+                background={resolveThemeColoring(kind.coloring).background}
               />
             </td>
             <td style={CELL}>{kind.name}</td>
@@ -1256,8 +1257,8 @@ function EntriesTable({
             >
               <td style={CELL}>
                 <KindPreview
-                  stroke={kind ? kind.coloring.stroke : '#888888'}
-                  background={kind ? kind.coloring.background : '#f0f0f0'}
+                  stroke={kind ? resolveThemeColoring(kind.coloring).stroke : '#888888'}
+                  background={kind ? resolveThemeColoring(kind.coloring).background : '#f0f0f0'}
                   width="2rem"
                 />
               </td>

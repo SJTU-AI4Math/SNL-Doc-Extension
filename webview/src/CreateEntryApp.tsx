@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Create Entry webview: the Entry editor MVP.
 //
 // Layout (top → bottom):
@@ -67,6 +68,7 @@ import {
 } from './components/TreeNodeActionDashboard';
 import { MacroIdInput } from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
+import { currentColorScheme } from './render/themeColoring';
 import { ensureTreeIdentity, inheritTreeIdentity, treeIdentity } from './components/treeIdentity';
 import {
   EntityIdSearchBox,
@@ -378,7 +380,7 @@ type WirePackageMacro = WireMacro;
 interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
   numbering: string;
   style: string;
 }
@@ -1723,8 +1725,8 @@ export function CreateEntryApp(): React.ReactElement {
               selectionLabel={(item) => t('kindSelection', { name: item.name })}
               details={(item) => t('kindDetails', {
                 id: item.id,
-                stroke: item.coloring.stroke,
-                background: item.coloring.background
+                stroke: resolveThemeColoring(item.coloring).stroke,
+                background: resolveThemeColoring(item.coloring).background
               })}
               onSelect={(next) => {
                 markFormDirty(true);
@@ -2414,9 +2416,9 @@ function EntryKindPicker({
         style={{
           width: '100%',
           justifyContent: 'flex-start',
-          background: selected?.coloring.background,
-          color: selected?.coloring.stroke,
-          borderColor: selected?.coloring.stroke,
+          background: resolveThemeColoring(selected?.coloring).background,
+          color: resolveThemeColoring(selected?.coloring).stroke,
+          borderColor: resolveThemeColoring(selected?.coloring).stroke,
           borderWidth: '2px'
         }}
       >
@@ -2467,10 +2469,10 @@ function EntryKindPicker({
                 gap: '0.55rem',
                 alignItems: 'center',
                 padding: '0.45rem 0.55rem',
-                border: `2px solid ${item.coloring.stroke}`,
+                border: `2px solid ${resolveThemeColoring(item.coloring).stroke}`,
                 borderRadius: '4px',
-                background: item.coloring.background,
-                color: item.coloring.stroke,
+                background: resolveThemeColoring(item.coloring).background,
+                color: resolveThemeColoring(item.coloring).stroke,
                 font: 'inherit',
                 textAlign: 'left',
                 cursor: 'pointer'
@@ -4788,8 +4790,9 @@ function macroTemplateArity(macro: SnlMacro): number {
   return max + 1;
 }
 
-function paletteFor(kindId: string): KindColoring {
-  return DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
+function paletteFor(kindId: string): KindColoring['light'] {
+  const coloring = DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
+  return coloring[currentColorScheme()];
 }
 
 /**

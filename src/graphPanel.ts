@@ -376,6 +376,9 @@ export class GraphPanel {
     for (const id of participating) {
       const e = entryById.get(id);
       const kind = e ? kindById.get(e.kind) : undefined;
+      const colors = kind
+        ? ('light' in kind.coloring ? kind.coloring.light : kind.coloring as unknown as { stroke: string; background: string })
+        : null;
       nodes.push({
         id,
         packageId: e && typeof e.package === 'string' && e.package.trim()
@@ -384,8 +387,8 @@ export class GraphPanel {
         title: e ? e.title || hostText()('untitled') : `⚠ ${id}`,
         kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',
-        color: kind ? kind.coloring.stroke : '#888888',
-        background: kind ? kind.coloring.background : 'transparent'
+        color: colors?.stroke ?? '#888888',
+        background: colors?.background ?? 'transparent'
       });
     }
     nodes.sort((a, b) => a.id.localeCompare(b.id));

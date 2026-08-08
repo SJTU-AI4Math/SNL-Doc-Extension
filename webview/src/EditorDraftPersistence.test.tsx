@@ -136,15 +136,17 @@ describe('identity-scoped editor draft persistence', () => {
       } else {
         fireEvent.change(first.getByLabelText('Description'), { target: { value: 'draft description' } });
       }
-      fireEvent.change(first.getByLabelText('Stroke color value'), { target: { value: '#123456' } });
-      fireEvent.change(first.getByLabelText('Background color value'), { target: { value: '#abcdef' } });
+      fireEvent.change(first.getByLabelText('Light Stroke color value'), { target: { value: '#123456' } });
+      fireEvent.change(first.getByLabelText('Light Background color value'), { target: { value: '#abcdef' } });
+      fireEvent.change(first.getByLabelText('Dark Stroke color value'), { target: { value: '#654321' } });
+      fireEvent.change(first.getByLabelText('Dark Background color value'), { target: { value: '#fedcba' } });
 
       const key = editorDraftKey(`${domain}-kind`, 'edit', id);
       await waitFor(() => expect(loadDraft<Record<string, unknown>>(api, key)).toMatchObject({
         id,
         name: 'Draft kind',
-        stroke: '#123456',
-        background: '#abcdef',
+        lightStroke: '#123456', lightBackground: '#abcdef',
+        darkStroke: '#654321', darkBackground: '#fedcba',
         expectedRevision: `${domain}-rev-original`,
         ...(domain === 'entry'
           ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
@@ -165,8 +167,8 @@ describe('identity-scoped editor draft persistence', () => {
         payload: {
           id,
           name: 'Draft kind',
-          stroke: '#123456',
-          background: '#abcdef',
+          lightStroke: '#123456', lightBackground: '#abcdef',
+          darkStroke: '#654321', darkBackground: '#fedcba',
           ...(domain === 'entry'
             ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
             : { description: 'draft description' })

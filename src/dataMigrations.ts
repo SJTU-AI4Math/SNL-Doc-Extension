@@ -566,6 +566,23 @@ function migrate006To007SemanticKinds(context: WorkspaceMigrationContext): void 
   }
 }
 
+function migrate007To008ThemeColoring(context: WorkspaceMigrationContext): void {
+  const migrateCatalog = (value: unknown, field: string): unknown[] => {
+    if (!Array.isArray(value)) throw new Error(`config.json#${field} must be an array before migration.`);
+    return value.map((raw) => {
+      const item = { ...object(raw) };
+      const coloring = object(item.coloring);
+      const stroke = typeof coloring.stroke === 'string' ? coloring.stroke : '#888888';
+      const background = typeof coloring.background === 'string' ? coloring.background : '#eeeeee';
+      item.coloring = { light: { stroke, background }, dark: { stroke, background } };
+      delete item.color;
+      return item;
+    });
+  };
+  context.data.config.entry_kinds = migrateCatalog(context.data.config.entry_kinds, 'entry_kinds');
+  context.data.config.macro_kinds = migrateCatalog(context.data.config.macro_kinds, 'macro_kinds');
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -602,6 +619,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.7',
     description: 'Rename active partial kinds to sub and remove stale derived tree metadata.',
     migrate: async (context) => { migrate006To007SemanticKinds(context); }
+  },
+  {
+    from: '0.0.7',
+    to: '0.0.8',
+    description: 'Split Entry and Macro Kind colors into light and dark theme variants.',
+    migrate: async (context) => { migrate007To008ThemeColoring(context); }
   }
 ];
 

@@ -5,7 +5,7 @@ const presets = [{
   id: 'lean4-document',
   kinds: [{
     id: 'module', name: 'Module',
-    coloring: { stroke: '#475569', background: '#f1f5f9' },
+    coloring: { light: { stroke: '#475569', background: '#f1f5f9' }, dark: { stroke: '#94a3b8', background: '#0f172a' } },
     defaultCounterName: 'module', style: 'section'
   }]
 }];

@@ -26,7 +26,7 @@ const MESSAGES = defineUiMessages(
     immutable: '. IDs are unique and immutable.', unknownError: 'Unknown error',
     idReadonly: 'ID (readonly)', id: 'ID', entryIdExample: 'e.g. theorem', macroIdExample: 'e.g. operator',
     displayName: 'Display name', description: 'Description', defaultCounter: 'Default counter name',
-    styleTag: 'Style tag', stroke: 'Stroke', background: 'Background', preview: 'preview',
+    styleTag: 'Style tag', lightTheme: 'Light', darkTheme: 'Dark', stroke: 'Stroke', background: 'Background', preview: 'preview',
     updating: 'Updating…', creating: 'Creating…', updateKind: 'Update {kind}', createKind: 'Create {kind}',
     created: 'Created “{name}” ({id}).', updated: 'Updated “{name}” ({id}).'
   },
@@ -36,7 +36,7 @@ const MESSAGES = defineUiMessages(
     immutable: '。ID 必须唯一且不可修改。', unknownError: '未知错误',
     idReadonly: 'ID（只读）', id: 'ID', entryIdExample: '例如 theorem', macroIdExample: '例如 operator',
     displayName: '显示名称', description: '说明', defaultCounter: '默认计数器名称',
-    styleTag: '样式标签', stroke: '描边', background: '背景', preview: '预览',
+    styleTag: '样式标签', lightTheme: '浅色主题', darkTheme: '深色主题', stroke: '描边', background: '背景', preview: '预览',
     updating: '正在更新…', creating: '正在创建…', updateKind: '更新{kind}', createKind: '创建{kind}',
     created: '已创建“{name}”（{id}）。', updated: '已更新“{name}”（{id}）。'
   }
@@ -48,6 +48,21 @@ type Status =
   | { kind: 'idle' | 'creating' }
   | { kind: 'created' | 'updated'; id: string; name: string }
   | { kind: 'duplicate' | 'notFound' | 'conflict' | 'invalid' | 'noSnlDoc' | 'noWorkspace' | 'error'; message: string };
+
+export function normalizeEditorColoring(value: unknown) {
+  const coloring = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const pair = (candidate: unknown) => candidate && typeof candidate === 'object' ? candidate as Record<string, unknown> : {};
+  const legacyStroke = typeof coloring.stroke === 'string' ? coloring.stroke : '#888888';
+  const legacyBackground = typeof coloring.background === 'string' ? coloring.background : '#eeeeee';
+  const light = pair(coloring.light);
+  const dark = pair(coloring.dark);
+  return {
+    lightStroke: typeof light.stroke === 'string' ? light.stroke : legacyStroke,
+    lightBackground: typeof light.background === 'string' ? light.background : legacyBackground,
+    darkStroke: typeof dark.stroke === 'string' ? dark.stroke : legacyStroke,
+    darkBackground: typeof dark.background === 'string' ? dark.background : legacyBackground
+  };
+}
 
 export function kindEditorDescriptor(domain: KindEditorDomain) {
   const cap = domain === 'entry' ? 'Entry' : 'Macro';
@@ -73,8 +88,10 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [stroke, setStroke] = useState('#888888');
-  const [background, setBackground] = useState('#eeeeee');
+  const [lightStroke, setLightStroke] = useState('#888888');
+  const [lightBackground, setLightBackground] = useState('#eeeeee');
+  const [darkStroke, setDarkStroke] = useState('#888888');
+  const [darkBackground, setDarkBackground] = useState('#eeeeee');
   const [defaultCounterName, setDefaultCounterName] = useState('');
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -112,9 +129,9 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
         const existing = msg.existing ?? {};
         setName(typeof existing.name === 'string' ? existing.name : '');
         setDescription(typeof existing.description === 'string' ? existing.description : '');
-        const coloring = typeof existing.coloring === 'object' && existing.coloring ? existing.coloring as Record<string, unknown> : {};
-        setStroke(typeof coloring.stroke === 'string' ? coloring.stroke : '#888888');
-        setBackground(typeof coloring.background === 'string' ? coloring.background : '#eeeeee');
+        const coloring = normalizeEditorColoring(existing.coloring);
+        setLightStroke(coloring.lightStroke); setLightBackground(coloring.lightBackground);
+        setDarkStroke(coloring.darkStroke); setDarkBackground(coloring.darkBackground);
         setDefaultCounterName(typeof existing.defaultCounterName === 'string' ? existing.defaultCounterName : '');
         setStyle(typeof existing.style === 'string' ? existing.style : '');
       }
@@ -142,8 +159,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       id: string;
       name: string;
       description: string;
-      stroke: string;
-      background: string;
+      lightStroke: string; lightBackground: string; darkStroke: string; darkBackground: string;
       defaultCounterName: string;
       style: string;
       expectedRevision?: string;
@@ -155,8 +171,8 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     setId(restored.id);
     setName(restored.name);
     setDescription(restored.description);
-    setStroke(restored.stroke);
-    setBackground(restored.background);
+    setLightStroke(restored.lightStroke); setLightBackground(restored.lightBackground);
+    setDarkStroke(restored.darkStroke); setDarkBackground(restored.darkBackground);
     setDefaultCounterName(restored.defaultCounterName);
     setStyle(restored.style);
   }, [contextReady, draftKey]);
@@ -168,8 +184,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       id,
       name,
       description,
-      stroke,
-      background,
+      lightStroke, lightBackground, darkStroke, darkBackground,
       defaultCounterName,
       style,
       expectedRevision: mode === 'edit' ? revisionRef.current : undefined
@@ -186,8 +201,8 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     const payload: Record<string, string> = {
       id: trimmedId,
       name: trimmedName,
-      stroke: stroke.trim() || '#888888',
-      background: background.trim() || '#eeeeee'
+      lightStroke: lightStroke.trim() || '#888888', lightBackground: lightBackground.trim() || '#eeeeee',
+      darkStroke: darkStroke.trim() || '#888888', darkBackground: darkBackground.trim() || '#eeeeee'
     };
     if (domain === 'entry') {
       payload.defaultCounterName = defaultCounterName.trim();
@@ -221,8 +236,10 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       <KindTextField label={t('defaultCounter')} value={defaultCounterName} onChange={setDefaultCounterName} mono />
       <KindTextField label={t('styleTag')} value={style} onChange={setStyle} mono />
     </>}
-    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label={t('stroke')} value={stroke} onChange={setStroke} /><ColorField label={t('background')} value={background} onChange={setBackground} /></div>
-    <ColorPreview stroke={stroke} background={background} name={trimmedName || t('preview')} />
+    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label={`${t('lightTheme')} ${t('stroke')}`} value={lightStroke} onChange={setLightStroke} /><ColorField label={`${t('lightTheme')} ${t('background')}`} value={lightBackground} onChange={setLightBackground} /></div>
+    <ColorPreview stroke={lightStroke} background={lightBackground} name={`${t('lightTheme')} ${trimmedName || t('preview')}`} />
+    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label={`${t('darkTheme')} ${t('stroke')}`} value={darkStroke} onChange={setDarkStroke} /><ColorField label={`${t('darkTheme')} ${t('background')}`} value={darkBackground} onChange={setDarkBackground} /></div>
+    <ColorPreview stroke={darkStroke} background={darkBackground} name={`${t('darkTheme')} ${trimmedName || t('preview')}`} />
     <Button variant="primary" onClick={submit} disabled={!canSubmit} loading={status.kind === 'creating'} loadingLabel={t(mode === 'edit' ? 'updating' : 'creating')}>{t(mode === 'edit' ? 'updateKind' : 'createKind', { kind: kindName })}</Button>
     <KindStatus status={status} t={t} />
   </main>;

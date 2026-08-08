@@ -130,8 +130,7 @@ export class KindPanelController {
   private async saveEntry(root: vscode.Uri, action: string, payload: Record<string, unknown>, expectedRevision?: string): Promise<void> {
     const input = {
       name: stringValue(payload.name),
-      stroke: stringValue(payload.stroke),
-      background: stringValue(payload.background),
+      coloring: themeColoring(payload),
       defaultCounterName: stringValue(payload.defaultCounterName),
       style: stringValue(payload.style)
     };
@@ -145,7 +144,7 @@ export class KindPanelController {
     const fields = {
       name: stringValue(payload.name),
       description: stringValue(payload.description),
-      coloring: { stroke: stringValue(payload.stroke), background: stringValue(payload.background) }
+      coloring: themeColoring(payload)
     };
     const result = action === 'update' || this.mode === 'edit'
       ? await updateMacroKind(root, this.id, fields, expectedRevision)
@@ -187,4 +186,8 @@ export class KindPanelController {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function themeColoring(payload: Record<string, unknown>) {
+  return { light: { stroke: stringValue(payload.lightStroke), background: stringValue(payload.lightBackground) }, dark: { stroke: stringValue(payload.darkStroke), background: stringValue(payload.darkBackground) } };
 }

@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // Per-entry SNL Infoview surface. Unlike App.tsx (the picker), this webview
 // renders exactly one Entry — the host sends its details (plus the full entry
 // pool for macro-source resolution) after we announce readiness.
@@ -88,14 +89,14 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.snl === undefined || typeof value.snl === 'string');
 const isEntryKind = (value: unknown): value is EntryKind =>
   isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
-  isRecord(value.coloring) && typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string' && typeof value.style === 'string' &&
+  isRecord(value.coloring) && typeof resolveThemeColoring(value.coloring).stroke === 'string' &&
+  typeof resolveThemeColoring(value.coloring).background === 'string' && typeof value.style === 'string' &&
   (value.numbering === undefined || typeof value.numbering === 'string') &&
   (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
 const isMacroKindPaletteSource = (value: unknown): value is MacroKindPaletteSource =>
   isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string';
+  typeof resolveThemeColoring(value.coloring).stroke === 'string' &&
+  typeof resolveThemeColoring(value.coloring).background === 'string';
 const isRelationshipSection = (value: unknown): value is EntryRelationshipSection =>
   isRecord(value) && typeof value.label === 'string' &&
   (value.direction === 'incoming' || value.direction === 'outgoing') &&

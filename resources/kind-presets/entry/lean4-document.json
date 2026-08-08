@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 1,
+  "version": 2,
   "domain": "entry",
   "id": "lean4-document",
   "copyKeys": {
@@ -12,8 +12,14 @@
       "id": "module",
       "name": "Module",
       "coloring": {
-        "stroke": "#475569",
-        "background": "#F1F5F9"
+        "light": {
+          "stroke": "#475569",
+          "background": "#F1F5F9"
+        },
+        "dark": {
+          "stroke": "#475569",
+          "background": "#F1F5F9"
+        }
       },
       "defaultCounterName": "module",
       "style": "section"
@@ -22,8 +28,14 @@
       "id": "namespace",
       "name": "Namespace",
       "coloring": {
-        "stroke": "#0369A1",
-        "background": "#E0F2FE"
+        "light": {
+          "stroke": "#0369A1",
+          "background": "#E0F2FE"
+        },
+        "dark": {
+          "stroke": "#0369A1",
+          "background": "#E0F2FE"
+        }
       },
       "defaultCounterName": "namespace",
       "style": "section"
@@ -32,8 +44,14 @@
       "id": "section",
       "name": "Section",
       "coloring": {
-        "stroke": "#0F766E",
-        "background": "#CCFBF1"
+        "light": {
+          "stroke": "#0F766E",
+          "background": "#CCFBF1"
+        },
+        "dark": {
+          "stroke": "#0F766E",
+          "background": "#CCFBF1"
+        }
       },
       "defaultCounterName": "section",
       "style": "section"
@@ -42,8 +60,14 @@
       "id": "definition",
       "name": "Definition",
       "coloring": {
-        "stroke": "#15803D",
-        "background": "#DCFCE7"
+        "light": {
+          "stroke": "#15803D",
+          "background": "#DCFCE7"
+        },
+        "dark": {
+          "stroke": "#15803D",
+          "background": "#DCFCE7"
+        }
       },
       "defaultCounterName": "definition",
       "style": ""
@@ -52,8 +76,14 @@
       "id": "theorem",
       "name": "Theorem",
       "coloring": {
-        "stroke": "#1D4ED8",
-        "background": "#DBEAFE"
+        "light": {
+          "stroke": "#1D4ED8",
+          "background": "#DBEAFE"
+        },
+        "dark": {
+          "stroke": "#1D4ED8",
+          "background": "#DBEAFE"
+        }
       },
       "defaultCounterName": "theorem",
       "style": ""
@@ -62,8 +92,14 @@
       "id": "lemma",
       "name": "Lemma",
       "coloring": {
-        "stroke": "#2563EB",
-        "background": "#E0E7FF"
+        "light": {
+          "stroke": "#2563EB",
+          "background": "#E0E7FF"
+        },
+        "dark": {
+          "stroke": "#2563EB",
+          "background": "#E0E7FF"
+        }
       },
       "defaultCounterName": "lemma",
       "style": ""
@@ -72,8 +108,14 @@
       "id": "structure",
       "name": "Structure",
       "coloring": {
-        "stroke": "#7E22CE",
-        "background": "#F3E8FF"
+        "light": {
+          "stroke": "#7E22CE",
+          "background": "#F3E8FF"
+        },
+        "dark": {
+          "stroke": "#7E22CE",
+          "background": "#F3E8FF"
+        }
       },
       "defaultCounterName": "structure",
       "style": ""
@@ -82,8 +124,14 @@
       "id": "class",
       "name": "Class",
       "coloring": {
-        "stroke": "#9333EA",
-        "background": "#FAE8FF"
+        "light": {
+          "stroke": "#9333EA",
+          "background": "#FAE8FF"
+        },
+        "dark": {
+          "stroke": "#9333EA",
+          "background": "#FAE8FF"
+        }
       },
       "defaultCounterName": "class",
       "style": ""
@@ -92,8 +140,14 @@
       "id": "instance",
       "name": "Instance",
       "coloring": {
-        "stroke": "#C2410C",
-        "background": "#FFEDD5"
+        "light": {
+          "stroke": "#C2410C",
+          "background": "#FFEDD5"
+        },
+        "dark": {
+          "stroke": "#C2410C",
+          "background": "#FFEDD5"
+        }
       },
       "defaultCounterName": "instance",
       "style": ""
@@ -102,8 +156,14 @@
       "id": "inductive",
       "name": "Inductive declaration",
       "coloring": {
-        "stroke": "#BE123C",
-        "background": "#FFE4E6"
+        "light": {
+          "stroke": "#BE123C",
+          "background": "#FFE4E6"
+        },
+        "dark": {
+          "stroke": "#BE123C",
+          "background": "#FFE4E6"
+        }
       },
       "defaultCounterName": "inductive",
       "style": ""
@@ -112,8 +172,14 @@
       "id": "syntax",
       "name": "Syntax declaration",
       "coloring": {
-        "stroke": "#A16207",
-        "background": "#FEF9C3"
+        "light": {
+          "stroke": "#A16207",
+          "background": "#FEF9C3"
+        },
+        "dark": {
+          "stroke": "#A16207",
+          "background": "#FEF9C3"
+        }
       },
       "defaultCounterName": "syntax",
       "style": ""
@@ -122,8 +188,14 @@
       "id": "command",
       "name": "Command",
       "coloring": {
-        "stroke": "#4B5563",
-        "background": "#F3F4F6"
+        "light": {
+          "stroke": "#4B5563",
+          "background": "#F3F4F6"
+        },
+        "dark": {
+          "stroke": "#4B5563",
+          "background": "#F3F4F6"
+        }
       },
       "defaultCounterName": "command",
       "style": ""
@@ -132,8 +204,14 @@
       "id": "example",
       "name": "Example",
       "coloring": {
-        "stroke": "#0F766E",
-        "background": "#CCFBF1"
+        "light": {
+          "stroke": "#0F766E",
+          "background": "#CCFBF1"
+        },
+        "dark": {
+          "stroke": "#0F766E",
+          "background": "#CCFBF1"
+        }
       },
       "defaultCounterName": "example",
       "style": ""
@@ -142,8 +220,14 @@
       "id": "documentation",
       "name": "Documentation",
       "coloring": {
-        "stroke": "#64748B",
-        "background": "#F8FAFC"
+        "light": {
+          "stroke": "#64748B",
+          "background": "#F8FAFC"
+        },
+        "dark": {
+          "stroke": "#64748B",
+          "background": "#F8FAFC"
+        }
       },
       "defaultCounterName": "documentation",
       "style": ""

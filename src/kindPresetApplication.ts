@@ -1,5 +1,5 @@
 interface PresetKind {
-  coloring: { stroke: string; background: string };
+  coloring: { light: { stroke: string; background: string }; dark: { stroke: string; background: string } };
 }
 
 interface KindPreset<K extends PresetKind> {
@@ -28,7 +28,7 @@ export function prepareKindPresetApplication<K extends PresetKind>(
     status: 'applied',
     kinds: preset.kinds.map((kind) => ({
       ...kind,
-      coloring: { ...kind.coloring }
+      coloring: { light: { ...kind.coloring.light }, dark: { ...kind.coloring.dark } }
     }))
   };
 }

@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Relationship Graph webview (cat 2026-07-10 Phase 2).
 //
 // Layout: DAG hierarchy, no physics. Sugiyama-lite:
@@ -129,8 +130,8 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.snl === undefined || typeof value.snl === 'string');
 const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
   isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string';
+  typeof resolveThemeColoring(value.coloring).stroke === 'string' &&
+  typeof resolveThemeColoring(value.coloring).background === 'string';
 const isGraphMessage = (value: unknown): value is GraphMessage =>
   isRecord(value) && value.type === 'graph' && isScope(value.scope) &&
   typeof value.title === 'string' && Array.isArray(value.nodes) &&

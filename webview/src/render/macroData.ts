@@ -1,4 +1,5 @@
 import { MacroDataDriver, type SnlMacro } from '@sjtu-ai4math/snl-basics/core';
+import { webviewContextReader } from './themeColoring';
 
 /** Runtime v8 macro record used only behind query adapters. */
 export type MacroRecord = Record<string, SnlMacro>;
@@ -10,6 +11,7 @@ export type MacroRecord = Record<string, SnlMacro>;
  */
 export function createMacroDataDriver(...records: Array<MacroRecord | null | undefined>): MacroDataDriver {
   return new MacroDataDriver({
+    context_reader: webviewContextReader,
     queries: {
       query_macro: async ({ macro_name, signal }) => {
         if (signal?.aborted) {

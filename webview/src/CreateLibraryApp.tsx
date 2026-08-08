@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Create/Edit Library webview.
 //
 // Create mode: single-field form (title). Forwards to createLibrary; the host
@@ -141,7 +142,7 @@ interface KindItem {
   id: string;
   name: string;
   defaultCounterName: string;
-  coloring?: { stroke: string; background: string };
+  coloring?: ThemeColoring;
 }
 
 interface GraphState {

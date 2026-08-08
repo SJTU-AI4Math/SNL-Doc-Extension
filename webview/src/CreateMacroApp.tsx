@@ -1,3 +1,4 @@
+import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
 // SNL Create/Edit Macro editor (v6 schema, 2026-07-04 UI overhaul).
 //
 // The preview renders the being-edited macro (registered under `_snl_draft`)
@@ -478,7 +479,7 @@ interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
 }
 
 /**
@@ -1059,10 +1060,11 @@ export function CreateMacroApp(): React.ReactElement {
     const palette: KindPalette = {};
     for (const k of macroKinds) {
       if (/^[A-Za-z0-9_-]+$/.test(k.id)) {
-        palette[k.id] = {
-          stroke: k.coloring.stroke,
-          background: k.coloring.background
-        };
+        const legacy = k.coloring as unknown as { stroke?: string; background?: string };
+        const pair = resolveThemeColoring(k.coloring);
+        palette[k.id] = ('light' in k.coloring && 'dark' in k.coloring)
+          ? k.coloring
+          : { light: { stroke: legacy.stroke ?? pair.stroke, background: legacy.background ?? pair.background }, dark: { stroke: legacy.stroke ?? pair.stroke, background: legacy.background ?? pair.background } };
       }
     }
     return palette;
@@ -1310,14 +1312,14 @@ export function CreateMacroApp(): React.ReactElement {
                   const sel = macroKinds.find((k) => k.id === kind);
                   return sel ? (
                     <span
-                      title={t('colorPreview', { stroke: sel.coloring.stroke, background: sel.coloring.background })}
+                      title={t('colorPreview', { stroke: resolveThemeColoring(sel.coloring).stroke, background: resolveThemeColoring(sel.coloring).background })}
                       style={{
                         display: 'inline-block',
                         width: '1.4rem',
                         height: '1.1rem',
                         borderRadius: '3px',
-                        background: sel.coloring.background,
-                        border: `2px solid ${sel.coloring.stroke}`,
+                        background: resolveThemeColoring(sel.coloring).background,
+                        border: `2px solid ${resolveThemeColoring(sel.coloring).stroke}`,
                         flex: '0 0 auto'
                       }}
                     />

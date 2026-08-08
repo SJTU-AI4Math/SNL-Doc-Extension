@@ -2,14 +2,19 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const KIND_PRESET_SCHEMA = 'snl-doc.kind-preset' as const;
-export const KIND_PRESET_VERSION = 1 as const;
+export const KIND_PRESET_VERSION = 2 as const;
+
+export interface ThemeColoring {
+  light: { stroke: string; background: string };
+  dark: { stroke: string; background: string };
+}
 
 export type KindPresetDomain = 'entry' | 'macro';
 
 export interface EntryPresetKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -18,7 +23,7 @@ export interface MacroPresetKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemeColoring;
 }
 
 export interface KindPresetPackage<D extends KindPresetDomain = KindPresetDomain> {
@@ -55,12 +60,16 @@ function nonEmptyString(value: unknown, path: string, field: string): string {
   return value;
 }
 
-function validateColoring(value: unknown, path: string, field: string): { stroke: string; background: string } {
+function validateColoring(value: unknown, path: string, field: string): ThemeColoring {
   const coloring = objectAt(value, path, field);
-  return {
-    stroke: nonEmptyString(coloring.stroke, path, `${field}.stroke`),
-    background: nonEmptyString(coloring.background, path, `${field}.background`)
+  const pair = (scheme: 'light' | 'dark') => {
+    const candidate = objectAt(coloring[scheme], path, `${field}.${scheme}`);
+    return {
+      stroke: nonEmptyString(candidate.stroke, path, `${field}.${scheme}.stroke`),
+      background: nonEmptyString(candidate.background, path, `${field}.${scheme}.background`)
+    };
   };
+  return { light: pair('light'), dark: pair('dark') };
 }
 
 function validateEntryKind(value: unknown, path: string, index: number): EntryPresetKind {

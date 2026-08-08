@@ -176,8 +176,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.0.6');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.6' });
+    expect(report.to).toBe('0.0.7');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.7' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 
@@ -186,7 +186,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.6',
+      version: '0.0.7',
       entry_kinds: [],
       macro_kinds: [],
       active_macro_packages: ['Logic'],
@@ -252,7 +252,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.6', entry_kinds: [], macro_kinds: [],
+      version: '0.0.7', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,

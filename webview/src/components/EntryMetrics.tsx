@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   tryParseSnlSyntaxTree,
+  resolveSnlSemantics,
   type SnlMacroSourceLookup,
   type SnlSyntaxTree
 } from '@sjtu-ai4math/snl-basics/core';
@@ -79,6 +80,10 @@ function nodeMetadata(node: SnlSyntaxTree): Record<string, unknown> {
     : {};
 }
 
+function semanticPayload(node: SnlSyntaxTree): string {
+  return typeof node.temporary_source === 'string' ? node.temporary_source : node.macro_name;
+}
+
 function isNumericNode(node: SnlSyntaxTree): boolean {
   if (
     node.children.length > 0 ||
@@ -90,7 +95,7 @@ function isNumericNode(node: SnlSyntaxTree): boolean {
     return false;
   }
   return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(
-    node.macro_name.trim()
+    semanticPayload(node).trim()
   );
 }
 
@@ -99,7 +104,11 @@ function isCatalogConstant(
   macroLookup: SnlMacroSourceLookup
 ): boolean {
   const meta = nodeMetadata(node);
-  const explicitSrc = typeof meta.src === 'string' ? meta.src : '';
+  const explicitSrc = node.source?.type === 'entry'
+    ? node.source.entry_id
+    : node.postfix?.type === 'name'
+      ? node.postfix.name
+      : typeof meta.src === 'string' ? meta.src : '';
   return (
     explicitSrc.length === 0 &&
     !node.env_mode &&
@@ -119,8 +128,13 @@ function hasResolvedSemantics(
   if (node.kind === 'binder') return true;
 
   const meta = nodeMetadata(node);
+  const treeSource = node.source?.type === 'tree_path';
   const bindRef = typeof meta.bindRef === 'string' ? meta.bindRef : '';
-  const src = typeof meta.src === 'string' ? meta.src : '';
+  const src = node.source?.type === 'entry'
+    ? node.source.entry_id
+    : node.postfix?.type === 'name'
+      ? node.postfix.name
+      : typeof meta.src === 'string' ? meta.src : '';
   const srcStatus = typeof meta.srcStatus === 'string' ? meta.srcStatus : '';
 
   // An explicit source on a non-binder overrides a same-named local binding:
@@ -135,7 +149,7 @@ function hasResolvedSemantics(
 
   if (
     node.kind === 'bvar' &&
-    bindRef.length > 0 &&
+    (treeSource || bindRef.length > 0) &&
     binderNames.has(node.macro_name)
   ) {
     return true;
@@ -168,12 +182,13 @@ export function analyzeSnlStructuralIndex(
   macroLookup: SnlMacroSourceLookup,
   accessibleEntryIds: ReadonlySet<string>
 ): SnlStructuralMetrics {
+  const resolvedRoot = resolveSnlSemantics(root, macroLookup as never).tree;
   const binderNames = new Set<string>();
   const collectBinders = (node: SnlSyntaxTree): void => {
     if (node.kind === 'binder') binderNames.add(node.macro_name);
     for (const child of node.children) collectBinders(child);
   };
-  collectBinders(root);
+  collectBinders(resolvedRoot);
 
   let weakSemanticFreedom = 0;
   let strongSemanticFreedom = 0;
@@ -194,7 +209,7 @@ export function analyzeSnlStructuralIndex(
         catalogConstant ||
         node.kind === 'binder' ||
         (node.kind === 'bvar' && sourced);
-      const weight = lengthExempt ? 1 : snlNodeLengthWeight(node.macro_name);
+      const weight = lengthExempt ? 1 : snlNodeLengthWeight(semanticPayload(node));
       weightedTotal += weight;
 
       if (!sourced) {
@@ -209,7 +224,7 @@ export function analyzeSnlStructuralIndex(
 
     for (const child of node.children) walk(child);
   };
-  walk(root);
+  walk(resolvedRoot);
 
   const structuralIndex =
     weightedTotal === 0
@@ -258,11 +273,12 @@ export function computeEntryMetrics(
       error: parsed.error
     };
   }
-  applyContextSrcLookup(parsed.tree, context.contextIndex);
+  const tree = parsed.tree;
+  applyContextSrcLookup(tree, context.contextIndex);
   return {
     kind: 'ok',
     metrics: analyzeSnlStructuralIndex(
-      parsed.tree,
+      tree,
       macroSources,
       context.accessibleEntryIds
     )

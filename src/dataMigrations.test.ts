@@ -167,7 +167,7 @@ describe('workspace data migrations', () => {
     expect([...data.macroEntities]).toEqual([
       ['macros/Logic-315ab0b5e1a20cdc1802.json', {
         format: 'snl-macro', version: 1, package: 'Logic',
-        macro: { name: 'old', ...canonicalEntry('8'), custom: true }
+        macro: { name: 'old', ...canonicalEntry('8'), kind: 'const', custom: true }
       }]
     ]);
     expect(data.entries).toEqual([{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);

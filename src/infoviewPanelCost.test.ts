@@ -68,7 +68,7 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: entityMode ? '0.0.6' : '0.0.4',
+          version: entityMode ? '0.0.7' : '0.0.4',
           active_macro_packages: entityMode ? [] : ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c' }],
           macro_kinds: [{ id: 'mk1', name: 'Operator' }],

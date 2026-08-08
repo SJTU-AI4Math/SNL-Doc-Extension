@@ -63,7 +63,7 @@ describe('Macro package v7 to v10 canonicalization', () => {
     })).toThrow(/cannot preserve.*explicit \[style\] semantics/i);
   });
 
-  it('adds English → styles[0] for invariant v7 macros', () => {
+  it('uses styles[0] implicitly and materializes const for invariant v7 macros', () => {
     const result = canonicalizeMacroPackageData('Plain.json', {
       version: '7', name: 'Plain', macros: {
         Plain: {
@@ -72,6 +72,7 @@ describe('Macro package v7 to v10 canonicalization', () => {
         }
       }
     });
-    expect((result.macros as Record<string, any>).Plain.default_style).toEqual({ en: 'compact' });
+    expect((result.macros as Record<string, any>).Plain).toMatchObject({ kind: 'const' });
+    expect((result.macros as Record<string, any>).Plain).not.toHaveProperty('default_style');
   });
 });

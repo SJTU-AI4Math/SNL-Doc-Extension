@@ -71,16 +71,24 @@ export function applyContextSrcLookup(
       node.mdata && typeof node.mdata === 'object'
         ? (node.mdata as Record<string, unknown>)
         : null;
-    const src = mdata && typeof mdata.src === 'string' ? mdata.src : '';
+    const canonicalSrc = node.source?.type === 'entry' ? node.source.entry_id : '';
+    const syntaxSrc = node.postfix?.type === 'name' ? node.postfix.name : '';
+    const legacySrc = mdata && typeof mdata.src === 'string' ? mdata.src : '';
+    const src = canonicalSrc || syntaxSrc || legacySrc;
     if (src && node.kind !== 'binder') {
       const decls = contextIndex.get(src);
       if (!decls) {
+        node.kind = 'fvar';
+        node.source = undefined;
         node.mdata = { ...(mdata ?? {}), srcStatus: 'dangling' };
       } else if (!decls.has(node.macro_name)) {
+        node.kind = 'fvar';
+        node.source = undefined;
         node.mdata = { ...(mdata ?? {}), srcStatus: 'srcResolvedNoDecl' };
       } else {
         // Resolved. Upgrade kind so palette / DOM tagging matches a bvar.
         node.kind = 'bvar';
+        node.source = { type: 'entry', entry_id: src };
       }
     }
     for (const c of node.children) visit(c);

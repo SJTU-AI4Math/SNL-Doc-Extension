@@ -4655,6 +4655,7 @@ function stringifyLeafSource(node: SnlSyntaxTree): string {
 }
 
 function readContextEntryId(node: SnlSyntaxTree): string | undefined {
+  if (node.postfix?.type === 'name') return node.postfix.name;
   if (!node.mdata || typeof node.mdata !== 'object' || Array.isArray(node.mdata)) {
     return undefined;
   }
@@ -4662,15 +4663,9 @@ function readContextEntryId(node: SnlSyntaxTree): string | undefined {
   return typeof src === 'string' ? src : undefined;
 }
 
-export function withContextEntryId(node: SnlSyntaxTree, value: string): SnlSyntaxTree['mdata'] {
-  const base =
-    node.mdata && typeof node.mdata === 'object' && !Array.isArray(node.mdata)
-      ? { ...(node.mdata as Record<string, unknown>) }
-      : {};
+export function withContextEntryId(node: SnlSyntaxTree, value: string): SnlSyntaxTree['postfix'] {
   const trimmed = value.trim();
-  if (trimmed) base.src = trimmed;
-  else delete base.src;
-  return Object.keys(base).length > 0 ? base : null;
+  return trimmed ? { type: 'name', name: trimmed } : undefined;
 }
 
 function withoutBindingMetadata(mdata: SnlSyntaxTree['mdata']): SnlSyntaxTree['mdata'] {
@@ -4700,14 +4695,15 @@ function stringifyLeafHead(node: SnlSyntaxTree): string {
   // `kind: binder` is also assigned to bound occurrences by annotate-bind.
   // Only binder_explicit records an authored prefix `@` on this node.
   const binderPrefix = node.binder_explicit ? '@' : '';
+  const payload = node.temporary_source ?? node.macro_name;
   if (node.env_mode === 'text') {
-    return `${binderPrefix}%${node.macro_name}%`;
+    return `${binderPrefix}%${payload}%`;
   }
   if (node.env_mode === 'formula_inline') {
-    return `${binderPrefix}$${node.macro_name}$`;
+    return `${binderPrefix}$${payload}$`;
   }
   if (node.env_mode === 'formula_display') {
-    return `${binderPrefix}$${'$'}${node.macro_name}$${'$'}`;
+    return `${binderPrefix}$${'$'}${payload}$${'$'}`;
   }
   return `${binderPrefix}${node.macro_name}`;
 }
@@ -5655,10 +5651,11 @@ function InductiveNode({
       // by the adjacent dropdown, so typing/pasting `id[style]` cannot mutate it.
       style_name: node.style_name,
       mdata: withoutBindingMetadata(
-        typedContext !== undefined
-          ? withContextEntryId(node, typedContext)
-          : node.mdata
+        node.mdata
       ),
+      postfix: typedContext !== undefined ? withContextEntryId(node, typedContext) : node.postfix,
+      temporary_source: undefined,
+      temporary_format: undefined,
       children: node.children
     });
   };
@@ -5922,7 +5919,7 @@ function InductiveNode({
                 event.stopPropagation();
                 contextDraftOpenRef.current = false;
                 setContextInputOpen(false);
-                onChange({ ...node, mdata: withContextEntryId(node, '') });
+                onChange({ ...node, postfix: withContextEntryId(node, '') });
               }
             }}
             onBlur={(event) => {
@@ -5931,7 +5928,7 @@ function InductiveNode({
               if (contextEntryId.trim() === '') {
                 contextDraftOpenRef.current = false;
                 setContextInputOpen(false);
-                onChange({ ...node, mdata: withContextEntryId(node, '') });
+                onChange({ ...node, postfix: withContextEntryId(node, '') });
               }
             }}
             style={{
@@ -5974,7 +5971,7 @@ function InductiveNode({
               placeholder={t('entryId')}
               onChange={(value) => {
                 contextDraftOpenRef.current = value.trim() === '';
-                onChange({ ...node, mdata: withContextEntryId(node, value) });
+                onChange({ ...node, postfix: withContextEntryId(node, value) });
               }}
               style={{ flex: '1 1 auto', minWidth: 0 }}
               inputStyle={{

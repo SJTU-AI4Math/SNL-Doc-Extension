@@ -20,7 +20,7 @@ function seedCurrentTopology(): void {
     }));
   }
   jsonByPath.set('config.json', {
-    version: '0.0.6',
+    version: '0.0.7',
     macro_kinds: [],
     active_macro_packages: packageIds
   });
@@ -219,7 +219,7 @@ describe('PackagePanel read cost', () => {
   it('folds collisions deterministically in file order and exposes the winning origin', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.6', macro_kinds: [], active_macro_packages: ['core', 'core-extra']
+      version: '0.0.7', macro_kinds: [], active_macro_packages: ['core', 'core-extra']
     });
     for (const id of ['core', 'core-extra']) {
       jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
@@ -301,7 +301,7 @@ describe('PackagePanel read cost', () => {
 
   it('fails closed when a configured active package has no manifest', async () => {
     jsonByPath.set('config.json', {
-      version: '0.0.6',
+      version: '0.0.7',
       macro_kinds: [],
       active_macro_packages: [...packageIds, 'missing-active']
     });

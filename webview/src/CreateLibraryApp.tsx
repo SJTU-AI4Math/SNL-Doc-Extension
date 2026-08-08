@@ -1195,6 +1195,22 @@ function OutlineEditor({
     onGraphOp({ op: 'updateNodeProps', nodeId, counterId });
   };
 
+  const renderMetric = (node: GraphNode): React.ReactNode => {
+    const result = typeof node.props.entryId === 'string'
+      ? entryMetricsById.get(node.props.entryId)
+      : undefined;
+    return result ? (
+      <span className="snl-library-outline-metric">
+        <EntryMetricValue
+          result={result}
+          metric="structuralIndex"
+          thresholds={graph.metricThresholds}
+          compact
+        />
+      </span>
+    ) : null;
+  };
+
   const renderRow = (node: GraphNode, depth: number): React.ReactNode => (
     <OutlineRowContent
       node={node}
@@ -1204,12 +1220,6 @@ function OutlineEditor({
       kindsById={kindsById}
       numbersById={numbersById}
       counters={counters}
-      metricResult={
-        typeof node.props.entryId === 'string'
-          ? entryMetricsById.get(node.props.entryId)
-          : undefined
-      }
-      metricThresholds={graph.metricThresholds}
       onOpenEntry={onOpenEntry}
       onUpdateNodeCounter={updateNodeCounter}
       onUpdateNodeEntry={(nodeId, expectedEntryId, entryId) =>
@@ -1276,11 +1286,12 @@ function OutlineEditor({
         roots={rootNodes}
         moveToEdge
         rowClassName="snl-library-outline-row"
-        rowStyle={{ alignItems: 'flex-start', paddingRight: '8.4rem' }}
+        rowStyle={{ alignItems: 'flex-start', paddingRight: '11.3rem' }}
         getId={(n) => n.id}
         getChildren={getChildren}
         renderRow={renderRow}
         renderAfterRow={renderAfterRow}
+        renderDashboardLeadingActions={renderMetric}
         onOp={handleTreeOp}
         emptyState={
           <div style={{ opacity: 0.75, fontStyle: 'italic', marginBottom: '0.75rem' }}>
@@ -1322,8 +1333,6 @@ interface OutlineRowContentProps {
   kindsById: Map<string, KindItem>;
   numbersById: Map<string, string | null>;
   counters: CounterNode[];
-  metricResult: EntryMetricResult | undefined;
-  metricThresholds: EntryMetricThresholds;
   onOpenEntry: (entryId: string) => void;
   onUpdateNodeCounter: (nodeId: string, counterId: string) => void;
   onUpdateNodeEntry: (
@@ -1346,8 +1355,6 @@ function OutlineRowContent({
   kindsById,
   numbersById,
   counters,
-  metricResult,
-  metricThresholds,
   onOpenEntry,
   onUpdateNodeCounter,
   onUpdateNodeEntry
@@ -1375,7 +1382,10 @@ function OutlineRowContent({
 
   return (
     <div
-      className="snl-library-outline-row-main"
+      className={[
+        'snl-library-outline-row-main',
+        depth >= 3 ? 'snl-library-outline-row-main--deep' : ''
+      ].filter(Boolean).join(' ')}
       data-snl-library-row-main
       style={{
         '--snl-library-outline-depth-offset': `${depth * 1.5}rem`
@@ -1475,17 +1485,6 @@ function OutlineRowContent({
           )}
         </span>
       )}
-
-      {entry && metricResult ? (
-        <span className="snl-library-outline-metric">
-          <EntryMetricValue
-            result={metricResult}
-            metric="structuralIndex"
-            thresholds={metricThresholds}
-            compact
-          />
-        </span>
-      ) : null}
 
     </div>
   );

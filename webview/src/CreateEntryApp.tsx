@@ -4980,6 +4980,20 @@ export function GuiInductiveEditor({
       const end = input.selectionEnd ?? start;
       const current = getNodeAtPath(tree, path);
       if (!current) return;
+      const head = input.value.startsWith('@') ? input.value.slice(1) : input.value;
+      const hasDelimiter =
+        head.startsWith('$$') && head.endsWith('$$') ||
+        head.startsWith('$') && head.endsWith('$') ||
+        head.startsWith('%') && head.endsWith('%');
+      if (!hasDelimiter) {
+        const next = transformAtPath(tree, path, (node) => ({
+          ...node,
+          children: [...node.children, createSnlSyntaxTreeNode('')]
+        }));
+        propagate(next);
+        if (collapsed.has(nodeId)) toggleCollapsed(nodeId);
+        return;
+      }
       const extracted = extractInductiveSelection(current, input.value, start, end);
       if (extracted) propagate(transformAtPath(tree, path, () => extracted));
       return;
@@ -4988,7 +5002,9 @@ export function GuiInductiveEditor({
       : action === 'inductive.moveDown' ? 'moveDown'
         : action === 'inductive.outdent' ? 'outdent'
           : action === 'inductive.indent' ? 'indent'
-            : null;
+            : action === 'inductive.addParent' ? 'wrapParent'
+              : action === 'inductive.addSibling' ? 'addSibling'
+                : null;
     if (!op) return;
     treeOp(op, path);
     requestAnimationFrame(() => {
@@ -5000,7 +5016,7 @@ export function GuiInductiveEditor({
         : undefined;
       moved?.querySelector<HTMLElement>('[data-snl-macro-input]')?.focus();
     });
-  }, [treeOp, tree, propagate]);
+  }, [treeOp, tree, propagate, collapsed, toggleCollapsed]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
@@ -5689,7 +5705,19 @@ function InductiveNode({
   useEffect(() => {
     // `useQueriedMacro` binds each result to its driver + name, so a defined
     // `macroEntry` always describes the current row even before effects run.
-    if (!macroEntry || macroEntry.dynamic_arity === true) return;
+    if (!macroEntry) return;
+    if (macroEntry.dynamic_arity === true) {
+      // Dynamic Macros do not have a target count to reconcile, but they still
+      // form a Macro transition boundary. Record the name so returning to a
+      // previously seen fixed Macro cannot be mistaken for an already-settled
+      // render and leave this initial slot behind.
+      reconciledMacroRef.current = macroEntry.name;
+      if (node.children.length === 0) {
+        setRowArity(path, 1);
+        if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
+      }
+      return;
+    }
     const requiredArity = macroTemplateArity(macroEntry);
     if (requiredArity > node.children.length) {
       setRowArity(path, requiredArity);

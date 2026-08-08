@@ -987,6 +987,8 @@ export function activate(context: vscode.ExtensionContext): void {
     'outdent',
     'indent',
     'extractSelection',
+    'addParent',
+    'addSibling',
     'openStyle',
     'nextNode',
     'undo'

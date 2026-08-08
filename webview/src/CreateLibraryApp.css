@@ -4,24 +4,35 @@
     8rem
     minmax(5rem, 10rem)
     minmax(7rem, 11rem)
-    minmax(8rem, 1fr)
-    max-content;
+    minmax(8rem, 1fr);
   align-items: center;
   gap: 0.4rem;
   margin-left: calc(-1 * var(--snl-library-outline-depth-offset, 0rem));
   width: calc(100% + var(--snl-library-outline-depth-offset, 0rem));
   min-width: 0;
+  --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
+}
+
+.snl-library-outline-row-main--deep {
+  --snl-library-counter-indent:
+    min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem);
+}
+
+.snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content {
+  flex: 1 0 100% !important;
 }
 
 .snl-library-outline-counter {
   grid-column: 1;
   display: flex;
   align-items: center;
-  min-width: 5.5rem;
+  min-width: max(4rem, calc(5.5rem - var(--snl-library-counter-indent)));
   min-height: 1.5rem;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.8rem;
   color: var(--vscode-descriptionForeground, #999);
+  transform: translateX(var(--snl-library-counter-indent));
+  max-width: max(4rem, calc(100% - var(--snl-library-counter-indent)));
 }
 
 .snl-library-outline-counter:focus-visible {
@@ -62,7 +73,30 @@
 }
 
 .snl-library-outline-metric {
-  grid-column: 5;
+  margin-right: 0.35rem;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+.snl-library-outline-row {
+  padding-right: 11.3rem !important;
+}
+
+.snl-library-outline-row > .snl-outline-row-toolbar {
+  opacity: 1;
+  pointer-events: none;
+  align-items: center;
+}
+
+.snl-library-outline-row > .snl-outline-row-toolbar button {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.snl-library-outline-row:hover > .snl-outline-row-toolbar button,
+.snl-library-outline-row:focus-within > .snl-outline-row-toolbar button {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .snl-library-outline-row:has(.snl-tree-add-menu) {
@@ -80,6 +114,12 @@
 @container snl-outline (max-width: 60rem) {
   .snl-library-outline-row-main {
     grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr);
+    --snl-library-counter-indent:
+      min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem);
+  }
+
+  .snl-library-outline-row > .snl-outline-row-content {
+    flex: 1 0 100% !important;
   }
 
   .snl-library-outline-counter {
@@ -102,14 +142,8 @@
     grid-row: 3;
   }
 
-  .snl-library-outline-metric {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    justify-self: end;
-  }
 
-  .snl-library-outline-row:hover,
-  .snl-library-outline-row:focus-within {
+  .snl-library-outline-row {
     padding-right: 0 !important;
     padding-bottom: 4.9rem !important;
   }
@@ -158,9 +192,11 @@
     grid-row: 3;
   }
 
-  .snl-library-outline-metric {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    justify-self: end;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .snl-library-outline-row > .snl-outline-row-toolbar button {
+    opacity: 1;
+    pointer-events: auto;
   }
 }

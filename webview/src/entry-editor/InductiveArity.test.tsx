@@ -395,16 +395,27 @@ describe('Inductive editor arity auto-fill', () => {
     expect(latest()).toBe('neg');
   });
 
-  it('leaves a variadic Macro alone — its count is the author\'s to set', async () => {
+  it('opens one empty child row when a dynamic-arity constant Macro is matched', async () => {
     const { view, latest } = renderEditor('x');
     const box = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
     const before = view.getAllByRole('textbox').length;
     fireEvent.change(box, { target: { value: 'list' } });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    // `list` renders as `#0: #*`, so a template scan alone would open a row.
-    // dynamic_arity must veto that — the count is the author's to set.
-    expect(view.getAllByRole('textbox').length).toBe(before);
+    await waitFor(() => expect(view.getAllByRole('textbox').length).toBe(before + 1));
+    // A lone empty slot has no stable SNL surface form, so it remains editor
+    // state until the author fills it or adds a second argument.
     expect(latest()).toBe('list');
+  });
+
+  it('reconciles again when returning from a dynamic Macro to the same fixed Macro', async () => {
+    const { view, latest } = renderEditor('atom');
+    const box = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
+
+    fireEvent.change(box, { target: { value: 'list' } });
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+
+    fireEvent.change(box, { target: { value: 'atom' } });
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(1));
+    expect(latest()).toBe('atom');
   });
 
   it('adds no rows for a Macro that takes no arguments', async () => {

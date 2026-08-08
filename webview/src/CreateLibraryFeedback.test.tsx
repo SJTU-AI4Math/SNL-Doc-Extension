@@ -163,7 +163,9 @@ describe('Create Library feedback', () => {
     const ssi = screen.getByText(/^SSI /);
     const title = screen.getByRole('button', { name: 'Entry One' });
     expect(entryIdEditor?.nextElementSibling).toBe(title);
-    expect(title.nextElementSibling?.contains(ssi)).toBe(true);
+    expect(entryIdEditor?.closest('.snl-outline-row')
+      ?.querySelector('.snl-outline-row-toolbar')?.contains(ssi)).toBe(true);
+    expect(title.nextElementSibling).toBeNull();
     expect(entryId.value).toBe('entry-one');
     entryId.focus();
     fireEvent.change(entryId, { target: { value: 'entry-t' } });
@@ -239,7 +241,7 @@ describe('Create Library feedback', () => {
     expect(main.firstElementChild).toBe(counter);
     expect(entryIdSlot.parentElement).toBe(main);
     expect(getComputedStyle(row).alignItems).toBe('flex-start');
-    expect(row.style.paddingRight).toBe('8.4rem');
+    expect(row.style.paddingRight).toBe('11.3rem');
     expect(getComputedStyle(main).gridTemplateColumns).not.toBe('');
     expect(kind.style.borderColor).toBe('rgb(0, 255, 0)');
     expect(kind.style.background).toBe('rgb(255, 0, 0)');
@@ -279,12 +281,20 @@ describe('Create Library feedback', () => {
     sendGraph({
       nodes: [
         { id: 'root', label: 'Entry', props: { entryId: 'entry-root' } },
-        { id: 'child', label: 'Entry', props: { entryId: 'entry-child' } }
+        { id: 'child', label: 'Entry', props: { entryId: 'entry-child' } },
+        { id: 'grand', label: 'Entry', props: { entryId: 'entry-grand' } },
+        { id: 'great', label: 'Entry', props: { entryId: 'entry-great' } }
       ],
-      relationships: [{ from: 'root', to: 'child', label: 'branch' }],
+      relationships: [
+        { from: 'root', to: 'child', label: 'branch' },
+        { from: 'child', to: 'grand', label: 'branch' },
+        { from: 'grand', to: 'great', label: 'branch' }
+      ],
       entries: [
         { id: 'entry-root', title: 'Root title', kind: 'definition', hasContent: true },
-        { id: 'entry-child', title: 'Child title', kind: 'definition', hasContent: true }
+        { id: 'entry-child', title: 'Child title', kind: 'definition', hasContent: true },
+        { id: 'entry-grand', title: 'Grand title', kind: 'definition', hasContent: true },
+        { id: 'entry-great', title: 'Great title', kind: 'definition', hasContent: true }
       ],
       kinds: [{
         id: 'definition', name: 'Definition', defaultCounterName: '',
@@ -296,11 +306,21 @@ describe('Create Library feedback', () => {
       .closest<HTMLElement>('[data-snl-library-row-main]');
     const childMain = screen.getByDisplayValue('entry-child')
       .closest<HTMLElement>('[data-snl-library-row-main]');
+    const greatMain = screen.getByDisplayValue('entry-great')
+      .closest<HTMLElement>('[data-snl-library-row-main]');
     expect(rootMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('0rem');
     expect(childMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('1.5rem');
+    expect(greatMain?.classList.contains('snl-library-outline-row-main--deep')).toBe(true);
+    const rootCounter = rootMain?.querySelector<HTMLElement>('.snl-library-outline-counter');
+    const childCounter = childMain?.querySelector<HTMLElement>('.snl-library-outline-counter');
+    expect(rootCounter).not.toBeNull();
+    expect(childCounter).not.toBeNull();
+    const childMetric = childMain?.closest('.snl-outline-row')
+      ?.querySelector<HTMLElement>('.snl-library-outline-metric');
+    expect(childMetric?.closest('.snl-outline-row-toolbar')).not.toBeNull();
     expect(
       childMain?.closest('.snl-outline-row')
-        ?.querySelector<HTMLElement>('.snl-outline-disclosure-spacer')?.style.width
+        ?.querySelector<HTMLElement>('.snl-outline-disclosure-spacer, button[aria-label="Collapse"]')?.style.width
     ).toBe('1.5rem');
   });
 

@@ -84,7 +84,7 @@ describe('Library outline responsive grid contract', () => {
   it('bounds the desktop Kind track and stacks medium rows before the toolbar can overlap them', () => {
     const desktop = blockBetween(rowMain, '@container snl-outline (max-width: 60rem)');
     expect(declarations(desktop, rowMain).get('grid-template-columns')).toBe(
-      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr) max-content'
+      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
     );
     expect(declarations(desktop, rowMain).get('margin-left')).toBe(
       'calc(-1 * var(--snl-library-outline-depth-offset, 0rem))'
@@ -92,6 +92,36 @@ describe('Library outline responsive grid contract', () => {
     expect(declarations(desktop, rowMain).get('width')).toBe(
       'calc(100% + var(--snl-library-outline-depth-offset, 0rem))'
     );
+    const counterRule = declarations(desktop, counter);
+    expect(counterRule.get('transform')).toBe(
+      'translateX(var(--snl-library-counter-indent))'
+    );
+    expect(counterRule.get('max-width')).toBe(
+      'max(4rem, calc(100% - var(--snl-library-counter-indent)))'
+    );
+    expect(counterRule.get('min-width')).toBe(
+      'max(4rem, calc(5.5rem - var(--snl-library-counter-indent)))'
+    );
+    const metricRule = declarations(desktop, metric);
+    expect(metricRule.get('margin-right')).toBe('0.35rem');
+    expect(metricRule.get('pointer-events')).toBe('auto');
+    expect(metricRule.has('grid-column')).toBe(false);
+    const libraryRow = declarations(desktop, '.snl-library-outline-row');
+    expect(libraryRow.get('padding-right')).toBe('11.3rem !important');
+    const deepMain = declarations(desktop, '.snl-library-outline-row-main--deep');
+    expect(deepMain.get('--snl-library-counter-indent')).toBe(
+      'min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem)'
+    );
+    expect(declarations(
+      desktop,
+      '.snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content'
+    ).get('flex')).toBe('1 0 100% !important');
+    const libraryToolbar = declarations(
+      desktop,
+      '.snl-library-outline-row > .snl-outline-row-toolbar'
+    );
+    expect(libraryToolbar.get('opacity')).toBe('1');
+    expect(libraryToolbar.get('pointer-events')).toBe('none');
     const openMenuRow = declarations(desktop, '.snl-library-outline-row:has(.snl-tree-add-menu)');
     expect(openMenuRow.get('padding-right')).toBe('0 !important');
     expect(openMenuRow.get('padding-bottom')).toBe('0.3rem !important');
@@ -108,15 +138,18 @@ describe('Library outline responsive grid contract', () => {
     expect(declarations(medium, rowMain).get('grid-template-columns')).toBe(
       'minmax(5.5rem, 8rem) minmax(0, 1fr)'
     );
+    expect(declarations(medium, rowMain).get('--snl-library-counter-indent')).toBe(
+      'min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem)'
+    );
+    expect(declarations(
+      medium,
+      '.snl-library-outline-row > .snl-outline-row-content'
+    ).get('flex')).toBe('1 0 100% !important');
     expectPlacement(medium, counter, '1', '1');
     expectPlacement(medium, kind, '2', '1');
     expectPlacement(medium, entryId, '1 / -1', '2');
     expectPlacement(medium, title, '1 / -1', '3');
-    expectPlacement(medium, metric, '1 / -1', '4');
-    const row = declarations(
-      medium,
-      '.snl-library-outline-row:hover,\n  .snl-library-outline-row:focus-within'
-    );
+    const row = declarations(medium, '.snl-library-outline-row');
     expect(row.get('padding-right')).toBe('0 !important');
     expect(row.get('padding-bottom')).toBe('4.9rem !important');
     const toolbar = declarations(medium, '.snl-library-outline-row > .snl-outline-row-toolbar');
@@ -140,7 +173,6 @@ describe('Library outline responsive grid contract', () => {
     expectPlacement(narrow, kind, '2', '1');
     expectPlacement(narrow, entryId, '1 / -1', '2');
     expectPlacement(narrow, title, '1 / -1', '3');
-    expectPlacement(narrow, metric, '1 / -1', '4');
   });
 
   it('validates the effective desktop grid cascade on the live row element', () => {
@@ -152,7 +184,7 @@ describe('Library outline responsive grid contract', () => {
     row.dataset.snlLibraryRowMain = '';
     document.body.appendChild(row);
     expect(getComputedStyle(row).gridTemplateColumns.replace(/\s+/g, ' ').trim()).toBe(
-      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr) max-content'
+      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
     );
     row.remove();
     style.remove();

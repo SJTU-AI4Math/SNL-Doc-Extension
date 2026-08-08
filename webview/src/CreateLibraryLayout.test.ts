@@ -86,6 +86,12 @@ describe('Library outline responsive grid contract', () => {
     expect(declarations(desktop, rowMain).get('grid-template-columns')).toBe(
       '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr) max-content'
     );
+    expect(declarations(desktop, rowMain).get('margin-left')).toBe(
+      'calc(-1 * var(--snl-library-outline-depth-offset, 0rem))'
+    );
+    expect(declarations(desktop, rowMain).get('width')).toBe(
+      'calc(100% + var(--snl-library-outline-depth-offset, 0rem))'
+    );
     const openMenuRow = declarations(desktop, '.snl-library-outline-row:has(.snl-tree-add-menu)');
     expect(openMenuRow.get('padding-right')).toBe('0 !important');
     expect(openMenuRow.get('padding-bottom')).toBe('0.3rem !important');

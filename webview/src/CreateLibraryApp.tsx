@@ -1195,9 +1195,10 @@ function OutlineEditor({
     onGraphOp({ op: 'updateNodeProps', nodeId, counterId });
   };
 
-  const renderRow = (node: GraphNode): React.ReactNode => (
+  const renderRow = (node: GraphNode, depth: number): React.ReactNode => (
     <OutlineRowContent
       node={node}
+      depth={depth}
       entriesById={entriesById}
       entryOptions={entryOptions}
       kindsById={kindsById}
@@ -1315,6 +1316,7 @@ function OutlineEditor({
 
 interface OutlineRowContentProps {
   node: GraphNode;
+  depth: number;
   entriesById: Map<string, EntryPoolItem>;
   entryOptions: EntryOption[];
   kindsById: Map<string, KindItem>;
@@ -1338,6 +1340,7 @@ interface OutlineRowContentProps {
  */
 function OutlineRowContent({
   node,
+  depth,
   entriesById,
   entryOptions,
   kindsById,
@@ -1371,7 +1374,13 @@ function OutlineRowContent({
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>{t('untitled')}</em>;
 
   return (
-    <div className="snl-library-outline-row-main" data-snl-library-row-main>
+    <div
+      className="snl-library-outline-row-main"
+      data-snl-library-row-main
+      style={{
+        '--snl-library-outline-depth-offset': `${depth * 1.5}rem`
+      } as React.CSSProperties}
+    >
       <OutlineCounterControl
         number={num}
         currentCounterId={currentCounterId}
@@ -1629,8 +1638,8 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
         fontSize: '0.75rem',
         borderRadius: '3px',
         border: color ? `1px solid ${color.stroke}` : '1px solid #666',
-        background: color ? color.stroke : 'transparent',
-        color: color ? '#222' : 'inherit',
+        background: color ? color.background : 'transparent',
+        color: color ? color.stroke : 'inherit',
         fontWeight: 600,
         flexShrink: 0,
         boxSizing: 'border-box',

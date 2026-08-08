@@ -208,7 +208,7 @@ describe('Create Library feedback', () => {
     expect(postMessage).toHaveBeenCalledWith({ type: 'openEditEntry', entryId: 'entry-one' });
   });
 
-  it('keeps the counter at the left, the Entry id in a stable middle slot, and uses Kind stroke color', () => {
+  it('keeps the counter at the left and uses distinct Kind stroke/background roles', () => {
     setupApi();
     render(<CreateLibraryApp />);
     send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
@@ -241,7 +241,9 @@ describe('Create Library feedback', () => {
     expect(getComputedStyle(row).alignItems).toBe('flex-start');
     expect(row.style.paddingRight).toBe('8.4rem');
     expect(getComputedStyle(main).gridTemplateColumns).not.toBe('');
-    expect(kind.style.background).toBe('rgb(0, 255, 0)');
+    expect(kind.style.borderColor).toBe('rgb(0, 255, 0)');
+    expect(kind.style.background).toBe('rgb(255, 0, 0)');
+    expect(kind.style.color).toBe('rgb(0, 255, 0)');
     expect(kind.getAttribute('title')).toBe('Definition');
     expect(kind.style.overflow).toBe('hidden');
     expect(kind.style.textOverflow).toBe('ellipsis');
@@ -268,6 +270,38 @@ describe('Create Library feedback', () => {
     fireEvent.click(counter);
     const touchSelect = within(counter).getByRole('combobox', { name: 'Counter' });
     expect(document.activeElement).toBe(touchSelect);
+  });
+
+  it('publishes the tree depth offset without moving the Kind, Entry id, and Title grid', () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
+    sendGraph({
+      nodes: [
+        { id: 'root', label: 'Entry', props: { entryId: 'entry-root' } },
+        { id: 'child', label: 'Entry', props: { entryId: 'entry-child' } }
+      ],
+      relationships: [{ from: 'root', to: 'child', label: 'branch' }],
+      entries: [
+        { id: 'entry-root', title: 'Root title', kind: 'definition', hasContent: true },
+        { id: 'entry-child', title: 'Child title', kind: 'definition', hasContent: true }
+      ],
+      kinds: [{
+        id: 'definition', name: 'Definition', defaultCounterName: '',
+        coloring: { stroke: '#00ff00', background: '#ff0000' }
+      }]
+    });
+
+    const rootMain = screen.getByDisplayValue('entry-root')
+      .closest<HTMLElement>('[data-snl-library-row-main]');
+    const childMain = screen.getByDisplayValue('entry-child')
+      .closest<HTMLElement>('[data-snl-library-row-main]');
+    expect(rootMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('0rem');
+    expect(childMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('1.5rem');
+    expect(
+      childMain?.closest('.snl-outline-row')
+        ?.querySelector<HTMLElement>('.snl-outline-disclosure-spacer')?.style.width
+    ).toBe('1.5rem');
   });
 
   it('cancels an indexed Entry id edit with Escape', () => {

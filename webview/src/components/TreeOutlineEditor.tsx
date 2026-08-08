@@ -249,7 +249,10 @@ function TreeRow<T>({
             title={isCollapsed ? t('expand') : t('collapse')}
           />
         ) : (
-          <span style={{ width: '1.2rem', display: 'inline-block' }} />
+          <span
+            className="snl-outline-disclosure-spacer"
+            style={{ width: '1.5rem', height: '1.5rem', display: 'inline-block', flexShrink: 0 }}
+          />
         )}
 
         <div
@@ -347,8 +350,8 @@ function TreeRow<T>({
 
 function disclosureButtonStyle(): React.CSSProperties {
   return {
-    width: '1.2rem',
-    height: '1.2rem',
+    width: '1.5rem',
+    height: '1.5rem',
     padding: 0,
     fontSize: '0.7rem',
     lineHeight: 1,

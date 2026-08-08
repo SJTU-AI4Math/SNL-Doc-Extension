@@ -8,7 +8,8 @@
     max-content;
   align-items: center;
   gap: 0.4rem;
-  width: 100%;
+  margin-left: calc(-1 * var(--snl-library-outline-depth-offset, 0rem));
+  width: calc(100% + var(--snl-library-outline-depth-offset, 0rem));
   min-width: 0;
 }
 

@@ -56,6 +56,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function assertCurrentThemeCatalog(config: Record<string, unknown>, field: 'entry_kinds' | 'macro_kinds'): void {
+  const catalog = config[field];
+  if (!Array.isArray(catalog)) throw new Error(`config.json#${field} must be an array.`);
+  for (const [index, raw] of catalog.entries()) {
+    if (!isRecord(raw) || !isRecord(raw.coloring)) {
+      throw new Error(`config.json#${field}[${index}] is not a current Kind record.`);
+    }
+    for (const scheme of ['light', 'dark'] as const) {
+      const pair = raw.coloring[scheme];
+      if (!isRecord(pair) || typeof pair.stroke !== 'string' || typeof pair.background !== 'string') {
+        throw new Error(`config.json#${field}[${index}].coloring.${scheme} must contain string stroke/background.`);
+      }
+    }
+  }
+}
+
 export async function inspectStoredWorkspaceData(
   storage: Pick<DataMigrationStorage, 'readJson' | 'listJsonFiles' | 'directoryExists'>,
   snapshot?: StoredWorkspaceDataReadSnapshot
@@ -76,7 +92,12 @@ export async function inspectStoredWorkspaceData(
           }
         }
       }
-      const activePackages = (config as Record<string, unknown>).active_macro_packages;
+      const currentConfig = config as Record<string, unknown>;
+      if (inspection.status === 'current') {
+        assertCurrentThemeCatalog(currentConfig, 'entry_kinds');
+        assertCurrentThemeCatalog(currentConfig, 'macro_kinds');
+      }
+      const activePackages = currentConfig.active_macro_packages;
       if (
         Object.prototype.hasOwnProperty.call(config, 'active_macro_packages') &&
         (!Array.isArray(activePackages) || !activePackages.every((value) => typeof value === 'string'))

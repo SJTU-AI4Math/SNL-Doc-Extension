@@ -54,6 +54,7 @@ interface GraphNodeOut {
   kindId: string;
   color: string; // stroke/border color from kind palette
   background: string;
+  coloring?: { light: { stroke: string; background: string }; dark: { stroke: string; background: string } };
 }
 
 interface GraphEdgeOut {
@@ -376,9 +377,8 @@ export class GraphPanel {
     for (const id of participating) {
       const e = entryById.get(id);
       const kind = e ? kindById.get(e.kind) : undefined;
-      const colors = kind
-        ? ('light' in kind.coloring ? kind.coloring.light : kind.coloring as unknown as { stroke: string; background: string })
-        : null;
+      const nestedColoring = kind?.coloring ?? null;
+      const colors = nestedColoring?.light;
       nodes.push({
         id,
         packageId: e && typeof e.package === 'string' && e.package.trim()
@@ -388,7 +388,8 @@ export class GraphPanel {
         kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',
         color: colors?.stroke ?? '#888888',
-        background: colors?.background ?? 'transparent'
+        background: colors?.background ?? 'transparent',
+        coloring: nestedColoring ?? undefined
       });
     }
     nodes.sort((a, b) => a.id.localeCompare(b.id));

@@ -35,11 +35,12 @@ const snapshot = (version: string): WorkspaceDataSnapshot => ({
       id: 'theorem',
       name: 'Theorem',
       color: '#123456',
+      coloring: { stroke: '#123456', background: '#123456' },
       numbering: { pattern: '.1' },
       style: 'box',
       custom: 'preserve'
     }],
-    macro_kinds: [{ id: 'rule', name: 'Rule', color: '#abcdef', custom: 7 }]
+    macro_kinds: [{ id: 'rule', name: 'Rule', color: '#abcdef', coloring: { stroke: '#abcdef', background: '#abcdef' }, custom: 7 }]
   },
   macroPackages: new Map([
     ['Logic.json', { version: '6', name: 'Logic', macros: { old: {} }, custom: 'package' }]
@@ -427,8 +428,8 @@ describe('workspace data migrations', () => {
   it('migrates active partial entities and config to sub while preserving extensions and frozen backups', async () => {
     const data = snapshot('0.0.6');
     data.config.macro_kinds = [
-      { id: 'partial', name: 'Partial', coloring: { stroke: 'inherit' }, vendor: 7 },
-      { id: 'const', name: 'Const' }
+      { id: 'partial', name: 'Partial', coloring: { stroke: 'inherit', background: '#eeeeee' }, vendor: 7 },
+      { id: 'const', name: 'Const', coloring: { stroke: '#888888', background: '#eeeeee' } }
     ];
     data.config.entity_storage = {
       version: 1,
@@ -496,6 +497,24 @@ describe('workspace data migrations', () => {
     expect(JSON.stringify(data.entryEntities.get(entryEntityPath('Logic', 'entry')))).not.toContain('bindRef');
     expect([...data.macroPackages]).toEqual(frozenPackages);
     expect(data.entries).toEqual(frozenEntries);
+  });
+
+  it('rejects malformed 0.0.7 Kind colors and preserves coloring extensions', async () => {
+    const malformed = snapshot('0.0.7');
+    malformed.config.entry_kinds = [{ id: 'bad', name: 'Bad', coloring: { stroke: 7, background: '#fff' }, defaultCounterName: '', style: '' }];
+    malformed.config.macro_kinds = [];
+    await expect(migrateWorkspaceSnapshot(malformed, (_file, raw) => raw)).rejects.toThrow(/entry_kinds.*stroke/i);
+    expect(malformed.config.version).toBe('0.0.7');
+
+    const valid = snapshot('0.0.7');
+    valid.config.entry_kinds = [{ id: 'ok', name: 'OK', coloring: { stroke: '#123', background: '#abc', vendor: { keep: true } }, defaultCounterName: '', style: '' }];
+    valid.config.macro_kinds = [];
+    await migrateWorkspaceSnapshot(valid, (_file, raw) => raw);
+    expect((valid.config.entry_kinds as Array<Record<string, any>>)[0].coloring).toEqual({
+      vendor: { keep: true },
+      light: { stroke: '#123', background: '#abc' },
+      dark: { stroke: '#123', background: '#abc' }
+    });
   });
 
   it('rejects partial/sub config collisions and ambiguous compound binders atomically', async () => {

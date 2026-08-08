@@ -61,7 +61,7 @@ function legacyStorage(): MemoryStorage {
   const storage = new MemoryStorage();
   storage.values.set('config.json', {
     version: '0.0.3',
-    entry_kinds: [{ id: 'theorem', numbering: '.1', color: '#123' }],
+    entry_kinds: [{ id: 'theorem', numbering: '.1', color: '#123', coloring: { stroke: '#123', background: '#123' } }],
     macro_kinds: []
   });
   storage.values.set('term_macros/Logic.json', {
@@ -117,7 +117,7 @@ describe('stored workspace data migration', () => {
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;
     config.version = '0.0.6';
-    config.macro_kinds = [{ id: 'partial', vendor: true }];
+    config.macro_kinds = [{ id: 'partial', vendor: true, coloring: { stroke: 'inherit', background: 'transparent' } }];
     const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
     const macroEnvelope = storage.values.get(macroPath) as Record<string, unknown>;
     macroEnvelope.envelope_extension = 'keep';
@@ -275,6 +275,20 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(strictStorage);
     expect(inspection.status).toBe('invalid');
     expect(inspection.message).toMatch(/missing.*entries/i);
+  });
+
+  it('rejects malformed current Kind theme catalogs', async () => {
+    for (const field of ['entry_kinds', 'macro_kinds'] as const) {
+      const storage = legacyStorage();
+      await migrateStoredWorkspaceData(storage, canonicalize);
+      const config = storage.values.get('config.json') as Record<string, unknown>;
+      config.entry_kinds = [];
+      config.macro_kinds = [];
+      config[field] = [{ id: 'bad', name: 'Bad', ...(field === 'entry_kinds' ? { defaultCounterName: '', style: '' } : { description: '' }), coloring: { light: { stroke: '#111', background: '#eee' }, dark: { stroke: 7, background: '#222' } } }];
+      const inspection = await inspectStoredWorkspaceData(storage);
+      expect(inspection.status).toBe('invalid');
+      expect(inspection.message).toMatch(new RegExp(field));
+    }
   });
 
   it('rejects malformed active package configuration in a current workspace', async () => {

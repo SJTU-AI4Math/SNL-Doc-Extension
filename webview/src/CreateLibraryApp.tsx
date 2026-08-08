@@ -1627,7 +1627,7 @@ function OutlineEntryTargetEditor({
 }
 
 function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
-  const color = kind.coloring;
+  const colors = resolveThemeColoring(kind.coloring);
   return (
     <span
       className="snl-library-outline-kind"
@@ -1637,9 +1637,9 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
         padding: '0.1rem 0.45rem',
         fontSize: '0.75rem',
         borderRadius: '3px',
-        border: color ? `1px solid ${color.stroke}` : '1px solid #666',
-        background: color ? color.background : 'transparent',
-        color: color ? color.stroke : 'inherit',
+        border: `1px solid ${colors.stroke}`,
+        background: colors.background,
+        color: colors.stroke,
         fontWeight: 600,
         flexShrink: 0,
         boxSizing: 'border-box',

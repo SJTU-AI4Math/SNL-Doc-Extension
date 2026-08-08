@@ -1,4 +1,4 @@
-import { resolveThemeColoring, type ThemeColoring } from './render/themeColoring';
+import { currentColorScheme, resolveThemeColoring, type ColorScheme, type ThemeColoring } from './render/themeColoring';
 // SNL Relationship Graph webview (cat 2026-07-10 Phase 2).
 //
 // Layout: DAG hierarchy, no physics. Sugiyama-lite:
@@ -71,6 +71,7 @@ interface GraphNode {
   kindId: string;
   color: string;
   background: string;
+  coloring?: { light: { stroke: string; background: string }; dark: { stroke: string; background: string } };
 }
 
 interface GraphEdge {
@@ -130,8 +131,8 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.snl === undefined || typeof value.snl === 'string');
 const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
   isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof resolveThemeColoring(value.coloring).stroke === 'string' &&
-  typeof resolveThemeColoring(value.coloring).background === 'string';
+  typeof resolveThemeColoring(value.coloring as unknown as ThemeColoring).stroke === 'string' &&
+  typeof resolveThemeColoring(value.coloring as unknown as ThemeColoring).background === 'string';
 const isGraphMessage = (value: unknown): value is GraphMessage =>
   isRecord(value) && value.type === 'graph' && isScope(value.scope) &&
   typeof value.title === 'string' && Array.isArray(value.nodes) &&
@@ -755,6 +756,17 @@ function SnlGraphInner({
   const [kindFilter, setKindFilter] = useState<Set<string> | null>(null);
   /** Sidebar open/closed. Persists across msg updates. */
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(() => currentColorScheme());
+  useEffect(() => {
+    const observer = new MutationObserver(() => setColorScheme(currentColorScheme()));
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  const themedNodes = useMemo(() => (msg?.nodes ?? []).map((node) => {
+    if (!node.coloring) return node;
+    const colors = resolveThemeColoring(node.coloring, colorScheme);
+    return { ...node, color: colors.stroke, background: colors.background };
+  }), [colorScheme, msg?.nodes]);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // Per-node popover state, keyed by node id. Mirrors the pattern
@@ -768,11 +780,11 @@ function SnlGraphInner({
     // filter which only touches surviving edges.
     const allowKind = (id: string): boolean => {
       if (kindFilter === null) return true;
-      const n = msg.nodes.find((x) => x.id === id);
+      const n = themedNodes.find((x) => x.id === id);
       if (!n) return false;
       return kindFilter.has(n.kindId);
     };
-    const kindKeptNodes = msg.nodes.filter((n) => allowKind(n.id));
+    const kindKeptNodes = themedNodes.filter((n) => allowKind(n.id));
     const kindKeptIds = new Set(kindKeptNodes.map((n) => n.id));
     const kindKeptEdges = msg.edges.filter(
       (e) => kindKeptIds.has(e.from) && kindKeptIds.has(e.to)
@@ -790,7 +802,7 @@ function SnlGraphInner({
     }
     const filteredNodes = kindKeptNodes.filter((n) => kept.has(n.id));
     return layout(filteredNodes, filteredEdges);
-  }, [msg, depFilter, kindFilter]);
+  }, [msg, themedNodes, depFilter, kindFilter]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current
@@ -802,12 +814,12 @@ function SnlGraphInner({
   >(() => {
     if (!msg) return [];
     const seen = new Map<string, { kindId: string; label: string; color: string }>();
-    for (const n of msg.nodes) {
+    for (const n of themedNodes) {
       if (seen.has(n.kindId)) continue;
       seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color: n.color });
     }
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
-  }, [msg]);
+  }, [msg, themedNodes]);
 
   // Fit-to-view on first load.
   useEffect(() => {

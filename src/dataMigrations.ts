@@ -572,9 +572,29 @@ function migrate007To008ThemeColoring(context: WorkspaceMigrationContext): void 
     return value.map((raw) => {
       const item = { ...object(raw) };
       const coloring = object(item.coloring);
-      const stroke = typeof coloring.stroke === 'string' ? coloring.stroke : '#888888';
-      const background = typeof coloring.background === 'string' ? coloring.background : '#eeeeee';
-      item.coloring = { light: { stroke, background }, dark: { stroke, background } };
+      if (isRecord(coloring.light) || isRecord(coloring.dark)) {
+        for (const scheme of ['light', 'dark'] as const) {
+          const pair = coloring[scheme];
+          if (!isRecord(pair) || typeof pair.stroke !== 'string' || typeof pair.background !== 'string') {
+            throw new Error(`config.json#${field} contains a Kind whose coloring.${scheme} is malformed.`);
+          }
+        }
+        item.coloring = coloring;
+        delete item.color;
+        return item;
+      }
+      if (typeof coloring.stroke !== 'string') {
+        throw new Error(`config.json#${field} contains a Kind whose coloring.stroke is not a string.`);
+      }
+      if (typeof coloring.background !== 'string') {
+        throw new Error(`config.json#${field} contains a Kind whose coloring.background is not a string.`);
+      }
+      const { stroke, background, ...coloringExtensions } = coloring;
+      item.coloring = {
+        ...coloringExtensions,
+        light: { stroke, background },
+        dark: { stroke, background }
+      };
       delete item.color;
       return item;
     });

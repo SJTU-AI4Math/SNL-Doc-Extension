@@ -50,6 +50,11 @@ interface LibrarySummary {
   relationshipCount: number | null;
 }
 
+interface EntryPackageSummary {
+  id: string;
+  entryCount: number;
+}
+
 interface MacroPackageSummary {
   file: string;
   macroCount: number | null;
@@ -86,6 +91,7 @@ interface MacroKind {
 
 interface EntryData {
   id: string;
+  package?: string;
   kind: string;
   title: string;
   content: {
@@ -97,6 +103,11 @@ interface EntryData {
   };
   contribution_info?: unknown;
   pointer?: unknown;
+}
+
+function entryPackageId(entry: EntryData): string {
+  const packageId = entry.package?.trim();
+  return packageId || '_unpackaged';
 }
 
 interface RelationshipData {
@@ -250,16 +261,44 @@ function Initialized({
   // avoids workspaceState round-trips; users open what they care about.
   const [openLibraries, setOpenLibraries] = useState(false);
   const [openEntries, setOpenEntries] = useState(false);
+  const [selectedEntryPackage, setSelectedEntryPackage] = useState<string | null>(null);
   const [openRelationships, setOpenRelationships] = useState(false);
   const [openMacros, setOpenMacros] = useState(false);
   const [openEntryKinds, setOpenEntryKinds] = useState(false);
   const [openMacroKinds, setOpenMacroKinds] = useState(false);
   const [openDataMaintenance, setOpenDataMaintenance] = useState(false);
 
-  const totalEntries =
-    overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
   const hasKinds = overview.entryKinds.length > 0;
   const hasMacroKinds = overview.macroKinds.length > 0;
+  const entryPackages = useMemo(() => {
+    const counts = new Map<string, number>([['_unpackaged', 0]]);
+    for (const pkg of overview.macroPackages) {
+      const packageId = pkg.file.replace(/\.json$/i, '');
+      if (packageId) counts.set(packageId, counts.get(packageId) ?? 0);
+    }
+    for (const entry of overview.entries) {
+      const packageId = entryPackageId(entry);
+      counts.set(packageId, (counts.get(packageId) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([id, entryCount]): EntryPackageSummary => ({ id, entryCount }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }, [overview.entries, overview.macroPackages]);
+  useEffect(() => {
+    if (
+      selectedEntryPackage !== null &&
+      !entryPackages.some((pkg: EntryPackageSummary) => pkg.id === selectedEntryPackage)
+    ) {
+      setSelectedEntryPackage(null);
+    }
+  }, [entryPackages, selectedEntryPackage]);
+  const selectedPackageEntries = selectedEntryPackage === null
+    ? []
+    : overview.entries.filter((entry) => entryPackageId(entry) === selectedEntryPackage);
+  const toggleEntries = (): void => {
+    if (openEntries) setSelectedEntryPackage(null);
+    setOpenEntries((value: boolean) => !value);
+  };
 
   return (
     <main style={PANEL_STYLE}>
@@ -368,9 +407,9 @@ function Initialized({
       {/* === 2. Entries =================================================== */}
       <CollapsibleSection
         title="Entries"
-        subtitle={`${totalEntries} entries in shared pool`}
+        subtitle={`${entryPackages.length} package${entryPackages.length === 1 ? '' : 's'}`}
         expanded={openEntries}
-        onToggle={() => setOpenEntries((v) => !v)}
+        onToggle={toggleEntries}
         headerActions={
           <>
             <HeaderActionButton
@@ -388,18 +427,53 @@ function Initialized({
           </>
         }
       >
-        {overview.entries.length > 0 ? (
-          <EntriesTable
-            entries={overview.entries}
-            kinds={overview.entryKinds}
-            macroSources={overview.metricMacroSources}
-            metricThresholds={overview.metricThresholds}
-            onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
-            onDelete={(id) =>
-              api?.postMessage({ type: 'deleteEntry', id })
-            }
-          />
-        ) : null}
+        {selectedEntryPackage === null ? (
+          entryPackages.length > 0 ? (
+            <EntryPackagesTable
+              packages={entryPackages}
+              onOpen={setSelectedEntryPackage}
+            />
+          ) : null
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                marginTop: '0.5rem'
+              }}
+            >
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                aria-label="Back to entry packages"
+                title="Back to entry packages"
+                onClick={() => setSelectedEntryPackage(null)}
+              >
+                ← Packages
+              </Button>
+              <strong style={MONO}>{selectedEntryPackage}</strong>
+              <span style={{ opacity: 0.7 }}>
+                {selectedPackageEntries.length} entr{selectedPackageEntries.length === 1 ? 'y' : 'ies'}
+              </span>
+            </div>
+            {selectedPackageEntries.length > 0 ? (
+              <EntriesTable
+                entries={selectedPackageEntries}
+                metricEntries={overview.entries}
+                kinds={overview.entryKinds}
+                macroSources={overview.metricMacroSources}
+                metricThresholds={overview.metricThresholds}
+                onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
+                onDelete={(id) =>
+                  api?.postMessage({ type: 'deleteEntry', id })
+                }
+              />
+            ) : null}
+          </>
+        )}
         <AddBar
           label="Create Entry"
           onActivate={() => api?.postMessage({ type: 'createEntry' })}
@@ -819,6 +893,45 @@ function LibrariesTable({
   );
 }
 
+function EntryPackagesTable({
+  packages,
+  onOpen
+}: {
+  packages: EntryPackageSummary[];
+  onOpen: (id: string) => void;
+}): React.ReactElement {
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={HEAD}>Package</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>Entries</th>
+        </tr>
+      </thead>
+      <tbody>
+        {packages.map((pkg) => (
+          <ClickableRow
+            key={pkg.id}
+            label={`Open entry package ${pkg.id}`}
+            onActivate={() => onOpen(pkg.id)}
+            primaryCellIndex={0}
+          >
+            <td style={{ ...CELL, ...MONO }}>{pkg.id}</td>
+            <td style={{ ...CELL, textAlign: 'right' }}>{pkg.entryCount}</td>
+          </ClickableRow>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function MacroPackagesTable({
   packages,
   onOpen,
@@ -1144,6 +1257,7 @@ function populatedFormats(entry: EntryData): string {
 
 function EntriesTable({
   entries,
+  metricEntries,
   kinds,
   macroSources,
   metricThresholds,
@@ -1151,6 +1265,7 @@ function EntriesTable({
   onDelete
 }: {
   entries: EntryData[];
+  metricEntries?: EntryData[];
   kinds: EntryKind[];
   macroSources: SnlMacroSourceLookup;
   metricThresholds: EntryMetricThresholds;
@@ -1158,8 +1273,8 @@ function EntriesTable({
   onDelete: (id: string) => void;
 }): React.ReactElement {
   const metricContext = useMemo(
-    () => buildEntryMetricContext(entries),
-    [entries]
+    () => buildEntryMetricContext(metricEntries ?? entries),
+    [entries, metricEntries]
   );
   return (
     <table

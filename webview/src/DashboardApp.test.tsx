@@ -105,7 +105,7 @@ describe('Dashboard library actions', () => {
     });
   });
 
-  it('shows a single SNL Structural Index column for entries', async () => {
+  it('shows Entry Packages first and reveals entries only inside the selected Package', async () => {
     render(<DashboardApp />);
 
     window.dispatchEvent(
@@ -114,17 +114,25 @@ describe('Dashboard library actions', () => {
           type: 'overview',
           overview: {
             hasSnlDoc: true,
-            totalEntryCount: 1,
+            totalEntryCount: 2,
             entries: [
               {
                 id: 'entry-1',
+                package: 'Logic',
                 kind: 'definition',
                 title: 'Entry One',
+                content: { snl: 'free' }
+              },
+              {
+                id: 'entry-2',
+                package: 'Algebra',
+                kind: 'definition',
+                title: 'Entry Two',
                 content: { snl: 'free' }
               }
             ],
             libraries: [],
-            macroPackages: [],
+            macroPackages: [{ file: 'Empty.json', macroCount: 0 }],
             allMacros: [],
             metricMacroSources: {},
             entryKinds: [],
@@ -138,10 +146,55 @@ describe('Dashboard library actions', () => {
     await screen.findByText('Entries');
     const entriesToggle = screen.getByText('Entries').closest('button');
     if (!entriesToggle) throw new Error('Entries toggle not found');
+    expect(entriesToggle.textContent).toContain('4 packages');
     fireEvent.click(entriesToggle);
 
-    expect(await screen.findByText('SNL Structural Index')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Open entry package Algebra' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open entry package Empty' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open entry package Logic' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open entry package _unpackaged' })).toBeTruthy();
+    expect(screen.queryByText('Entry One')).toBeNull();
+    expect(screen.queryByText('Entry Two')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open entry package Logic' }));
+    expect(await screen.findByRole('button', { name: 'Back to entry packages' })).toBeTruthy();
+    expect(screen.getByText('Entry One')).toBeTruthy();
+    expect(screen.queryByText('Entry Two')).toBeNull();
+    expect(screen.getByText('SNL Structural Index')).toBeTruthy();
     expect(screen.queryByText('Semantic freedom')).toBeNull();
     expect(screen.queryByText('Structured')).toBeNull();
+
+    fireEvent.click(entriesToggle);
+    fireEvent.click(entriesToggle);
+    expect(screen.getByRole('button', { name: 'Open entry package Logic' })).toBeTruthy();
+    expect(screen.queryByText('Entry One')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open entry package Logic' }));
+    expect(screen.getByRole('button', { name: 'Back to entry packages' })).toBeTruthy();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: {
+          hasSnlDoc: true,
+          totalEntryCount: 1,
+          entries: [{
+            id: 'entry-2', package: 'Algebra', kind: 'definition',
+            title: 'Entry Two', content: { snl: 'free' }
+          }],
+          libraries: [],
+          macroPackages: [{ file: 'Empty.json', macroCount: 0 }],
+          allMacros: [],
+          metricMacroSources: {},
+          entryKinds: [],
+          macroKinds: [],
+          relationships: []
+        }
+      }
+    }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Back to entry packages' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Open entry package Logic' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Open entry package Algebra' })).toBeTruthy();
+    });
   });
 });

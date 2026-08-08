@@ -630,6 +630,45 @@ describe('GuiCanvasEditor', () => {
     );
   });
 
+  it('adds one placeholder when a dynamic-arity constant Macro is inserted as a new root', async () => {
+    const dynamicDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) =>
+          macro_name === 'list'
+            ? ({
+                name: 'list', description: '', source: { entries: [], urls: [] }, tags: [],
+                dynamic_arity: true,
+                styles: [{ style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] }]
+              } as never)
+            : null
+      }
+    });
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);
+      return (
+        <GuiCanvasEditor
+          forest={forest}
+          macroDataDriver={dynamicDriver}
+          kindPalette={undefined}
+          onForestChange={setForest}
+          onResetFromSnl={() => undefined}
+        />
+      );
+    }
+
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const input = await waitFor(() =>
+      view.getByRole('textbox', { name: 'Insert Canvas root Macro' }) as HTMLInputElement
+    );
+    fireEvent.change(input, { target: { value: 'list' } });
+
+    await waitFor(() =>
+      expect(view.container.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1)
+    );
+  });
+
   it('adds one placeholder when a temporary Macro is inserted as a new root', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);

@@ -100,6 +100,44 @@ describe('Inductive node action dial', () => {
     expect(latest()).toBe('$#0 + #1$(a,$b$)');
   });
 
+  it('adds an empty child without carving selected text when Alt+X has no delimiter', () => {
+    const { view, latest } = renderEditor('root(a)');
+    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    input.focus();
+    input.setSelectionRange(1, 3);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+
+    expect(latest()).toBe('root(a,)');
+    expect(input.value).toBe('root');
+  });
+
+  it('adds a parent through the routed Alt+P semantic action', () => {
+    const { view, latest } = renderEditor('root(a,b)');
+    const input = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    input.focus();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.addParent' }
+    }));
+
+    expect(latest()).toBe('root((a),b)');
+  });
+
+  it('adds a sibling through the routed Alt+S semantic action', () => {
+    const { view, latest } = renderEditor('root(a,b)');
+    const input = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    input.focus();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.addSibling' }
+    }));
+
+    expect(latest()).toBe('root(a,,b)');
+  });
+
   it('allocates after the maximum real placeholder and ignores escaped placeholders', () => {
     const { view, latest } = renderEditor('%#0 \\#9 tail%(a)');
     const input = view.getAllByRole('textbox')[0] as HTMLInputElement;

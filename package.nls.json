@@ -56,6 +56,8 @@
   "snlDoc.command.inductive.outdent": "SNL: Outdent Node",
   "snlDoc.command.inductive.indent": "SNL: Indent Node",
   "snlDoc.command.inductive.extractSelection": "SNL: Extract Selection as Child Node",
+  "snlDoc.command.inductive.addParent": "SNL: Add Parent Node",
+  "snlDoc.command.inductive.addSibling": "SNL: Add Sibling Node",
   "snlDoc.command.inductive.openStyle": "SNL: Open Node Style",
   "snlDoc.command.inductive.nextNode": "SNL: Edit Next Node",
   "snlDoc.command.inductive.undo": "SNL: Undo Inductive Edit"

@@ -208,6 +208,14 @@
         "title": "%snlDoc.command.inductive.extractSelection%"
       },
       {
+        "command": "snlDoc.inductive.addParent",
+        "title": "%snlDoc.command.inductive.addParent%"
+      },
+      {
+        "command": "snlDoc.inductive.addSibling",
+        "title": "%snlDoc.command.inductive.addSibling%"
+      },
+      {
         "command": "snlDoc.inductive.openStyle",
         "title": "%snlDoc.command.inductive.openStyle%"
       },
@@ -387,6 +395,16 @@
       {
         "command": "snlDoc.inductive.extractSelection",
         "key": "alt+x",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.addParent",
+        "key": "alt+p",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.addSibling",
+        "key": "alt+s",
         "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
       },
       {

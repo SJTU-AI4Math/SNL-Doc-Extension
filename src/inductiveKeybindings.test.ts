@@ -11,6 +11,8 @@ const expected = new Map([
   ['snlDoc.inductive.outdent', 'alt+left'],
   ['snlDoc.inductive.indent', 'alt+right'],
   ['snlDoc.inductive.extractSelection', 'alt+x'],
+  ['snlDoc.inductive.addParent', 'alt+p'],
+  ['snlDoc.inductive.addSibling', 'alt+s'],
   ['snlDoc.inductive.openStyle', 'tab'],
   ['snlDoc.inductive.nextNode', 'enter'],
   ['snlDoc.inductive.undo', 'ctrl+z']

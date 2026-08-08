@@ -73,39 +73,39 @@ const manifest = JSON.parse(
 };
 
 const editorTitle = manifest.contributes.menus['editor/title'] ?? [];
-const dashboardItem = editorTitle.find(
-  (item) => item.command === 'snlDoc.openDashboard'
+const navigationItem = editorTitle.find(
+  (item) => item.command === 'snlDoc.openNavigation'
 );
-const dashboardCommand = manifest.contributes.commands.find(
-  (c) => c.command === 'snlDoc.openDashboard'
+const navigationCommand = manifest.contributes.commands.find(
+  (c) => c.command === 'snlDoc.openNavigation'
 );
 const extensionSource = readFileSync(resolve(__dirname, 'extension.ts'), 'utf8');
 
-describe('editor-title Dashboard button', () => {
-  it('contributes an editor/title item for the Dashboard', () => {
-    expect(dashboardItem).toBeDefined();
+describe('editor-title cat navigation button', () => {
+  it('contributes an editor/title item for navigation', () => {
+    expect(navigationItem).toBeDefined();
     // Right-hand side of the title bar. A negative order keeps the cat before
     // language-extension actions such as Lean's ∀ so it is not the first item
     // pushed into the overflow menu when the editor title runs out of width.
-    expect(dashboardItem?.group).toBe('navigation@-100');
+    expect(navigationItem?.group).toBe('navigation@-100');
   });
 
   it('gates the button on the SNL context key, not on every file', () => {
-    expect(dashboardItem?.when).toBe(SNL_DOC_CONTEXT_KEY);
+    expect(navigationItem?.when).toBe(SNL_DOC_CONTEXT_KEY);
     // A bare `when: "true"` / missing clause would show it everywhere.
-    expect(dashboardItem?.when).not.toBe('true');
-    expect(dashboardItem?.when).toBeTruthy();
+    expect(navigationItem?.when).not.toBe('true');
+    expect(navigationItem?.when).toBeTruthy();
   });
 
   it('points at a real, registered command', () => {
-    expect(dashboardCommand).toBeDefined();
+    expect(navigationCommand).toBeDefined();
     expect(extensionSource).toContain(
-      "registerCommand(\n    'snlDoc.openDashboard'"
+      "registerCommand(\n    'snlDoc.openNavigation'"
     );
   });
 
   it('gives the command a cat icon that actually resolves on disk', () => {
-    const icon = dashboardCommand?.icon as
+    const icon = navigationCommand?.icon as
       | { light: string; dark: string }
       | string
       | undefined;

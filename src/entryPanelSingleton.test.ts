@@ -139,6 +139,34 @@ describe('entry panel singleton', () => {
     expect(revealCount).toBeGreaterThan(0);
   });
 
+  it('opens the package creator without replacing an in-progress create form', async () => {
+    reset();
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    posted.length = 0;
+
+    CreateEntryPanel.createPackageOrShow(extUri);
+
+    expect(posted).toContainEqual({
+      type: 'openPackageCreator', targetGeneration: expect.any(Number)
+    });
+    expect(posted).not.toContainEqual(expect.objectContaining({ type: 'retarget' }));
+  });
+
+  it('opens the package creator without replacing an in-progress edit form', async () => {
+    reset();
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.editOrShow(extUri, 'draft-entry');
+    posted.length = 0;
+
+    CreateEntryPanel.createPackageOrShow(extUri);
+
+    expect(posted).toContainEqual({
+      type: 'openPackageCreator', targetGeneration: expect.any(Number)
+    });
+    expect(posted).not.toContainEqual(expect.objectContaining({ type: 'retarget' }));
+  });
+
   it('switches between create and edit on the same panel', async () => {
     // NOTE: the singleton lives at module scope, so the panel created by the
     // earlier tests is still alive here. That is exactly the behaviour under

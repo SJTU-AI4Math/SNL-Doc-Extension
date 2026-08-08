@@ -64,7 +64,11 @@
       },
       {
         "command": "snlDoc.openDashboard",
-        "title": "%snlDoc.command.openDashboard%",
+        "title": "%snlDoc.command.openDashboard%"
+      },
+      {
+        "command": "snlDoc.openNavigation",
+        "title": "%snlDoc.command.openNavigation%",
         "icon": {
           "light": "media/icons/cat-light.svg",
           "dark": "media/icons/cat-dark.svg"
@@ -113,6 +117,10 @@
       {
         "command": "snlDoc.createEntry",
         "title": "%snlDoc.command.createEntry%"
+      },
+      {
+        "command": "snlDoc.createEntryPackage",
+        "title": "%snlDoc.command.createEntryPackage%"
       },
       {
         "command": "snlDoc.createMacroPackage",
@@ -215,7 +223,7 @@
     "menus": {
       "editor/title": [
         {
-          "command": "snlDoc.openDashboard",
+          "command": "snlDoc.openNavigation",
           "group": "navigation@-100",
           "when": "snlDoc.hasSnlDoc"
         }

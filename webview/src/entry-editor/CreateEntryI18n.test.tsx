@@ -10,12 +10,14 @@ const api: VsCodeApi = {
 };
 (globalThis as { acquireVsCodeApi?: () => VsCodeApi }).acquireVsCodeApi = () => api;
 
-function sendCreateContext(): void {
+function sendCreateContext(openPackageCreator = false): void {
   window.dispatchEvent(new MessageEvent('message', {
     data: {
       type: 'context',
+      targetGeneration: 0,
       mode: 'create',
       id: 'new-entry',
+      openPackageCreator,
       kinds: [{
         id: 'theorem',
         name: 'Theorem',
@@ -40,6 +42,28 @@ afterEach(() => {
 });
 
 describe('CreateEntryApp localization', () => {
+  it('accepts a correlated package-creator command without clearing the draft', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    const title = await view.findByLabelText('标题') as HTMLInputElement;
+    fireEvent.change(title, { target: { value: '未保存的标题' } });
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'openPackageCreator', targetGeneration: 0 }
+    }));
+
+    await waitFor(() => expect(view.getByLabelText('新条目包 ID')).toBeTruthy());
+    expect(title.value).toBe('未保存的标题');
+  });
+
+  it('opens the Entry Package creator when routed from the cat navigation menu', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext(true);
+
+    await waitFor(() => expect(view.getByLabelText('新条目包 ID')).toBeTruthy());
+    expect(view.getByRole('button', { name: '添加条目包' })).toBeTruthy();
+  });
+
   it('renders the create form and secondary sections in Simplified Chinese', async () => {
     const view = render(<CreateEntryApp />);
     sendCreateContext();

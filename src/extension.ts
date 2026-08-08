@@ -83,7 +83,20 @@ const UI_MESSAGES = defineHostMessages(
     createMacroNoWorkspace: 'Open a folder / workspace before creating a macro.',
     listPackagesFailed: 'Failed to list macro packages: {error}',
     noActivePackages: 'No active macro packages. Create one first from the Dashboard.',
-    selectPackagePlaceholder: 'Select package for the new macro'
+    selectPackagePlaceholder: 'Select package for the new macro',
+    navigationPlaceholder: 'Open an SNL page or create content',
+    navigationCreate: 'Create',
+    navigationSnoogl: 'SNoogL',
+    navigationDashboard: 'Open Dashboard root',
+    navigationLibrary: 'Library',
+    navigationEntry: 'Entry',
+    navigationMacro: 'Macro',
+    navigationEntryPackage: 'Entry Package',
+    navigationMacroPackage: 'Macro Package',
+    navigationEntryKind: 'Entry Kind',
+    navigationMacroKind: 'Macro Kind',
+    navigationInfoviewRoot: 'Open Infoview root',
+    navigationGlobalGraph: 'Open global graph'
   },
   {
     initNoWorkspace: 'SNL 初始化需要打开文件夹或工作区。',
@@ -142,7 +155,20 @@ const UI_MESSAGES = defineHostMessages(
     createMacroNoWorkspace: '创建宏前请先打开文件夹或工作区。',
     listPackagesFailed: '列出宏包失败：{error}',
     noActivePackages: '没有活动的宏包。请先从仪表板创建一个。',
-    selectPackagePlaceholder: '选择新宏所属的包'
+    selectPackagePlaceholder: '选择新宏所属的包',
+    navigationPlaceholder: '打开 SNL 页面或创建内容',
+    navigationCreate: 'Create',
+    navigationSnoogl: 'SNoogL',
+    navigationDashboard: '打开 Dashboard 根页面',
+    navigationLibrary: '文档库',
+    navigationEntry: '条目',
+    navigationMacro: '宏',
+    navigationEntryPackage: '条目包',
+    navigationMacroPackage: '宏包',
+    navigationEntryKind: '条目类型',
+    navigationMacroKind: '宏类型',
+    navigationInfoviewRoot: '打开 Infoview 根页面',
+    navigationGlobalGraph: '打开全局图谱'
   }
 );
 
@@ -242,7 +268,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const activation = startTrace('extension:activate');
   initialize_preferences_host(context);
   const t = hostMessage;
-  // Drives the `when` clause of the editor-title 🐱 Dashboard button.
+  // Drives the `when` clause of the editor-title 🐱 navigation button.
   installSnlDocContextKey(context.subscriptions);
   context.subscriptions.push({
     dispose: () => {
@@ -530,6 +556,60 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  type NavigationPick = vscode.QuickPickItem & {
+    command?: string;
+    args?: readonly unknown[];
+    submenu?: 'create' | 'snoogl';
+  };
+  const openNavigation = vscode.commands.registerCommand(
+    'snlDoc.openNavigation',
+    async () => {
+      const separator = (): NavigationPick => ({
+        label: '',
+        kind: vscode.QuickPickItemKind.Separator
+      });
+      const action = (
+        label: string,
+        command: string,
+        args: readonly unknown[] = []
+      ): NavigationPick => ({ label, command, args });
+      const rootPick = await vscode.window.showQuickPick<NavigationPick>([
+        action(t('navigationDashboard'), 'snlDoc.openDashboard'),
+        { label: `${t('navigationCreate')} ›`, submenu: 'create' },
+        separator(),
+        action(t('navigationInfoviewRoot'), 'snlDoc.openInfoview'),
+        action(t('navigationGlobalGraph'), 'snlDoc.openInfoviewGraph'),
+        separator(),
+        { label: `${t('navigationSnoogl')} ›`, submenu: 'snoogl' }
+      ], { placeHolder: t('navigationPlaceholder') });
+      if (!rootPick) return;
+
+      let pick = rootPick;
+      if (rootPick.submenu === 'create') {
+        const selected = await vscode.window.showQuickPick<NavigationPick>([
+          action(t('navigationLibrary'), 'snlDoc.createLibrary'),
+          action(t('navigationEntry'), 'snlDoc.createEntry'),
+          action(t('navigationMacro'), 'snlDoc.createMacroPickPackage'),
+          action(t('navigationEntryPackage'), 'snlDoc.createEntryPackage'),
+          action(t('navigationMacroPackage'), 'snlDoc.createMacroPackage'),
+          action(t('navigationEntryKind'), 'snlDoc.createEntryKind'),
+          action(t('navigationMacroKind'), 'snlDoc.createMacroKind')
+        ], { placeHolder: t('navigationCreate') });
+        if (!selected) return;
+        pick = selected;
+      } else if (rootPick.submenu === 'snoogl') {
+        const selected = await vscode.window.showQuickPick<NavigationPick>([
+          action(t('navigationEntry'), 'snlDoc.openSnoogL', ['entry']),
+          action(t('navigationMacro'), 'snlDoc.openSnoogL', ['macro'])
+        ], { placeHolder: t('navigationSnoogl') });
+        if (!selected) return;
+        pick = selected;
+      }
+      if (!pick.command) return;
+      await vscode.commands.executeCommand(pick.command, ...(pick.args ?? []));
+    }
+  );
+
   const checkDataVersionCommand = vscode.commands.registerCommand(
     'snlDoc.checkDataVersion',
     async () => checkDataVersion(firstWorkspaceFolder())
@@ -621,6 +701,13 @@ export function activate(context: vscode.ExtensionContext): void {
       const seed =
         typeof seedId === 'string' && seedId.trim() ? seedId.trim() : undefined;
       CreateEntryPanel.createOrShow(context.extensionUri, seed);
+    }
+  );
+
+  const createEntryPackage = vscode.commands.registerCommand(
+    'snlDoc.createEntryPackage',
+    () => {
+      CreateEntryPanel.createPackageOrShow(context.extensionUri);
     }
   );
 
@@ -923,6 +1010,7 @@ export function activate(context: vscode.ExtensionContext): void {
     createLibrary,
     editLibrary,
     openDashboard,
+    openNavigation,
     checkDataVersionCommand,
     repairDataCommand,
     toggleTrace,
@@ -935,6 +1023,7 @@ export function activate(context: vscode.ExtensionContext): void {
     createMacroKind,
     editMacroKind,
     createEntry,
+    createEntryPackage,
     editEntry,
     createMacroPackage,
     editMacroPackage,

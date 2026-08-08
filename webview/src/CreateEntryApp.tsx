@@ -805,6 +805,7 @@ export function CreateEntryApp(): React.ReactElement {
 
     function onMessage(event: MessageEvent): void {
       const msg = event.data as
+        | { type: 'openPackageCreator' }
         | { type: 'retarget'; mode: Mode; id?: string }
         | {
             type: 'context';
@@ -812,6 +813,7 @@ export function CreateEntryApp(): React.ReactElement {
             targetState?: 'found' | 'notFound';
             id?: string;
             seedId?: string;
+            openPackageCreator?: boolean;
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
             macroKinds?: MacroKindPaletteSource[];
@@ -898,6 +900,10 @@ export function CreateEntryApp(): React.ReactElement {
         if (isSaveTerminal) submittedSaveRequestIdRef.current = null;
       }
       switch (msg.type) {
+        case 'openPackageCreator':
+          setShowPackageCreator(true);
+          setPackageCreateError('');
+          break;
         case 'retarget': {
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous
@@ -965,6 +971,10 @@ export function CreateEntryApp(): React.ReactElement {
             ? msg.entryPackages
             : ['_unpackaged'];
           setEntryPackages(packages);
+          if (msg.openPackageCreator === true) {
+            setShowPackageCreator(true);
+            setPackageCreateError('');
+          }
           setSelectedPackage((previous) =>
             formDirtyRef.current || packages.includes(previous) ? previous : '_unpackaged'
           );

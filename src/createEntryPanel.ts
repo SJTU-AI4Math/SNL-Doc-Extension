@@ -96,6 +96,8 @@ export class CreateEntryPanel {
    * the webview treats it as a hint that overrides the auto-minted UUID.
    */
   private seedId: string;
+  /** One-shot navigation intent used by the title-bar cat menu. */
+  private openPackageCreatorOnNextContext = false;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
   /** Changes only when the singleton points at a different authoring target. */
@@ -118,21 +120,26 @@ export class CreateEntryPanel {
     extensionUri: vscode.Uri,
     seedId?: string
   ): void {
-    CreateEntryPanel.open(extensionUri, 'create', '', seedId ?? '');
+    CreateEntryPanel.open(extensionUri, 'create', '', seedId ?? '', false);
+  }
+
+  public static createPackageOrShow(extensionUri: vscode.Uri): void {
+    CreateEntryPanel.open(extensionUri, 'create', '', '', true);
   }
 
   public static editOrShow(extensionUri: vscode.Uri, id: string): void {
     if (!id) {
       return;
     }
-    CreateEntryPanel.open(extensionUri, 'edit', id, '');
+    CreateEntryPanel.open(extensionUri, 'edit', id, '', false);
   }
 
   private static open(
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
     id: string,
-    seedId: string
+    seedId: string,
+    openPackageCreator: boolean
   ): void {
     // Cat 2026-07-25: trace the whole open path with ms timings so we can
     // see WHICH stage is slow instead of guessing. Off unless `snlDoc.trace`.
@@ -154,6 +161,11 @@ export class CreateEntryPanel {
 
     const existing = CreateEntryPanel.instance;
     if (existing) {
+      if (openPackageCreator) {
+        existing.revealPackageCreator(column);
+        trace.mark('reveal-package-creator');
+        return;
+      }
       // Retarget the live panel instead of building a new one — this is the
       // whole point of the singleton: skip the ~1.09s webview stand-up.
       existing.retarget(mode, id, seedId, column, trace);
@@ -187,6 +199,7 @@ export class CreateEntryPanel {
       mode,
       id,
       seedId,
+      openPackageCreator,
       trace
     );
   }
@@ -234,12 +247,21 @@ export class CreateEntryPanel {
     void this.pushContext();
   }
 
+  private revealPackageCreator(column: vscode.ViewColumn): void {
+    this.panel.reveal(column);
+    void this.panel.webview.postMessage({
+      type: 'openPackageCreator',
+      targetGeneration: this.targetGeneration
+    });
+  }
+
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     mode: 'create' | 'edit',
     id: string,
     seedId: string,
+    openPackageCreator: boolean,
     trace?: Trace
   ) {
     this.panel = panel;
@@ -247,6 +269,7 @@ export class CreateEntryPanel {
     this.mode = mode;
     this.id = id;
     this.seedId = seedId;
+    this.openPackageCreatorOnNextContext = openPackageCreator;
     this.openTrace = trace;
 
     this.panel.webview.html = buildPanelHtml(
@@ -284,6 +307,7 @@ export class CreateEntryPanel {
         targetState: this.mode === 'edit' ? 'notFound' : 'found',
         id: this.id || undefined,
         seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
+        openPackageCreator: this.openPackageCreatorOnNextContext,
         kinds: [],
         macros: {},
         macroKinds: [],
@@ -293,6 +317,7 @@ export class CreateEntryPanel {
         existingIds: [],
         relationships: []
       });
+      this.openPackageCreatorOnNextContext = false;
       return;
     }
     trace.mark('read:start');
@@ -367,6 +392,7 @@ export class CreateEntryPanel {
       targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
       id: this.id || undefined,
       seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
+      openPackageCreator: this.openPackageCreatorOnNextContext,
       kinds,
       macros,
       macroKinds,
@@ -381,6 +407,7 @@ export class CreateEntryPanel {
       relationships: relationshipRows
     };
     void this.panel.webview.postMessage(payload);
+    this.openPackageCreatorOnNextContext = false;
     // Payload size matters: everything here is structured-cloned across the
     // extension/webview boundary, and the macro table dominates it.
     trace.mark('context-posted', `payloadBytes≈${estimateSize(payload)}`);

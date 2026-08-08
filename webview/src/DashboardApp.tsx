@@ -55,11 +55,11 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
     dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
     libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
-    entries: 'Entries', entriesInPool: '{count} entries in shared pool', createEntry: 'Create Entry', createEntryHeader: '+ Create Entry', createEntryTitle: 'Open the Create Entry panel', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
+    entries: 'Entries', entriesInPool: '{count} entries in shared pool', entryPackageCount: { arg: 'count', one: '{count} Entry Package', other: '{count} Entry Packages' }, createEntry: 'Create Entry', createEntryHeader: '+ Create Entry', createEntryTitle: 'Open the Create Entry panel', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search', backEntryPackages: '← Entry Packages', openEntryPackage: 'Open Entry Package {id}', selectedPackageEntryCount: { arg: 'count', one: '{count} Entry', other: '{count} Entries' },
     relationships: 'Relationships', edgeCount: { arg: 'count', one: '{count} edge', other: '{count} edges' }, createRelationship: 'Create Relationship', regenerateDependencies: '⚙ Regenerate Dependencies from Macro Sources',
     macros: 'SNL Macros', packageCount: { arg: 'count', one: '{count} package', other: '{count} packages' }, createMacroHeader: '+ Create Macro', createMacroTitle: 'Pick a package and open the Create Macro editor', macroSearch: '⌕ SNoogL: Macro Search', macroSearchTitle: 'Open SNoogL panel focused on macro search', addPackage: 'Add Package',
     entryKinds: 'Entry Kinds', kindCount: { arg: 'count', one: '{count} kind', other: '{count} kinds' }, createEntryKind: 'Create Entry Kind', macroKinds: 'SNL Macro Kinds', createMacroKind: 'Create Macro Kind',
-    colTitle: 'Title', colSlug: 'Slug', colEntries: 'Entries', colRelationships: 'Relationships', colActive: 'Active', colFile: 'File', colMacros: 'Macros', colPreview: 'Preview', colName: 'Name', colId: 'ID', colDefaultCounter: 'Default Counter', colStyle: 'Style', colDescription: 'Description', colKind: 'Kind', colFormats: 'Formats', colStructuralIndex: 'SNL Structural Index', colFrom: 'From', colTo: '→ To', colLabel: 'Label', colMetadata: 'Metadata',
+    colTitle: 'Title', colSlug: 'Slug', colPackage: 'Package', colEntries: 'Entries', colRelationships: 'Relationships', colActive: 'Active', colFile: 'File', colMacros: 'Macros', colPreview: 'Preview', colName: 'Name', colId: 'ID', colDefaultCounter: 'Default Counter', colStyle: 'Style', colDescription: 'Description', colKind: 'Kind', colFormats: 'Formats', colStructuralIndex: 'SNL Structural Index', colFrom: 'From', colTo: '→ To', colLabel: 'Label', colMetadata: 'Metadata',
     editLibrary: 'Edit library {id}', deleteLibrary: 'Delete library {id}', openPackage: 'Open macro package {id}', togglePackage: 'Toggle active state for {id}', activePackageTitle: 'Active — contributes macros to the workspace', inactivePackageTitle: 'Inactive — excluded from readAllMacros', deletePackage: 'Delete macro package {id}',
     editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
   },
@@ -69,11 +69,11 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
     dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
     libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
-    entries: '共享条目', entriesInPool: '共享池中有 {count} 个条目', createEntry: '创建条目', createEntryHeader: '+ 创建条目', createEntryTitle: '打开创建条目面板', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
+    entries: '共享条目', entriesInPool: '共享池中有 {count} 个条目', entryPackageCount: { arg: 'count', other: '{count} 个条目包' }, createEntry: '创建条目', createEntryHeader: '+ 创建条目', createEntryTitle: '打开创建条目面板', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目', backEntryPackages: '← 条目包', openEntryPackage: '打开条目包 {id}', selectedPackageEntryCount: { arg: 'count', other: '{count} 个条目' },
     relationships: '关系', edgeCount: { arg: 'count', other: '{count} 条边' }, createRelationship: '创建关系', regenerateDependencies: '⚙ 根据宏来源重新生成依赖关系',
     macros: 'SNL 宏', packageCount: { arg: 'count', other: '{count} 个宏包' }, createMacroHeader: '+ 创建宏', createMacroTitle: '选择宏包并打开创建宏编辑器', macroSearch: '⌕ SNoogL：搜索宏', macroSearchTitle: '打开 SNoogL 面板并搜索宏', addPackage: '添加宏包',
     entryKinds: '条目类别', kindCount: { arg: 'count', other: '{count} 个类别' }, createEntryKind: '创建条目类别', macroKinds: 'SNL 宏类别', createMacroKind: '创建宏类别',
-    colTitle: '标题', colSlug: '标识名', colEntries: '条目数', colRelationships: '关系数', colActive: '启用', colFile: '文件', colMacros: '宏数', colPreview: '预览', colName: '名称', colId: 'ID', colDefaultCounter: '默认计数器', colStyle: '样式', colDescription: '说明', colKind: '类别', colFormats: '格式', colStructuralIndex: 'SNL 结构指数', colFrom: '起点', colTo: '→ 终点', colLabel: '标签', colMetadata: '元数据',
+    colTitle: '标题', colSlug: '标识名', colPackage: '条目包', colEntries: '条目数', colRelationships: '关系数', colActive: '启用', colFile: '文件', colMacros: '宏数', colPreview: '预览', colName: '名称', colId: 'ID', colDefaultCounter: '默认计数器', colStyle: '样式', colDescription: '说明', colKind: '类别', colFormats: '格式', colStructuralIndex: 'SNL 结构指数', colFrom: '起点', colTo: '→ 终点', colLabel: '标签', colMetadata: '元数据',
     editLibrary: '编辑库 {id}', deleteLibrary: '删除库 {id}', openPackage: '打开宏包 {id}', togglePackage: '切换 {id} 的启用状态', activePackageTitle: '已启用——向工作区提供宏', inactivePackageTitle: '未启用——不包含在 readAllMacros 中', deletePackage: '删除宏包 {id}',
     editEntryKind: '编辑条目类别 {id}', deleteEntryKind: '删除条目类别 {id}', editMacroKind: '编辑宏类别 {id}', deleteMacroKind: '删除宏类别 {id}', colorTitle: '描边 {stroke} / 背景 {background}', editEntry: '编辑条目 {title}', deleteEntry: '删除条目 {id}', unknownKindTitle: '未知类别“{kind}”——config.json 中没有匹配的条目类别', unknownKind: '⚠ 未知', editRelationship: '编辑关系 {id}', deleteRelationship: '删除关系 {id}', missingEndpoint: '共享池中没有 ID 为“{id}”的条目；该端点可能已被删除。', untitled: '（无标题）', unserializable: '（无法序列化）'
   }
@@ -84,6 +84,11 @@ interface LibrarySummary {
   title: string;
   entryCount: number | null;
   relationshipCount: number | null;
+}
+
+interface EntryPackageSummary {
+  id: string;
+  entryCount: number;
 }
 
 interface MacroPackageSummary {
@@ -122,6 +127,7 @@ interface MacroKind {
 
 interface EntryData {
   id: string;
+  package?: string;
   kind: string;
   title: string;
   content: {
@@ -134,6 +140,11 @@ interface EntryData {
   /** TEMPORARY: exactly one Contributor string; this shape may change. */
   contribution_info?: string | null;
   pointer?: unknown;
+}
+
+function entryPackageId(entry: EntryData): string {
+  const packageId = entry.package?.trim();
+  return packageId || '_unpackaged';
 }
 
 interface RelationshipData {
@@ -348,15 +359,43 @@ function Initialized({
   // avoids workspaceState round-trips; users open what they care about.
   const [openLibraries, setOpenLibraries] = useState(false);
   const [openEntries, setOpenEntries] = useState(false);
+  const [selectedEntryPackage, setSelectedEntryPackage] = useState<string | null>(null);
   const [openRelationships, setOpenRelationships] = useState(false);
   const [openMacros, setOpenMacros] = useState(false);
   const [openEntryKinds, setOpenEntryKinds] = useState(false);
   const [openMacroKinds, setOpenMacroKinds] = useState(false);
 
-  const totalEntries =
-    overview.totalEntryCount === null ? '—' : overview.totalEntryCount;
   const hasKinds = overview.entryKinds.length > 0;
   const hasMacroKinds = overview.macroKinds.length > 0;
+  const entryPackages = useMemo(() => {
+    const counts = new Map<string, number>([['_unpackaged', 0]]);
+    for (const pkg of overview.macroPackages) {
+      const packageId = pkg.file.replace(/\.json$/i, '');
+      if (packageId) counts.set(packageId, counts.get(packageId) ?? 0);
+    }
+    for (const entry of overview.entries) {
+      const packageId = entryPackageId(entry);
+      counts.set(packageId, (counts.get(packageId) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([id, entryCount]): EntryPackageSummary => ({ id, entryCount }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }, [overview.entries, overview.macroPackages]);
+  useEffect(() => {
+    if (
+      selectedEntryPackage !== null &&
+      !entryPackages.some((pkg: EntryPackageSummary) => pkg.id === selectedEntryPackage)
+    ) {
+      setSelectedEntryPackage(null);
+    }
+  }, [entryPackages, selectedEntryPackage]);
+  const selectedPackageEntries = selectedEntryPackage === null
+    ? []
+    : overview.entries.filter((entry) => entryPackageId(entry) === selectedEntryPackage);
+  const toggleEntries = (): void => {
+    if (openEntries) setSelectedEntryPackage(null);
+    setOpenEntries((value: boolean) => !value);
+  };
 
   return (
     <main style={PANEL_STYLE} aria-busy={setupBusy}>
@@ -463,9 +502,9 @@ function Initialized({
       {/* === 2. Entries =================================================== */}
       <CollapsibleSection
         title={t('entries')}
-        subtitle={t('entriesInPool', { count: totalEntries })}
+        subtitle={t('entryPackageCount', { count: entryPackages.length })}
         expanded={openEntries}
-        onToggle={() => setOpenEntries((v) => !v)}
+        onToggle={toggleEntries}
         headerActions={
           <>
             <HeaderActionButton
@@ -483,18 +522,53 @@ function Initialized({
           </>
         }
       >
-        {overview.entries.length > 0 ? (
-          <EntriesTable
-            entries={overview.entries}
-            kinds={overview.entryKinds}
-            macroSources={overview.metricMacroSources}
-            metricThresholds={overview.metricThresholds}
-            onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
-            onDelete={(id) =>
-              api?.postMessage({ type: 'deleteEntry', id })
-            }
-          />
-        ) : null}
+        {selectedEntryPackage === null ? (
+          entryPackages.length > 0 ? (
+            <EntryPackagesTable
+              packages={entryPackages}
+              onOpen={setSelectedEntryPackage}
+            />
+          ) : null
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                marginTop: '0.5rem'
+              }}
+            >
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                aria-label={t('backEntryPackages')}
+                title={t('backEntryPackages')}
+                onClick={() => setSelectedEntryPackage(null)}
+              >
+                {t('backEntryPackages')}
+              </Button>
+              <strong style={MONO}>{selectedEntryPackage}</strong>
+              <span style={{ opacity: 0.7 }}>
+                {t('selectedPackageEntryCount', { count: selectedPackageEntries.length })}
+              </span>
+            </div>
+            {selectedPackageEntries.length > 0 ? (
+              <EntriesTable
+                entries={selectedPackageEntries}
+                metricEntries={overview.entries}
+                kinds={overview.entryKinds}
+                macroSources={overview.metricMacroSources}
+                metricThresholds={overview.metricThresholds}
+                onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
+                onDelete={(id) =>
+                  api?.postMessage({ type: 'deleteEntry', id })
+                }
+              />
+            ) : null}
+          </>
+        )}
         <EmptyAction size="lg" className="snl-empty-action--large"
           label={t('createEntry')}
           onClick={() => api?.postMessage({ type: 'createEntry' })}
@@ -873,6 +947,46 @@ function LibrariesTable({
   );
 }
 
+function EntryPackagesTable({
+  packages,
+  onOpen
+}: {
+  packages: EntryPackageSummary[];
+  onOpen: (id: string) => void;
+}): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
+  return (
+    <table
+      style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginTop: '0.5rem',
+        fontSize: '0.95rem'
+      }}
+    >
+      <thead>
+        <tr>
+          <th style={HEAD}>{t('colPackage')}</th>
+          <th style={{ ...HEAD, textAlign: 'right' }}>{t('colEntries')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {packages.map((pkg) => (
+          <ClickableRow
+            key={pkg.id}
+            label={t('openEntryPackage', { id: pkg.id })}
+            onActivate={() => onOpen(pkg.id)}
+            primaryCellIndex={0}
+          >
+            <td style={{ ...CELL, ...MONO }}>{pkg.id}</td>
+            <td style={{ ...CELL, textAlign: 'right' }}>{pkg.entryCount}</td>
+          </ClickableRow>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function MacroPackagesTable({
   packages,
   onOpen,
@@ -1201,6 +1315,7 @@ function populatedFormats(entry: EntryData): string {
 
 function EntriesTable({
   entries,
+  metricEntries,
   kinds,
   macroSources,
   metricThresholds,
@@ -1208,6 +1323,7 @@ function EntriesTable({
   onDelete
 }: {
   entries: EntryData[];
+  metricEntries?: EntryData[];
   kinds: EntryKind[];
   macroSources: SnlMacroSourceLookup;
   metricThresholds: EntryMetricThresholds;
@@ -1216,8 +1332,8 @@ function EntriesTable({
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
   const metricContext = useMemo(
-    () => buildEntryMetricContext(entries),
-    [entries]
+    () => buildEntryMetricContext(metricEntries ?? entries),
+    [entries, metricEntries]
   );
   return (
     <table

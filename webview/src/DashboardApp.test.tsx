@@ -185,7 +185,7 @@ describe('Dashboard library actions', () => {
     });
   });
 
-  it('shows a single SNL Structural Index column for entries', async () => {
+  it('shows Entry Packages first and reveals entries only inside the selected Package', async () => {
     render(<DashboardApp />);
 
     window.dispatchEvent(
@@ -194,17 +194,25 @@ describe('Dashboard library actions', () => {
           type: 'overview',
           overview: {
             hasSnlDoc: true,
-            totalEntryCount: 1,
+            totalEntryCount: 2,
             entries: [
               {
                 id: 'entry-1',
+                package: 'Logic',
                 kind: 'definition',
                 title: 'Entry One',
+                content: { snl: 'free' }
+              },
+              {
+                id: 'entry-2',
+                package: 'Algebra',
+                kind: 'definition',
+                title: 'Entry Two',
                 content: { snl: 'free' }
               }
             ],
             libraries: [],
-            macroPackages: [],
+            macroPackages: [{ file: 'Empty.json', macroCount: 0 }],
             allMacros: [],
             metricMacroSources: {},
             entryKinds: [],
@@ -218,11 +226,56 @@ describe('Dashboard library actions', () => {
     await screen.findByText('Entries');
     const entriesToggle = screen.getByText('Entries').closest('button');
     if (!entriesToggle) throw new Error('Entries toggle not found');
+    expect(entriesToggle.textContent).toContain('4 Entry Packages');
     fireEvent.click(entriesToggle);
 
-    expect(await screen.findByText('SNL Structural Index')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Open Entry Package Algebra' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Entry Package Empty' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Entry Package Logic' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Entry Package _unpackaged' })).toBeTruthy();
+    expect(screen.queryByText('Entry One')).toBeNull();
+    expect(screen.queryByText('Entry Two')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Entry Package Logic' }));
+    expect(await screen.findByRole('button', { name: '← Entry Packages' })).toBeTruthy();
+    expect(screen.getByText('Entry One')).toBeTruthy();
+    expect(screen.queryByText('Entry Two')).toBeNull();
+    expect(screen.getByText('SNL Structural Index')).toBeTruthy();
     expect(screen.queryByText('Semantic freedom')).toBeNull();
     expect(screen.queryByText('Structured')).toBeNull();
+
+    fireEvent.click(entriesToggle);
+    fireEvent.click(entriesToggle);
+    expect(screen.getByRole('button', { name: 'Open Entry Package Logic' })).toBeTruthy();
+    expect(screen.queryByText('Entry One')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Entry Package Logic' }));
+    expect(screen.getByRole('button', { name: '← Entry Packages' })).toBeTruthy();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: {
+          hasSnlDoc: true,
+          totalEntryCount: 1,
+          entries: [{
+            id: 'entry-2', package: 'Algebra', kind: 'definition',
+            title: 'Entry Two', content: { snl: 'free' }
+          }],
+          libraries: [],
+          macroPackages: [{ file: 'Empty.json', macroCount: 0 }],
+          allMacros: [],
+          metricMacroSources: {},
+          entryKinds: [],
+          macroKinds: [],
+          relationships: []
+        }
+      }
+    }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '← Entry Packages' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Open Entry Package Logic' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Open Entry Package Algebra' })).toBeTruthy();
+    });
   });
 });
 
@@ -270,6 +323,12 @@ describe('Dashboard Chinese localization', () => {
     expect(await screen.findByText('数据维护')).toBeTruthy();
     expect(screen.getByText('库')).toBeTruthy();
     expect(screen.getByText('共享条目')).toBeTruthy();
+    const entriesToggle = screen.getByText('共享条目').closest('button');
+    if (!entriesToggle) throw new Error('共享条目 toggle not found');
+    expect(entriesToggle.textContent).toContain('1 个条目包');
+    fireEvent.click(entriesToggle);
+    expect(screen.getByText('条目包')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '打开条目包 _unpackaged' })).toBeTruthy();
     const createLibrary = screen.getByRole('button', { name: '+ 创建库' });
     expect(createLibrary.getAttribute('title')).toBe('打开创建库面板');
     const graphButton = screen.getByRole('button', { name: '查看关系图' });

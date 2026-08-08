@@ -13,7 +13,11 @@ export interface ThemeColoring {
 const FALLBACK: ThemeColorPair = { stroke: '#888888', background: '#eeeeee' };
 
 export function currentColorScheme(): ColorScheme {
-  return typeof document !== 'undefined' && document.body.classList.contains('vscode-dark') ? 'dark' : 'light';
+  if (typeof document === 'undefined') return 'light';
+  return document.body.classList.contains('vscode-dark') ||
+    document.body.classList.contains('vscode-high-contrast')
+    ? 'dark'
+    : 'light';
 }
 
 export function webviewContextReader(): { color_scheme: ColorScheme } {

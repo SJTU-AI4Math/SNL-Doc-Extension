@@ -202,11 +202,11 @@ describe('VS Code workspace data migration adapter', () => {
         makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')],
       [packageManifestPath('Logic'), makePackageManifest('Logic', 'Logic', '')],
       [entryEntityPath('Logic', 'entry.one'),
-        makeEntryEnvelope('Logic', { id: 'entry.one', package: 'Logic', title: 'One' })],
+        makeEntryEnvelope('Logic', { id: 'entry.one', package: 'Logic', kind: 'theorem', title: 'One', content: {}, pointer: null })],
       [macroEntityPath('Logic', 'logic.one'),
         makeMacroEnvelope('Logic', {
           name: 'logic.one', description: '', source: { entries: [], urls: [] },
-          dynamic_arity: false, default_style: { en: 'default' }, tags: [],
+          dynamic_arity: false, kind: 'const', tags: [],
           styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
         })]
     ]);

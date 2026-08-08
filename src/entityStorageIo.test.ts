@@ -10,12 +10,24 @@ import {
   readEntryEntityRecord,
   readEntryEntityRecordWithOwner,
   readPackageManifestRecords,
+  readMacroEntityRecords,
   type EntityReadStorage
 } from './entityStorageIo';
+import { macroEntityPath, makeMacroEnvelope } from './entityStorage';
 
 const fileFor = (id: string): string => packageManifestPath(id).slice('packages/'.length);
 
 describe('entity storage reads', () => {
+  it('rejects incomplete managed Entry and Macro payloads on ordinary current reads', async () => {
+    const badEntry = makeEntryEnvelope('logic', { id: 'bad', package: 'logic' });
+    await expect(readEntryEntityRecord({ listJsonFiles: async () => [], readJson: async () => badEntry }, 'logic', 'bad'))
+      .rejects.toThrow(/required managed Entry fields/);
+    const badMacro = makeMacroEnvelope('logic', { name: 'bad' });
+    await expect(readMacroEntityRecords({
+      listJsonFiles: async () => [macroEntityPath('logic', 'bad').slice('macros/'.length)],
+      readJson: async () => badMacro
+    })).rejects.toThrow(/canonical Macro10/);
+  });
   it('rejects current config with missing entity-storage metadata or receipt fields', () => {
     const receipt = {
       legacy_backup_present: false,
@@ -46,7 +58,7 @@ describe('entity storage reads', () => {
   });
 
   it('point-reads one Entry from its identity path without listing the directory', async () => {
-    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
+    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: {}, pointer: null };
     const expectedPath = entryEntityPath(entry.package, entry.id);
     const reads: string[] = [];
     const storage: EntityReadStorage = {
@@ -76,7 +88,7 @@ describe('entity storage reads', () => {
   });
 
   it('point-validates the requested owner manifest without directory scans', async () => {
-    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
+    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: {}, pointer: null };
     const entryPath = entryEntityPath(entry.package, entry.id);
     const manifestPath = packageManifestPath(entry.package);
     const reads: string[] = [];
@@ -98,7 +110,7 @@ describe('entity storage reads', () => {
   });
 
   it('rejects an orphan Entry whose requested owner manifest is missing', async () => {
-    const entry = { id: 'entry-1', package: 'logic' };
+    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: '', content: {}, pointer: null };
     const storage: EntityReadStorage = {
       listJsonFiles: async () => {
         throw new Error('point reads must not list entity directories');
@@ -113,8 +125,8 @@ describe('entity storage reads', () => {
   });
 
   it.each([
-    ['format', { format: 'other', version: 1, package: 'logic', entry: { id: 'entry-1', package: 'logic' } }],
-    ['version', { format: 'snl-entry', version: 2, package: 'logic', entry: { id: 'entry-1', package: 'logic' } }],
+    ['format', { format: 'other', version: 1, package: 'logic', entry: { id: 'entry-1', package: 'logic', kind: 'definition', title: '', content: {}, pointer: null } }],
+    ['version', { format: 'snl-entry', version: 2, package: 'logic', entry: { id: 'entry-1', package: 'logic', kind: 'definition', title: '', content: {}, pointer: null } }],
     ['envelope package', makeEntryEnvelope('other', { id: 'entry-1', package: 'other' })],
     ['entry package', makeEntryEnvelope('logic', { id: 'entry-1', package: 'other' })],
     ['entry id', makeEntryEnvelope('logic', { id: 'other', package: 'logic' })]

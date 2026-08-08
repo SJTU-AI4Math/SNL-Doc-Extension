@@ -14,7 +14,7 @@ function seedCurrentTopology(): void {
       description: '',
       source: { entries: [], urls: [] },
       dynamic_arity: false,
-      default_style: { en: 'default' },
+      kind: 'const',
       styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
       tags: []
     }));
@@ -228,7 +228,7 @@ describe('PackagePanel read cost', () => {
         description: id,
         source: { entries: [], urls: [] },
         dynamic_arity: false,
-        default_style: { en: 'default' },
+        kind: 'const',
         styles: [{ style_name: 'default', mode: 'formula_inline', template: id, tags: [] }],
         tags: []
       }));
@@ -319,7 +319,7 @@ describe('PackagePanel read cost', () => {
       description: '',
       source: { entries: [], urls: [] },
       dynamic_arity: false,
-      default_style: { en: 'default' },
+      kind: 'const',
       styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
       tags: []
     }));

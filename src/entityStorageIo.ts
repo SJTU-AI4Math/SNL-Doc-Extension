@@ -9,7 +9,7 @@ import {
   type MacroEnvelope,
   type PackageManifest
 } from './entityStorage';
-
+import { isMacroDocumentV10, isSyntaxTreeDocumentV3 } from '@sjtu-ai4math/snl-basics/core';
 
 export interface EntityReadStorage {
   listJsonFiles(directory: string): Promise<string[]>;
@@ -43,6 +43,29 @@ export interface EntityStorageSnapshot {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function assertManagedEntryPayload(
+  path: string,
+  entry: Record<string, unknown>,
+  allowLegacyTrees = false
+): void {
+  if (typeof entry.id !== 'string' || !entry.id || entry.id !== entry.id.trim() ||
+      typeof entry.package !== 'string' || typeof entry.kind !== 'string' || !entry.kind.trim() ||
+      typeof entry.title !== 'string' || !isRecord(entry.content) ||
+      !Object.prototype.hasOwnProperty.call(entry, 'pointer')) {
+    throw new Error(`${path} is missing required managed Entry fields.`);
+  }
+  if (!allowLegacyTrees && entry.canvasForest !== undefined && (
+    !Array.isArray(entry.canvasForest) ||
+    !entry.canvasForest.every((tree) => isRecord(tree) && isSyntaxTreeDocumentV3(tree))
+  )) throw new Error(`${path} contains a noncanonical Tree3 Canvas forest.`);
+}
+
+export function assertManagedMacroPayload(path: string, macro: Record<string, unknown>): void {
+  if (typeof macro.name !== 'string' || !isMacroDocumentV10({ [macro.name]: macro })) {
+    throw new Error(`${path} is not a canonical Macro10 payload.`);
+  }
 }
 
 const RECEIPT_FIELDS = [
@@ -132,7 +155,8 @@ function assertExpectedPath(actual: string, expected: string): void {
 function validateEntryEntity(
   path: string,
   value: unknown,
-  expectedIdentity?: { package: string; id: string }
+  expectedIdentity?: { package: string; id: string },
+  allowLegacyPayload = false
 ): EntryEntityRecord {
   if (!isRecord(value) || value.format !== 'snl-entry' ||
       value.version !== ENTRY_STORAGE_VERSION || typeof value.package !== 'string' ||
@@ -143,6 +167,7 @@ function validateEntryEntity(
   if (value.entry.package !== value.package) {
     throw new Error(`${path} Entry package disagrees with its envelope package.`);
   }
+  assertManagedEntryPayload(path, value.entry, allowLegacyPayload);
 
   assertExpectedPath(path, entryEntityPath(value.package, value.entry.id));
   if (expectedIdentity &&
@@ -168,11 +193,14 @@ export async function readEntryEntityRecord(
   return validateEntryEntity(path, value, { package: packageId, id: entryId });
 }
 
-export async function readEntryEntityRecords(storage: EntityReadStorage): Promise<EntryEntityRecord[]> {
+export async function readEntryEntityRecords(
+  storage: EntityReadStorage,
+  allowLegacyPayload = false
+): Promise<EntryEntityRecord[]> {
   const records: EntryEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'entries')) {
-    const record = validateEntryEntity(path, value);
+    const record = validateEntryEntity(path, value, undefined, allowLegacyPayload);
     if (ids.has(record.entry.id)) throw new Error(`Duplicate Entry identity ${JSON.stringify(record.entry.id)}.`);
     ids.add(record.entry.id);
     records.push(record);
@@ -236,7 +264,10 @@ export async function readPackageManifestRecords(storage: EntityReadStorage): Pr
   return records.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
 }
 
-export async function readMacroEntityRecords(storage: EntityReadStorage): Promise<MacroEntityRecord[]> {
+export async function readMacroEntityRecords(
+  storage: EntityReadStorage,
+  allowLegacyPayload = false
+): Promise<MacroEntityRecord[]> {
   const records: MacroEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'macros')) {
@@ -246,7 +277,7 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
       throw new Error(`${path} is not a valid SNL Macro envelope.`);
     }
     assertExpectedPath(path, macroEntityPath(value.package, value.macro.name));
-
+    if (!allowLegacyPayload) assertManagedMacroPayload(path, value.macro);
     const identity = `${value.package}\0${value.macro.name}`;
     if (ids.has(identity)) throw new Error(`Duplicate Macro identity ${JSON.stringify(identity)}.`);
     ids.add(identity);
@@ -256,12 +287,13 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
 }
 
 export async function readEntityStorageSnapshot(
-  storage: EntityReadStorage
+  storage: EntityReadStorage,
+  allowLegacyPayload = false
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),
-    readEntryEntityRecords(storage),
-    readMacroEntityRecords(storage)
+    readEntryEntityRecords(storage, allowLegacyPayload),
+    readMacroEntityRecords(storage, allowLegacyPayload)
   ]);
   return Object.freeze({
     packages: Object.freeze(packages),

@@ -20,6 +20,7 @@ import {
   type MacroEnvelope,
   type PackageManifest
 } from './entityStorage';
+import { assertManagedEntryPayload } from './entityStorageIo';
 
 export interface EntityStorageReceipt {
   legacy_backup_present: boolean;
@@ -310,7 +311,12 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
       throw new Error(`entries.json contains duplicate Entry identity ${JSON.stringify(value.id)}.`);
     }
     entryIds.add(value.id);
-    const entry = { ...value, package: UNPACKAGED_PACKAGE_ID };
+    const entry = {
+      ...value,
+      package: UNPACKAGED_PACKAGE_ID,
+      content: isRecord(value.content) ? value.content : {},
+      pointer: Object.prototype.hasOwnProperty.call(value, 'pointer') ? value.pointer : null
+    };
     addUnique(
       entryEntities,
       entryEntityPath(UNPACKAGED_PACKAGE_ID, value.id),
@@ -466,6 +472,7 @@ function assert006EntityStorage(data: WorkspaceDataSnapshot): void {
         !packageIds.has(envelope.package)) {
       throw new Error(`Invalid, non-canonical, or orphaned Entry entity at ${path}.`);
     }
+    assertManagedEntryPayload(path, envelope.entry, true);
   }
   for (const [path, envelope] of data.macroEntities) {
     if (!isRecord(envelope) || envelope.format !== 'snl-macro' || envelope.version !== 1 ||

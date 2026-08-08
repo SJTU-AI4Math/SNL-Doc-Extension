@@ -161,7 +161,7 @@ describe('workspace data migrations', () => {
     expect([...data.entryEntities]).toEqual([
       ['entries/_unpackaged-a45ab8852b86c1868f0f.json', {
         format: 'snl-entry', version: 1, package: '_unpackaged',
-        entry: { id: 'Set.mem', kind: 'theorem', title: 'Membership', package: '_unpackaged' }
+        entry: { id: 'Set.mem', kind: 'theorem', title: 'Membership', package: '_unpackaged', content: {}, pointer: null }
       }]
     ]);
     expect([...data.macroEntities]).toEqual([
@@ -456,7 +456,7 @@ describe('workspace data migrations', () => {
     data.entryEntities.set(entryEntityPath('Logic', 'entry'), {
       format: 'snl-entry', version: 1, package: 'Logic', envelope_extension: 'keep',
       entry: {
-        id: 'entry', package: 'Logic',
+        id: 'entry', package: 'Logic', kind: 'theorem', title: '', content: {}, pointer: null,
         canvasForest: [{
           macro_name: 'old', kind: 'partial', children: [],
           mdata: { bindRef: 'stale', src: 'ctx', canvas: { x: 1 } }
@@ -518,7 +518,7 @@ describe('workspace data migrations', () => {
     });
     binder.entryEntities.set(entryEntityPath('Logic', 'entry'), {
       format: 'snl-entry', version: 1, package: 'Logic',
-      entry: { id: 'entry', package: 'Logic', content: { snl: '@Pair(x,y)' } }
+      entry: { id: 'entry', package: 'Logic', kind: 'theorem', title: '', content: { snl: '@Pair(x,y)' }, pointer: null }
     });
     (binder.config.entity_storage as Record<string, unknown>).receipt =
       makeEntityStorageReceipt(binder.entries, binder.macroPackages, true);

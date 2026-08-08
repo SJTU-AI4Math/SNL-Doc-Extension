@@ -118,7 +118,7 @@ export async function inspectStoredWorkspaceData(
         throw new Error('Current entity topology migration receipt does not match the frozen legacy backup.');
       }
       const { packages, entries, macros } = snapshot?.entities ??
-        await readEntityStorageSnapshot(storage);
+        await readEntityStorageSnapshot(storage, inspection.status === 'needsMigration');
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));
       if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
         throw new Error('Current entity topology is missing the _unpackaged Package manifest.');

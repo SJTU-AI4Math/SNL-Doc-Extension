@@ -5,8 +5,8 @@ import { invariantHostText } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 import { formatMacroConflict } from './macroOutputI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { migrateMacroDocument, type Localized } from '@sjtu-ai4math/snl-basics';
-import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
+import type { Localized } from '@sjtu-ai4math/snl-basics';
+import { isSnlIdentifier, migrateMacroDocument } from '@sjtu-ai4math/snl-basics/core';
 import {
   is_valid_i18n_string,
   macro_template_variants,

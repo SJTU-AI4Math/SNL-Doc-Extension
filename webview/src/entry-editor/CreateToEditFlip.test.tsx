@@ -294,19 +294,25 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(packageSelect.value).toBe('Logic');
   });
 
-  it('opens the Package creator without persisting the __create__ action sentinel', async () => {
+  it('opens the Package creator without persisting the __create__ action or dirtying a clean draft', async () => {
     const view = render(<CreateEntryApp />);
-    send(createContext());
+    const current = {
+      id: 'packaged-entry', package: 'Logic', title: 'Packaged Entry',
+      kind: 'definition', content: {}
+    };
+    send(editContext(current));
     const packageSelect = await waitFor(() =>
       view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
-    fireEvent.input(packageSelect, { target: { value: 'Logic' } });
-    fireEvent.change(packageSelect);
 
     fireEvent.input(packageSelect, { target: { value: '__create__' } });
     fireEvent.change(packageSelect);
 
     expect(packageSelect.value).toBe('Logic');
     expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
+    send(editContext({ ...current, title: 'Remote Refresh' }));
+    await waitFor(() => expect(
+      (view.container.querySelector('#snl-entry-title') as HTMLInputElement).value
+    ).toBe('Remote Refresh'));
   });
 
   it('loads and persists explicit Package membership', async () => {

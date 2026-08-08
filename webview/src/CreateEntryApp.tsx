@@ -718,6 +718,7 @@ export function CreateEntryApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
+  const packageActionInputRef = useRef(false);
   const editGenerationRef = useRef(0);
   const submittedEditGenerationRef = useRef<number | null>(null);
   const submittedSaveRequestIdRef = useRef<string | null>(null);
@@ -1515,7 +1516,14 @@ export function CreateEntryApp(): React.ReactElement {
   return (
     <main
       style={PANEL_STYLE}
-      onInputCapture={() => { markFormDirty(true); }}
+      onInputCapture={(event) => {
+        const target = event.target;
+        if (target instanceof HTMLSelectElement &&
+            target.id === 'snl-entry-package' && target.value === '__create__') {
+          return;
+        }
+        markFormDirty(true);
+      }}
     >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
@@ -1674,6 +1682,7 @@ export function CreateEntryApp(): React.ReactElement {
               onInput={(event) => {
                 const next = event.currentTarget.value;
                 if (next === '__create__') {
+                  packageActionInputRef.current = true;
                   setShowPackageCreator(true);
                   setPackageCreateError('');
                   return;
@@ -1681,6 +1690,10 @@ export function CreateEntryApp(): React.ReactElement {
                 setSelectedPackage(next);
               }}
               onChange={(event) => {
+                if (packageActionInputRef.current) {
+                  packageActionInputRef.current = false;
+                  return;
+                }
                 if (event.target.value === '__create__') {
                   setShowPackageCreator(true);
                   setPackageCreateError('');

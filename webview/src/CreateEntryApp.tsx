@@ -1671,6 +1671,15 @@ export function CreateEntryApp(): React.ReactElement {
             <select
               id="snl-entry-package"
               value={selectedPackage}
+              onInput={(event) => {
+                const next = event.currentTarget.value;
+                if (next === '__create__') {
+                  setShowPackageCreator(true);
+                  setPackageCreateError('');
+                  return;
+                }
+                setSelectedPackage(next);
+              }}
               onChange={(event) => {
                 if (event.target.value === '__create__') {
                   setShowPackageCreator(true);

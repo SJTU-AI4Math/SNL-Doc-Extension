@@ -281,6 +281,34 @@ describe('CreateEntryApp create → edit flip', () => {
       .toBe(false);
   });
 
+  it('selects an Entry Package on the browser input event in create mode', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+    const packageSelect = await waitFor(() =>
+      view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
+    expect(packageSelect.value).toBe('_unpackaged');
+
+    fireEvent.input(packageSelect, { target: { value: 'Logic' } });
+    fireEvent.change(packageSelect);
+
+    expect(packageSelect.value).toBe('Logic');
+  });
+
+  it('opens the Package creator without persisting the __create__ action sentinel', async () => {
+    const view = render(<CreateEntryApp />);
+    send(createContext());
+    const packageSelect = await waitFor(() =>
+      view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
+    fireEvent.input(packageSelect, { target: { value: 'Logic' } });
+    fireEvent.change(packageSelect);
+
+    fireEvent.input(packageSelect, { target: { value: '__create__' } });
+    fireEvent.change(packageSelect);
+
+    expect(packageSelect.value).toBe('Logic');
+    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
+  });
+
   it('loads and persists explicit Package membership', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({
@@ -293,7 +321,8 @@ describe('CreateEntryApp create → edit flip', () => {
     const packageSelect = await waitFor(() =>
       view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
     expect(packageSelect.value).toBe('Logic');
-    fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
+    fireEvent.input(packageSelect, { target: { value: '_unpackaged' } });
+    fireEvent.change(packageSelect);
     fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
     await waitFor(() => expect(posted.some((message) => message?.type === 'update')).toBe(true));
     expect(posted.findLast((message) => message?.type === 'update').entry.package)

@@ -117,7 +117,11 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 const isColorPair = (value: unknown): boolean =>
   isRecord(value) && typeof value.stroke === 'string' && typeof value.background === 'string';
 const isThemeColoring = (value: unknown): value is ThemeColoring =>
-  isRecord(value) && (isColorPair(value) || (isColorPair(value.light) && isColorPair(value.dark)));
+  isRecord(value) && (
+    ('light' in value || 'dark' in value)
+      ? isColorPair(value.light) && isColorPair(value.dark)
+      : isColorPair(value)
+  );
 const isScope = (value: unknown): value is Scope =>
   isRecord(value) && (value.mode === 'pool' ||
     (value.mode === 'library' && typeof value.slug === 'string'));

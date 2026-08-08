@@ -42,6 +42,9 @@ describe('SnlGraphApp strict refresh errors', () => {
     send({ ...valid, title: 'Bad Macro graph', macroKinds: [{ id: 'k', coloring: { light: { stroke: '#111', background: '#eee' }, dark: { stroke: '#fff' } } }] });
     expect(screen.queryByText('Bad Macro graph')).toBeNull();
     expect(screen.getByText('Valid graph')).toBeTruthy();
+    send({ ...valid, title: 'Bad hybrid graph', macroKinds: [{ id: 'k', coloring: { stroke: '#111', background: '#eee', light: { stroke: 7 }, dark: 'bad' } }] });
+    expect(screen.queryByText('Bad hybrid graph')).toBeNull();
+    expect(screen.getByText('Valid graph')).toBeTruthy();
   });
 
   it('switches graph node colors when the live VS Code body theme changes', async () => {

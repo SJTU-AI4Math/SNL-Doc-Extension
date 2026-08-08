@@ -206,7 +206,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.6', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.0.7', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -384,7 +384,7 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.6',
+    cfg.version === '0.0.7',
     `config.version === "0.0.6" (got ${cfg.version})`
   );
   assert(
@@ -669,8 +669,8 @@ async function main() {
     'readMacroPackage macros is empty array'
   );
   assert(
-    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '8',
-    'readMacroPackage pkg metadata round-trips at canonical version 8'
+    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '10',
+    'readMacroPackage pkg metadata round-trips at canonical version 10'
   );
 
   const validMacro = {
@@ -949,7 +949,7 @@ async function main() {
   );
   assert(
     mkApplied.count === 6,
-    `snl-basics-defaults seeds 6 kinds (5 Lean-Expr + partial) (got ${mkApplied.count})`
+    `snl-basics-defaults seeds 6 kinds (5 Lean-Expr + sub) (got ${mkApplied.count})`
   );
   const mkAfterPreset = await readMacroKinds(root);
   assert(mkAfterPreset.length === 6, 'readMacroKinds now 6 after preset');
@@ -960,12 +960,12 @@ async function main() {
       ruleKind.coloring.background === '#D6FEE0',
     'rule kind colors match DEFAULT_KIND_PALETTE (green)'
   );
-  const partialKind = mkAfterPreset.find((k) => k.id === 'partial');
-  assert(!!partialKind, 'partial macro kind present in preset');
+  const partialKind = mkAfterPreset.find((k) => k.id === 'sub');
+  assert(!!partialKind, 'sub macro kind present in preset');
   assert(
     partialKind.coloring.stroke === 'inherit' &&
       partialKind.coloring.background === 'transparent',
-    'partial kind uses inherit / transparent (no visual frame)'
+    'sub kind uses inherit / transparent (no visual frame)'
   );
 
   const mkPresetAgain = await applyMacroKindsPreset(root, 'snl-basics-defaults');
@@ -1004,7 +1004,7 @@ async function main() {
   const overviewMk = await readOverview(root);
   assert(
     Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 7,
-    'readOverview surfaces 7 macroKinds (5 Lean-Expr + partial + custom)'
+    'readOverview surfaces 7 macroKinds (5 Lean-Expr + sub + custom)'
   );
   // SNoogL index: overview.allMacros = flat index of every macro across every
   // package. This test root has multiple macros in test_pkg (Add.add.infix
@@ -1335,7 +1335,7 @@ async function main() {
     migAdd.default_style.en === 'infix' && migMatrix.default_style.en === 'default',
     'v5→v8 adds English default style mappings'
   );
-  assert(readV5.pkg.version === '8', 'readMacroPackage exposes canonical package version 8');
+  assert(readV5.pkg.version === '10', 'readMacroPackage exposes canonical package version 10');
 
   // Regression: Dashboard's per-package macroCount used to always report 1
   // for v6 packages because inferMacroCount only recognized v5's array shape
@@ -1416,7 +1416,7 @@ async function main() {
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
   ));
   const writtenStyle = writtenV7.macros.a.styles[0];
-  assert(writtenV7.version === '8', 'all package writes stamp version 8');
+  assert(writtenV7.version === '10', 'all package writes stamp version 10');
   assert(writtenV7.macros.a.default_style.en === 'default', 'strict v8 write persists default_style');
   assert(
     writtenStyle.style_name === 'default' &&
@@ -2247,7 +2247,7 @@ async function main() {
   catch { configCreatedEarly = false; }
   assert(!configCreatedEarly, 'failed initialization does not commit config.json');
   assert((await initSnlDoc(root11)).status === 'created', 'partial initialization can be retried safely');
-  assert((await readConfig(tmpRoot11)).version === '0.0.6', 'retry commits the current config last');
+  assert((await readConfig(tmpRoot11)).version === '0.0.7', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

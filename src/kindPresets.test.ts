@@ -99,7 +99,7 @@ describe('shipped Kind preset packages', () => {
       'property', 'remark', 'example', 'counterexample', 'construction', 'proof', 'problem', 'context'
     ]);
     expect(macros.map((preset) => preset.id)).toEqual(['snl-basics-defaults']);
-    expect(macros[0].kinds.map((kind) => kind.id)).toEqual(['rule', 'const', 'bvar', 'binder', 'fvar', 'partial']);
+    expect(macros[0].kinds.map((kind) => kind.id)).toEqual(['rule', 'const', 'bvar', 'binder', 'fvar', 'sub']);
   });
 
   it('is included by VS Code extension packaging rules', () => {

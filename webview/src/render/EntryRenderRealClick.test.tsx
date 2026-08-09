@@ -71,12 +71,15 @@ describe('EntryRender real dependency click pinning', () => {
         entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
         localDetails={{ child: { entry: child, kind: null }}}
       >
-        <EntryRender
-          entry={root}
-          kind={null}
-          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
-          postMessage={vi.fn()}
-        />
+        <>
+          <EntryRender
+            entry={root}
+            kind={null}
+            entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
+            postMessage={vi.fn()}
+          />
+          <div data-testid="stopped-blank" onPointerDown={(event) => event.stopPropagation()}>blank</div>
+        </>
       </HoverPopoverProvider>
     );
 
@@ -97,5 +100,14 @@ describe('EntryRender real dependency click pinning', () => {
 
     await waitFor(() => expect(document.body.textContent).toContain('Pinned child body'));
     expect(document.body.textContent?.match(/Pinned child body/g)).toHaveLength(1);
+
+    const section = view.container.querySelector('section')!;
+    fireEvent.pointerDown(section, { button: 0, clientX: 5, clientY: 5 });
+    await waitFor(() => expect(document.body.textContent).not.toContain('Pinned child body'));
+
+    fireEvent.click(clickTarget, { button: 0, clientX: 40, clientY: 30 });
+    await waitFor(() => expect(document.body.textContent).toContain('Pinned child body'));
+    fireEvent.pointerDown(view.getByTestId('stopped-blank'));
+    await waitFor(() => expect(document.body.textContent).not.toContain('Pinned child body'));
   });
 });

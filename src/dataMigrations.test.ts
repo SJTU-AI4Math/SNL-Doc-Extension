@@ -485,7 +485,7 @@ describe('workspace data migrations', () => {
       macro: { name: 'old', kind: 'sub', backend: { keep: true } }
     });
     expect(data.macroEntities.get(macroEntityPath('Logic', 'custom'))).toMatchObject({
-      macro: { name: 'custom', kind: 'const', backend: { keep: true } }
+      macro: { name: 'custom', kind: 'rule', backend: { keep: true } }
     });
     expect(data.macroEntities.get(macroEntityPath('Logic', 'missing'))).toMatchObject({
       macro: { name: 'missing', kind: 'const', backend: { keep: true } }

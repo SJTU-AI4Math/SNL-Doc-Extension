@@ -19,7 +19,7 @@ describe('Macro package v7 to v10 canonicalization', () => {
     expect(result.pkg.macros.X).toMatchObject({ kind: 'const' });
     expect(result.pkg.macros.X).not.toHaveProperty('default_style');
   });
-  it('canonicalizes persisted Macro kinds to schema 10 and removes default_style', () => {
+  it('preserves custom Macro kinds, renames partial to sub, and removes default_style', () => {
     const result = canonicalizeMacroPackageData('Kinds.json', {
       version: '8', name: 'Kinds', macros: {
         Rule: {
@@ -38,7 +38,7 @@ describe('Macro package v7 to v10 canonicalization', () => {
     expect(result).toMatchObject({
       version: '10',
       macros: {
-        Rule: { kind: 'const', backend_extension: { keep: true } },
+        Rule: { kind: 'rule', backend_extension: { keep: true } },
         Transparent: { kind: 'sub' }
       }
     });

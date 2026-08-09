@@ -71,16 +71,31 @@ export function applyContextSrcLookup(
       node.mdata && typeof node.mdata === 'object'
         ? (node.mdata as Record<string, unknown>)
         : null;
-    const src = mdata && typeof mdata.src === 'string' ? mdata.src : '';
+    const legacySrc = mdata && typeof mdata.src === 'string' ? mdata.src : '';
+    const canonicalSrc =
+      node.source?.type === 'entry'
+        ? node.source.entry_id
+        : node.postfix?.type === 'name'
+          ? node.postfix.name
+          : '';
+    const src = canonicalSrc || legacySrc;
     if (src && node.kind !== 'binder') {
+      const baseMetadata = { ...(mdata ?? {}), src };
       const decls = contextIndex.get(src);
       if (!decls) {
-        node.mdata = { ...(mdata ?? {}), srcStatus: 'dangling' };
+        node.kind = 'fvar';
+        node.mdata = { ...baseMetadata, srcStatus: 'dangling' };
       } else if (!decls.has(node.macro_name)) {
-        node.mdata = { ...(mdata ?? {}), srcStatus: 'srcResolvedNoDecl' };
+        node.kind = 'fvar';
+        node.mdata = { ...baseMetadata, srcStatus: 'srcResolvedNoDecl' };
       } else {
-        // Resolved. Upgrade kind so palette / DOM tagging matches a bvar.
+        // Resolve both the published canonical tree-v2 source and the legacy
+        // metadata projection consumed by existing Extension diagnostics.
         node.kind = 'bvar';
+        node.source = { type: 'entry', entry_id: src };
+        const resolvedMetadata: Record<string, unknown> = { ...baseMetadata };
+        delete resolvedMetadata.srcStatus;
+        node.mdata = resolvedMetadata;
       }
     }
     for (const c of node.children) visit(c);

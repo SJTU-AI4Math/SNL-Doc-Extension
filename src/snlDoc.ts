@@ -1,14 +1,18 @@
-import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { invariantHostText } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 import { formatMacroConflict } from './macroOutputI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Localized } from '@sjtu-ai4math/snl-basics';
-import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
 import {
-  is_valid_i18n_string,
+  isSnlIdentifier,
+  migrateMacroDocument,
+  migrateMacroV7toV8,
+  type Localized
+} from './snlBasicsHostCompat';
+import {
+  is_valid_macro_i18n_string,
   macro_template_variants,
   normalize_entry_content,
   normalize_macro_template
@@ -42,6 +46,7 @@ import {
   type EntityReadStorage
 } from './entityStorageIo';
 import {
+  assertCanonicalMacroPackage,
   assertJsonSnapshotUnchanged,
   assertWorkspaceDataVersionNotRegressed,
   assertWorkspaceDataWritable,
@@ -83,6 +88,19 @@ function jsonBytes(value: unknown): Uint8Array {
   return ENCODER.encode(JSON.stringify(value, null, 2) + '\n');
 }
 
+function setOwnRecordValue<Value>(
+  record: Record<string, Value>,
+  key: string,
+  value: Value
+): void {
+  Object.defineProperty(record, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+}
+
 export function entityRevision(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -109,7 +127,8 @@ async function readJson<T>(uri: vscode.Uri): Promise<T> {
 
 async function assertWorkspaceWritableOnDisk(
   workspaceRoot: vscode.Uri,
-  validateTopology = true
+  validateTopology = true,
+  allowPendingMigration = false
 ): Promise<unknown> {
   let rawConfig: unknown;
   try {
@@ -119,7 +138,7 @@ async function assertWorkspaceWritableOnDisk(
       `Workspace data is not writable: config.json could not be read (${error instanceof Error ? error.message : String(error)}).`
     );
   }
-  assertWorkspaceDataWritable(rawConfig);
+  assertWorkspaceDataWritable(rawConfig, { allowPendingMigration });
   if (
     rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
     (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
@@ -192,6 +211,8 @@ async function withExtensionWriterLock<T>(
   purpose: string,
   task: () => Promise<T>
 ): Promise<T> {
+  const held = heldWriterIdentities.getStore();
+  if (held?.get(workspaceWriterIdentity(workspaceRoot))?.active) return task();
   return withInProcessWriterLock(workspaceRoot, () =>
     workspaceRoot.scheme === 'file'
       ? withWorkspaceDataLock(workspaceRoot, purpose, task)
@@ -201,6 +222,71 @@ async function withExtensionWriterLock<T>(
 
 const NO_EXPECTED_SNAPSHOT = Symbol('no-expected-snapshot');
 
+async function assertRealDirectory(uri: vscode.Uri, label: string): Promise<void> {
+  let stat: vscode.FileStat;
+  try {
+    stat = await vscode.workspace.fs.stat(uri);
+  } catch (error) {
+    throw new Error(`${label} does not exist: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if ((stat.type & vscode.FileType.SymbolicLink) !== 0 || stat.type !== vscode.FileType.Directory) {
+    throw new Error(`${label} must be a real directory, not a symlink or special entry.`);
+  }
+}
+
+async function assertOwnedLibraryRoot(workspaceRoot: vscode.Uri): Promise<void> {
+  await assertRealDirectory(snlRootUri(workspaceRoot), '.SNL_Doc');
+  await assertRealDirectory(librariesDirUri(workspaceRoot), '.SNL_Doc/libraries');
+}
+
+async function ensureOwnedLibraryRootForCreate(workspaceRoot: vscode.Uri): Promise<void> {
+  await assertRealDirectory(snlRootUri(workspaceRoot), '.SNL_Doc');
+  const libraries = librariesDirUri(workspaceRoot);
+  try {
+    await vscode.workspace.fs.stat(libraries);
+  } catch (error) {
+    const code = (error as { code?: unknown })?.code;
+    if (code !== 'FileNotFound' && code !== 'ENOENT') throw error;
+    await vscode.workspace.fs.createDirectory(libraries);
+  }
+  await assertRealDirectory(libraries, '.SNL_Doc/libraries');
+}
+
+async function assertOwnedLibraryPath(
+  workspaceRoot: vscode.Uri,
+  target: vscode.Uri
+): Promise<void> {
+  await assertOwnedLibraryRoot(workspaceRoot);
+  const root = librariesDirUri(workspaceRoot);
+  const rootPath = root.path.replace(/\/+$/, '');
+  if (!target.path.startsWith(`${rootPath}/`)) {
+    throw new Error('Library write target is outside the owned libraries root.');
+  }
+  const segments = target.path.slice(rootPath.length).split('/').filter(Boolean);
+  const slug = segments[0] ?? '';
+  libraryDirUri(workspaceRoot, slug);
+  for (let index = 0; index < segments.length; index += 1) {
+    const current = vscode.Uri.joinPath(root, ...segments.slice(0, index + 1));
+    const final = index === segments.length - 1;
+    let stat: vscode.FileStat;
+    try {
+      stat = await vscode.workspace.fs.stat(current);
+    } catch (error) {
+      if (final) continue;
+      throw new Error(
+        `Library path component ${JSON.stringify(segments[index])} does not exist: ` +
+        `${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if ((stat.type & vscode.FileType.SymbolicLink) !== 0) {
+      throw new Error(`Library path component ${JSON.stringify(segments[index])} is a symlink.`);
+    }
+    if (!final && stat.type !== vscode.FileType.Directory) {
+      throw new Error(`Library path component ${JSON.stringify(segments[index])} is not a directory.`);
+    }
+  }
+}
+
 async function writeWorkspaceFile(
   workspaceRoot: vscode.Uri,
   uri: vscode.Uri,
@@ -209,7 +295,16 @@ async function writeWorkspaceFile(
   validateTopology = true
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
-    const currentConfig = await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology);
+    const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
+    const libraryWrite = uri.path === librariesPath || uri.path.startsWith(`${librariesPath}/`);
+    if (libraryWrite) {
+      await assertOwnedLibraryPath(workspaceRoot, uri);
+    }
+    const currentConfig = await assertWorkspaceWritableOnDisk(
+      workspaceRoot,
+      validateTopology,
+      libraryWrite
+    );
     const writingConfig = uri.fsPath === configUri(workspaceRoot).fsPath;
     if (expectedOriginal !== NO_EXPECTED_SNAPSHOT) {
       const currentTarget = writingConfig
@@ -473,7 +568,16 @@ export function libraryDirUri(
   workspaceRoot: vscode.Uri,
   slug: string
 ): vscode.Uri {
-  return vscode.Uri.joinPath(librariesDirUri(workspaceRoot), slug);
+  const canonical = (slug ?? '').trim();
+  if (!canonical || canonical !== slug || slugify(canonical) !== canonical) {
+    throw new Error('Library slug must be one canonical path segment.');
+  }
+  const librariesRoot = librariesDirUri(workspaceRoot);
+  const target = vscode.Uri.joinPath(librariesRoot, canonical);
+  if (dirname(resolve(target.fsPath)) !== resolve(librariesRoot.fsPath)) {
+    throw new Error('Library slug escapes the Library directory.');
+  }
+  return target;
 }
 
 export function libraryGraphUri(
@@ -1046,58 +1150,71 @@ export async function createLibrary(
   title: string
 ): Promise<CreateLibraryResult> {
   const fsApi = vscode.workspace.fs;
-  const root = snlRootUri(workspaceRoot);
-
-  if (!(await exists(root))) {
-    return { status: 'noSnlDoc' };
-  }
-
   const trimmedTitle = (title ?? '').trim();
   const slug = slugify(trimmedTitle);
-  const libDir = libraryDirUri(workspaceRoot, slug);
-  if (await exists(libDir)) {
-    return { status: 'duplicate', slug };
-  }
-  await assertWorkspaceWritableOnDisk(workspaceRoot);
 
-  // Create library tree.
-  const documentsDir = vscode.Uri.joinPath(libDir, 'documents');
-  const typstDir = vscode.Uri.joinPath(documentsDir, 'Typst');
-  const latexDir = vscode.Uri.joinPath(documentsDir, 'LaTeX');
-  const markdownDir = vscode.Uri.joinPath(documentsDir, 'Markdown');
+  return withExtensionWriterLock(workspaceRoot, `create Library ${slug}`, async () => {
+    const root = snlRootUri(workspaceRoot);
+    if (!(await exists(root))) {
+      return { status: 'noSnlDoc' } as const;
+    }
+    await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+    await ensureOwnedLibraryRootForCreate(workspaceRoot);
 
-  await fsApi.createDirectory(libDir);
-  await fsApi.createDirectory(documentsDir);
-  await fsApi.createDirectory(typstDir);
-  await fsApi.createDirectory(latexDir);
-  await fsApi.createDirectory(markdownDir);
+    const libDir = libraryDirUri(workspaceRoot, slug);
+    if (await exists(libDir)) {
+      return { status: 'duplicate', slug } as const;
+    }
 
-  await writeWorkspaceFile(workspaceRoot,
-    libraryMetaUri(workspaceRoot, slug),
-    jsonBytes({ title: trimmedTitle } satisfies LibraryMetaFile),
-    null
-  );
-  await writeWorkspaceFile(workspaceRoot,
-    libraryGraphUri(workspaceRoot, slug),
-    jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile),
-    null
-  );
-  await writeWorkspaceFile(workspaceRoot,
-    libraryCountersUri(workspaceRoot, slug),
-    jsonBytes({ counters: [] } satisfies LibraryCountersFile),
-    null
-  );
+    const stagingDir = vscode.Uri.joinPath(
+      librariesDirUri(workspaceRoot),
+      `.creating-${slug}-${randomUUID()}`
+    );
+    const documentsDir = vscode.Uri.joinPath(stagingDir, 'documents');
+    const typstDir = vscode.Uri.joinPath(documentsDir, 'Typst');
+    const latexDir = vscode.Uri.joinPath(documentsDir, 'LaTeX');
+    const markdownDir = vscode.Uri.joinPath(documentsDir, 'Markdown');
+    try {
+      for (const directory of [stagingDir, documentsDir, typstDir, latexDir, markdownDir]) {
+        await fsApi.createDirectory(directory);
+      }
+      await fsApi.writeFile(
+        vscode.Uri.joinPath(stagingDir, 'meta.json'),
+        jsonBytes({ title: trimmedTitle } satisfies LibraryMetaFile)
+      );
+      await fsApi.writeFile(
+        vscode.Uri.joinPath(stagingDir, 'graph.json'),
+        jsonBytes({ nodes: [], relationships: [] } satisfies LibraryGraphFile)
+      );
+      await fsApi.writeFile(
+        vscode.Uri.joinPath(stagingDir, 'counters.json'),
+        jsonBytes({ counters: [] } satisfies LibraryCountersFile)
+      );
+      const gitkeep = ENCODER.encode('');
+      await fsApi.writeFile(vscode.Uri.joinPath(typstDir, '.gitkeep'), gitkeep);
+      await fsApi.writeFile(vscode.Uri.joinPath(latexDir, '.gitkeep'), gitkeep);
+      await fsApi.writeFile(vscode.Uri.joinPath(markdownDir, '.gitkeep'), gitkeep);
+      await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+      await assertOwnedLibraryRoot(workspaceRoot);
+      await assertRealDirectory(stagingDir, 'private Library staging directory');
+      await fsApi.rename(stagingDir, libDir, { overwrite: false });
+    } catch (error) {
+      try {
+        if (await exists(stagingDir)) {
+          await assertOwnedLibraryRoot(workspaceRoot);
+          await assertRealDirectory(stagingDir, 'private Library staging directory');
+          await fsApi.delete(stagingDir, { recursive: true, useTrash: false });
+        }
+      } catch (rollbackError) {
+        throw new Error(
+          `Library creation failed and rollback also failed: ${String(error)}; rollback: ${String(rollbackError)}`
+        );
+      }
+      throw error;
+    }
 
-  const gitkeep = ENCODER.encode('');
-  await writeWorkspaceFile(workspaceRoot, vscode.Uri.joinPath(typstDir, '.gitkeep'), gitkeep, null);
-  await writeWorkspaceFile(workspaceRoot, vscode.Uri.joinPath(latexDir, '.gitkeep'), gitkeep, null);
-  await writeWorkspaceFile(workspaceRoot,
-    vscode.Uri.joinPath(markdownDir, '.gitkeep'),
-    gitkeep,
-    null
-  );
-
-  return { status: 'created', slug, title: trimmedTitle };
+    return { status: 'created', slug, title: trimmedTitle } as const;
+  });
 }
 
 /**
@@ -1244,7 +1361,7 @@ export async function readMacroPackages(
  * `@sjtu-ai4math/snl-basics` for previews and keep their own extended copy for saves.
  */
 /**
- * One strict Macro v8 render style, extended with consumer-owned output
+ * One strict Macro v10 render style, extended with consumer-owned output
  * backends (typst / latex / markdown / text) which live per style.
  */
 interface MacroPackageStyleBase {
@@ -1270,7 +1387,7 @@ export interface InvariantMacroPackageStyle extends MacroPackageStyleBase {
 
 export interface TextMacroPackageStyle extends MacroPackageStyleBase {
   mode: 'text';
-  template: string;
+  template: Localized<string, string>;
   block_template_name?: never;
 }
 
@@ -1280,12 +1397,10 @@ export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
-  /** Semantic kind (optional). Unset → rendered nodes default to `fvar`. */
-  kind?: string;
+  /** Canonical semantic kind. Missing legacy values migrate to `const`. */
+  kind: string;
   dynamic_arity: boolean;
-  /** Language → implicit style name; renderer falls back through en then styles[0]. */
-  default_style: Record<string, string>;
-  /** Ordered styles; styles[0] is the final fallback. */
+  /** Ordered styles; styles[0] is the sole implicit default. */
   styles: MacroPackageStyle[];
   /** Free-text labels attached to the macro itself (backslash forbidden). */
   tags: string[];
@@ -1305,7 +1420,7 @@ export interface MacroPackageFile {
 
 /** Bare filename regex for a macro package (no path, no extension). */
 const MACRO_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const MACRO_PACKAGE_VERSION = '8';
+const MACRO_PACKAGE_VERSION = '10';
 
 /** URI of a package file given a bare-or-suffixed filename. */
 function macroPackageUri(
@@ -1513,47 +1628,31 @@ function v5MacroToV6(entry: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return !!value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.values(value as Record<string, unknown>).every((item) => typeof item === 'string');
-}
-
-/** v7 → v8: split localized text templates and add language default styles. */
-function v7MacroToV8(input: Record<string, unknown>): MacroPackageEntry {
+/** v7/v8 → v9: preserve localized text templates and remove language-selected styles safely. */
+function v7MacroToV9(input: Record<string, unknown>): MacroPackageEntry {
   const rawStyles = Array.isArray(input.styles)
     ? input.styles.map((style) => ({ ...(style as Record<string, unknown>) }))
     : [];
   const styles: MacroPackageStyle[] = [];
-  const default_style = isStringRecord(input.default_style)
-    ? { ...input.default_style }
-    : {};
 
   rawStyles.forEach((style, styleIndex) => {
     const styleName = typeof style.style_name === 'string' ? style.style_name : `style${styleIndex}`;
-    if (is_valid_i18n_string(style.template)) {
-      throw new Error(
-        `style ${styleName} has a localized template; Macro v8 cannot preserve ` +
-        'language-dependent explicit [style] semantics. Split it manually before workspace migration.'
-      );
-    }
+    const mode = style.mode as 'formula_inline' | 'formula_display' | 'text' | 'block';
     styles.push({
       ...style,
       style_name: styleName,
-      template: normalize_macro_template(
-        style.mode as 'formula_inline' | 'formula_display' | 'text' | 'block',
-        style.template
-      )
+      template: mode === 'text' && is_valid_macro_i18n_string(style.template)
+        ? style.template
+        : normalize_macro_template(mode, style.template)
     } as MacroPackageStyle);
-    if (styleIndex === 0 && Object.keys(default_style).length === 0) {
-      default_style.en = styleName;
-    }
   });
 
   const source = input.source && typeof input.source === 'object' && !Array.isArray(input.source)
     ? input.source as Record<string, unknown>
     : {};
-  return {
-    ...input,
+  const { default_style: legacyDefaultStyle, ...current } = input;
+  const normalized = {
+    ...current,
     name: typeof input.name === 'string' ? input.name : '',
     description: typeof input.description === 'string' ? input.description : '',
     source: {
@@ -1562,10 +1661,26 @@ function v7MacroToV8(input: Record<string, unknown>): MacroPackageEntry {
       urls: Array.isArray(source.urls) ? source.urls as string[] : []
     },
     dynamic_arity: input.dynamic_arity === true,
-    default_style,
     styles,
     tags: Array.isArray(input.tags) && input.tags.every((tag) => typeof tag === 'string')
       ? input.tags as string[] : []
+  } as MacroPackageEntry;
+  if (legacyDefaultStyle === undefined) return normalized;
+  const migrated = migrateMacroDocument({
+    [normalized.name]: { ...normalized, default_style: legacyDefaultStyle }
+  } as never);
+  return migrated[normalized.name] as unknown as MacroPackageEntry;
+}
+
+/** v9 → v10: materialize canonical kind while preserving custom kind ids. */
+function v9MacroToV10(input: MacroPackageEntry): MacroPackageEntry {
+  return {
+    ...input,
+    kind: input.kind === 'partial'
+      ? 'sub'
+      : typeof input.kind === 'string' && input.kind.length > 0
+        ? input.kind
+        : 'const'
   };
 }
 
@@ -1614,7 +1729,7 @@ function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
           ...styleBase,
           mode,
           template: dynamicTemplate ?? (
-            is_valid_i18n_string(raw.template)
+            is_valid_macro_i18n_string(raw.template)
               ? raw.template
               : normalize_macro_template('text', raw.template)
           )
@@ -1756,7 +1871,7 @@ function groupMacrosToStyles(
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
       `[snlDoc] normalizeMacros: could not migrate legacy macros to the ` +
-        `v8 styles array (${reason}); normalizing entries independently`
+        `canonical styles array (${reason}); normalizing entries independently`
     );
     return collected.map((entry) => v6MacroToV7(v5MacroToV6(entry)));
   }
@@ -1814,7 +1929,7 @@ function normalizeMacrosV7(raw: unknown): Array<Record<string, unknown>> {
     const trimmed: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
       if (!reserved.has(k)) {
-        trimmed[k] = v;
+        setOwnRecordValue(trimmed, k, v);
       }
     }
     pushKeyed(trimmed);
@@ -1823,8 +1938,9 @@ function normalizeMacrosV7(raw: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-function normalizeMacros(raw: unknown): MacroPackageEntry[] {
-  return normalizeMacrosV7(raw).map((macro) => v7MacroToV8(macro));
+function normalizeMacros(raw: unknown, targetVersion: '9' | '10' = '10'): MacroPackageEntry[] {
+  const v9 = normalizeMacrosV7(raw).map((macro) => v7MacroToV9(macro));
+  return targetVersion === '10' ? v9.map(v9MacroToV10) : v9;
 }
 
 /**
@@ -1846,7 +1962,6 @@ export async function createMacroPackage(
   | { status: 'invalid'; reason: string }
   | { status: 'error'; message: string }
 > {
-  const fsApi = vscode.workspace.fs;
   if (!(await exists(snlRootUri(workspaceRoot)))) {
     return { status: 'noSnlDoc' };
   }
@@ -1913,8 +2028,8 @@ export async function createMacroPackage(
   }
 
   try {
+    await assertWorkspaceWritableOnDisk(workspaceRoot);
     if (entityMode) {
-      await fsApi.createDirectory(packageManifestsDirUri(workspaceRoot));
       const configRaw = await readJson<unknown>(configUri(workspaceRoot));
       if (!configRaw || typeof configRaw !== 'object' || Array.isArray(configRaw)) {
         throw new Error('config.json must be an object');
@@ -1947,7 +2062,6 @@ export async function createMacroPackage(
       ]);
       return { status: 'ok', file: `${bare}.json` } as const;
     } else {
-      await fsApi.createDirectory(termMacrosDirUri(workspaceRoot));
       if (!legacyConfigRaw || typeof legacyConfigRaw !== 'object' || Array.isArray(legacyConfigRaw)) {
         throw new Error('config.json must be an object');
       }
@@ -2007,7 +2121,7 @@ export async function readMacroPackage(
       const macros: Record<string, unknown> = {};
       for (const record of macroRecords.filter(({ envelope }) => envelope.package === bare)) {
         const { name: macroName, ...macro } = record.macro;
-        macros[macroName] = macro;
+        setOwnRecordValue(macros, macroName, macro);
       }
       const raw: Record<string, unknown> = {
         ...extensions,
@@ -2049,13 +2163,14 @@ export async function readMacroPackage(
  */
 function buildMacroPackageResult(
   bare: string,
-  raw: unknown
+  raw: unknown,
+  targetVersion: '9' | '10' = MACRO_PACKAGE_VERSION
 ):
   | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
   | { status: 'error'; message: string } {
   let macros: MacroPackageEntry[];
   try {
-    macros = normalizeMacros(raw);
+    macros = normalizeMacros(raw, targetVersion);
   } catch (error) {
     return {
       status: 'error',
@@ -2077,13 +2192,14 @@ function buildMacroPackageResult(
     }
   }
 
-  const macrosMap: Record<string, MacroPackageEntryWithoutName> = {};
+  const macroEntries: Array<[string, MacroPackageEntryWithoutName]> = [];
   for (const m of macros) {
     const { name, ...rest } = m;
-    macrosMap[name] = rest;
+    macroEntries.push([name, rest]);
   }
+  const macrosMap = Object.fromEntries(macroEntries);
 
-  const wrapperExtensions: Record<string, unknown> = {};
+  const wrapperExtensions = Object.create(null) as Record<string, unknown>;
   if (raw && typeof raw === 'object' && !Array.isArray(raw) &&
       'macros' in (raw as Record<string, unknown>)) {
     const {
@@ -2097,7 +2213,7 @@ function buildMacroPackageResult(
   }
   const pkg: MacroPackageFile = {
     ...wrapperExtensions,
-    version: MACRO_PACKAGE_VERSION,
+    version: targetVersion,
     name: pkgName,
     macros: macrosMap
   };
@@ -2203,7 +2319,7 @@ export async function readPackageMacroSnapshot(
       for (const { envelope, macro } of macroRecords) {
         const packageMacros = macrosByPackage.get(envelope.package) ?? {};
         const { name, ...body } = macro;
-        packageMacros[name] = body;
+        setOwnRecordValue(packageMacros, name, body);
         macrosByPackage.set(envelope.package, packageMacros);
       }
       for (const { manifest } of packageRecords) {
@@ -2293,8 +2409,8 @@ export async function readPackageMacroSnapshot(
           macroOutputLanguage(), macro.name, origin[macro.name], bare
         ));
       }
-      workspaceMacros[macro.name] = macro;
-      origin[macro.name] = bare;
+      setOwnRecordValue(workspaceMacros, macro.name, macro);
+      setOwnRecordValue(origin, macro.name, bare);
     }
   }
 
@@ -2345,14 +2461,14 @@ export async function readPackagePanelSnapshot(
 }
 
 /**
- * Canonicalize any supported historical Macro package shape to the current v8
- * wrapper while preserving wrapper-level extension fields. Used by explicit
+ * Canonicalize any supported historical Macro package shape to the requested
+ * wrapper schema while preserving wrapper-level extension fields. Used by explicit
  * workspace data migrations; ordinary reads remain non-mutating.
  */
 export function canonicalizeMacroPackageData(
   file: string,
   raw: unknown,
-  targetVersion: '7' | '8' = '8'
+  targetVersion: '7' | '8' | '9' | '10' = '10'
 ): Record<string, unknown> {
   const bare = stripJsonExt(file);
   const wrapper = raw && typeof raw === 'object' && !Array.isArray(raw) &&
@@ -2362,12 +2478,13 @@ export function canonicalizeMacroPackageData(
 
   if (targetVersion === '7') {
     const macros = normalizeMacrosV7(raw);
-    const macrosMap: Record<string, unknown> = {};
+    const macroEntries: Array<[string, unknown]> = [];
     for (const macro of macros) {
       const name = typeof macro.name === 'string' ? macro.name : '';
       const { name: _drop, ...rest } = macro;
-      macrosMap[name] = rest;
+      macroEntries.push([name, rest]);
     }
+    const macrosMap = Object.fromEntries(macroEntries);
     const rawObject = raw && typeof raw === 'object' && !Array.isArray(raw)
       ? raw as Record<string, unknown>
       : {};
@@ -2382,7 +2499,31 @@ export function canonicalizeMacroPackageData(
     };
   }
 
-  const result = buildMacroPackageResult(bare, raw);
+  if (targetVersion === '8') {
+    const macroEntries: Array<[string, unknown]> = [];
+    for (const macro of normalizeMacrosV7(raw)) {
+      const migrated = migrateMacroV7toV8(
+        macro as unknown as Parameters<typeof migrateMacroV7toV8>[0]
+      );
+      const { name: _drop, ...rest } = migrated;
+      macroEntries.push([migrated.name, rest]);
+    }
+    const macrosMap = Object.fromEntries(macroEntries);
+    const rawObject = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    return {
+      ...wrapper,
+      version: '8',
+      name: typeof rawObject.name === 'string' && rawObject.name.trim() ? rawObject.name : bare,
+      ...(typeof rawObject.description === 'string' && rawObject.description.trim()
+        ? { description: rawObject.description }
+        : {}),
+      macros: macrosMap
+    };
+  }
+
+  const result = buildMacroPackageResult(bare, raw, targetVersion);
   if (result.status === 'error') {
     throw new Error(`${file}: ${result.message}`);
   }
@@ -2498,7 +2639,7 @@ async function persistMacroPackage(
  * matches how consumers merge multiple package files into a single lookup
  * for parsing / rendering).
  *
- * Result rows use the extended v8 on-disk shape (typst / latex / markdown /
+ * Result rows use the extended v9 on-disk shape (typst / latex / markdown /
  * text backends included). Webviews adapt these rows behind MacroDataDriver.
  *
  * Best-effort: individual packages that fail to load (missing file, JSON
@@ -2832,20 +2973,11 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       'react_renderer_key', 'display'
     ]) {
       if (legacyKey in raw) {
-        return `styles[${i}].${legacyKey} is not valid in Macro v8`;
+        return `styles[${i}].${legacyKey} is not valid in Macro v9`;
       }
     }
   }
-  if (!isStringRecord(macro.default_style)) {
-    return 'default_style must be a language-to-style-name object';
-  }
-  for (const [language, styleName] of Object.entries(macro.default_style)) {
-    if (!language.trim()) return 'default_style language keys must be non-empty';
-    if (!seen.has(styleName)) {
-      return `default_style[${JSON.stringify(language)}] references unknown style "${styleName}"`;
-    }
-  }
-  // Tags are required string arrays in v8; backslashes remain forbidden.
+  // Tags are required string arrays in v9; backslashes remain forbidden.
   const macroTags = macro.tags;
   if (!Array.isArray(macroTags)) {
     return 'tags must be an array of strings';
@@ -2875,6 +3007,14 @@ function validateMacro(macro: MacroPackageEntry): string | null {
   }
   if (!isStrArray(src.urls)) {
     return 'source.urls must be an array of strings';
+  }
+  try {
+    assertCanonicalMacroPackage('Macro', {
+      version: '10',
+      macros: { [name]: macro }
+    }, '10');
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
   return null;
 }
@@ -3118,7 +3258,7 @@ export async function readOverview(
         const macros: Record<string, unknown> = {};
         for (const record of macroRecords.filter(({ envelope }) => envelope.package === bare)) {
           const { name: macroName, ...macro } = record.macro;
-          macros[macroName] = macro;
+          setOwnRecordValue(macros, macroName, macro);
         }
         loaded.push({
           file: `${bare}.json`,
@@ -3191,12 +3331,12 @@ export async function readOverview(
         ...(typeof macro.kind === 'string' && macro.kind ? { kind: macro.kind } : {})
       });
       if (summary.active !== false) {
-        metricMacroSources[macro.name] = {
+        setOwnRecordValue(metricMacroSources, macro.name, {
           source: {
             entries: Array.isArray(macro.source?.entries) ? macro.source.entries : [],
             urls: Array.isArray(macro.source?.urls) ? macro.source.urls : []
           }
-        };
+        });
       }
     }
   }
@@ -3538,7 +3678,7 @@ export interface EntryData {
 }
 
 export type AddEntryResult =
-  | { status: 'ok'; id: string }
+  | { status: 'ok'; id: string; revision: string }
   | { status: 'duplicate'; id: string }
   | { status: 'unknownKind'; kind: string }
   | { status: 'invalid'; reason: string }
@@ -3700,7 +3840,7 @@ export async function addEntry(
       message: err instanceof Error ? err.message : String(err)
     };
   }
-      return { status: 'ok', id };
+      return { status: 'ok', id, revision: entityRevision(record) };
     });
   } catch (error) {
     return { status: 'error', message: error instanceof Error ? error.message : String(error) };
@@ -3924,8 +4064,8 @@ export async function updateLibrary(
     return { status: 'noSnlDoc' };
   }
   const targetSlug = (slug ?? '').trim();
-  if (!targetSlug) {
-    return { status: 'invalid', message: 'slug is required' };
+  if (!targetSlug || targetSlug !== slug || slugify(targetSlug) !== targetSlug) {
+    return { status: 'invalid', message: 'slug must be one canonical Library path segment' };
   }
   const title = (input.title ?? '').trim();
   if (!title) {
@@ -4251,7 +4391,7 @@ export async function updateMacro(
   const { name: _drop, ...rest } = macro;
   const nextMacros: Record<string, MacroPackageEntryWithoutName> = {};
   for (const [key, val] of Object.entries(read.pkg.macros)) {
-    nextMacros[key] = key === name ? { ...rest } : val;
+    setOwnRecordValue(nextMacros, key, key === name ? { ...rest } : val);
   }
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
 
@@ -4304,7 +4444,7 @@ export async function batchDeleteMacros(
       deletedCount += 1;
       continue;
     }
-    nextMacros[key] = val;
+    setOwnRecordValue(nextMacros, key, val);
   }
 
   const next: MacroPackageFile = { ...read.pkg, macros: nextMacros };
@@ -4377,13 +4517,13 @@ export async function batchMoveMacros(
   const nextSrcMacros: Record<string, MacroPackageEntryWithoutName> = {};
   for (const [key, val] of Object.entries(srcRead.pkg.macros)) {
     if (movingSet.has(key)) continue;
-    nextSrcMacros[key] = val;
+    setOwnRecordValue(nextSrcMacros, key, val);
   }
   const nextDestMacros: Record<string, MacroPackageEntryWithoutName> = {
     ...destRead.pkg.macros
   };
   for (const n of moving) {
-    nextDestMacros[n] = srcRead.pkg.macros[n];
+    setOwnRecordValue(nextDestMacros, n, srcRead.pkg.macros[n]);
   }
 
   const nextSrc: MacroPackageFile = { ...srcRead.pkg, macros: nextSrcMacros };
@@ -4535,7 +4675,7 @@ export async function batchPackageAsNew(
         const macros: Record<string, MacroPackageEntryWithoutName> = {};
         for (const macro of selected) {
           const { name, ...value } = macro;
-          macros[name] = value;
+          setOwnRecordValue(macros, name, value);
         }
         operations.push({
           kind: 'write',
@@ -4555,7 +4695,7 @@ export async function batchPackageAsNew(
         const selectedNames = new Set(selected.map((macro) => macro.name));
         const remainingMacros: Record<string, MacroPackageEntryWithoutName> = {};
         for (const [name, value] of Object.entries(currentSource.pkg.macros)) {
-          if (!selectedNames.has(name)) remainingMacros[name] = value;
+          if (!selectedNames.has(name)) setOwnRecordValue(remainingMacros, name, value);
         }
         const nextSource: MacroPackageFile = { ...currentSource.pkg, macros: remainingMacros };
         if (entityMode) {
@@ -4652,7 +4792,7 @@ export async function batchCopyMacros(
     ...destRead.pkg.macros
   };
   for (const n of copying) {
-    nextDestMacros[n] = srcRead.pkg.macros[n];
+    setOwnRecordValue(nextDestMacros, n, srcRead.pkg.macros[n]);
   }
 
   const nextDest: MacroPackageFile = {
@@ -5109,6 +5249,167 @@ export async function readLibraryGraph(
   };
 }
 
+const RAW_RELATIONSHIP_RECORD = Symbol('raw-library-relationship-record');
+
+type LibraryGraphMutationDecision =
+  | boolean
+  | void
+  | { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] };
+
+/**
+ * Writer-locked raw graph mutation. The callback sees the latest normalized
+ * graph while wrapper/node/relationship extension fields are retained by
+ * stable identity in the committed raw document.
+ */
+export async function mutateLibraryGraph(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  mutate: (
+    graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] },
+    transaction: { onRollback(action: () => void | Promise<void>): void }
+  ) => LibraryGraphMutationDecision | Promise<LibraryGraphMutationDecision>
+): Promise<
+  | { status: 'ok'; changed: boolean }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string }
+> {
+  return withExtensionWriterLock(workspaceRoot, 'mutate Library graph', async () => {
+    const uri = libraryGraphUri(workspaceRoot, slug);
+    let raw: unknown;
+    let existed = true;
+    try {
+      await assertOwnedLibraryPath(workspaceRoot, uri);
+      raw = await readJson<unknown>(uri);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      if (code !== 'FileNotFound' && code !== 'ENOENT') {
+        return { status: 'error', message: error instanceof Error ? error.message : String(error) } as const;
+      }
+      existed = false;
+      raw = { nodes: [], relationships: [] };
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { status: 'invalid', message: 'Library graph must be a JSON object.' } as const;
+    }
+    const wrapper = raw as Record<string, unknown>;
+    if (!Array.isArray(wrapper.nodes) || !Array.isArray(wrapper.relationships)) {
+      return { status: 'invalid', message: 'Library graph nodes and relationships must be arrays.' } as const;
+    }
+
+    const rawNodes = new Map<string, Record<string, unknown>>();
+    const nodes: GraphNodeDto[] = [];
+    for (const value of wrapper.nodes) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return { status: 'invalid', message: 'Library graph contains a malformed node.' } as const;
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.id !== 'string' || !record.id || typeof record.label !== 'string' ||
+          !record.label || rawNodes.has(record.id) || !record.props ||
+          typeof record.props !== 'object' || Array.isArray(record.props)) {
+        return { status: 'invalid', message: 'Library graph contains a malformed or duplicate node.' } as const;
+      }
+      rawNodes.set(record.id, record);
+      nodes.push({ id: record.id, label: record.label, props: { ...(record.props as Record<string, unknown>) } });
+    }
+
+    const relationships: GraphRelationshipDto[] = [];
+    for (const value of wrapper.relationships) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return { status: 'invalid', message: 'Library graph contains a malformed relationship.' } as const;
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.from !== 'string' || !record.from ||
+          typeof record.to !== 'string' || !record.to ||
+          typeof record.label !== 'string' || !record.label) {
+        return { status: 'invalid', message: 'Library graph contains a malformed relationship.' } as const;
+      }
+      if (!rawNodes.has(record.from) || !rawNodes.has(record.to)) {
+        return { status: 'invalid', message: 'Library graph contains a dangling relationship.' } as const;
+      }
+      const normalized = {
+        from: record.from,
+        to: record.to,
+        label: record.label,
+        [RAW_RELATIONSHIP_RECORD]: record
+      } as GraphRelationshipDto & {
+        [RAW_RELATIONSHIP_RECORD]: Record<string, unknown>;
+      };
+      relationships.push(normalized);
+    }
+
+    const rollbackActions: Array<() => void | Promise<void>> = [];
+    const runRollback = async (): Promise<string[]> => {
+      const errors: string[] = [];
+      for (const action of [...rollbackActions].reverse()) {
+        try {
+          await action();
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      return errors;
+    };
+    let decision: LibraryGraphMutationDecision;
+    try {
+      decision = await mutate(
+        { nodes, relationships },
+        { onRollback: (action) => rollbackActions.push(action) }
+      );
+    } catch (error) {
+      const rollbackErrors = await runRollback();
+      return {
+        status: 'error',
+        message: `${error instanceof Error ? error.message : String(error)}` +
+          (rollbackErrors.length ? `; rollback failed: ${rollbackErrors.join('; ')}` : '')
+      } as const;
+    }
+    if (!decision) {
+      const rollbackErrors = await runRollback();
+      if (rollbackErrors.length) {
+        return { status: 'error', message: `Graph mutation rollback failed: ${rollbackErrors.join('; ')}` } as const;
+      }
+      return { status: 'ok', changed: false } as const;
+    }
+    const nextGraph = typeof decision === 'object' ? decision : { nodes, relationships };
+    const nextNodes = nextGraph.nodes.map((node) => ({
+      ...(rawNodes.get(node.id) ?? {}),
+      id: node.id,
+      label: node.label,
+      props: node.props
+    }));
+    const nextRelationships = nextGraph.relationships.map((relationship) => {
+      const tagged = relationship as GraphRelationshipDto & {
+        [RAW_RELATIONSHIP_RECORD]?: Record<string, unknown>;
+      };
+      const original = tagged[RAW_RELATIONSHIP_RECORD];
+      const {
+        [RAW_RELATIONSHIP_RECORD]: _rawRelationship,
+        ...managed
+      } = tagged;
+      return { ...(original ?? {}), ...managed };
+    });
+    const next = { ...wrapper, nodes: nextNodes, relationships: nextRelationships };
+    try {
+      await writeWorkspaceFile(
+        workspaceRoot,
+        uri,
+        jsonBytes(next),
+        existed ? raw : null
+      );
+      return { status: 'ok', changed: true } as const;
+    } catch (error) {
+      const rollbackErrors = await runRollback();
+      return {
+        status: 'error',
+        message: `${error instanceof Error ? error.message : String(error)}` +
+          (rollbackErrors.length ? `; rollback failed: ${rollbackErrors.join('; ')}` : '')
+      } as const;
+    }
+  });
+}
+
 /**
  * Atomically write a library graph to `libraries/<slug>/graph.json`. Caller
  * is responsible for validating the graph before writing (the read side is
@@ -5375,6 +5676,121 @@ export async function mutateLibraryCounters(
       } as const;
     }
   });
+}
+
+export type RollbackCreatedEntryResult =
+  | { status: 'ok'; id: string }
+  | { status: 'notFound'; id: string }
+  | { status: 'conflict'; id: string; message: string }
+  | { status: 'referenced'; id: string; library: string }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string };
+
+async function assertCreatedEntryUnreferencedByRawLibraries(
+  workspaceRoot: vscode.Uri,
+  entryId: string
+): Promise<{ referencedBy: string | null }> {
+  await assertOwnedLibraryRoot(workspaceRoot);
+  const directoryEntries = await vscode.workspace.fs.readDirectory(librariesDirUri(workspaceRoot));
+  for (const [slug, type] of directoryEntries) {
+    if (slug === '.gitkeep' && type === vscode.FileType.File) continue;
+    if (type !== vscode.FileType.Directory) {
+      throw new Error(`Library census found non-directory entry ${JSON.stringify(slug)}.`);
+    }
+    libraryDirUri(workspaceRoot, slug);
+    const graphUri = libraryGraphUri(workspaceRoot, slug);
+    await assertOwnedLibraryPath(workspaceRoot, graphUri);
+    const raw = await readJson<unknown>(graphUri);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`Library ${JSON.stringify(slug)} graph must be a JSON object.`);
+    }
+    const wrapper = raw as Record<string, unknown>;
+    if (!Array.isArray(wrapper.nodes) || !Array.isArray(wrapper.relationships)) {
+      throw new Error(`Library ${JSON.stringify(slug)} graph must contain node and relationship arrays.`);
+    }
+    const nodeIds = new Set<string>();
+    for (const value of wrapper.nodes) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a malformed node.`);
+      }
+      const node = value as Record<string, unknown>;
+      if (typeof node.id !== 'string' || !node.id || nodeIds.has(node.id) ||
+          typeof node.label !== 'string' || !node.label ||
+          !node.props || typeof node.props !== 'object' || Array.isArray(node.props)) {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a malformed or duplicate node.`);
+      }
+      nodeIds.add(node.id);
+      const props = node.props as Record<string, unknown>;
+      if (Object.hasOwn(props, 'entryId') && typeof props.entryId !== 'string') {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a non-string Entry reference.`);
+      }
+      if (props.entryId === entryId) return { referencedBy: slug };
+    }
+    for (const value of wrapper.relationships) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a malformed relationship.`);
+      }
+      const relationship = value as Record<string, unknown>;
+      if (typeof relationship.from !== 'string' || !relationship.from ||
+          typeof relationship.to !== 'string' || !relationship.to ||
+          typeof relationship.label !== 'string' || !relationship.label) {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a malformed relationship.`);
+      }
+      if (!nodeIds.has(relationship.from) || !nodeIds.has(relationship.to)) {
+        throw new Error(`Library ${JSON.stringify(slug)} graph contains a dangling relationship.`);
+      }
+    }
+  }
+  return { referencedBy: null };
+}
+
+/**
+ * Compensate an Entry created inside a larger writer transaction. The expected
+ * revision must be the revision returned by addEntry, i.e. the exact canonical
+ * record that was persisted. Raw Library JSON is enumerated strictly here;
+ * tolerant dashboard readers are deliberately not used at this trust boundary.
+ */
+export async function rollbackCreatedEntry(
+  workspaceRoot: vscode.Uri,
+  id: string,
+  expectedRevision: string
+): Promise<RollbackCreatedEntryResult> {
+  try {
+    return await withExtensionWriterLock(workspaceRoot, 'roll back created Entry', async () => {
+      const matches = (await readEntries(workspaceRoot)).filter((entry) => entry?.id === id);
+      if (matches.length === 0) return { status: 'notFound', id } as const;
+      if (matches.length !== 1) {
+        return { status: 'invalid', message: `Entry ${JSON.stringify(id)} is duplicated.` } as const;
+      }
+      if (entityRevision(matches[0]) !== expectedRevision) {
+        return {
+          status: 'conflict', id,
+          message: `Entry ${JSON.stringify(id)} changed after creation.`
+        } as const;
+      }
+      let census: { referencedBy: string | null };
+      try {
+        census = await assertCreatedEntryUnreferencedByRawLibraries(workspaceRoot, id);
+      } catch (error) {
+        return {
+          status: 'invalid',
+          message: `Could not complete strict Library graph census: ${error instanceof Error ? error.message : String(error)}`
+        } as const;
+      }
+      if (census.referencedBy) {
+        return { status: 'referenced', id, library: census.referencedBy } as const;
+      }
+      const deleted = await deleteEntry(workspaceRoot, id);
+      if (deleted.status === 'ok') return { status: 'ok', id } as const;
+      if (deleted.status === 'notFound') return { status: 'notFound', id } as const;
+      return {
+        status: 'error',
+        message: 'message' in deleted ? deleted.message : `Could not delete Entry ${JSON.stringify(id)}.`
+      } as const;
+    });
+  } catch (error) {
+    return { status: 'error', message: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5698,26 +6114,47 @@ export async function deleteLibrary(
   | { status: 'error'; message: string }
 > {
   const fsApi = vscode.workspace.fs;
-  if (!(await exists(snlRootUri(workspaceRoot)))) {
-    return { status: 'noSnlDoc' };
-  }
   const targetSlug = (slug ?? '').trim();
-  if (!targetSlug) {
-    return { status: 'invalid', message: 'slug is required' };
+  if (!targetSlug || targetSlug !== slug || slugify(targetSlug) !== targetSlug) {
+    return {
+      status: 'invalid',
+      message: 'slug must be one canonical Library path segment'
+    };
   }
+  const librariesRoot = librariesDirUri(workspaceRoot);
   const dir = libraryDirUri(workspaceRoot, targetSlug);
-  if (!(await exists(dir))) {
-    return { status: 'notFound', slug: targetSlug };
-  }
   try {
-    // recursive=true so meta.json + graph.json + anything else the user has
-    // dropped in there goes with the directory. useTrash=true so the user
-    // can recover from the OS trash if they change their mind — a library
-    // is a lot of typed content, worth being kinder than we are with a
-    // single macro-package file.
-    await withExtensionWriterLock(workspaceRoot, `delete ${dir.fsPath}`, async () => {
-      await assertWorkspaceWritableOnDisk(workspaceRoot);
-      await fsApi.delete(dir, { recursive: true, useTrash: true });
+    return await withExtensionWriterLock(workspaceRoot, `delete ${dir.fsPath}`, async () => {
+      if (!(await exists(snlRootUri(workspaceRoot)))) {
+        return { status: 'noSnlDoc' } as const;
+      }
+      await assertOwnedLibraryRoot(workspaceRoot);
+      await assertWorkspaceWritableOnDisk(workspaceRoot, true, true);
+      if (!(await exists(dir))) {
+        return { status: 'notFound', slug: targetSlug } as const;
+      }
+      const targetStat = await fsApi.stat(dir);
+      if (targetStat.type !== vscode.FileType.Directory) {
+        return { status: 'invalid', message: 'Library target is not a real directory' } as const;
+      }
+      const quarantine = vscode.Uri.joinPath(
+        librariesRoot,
+        `.deleting-${targetSlug}-${randomUUID()}`
+      );
+      await fsApi.rename(dir, quarantine, { overwrite: false });
+      try {
+        await fsApi.delete(quarantine, { recursive: true, useTrash: true });
+      } catch (deleteError) {
+        try {
+          await fsApi.rename(quarantine, dir, { overwrite: false });
+        } catch (rollbackError) {
+          throw new Error(
+            `Library deletion failed and rollback also failed: ${String(deleteError)}; rollback: ${String(rollbackError)}`
+          );
+        }
+        throw deleteError;
+      }
+      return { status: 'ok', slug: targetSlug } as const;
     });
   } catch (err) {
     return {
@@ -5725,7 +6162,6 @@ export async function deleteLibrary(
       message: err instanceof Error ? err.message : String(err)
     };
   }
-  return { status: 'ok', slug: targetSlug };
 }
 
 // ===========================================================================
@@ -6211,7 +6647,7 @@ export function reconcileDependencyRelationships(
     if (!snl.trim()) continue;
     const references = extractSnlReferences(snl);
     for (const name of references.macros) {
-      const macro = macros[name];
+      const macro = Object.hasOwn(macros, name) ? macros[name] : undefined;
       if (!macro || !Array.isArray(macro.source?.entries)) continue;
       for (const source of macro.source.entries) upsert(AUTO_LABEL, entry.id, source, name);
     }

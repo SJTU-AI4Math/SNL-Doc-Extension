@@ -14,6 +14,12 @@ export function is_valid_i18n_string(value: unknown): value is I18n<string, stri
   return keys.length > 0 && keys.every((key) => typeof values[key] === 'string');
 }
 
+export function is_valid_macro_i18n_string(value: unknown): value is I18n<string, string> {
+  return is_valid_i18n_string(value) &&
+    Object.prototype.hasOwnProperty.call(value.values, value.default_language) &&
+    typeof value.values[value.default_language] === 'string';
+}
+
 export function localized_string_or_undefined(
   value: unknown,
   allow_i18n: false
@@ -65,13 +71,29 @@ export function normalize_entry_content(value: unknown): LocalizedEntryContent {
 }
 
 export function normalize_macro_template(
+  mode: 'text',
+  value: unknown,
+  fallback?: string
+): Localized<string, string>;
+export function normalize_macro_template(
+  mode: 'formula_inline' | 'formula_display' | 'block',
+  value: unknown,
+  fallback?: string
+): string;
+export function normalize_macro_template(
+  mode: 'formula_inline' | 'formula_display' | 'text' | 'block',
+  value: unknown,
+  fallback?: string
+): Localized<string, string>;
+export function normalize_macro_template(
   mode: 'formula_inline' | 'formula_display' | 'text' | 'block',
   value: unknown,
   fallback = ''
-): string {
+): Localized<string, string> {
   if (typeof value === 'string') return value;
-  if (is_valid_i18n_string(value)) {
-    throw new Error(`I18n templates are not valid in Macro ${mode} styles; migrate each language to a separate style`);
+  if (is_valid_macro_i18n_string(value)) {
+    if (mode !== 'text') throw new Error(`I18n templates are not valid in Macro ${mode} styles`);
+    return value;
   }
   if (typeof value === 'object' && value !== null) {
     throw new Error('invalid localized string');
@@ -93,5 +115,10 @@ export function macro_template_variants(
   mode: 'formula_inline' | 'formula_display' | 'text' | 'block',
   value: unknown
 ): string[] {
+  if (is_valid_macro_i18n_string(value)) {
+    if (mode !== 'text') throw new Error(`I18n templates are not valid in Macro ${mode} styles`);
+    return Object.values(value.values).filter((template): template is string => typeof template === 'string');
+  }
+  if (mode === 'text') return [normalize_macro_template('text', value) as string];
   return [normalize_macro_template(mode, value)];
 }

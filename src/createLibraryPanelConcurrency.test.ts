@@ -14,9 +14,11 @@ vi.mock('vscode', () => ({
 const graphReads: Array<{ resolve: (value: any) => void; promise: Promise<any> }> = [];
 const counterReads: Array<{ resolve: (value: any) => void; promise: Promise<any> }> = [];
 let operationMode = false;
+let graphWriteFailure: string | null = null;
 let operationGraph: { nodes: any[]; relationships: any[] } = { nodes: [], relationships: [] };
 let operationCounterMode = false;
 let operationCounters: any[] = [];
+let operationEntries: any[] = [];
 let createResult: any = { status: 'created', slug: 'new-library', title: 'New Library' };
 function deferred(queue: Array<{ resolve: (value: any) => void; promise: Promise<any> }>): Promise<any> {
   let resolve!: (value: any) => void;
@@ -26,13 +28,29 @@ function deferred(queue: Array<{ resolve: (value: any) => void; promise: Promise
 }
 
 vi.mock('./snlDoc', () => ({
-  addEntry: vi.fn(), createLibrary: vi.fn(async () => createResult), entityRevision: vi.fn(() => 'revision'), updateLibrary: vi.fn(),
+  addEntry: vi.fn(async (_root: unknown, entry: any) => {
+    operationEntries.push(structuredClone(entry));
+    return { status: 'ok', id: entry.id, revision: 'revision' };
+  }),
+  rollbackCreatedEntry: vi.fn(async (_root: unknown, id: string, revision: string) => {
+    if (revision !== 'revision') return { status: 'conflict', id, message: 'changed' };
+    operationEntries = operationEntries.filter((entry) => entry.id !== id);
+    return { status: 'ok', id };
+  }),
+  createLibrary: vi.fn(async () => createResult), entityRevision: vi.fn(() => 'revision'), updateLibrary: vi.fn(),
   writeLibraryCounters: vi.fn(async (_root: unknown, _slug: string, counters: any[]) => {
     operationCounters = structuredClone(counters);
   }),
-  writeLibraryGraph: vi.fn(async (_root: unknown, _slug: string, graph: any) => {
-    operationGraph = structuredClone(graph);
-    return { status: 'ok' };
+  mutateLibraryGraph: vi.fn(async (_root: unknown, _slug: string, mutate: (graph: any, transaction: any) => any) => {
+    const graph = structuredClone(operationGraph);
+    const rollbacks: Array<() => unknown> = [];
+    const decision = await mutate(graph, { onRollback: (action: () => unknown) => rollbacks.push(action) });
+    if (graphWriteFailure) {
+      for (const rollback of [...rollbacks].reverse()) await rollback();
+      return { status: 'error', message: graphWriteFailure };
+    }
+    if (decision) operationGraph = typeof decision === 'object' ? decision : graph;
+    return { status: 'ok', changed: Boolean(decision) };
   }),
   updateLibraryGraphNodeEntryId: vi.fn(async (_root: unknown, _slug: string, nodeId: string, expectedEntryId: string | null, entryId: string) => {
     const target = operationGraph.nodes.find((node) => node.id === nodeId);
@@ -89,7 +107,9 @@ vi.mock('./snlDoc', () => ({
     if (changed) operationCounters = roots;
     return { status: 'ok', changed };
   }),
-  readEntries: async () => [], readEntryKinds: async () => [], readAllMacros: async () => ({})
+  listLibraries: async () => [],
+  readEntries: async () => structuredClone(operationEntries),
+  readEntryKinds: async () => [], readAllMacros: async () => ({})
 }));
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '', firstWorkspaceFolder: () => ({ path: '/workspace' }),
@@ -99,7 +119,6 @@ vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) 
 vi.mock('./preferences', () => ({
   extension_preferences_runtime: { query_environment: () => ({ language: 'en' }) }
 }));
-vi.mock('./graphSiblingOrder', () => ({ moveGraphSibling: vi.fn() }));
 
 function panelHarness(prototype: object, posted: any[]): any {
   return Object.assign(Object.create(prototype), {
@@ -114,9 +133,11 @@ describe('CreateLibraryPanel refresh ordering', () => {
     graphReads.length = 0;
     counterReads.length = 0;
     operationMode = false;
+    graphWriteFailure = null;
     operationGraph = { nodes: [], relationships: [] };
     operationCounterMode = false;
     operationCounters = [];
+    operationEntries = [];
     createResult = { status: 'created', slug: 'new-library', title: 'New Library' };
   });
 
@@ -174,6 +195,26 @@ describe('CreateLibraryPanel refresh ordering', () => {
       panel.handleMessage({ type: 'graphOp', op: { op: 'addNode', parentId: null, entryId: 'entry-b', isStub: true } })
     ]);
     expect(operationGraph.nodes.map((node) => node.props.entryId).sort()).toEqual(['entry-a', 'entry-b']);
+  });
+
+  it('commits replacement arrays from delete and sibling-move operations', async () => {
+    const vscode = await import('vscode');
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce('Remove' as never);
+    operationMode = true;
+    operationGraph = {
+      nodes: ['a', 'b', 'c'].map((id) => ({ id, label: 'Entry', props: { entryId: id } })),
+      relationships: []
+    };
+    const panel = panelHarness(CreateLibraryPanel.prototype, []);
+
+    await panel.handleMessage({ type: 'graphOp', op: { op: 'deleteNode', nodeId: 'b' } });
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'moveSibling', nodeId: 'c', direction: 'up', toEdge: false }
+    });
+
+    expect(operationGraph.nodes.map((node) => node.id)).toEqual(['c', 'a']);
   });
 
   it('wraps an outline node with one atomic graph operation without reordering roots', async () => {
@@ -259,6 +300,31 @@ describe('CreateLibraryPanel refresh ordering', () => {
     });
   });
 
+  it('rolls back a newly created Entry when the graph commit fails', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    operationMode = true;
+    graphWriteFailure = 'injected graph CAS failure';
+    vi.mocked(snlDoc.addEntry).mockClear();
+    vi.mocked(snlDoc.rollbackCreatedEntry).mockClear();
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+
+    await panel.handleMessage({
+      type: 'graphOp',
+      op: { op: 'addNode', parentId: null, isStub: false, kind: 'theorem', title: 'Created' }
+    });
+
+    expect(snlDoc.addEntry).toHaveBeenCalledOnce();
+    const createdId = vi.mocked(snlDoc.addEntry).mock.calls[0][1].id;
+    expect(snlDoc.rollbackCreatedEntry).toHaveBeenCalledWith(
+      expect.anything(), createdId, 'revision'
+    );
+    expect(operationGraph.nodes).toEqual([]);
+    expect(operationEntries).toEqual([]);
+    expect(posted).toContainEqual({ type: 'graphError', message: 'injected graph CAS failure' });
+  });
+
   it('updates only the Entry indexed by a stable graph node', async () => {
     const snlDoc = await import('./snlDoc');
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
@@ -276,7 +342,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
     const posted: any[] = [];
     const panel = panelHarness(CreateLibraryPanel.prototype, posted);
     vi.mocked(snlDoc.updateLibraryGraphNodeEntryId).mockClear();
-    vi.mocked(snlDoc.writeLibraryGraph).mockClear();
+    vi.mocked(snlDoc.mutateLibraryGraph).mockClear();
 
     await panel.handleMessage({
       type: 'graphOp',
@@ -301,7 +367,7 @@ describe('CreateLibraryPanel refresh ordering', () => {
       'entry-a',
       'entry-c'
     );
-    expect(snlDoc.writeLibraryGraph).not.toHaveBeenCalled();
+    expect(snlDoc.mutateLibraryGraph).not.toHaveBeenCalled();
   });
 
   it('rejects an empty indexed Entry id without writing the graph', async () => {

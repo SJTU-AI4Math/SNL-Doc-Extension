@@ -68,7 +68,7 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: entityMode ? '0.0.6' : '0.0.4',
+          version: entityMode ? '0.0.8' : '0.0.4',
           active_macro_packages: entityMode ? [] : ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c' }],
           macro_kinds: [{ id: 'mk1', name: 'Operator' }],
@@ -119,7 +119,7 @@ vi.mock('vscode', () => {
             ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id, package: 'logic' } }
             : {
                 format: 'snl-entry', version: 1, package: 'logic',
-                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' } }
+                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' }, pointer: null }
               });
         }
         if (path.includes('/packages/')) {
@@ -591,6 +591,16 @@ describe('infoview panel read cost', () => {
       expect(readCounts[`${name}.json`], `${name}.json`).toBe(1);
     }
   });
+
+  it.each(['__proto__', 'constructor', 'toString', 'valueOf'])(
+    'does not dispatch an edit for absent prototype-colliding Macro %s',
+    async (name) => {
+      const send = await openBrowser();
+      reset();
+      await send({ type: 'editMacro', name });
+      expect(commands.map((command) => command.command)).not.toContain('snlDoc.editMacro');
+    }
+  );
 
   it('reads the macro packages concurrently when resolving a macro owner', async () => {
     const send = await openBrowser();

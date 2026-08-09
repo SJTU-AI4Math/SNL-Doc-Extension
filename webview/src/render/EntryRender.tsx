@@ -161,7 +161,9 @@ export function EntryRender({
           if (signal?.aborted) {
             throw signal.reason ?? new DOMException('Aborted', 'AbortError');
           }
-          return userMacros?.[macro_name] ?? null;
+          return userMacros && Object.hasOwn(userMacros, macro_name)
+            ? userMacros[macro_name] ?? null
+            : null;
         }
       }
     }),

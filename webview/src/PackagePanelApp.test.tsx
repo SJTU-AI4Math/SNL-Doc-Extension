@@ -27,7 +27,7 @@ describe('Macro package panel Chinese localization', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         type: 'package',
-        pkg: { version: '8', name: '示例包', description: '', macros: {} },
+        pkg: { version: '9', name: '示例包', description: '', macros: {} },
         file: 'sample', macros: [], workspaceMacros: {}, macroKinds: [],
         otherPackages: [], active: true, entryPoolIds: []
       }
@@ -47,12 +47,11 @@ describe('Macro package panel Chinese localization', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         type: 'package',
-        pkg: { version: '8', name: '示例包', macros: {} },
+        pkg: { version: '9', name: '示例包', macros: {} },
         file: 'sample',
         macros: [{
           name: 'alpha', description: 'dynamic data',
           source: { entries: [], urls: [] }, dynamic_arity: false,
-          default_style: { en: 'default' },
           styles: [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }],
           tags: []
         }],

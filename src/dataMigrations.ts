@@ -53,7 +53,8 @@ export function makeEntityStorageReceipt(
     macro_packages_digest: semanticDigest(packages)
   };
 }
-import { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';
+import { isSnlIdentifier } from './snlBasicsHostCompat';
+import { is_valid_macro_i18n_string } from './localizedContent';
 
 export interface WorkspaceDataSnapshot {
   config: Record<string, unknown>;
@@ -66,9 +67,11 @@ export interface WorkspaceDataSnapshot {
   macroEntities: Map<string, MacroEnvelope>;
 }
 
+export type MacroPackageSchemaVersion = '7' | '8' | '9' | '10';
+
 export interface WorkspaceMigrationContext {
   data: WorkspaceDataSnapshot;
-  canonicalizeMacroPackage(file: string, raw: unknown, targetVersion: '7' | '8'): unknown;
+  canonicalizeMacroPackage(file: string, raw: unknown, targetVersion: MacroPackageSchemaVersion): unknown;
 }
 
 export type WorkspaceDataInspection = {
@@ -104,10 +107,27 @@ function assertStringArray(value: unknown, path: string): asserts value is strin
   }
 }
 
-function assertCanonicalMacroPackage(
+function assertBackend(value: unknown, path: string): void {
+  if (!isRecord(value) || typeof value.built_in !== 'string' || !isRecord(value.synthesis) ||
+      (value.synthesis.mode !== 'formula' && value.synthesis.mode !== 'text') ||
+      typeof value.synthesis.macro !== 'string') {
+    throw new Error(`${path} must contain built_in and a valid synthesis { mode, macro }.`);
+  }
+}
+
+function macroTemplateVariants(mode: unknown, template: unknown): string[] {
+  if (typeof template === 'string') return [template];
+  if (mode !== 'text' || !is_valid_macro_i18n_string(template) || !isRecord(template)) return [];
+  const values = template.values;
+  return isRecord(values)
+    ? Object.values(values).filter((value): value is string => typeof value === 'string')
+    : [];
+}
+
+export function assertCanonicalMacroPackage(
   file: string,
   raw: unknown,
-  version: '7' | '8'
+  version: MacroPackageSchemaVersion
 ): asserts raw is Record<string, unknown> & { macros: Record<string, unknown> } {
   if (!isRecord(raw) || raw.version !== version || !isRecord(raw.macros)) {
     throw new Error(`${file} must be a canonical v${version} keyed Macro package.`);
@@ -117,20 +137,66 @@ function assertCanonicalMacroPackage(
       throw new Error(`${file}#macros[${JSON.stringify(macroName)}] is not a valid SNL identifier.`);
     }
     if (!isRecord(value)) throw new Error(`${file}#macros[${JSON.stringify(macroName)}] must be an object.`);
+    for (const styleOnly of [
+      'style_name', 'mode', 'template', 'separator', 'block_template_name',
+      'typst', 'latex', 'markdown', 'text',
+      'tag', 'variadic_left', 'variadic_join', 'variadic_right',
+      'react_renderer_key', 'display',
+      'arity', 'katex_react', 'defaultStyle'
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(value, styleOnly)) {
+        throw new Error(
+          `${file}#macros[${JSON.stringify(macroName)}].${styleOnly} is a recognized managed field not valid at Macro level in v${version}.`
+        );
+      }
+    }
     if (typeof value.description !== 'string' || typeof value.dynamic_arity !== 'boolean') {
       throw new Error(`${file}#macros[${JSON.stringify(macroName)}] has invalid required fields.`);
+    }
+    if (version === '10' &&
+        (typeof value.kind !== 'string' || value.kind.length === 0 || value.kind === 'partial')) {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].kind is not canonical Macro v10.`);
+    }
+    if ((version === '8' || version === '9') && value.kind !== undefined &&
+        (typeof value.kind !== 'string' || value.kind.length === 0)) {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].kind must be a non-empty string when present.`);
     }
     const source = value.source;
     if (!isRecord(source)) throw new Error(`${file}#macros[${JSON.stringify(macroName)}].source is required.`);
     assertStringArray(source.entries, `${file}#macros[${JSON.stringify(macroName)}].source.entries`);
     assertStringArray(source.urls, `${file}#macros[${JSON.stringify(macroName)}].source.urls`);
     assertStringArray(value.tags, `${file}#macros[${JSON.stringify(macroName)}].tags`);
+    if (value.tags.some((tag: string) => tag.includes('\\'))) {
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].tags may not contain backslashes.`);
+    }
     if (!Array.isArray(value.styles) || value.styles.length === 0) {
       throw new Error(`${file}#macros[${JSON.stringify(macroName)}].styles must be non-empty.`);
     }
     const names = new Set<string>();
     value.styles.forEach((styleValue, index) => {
       if (!isRecord(styleValue)) throw new Error(`${file} ${macroName} styles[${index}] must be an object.`);
+      for (const macroOnly of [
+        'kind', 'description', 'source', 'dynamic_arity', 'styles', 'default_style',
+        'arity', 'katex_react', 'defaultStyle'
+      ]) {
+        if (Object.prototype.hasOwnProperty.call(styleValue, macroOnly)) {
+          throw new Error(
+            `${file} ${macroName} styles[${index}].${macroOnly} is a Macro-only managed field.`
+          );
+        }
+      }
+      if (version === '9' || version === '10') {
+        for (const retired of [
+          'tag', 'variadic_left', 'variadic_join', 'variadic_right',
+          'react_renderer_key', 'display'
+        ]) {
+          if (Object.prototype.hasOwnProperty.call(styleValue, retired)) {
+            throw new Error(
+              `${file} ${macroName} styles[${index}].${retired} is a retired managed field not valid in v${version}.`
+            );
+          }
+        }
+      }
       const styleName = styleValue.style_name;
       if (typeof styleName !== 'string' || !isSnlIdentifier(styleName) || names.has(styleName)) {
         throw new Error(`${file} ${macroName} styles[${index}].style_name is invalid or duplicated.`);
@@ -139,13 +205,34 @@ function assertCanonicalMacroPackage(
       if (!['formula_inline', 'formula_display', 'text', 'block'].includes(String(styleValue.mode))) {
         throw new Error(`${file} ${macroName} styles[${index}].mode is invalid.`);
       }
-      if (typeof styleValue.template !== 'string') {
+      const templateValid = typeof styleValue.template === 'string' ||
+        (version !== '8' && styleValue.mode === 'text' &&
+          is_valid_macro_i18n_string(styleValue.template));
+      if (!templateValid) {
         throw new Error(
-          `${file} ${macroName} styles[${index}].template must be a string; ` +
-          'split localized Macro templates manually before migration.'
+          `${file} ${macroName} styles[${index}].template must be a string` +
+          (version !== '8' && styleValue.mode === 'text' ? ' or a valid I18n value.' : '.')
         );
       }
+      const variants = macroTemplateVariants(styleValue.mode, styleValue.template);
+      if (variants.length === 0 || variants.some((template) => template.trim().length === 0)) {
+        throw new Error(`${file} ${macroName} styles[${index}].template must be non-empty.`);
+      }
+      if (value.dynamic_arity && variants.some((template) => !template.includes('#*'))) {
+        throw new Error(`${file} ${macroName} styles[${index}].template must contain #* for a dynamic Macro.`);
+      }
       assertStringArray(styleValue.tags, `${file} ${macroName} styles[${index}].tags`);
+      if (styleValue.tags.some((tag: string) => tag.includes('\\'))) {
+        throw new Error(`${file} ${macroName} styles[${index}].tags may not contain backslashes.`);
+      }
+      if (styleValue.typst !== undefined) assertBackend(styleValue.typst, `${file} ${macroName} styles[${index}].typst`);
+      if (styleValue.latex !== undefined) assertBackend(styleValue.latex, `${file} ${macroName} styles[${index}].latex`);
+      if (styleValue.markdown !== undefined && typeof styleValue.markdown !== 'string') {
+        throw new Error(`${file} ${macroName} styles[${index}].markdown must be a string.`);
+      }
+      if (styleValue.text !== undefined && typeof styleValue.text !== 'string') {
+        throw new Error(`${file} ${macroName} styles[${index}].text must be a string.`);
+      }
       if (styleValue.separator !== undefined && typeof styleValue.separator !== 'string') {
         throw new Error(`${file} ${macroName} styles[${index}].separator must be a string.`);
       }
@@ -160,9 +247,11 @@ function assertCanonicalMacroPackage(
       }
       for (const [language, styleName] of Object.entries(value.default_style)) {
         if (!language.trim() || typeof styleName !== 'string' || !names.has(styleName)) {
-          throw new Error(`${file} ${macroName}.default_style[${JSON.stringify(language)}] is invalid.`);
+          throw new Error(`${file} ${macroName}.default_style contains an invalid language or style.`);
         }
       }
+    } else if ((version === '9' || version === '10') && value.default_style !== undefined) {
+      throw new Error(`${file} ${macroName}.default_style is not valid in Macro package v${version}.`);
     }
   }
 }
@@ -304,7 +393,11 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
       throw new Error(`entries.json contains duplicate Entry identity ${JSON.stringify(value.id)}.`);
     }
     entryIds.add(value.id);
-    const entry = { ...value, package: UNPACKAGED_PACKAGE_ID };
+    const entry = {
+      ...value,
+      pointer: value.pointer ?? null,
+      package: UNPACKAGED_PACKAGE_ID
+    };
     addUnique(
       entryEntities,
       entryEntityPath(UNPACKAGED_PACKAGE_ID, value.id),
@@ -424,6 +517,74 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
   };
 }
 
+function migrate006To007MacroV9(context: WorkspaceMigrationContext): void {
+  for (const [path, envelope] of context.data.macroEntities) {
+    const macroName = envelope.macro.name;
+    if (typeof macroName !== 'string' || !macroName) {
+      throw new Error(`${path} Macro entity is missing its name.`);
+    }
+    const { name: _name, ...macro } = envelope.macro;
+    const sourcePackage = {
+      version: '8',
+      name: envelope.package,
+      macros: { [macroName]: macro }
+    };
+    assertCanonicalMacroPackage(path, sourcePackage, '8');
+    const canonical = context.canonicalizeMacroPackage(path, sourcePackage, '9');
+    assertCanonicalMacroPackage(path, canonical, '9');
+    const migrated = Object.hasOwn(canonical.macros, macroName)
+      ? canonical.macros[macroName]
+      : undefined;
+    if (!isRecord(migrated)) {
+      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v9 migration.`);
+    }
+    context.data.macroEntities.set(path, {
+      ...envelope,
+      macro: { ...migrated, name: macroName }
+    });
+  }
+}
+
+function migrate007To008MacroV10(context: WorkspaceMigrationContext): void {
+  for (const [path, envelope] of context.data.macroEntities) {
+    const macroName = envelope.macro.name;
+    if (typeof macroName !== 'string' || !macroName) {
+      throw new Error(`${path} Macro entity is missing its name.`);
+    }
+    const { name: _name, ...macro } = envelope.macro;
+    const sourcePackage = {
+      version: '9',
+      name: envelope.package,
+      macros: { [macroName]: macro }
+    };
+    assertCanonicalMacroPackage(path, sourcePackage, '9');
+    const v10Macro = {
+      ...macro,
+      kind: macro.kind === 'partial'
+        ? 'sub'
+        : typeof macro.kind === 'string' && macro.kind.length > 0
+          ? macro.kind
+          : 'const'
+    };
+    const canonical = context.canonicalizeMacroPackage(path, {
+      version: '9',
+      name: envelope.package,
+      macros: { [macroName]: v10Macro }
+    }, '10');
+    assertCanonicalMacroPackage(path, canonical, '10');
+    const migrated = Object.hasOwn(canonical.macros, macroName)
+      ? canonical.macros[macroName]
+      : undefined;
+    if (!isRecord(migrated)) {
+      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v10 migration.`);
+    }
+    context.data.macroEntities.set(path, {
+      ...envelope,
+      macro: { ...migrated, name: macroName }
+    });
+  }
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -454,6 +615,18 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.6',
     description: 'Split aggregate Entries and Macros into stable per-entity package storage.',
     migrate: async (context) => { migrate005To006EntityStorage(context); }
+  },
+  {
+    from: '0.0.6',
+    to: '0.0.7',
+    description: 'Upgrade Macro entities to package schema v9 localized text styles.',
+    migrate: async (context) => { migrate006To007MacroV9(context); }
+  },
+  {
+    from: '0.0.7',
+    to: '0.0.8',
+    description: 'Upgrade Macro entities to package schema v10 canonical semantic kinds.',
+    migrate: async (context) => { migrate007To008MacroV10(context); }
   }
 ];
 
@@ -524,10 +697,18 @@ export function inspectWorkspaceData(config: unknown): WorkspaceDataInspection {
   }
 }
 
-export function assertWorkspaceDataWritable(config: unknown): void {
+export function assertWorkspaceDataWritable(
+  config: unknown,
+  options: { allowPendingMigration?: boolean } = {}
+): void {
   const inspection = inspectWorkspaceData(config);
   if (inspection.status === 'missing') {
     throw new Error('.SNL_Doc/config.json does not exist.');
+  }
+  if (inspection.status === 'needsMigration' && !options.allowPendingMigration) {
+    throw new Error(
+      `Workspace data ${inspection.currentVersion} requires migration to ${CURRENT_DATA_VERSION} before ordinary writes.`
+    );
   }
   if (inspection.status === 'future' || inspection.status === 'invalid') {
     throw new Error(inspection.message);
@@ -667,7 +848,7 @@ export async function migrateWorkspaceSnapshot(
   canonicalizeMacroPackage: (
     file: string,
     raw: unknown,
-    targetVersion: '7' | '8'
+    targetVersion: MacroPackageSchemaVersion
   ) => unknown
 ): Promise<DataMigrationReport<WorkspaceMigrationContext>> {
   const inspection = inspectWorkspaceData(source.config);

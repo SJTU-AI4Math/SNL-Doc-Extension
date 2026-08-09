@@ -43,6 +43,7 @@ import {
 } from './components/draftState';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
+import { is_i18n, read_localized } from '@sjtu-ai4math/snl-basics/runtime';
 import './create-macro.css';
 import {
   tryParseSnlSyntaxTree,
@@ -53,13 +54,14 @@ import {
   type SnlMacroStyle,
   type SnlSyntaxTree,
   type SnlRenderHooks,
-  type KindPalette
+  type Localized
 } from '@sjtu-ai4math/snl-basics';
 import {
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
 import { extensionRenderers } from './render/blockRenderers';
+import { macroKindsToPalette } from './render/macroKindPalette';
 import {
   useVsCodeApiRef,
   PANEL_STYLE
@@ -81,6 +83,11 @@ import {
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { BUILT_IN_LANGUAGE_CATALOG } from '../../src/languageCatalog';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import {
+  LocalizedEditScope,
+  useLocalizedBinding,
+  useLocalizedEditLanguage
+} from './components/LocalizedEditScope';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
   'createMacro',
@@ -164,14 +171,14 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     addStyle: '+ Add style',
     removeStyle: 'Remove style {style}',
     duplicateStyleTags: 'Duplicate style tags — each style tag must be unique.',
-    fallbackHelp: '★ = final fallback (styles[0]). Implicit rendering first uses the current language mapping, then English, then this fallback. Explicit [style] always wins.',
-    defaultStyleByLanguage: 'Default style by language',
+    fallbackHelp: '★ = the sole implicit default (styles[0]). Explicit [style] always wins; language changes only the selected text style’s localized template.',
+    localizedExplicit: 'Explicit translation',
+    localizedFallback: 'Fallback from {language}',
+    localizedInvariant: 'Language-invariant value',
+    localizedMissing: 'Missing translation',
+    clearTranslation: 'Delete this translation',
+    localizedModeConfirm: 'Changing this localized text Style to a structural mode keeps only the currently selected {language} projection and deletes its other translations. Continue?',
     language: 'Language',
-    defaultStyleForLanguage: 'Default style for {language}',
-    useStylesZero: 'Use styles[0]',
-    useEnglishStylesZero: 'Use English / styles[0]',
-    languagePlaceholder: 'Language tag, e.g. fr',
-    addLanguage: '+ Add language',
     renderPreset: 'Render preset',
     presetNone: '— none —',
     customKey: 'Custom key…',
@@ -279,14 +286,14 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     addStyle: '+ 添加样式',
     removeStyle: '移除样式 {style}',
     duplicateStyleTags: '样式标签重复；每个样式标签必须唯一。',
-    fallbackHelp: '★ = 最终回退样式（styles[0]）。隐式渲染会依次使用当前语言映射、英语映射和此回退样式；显式 [style] 始终优先。',
-    defaultStyleByLanguage: '按语言设置默认样式',
+    fallbackHelp: '★ = 唯一隐式默认样式（styles[0]）。显式 [style] 始终优先；切换语言只会选择当前文本样式内的本地化模板。',
+    localizedExplicit: '当前语言的显式翻译',
+    localizedFallback: '回退自 {language}',
+    localizedInvariant: '与语言无关的值',
+    localizedMissing: '缺少翻译',
+    clearTranslation: '删除当前翻译',
+    localizedModeConfirm: '将这个本地化文本样式切换为结构模式，只会保留当前选择的 {language} 投影，并删除其他翻译。是否继续？',
     language: '语言',
-    defaultStyleForLanguage: '{language}的默认样式',
-    useStylesZero: '使用 styles[0]',
-    useEnglishStylesZero: '使用英语映射 / styles[0]',
-    languagePlaceholder: '语言标签，例如 fr',
-    addLanguage: '+ 添加语言',
     renderPreset: '渲染预设',
     presetNone: '— 无 —',
     customKey: '自定义键…',
@@ -339,7 +346,6 @@ function previewPlaceholderMacro(label: string): SnlMacro {
     description: 'SNL preview placeholder',
     source: { entries: [], urls: [] },
     dynamic_arity: false,
-    default_style: { en: 'default' },
     tags: [],
     styles: [
       {
@@ -359,6 +365,24 @@ function previewPlaceholderMacro(label: string): SnlMacro {
 type Mode = 'formula_inline' | 'formula_display' | 'text' | 'block';
 type SynthesisMode = 'formula' | 'text';
 
+function localizedTemplate(value: Localized<string, string>, language: string): string {
+  return read_localized(value)({ language });
+}
+
+function mapLocalizedTemplate(
+  value: Localized<string, string>,
+  map: (template: string) => string
+): Localized<string, string> {
+  if (!is_i18n(value)) return map(value);
+  return {
+    ...value,
+    values: Object.fromEntries(Object.entries(value.values).map(([language, template]) => [
+      language,
+      template === undefined ? undefined : map(template)
+    ]))
+  };
+}
+
 const MODE_MESSAGE_KEYS: Record<Mode, 'modeFormulaInline' | 'modeFormulaDisplay' | 'modeText' | 'modeBlock'> = {
   formula_inline: 'modeFormulaInline',
   formula_display: 'modeFormulaDisplay',
@@ -376,7 +400,7 @@ interface StyleDraft {
   latex_synthesis_extensions: Record<string, unknown>;
   style_name: string;
   mode: Mode;
-  template: string;
+  template: Localized<string, string>;
   template_left: string;
   separator: string;
   template_right: string;
@@ -401,7 +425,6 @@ interface MacroEditorDraft {
   macroTags: string[];
   kind: string;
   styles: StyleDraft[];
-  defaultStyle: Record<string, string>;
   originalRevision?: string;
 }
 
@@ -431,11 +454,11 @@ function newStyleDraft(styleName: string): StyleDraft {
   };
 }
 
-/** Serialize a draft to strict Macro v8 storage. */
+/** Serialize a draft to strict Macro v9 storage. */
 function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
-  const templateString = dynamicArity
+  const invariantTemplate = dynamicArity
     ? `${s.template_left}#*${s.template_right}`
-    : (s.template || (s.mode === 'block' ? '#*' : ''));
+    : (localizedTemplate(s.template, 'en') || (s.mode === 'block' ? '#*' : ''));
   const common = {
     ...s.extensions,
     style_name: s.style_name,
@@ -462,14 +485,19 @@ function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnl
     markdown: s.markdown,
     text: s.text
   };
-  if (s.mode === 'text') return { ...common, mode: 'text', template: templateString };
+  if (s.mode === 'text') return { ...common, mode: 'text', template: s.template };
+  if (s.mode === 'block') {
+    return {
+      ...common,
+      mode: 'block',
+      template: invariantTemplate,
+      ...(s.block_template_name ? { block_template_name: s.block_template_name } : {})
+    };
+  }
   return {
     ...common,
     mode: s.mode,
-    template: templateString,
-    ...(s.mode === 'block' && s.block_template_name
-      ? { block_template_name: s.block_template_name }
-      : {})
+    template: invariantTemplate
   };
 }
 
@@ -515,7 +543,6 @@ interface ExtendedSnlMacro {
   source: { [key: string]: unknown; entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
-  default_style: Record<string, string>;
   styles: ExtendedSnlMacroStyle[];
   tags: string[];
 }
@@ -672,7 +699,8 @@ export function CreateMacroApp(): React.ReactElement {
   // implicit default (marked ★). `activeStyle` is the style currently being
   // edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
-  const [defaultStyle, setDefaultStyle] = useState<Record<string, string>>({ en: 'default' });
+  const outerLanguage = webview_language_runtime.query_environment().language;
+  const [templateLanguage, setTemplateLanguage] = useState(outerLanguage);
   const [activeStyle, setActiveStyle] = useState(0);
 
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
@@ -698,19 +726,42 @@ export function CreateMacroApp(): React.ReactElement {
   }
 
   function changeStyleMode(mode: Mode): void {
+    const selected = styles[activeStyle];
+    if (mode !== 'text' && selected && is_i18n(selected.template)) {
+      const confirmed = window.confirm(t('localizedModeConfirm', {
+        language: languageDisplayName(templateLanguage)
+      }));
+      if (!confirmed) return;
+      const template = localizedTemplate(selected.template, templateLanguage);
+      if (dynamicArity) {
+        const dynamicTemplate = template.includes('#*') ? template : `${template}#*`;
+        const marker = dynamicTemplate.indexOf('#*');
+        patchStyle({
+          mode,
+          template: dynamicTemplate,
+          template_left: dynamicTemplate.slice(0, marker),
+          template_right: dynamicTemplate.slice(marker + 2)
+        });
+      } else {
+        patchStyle({ mode, template });
+      }
+      return;
+    }
     patchStyle({ mode });
   }
 
   /** Keep pass-through fields current even when a restored visible draft wins. */
   function absorbHydratedMacroBase(existing: ExtendedSnlMacro): void {
+    const { default_style: _legacyDefaultStyle, ...current } = existing as ExtendedSnlMacro & {
+      default_style?: Record<string, string>;
+    };
     hydratedMacroBaseRef.current = {
-      ...existing,
+      ...current,
       source: {
         ...(existing.source ?? {}),
         entries: [...(existing.source?.entries ?? [])],
         urls: [...(existing.source?.urls ?? [])]
       },
-      default_style: { ...(existing.default_style ?? {}) },
       styles: (existing.styles ?? []).map((style) => ({ ...style })),
       tags: [...(existing.tags ?? [])]
     };
@@ -725,7 +776,6 @@ export function CreateMacroApp(): React.ReactElement {
     setMacroTags(draft.macroTags.slice());
     setKind(draft.kind);
     setStyles(draft.styles.map((style) => ({ ...style, tags: style.tags.slice() })));
-    setDefaultStyle({ ...draft.defaultStyle });
     setActiveStyle(0);
     setActiveTab('katex_template');
     editingNameRef.current = draft.name;
@@ -754,11 +804,6 @@ export function CreateMacroApp(): React.ReactElement {
     setDynamicArity(!!existing.dynamic_arity);
     setKind(existing.kind ?? '');
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
-    setDefaultStyle(
-      existing.default_style && typeof existing.default_style === 'object'
-        ? { ...existing.default_style }
-        : { en: existing.styles?.[0]?.style_name ?? 'default' }
-    );
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => {
           const raw = s as unknown as Record<string, unknown>;
@@ -788,7 +833,8 @@ export function CreateMacroApp(): React.ReactElement {
             ? s.latex.synthesis as unknown as Record<string, unknown> : {};
           const { mode: _latexMode, macro: _latexMacro, ...latexSynthesisExtensions } = latexSynthesisRaw;
           const template = s.template;
-          const marker = template.indexOf('#*');
+          const invariantTemplate = localizedTemplate(template, 'en');
+          const marker = invariantTemplate.indexOf('#*');
           return {
         extensions,
         typst_extensions: typstExtensions,
@@ -798,9 +844,9 @@ export function CreateMacroApp(): React.ReactElement {
         style_name: s.style_name || 'default',
         mode: s.mode,
         template,
-        template_left: marker >= 0 ? template.slice(0, marker) : '',
+        template_left: marker >= 0 ? invariantTemplate.slice(0, marker) : '',
         separator: s.separator ?? '',
-        template_right: marker >= 0 ? template.slice(marker + 2) : '',
+        template_right: marker >= 0 ? invariantTemplate.slice(marker + 2) : '',
         block_template_name: s.block_template_name ?? '',
         tags: s.tags.slice(),
         typst_built_in: s.typst?.built_in ?? '',
@@ -985,7 +1031,6 @@ export function CreateMacroApp(): React.ReactElement {
       macroTags,
       kind,
       styles,
-      defaultStyle,
       originalRevision: macroRevisionRef.current
     } satisfies MacroEditorDraft,
     draftKey.length > 0 && formDirtyRef.current
@@ -1019,23 +1064,27 @@ export function CreateMacroApp(): React.ReactElement {
         tags: extended.tags
       };
       if (extended.mode === 'text') {
-        return { ...base, mode: 'text', template: extended.template };
+        return { ...base, mode: 'text', template: localizedTemplate(extended.template, templateLanguage) };
+      }
+      if (extended.mode === 'block') {
+        return {
+          ...base,
+          mode: 'block',
+          template: extended.template,
+          ...(extended.block_template_name
+            ? { block_template_name: extended.block_template_name }
+            : {})
+        };
       }
       return {
         ...base,
         mode: extended.mode,
-        template: extended.template,
-        ...(extended.mode === 'block' && extended.block_template_name
-          ? { block_template_name: extended.block_template_name }
-          : {})
+        template: extended.template
       };
     });
     const previewStyles = styleList.length > 0
       ? styleList
       : [{ style_name: 'default', mode: 'formula_inline' as const, template: '', tags: [] }];
-    const activeName = previewStyles[Math.min(activeStyle, previewStyles.length - 1)]?.style_name
-      ?? previewStyles[0].style_name;
-    const language = webview_language_runtime.query_environment().language;
     return {
       name: DRAFT_KEY,
       description: '',
@@ -1043,30 +1092,18 @@ export function CreateMacroApp(): React.ReactElement {
       dynamic_arity: dynamicArity,
       kind: kind || undefined,
       tags: [],
-      default_style: { ...defaultStyle, en: defaultStyle.en ?? previewStyles[0].style_name, [language]: activeName },
       styles: previewStyles
     };
-  }, [dynamicArity, kind, styles, activeStyle, defaultStyle, preferencesRevision]);
+  }, [dynamicArity, kind, styles, preferencesRevision, templateLanguage]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
   // DEFAULT_KIND_PALETTE (SnlSyntaxTreeView merges over the defaults) when the
   // user hasn't initialized any macro kinds.
-  const kindPalette: KindPalette | undefined = useMemo(() => {
-    if (macroKinds.length === 0) {
-      return undefined;
-    }
-    const palette: KindPalette = {};
-    for (const k of macroKinds) {
-      if (/^[A-Za-z0-9_-]+$/.test(k.id)) {
-        palette[k.id] = {
-          stroke: k.coloring.stroke,
-          background: k.coloring.background
-        };
-      }
-    }
-    return palette;
-  }, [macroKinds]);
+  const kindPalette = useMemo(
+    () => macroKindsToPalette(macroKinds),
+    [macroKinds]
+  );
 
   const previewMacroRecord: MacroRecord = useMemo(
     () => ({
@@ -1092,13 +1129,14 @@ export function CreateMacroApp(): React.ReactElement {
 
   // --- Arg slots -----------------------------------------------------------
 
+  const currentTemplate = localizedTemplate(current?.template ?? '', templateLanguage);
   const argCount = useMemo(() => {
     if (dynamicArity) {
       return Math.min(Math.max(variadicArgCount, 0), MAX_MACRO_PREVIEW_ARGS);
     }
-    const derived = maxMacroTemplateChildIndex(current?.template ?? '') + 1;
+    const derived = maxMacroTemplateChildIndex(currentTemplate) + 1;
     return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
-  }, [dynamicArity, variadicArgCount, current]);
+  }, [dynamicArity, variadicArgCount, currentTemplate]);
 
   const parseErrors = useMemo(() => {
     const errs: (string | null)[] = [];
@@ -1117,7 +1155,7 @@ export function CreateMacroApp(): React.ReactElement {
   const draftTree: SnlSyntaxTree = useMemo(() => {
     // Empty template → show the "SNL Macro Preview" placeholder root so users
     // don't see the raw internal `_snl_draft` name (猫猫 req).
-    if ((current?.template ?? '').trim().length === 0) {
+    if (currentTemplate.trim().length === 0) {
       return {
         macro_name: PREVIEW_PLACEHOLDER_KEY,
         kind: '',
@@ -1135,8 +1173,12 @@ export function CreateMacroApp(): React.ReactElement {
         children.push(macroPreviewArgumentNode(i));
       }
     }
-    return { macro_name: DRAFT_KEY, kind: '', mdata: null, children };
-  }, [argCount, previewArgs, current?.template]);
+    return {
+      macro_name: DRAFT_KEY,
+      style_name: current?.style_name,
+      kind: '', mdata: null, children
+    };
+  }, [argCount, previewArgs, currentTemplate, current?.style_name]);
 
   // --- Validation ----------------------------------------------------------
 
@@ -1147,15 +1189,19 @@ export function CreateMacroApp(): React.ReactElement {
   const isDuplicate =
     panelMode === 'edit' ? false : existingNames.includes(exactName);
   const defaultStyleDraft = styles[0];
-  const templateEmpty = (defaultStyleDraft?.template ?? '').trim().length === 0;
+  const defaultTemplates = defaultStyleDraft
+    ? is_i18n(defaultStyleDraft.template)
+      ? Object.values(defaultStyleDraft.template.values).filter(
+          (template): template is string => template !== undefined
+        )
+      : [defaultStyleDraft.template]
+    : [];
+  const templateEmpty = defaultTemplates.length === 0 ||
+    defaultTemplates.some((template) => template.trim().length === 0);
   const tagList = styles.map((s) => s.style_name);
   const hasEmptyTag = tagList.some((t) => t.length === 0);
   const hasInvalidTag = tagList.some((t) => !isSnlIdentifier(t));
   const hasDupTag = new Set(tagList).size !== tagList.length;
-  const styleNames = new Set(tagList);
-  const hasInvalidDefaultStyle = Object.values(defaultStyle).some(
-    (styleName) => !styleNames.has(styleName)
-  );
   const canCreate =
     targetState !== 'notFound' &&
     exactName.length > 0 &&
@@ -1165,7 +1211,6 @@ export function CreateMacroApp(): React.ReactElement {
     !hasEmptyTag &&
     !hasInvalidTag &&
     !hasDupTag &&
-    !hasInvalidDefaultStyle &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
@@ -1206,9 +1251,8 @@ export function CreateMacroApp(): React.ReactElement {
         entries: sourceEntries.map((s) => s.trim()).filter((s) => s.length > 0),
         urls: sourceUrls.map((s) => s.trim()).filter((s) => s.length > 0)
       },
-      kind: kind || undefined,
+      kind: kind || 'const',
       dynamic_arity: dynamicArity,
-      default_style: { ...defaultStyle },
       styles: styleList,
       tags: trimmedMacroTags
     };
@@ -1355,11 +1399,6 @@ export function CreateMacroApp(): React.ReactElement {
         setActiveStyle={setActiveStyle}
         patchStyle={patchStyle}
         hasDupTag={hasDupTag}
-        defaultStyle={defaultStyle}
-        setDefaultStyle={(next) => {
-          markFormDirty();
-          setDefaultStyle(next);
-        }}
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
@@ -1380,8 +1419,7 @@ export function CreateMacroApp(): React.ReactElement {
             onClick={() => setActiveTab(tab.id)}
           >
             {t(tab.messageKey)}
-            {tab.id === 'katex_template' &&
-            (current?.template ?? '').trim().length === 0
+            {tab.id === 'katex_template' && currentTemplate.trim().length === 0
               ? ' *'
               : ''}
           </TabButton>
@@ -1411,7 +1449,7 @@ export function CreateMacroApp(): React.ReactElement {
             <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
               <PreviewBoundary
                 key={
-                  (current?.template ?? '') +
+                  currentTemplate +
                   dynamicArity +
                   (current?.mode ?? '') +
                   (current?.style_name ?? '') +
@@ -1440,6 +1478,24 @@ export function CreateMacroApp(): React.ReactElement {
               // "delimiter 和 separator 在 block mode 下应该是没有用的,
               // 那就给它删掉."
               null
+            ) : current?.mode === 'text' ? (
+              <LocalizedEditScope
+                initialLanguage={outerLanguage}
+                availableLanguages={[...new Set([
+                  'en', 'zh-CN',
+                  ...(is_i18n(current.template) ? Object.keys(current.template.values) : [])
+                ])]}
+                onLanguageChange={setTemplateLanguage}
+              >
+                <LocalizedTemplateEditor
+                  value={current.template}
+                  onChange={(template) => patchStyle({ template })}
+                  placeholder={t('katexPlaceholder', { arg0: '#0', arg1: '#1' })}
+                  dynamicArity={dynamicArity}
+                  separator={current.separator}
+                  onSeparator={(separator) => patchStyle({ separator })}
+                />
+              </LocalizedEditScope>
             ) : dynamicArity ? (
               <DynamicArityTemplateRow
                 left={current?.template_left ?? ''}
@@ -1451,7 +1507,7 @@ export function CreateMacroApp(): React.ReactElement {
               />
             ) : (
               <textarea
-                value={current?.template ?? ''}
+                value={currentTemplate}
                 onChange={(e) => patchStyle({ template: e.target.value })}
                 placeholder={t('katexPlaceholder', { arg0: '#0', arg1: '#1' })}
                 rows={4}
@@ -1530,26 +1586,35 @@ export function CreateMacroApp(): React.ReactElement {
               const next = e.target.checked;
               markFormDirty();
               setDynamicArity(next);
-              // When toggling ON: the UI hides the template textarea and only
-              // exposes left/sep/right, so we pin every style's template to
-              // '#*' so the render pipeline emits a dynamic-arity node.
-              // When toggling OFF: clear '#*' back to '' so the empty-template
-              // validation trips and the user is prompted to author a fixed
-              // template. Preserves user text when it's already something
-              // non-#* (unusual but possible if imported).
-              setStyles((prev) =>
-                prev.map((s) => {
-                  if (next) {
-                    return s.template.trim() === '' ||
-                      s.template.trim() === '#*'
-                      ? { ...s, template: '#*' }
-                      : s;
-                  }
-                  return s.template.trim() === '#*'
-                    ? { ...s, template: '' }
-                    : s;
-                }),
-              );
+              // When toggling ON: compose a #* template and synchronize the
+              // formula-mode left/right projection fields before the textarea is
+              // replaced by the dynamic editor. Text-mode projections are
+              // transformed independently. When toggling OFF, compose the latest
+              // delimiter edits back into the invariant formula template.
+              setStyles((prev) => prev.map((style) => {
+                if (style.mode === 'text') {
+                  return {
+                    ...style,
+                    template: mapLocalizedTemplate(style.template, (template) => {
+                      if (next) return template.includes('#*') ? template : `${template}#*`;
+                      return template === '#*' ? '' : template;
+                    })
+                  };
+                }
+                if (next) {
+                  const template = localizedTemplate(style.template, 'en');
+                  const dynamicTemplate = template.includes('#*') ? template : `${template}#*`;
+                  const marker = dynamicTemplate.indexOf('#*');
+                  return {
+                    ...style,
+                    template: dynamicTemplate,
+                    template_left: dynamicTemplate.slice(0, marker),
+                    template_right: dynamicTemplate.slice(marker + 2)
+                  };
+                }
+                const dynamicTemplate = `${style.template_left}#*${style.template_right}`;
+                return { ...style, template: dynamicTemplate === '#*' ? '' : dynamicTemplate };
+              }));
             }}
           />
           {t('dynamicArity')}
@@ -2537,15 +2602,80 @@ function MacroLanguageSelector({
   );
 }
 
+function LocalizedTemplateEditor({
+  value,
+  onChange,
+  placeholder,
+  dynamicArity,
+  separator,
+  onSeparator
+}: {
+  value: Localized<string, string>;
+  onChange(value: Localized<string, string>): void;
+  placeholder: string;
+  dynamicArity: boolean;
+  separator: string;
+  onSeparator(value: string): void;
+}): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
+  const local = useLocalizedEditLanguage();
+  const binding = useLocalizedBinding({ value, onChange, defaultLanguage: 'en' });
+  const status = binding.state === 'explicit'
+    ? t('localizedExplicit')
+    : binding.state === 'fallback'
+      ? t('localizedFallback', { language: languageDisplayName(binding.sourceLanguage ?? '') })
+      : binding.state === 'invariant'
+        ? t('localizedInvariant')
+        : t('localizedMissing');
+  const projection = binding.explicitValue ?? binding.resolvedValue ?? '';
+  const marker = projection.indexOf('#*');
+  const dynamicLeft = marker >= 0 ? projection.slice(0, marker) : projection;
+  const dynamicRight = marker >= 0 ? projection.slice(marker + 2) : '';
+  const setDynamicTemplate = (left: string, right: string): void => {
+    binding.setValue(`${left}#*${right}`);
+  };
+  return <div>
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center',
+      justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+      <MacroLanguageSelector
+        languages={[...local.availableLanguages]}
+        value={local.language}
+        label={t('language')}
+        onChange={local.setLanguage}
+      />
+      <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{status}</span>
+      {binding.canClear ? <Button size="sm" onClick={binding.clearValue}>
+        {t('clearTranslation')}
+      </Button> : null}
+    </div>
+    {dynamicArity ? (
+      <DynamicArityTemplateRow
+        left={dynamicLeft}
+        sep={separator}
+        right={dynamicRight}
+        onLeft={(left) => setDynamicTemplate(left, dynamicRight)}
+        onSep={onSeparator}
+        onRight={(right) => setDynamicTemplate(dynamicLeft, right)}
+      />
+    ) : (
+      <textarea
+        value={projection}
+        onChange={(event) => binding.setValue(event.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        style={{ ...inputStyle, width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
+      />
+    )}
+  </div>;
+}
+
 function StylesEditor({
   styles,
   setStyles,
   activeStyle,
   setActiveStyle,
   patchStyle,
-  hasDupTag,
-  defaultStyle,
-  setDefaultStyle
+  hasDupTag
 }: {
   styles: StyleDraft[];
   setStyles: React.Dispatch<React.SetStateAction<StyleDraft[]>>;
@@ -2553,230 +2683,67 @@ function StylesEditor({
   setActiveStyle: (i: number) => void;
   patchStyle: (patch: Partial<StyleDraft>) => void;
   hasDupTag: boolean;
-  defaultStyle: Record<string, string>;
-  setDefaultStyle: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const current = styles[activeStyle] ?? styles[0];
-  const [newLanguage, setNewLanguage] = useState('');
-  const [i18nOpen, setI18nOpen] = useState(false);
-  const [selectedDefaultLanguage, setSelectedDefaultLanguage] = useState('en');
 
   const addStyle = (): void => {
-    const existing = new Set(styles.map((s) => s.style_name));
-    let n = styles.length;
-    let tag = `style${n}`;
-    while (existing.has(tag)) {
-      n += 1;
-      tag = `style${n}`;
-    }
-    setStyles([...styles, newStyleDraft(tag)]);
+    const existing = new Set(styles.map((style) => style.style_name));
+    let index = styles.length;
+    let name = `style${index}`;
+    while (existing.has(name)) name = `style${++index}`;
+    setStyles([...styles, newStyleDraft(name)]);
     setActiveStyle(styles.length);
   };
 
-  const removeStyle = (i: number): void => {
-    if (styles.length <= 1) {
-      return;
-    }
-    const next = styles.filter((_, idx) => idx !== i);
-    const removedName = styles[i].style_name;
+  const removeStyle = (index: number): void => {
+    if (styles.length <= 1) return;
+    const next = styles.filter((_, candidate) => candidate !== index);
     setStyles(next);
-    setDefaultStyle((currentDefaults) => Object.fromEntries(
-      Object.entries(currentDefaults).map(([language, styleName]) => [
-        language,
-        styleName === removedName ? next[0].style_name : styleName
-      ])
-    ));
-    const newActive = Math.min(activeStyle, next.length - 1);
-    setActiveStyle(Math.max(newActive, 0));
+    setActiveStyle(Math.max(0, Math.min(activeStyle, next.length - 1)));
   };
 
-  /** Move style at index i one slot toward index 0 (the default position). */
-  const moveUp = (i: number): void => {
-    if (i <= 0) return;
+  const moveUp = (index: number): void => {
+    if (index <= 0) return;
     const next = styles.slice();
-    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
     setStyles(next);
-    // Keep the active-tab pointing at the SAME style after the swap.
-    if (activeStyle === i) setActiveStyle(i - 1);
-    else if (activeStyle === i - 1) setActiveStyle(i);
+    if (activeStyle === index) setActiveStyle(index - 1);
+    else if (activeStyle === index - 1) setActiveStyle(index);
   };
 
-  /** Commit a rename issued from a StyleSwitch's inline editor. */
-  const renameStyleAt = (i: number, next: string): void => {
-    const previousName = styles[i].style_name;
-    setStyles((prev) => prev.map((s, idx) => (idx === i ? { ...s, style_name: next } : s)));
-    setDefaultStyle((currentDefaults) => Object.fromEntries(
-      Object.entries(currentDefaults).map(([language, styleName]) => [
-        language,
-        styleName === previousName ? next : styleName
-      ])
-    ));
-  };
-
-  return (
-    <>
-      <SectionHeader title={t('styles')} />
-      <div
-        role="group"
-        aria-label={t('styles')}
-        style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}
-      >
-        {styles.map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
-            <StyleSwitch
-              tag={s.style_name}
-              active={i === activeStyle}
-              isDefault={i === 0}
-              onSelect={() => setActiveStyle(i)}
-              onRename={(next) => renameStyleAt(i, next)}
-            />
-            {i > 0 ? (
-              <IconButton
-                icon="move-up"
-                label={t('moveEarlier')}
-                size="sm"
-                onClick={() => moveUp(i)}
-              />
-            ) : null}
-            {styles.length > 1 ? (
-              <IconButton
-                icon="delete"
-                label={t('removeStyle', { style: s.style_name || t('emptyStyle') })}
-                variant="destructive"
-                size="sm"
-                onClick={() => removeStyle(i)}
-              />
-            ) : null}
-          </div>
-        ))}
-        <Button size="sm" onClick={addStyle}>{t('addStyle')}</Button>
-      </div>
-
-      {hasDupTag ? (
-        <p
-          style={{
-            margin: '0 0 0.5rem',
-            fontSize: '0.8rem',
-            color: 'var(--vscode-errorForeground, #f48771)'
-          }}
-        >
-          {t('duplicateStyleTags')}
-        </p>
-      ) : null}
-
-      <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
-        {t('fallbackHelp')}
-      </p>
-
-      <div
-        style={{
-          marginBottom: '0.75rem',
-          border: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))',
-          borderRadius: '4px',
-          padding: '0.55rem 0.65rem'
-        }}
-      >
-        <Disclosure
-          expanded={i18nOpen}
-          controls="macro-default-style-i18n"
-          onToggle={() => setI18nOpen((value) => !value)}
-          style={{ width: '100%', justifyContent: 'flex-start', padding: 0 }}
-        >
-          {t('defaultStyleByLanguage')}
-        </Disclosure>
-        {i18nOpen ? (
-          <div id="macro-default-style-i18n" style={{ marginTop: '0.65rem' }}>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(8rem, auto) minmax(12rem, 1fr)',
-                gap: '0.5rem',
-                alignItems: 'end',
-                marginBottom: '0.55rem'
-              }}
-            >
-              <div>
-                <div style={{ ...labelStyle, marginBottom: '0.3rem' }}>{t('language')}</div>
-                <MacroLanguageSelector
-                  languages={[...new Set([
-                    'en',
-                    'zh-CN',
-                    ...Object.keys(defaultStyle),
-                    selectedDefaultLanguage
-                  ])]}
-                  value={selectedDefaultLanguage}
-                  label={t('language')}
-                  onChange={setSelectedDefaultLanguage}
-                />
-              </div>
-              <label style={{ ...labelStyle, margin: 0 }}>
-                {t('defaultStyleForLanguage', {
-                  language: languageDisplayName(selectedDefaultLanguage)
-                })}
-                <select
-                  aria-label={t('defaultStyleForLanguage', {
-                    language: languageDisplayName(selectedDefaultLanguage)
-                  })}
-                  value={defaultStyle[selectedDefaultLanguage] ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setDefaultStyle((currentDefaults) => {
-                      const next = { ...currentDefaults };
-                      if (value) next[selectedDefaultLanguage] = value;
-                      else delete next[selectedDefaultLanguage];
-                      return next;
-                    });
-                  }}
-                  style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.3rem' }}
-                >
-                  <option value="">
-                    {t(selectedDefaultLanguage === 'en' ? 'useStylesZero' : 'useEnglishStylesZero')}
-                  </option>
-                  {styles.map((style) => (
-                    <option key={style.style_name} value={style.style_name}>{style.style_name}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-              <input
-                value={newLanguage}
-                placeholder={t('languagePlaceholder')}
-                onChange={(event) => setNewLanguage(event.target.value)}
-                style={{ ...inputStyle, width: '12rem' }}
-              />
-              <Button size="sm" onClick={() => {
-                const language = newLanguage.trim();
-                if (!language || Object.prototype.hasOwnProperty.call(defaultStyle, language)) return;
-                setDefaultStyle((currentDefaults) => ({ ...currentDefaults, [language]: styles[0].style_name }));
-                setSelectedDefaultLanguage(language);
-                setNewLanguage('');
-              }}>{t('addLanguage')}</Button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {/* React renderer preset — only for `block` mode. Text mode goes
-          through the LaTeX pipeline (\text{...} + nested $...$) and has
-          no React renderer dispatch, so the key would be dead data.
-
-          Cat 2026-07-10: turned the raw text input into a preset
-          dropdown listing the four SNL-Basics built-in block renderers
-          (list / enumerate / table / centered). "Custom" reveals the
-          freeform input for consumer-registered keys. The point is to
-          make it trivial to build semantically-distinct macros —
-          `axioms`, `steps`, `proof-cases` — that all pick the same
-          `enumerate` render preset: same visual, different data. */}
-      {current?.mode === 'block' ? (
-        <BlockRendererPresetControl
-          value={current?.block_template_name ?? ''}
-          onChange={(v) => patchStyle({ block_template_name: v })}
+  return <>
+    <SectionHeader title={t('styles')} />
+    <div role="group" aria-label={t('styles')}
+      style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+      {styles.map((style, index) => <div key={index}
+        style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+        <StyleSwitch
+          tag={style.style_name}
+          active={index === activeStyle}
+          isDefault={index === 0}
+          onSelect={() => setActiveStyle(index)}
+          onRename={(name) => setStyles((previous) => previous.map((candidate, candidateIndex) =>
+            candidateIndex === index ? { ...candidate, style_name: name } : candidate))}
         />
-      ) : null}
-    </>
-  );
+        {index > 0 ? <IconButton icon="move-up" label={t('moveEarlier')} size="sm"
+          onClick={() => moveUp(index)} /> : null}
+        {styles.length > 1 ? <IconButton icon="delete"
+          label={t('removeStyle', { style: style.style_name || t('emptyStyle') })}
+          variant="destructive" size="sm" onClick={() => removeStyle(index)} /> : null}
+      </div>)}
+      <Button size="sm" onClick={addStyle}>{t('addStyle')}</Button>
+    </div>
+    {hasDupTag ? <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem',
+      color: 'var(--vscode-errorForeground, #f48771)' }}>{t('duplicateStyleTags')}</p> : null}
+    <p style={{ margin: '0 0 0.5rem', fontSize: '0.78rem', opacity: 0.6 }}>
+      {t('fallbackHelp')}
+    </p>
+    {current?.mode === 'block' ? <BlockRendererPresetControl
+      value={current.block_template_name ?? ''}
+      onChange={(value) => patchStyle({ block_template_name: value })}
+    /> : null}
+  </>;
 }
 
 /**

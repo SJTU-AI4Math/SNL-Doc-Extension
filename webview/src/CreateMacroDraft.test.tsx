@@ -26,7 +26,6 @@ function macro(name: string, description: string, template = '\\host'): Record<s
     description,
     source: { entries: [], urls: [] },
     dynamic_arity: false,
-    default_style: { en: 'default' },
     tags: [],
     styles: [{ style_name: 'default', template, mode: 'formula_inline', tags: [] }]
   };

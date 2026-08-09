@@ -23,7 +23,6 @@ const macro = (name: string, sources: string[]): MacroPackageEntry => ({
   description: '',
   source: { entries: sources, urls: [] },
   dynamic_arity: false,
-  default_style: {},
   styles: [],
   tags: []
 });

@@ -32,16 +32,16 @@ describe('localized persistence boundaries', () => {
     expect(() => localized_string_or_undefined(localized, false)).toThrow(/language-invariant/);
   });
 
-  it('requires plain strings for every Macro template mode', () => {
+  it('accepts localized text Macro templates and rejects them in structural modes', () => {
     expect(normalize_macro_template('formula_inline', '#0')).toBe('#0');
     expect(normalize_macro_template('text', '#0 is a group')).toBe('#0 is a group');
-    expect(() => normalize_macro_template('text', localized)).toThrow(/separate style/);
-    expect(() => normalize_macro_template('formula_inline', localized)).toThrow(/separate style/);
+    expect(normalize_macro_template('text', localized)).toEqual(localized);
+    expect(() => normalize_macro_template('formula_inline', localized)).toThrow(/not valid/);
   });
 
-  it('exposes the single invariant template for validation', () => {
+  it('exposes every localized text projection for validation', () => {
     expect(macro_template_variants('formula_inline', '#0')).toEqual(['#0']);
-    expect(() => macro_template_variants('text', localized)).toThrow(/separate style/);
+    expect(macro_template_variants('text', localized)).toEqual(['Group', '群']);
   });
 
   it('computes a stable placeholder signature', () => {
@@ -49,16 +49,21 @@ describe('localized persistence boundaries', () => {
     expect(template_placeholder_signature('all: #*')).toBe('#*');
   });
 
-  it('accepts a partial map whose declared default is absent', () => {
-    expect(localized_string_or_undefined({
-      type: 'i18n',
+  it('accepts a partial Entry map but rejects it as a Macro Template', () => {
+    const partial = {
+      type: 'i18n' as const,
       default_language: 'en',
       values: { 'zh-CN': '条目' }
-    }, true)).toEqual({
-      type: 'i18n',
-      default_language: 'en',
-      values: { 'zh-CN': '条目' }
-    });
+    };
+    expect(localized_string_or_undefined(partial, true)).toEqual(partial);
+    expect(() => normalize_macro_template('text', partial)).toThrow(/invalid localized string/);
+    expect(() => macro_template_variants('text', partial)).toThrow(/invalid localized string/);
+  });
+
+  it('rejects an inherited Macro default projection', () => {
+    const values = Object.assign(Object.create({ fr: 'Héritée' }), { en: 'English' });
+    const inheritedDefault = { type: 'i18n' as const, default_language: 'fr', values };
+    expect(() => normalize_macro_template('text', inheritedDefault)).toThrow(/invalid localized string/);
   });
 
   it('rejects malformed I18n instead of silently deleting it', () => {

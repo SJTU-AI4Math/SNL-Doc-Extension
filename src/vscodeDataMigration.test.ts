@@ -161,7 +161,7 @@ describe('VS Code workspace data migration adapter', () => {
       version: '6', name: 'Logic', macros: { x: { styles: [] } }
     });
     put('/ws/.SNL_Doc/entries.json', [
-      { id: 'Set.mem', kind: 'theorem', title: 'Membership' }
+      { id: 'Set.mem', kind: 'theorem', title: 'Membership', content: { snl: '' } }
     ]);
     const root = vscode.Uri.file('/ws');
     expect((await inspectWorkspaceDataVersion(root)).status).toBe('needsMigration');
@@ -172,12 +172,13 @@ describe('VS Code workspace data migration adapter', () => {
         x: {
           description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
           ...(version === '8' ? { default_style: { en: 'default' } } : {}),
+          ...(version === '10' ? { kind: 'const' } : {}),
           styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
         }
       }
     }));
-    expect(report.to).toBe('0.0.6');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.6' });
+    expect(report.to).toBe('0.0.8');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.8' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 
@@ -186,7 +187,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.6',
+      version: '0.0.8',
       entry_kinds: [],
       macro_kinds: [],
       active_macro_packages: ['Logic'],
@@ -202,11 +203,13 @@ describe('VS Code workspace data migration adapter', () => {
         makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')],
       [packageManifestPath('Logic'), makePackageManifest('Logic', 'Logic', '')],
       [entryEntityPath('Logic', 'entry.one'),
-        makeEntryEnvelope('Logic', { id: 'entry.one', package: 'Logic', title: 'One' })],
+        makeEntryEnvelope('Logic', {
+          id: 'entry.one', package: 'Logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
+        })],
       [macroEntityPath('Logic', 'logic.one'),
         makeMacroEnvelope('Logic', {
           name: 'logic.one', description: '', source: { entries: [], urls: [] },
-          dynamic_arity: false, default_style: { en: 'default' }, tags: [],
+          kind: 'const', dynamic_arity: false, tags: [],
           styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
         })]
     ]);
@@ -229,7 +232,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.6', entry_kinds: [], macro_kinds: [],
+      version: '0.0.8', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,
@@ -252,7 +255,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.6', entry_kinds: [], macro_kinds: [],
+      version: '0.0.8', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,

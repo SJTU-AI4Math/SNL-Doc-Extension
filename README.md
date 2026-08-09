@@ -131,33 +131,40 @@ SNL-Basics checkout, then `npm run build:webview` here.
 ## Macro package schema
 
 The extension reads historical macro packages through an explicit migration
-boundary and exposes only Macro v8 values at runtime. In v8, styles use
+boundary and exposes only Macro v10 values at runtime. In v10, styles use
 `style_name`, dynamic templates contain `#*` with optional `separator`, block
-renderers use `block_template_name`, all templates are strings, and each macro
-has a language-to-style `default_style` map. Implicit selection is current
-language → English → `styles[0]`; explicit `[style]` always wins.
-Any package write emits version `8`; plain-string older input is upgraded
-without discarding consumer output backends or unknown extension fields. Macro
-and style names use SNL-Basics' shared Unicode identifier policy: visible
-non-ASCII is accepted broadly, while ASCII punctuation outside the grammar
-allow-list and invisible Unicode controls are rejected. A v7
-localized Macro template requires manual splitting because v8 cannot preserve
-the language-dependent meaning of existing explicit `[style]` source.
+renderers use `block_template_name`, every Macro has a non-empty semantic
+`kind`, and `styles[0]` is the sole implicit default. Explicit `[style]` always
+wins. Text styles may localize their Template with an I18N value; formula and
+block Templates remain invariant strings. Locale therefore resolves text
+inside the already-selected Style and never changes Style identity, arity,
+mode, backend, or separator.
+
+Any package write emits version `10`. Historical v7 and published-v8 input is
+upgraded without discarding consumer output backends or unknown extension
+fields: v8→v9 merges a valid language-to-Style default map into a localized
+text Template, and v9→v10 adds the canonical semantic `kind` (`partial` becomes
+`sub`; a missing legacy kind becomes `const`; other non-empty kinds are
+preserved). A v8 language map is merged only when its mapped text Styles are
+structurally equivalent; incompatible maps are rejected rather than silently
+changing rendering. Macro and style names use SNL-Basics' shared Unicode
+identifier policy: visible non-ASCII is accepted broadly, while ASCII
+punctuation outside the grammar allow-list and invisible Unicode controls are
+rejected.
 
 ## I18n and user preferences
 
 Locale, theme, and motion preferences are VS Code Extension Settings and are
 adapted to SNL-Basics through query-initialized `ReaderRuntime` instances.
-Macro templates are invariant strings; natural-language variants are separate
-styles selected by `default_style`. Non-SNL Entry content may still be an
-invariant string or serialized language map. See [docs/i18n-preferences.md](docs/i18n-preferences.md)
-for the ownership boundary, schema, hot-update protocol, and verification rules.
+Text-mode Macro Templates and non-SNL Entry content may be invariant strings or
+serialized language maps. Formula and block Macro Templates remain invariant.
+See [docs/i18n-preferences.md](docs/i18n-preferences.md) for the ownership boundary, schema, hot-update protocol, and verification rules.
 
 ## Macro naming rule (enforced by SNL-Basics parser)
 
-Macro names must match `[A-Za-z0-9_.]+`. No hyphens, no other punctuation.
-This is because KaTeX's `\htmlData{name=...}` and `\htmlClass{...}` treat `-`
-as binary minus and mangle the attribute value. Use camelCase for compound
-suffixes: `DivRing.div.inlineDiv`, not `DivRing.div.inline-div`. The same
-applies to `kind=` values and CSS classes handed to KaTeX (e.g.
-`kind=argPlaceholder`, `\htmlClass{snlArgPlaceholder}`).
+Macro names are accepted only when `@sjtu-ai4math/snl-basics/core` reports a
+valid SNL identifier. This is a Unicode-aware grammar, not an ASCII regular
+expression: visible non-ASCII identifiers and grammar-supported punctuation
+are valid, while whitespace, invisible controls, and SNL syntax delimiters in
+identifier positions are rejected. Consumers must call the shared parser
+rather than duplicating or narrowing its policy.

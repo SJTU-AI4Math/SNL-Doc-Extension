@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   addEntry,
+  rollbackCreatedEntry,
   createLibrary,
   entityRevision,
   mutateLibraryCounters,
@@ -14,7 +15,7 @@ import {
   updateLibraryGraphNodeEntryId,
   updateLibrary,
   wrapLibraryGraphNodeWithParent,
-  writeLibraryGraph,
+  mutateLibraryGraph,
   type CounterNode,
   type GraphNodeDto,
   type GraphRelationshipDto
@@ -707,25 +708,13 @@ export class CreateLibraryPanel {
         await this.pushGraph();
         return;
       }
-      // Read → mutate → write in one shot. readLibraryGraph tolerates
-      // no-file by returning noFile; treat it as empty and write fresh.
-      const gRead = await readLibraryGraph(root, this.slug);
-      let nodes: GraphNodeDto[] = [];
-      let relationships: GraphRelationshipDto[] = [];
-      if (gRead.status === 'ok') {
-        nodes = gRead.result.graph.nodes.slice();
-        relationships = gRead.result.graph.relationships.slice();
-      } else if (gRead.status === 'error') {
-        void this.panel.webview.postMessage({
-          type: 'graphError',
-          message: gRead.message
-        });
-        return;
-      }
-
-      switch (op.op) {
-        case 'addNode':
-        case 'wrapNode': {
+      const graphMutation = await mutateLibraryGraph(
+        root,
+        this.slug,
+        async ({ nodes, relationships }, transaction) => {
+          switch (op.op) {
+            case 'addNode':
+            case 'wrapNode': {
           const parentId =
             typeof op.parentId === 'string' ? op.parentId : null;
           const wrapTargetId =
@@ -814,14 +803,15 @@ export class CreateLibraryPanel {
               return;
             }
             entryUuid = generateUuid();
-            const addRes = await addEntry(root, {
+            const createdEntry = {
               id: entryUuid,
               kind,
               title,
               content: {},
               contribution_info: null,
               pointer: null
-            });
+            };
+            const addRes = await addEntry(root, createdEntry);
             if (addRes.status !== 'ok') {
               const message =
                 addRes.status === 'invalid'
@@ -839,6 +829,16 @@ export class CreateLibraryPanel {
               });
               return;
             }
+            const createdEntryId = entryUuid;
+            transaction.onRollback(async () => {
+              const rollback = await rollbackCreatedEntry(root, createdEntryId, addRes.revision);
+              if (rollback.status !== 'ok') {
+                throw new Error(
+                  `Could not roll back Entry ${createdEntryId}: ` +
+                  ('message' in rollback ? rollback.message : rollback.status)
+                );
+              }
+            });
           }
           // Insert the graph node + branch edge.
           const nodeLocalId = generateLocalId(nodes);
@@ -1124,22 +1124,21 @@ export class CreateLibraryPanel {
         default:
           void this.panel.webview.postMessage({
             type: 'graphError',
-            message: libraryT()('unknownGraphOp', { op: op.op })
+            message: libraryT()('unknownGraphOp', { op: String(op.op ?? '') })
           });
           return;
       }
-
-      const writeRes = await writeLibraryGraph(root, this.slug, {
-        nodes,
-        relationships
-      });
-      if (writeRes.status !== 'ok') {
+          return { nodes, relationships };
+        }
+      );
+      if (graphMutation.status !== 'ok') {
         void this.panel.webview.postMessage({
           type: 'graphError',
-          message: writeRes.message
+          message: graphMutation.message
         });
         return;
       }
+      if (!graphMutation.changed) return;
       // Refresh the webview with the new state.
       await this.pushGraph();
     } catch (err) {

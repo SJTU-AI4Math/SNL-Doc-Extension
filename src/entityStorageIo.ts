@@ -1,3 +1,5 @@
+import { is_valid_i18n_string } from './localizedContent';
+import { assertCanonicalMacroPackage } from './dataMigrations';
 import {
   ENTRY_STORAGE_VERSION,
   MACRO_STORAGE_VERSION,
@@ -128,6 +130,24 @@ function assertExpectedPath(actual: string, expected: string): void {
   }
 }
 
+function assertCanonicalEntryPayload(path: string, entry: Record<string, unknown>): void {
+  if (typeof entry.kind !== 'string' || !entry.kind ||
+      typeof entry.title !== 'string' || !isRecord(entry.content) ||
+      !Object.hasOwn(entry, 'pointer')) {
+    throw new Error(`${path} has an invalid canonical Entry payload.`);
+  }
+  if (entry.content.snl !== undefined && typeof entry.content.snl !== 'string') {
+    throw new Error(`${path}#entry.content.snl must be a string.`);
+  }
+  for (const field of ['typst', 'latex', 'markdown', 'text'] as const) {
+    const value = entry.content[field];
+    if (value !== undefined &&
+        typeof value !== 'string' && !is_valid_i18n_string(value)) {
+      throw new Error(`${path}#entry.content.${field} must be a valid localized string.`);
+    }
+  }
+}
+
 function validateEntryEntity(
   path: string,
   value: unknown,
@@ -142,6 +162,7 @@ function validateEntryEntity(
   if (value.entry.package !== value.package) {
     throw new Error(`${path} Entry package disagrees with its envelope package.`);
   }
+  assertCanonicalEntryPayload(path, value.entry);
   assertExpectedPath(path, entryEntityPath(value.package, value.entry.id));
   if (expectedIdentity &&
       (value.package !== expectedIdentity.package || value.entry.id !== expectedIdentity.id)) {
@@ -234,7 +255,10 @@ export async function readPackageManifestRecords(storage: EntityReadStorage): Pr
   return records.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
 }
 
-export async function readMacroEntityRecords(storage: EntityReadStorage): Promise<MacroEntityRecord[]> {
+export async function readMacroEntityRecords(
+  storage: EntityReadStorage,
+  schemaVersion: '8' | '9' | '10' = '10'
+): Promise<MacroEntityRecord[]> {
   const records: MacroEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'macros')) {
@@ -244,6 +268,11 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
       throw new Error(`${path} is not a valid SNL Macro envelope.`);
     }
     assertExpectedPath(path, macroEntityPath(value.package, value.macro.name));
+    assertCanonicalMacroPackage(path, {
+      version: schemaVersion,
+      name: value.package,
+      macros: { [value.macro.name]: value.macro }
+    }, schemaVersion);
     const identity = `${value.package}\0${value.macro.name}`;
     if (ids.has(identity)) throw new Error(`Duplicate Macro identity ${JSON.stringify(identity)}.`);
     ids.add(identity);
@@ -253,12 +282,13 @@ export async function readMacroEntityRecords(storage: EntityReadStorage): Promis
 }
 
 export async function readEntityStorageSnapshot(
-  storage: EntityReadStorage
+  storage: EntityReadStorage,
+  macroSchemaVersion: '8' | '9' | '10' = '10'
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),
     readEntryEntityRecords(storage),
-    readMacroEntityRecords(storage)
+    readMacroEntityRecords(storage, macroSchemaVersion)
   ]);
   return Object.freeze({
     packages: Object.freeze(packages),

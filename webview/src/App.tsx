@@ -264,7 +264,7 @@ export function App(): React.ReactElement {
         // Fragments can embed workspace images too. Reuse the harvest so
         // their srcs are rewritten and their assets collected exactly like
         // the body's, rather than a second near-copy of that logic.
-        const popovers: Record<string, string> = {};
+        const popovers = Object.create(null) as Record<string, string>;
         const extra: typeof assets = [];
         for (const [entryId, fragment] of Object.entries(closure.fragments)) {
           const holder = document.createElement('div');

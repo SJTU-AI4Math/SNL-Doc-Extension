@@ -192,9 +192,9 @@ describe('Inductive editor arity auto-fill', () => {
     expect(latest()).toBe('styled@entry-b[compact]');
   });
 
-  it('preserves binder, context, Style, children, and recursive context ordering', async () => {
+  it('preserves delimited Macro, context, Style, children, and recursive context ordering', async () => {
     const { view, latest } = renderEditor(
-      'root(@$x$@entry-a[compact](child@entry-b))',
+      'root($x$@entry-a[compact](child@entry-b))',
       [
         { id: 'entry-a', title: 'Entry A', hasContent: true },
         { id: 'entry-b', title: 'Entry B', hasContent: true }
@@ -204,14 +204,14 @@ describe('Inductive editor arity auto-fill', () => {
       expect(view.getAllByRole('combobox', { name: 'Context Entry ID' })).toHaveLength(2)
     );
     const macroInputs = view.getAllByRole('textbox') as HTMLInputElement[];
-    expect(macroInputs.map((input) => input.value)).toEqual(['root', '@$x$', 'child']);
+    expect(macroInputs.map((input) => input.value)).toEqual(['root', '$x$', 'child']);
 
     const contexts = view.getAllByRole('combobox', {
       name: 'Context Entry ID'
     }) as HTMLInputElement[];
     expect(contexts.map((input) => input.value)).toEqual(['entry-a', 'entry-b']);
     fireEvent.change(contexts[1], { target: { value: 'entry-a' } });
-    expect(latest()).toBe('root(@$x$@entry-a[compact](child@entry-a))');
+    expect(latest()).toBe('root($x$@entry-a[compact](child@entry-a))');
   });
 
   it('distinguishes authored binder @ from annotate-bind occurrences during edits', async () => {

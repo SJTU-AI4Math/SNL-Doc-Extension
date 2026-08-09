@@ -1116,7 +1116,7 @@ export class InfoviewPanel {
     // order, which is exactly what this loop's last-write-wins did.
     // Cat 2026-07-25: panels felt slow.
     const { origin } = await readAllMacrosWithOrigin(root);
-    return origin[name] ?? null;
+    return Object.hasOwn(origin, name) ? origin[name] : null;
   }
 
   public dispose(): void {

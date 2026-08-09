@@ -13,14 +13,14 @@ function seedCurrentTopology(): void {
       name,
       description: '',
       source: { entries: [], urls: [] },
+      kind: 'const',
       dynamic_arity: false,
-      default_style: { en: 'default' },
       styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
       tags: []
     }));
   }
   jsonByPath.set('config.json', {
-    version: '0.0.6',
+    version: '0.0.8',
     macro_kinds: [],
     active_macro_packages: packageIds
   });
@@ -123,7 +123,7 @@ vi.mock('./snlDoc', async (importOriginal) => {
     readPackagePanelSnapshot: async () => {
       state.snapshotCalls += 1;
       return {
-        selected: { status: 'ok', pkg: { version: '8', name: 'Current', macros: {} }, macros: [] },
+        selected: { status: 'ok', pkg: { version: '9', name: 'Current', macros: {} }, macros: [] },
         workspaceMacros: {},
         macroKinds: [],
         active: ['current', 'alpha', 'beta'],
@@ -219,7 +219,7 @@ describe('PackagePanel read cost', () => {
   it('folds collisions deterministically in file order and exposes the winning origin', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.6', macro_kinds: [], active_macro_packages: ['core', 'core-extra']
+      version: '0.0.8', macro_kinds: [], active_macro_packages: ['core', 'core-extra']
     });
     for (const id of ['core', 'core-extra']) {
       jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
@@ -227,8 +227,8 @@ describe('PackagePanel read cost', () => {
         name: 'Shared.name',
         description: id,
         source: { entries: [], urls: [] },
+        kind: 'const',
         dynamic_arity: false,
-        default_style: { en: 'default' },
         styles: [{ style_name: 'default', mode: 'formula_inline', template: id, tags: [] }],
         tags: []
       }));
@@ -254,14 +254,13 @@ describe('PackagePanel read cost', () => {
     });
     for (const id of legacyIds) {
       jsonByPath.set(`term_macros/${id}.json`, {
-        version: '8',
+        version: '9',
         name: id.toUpperCase(),
         macros: {
           [`macro.${id}`]: {
             description: '',
             source: { entries: [], urls: [] },
             dynamic_arity: false,
-            default_style: { en: 'default' },
             styles: [{ style_name: 'default', mode: 'formula_inline', template: id, tags: [] }],
             tags: []
           }
@@ -301,7 +300,7 @@ describe('PackagePanel read cost', () => {
 
   it('fails closed when a configured active package has no manifest', async () => {
     jsonByPath.set('config.json', {
-      version: '0.0.6',
+      version: '0.0.8',
       macro_kinds: [],
       active_macro_packages: [...packageIds, 'missing-active']
     });
@@ -318,8 +317,8 @@ describe('PackagePanel read cost', () => {
       name,
       description: '',
       source: { entries: [], urls: [] },
+      kind: 'const',
       dynamic_arity: false,
-      default_style: { en: 'default' },
       styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
       tags: []
     }));

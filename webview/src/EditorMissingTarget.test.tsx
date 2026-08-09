@@ -83,8 +83,7 @@ describe('editor missing-target terminal states', () => {
       workspaceMacros: {}, macroKinds: [], entries: [], prefill: null
     };
     await send({ ...base, existing: {
-      name: 'macro-gone', description: '', source: { entries: [], urls: [] }, dynamic_arity: false,
-      default_style: { en: 'default' }, styles: [{ style_name: 'default', mode: 'text', template: '', tags: [] }], tags: []
+      name: 'macro-gone', description: '', source: { entries: [], urls: [] }, dynamic_arity: false, styles: [{ style_name: 'default', mode: 'text', template: '', tags: [] }], tags: []
     } });
     expect(await view.findByLabelText(/Name/)).not.toBeNull();
     await send({ ...base, targetState: 'notFound', existing: null });

@@ -34,6 +34,7 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher
 } from './panelUtil';
 import { countPanelOpen, startTrace, type Trace } from './trace';
+import { readPopoverEntry } from './popoverEntryReader';
 
 /**
  * Rough serialized size of a context payload, for tracing only. The exact
@@ -60,7 +61,10 @@ function estimateSize(payload: unknown): string {
  *  - in  : `{ type: 'ready' }` (asks for context)
  *        | `{ type: 'create', entry: EntryData }`
  *        | `{ type: 'update', entry: Omit<EntryData,'id'> }` (id is the panel key)
+ *        | `{ type: 'requestEntryDetails', entryId, entryPackage, popoverRequestKey }`
  *  - out : `{ type: 'context', mode, kinds, existing? }`
+ *        | `{ type: 'popoverEntryDetails' | 'popoverEntryDetailsError',
+ *             entryId, popoverRequestKey, ... }`
  *        | `{ type: 'created' | 'updated' | 'duplicate' | 'unknownKind'
  *            | 'notFound' | 'invalid' | 'noSnlDoc' | 'noWorkspace'
  *            | 'error', ... }`
@@ -456,6 +460,55 @@ export class CreateEntryPanel {
     return false;
   }
 
+  private async pushPopoverEntryDetails(
+    entryId: string,
+    entryPackage: string | undefined,
+    popoverRequestKey: string
+  ): Promise<void> {
+    const root = firstWorkspaceFolder();
+    if (!root) {
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId,
+        popoverRequestKey,
+        message: hostText()('noWorkspace')
+      });
+      return;
+    }
+    try {
+      const [entry, kinds] = await Promise.all([
+        readPopoverEntry(root, entryPackage, entryId),
+        listEntryKinds(root)
+      ]);
+      if (!entry) {
+        await this.panel.webview.postMessage({
+          type: 'popoverEntryDetails',
+          entryId,
+          popoverRequestKey,
+          entry: null,
+          kind: null
+        });
+        return;
+      }
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetails',
+        entryId,
+        popoverRequestKey,
+        entry,
+        kind: kinds.find((kind) => kind.id === entry.kind) ?? null
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.panel.webview.postMessage({
+        type: 'popoverEntryDetailsError',
+        entryId,
+        popoverRequestKey,
+        message
+      });
+      vscode.window.showErrorMessage(hostText()('loadFailed', { error: message }));
+    }
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     // Timing marks reported by the webview itself — mount, first paint —
     // folded into the same timeline as the host stages so the whole open
@@ -499,6 +552,25 @@ export class CreateEntryPanel {
     }
     if (msg.type === 'ready') {
       await this.pushContext();
+      return;
+    }
+    if (msg.type === 'requestEntryDetails') {
+      const request = message as {
+        entryId?: unknown;
+        entryPackage?: unknown;
+        popoverRequestKey?: unknown;
+      };
+      if (typeof request.entryId !== 'string' || !request.entryId ||
+          typeof request.popoverRequestKey !== 'string' || !request.popoverRequestKey) {
+        return;
+      }
+      await this.pushPopoverEntryDetails(
+        request.entryId,
+        typeof request.entryPackage === 'string' && request.entryPackage
+          ? request.entryPackage
+          : undefined,
+        request.popoverRequestKey
+      );
       return;
     }
     if (msg.type === 'createPackage') {

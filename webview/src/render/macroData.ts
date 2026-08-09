@@ -16,8 +16,10 @@ export function createMacroDataDriver(...records: Array<MacroRecord | null | und
           throw signal.reason ?? new DOMException('Aborted', 'AbortError');
         }
         for (let i = records.length - 1; i >= 0; i -= 1) {
-          const macro = records[i]?.[macro_name];
-          if (macro) return macro;
+          const record = records[i];
+          if (record && Object.hasOwn(record, macro_name)) {
+            return record[macro_name] ?? null;
+          }
         }
         return null;
       }

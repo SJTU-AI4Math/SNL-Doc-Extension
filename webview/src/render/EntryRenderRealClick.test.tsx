@@ -31,21 +31,21 @@ describe('EntryRender real dependency click pinning', () => {
     const userMacros: MacroRecord = {
       Ref: {
         name: 'Ref', description: '', source: { entries: ['child'], urls: [] },
-        dynamic_arity: false, default_style: { en: 'default' }, tags: [],
+        dynamic_arity: false, tags: [],
         styles: [{ style_name: 'default', mode: 'formula_inline', template: '\\mathrm{Ref}', tags: [] }]
       }
     };
     const view = render(
       <HoverPopoverProvider
         postMessage={vi.fn()}
-        entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '' }]}
+        entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
         localDetails={{ child: { entry: child, kind: null }}}
         userMacros={userMacros}
       >
         <EntryRender
           entry={{ ...root, content: { snl: 'Ref()' } }}
           kind={null}
-          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '' }]}
+          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
           postMessage={vi.fn()}
           userMacros={userMacros}
         />
@@ -68,13 +68,13 @@ describe('EntryRender real dependency click pinning', () => {
     const view = render(
       <HoverPopoverProvider
         postMessage={vi.fn()}
-        entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '' }]}
+        entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
         localDetails={{ child: { entry: child, kind: null }}}
       >
         <EntryRender
           entry={root}
           kind={null}
-          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '' }]}
+          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
           postMessage={vi.fn()}
         />
       </HoverPopoverProvider>

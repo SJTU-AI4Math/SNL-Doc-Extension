@@ -283,7 +283,8 @@ describe('readOverview observable semantics', () => {
     expect(overview.allMacros[1]).toEqual({
       id: 'alpha.two',
       packageFile: 'alpha.json',
-      packageName: 'pkg-alpha'
+      packageName: 'pkg-alpha',
+      kind: 'const'
     });
   });
 

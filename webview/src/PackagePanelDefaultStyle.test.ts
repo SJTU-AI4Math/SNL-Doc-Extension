@@ -6,30 +6,28 @@ const macro: MacroPackageEntry = {
   description: '',
   source: { entries: [], urls: [] },
   dynamic_arity: false,
-  default_style: { en: 'english', 'zh-CN': 'chinese' },
   tags: [],
   styles: [
-    { style_name: 'fallback', mode: 'formula_inline', template: 'F', tags: [] },
-    { style_name: 'english', mode: 'text', template: 'hello #0', tags: [] },
-    { style_name: 'chinese', mode: 'text', template: '你好 #0', tags: [] }
+    {
+      style_name: 'prose',
+      mode: 'text',
+      template: {
+        type: 'i18n', default_language: 'en',
+        values: { en: 'hello #0', 'zh-CN': '你好 #0' }
+      },
+      tags: []
+    },
+    { style_name: 'compact', mode: 'formula_inline', template: '#0', tags: [] }
   ]
 };
 
-describe('Package Panel language default style', () => {
-  it('uses current language, then English, then styles[0]', () => {
-    expect(defaultStyleForLanguage(macro, 'zh-CN')?.style_name).toBe('chinese');
-    expect(defaultStyleForLanguage(macro, 'fr')?.style_name).toBe('english');
-    expect(defaultStyleForLanguage({ ...macro, default_style: {} }, 'fr')?.style_name).toBe('fallback');
+describe('Package Panel implicit style', () => {
+  it('uses styles[0] in every language', () => {
+    expect(defaultStyleForLanguage(macro, 'zh-CN')?.style_name).toBe('prose');
+    expect(defaultStyleForLanguage(macro, 'fr')?.style_name).toBe('prose');
   });
 
-  it('rejects dangling current-locale and English mappings like the renderer', () => {
-    expect(() => defaultStyleForLanguage({
-      ...macro,
-      default_style: { ...macro.default_style, 'zh-CN': 'missing' }
-    }, 'zh-CN')).toThrow(/default style "missing"/);
-    expect(() => defaultStyleForLanguage({
-      ...macro,
-      default_style: { en: 'missing' }
-    }, 'fr')).toThrow(/default style "missing"/);
+  it('returns undefined for a malformed empty style list', () => {
+    expect(defaultStyleForLanguage({ ...macro, styles: [] }, 'en')).toBeUndefined();
   });
 });

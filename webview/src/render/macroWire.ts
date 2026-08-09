@@ -1,4 +1,4 @@
-import type { SnlMacro, SnlMacroStyle } from '@sjtu-ai4math/snl-basics';
+import type { Localized, SnlMacro, SnlMacroRecord, SnlMacroStyle } from '@sjtu-ai4math/snl-basics';
 
 /** Strict Macro v8 shape received from the host. */
 interface WireMacroStyleBase {
@@ -8,13 +8,18 @@ interface WireMacroStyleBase {
 }
 export type WireMacroStyle =
   | (WireMacroStyleBase & {
-      mode: 'formula_inline' | 'formula_display' | 'block';
+      mode: 'formula_inline' | 'formula_display';
+      template: string;
+      block_template_name?: never;
+    })
+  | (WireMacroStyleBase & {
+      mode: 'block';
       template: string;
       block_template_name?: string;
     })
   | (WireMacroStyleBase & {
       mode: 'text';
-      template: string;
+      template: Localized<string, string>;
       block_template_name?: never;
     });
 export interface WireMacro {
@@ -23,7 +28,6 @@ export interface WireMacro {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
-  default_style: Record<string, string>;
   styles: WireMacroStyle[];
   tags: string[];
 }
@@ -38,17 +42,28 @@ function wireStyleToRenderable(style: WireMacroStyle): SnlMacroStyle {
   if (style.mode === 'text') {
     return { ...base, mode: 'text', template: style.template };
   }
-  const invariant = style as Extract<WireMacroStyle, {
-    mode: 'formula_inline' | 'formula_display' | 'block';
-  }>;
+  if (style.mode === 'block') {
+    return {
+      ...base,
+      mode: 'block',
+      template: style.template,
+      ...(style.block_template_name ? { block_template_name: style.block_template_name } : {})
+    };
+  }
   return {
     ...base,
-    mode: invariant.mode,
-    template: invariant.template,
-    ...(invariant.mode === 'block' && invariant.block_template_name
-      ? { block_template_name: invariant.block_template_name }
-      : {})
+    mode: style.mode,
+    template: style.template
   };
+}
+
+/** Convert keyed wire entries without invoking Object.prototype setters. */
+export function wireMacroEntriesToRenderable(
+  entries: Iterable<readonly [string, WireMacro]>
+): SnlMacroRecord {
+  return Object.fromEntries(
+    Array.from(entries, ([name, macro]) => [name, wireMacroToRenderable(macro)] as const)
+  );
 }
 
 /** Extension-owned backends → SNL-Basics render shape for every webview. */
@@ -65,7 +80,6 @@ export function wireMacroToRenderable(macro: WireMacro): SnlMacro {
     },
     ...(macro.kind ? { kind: macro.kind } : {}),
     dynamic_arity: !!macro.dynamic_arity,
-    default_style: { ...macro.default_style },
     tags: macro.tags,
     styles: styles.length > 0
       ? styles

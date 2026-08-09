@@ -54,11 +54,12 @@ Supported project fields:
 - Entry `content.latex`
 - Entry `content.markdown`
 - Entry `content.text`
+- Text-mode Macro Style `template`
 
 Language-invariant fields remain strings:
 
 - Entry `content.snl`
-- All Macro style templates, including text mode
+- Formula and block Macro Style templates
 - IDs, slugs, Macro names, command IDs, paths, and schema keys
 
 The Entry editor retains the complete language map. Editing changes the
@@ -69,15 +70,18 @@ Switching locale while an Entry editor is open stores only an actually edited
 projection before loading the new one. Watcher refreshes do not overwrite dirty
 drafts.
 
-Macro localization uses a different model: each template is a plain string and
-each language can select an ordinary style through `macro.default_style`.
-Implicit rendering tries the current locale, then `en`, then `styles[0]`.
-Explicit source `[style]` selection always wins. The Macro editor preserves
-arbitrary locale keys and provides selectors for assigning them to style names.
-Old localized Macro templates are not silently split during workspace migration:
-an explicit `Macro[style]` reference used to localize that one style, which the
-v8 model intentionally cannot express. Split and rename those styles manually
-before migrating; Entry-content I18n remains unaffected.
+Text-mode Macro Templates may be invariant strings or serialized language maps.
+A Macro's Style identity is orthogonal to locale: explicit `[style]` selection
+always wins, otherwise rendering uses `styles[0]`; locale resolves only the
+selected text Style's Template projection. Formula and block Templates remain
+invariant strings.
+
+The Macro editor wraps each localized Template editor in a local
+`LocalizedEditScope`. Its selector initially follows the interface language,
+but a manual choice stays local to that editor and does not mutate the panel or
+runtime language. Merely switching the local language does not materialize a
+translation. Editing fallback text creates a projection for the selected
+language; deleting that projection restores fallback and reports its source.
 
 ## Shared panel header and language selection
 

@@ -33,7 +33,7 @@ vi.mock('vscode', () => {
           state.readFiles.push(uri.path);
           if (uri.path.endsWith('/config.json')) {
             return encoder.encode(JSON.stringify({
-              version: '0.0.6',
+              version: '0.0.8',
               ...(!state.missingMetadata ? {
                 entity_storage: {
                   version: 1,
@@ -58,7 +58,7 @@ vi.mock('vscode', () => {
               ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id: 'e1', package: 'logic' } }
               : {
                   format: 'snl-entry', version: 1, package: 'logic',
-                  entry: { id: 'e1', package: 'logic', title: 'First', kind: 'k1', content: { snl: 'x' } }
+                  entry: { id: 'e1', package: 'logic', title: 'First', kind: 'k1', content: { snl: 'x' }, pointer: null }
                 }));
           }
           if (uri.path.includes('/packages/')) {

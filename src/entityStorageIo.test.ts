@@ -27,7 +27,7 @@ describe('entity storage reads', () => {
       macro_packages_digest: 'macros'
     };
     const valid = {
-      version: '0.0.6',
+      version: '0.0.8',
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',
@@ -37,7 +37,7 @@ describe('entity storage reads', () => {
     };
 
     expect(() => assertCurrentEntityStorageMetadata(valid)).not.toThrow();
-    expect(() => assertCurrentEntityStorageMetadata({ version: '0.0.6' }))
+    expect(() => assertCurrentEntityStorageMetadata({ version: '0.0.8' }))
       .toThrow(/missing.*entity_storage/i);
     expect(() => assertCurrentEntityStorageMetadata({
       ...valid,
@@ -46,7 +46,9 @@ describe('entity storage reads', () => {
   });
 
   it('point-reads one Entry from its identity path without listing the directory', async () => {
-    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
+    const entry = {
+      id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
+    };
     const expectedPath = entryEntityPath(entry.package, entry.id);
     const reads: string[] = [];
     const storage: EntityReadStorage = {
@@ -75,8 +77,42 @@ describe('entity storage reads', () => {
     await expect(readEntryEntityRecord(storage, 'logic', 'missing')).resolves.toBeNull();
   });
 
+  it('point-reads an Entry with a partial localized content map', async () => {
+    const entry = {
+      id: 'entry-1', package: 'logic', kind: 'definition', title: 'One',
+      content: {
+        text: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '条目' } }
+      },
+      pointer: null
+    };
+    const path = entryEntityPath(entry.package, entry.id);
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => [],
+      readJson: async (requested) => requested === path ? makeEntryEnvelope('logic', entry) : null
+    };
+
+    await expect(readEntryEntityRecord(storage, 'logic', 'entry-1'))
+      .resolves.toMatchObject({ entry });
+  });
+
+  it('point-rejects a current Entry whose canonical pointer field is missing', async () => {
+    const entry = {
+      id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: { snl: '' }
+    };
+    const path = entryEntityPath(entry.package, entry.id);
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => [],
+      readJson: async (requested) => requested === path ? makeEntryEnvelope('logic', entry) : null
+    };
+
+    await expect(readEntryEntityRecord(storage, 'logic', 'entry-1'))
+      .rejects.toThrow(/canonical Entry payload/i);
+  });
+
   it('point-validates the requested owner manifest without directory scans', async () => {
-    const entry = { id: 'entry-1', package: 'logic', kind: 'definition', title: 'One' };
+    const entry = {
+      id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
+    };
     const entryPath = entryEntityPath(entry.package, entry.id);
     const manifestPath = packageManifestPath(entry.package);
     const reads: string[] = [];
@@ -98,7 +134,9 @@ describe('entity storage reads', () => {
   });
 
   it('rejects an orphan Entry whose requested owner manifest is missing', async () => {
-    const entry = { id: 'entry-1', package: 'logic' };
+    const entry = {
+      id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
+    };
     const storage: EntityReadStorage = {
       listJsonFiles: async () => {
         throw new Error('point reads must not list entity directories');

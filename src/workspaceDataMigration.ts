@@ -13,6 +13,7 @@ import {
   inspectWorkspaceData,
   makeEntityStorageReceipt,
   migrateWorkspaceSnapshot,
+  type MacroPackageSchemaVersion,
   type WorkspaceDataInspection,
   type WorkspaceDataSnapshot,
   type WorkspaceMigrationContext
@@ -32,7 +33,7 @@ export interface DataMigrationStorage {
 export type CanonicalizeMacroPackage = (
   file: string,
   raw: unknown,
-  targetVersion: '7' | '8'
+  targetVersion: MacroPackageSchemaVersion
 ) => unknown;
 
 export interface StoredWorkspaceDataReadSnapshot {
@@ -62,7 +63,10 @@ export async function inspectStoredWorkspaceData(
   try {
     const config = snapshot ? snapshot.config : await storage.readJson('config.json');
     const inspection = inspectWorkspaceData(config);
-    if (inspection.status === 'current') {
+    const hasEntityTopology = inspection.status === 'current' ||
+      (inspection.status === 'needsMigration' &&
+        (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7'));
+    if (hasEntityTopology) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
       }
@@ -114,8 +118,11 @@ export async function inspectStoredWorkspaceData(
       if (!sameJson(entityStorage.receipt, actualReceipt)) {
         throw new Error('Current entity topology migration receipt does not match the frozen legacy backup.');
       }
+      const macroSchemaVersion = inspection.currentVersion === '0.0.6'
+        ? '8'
+        : inspection.currentVersion === '0.0.7' ? '9' : '10';
       const { packages, entries, macros } = snapshot?.entities ??
-        await readEntityStorageSnapshot(storage);
+        await readEntityStorageSnapshot(storage, macroSchemaVersion);
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));
       if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
         throw new Error('Current entity topology is missing the _unpackaged Package manifest.');
@@ -185,6 +192,54 @@ async function loadSnapshot(storage: DataMigrationStorage): Promise<WorkspaceDat
   };
 }
 
+function snapshotReadStorage(
+  snapshot: WorkspaceDataSnapshot
+): Pick<DataMigrationStorage, 'readJson' | 'listJsonFiles' | 'directoryExists'> {
+  const entityMaps = [snapshot.packageManifests, snapshot.entryEntities, snapshot.macroEntities];
+  return {
+    readJson: async (path) => {
+      if (path === 'config.json') return snapshot.config;
+      if (path === 'entries.json') return snapshot.entries ?? null;
+      if (path === 'relationships.json') return snapshot.relationships ?? null;
+      if (path.startsWith('term_macros/')) {
+        return snapshot.macroPackages.get(path.slice('term_macros/'.length)) ?? null;
+      }
+      for (const values of entityMaps) {
+        if (values.has(path)) return values.get(path) ?? null;
+      }
+      return null;
+    },
+    listJsonFiles: async (directory) => {
+      if (directory === 'term_macros') return [...snapshot.macroPackages.keys()].sort();
+      const values = directory === 'packages'
+        ? snapshot.packageManifests
+        : directory === 'entries'
+          ? snapshot.entryEntities
+          : directory === 'macros'
+            ? snapshot.macroEntities
+            : new Map<string, unknown>();
+      const prefix = `${directory}/`;
+      return [...values.keys()]
+        .filter((path) => path.startsWith(prefix))
+        .map((path) => path.slice(prefix.length))
+        .sort();
+    },
+    directoryExists: async (directory) =>
+      directory === 'packages' || directory === 'entries' || directory === 'macros'
+  };
+}
+
+async function assertSnapshotTopology(
+  snapshot: WorkspaceDataSnapshot,
+  expectedVersion: string,
+  expectedStatus: 'current' | 'needsMigration'
+): Promise<void> {
+  const inspection = await inspectStoredWorkspaceData(snapshotReadStorage(snapshot));
+  if (inspection.status !== expectedStatus || inspection.currentVersion !== expectedVersion) {
+    throw new Error(`Loaded migration snapshot failed topology validation: ${inspection.message}`);
+  }
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -193,26 +248,23 @@ async function verifyEntityStorageCommit(
   storage: DataMigrationStorage,
   source: WorkspaceDataSnapshot
 ): Promise<void> {
-  const verifyMap = async (values: Map<string, unknown>): Promise<void> => {
-    for (const [path, expected] of values) {
-      const actual = await storage.readJson(path);
-      if (!sameJson(actual, expected)) {
-        throw new Error(`Entity migration verification failed for ${path}.`);
-      }
-    }
-  };
-  await verifyMap(source.packageManifests);
-  await verifyMap(source.entryEntities);
-  await verifyMap(source.macroEntities);
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),
     readEntryEntityRecords(storage),
     readMacroEntityRecords(storage)
   ]);
-  if (packages.length !== source.packageManifests.size ||
-      entries.length !== source.entryEntities.size ||
-      macros.length !== source.macroEntities.size) {
-    throw new Error('Entity migration verification failed: identity counts changed after writing.');
+  const actualMaps = [
+    new Map(packages.map((record) => [record.path, record.manifest] as const)),
+    new Map(entries.map((record) => [record.path, record.envelope] as const)),
+    new Map(macros.map((record) => [record.path, record.envelope] as const))
+  ];
+  const expectedMaps = [source.packageManifests, source.entryEntities, source.macroEntities];
+  for (let index = 0; index < expectedMaps.length; index += 1) {
+    const actual = [...actualMaps[index].entries()].sort(([left], [right]) => left.localeCompare(right));
+    const expected = [...expectedMaps[index].entries()].sort(([left], [right]) => left.localeCompare(right));
+    if (!sameJson(actual, expected)) {
+      throw new Error('Entity migration verification failed: exact path/value set changed after writing.');
+    }
   }
 }
 
@@ -258,8 +310,10 @@ export async function migrateStoredWorkspaceData(
   }
 
   const source = await loadSnapshot(storage);
+  await assertSnapshotTopology(source, inspection.currentVersion!, 'needsMigration');
   const originals = cloneWorkspaceDataSnapshot(source);
   const report = await migrateWorkspaceSnapshot(source, canonicalizeMacroPackage);
+  await assertSnapshotTopology(source, CURRENT_DATA_VERSION, 'current');
 
   const writes: Array<{ path: string; value: unknown; original: unknown }> = [];
   for (const [file, value] of [...source.macroPackages].sort(([a], [b]) => a.localeCompare(b))) {
@@ -302,6 +356,17 @@ export async function migrateStoredWorkspaceData(
       }
       await storage.writeJsonAtomic(write.path, write.value, write.original);
       completed.push(write);
+      if (write.path === 'config.json' && source.config.version === CURRENT_DATA_VERSION) {
+        const postCommit = await inspectStoredWorkspaceData(storage);
+        if (postCommit.status !== 'current') {
+          throw new Error(`Post-commit topology validation failed: ${postCommit.message}`);
+        }
+        await verifyLegacySourcesUnchanged(storage, source);
+        // This exact path/value/count comparison is deliberately the final
+        // awaited operation before success, so no weaker self-consistency
+        // inspection can open a deterministic seam after it.
+        await verifyEntityStorageCommit(storage, source);
+      }
     }
   } catch (error) {
     const rollbackErrors: string[] = [];

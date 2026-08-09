@@ -46,12 +46,20 @@ class Uri {
 const workspace = {
   fs: {
     async stat(uri) {
-      const s = await fs.stat(uri.fsPath);
+      const link = await fs.lstat(uri.fsPath);
+      let type;
+      if (link.isSymbolicLink()) {
+        const target = await fs.stat(uri.fsPath);
+        type = FileType.SymbolicLink |
+          (target.isDirectory() ? FileType.Directory : target.isFile() ? FileType.File : FileType.Unknown);
+      } else {
+        type = link.isDirectory() ? FileType.Directory : link.isFile() ? FileType.File : FileType.Unknown;
+      }
       return {
-        type: s.isDirectory() ? FileType.Directory : FileType.File,
+        type,
         ctime: 0,
         mtime: 0,
-        size: s.size
+        size: link.size
       };
     },
     async readFile(uri) {
@@ -164,6 +172,7 @@ async function main() {
     applyMacroKindsPreset,
     createMacroKind,
     addEntry,
+    rollbackCreatedEntry,
     updateEntry,
     entityRevision,
     macroPackageMetadataRevision,
@@ -184,9 +193,11 @@ async function main() {
     batchPackageAsNew,
     batchMoveToNewPackage,
     createLibrary,
+    deleteLibrary,
     updateLibrary,
     readLibraryGraph,
     writeLibraryGraph,
+    mutateLibraryGraph,
     readLibraryCounters,
     listLibraries,
     readLibraryMeta,
@@ -206,7 +217,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.6', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.0.8', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -384,8 +395,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.6',
-    `config.version === "0.0.6" (got ${cfg.version})`
+    cfg.version === '0.0.8',
+    `config.version === "0.0.8" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -486,6 +497,172 @@ async function main() {
     entries.length === 1 && entries[0].id === entry.id && entries[0].package === '_unpackaged',
     'per-entity storage has the appended Entry in _unpackaged'
   );
+  assert(addOk.revision === entityRevision(entries[0]),
+    'addEntry returns the exact persisted canonical Entry revision');
+
+  const rollbackLibrary = await createLibrary(root, 'Rollback Check');
+  assert(rollbackLibrary.status === 'created', 'rollback fixture Library is created');
+  const rollbackSlug = rollbackLibrary.slug;
+  const rollbackEntry = {
+    id: 'rollback-unreferenced-entry', kind: 'definition', title: 'Rollback',
+    content: {}, contribution_info: null, pointer: null
+  };
+  const rollbackAdd = await addEntry(root, rollbackEntry);
+  assert(rollbackAdd.status === 'ok', 'rollback fixture Entry is created');
+  const rollbackResult = await rollbackCreatedEntry(root, rollbackEntry.id, rollbackAdd.revision);
+  assert(rollbackResult.status === 'ok',
+    `unchanged unreferenced created Entry rolls back (${JSON.stringify(rollbackResult)})`);
+  assert(!(await readEntriesApi(root)).some((candidate) => candidate.id === rollbackEntry.id),
+    'successful rollback removes the exact persisted Entry');
+
+  const referencedEntry = { ...rollbackEntry, id: 'rollback-referenced-entry' };
+  const referencedAdd = await addEntry(root, referencedEntry);
+  assert(referencedAdd.status === 'ok', 'referenced rollback fixture Entry is created');
+  assert((await writeLibraryGraph(root, rollbackSlug, {
+    nodes: [{ id: 'ref', label: 'Entry', props: { entryId: referencedEntry.id } }],
+    relationships: []
+  })).status === 'ok', 'referenced rollback fixture graph is written');
+  const referencedRollback = await rollbackCreatedEntry(
+    root, referencedEntry.id, referencedAdd.revision
+  );
+  assert(referencedRollback.status === 'referenced', 'rollback refuses a referenced Entry');
+  assert((await readEntriesApi(root)).some((candidate) => candidate.id === referencedEntry.id),
+    'referenced rollback refusal preserves the Entry');
+
+  const malformedEntry = { ...rollbackEntry, id: 'rollback-malformed-graph-entry' };
+  const malformedAdd = await addEntry(root, malformedEntry);
+  assert(malformedAdd.status === 'ok', 'malformed-census rollback fixture Entry is created');
+  const rollbackGraphPath = nodePath.join(
+    tmpRoot, '.SNL_Doc', 'libraries', rollbackSlug, 'graph.json'
+  );
+  await fs.writeFile(rollbackGraphPath, JSON.stringify({
+    nodes: [{ props: { entryId: malformedEntry.id } }], relationships: []
+  }));
+  const malformedRollback = await rollbackCreatedEntry(
+    root, malformedEntry.id, malformedAdd.revision
+  );
+  assert(malformedRollback.status === 'invalid',
+    'rollback fails closed when exhaustive raw Library graph census is malformed');
+  assert((await readEntriesApi(root)).some((candidate) => candidate.id === malformedEntry.id),
+    'malformed graph census never deletes the candidate Entry');
+  await fs.writeFile(rollbackGraphPath, JSON.stringify({ nodes: [], relationships: [] }));
+  assert((await rollbackCreatedEntry(root, referencedEntry.id, referencedAdd.revision)).status === 'ok',
+    'referenced rollback fixture cleans up after removing its graph reference');
+  assert((await rollbackCreatedEntry(root, malformedEntry.id, malformedAdd.revision)).status === 'ok',
+    'malformed-census rollback fixture cleans up after restoring its graph');
+
+  const graphLinkEntry = { ...rollbackEntry, id: 'rollback-graph-link-entry' };
+  const graphLinkAdd = await addEntry(root, graphLinkEntry);
+  assert(graphLinkAdd.status === 'ok', 'graph-link rollback fixture Entry is created');
+  const externalGraphPath = nodePath.join(
+    await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-census-graph-link-')),
+    'external-graph.json'
+  );
+  await fs.writeFile(externalGraphPath, JSON.stringify({ nodes: [], relationships: [] }));
+  await fs.unlink(rollbackGraphPath);
+  await fs.symlink(externalGraphPath, rollbackGraphPath, 'file');
+  const graphLinkRollback = await rollbackCreatedEntry(
+    root, graphLinkEntry.id, graphLinkAdd.revision
+  );
+  assert(graphLinkRollback.status === 'invalid',
+    'symlinked graph target cannot redirect the rollback census');
+  assert((await readEntriesApi(root)).some((candidate) => candidate.id === graphLinkEntry.id),
+    'symlinked graph census preserves the candidate Entry');
+  await fs.unlink(rollbackGraphPath);
+  await fs.writeFile(rollbackGraphPath, JSON.stringify({ nodes: [], relationships: [] }));
+  assert((await rollbackCreatedEntry(root, graphLinkEntry.id, graphLinkAdd.revision)).status === 'ok',
+    'graph-link rollback fixture cleans up after restoring its graph');
+
+  for (const dangling of [
+    { id: 'dangling-source', from: 'missing-node', to: 'known-node', label: 'edge' },
+    { id: 'dangling-target', from: 'known-node', to: 'missing-node', label: 'edge' }
+  ]) {
+    const danglingEntry = {
+      ...rollbackEntry,
+      id: `rollback-${dangling.id}-entry`
+    };
+    const danglingAdd = await addEntry(root, danglingEntry);
+    assert(danglingAdd.status === 'ok', `${dangling.id} rollback fixture Entry is created`);
+    await fs.writeFile(rollbackGraphPath, JSON.stringify({
+      nodes: [{ id: 'known-node', label: 'Branch', props: {} }],
+      relationships: [dangling]
+    }));
+    let danglingMutationCallbackRan = false;
+    const danglingMutation = await mutateLibraryGraph(root, rollbackLibrary.slug, () => {
+      danglingMutationCallbackRan = true;
+      return false;
+    });
+    assert(danglingMutation.status === 'invalid',
+      `${dangling.id} relationship is rejected by raw graph mutation`);
+    assert(!danglingMutationCallbackRan,
+      `${dangling.id} relationship is rejected before graph mutation callback`);
+    const danglingRollback = await rollbackCreatedEntry(
+      root, danglingEntry.id, danglingAdd.revision
+    );
+    assert(danglingRollback.status === 'invalid',
+      `${dangling.id} relationship makes rollback census fail closed`);
+    assert((await readEntriesApi(root)).some((candidate) => candidate.id === danglingEntry.id),
+      `${dangling.id} census preserves the candidate Entry`);
+    await fs.writeFile(rollbackGraphPath, JSON.stringify({ nodes: [], relationships: [] }));
+    assert((await rollbackCreatedEntry(root, danglingEntry.id, danglingAdd.revision)).status === 'ok',
+      `${dangling.id} rollback fixture cleans up after restoring its graph`);
+  }
+
+  const censusEntry = { ...rollbackEntry, id: 'rollback-census-failure-entry' };
+  const censusAdd = await addEntry(root, censusEntry);
+  assert(censusAdd.status === 'ok', 'directory-census rollback fixture Entry is created');
+  const rollbackLibrariesPath = nodePath.join(tmpRoot, '.SNL_Doc', 'libraries');
+  const heldLibrariesPath = nodePath.join(tmpRoot, '.SNL_Doc', 'libraries-held-for-test');
+  await fs.rename(rollbackLibrariesPath, heldLibrariesPath);
+  const censusFailure = await rollbackCreatedEntry(root, censusEntry.id, censusAdd.revision);
+  assert(censusFailure.status === 'invalid', 'Library directory enumeration failure blocks rollback');
+  assert((await readEntriesApi(root)).some((candidate) => candidate.id === censusEntry.id),
+    'Library census failure preserves the candidate Entry');
+  const externalCensusRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-census-root-link-'));
+  await fs.symlink(externalCensusRoot, rollbackLibrariesPath, 'dir');
+  const symlinkCensusFailure = await rollbackCreatedEntry(
+    root, censusEntry.id, censusAdd.revision
+  );
+  assert(symlinkCensusFailure.status === 'invalid',
+    'symlinked libraries root cannot redirect the rollback census');
+  assert((await readEntriesApi(root)).some((candidate) => candidate.id === censusEntry.id),
+    'symlinked rollback census preserves the candidate Entry');
+  await fs.unlink(rollbackLibrariesPath);
+  await fs.rename(heldLibrariesPath, rollbackLibrariesPath);
+  assert((await rollbackCreatedEntry(root, censusEntry.id, censusAdd.revision)).status === 'ok',
+    'directory-census rollback fixture cleans up after restoring libraries');
+
+  const changedEntry = { ...rollbackEntry, id: 'rollback-changed-entry' };
+  const changedAdd = await addEntry(root, changedEntry);
+  assert(changedAdd.status === 'ok', 'changed rollback fixture Entry is created');
+  const changedUpdate = await updateEntry(root, changedEntry.id, {
+    ...changedEntry, title: 'Changed after creation'
+  }, changedAdd.revision);
+  assert(changedUpdate.status === 'updated', 'changed rollback fixture is updated');
+  assert((await rollbackCreatedEntry(root, changedEntry.id, changedAdd.revision)).status === 'conflict',
+    'stale created revision cannot roll back a changed Entry');
+  assert((await rollbackCreatedEntry(root, changedEntry.id, changedUpdate.revision)).status === 'ok',
+    'changed rollback fixture cleans up with its current exact revision');
+
+  const partialLocalizedEntry = {
+    id: 'partial-localized-entry',
+    kind: 'definition',
+    title: 'Partial localized Entry',
+    content: {
+      text: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '条目' } }
+    },
+    contribution_info: null,
+    pointer: null
+  };
+  assert((await addEntry(root, partialLocalizedEntry)).status === 'ok',
+    'Entry write accepts a partial localized content map');
+  const partialLocalizedRoundTrip = (await readEntriesApi(root))
+    .find((candidate) => candidate.id === partialLocalizedEntry.id);
+  assert(
+    partialLocalizedRoundTrip?.content?.text?.values?.['zh-CN'] === '条目' &&
+      !Object.prototype.hasOwnProperty.call(partialLocalizedRoundTrip.content.text.values, 'en'),
+    'Entry partial localized content survives write then current-topology read'
+  );
 
   console.log('\n[7] addEntry duplicate id');
   const dupEntry = await addEntry(root, { ...entry, title: 'Group (dup)' });
@@ -523,10 +700,10 @@ async function main() {
 
   console.log('\n[10] readEntries + readOverview.entries');
   const readBack = await readEntriesApi(root);
-  // Two entries now: the one from [6] + the empty-title one from [9].
+  // Three entries now: the base, partial-I18n, and empty-title fixtures.
   assert(
-    Array.isArray(readBack) && readBack.length === 2,
-    `readEntries returns 2-element array (got ${readBack?.length})`
+    Array.isArray(readBack) && readBack.length === 3,
+    `readEntries returns 3-element array (got ${readBack?.length})`
   );
   const firstEntry = readBack.find((e) => e.id === entry.id);
   assert(
@@ -567,7 +744,7 @@ async function main() {
   const overview = await readOverview(root);
   assert(
     Array.isArray(overview.entries) &&
-      overview.entries.length === 2 &&
+      overview.entries.length === 3 &&
       overview.entries.some((e) => e.id === entry.id),
     'readOverview.entries includes the entry with the same id'
   );
@@ -669,16 +846,16 @@ async function main() {
     'readMacroPackage macros is empty array'
   );
   assert(
-    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '8',
-    'readMacroPackage pkg metadata round-trips at canonical version 8'
+    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '10',
+    'readMacroPackage pkg metadata round-trips at canonical version 10'
   );
 
   const validMacro = {
     name: 'Add.add.infix',
     description: 'addition (infix)',
     source: { entries: [], urls: [] },
+    kind: 'const',
     dynamic_arity: false,
-    default_style: { en: 'infix' },
     tags: [],
     styles: [
       {
@@ -703,19 +880,18 @@ async function main() {
   const localizedMacro = {
     ...validMacro,
     name: 'Group.prose',
-    default_style: { en: 'prose_en', 'zh-CN': 'prose_zh_CN' },
-    styles: [
-      { style_name: 'prose_en', mode: 'text', template: '#0 is a group', tags: [] },
-      { style_name: 'prose_zh_CN', mode: 'text', template: '#0 是群', tags: [] }
-    ]
+    styles: [{
+      style_name: 'prose', mode: 'text',
+      template: { type: 'i18n', default_language: 'en', values: { en: '#0 is a group', 'zh-CN': '#0 是群' } },
+      tags: []
+    }]
   };
   const addLocalizedMacro = await addMacro(root, 'test_pkg', localizedMacro);
-  assert(addLocalizedMacro.status === 'ok', 'addMacro accepts language-specific text styles');
+  assert(addLocalizedMacro.status === 'ok', `addMacro accepts localized text template (${JSON.stringify(addLocalizedMacro)})`);
   const localizedMacroRead = await readMacroPackage(root, 'test_pkg');
   assert(
-    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.default_style?.['zh-CN'] === 'prose_zh_CN' &&
-      localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[1]?.template === '#0 是群',
-    'language default style and plain template round-trip'
+    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[0]?.template?.values?.['zh-CN'] === '#0 是群',
+    'localized text template round-trips without changing style identity'
   );
 
   console.log('\n[16] addMacro duplicate');
@@ -785,7 +961,7 @@ async function main() {
   });
   assert(dupTagMacro.status === 'invalid', 'addMacro duplicate tags -> invalid');
 
-  console.log('\n[17e] Macro v8 localization invariants');
+  console.log('\n[17e] Macro v9 localization invariants');
   const localizedFormula = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.localizedFormula',
@@ -804,7 +980,6 @@ async function main() {
   const localizedText = await addMacro(root, 'test_pkg', {
     ...localizedMacro,
     name: 'Bad.localizedText',
-    default_style: { en: 'default' },
     styles: [{
       style_name: 'default',
       mode: 'text',
@@ -817,14 +992,25 @@ async function main() {
     }]
   });
   assert(
-    localizedText.status === 'invalid',
-    'text Macro rejects I18n template'
+    localizedText.status === 'ok',
+    'text Macro accepts I18n template'
+  );
+  const missingMacroDefault = await addMacro(root, 'test_pkg', {
+    ...localizedMacro,
+    name: 'Bad.missingMacroDefault',
+    styles: [{
+      style_name: 'default', mode: 'text', tags: [],
+      template: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '#0 是群' } }
+    }]
+  });
+  assert(
+    missingMacroDefault.status === 'invalid',
+    'Macro I18n template requires its declared default projection'
   );
   const incompleteDynamic = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.dynamicTemplate',
     dynamic_arity: true,
-    default_style: { en: 'default' },
     styles: [{ style_name: 'default', mode: 'text', template: 'all', tags: [] }]
   });
   assert(
@@ -840,11 +1026,11 @@ async function main() {
   const readOne = await readMacroPackage(root, 'test_pkg.json');
   assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
   assert(
-    // 1 initial + 1 language-specific text Macro + 5 allowed names.
-    readOne.macros.length === 7 &&
+    // 1 initial + 2 localized text Macros + 5 allowed names.
+    readOne.macros.length === 8 &&
       readOne.macros.some((m) => m.name === 'Add.add.infix') &&
       readOne.macros.some((m) => m.name === 'Group.prose'),
-    'readMacroPackage returns all 7 appended macros including language-specific text Macro'
+    'readMacroPackage returns all 8 appended macros including localized text Macros'
   );
 
   console.log('\n[20] readMacroPackage missing -> noFile');
@@ -855,7 +1041,7 @@ async function main() {
   // Write an OLD-shape package straight to disk: two macros sharing a base name
   // (Mul.mul.infix + Mul.mul.implicit), each with katex_react.mode === 'math'
   // and typst/latex.synthesis.output_type (pre-0.4.0). readMacroPackage must
-  // normalize them in-memory all the way to strict Macro v8: a single
+  // normalize them in-memory all the way to strict Macro v9: a single
   // `Mul.mul` macro with a styles array and canonical style_name/tags.
   const legacyTmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-legacy-'));
   const legacyRoot = Uri.file(legacyTmpRoot);
@@ -898,10 +1084,10 @@ async function main() {
     !('katex_react' in oldMacro),
     'katex_react dropped from normalized macro'
   );
-  assert(oldMacro.dynamic_arity === false, 'v8: dynamic_arity=false (was arity=fixed)');
-  assert(!('arity' in oldMacro), 'legacy arity field dropped in v8');
+  assert(oldMacro.dynamic_arity === false, 'v9: dynamic_arity=false (was arity=fixed)');
+  assert(!('arity' in oldMacro), 'legacy arity field dropped in v9');
   assert(oldMacro.kind === 'const', 'kind lifted to top-level');
-  assert(Array.isArray(oldMacro.styles), 'styles is a v8 array');
+  assert(Array.isArray(oldMacro.styles), 'styles is a v9 array');
   assert(
     oldMacro.styles.length === 2,
     `both dotted suffixes became styles (got ${oldMacro.styles.length})`
@@ -913,10 +1099,10 @@ async function main() {
     oldMacro.styles[0].style_name === 'infix',
     `styles[0] (default) is the first legacy sibling (got ${oldMacro.styles[0].style_name})`
   );
-  assert(oldMacro.default_style.en === 'infix', 'legacy Macro receives English default style');
+  assert(!('default_style' in oldMacro), 'legacy Macro normalizes without a language-to-style map');
   assert(
     infixStyle.mode === 'formula_inline',
-    "v8: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
+    "v9: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
   );
   assert(!('display' in infixStyle), 'v6: display axis folded into mode');
   assert(
@@ -1252,9 +1438,9 @@ async function main() {
     () => assert(true, 'SNL-Basics tarball contains no bundled Macro DB')
   );
 
-  console.log('\n[22] v5/v6 package input auto-migrates to strict v8 on read');
+  console.log('\n[22] v5/v6 package input auto-migrates to strict v9 on read');
   // A fresh temp workspace so we can drop a v5-shape file straight to disk
-  // and confirm readMacroPackage rewrites it in memory to v8. This is the
+  // and confirm readMacroPackage rewrites it in memory to v9. This is the
   // "Edit panel should map old data to new schema" story (猫猫 req).
   const tmpRoot2 = nodePath.join(os.tmpdir(), `snl-smoke-v5-${Date.now()}`);
   await fs.mkdir(nodePath.join(tmpRoot2, '.SNL_Doc', 'term_macros'), {
@@ -1310,32 +1496,32 @@ async function main() {
   assert(!!migAdd && !!migMatrix, 'both v5 macros visible after migration');
   assert(
     migAdd.dynamic_arity === false && !('arity' in migAdd),
-    'v5→v8: arity=fixed → dynamic_arity=false, arity removed'
+    'v5→v9: arity=fixed → dynamic_arity=false, arity removed'
   );
   assert(
     migMatrix.dynamic_arity === true && !('arity' in migMatrix),
-    'v5→v8: arity=variadic → dynamic_arity=true'
+    'v5→v9: arity=variadic → dynamic_arity=true'
   );
   assert(
     migAdd.styles[0].mode === 'formula_inline' &&
       !('display' in migAdd.styles[0]),
-    'v5→v8: formula+display=inline → formula_inline, display axis removed'
+    'v5→v9: formula+display=inline → formula_inline, display axis removed'
   );
   assert(
     migMatrix.styles[0].mode === 'formula_display' &&
       !('display' in migMatrix.styles[0]),
-    'v5→v8: formula+display=block → formula_display, display axis removed'
+    'v5→v9: formula+display=block → formula_display, display axis removed'
   );
   assert(
     migMatrix.styles[0].separator === ' \\\\ ' &&
       migMatrix.styles[0].template === '#*',
-    'v5→v8: variadic_join becomes separator and legacy dynamic fields compose #*'
+    'v5→v9: variadic_join becomes separator and legacy dynamic fields compose #*'
   );
   assert(
-    migAdd.default_style.en === 'infix' && migMatrix.default_style.en === 'default',
-    'v5→v8 adds English default style mappings'
+    !('default_style' in migAdd) && !('default_style' in migMatrix),
+    'v5→v9 uses styles[0] as the sole implicit default'
   );
-  assert(readV5.pkg.version === '8', 'readMacroPackage exposes canonical package version 8');
+  assert(readV5.pkg.version === '10', 'readMacroPackage exposes canonical package version 10');
 
   // Regression: Dashboard's per-package macroCount used to always report 1
   // for v6 packages because inferMacroCount only recognized v5's array shape
@@ -1402,29 +1588,23 @@ async function main() {
       migratedV6.styles[0].template === '[#*]' &&
       migratedV6.styles[0].separator === '' &&
       migratedV6.styles[0].block_template_name === 'list',
-    'v6→v8 maps style/dynamic/block fields and preserves empty separator'
+    'v6→v9 maps style/dynamic/block fields and preserves empty separator'
   );
   assert(
     migratedV6.extension_data.keep === true &&
       migratedV6.styles[0].extension_style_data === 42 &&
       migratedV6.styles[0].typst.built_in === 'legacy',
-    'v6→v8 preserves macro/style extension fields and output backends'
+    'v6→v9 preserves macro/style extension fields and output backends'
   );
   const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6, entityRevision(migratedV6));
-  assert(rewriteV7.status === 'updated', 'updating migrated macro writes strict v8');
-  const writtenV7 = JSON.parse(await fs.readFile(
+  assert(
+    rewriteV7.status === 'error' && /requires migration/i.test(rewriteV7.message),
+    'predecessor Macro update is blocked until workspace migration'
+  );
+  const unchangedV6 = JSON.parse(await fs.readFile(
     nodePath.join(tmpRoot3, '.SNL_Doc', 'term_macros', 'v6_count.json'), 'utf8'
   ));
-  const writtenStyle = writtenV7.macros.a.styles[0];
-  assert(writtenV7.version === '8', 'all package writes stamp version 8');
-  assert(writtenV7.macros.a.default_style.en === 'default', 'strict v8 write persists default_style');
-  assert(
-    writtenStyle.style_name === 'default' &&
-      !('tag' in writtenStyle) && !('variadic_left' in writtenStyle) &&
-      !('variadic_join' in writtenStyle) && !('variadic_right' in writtenStyle) &&
-      !('react_renderer_key' in writtenStyle),
-    'strict v8 writes contain no legacy runtime aliases'
-  );
+  assert(unchangedV6.version === '6', 'blocked predecessor update leaves the package byte-semantically unchanged');
   await fs.rm(tmpRoot3, { recursive: true, force: true });
   await fs.rm(tmpRoot2, { recursive: true, force: true });
 
@@ -1735,6 +1915,25 @@ async function main() {
   assert(
     !read1.result.warnings.some((w) => w.includes('is not an object') || w.includes('is missing string')),
     'no structural warnings on well-formed v2 graph'
+  );
+  const graphWithExtensions = JSON.parse(await fs.readFile(graphPath, 'utf8'));
+  graphWithExtensions.wrapper_extension = { keep: true };
+  graphWithExtensions.nodes[0].node_extension = { keep: true };
+  graphWithExtensions.relationships[0].relationship_extension = { keep: true };
+  await fs.writeFile(graphPath, JSON.stringify(graphWithExtensions));
+  const rawMutation = await mutateLibraryGraph(root4, 'graphtest', ({ nodes }) => {
+    nodes[0] = { ...nodes[0], props: { ...nodes[0].props, edited: true } };
+    return true;
+  });
+  assert(rawMutation.status === 'ok' && rawMutation.changed,
+    'writer-locked raw graph mutation completes on a real file workspace');
+  const graphAfterRawMutation = JSON.parse(await fs.readFile(graphPath, 'utf8'));
+  assert(
+    graphAfterRawMutation.wrapper_extension?.keep === true &&
+      graphAfterRawMutation.nodes[0].node_extension?.keep === true &&
+      graphAfterRawMutation.relationships[0].relationship_extension?.keep === true &&
+      graphAfterRawMutation.nodes[0].props.edited === true,
+    'raw graph mutation preserves wrapper/node/relationship extensions'
   );
 
   // Legacy v1 shape (Counter / Section / count relationships) surfaces
@@ -2113,7 +2312,7 @@ async function main() {
     { id: 'legacy-entry', kind: 'definition', title: 'Before', content: {} }
   ]));
   const legacyWrapperPath = nodePath.join(legacyDataDir, 'term_macros', 'legacy.ext.json');
-  await fs.writeFile(legacyWrapperPath, JSON.stringify({
+  const legacyWrapperFixture = {
     version: '7', name: 'Legacy', description: 'before', vendor_extension: { keep: true },
     macros: {
       'Legacy.macro': {
@@ -2121,7 +2320,14 @@ async function main() {
         styles: []
       }
     }
-  }));
+  };
+  Object.defineProperty(legacyWrapperFixture, '__proto__', {
+    value: { keep: 'prototype-sensitive-wrapper-extension' },
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+  await fs.writeFile(legacyWrapperPath, JSON.stringify(legacyWrapperFixture));
   const legacyConfigPath = nodePath.join(legacyDataDir, 'config.json');
   const legacyConfigValid = await fs.readFile(legacyConfigPath, 'utf8');
   await fs.writeFile(legacyConfigPath, JSON.stringify({
@@ -2161,51 +2367,286 @@ async function main() {
   await fs.writeFile(legacyConfigPath, legacyConfigValid);
   const legacyPackageBeforeUpdate = await readMacroPackage(root10, 'legacy.ext');
   assert(legacyPackageBeforeUpdate.status === 'ok', 'legacy Package fixture loads with a revision');
+  assert(
+    legacyPackageBeforeUpdate.status === 'ok' &&
+      Object.prototype.hasOwnProperty.call(legacyPackageBeforeUpdate.pkg, '__proto__') &&
+      legacyPackageBeforeUpdate.pkg.__proto__?.keep === 'prototype-sensitive-wrapper-extension' &&
+      JSON.parse(JSON.stringify(legacyPackageBeforeUpdate.pkg)).__proto__?.keep ===
+        'prototype-sensitive-wrapper-extension',
+    'prototype-sensitive Package wrapper extension survives read and serialization'
+  );
   const legacyUpdated = await updateMacroPackage(root10, 'legacy.ext', {
     name: 'Legacy Updated', description: 'after'
   }, macroPackageMetadataRevision(legacyPackageBeforeUpdate.raw));
-  assert(legacyUpdated.status === 'updated',
-    `legacy dotted Package metadata update succeeds (${JSON.stringify(legacyUpdated)})`);
+  assert(
+    legacyUpdated.status === 'error' && /requires migration/i.test(legacyUpdated.message),
+    'predecessor Package metadata update is blocked until migration'
+  );
   const legacyWrapperAfter = JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8'));
-  assert(legacyWrapperAfter.vendor_extension?.keep === true,
-    'legacy Package metadata update preserves unknown wrapper extensions');
+  assert(legacyWrapperAfter.name === 'Legacy' && legacyWrapperAfter.vendor_extension?.keep === true,
+    'blocked predecessor Package update preserves the complete wrapper');
   assert(legacyWrapperAfter.macros?.['Legacy.macro']?.source?.vendor_source?.keep === true,
-    'Macro canonicalization preserves unknown nested source fields');
+    'blocked predecessor Package update preserves nested Macro extensions');
+  const legacyEntriesBefore = await fs.readFile(nodePath.join(legacyDataDir, 'entries.json'), 'utf8');
   const legacyEntryCreated = await addEntry(root10, {
     id: 'legacy-created', kind: 'definition', title: 'Created', content: {}
   });
-  assert(legacyEntryCreated.status === 'ok', 'legacy Entry create remains writable before migration');
+  assert(
+    legacyEntryCreated.status === 'error' && /requires migration/i.test(legacyEntryCreated.message),
+    'predecessor Entry create is blocked until migration'
+  );
   const legacyEntryBeforeUpdate = (await readEntriesApi(root10)).find((item) => item.id === 'legacy-entry');
   const legacyEntryUpdated = await updateEntry(root10, 'legacy-entry', {
     id: 'legacy-entry', kind: 'definition', title: 'After', content: {}
   }, entityRevision(legacyEntryBeforeUpdate));
-  assert(legacyEntryUpdated.status === 'updated', 'legacy Entry update remains writable before migration');
-  const legacyEntriesAfter = JSON.parse(
-    await fs.readFile(nodePath.join(legacyDataDir, 'entries.json'), 'utf8')
+  assert(
+    legacyEntryUpdated.status === 'error' && /requires migration/i.test(legacyEntryUpdated.message),
+    'predecessor Entry update is blocked until migration'
   );
-  assert(legacyEntriesAfter.every((entry) => !Object.prototype.hasOwnProperty.call(entry, 'package')),
-    'legacy Entry create/update do not write the reserved migration package field');
+  assert(await fs.readFile(nodePath.join(legacyDataDir, 'entries.json'), 'utf8') === legacyEntriesBefore,
+    'blocked predecessor Entry writes preserve the frozen aggregate backup');
   const relationshipCreated = await addRelationship(root10, {
-    id: 'legacy-rel', from: 'legacy-entry', to: 'legacy-created', label: 'depends', metadata: null
+    id: 'legacy-rel', from: 'legacy-entry', to: 'legacy-entry', label: 'depends', metadata: null
   });
-  assert(relationshipCreated.status === 'ok', 'Relationship fixture created for revision conflict test');
+  assert(
+    relationshipCreated.status === 'error' && /requires migration/i.test(relationshipCreated.message),
+    'predecessor Relationship create is blocked until migration'
+  );
+  const predecessorLibrary = await createLibrary(root10, 'Predecessor Library');
+  assert(predecessorLibrary.status === 'created',
+    'predecessor Library creation remains allowed outside frozen migration sources');
+  const predecessorLibraryDelete = await deleteLibrary(root10, predecessorLibrary.slug);
+  assert(predecessorLibraryDelete.status === 'ok',
+    'predecessor Library deletion remains allowed outside frozen migration sources');
+  for (const unsafeSlug of ['.', '..', '../outside', 'nested/path', 'nested\\path']) {
+    const unsafeDelete = await deleteLibrary(root10, unsafeSlug);
+    assert(unsafeDelete.status === 'invalid',
+      `Library deletion rejects unsafe path segment ${JSON.stringify(unsafeSlug)}`);
+  }
+  await fs.stat(nodePath.join(root10.fsPath, '.SNL_Doc', 'config.json'));
+  assert(true, 'unsafe Library deletion leaves the workspace root intact');
+  const unsafeGraphWrite = await writeLibraryGraph(root10, '../../target', {
+    nodes: [], relationships: []
+  });
+  assert(unsafeGraphWrite.status === 'error',
+    'Library graph writer rejects a traversal slug through the shared path gate');
+  let escapedGraphExists = true;
+  try {
+    await fs.stat(nodePath.join(root10.fsPath, 'target', 'graph.json'));
+  } catch (error) {
+    escapedGraphExists = error?.code !== 'ENOENT';
+  }
+  assert(!escapedGraphExists, 'unsafe Library graph write creates nothing outside libraries');
+  const missingLibraryGraphWrite = await writeLibraryGraph(root10, 'Missing_Library', {
+    nodes: [], relationships: []
+  });
+  assert(missingLibraryGraphWrite.status === 'error',
+    'Library graph writer requires an existing direct-child Library directory');
+  let missingLibraryCreated = true;
+  try {
+    await fs.stat(nodePath.join(root10.fsPath, '.SNL_Doc', 'libraries', 'Missing_Library'));
+  } catch (error) {
+    missingLibraryCreated = error?.code !== 'ENOENT';
+  }
+  assert(!missingLibraryCreated, 'Library writer never synthesizes an incomplete Library');
+
+  const preflightTmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-library-preflight-'));
+  const preflightRoot = Uri.file(preflightTmp);
+  assert((await initSnlDoc(preflightRoot)).status === 'created',
+    'Library preflight fixture workspace is initialized');
+  const preflightData = nodePath.join(preflightTmp, '.SNL_Doc');
+  const preflightLibraries = nodePath.join(preflightData, 'libraries');
+  await fs.rm(preflightLibraries, { recursive: true, force: true });
+  const preflightConfigPath = nodePath.join(preflightData, 'config.json');
+  const preflightConfig = JSON.parse(await fs.readFile(preflightConfigPath, 'utf8'));
+  preflightConfig.version = '99.0.0';
+  await fs.writeFile(preflightConfigPath, JSON.stringify(preflightConfig));
+  let preflightRejected = false;
+  try {
+    const result = await createLibrary(preflightRoot, 'Must Not Materialize');
+    preflightRejected = result.status !== 'created';
+  } catch { preflightRejected = true; }
+  assert(preflightRejected, 'future workspace rejects Library creation');
+  let preflightLibrariesExist = true;
+  try { await fs.stat(preflightLibraries); } catch (error) {
+    preflightLibrariesExist = error?.code !== 'ENOENT';
+  }
+  assert(!preflightLibrariesExist,
+    'Library creation validates workspace before materializing a missing libraries root');
+
+  const revalidateTmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-library-revalidate-'));
+  const revalidateRoot = Uri.file(revalidateTmp);
+  assert((await initSnlDoc(revalidateRoot)).status === 'created',
+    'Library publication revalidation fixture is initialized');
+  const revalidateConfigPath = nodePath.join(revalidateTmp, '.SNL_Doc', 'config.json');
+  let invalidatedDuringStaging = false;
+  beforeWriteHook = async (uri) => {
+    if (!invalidatedDuringStaging &&
+        uri.fsPath.includes(`${nodePath.sep}.creating-Revalidate_Library-`) &&
+        uri.fsPath.endsWith(`${nodePath.sep}.gitkeep`)) {
+      invalidatedDuringStaging = true;
+      const config = JSON.parse(await fs.readFile(revalidateConfigPath, 'utf8'));
+      config.version = '99.0.0';
+      await fs.writeFile(revalidateConfigPath, JSON.stringify(config));
+    }
+  };
+  let revalidationRejected = false;
+  try {
+    const result = await createLibrary(revalidateRoot, 'Revalidate Library');
+    revalidationRejected = result.status !== 'created';
+  } catch { revalidationRejected = true; }
+  beforeWriteHook = null;
+  assert(invalidatedDuringStaging, 'Library publication revalidation seam is exercised');
+  assert(revalidationRejected, 'Library publication revalidates workspace after staging writes');
+  const revalidateLibraries = await fs.readdir(
+    nodePath.join(revalidateTmp, '.SNL_Doc', 'libraries')
+  );
+  assert(!revalidateLibraries.includes('Revalidate_Library'),
+    'failed publication revalidation does not publish the staged Library');
+  assert(!revalidateLibraries.some((name) => name.startsWith('.creating-Revalidate_Library-')),
+    'failed publication revalidation removes its private staging directory');
+
+  const librariesRootPath = nodePath.join(root10.fsPath, '.SNL_Doc', 'libraries');
+  const symlinkOutside = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-library-symlink-'));
+  const childOutside = nodePath.join(symlinkOutside, 'child-target');
+  await fs.mkdir(childOutside);
+  const childLink = nodePath.join(librariesRootPath, 'Child_Link');
+  await fs.symlink(childOutside, childLink, 'dir');
+  const childLinkWrite = await writeLibraryGraph(root10, 'Child_Link', {
+    nodes: [], relationships: []
+  });
+  assert(childLinkWrite.status === 'error', 'Library writer rejects a symlinked direct-child Library');
+  let childEscaped = true;
+  try { await fs.stat(nodePath.join(childOutside, 'graph.json')); } catch (error) {
+    childEscaped = error?.code !== 'ENOENT';
+  }
+  assert(!childEscaped, 'child Library symlink cannot redirect graph writes outside the workspace');
+  await fs.unlink(childLink);
+
+  const heldLibrariesRoot = nodePath.join(root10.fsPath, '.SNL_Doc', 'libraries-real');
+  const outsideLibrariesRoot = nodePath.join(symlinkOutside, 'root-target');
+  await fs.mkdir(nodePath.join(outsideLibrariesRoot, 'Root_Link'), { recursive: true });
+  await fs.rename(librariesRootPath, heldLibrariesRoot);
+  await fs.symlink(outsideLibrariesRoot, librariesRootPath, 'dir');
+  const rootLinkWrite = await writeLibraryGraph(root10, 'Root_Link', {
+    nodes: [], relationships: []
+  });
+  assert(rootLinkWrite.status === 'error', 'Library writer rejects a symlinked libraries root');
+  let rootEscaped = true;
+  try { await fs.stat(nodePath.join(outsideLibrariesRoot, 'Root_Link', 'graph.json')); } catch (error) {
+    rootEscaped = error?.code !== 'ENOENT';
+  }
+  assert(!rootEscaped, 'libraries-root symlink cannot redirect graph writes outside the workspace');
+  await fs.unlink(librariesRootPath);
+  await fs.rename(heldLibrariesRoot, librariesRootPath);
+
+  const targetLinkLibrary = await createLibrary(root10, 'Target Link Library');
+  assert(targetLinkLibrary.status === 'created', 'target-file symlink fixture Library is created');
+  const targetLinkGraph = nodePath.join(
+    librariesRootPath, targetLinkLibrary.slug, 'graph.json'
+  );
+  const outsideGraph = nodePath.join(symlinkOutside, 'outside-graph.json');
+  const outsideGraphContents = JSON.stringify({ nodes: [], relationships: [] });
+  await fs.writeFile(outsideGraph, outsideGraphContents);
+  await fs.unlink(targetLinkGraph);
+  await fs.symlink(outsideGraph, targetLinkGraph, 'file');
+  let symlinkMutationCallbackRan = false;
+  const targetLinkMutation = await mutateLibraryGraph(
+    root10,
+    targetLinkLibrary.slug,
+    () => {
+      symlinkMutationCallbackRan = true;
+      return true;
+    }
+  );
+  assert(targetLinkMutation.status === 'error',
+    'Library graph mutation rejects a symlink before reading it');
+  assert(!symlinkMutationCallbackRan,
+    'Library graph mutation rejects a symlink before invoking its callback');
+  const targetLinkWrite = await writeLibraryGraph(root10, targetLinkLibrary.slug, {
+    nodes: [], relationships: []
+  });
+  assert(targetLinkWrite.status === 'error', 'Library writer rejects a symlinked graph target');
+  assert(await fs.readFile(outsideGraph, 'utf8') === outsideGraphContents,
+    'target-file symlink cannot overwrite an external graph');
+  await fs.unlink(targetLinkGraph);
+  await fs.writeFile(targetLinkGraph, JSON.stringify({ nodes: [], relationships: [] }));
+  assert((await deleteLibrary(root10, targetLinkLibrary.slug)).status === 'ok',
+    'target-file symlink fixture Library cleans up');
+
+  let injectedLibraryFailure = false;
+  beforeWriteHook = async (uri) => {
+    if (uri.fsPath.includes(`${nodePath.sep}.creating-Retry_Library-`) &&
+        uri.fsPath.endsWith(nodePath.join('', 'counters.json'))) {
+      injectedLibraryFailure = true;
+      throw new Error('injected Library payload failure');
+    }
+  };
+  let failedLibraryCreate = false;
+  try {
+    await createLibrary(root10, 'Retry Library');
+  } catch {
+    failedLibraryCreate = true;
+  } finally {
+    beforeWriteHook = null;
+  }
+  assert(injectedLibraryFailure && failedLibraryCreate,
+    'injected Library payload failure is surfaced');
+  let partialLibraryExists = true;
+  try {
+    await fs.stat(nodePath.join(root10.fsPath, '.SNL_Doc', 'libraries', 'Retry_Library'));
+  } catch (error) {
+    partialLibraryExists = error?.code !== 'ENOENT';
+  }
+  assert(!partialLibraryExists, 'failed Library creation rolls back its entire directory');
+  const librariesPath = nodePath.join(root10.fsPath, '.SNL_Doc', 'libraries');
+  assert(
+    !(await fs.readdir(librariesPath)).some((name) => name.startsWith('.creating-Retry_Library-')),
+    'failed Library creation leaves no private staging directory'
+  );
+
+  const collisionTarget = nodePath.join(librariesPath, 'Collision_Library');
+  let collisionInjected = false;
+  beforeWriteHook = async (uri) => {
+    if (!collisionInjected &&
+        uri.fsPath.includes(`${nodePath.sep}.creating-Collision_Library-`) &&
+        uri.fsPath.endsWith(nodePath.join('Markdown', '.gitkeep'))) {
+      collisionInjected = true;
+      await fs.mkdir(collisionTarget, { recursive: true });
+      await fs.writeFile(nodePath.join(collisionTarget, 'foreign.txt'), 'foreign');
+    }
+  };
+  let collisionCreateFailed = false;
+  try {
+    await createLibrary(root10, 'Collision Library');
+  } catch {
+    collisionCreateFailed = true;
+  } finally {
+    beforeWriteHook = null;
+  }
+  assert(collisionInjected && collisionCreateFailed,
+    'atomic no-replace publish rejects a target that appears during Library creation');
+  assert(await fs.readFile(nodePath.join(collisionTarget, 'foreign.txt'), 'utf8') === 'foreign',
+    'failed Library publish never deletes or overwrites a foreign target directory');
+  assert(
+    !(await fs.readdir(librariesPath)).some((name) => name.startsWith('.creating-Collision_Library-')),
+    'collision cleanup removes only the private staging directory'
+  );
+  await fs.rm(collisionTarget, { recursive: true, force: true });
+
+  const retriedLibrary = await createLibrary(root10, 'Retry Library');
+  assert(retriedLibrary.status === 'created', 'failed Library creation can be retried safely');
+  assert((await deleteLibrary(root10, retriedLibrary.slug)).status === 'ok',
+    'retried Library cleanup succeeds');
+
+  const deleteActivePackage = await deleteMacroPackage(root10, 'legacy.ext');
+  assert(
+    deleteActivePackage.status === 'error' && /requires migration/i.test(deleteActivePackage.message),
+    'predecessor active Package deletion reports failure when config cannot be updated'
+  );
+  assert(JSON.parse(await fs.readFile(legacyWrapperPath, 'utf8')).name === 'Legacy',
+    'failed predecessor Package deletion leaves the active package file intact');
   const relationshipsPath = nodePath.join(tmpRoot10, '.SNL_Doc', 'relationships.json');
-  const relationshipsWithExtension = JSON.parse(await fs.readFile(relationshipsPath, 'utf8'));
-  relationshipsWithExtension.relationships[0].vendor_relationship = { keep: true };
-  await fs.writeFile(relationshipsPath, JSON.stringify(relationshipsWithExtension, null, 2));
-  const originalRelationship = (await readRelationships(root10)).find((item) => item.id === 'legacy-rel');
-  const staleRelationshipRevision = entityRevision(originalRelationship);
-  assert((await updateRelationship(root10, 'legacy-rel', {
-    from: 'legacy-entry', to: 'legacy-created', label: 'newer', metadata: null
-  }, staleRelationshipRevision)).status === 'updated', 'concurrent Relationship edit fixture succeeds');
-  const relationshipAfterUpdate = (await readRelationships(root10)).find((item) => item.id === 'legacy-rel');
-  assert(relationshipAfterUpdate.vendor_relationship?.keep === true,
-    'Relationship update preserves unknown record-level fields');
-  assert((await updateRelationship(root10, 'legacy-rel', {
-    from: 'legacy-entry', to: 'legacy-created', label: 'stale overwrite', metadata: null
-  }, staleRelationshipRevision)).status === 'conflict',
-    'stale Relationship editor revision is rejected');
-  const canonicalRelationships = await fs.readFile(relationshipsPath, 'utf8');
   for (const [payload, label] of [
     ['{not-json', 'malformed Relationship JSON is rejected'],
     [JSON.stringify({ version: 1 }), 'wrong Relationship wrapper shape is rejected'],
@@ -2217,7 +2658,6 @@ async function main() {
     try { await readRelationships(root10); } catch { rejected = true; }
     assert(rejected, label);
   }
-  await fs.writeFile(relationshipsPath, canonicalRelationships);
   await fs.rm(tmpRoot10, { recursive: true, force: true });
 
   // --- [32] Initialization is config-last and retryable ---------------------
@@ -2247,7 +2687,7 @@ async function main() {
   catch { configCreatedEarly = false; }
   assert(!configCreatedEarly, 'failed initialization does not commit config.json');
   assert((await initSnlDoc(root11)).status === 'created', 'partial initialization can be retried safely');
-  assert((await readConfig(tmpRoot11)).version === '0.0.6', 'retry commits the current config last');
+  assert((await readConfig(tmpRoot11)).version === '0.0.8', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

@@ -5,6 +5,10 @@ import {
   type SnlSyntaxTree
 } from '@sjtu-ai4math/snl-basics/core';
 import {
+  resolveSnlSemantics,
+  type SnlMacroRecord
+} from '@sjtu-ai4math/snl-basics';
+import {
   applyContextSrcLookup,
   buildContextIndex,
   type EntryPoolItemForLookup
@@ -79,6 +83,19 @@ function nodeMetadata(node: SnlSyntaxTree): Record<string, unknown> {
     : {};
 }
 
+function explicitEntrySource(node: SnlSyntaxTree): string {
+  if (node.source?.type === 'entry') return node.source.entry_id;
+  if (node.postfix?.type === 'name') return node.postfix.name;
+  const meta = nodeMetadata(node);
+  return typeof meta.src === 'string' ? meta.src : '';
+}
+
+function nodeMetricText(node: SnlSyntaxTree): string {
+  return node.env_mode && typeof node.temporary_source === 'string'
+    ? node.temporary_source
+    : node.macro_name;
+}
+
 function isNumericNode(node: SnlSyntaxTree): boolean {
   if (
     node.children.length > 0 ||
@@ -90,7 +107,7 @@ function isNumericNode(node: SnlSyntaxTree): boolean {
     return false;
   }
   return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(
-    node.macro_name.trim()
+    nodeMetricText(node).trim()
   );
 }
 
@@ -98,8 +115,7 @@ function isCatalogConstant(
   node: SnlSyntaxTree,
   macroLookup: SnlMacroSourceLookup
 ): boolean {
-  const meta = nodeMetadata(node);
-  const explicitSrc = typeof meta.src === 'string' ? meta.src : '';
+  const explicitSrc = explicitEntrySource(node);
   return (
     explicitSrc.length === 0 &&
     !node.env_mode &&
@@ -120,7 +136,7 @@ function hasResolvedSemantics(
 
   const meta = nodeMetadata(node);
   const bindRef = typeof meta.bindRef === 'string' ? meta.bindRef : '';
-  const src = typeof meta.src === 'string' ? meta.src : '';
+  const src = explicitEntrySource(node);
   const srcStatus = typeof meta.srcStatus === 'string' ? meta.srcStatus : '';
 
   // An explicit source on a non-binder overrides a same-named local binding:
@@ -131,6 +147,10 @@ function hasResolvedSemantics(
       srcStatus.length === 0 &&
       accessibleEntryIds.has(src)
     );
+  }
+
+  if (node.kind === 'bvar' && node.source?.type === 'tree_path') {
+    return true;
   }
 
   if (
@@ -168,12 +188,23 @@ export function analyzeSnlStructuralIndex(
   macroLookup: SnlMacroSourceLookup,
   accessibleEntryIds: ReadonlySet<string>
 ): SnlStructuralMetrics {
+  const semanticMacros = Object.fromEntries(
+    Object.entries(macroLookup).map(([name, macro]) => [name, {
+      name,
+      description: '',
+      dynamic_arity: false,
+      tags: [],
+      styles: [],
+      source: macro.source
+    }])
+  ) as SnlMacroRecord;
+  const semanticRoot = resolveSnlSemantics(root, semanticMacros).tree;
   const binderNames = new Set<string>();
   const collectBinders = (node: SnlSyntaxTree): void => {
     if (node.kind === 'binder') binderNames.add(node.macro_name);
     for (const child of node.children) collectBinders(child);
   };
-  collectBinders(root);
+  collectBinders(semanticRoot);
 
   let weakSemanticFreedom = 0;
   let strongSemanticFreedom = 0;
@@ -194,7 +225,7 @@ export function analyzeSnlStructuralIndex(
         catalogConstant ||
         node.kind === 'binder' ||
         (node.kind === 'bvar' && sourced);
-      const weight = lengthExempt ? 1 : snlNodeLengthWeight(node.macro_name);
+      const weight = lengthExempt ? 1 : snlNodeLengthWeight(nodeMetricText(node));
       weightedTotal += weight;
 
       if (!sourced) {
@@ -209,7 +240,7 @@ export function analyzeSnlStructuralIndex(
 
     for (const child of node.children) walk(child);
   };
-  walk(root);
+  walk(semanticRoot);
 
   const structuralIndex =
     weightedTotal === 0

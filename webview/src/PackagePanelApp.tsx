@@ -29,7 +29,7 @@ import {
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
-import { wireMacroToRenderable } from './render/macroWire';
+import { wireMacroEntriesToRenderable } from './render/macroWire';
 import {
   MACRO_PREVIEW_ARGUMENTS,
   MAX_MACRO_PREVIEW_ARGS,
@@ -98,7 +98,6 @@ export interface MacroPackageEntry {
   source: { entries: string[]; urls: string[] };
   kind?: string;
   dynamic_arity: boolean;
-  default_style: Record<string, string>;
   styles: MacroPackageStyle[];
   tags: string[];
 }
@@ -579,19 +578,10 @@ const MONO: React.CSSProperties = {
  */
 export function defaultStyleForLanguage(
   macro: MacroPackageEntry,
-  language: string
+  _language: string
 ): MacroPackageStyle | undefined {
   const styles = Array.isArray(macro.styles) ? macro.styles : [];
-  if (styles.length === 0) return undefined;
-  const mappedName = macro.default_style?.[language] ?? macro.default_style?.en;
-  if (mappedName === undefined) return styles[0];
-  const mapped = styles.find((style) => style.style_name === mappedName);
-  if (!mapped) {
-    throw new Error(
-      `default style "${mappedName}" for language "${language}" does not exist on macro "${macro.name}"`
-    );
-  }
-  return mapped;
+  return styles[0];
 }
 
 function arityLabel(
@@ -654,13 +644,10 @@ export function MacroTable({
   // memoize by the macros array identity — parent's onMessage handler creates
   // a fresh array whenever the package file changes.
   const previewMacroRecord: MacroRecord = useMemo(() => {
-    const packageMacros: MacroRecord = {};
-    for (const [name, macro] of Object.entries(workspaceMacros)) {
-      packageMacros[name] = wireMacroToRenderable(macro);
-    }
-    for (const m of macros) {
-      packageMacros[m.name] = wireMacroToRenderable(m);
-    }
+    const packageMacros = wireMacroEntriesToRenderable([
+      ...Object.entries(workspaceMacros),
+      ...macros.map((macro) => [macro.name, macro] as const)
+    ]);
     return { ...packageMacros, ...MACRO_PREVIEW_ARGUMENTS };
   }, [macros, workspaceMacros]);
 

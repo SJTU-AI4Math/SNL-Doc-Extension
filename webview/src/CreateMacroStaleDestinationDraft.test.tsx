@@ -69,7 +69,7 @@ describe('Macro create-to-edit destination drafts', () => {
       macroKinds: [], entries: [], prefill: null, macroRevision: 'fresh-revision',
       existing: {
         name, description: 'FRESHLY CREATED', source: { entries: [], urls: [] },
-        dynamic_arity: false, default_style: { en: 'default' }, tags: [],
+        dynamic_arity: false, tags: [],
         styles: [{ style_name: 'default', mode: 'text', template: 'FRESH TEMPLATE', tags: [] }]
       }
     });

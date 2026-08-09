@@ -33,8 +33,9 @@ export function selectUsedMacros(
   const visit = (node: SnlSyntaxTree): void => {
     if (!seen.has(node.macro_name)) {
       seen.add(node.macro_name);
-      const macro = macros[node.macro_name];
-      if (macro) selected.push(macro);
+      if (Object.hasOwn(macros, node.macro_name)) {
+        selected.push(macros[node.macro_name]);
+      }
     }
     for (const child of node.children) visit(child);
   };

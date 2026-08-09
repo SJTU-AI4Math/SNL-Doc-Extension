@@ -17,11 +17,16 @@ function uri(path: string): MemUri {
 
 vi.mock('vscode', () => ({
   env: { language: 'en' },
-  FileType: { File: 1, Directory: 2 },
+  FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
   Uri: { joinPath: (base: MemUri, ...parts: string[]) => uri([base.path.replace(/\/$/u, ''), ...parts].join('/')) },
   workspace: {
     fs: {
       stat: vi.fn(async (target: MemUri) => {
+        if ([
+          '/ws/.SNL_Doc',
+          '/ws/.SNL_Doc/libraries',
+          '/ws/.SNL_Doc/libraries/lib'
+        ].includes(target.fsPath)) return { type: 2 };
         if (files.has(target.fsPath)) return { type: 1 };
         throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
       }),

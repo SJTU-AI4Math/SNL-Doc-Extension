@@ -79,7 +79,7 @@ import {
   type EntryKind as RenderEntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import { wireMacroToRenderable, type WireMacro } from './render/macroWire';
+import { wireMacroEntriesToRenderable, type WireMacro } from './render/macroWire';
 import {
   createMacroDataDriver,
   type MacroRecord
@@ -627,13 +627,10 @@ export function CreateEntryApp(): React.ReactElement {
   const [macroOrigin, setMacroOrigin] = useState<Record<string, string>>({});
 
   // User-only DB for EntryRender and the GUI editor's flat lookup.
-  const userMacros: MacroRecord = useMemo(() => {
-    const userDb: MacroRecord = {};
-    for (const [name, m] of Object.entries(wireMacros)) {
-      userDb[name] = wireMacroToRenderable(m);
-    }
-    return userDb;
-  }, [wireMacros]);
+  const userMacros: MacroRecord = useMemo(
+    () => wireMacroEntriesToRenderable(Object.entries(wireMacros)),
+    [wireMacros]
+  );
 
   const macroDataDriver = useMemo(
     () => createMacroDataDriver(userMacros),
@@ -2033,10 +2030,10 @@ export function CreateEntryApp(): React.ReactElement {
  * `content` bag.
  *
  * Wrapped in a local `<HoverPopoverProvider>` because EntryRender's hooks
- * consume its context. `postMessage` is a no-op inside the preview —
- * clicking an in-body reference shouldn't navigate away from the editor,
- * and pointer resolution ("↗ source" button) only fires against a saved
- * entry, which draft edits don't have.
+ * consume its context. In-body references use the editor panel's correlated
+ * `requestEntryDetails` bridge, while the unsaved current Entry is resolved
+ * from `localDetails` without a host round trip. Title jumps remain disabled
+ * so Preview interaction cannot navigate away from the draft.
  */
 function LivePreview({
   kind,
@@ -4646,6 +4643,8 @@ function stringifyLeafSource(node: SnlSyntaxTree): string {
 }
 
 function readContextEntryId(node: SnlSyntaxTree): string | undefined {
+  if (node.source?.type === 'entry') return node.source.entry_id;
+  if (node.postfix?.type === 'name') return node.postfix.name;
   if (!node.mdata || typeof node.mdata !== 'object' || Array.isArray(node.mdata)) {
     return undefined;
   }
@@ -4662,6 +4661,16 @@ export function withContextEntryId(node: SnlSyntaxTree, value: string): SnlSynta
   if (trimmed) base.src = trimmed;
   else delete base.src;
   return Object.keys(base).length > 0 ? base : null;
+}
+
+function withContextEntryNode(node: SnlSyntaxTree, value: string): SnlSyntaxTree {
+  const trimmed = value.trim();
+  return {
+    ...node,
+    postfix: trimmed ? { type: 'name', name: trimmed } : undefined,
+    source: trimmed ? { type: 'entry', entry_id: trimmed } : undefined,
+    mdata: withContextEntryId(node, trimmed)
+  };
 }
 
 function withoutBindingMetadata(mdata: SnlSyntaxTree['mdata']): SnlSyntaxTree['mdata'] {
@@ -4691,14 +4700,17 @@ function stringifyLeafHead(node: SnlSyntaxTree): string {
   // `kind: binder` is also assigned to bound occurrences by annotate-bind.
   // Only binder_explicit records an authored prefix `@` on this node.
   const binderPrefix = node.binder_explicit ? '@' : '';
+  const payload = typeof node.temporary_source === 'string'
+    ? node.temporary_source
+    : node.macro_name;
   if (node.env_mode === 'text') {
-    return `${binderPrefix}%${node.macro_name}%`;
+    return `${binderPrefix}%${payload}%`;
   }
   if (node.env_mode === 'formula_inline') {
-    return `${binderPrefix}$${node.macro_name}$`;
+    return `${binderPrefix}$${payload}$`;
   }
   if (node.env_mode === 'formula_display') {
-    return `${binderPrefix}$${'$'}${node.macro_name}$${'$'}`;
+    return `${binderPrefix}$${'$'}${payload}$${'$'}`;
   }
   return `${binderPrefix}${node.macro_name}`;
 }
@@ -5615,7 +5627,18 @@ function InductiveNode({
     } else if (!contextDraftOpenRef.current) {
       setContextInputOpen(false);
     }
-  }, [nodeId, node.macro_name, node.env_mode, node.kind, node.style_name, node.mdata]);
+  }, [
+    nodeId,
+    node.macro_name,
+    node.temporary_source,
+    node.env_mode,
+    node.kind,
+    node.style_name,
+    node.mdata,
+    node.postfix,
+    node.source,
+    node.binder_explicit
+  ]);
 
   const commitRaw = (nextRaw: string): void => {
     const leaf = parseLeafSource(nextRaw);
@@ -5630,7 +5653,7 @@ function InductiveNode({
     // Bracket syntax and an `@entry` suffix belong to their independent
     // channels, never to the Macro identity field.
     setRawInput(nextMacroName);
-    onChange({
+    const nextNode: SnlSyntaxTree = {
       ...node,
       macro_name: nextMacroName,
       // Cat 2026-07-15: the GUI editor no longer manages sigils. Any
@@ -5639,19 +5662,23 @@ function InductiveNode({
       // sigil actually deletes it (previously `kind: leaf.kind ||
       // node.kind` re-latched the old `binder` and the `@` came back).
       env_mode: undefined,
+      temporary_source: undefined,
+      temporary_format: undefined,
       kind: '',
       binder_explicit: undefined,
+      binder_name: undefined,
       scope: undefined,
       // Macro text owns identity/env syntax only. Style is changed exclusively
       // by the adjacent dropdown, so typing/pasting `id[style]` cannot mutate it.
       style_name: node.style_name,
-      mdata: withoutBindingMetadata(
-        typedContext !== undefined
-          ? withContextEntryId(node, typedContext)
-          : node.mdata
-      ),
+      mdata: withoutBindingMetadata(node.mdata),
       children: node.children
-    });
+    };
+    onChange(
+      typedContext !== undefined
+        ? withContextEntryNode(nextNode, typedContext)
+        : nextNode
+    );
   };
 
 
@@ -5913,7 +5940,7 @@ function InductiveNode({
                 event.stopPropagation();
                 contextDraftOpenRef.current = false;
                 setContextInputOpen(false);
-                onChange({ ...node, mdata: withContextEntryId(node, '') });
+                onChange(withContextEntryNode(node, ''));
               }
             }}
             onBlur={(event) => {
@@ -5922,7 +5949,7 @@ function InductiveNode({
               if (contextEntryId.trim() === '') {
                 contextDraftOpenRef.current = false;
                 setContextInputOpen(false);
-                onChange({ ...node, mdata: withContextEntryId(node, '') });
+                onChange(withContextEntryNode(node, ''));
               }
             }}
             style={{
@@ -5965,7 +5992,7 @@ function InductiveNode({
               placeholder={t('entryId')}
               onChange={(value) => {
                 contextDraftOpenRef.current = value.trim() === '';
-                onChange({ ...node, mdata: withContextEntryId(node, value) });
+                onChange(withContextEntryNode(node, value));
               }}
               style={{ flex: '1 1 auto', minWidth: 0 }}
               inputStyle={{
@@ -6105,7 +6132,12 @@ function InductiveNode({
  * alpha over the panel bg — small enough to keep contrast, strong enough to
  * signal "this matches kind X".
  */
-function kindBackgroundTint(lightBg: string): string {
+function kindBackgroundTint(lightBg: string | undefined): string {
+  // Legacy compatible palettes may omit either flat color. Treat a missing
+  // background as the neutral editor surface instead of crashing the editor.
+  if (typeof lightBg !== 'string') {
+    return 'var(--vscode-input-background, #2a2a2a)';
+  }
   // Naive: use the light bg at 18% alpha over transparent. VS Code themes
   // supply their own base; the tint reads as a subtle colored wash on dark.
   const hex = /^#([0-9a-fA-F]{6})$/.exec(lightBg.trim());

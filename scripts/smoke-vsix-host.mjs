@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +10,12 @@ if (!process.argv[2] || !existsSync(vsix)) {
 }
 
 const directory = mkdtempSync(join(tmpdir(), 'snl-doc-vsix-smoke-'));
+function walkFiles(directoryPath) {
+  return readdirSync(directoryPath).flatMap((name) => {
+    const path = join(directoryPath, name);
+    return statSync(path).isDirectory() ? walkFiles(path) : [path];
+  });
+}
 try {
   let unzip = spawnSync('unzip', ['-q', vsix, '-d', directory], { encoding: 'utf8' });
   if (unzip.error?.code === 'ENOENT') {
@@ -26,13 +32,28 @@ try {
   const required = [
     'out/extension.js',
     'out/snlDoc.js',
+    'vendor/snl-basics-host.cjs',
     'node_modules/@sjtu-ai4math/snl-basics/package.json',
+    'node_modules/@sjtu-ai4math/snl-basics/dist-lib/index.js',
     'node_modules/@sjtu-ai4math/snl-basics/dist-lib/core.js',
     'node_modules/@sjtu-ai4math/snl-basics/dist-lib/runtime.js',
     'node_modules/fuse.js/dist/fuse.cjs',
   ];
   for (const file of required) {
     if (!existsSync(join(extension, file))) throw new Error(`VSIX is missing ${file}`);
+  }
+  const directEsmRequires = walkFiles(join(extension, 'out'))
+    .filter((file) => file.endsWith('.js'))
+    .filter((file) => /require\(["']@sjtu-ai4math\/snl-basics/.test(readFileSync(file, 'utf8')));
+  if (directEsmRequires.length > 0) {
+    throw new Error(`CommonJS host output directly requires ESM-only SNL-Basics: ${directEsmRequires.join(', ')}`);
+  }
+  const basicsChunks = join(
+    extension,
+    'node_modules/@sjtu-ai4math/snl-basics/dist-lib/chunks'
+  );
+  if (!existsSync(basicsChunks) || !readdirSync(basicsChunks).some((file) => file.endsWith('.js'))) {
+    throw new Error('VSIX is missing the SNL-Basics root-entry runtime chunks');
   }
 
   const loader = String.raw`

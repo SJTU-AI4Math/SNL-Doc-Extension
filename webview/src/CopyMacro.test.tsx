@@ -39,7 +39,6 @@ const original = {
   },
   kind: 'operator',
   dynamic_arity: true,
-  default_style: { en: 'default', 'zh-CN': 'compact' },
   tags: ['macro-tag'],
   consumer_metadata: { owner: 'downstream', flags: ['keep-me'] },
   styles: [
@@ -99,7 +98,7 @@ describe('Copy Macro', () => {
     render(<PackagePanelApp />);
     send({
       type: 'package',
-      pkg: { version: '8', name: 'Algebra', macros: {} },
+      pkg: { version: '9', name: 'Algebra', macros: {} },
       file: 'algebra.json',
       macros: [original],
       macroKinds: [],

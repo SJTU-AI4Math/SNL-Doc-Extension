@@ -111,7 +111,9 @@ export function harvestLibraryHtml(
     for (const node of Array.from(clone.querySelectorAll<HTMLElement>('[data-name]'))) {
       if (node.hasAttribute('data-src')) continue;
       const name = node.getAttribute('data-name') ?? '';
-      const source = macros[name]?.source?.entries?.[0];
+      const source = Object.hasOwn(macros, name)
+        ? macros[name]?.source?.entries?.[0]
+        : undefined;
       if (typeof source === 'string' && source) node.setAttribute('data-src', source);
     }
   }

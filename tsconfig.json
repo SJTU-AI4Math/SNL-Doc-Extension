@@ -25,6 +25,7 @@
     "webview",
     "media",
     "src/**/*.test.ts",
-    "src/**/*.spec.ts"
+    "src/**/*.spec.ts",
+    "src/exportRuntime.ts"
   ]
 }

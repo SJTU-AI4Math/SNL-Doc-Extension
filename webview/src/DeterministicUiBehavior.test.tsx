@@ -150,8 +150,7 @@ describe('empty kind presets', () => {
 
 describe('macro dirty tracking', () => {
   const macro = (description: string) => ({
-    name: 'foo', description, source: { entries: [], urls: [] }, dynamic_arity: false,
-    default_style: { en: 'default' }, tags: [],
+    name: 'foo', description, source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
     styles: [{ style_name: 'default', template: '\\foo', mode: 'formula_inline', tags: [] }]
   });
   const context = (description: string) => ({

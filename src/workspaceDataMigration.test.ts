@@ -1,17 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { macroEntityPath, makeMacroEnvelope, packageManifestPath } from './entityStorage';
 import {
   inspectStoredWorkspaceData,
   migrateStoredWorkspaceData,
   type DataMigrationStorage
 } from './workspaceDataMigration';
 
-const canonicalize = (_file: string, raw: unknown, version: '7' | '8'): unknown => ({
+const canonicalize = (_file: string, raw: unknown, version: '7' | '8' | '9' | '10'): unknown => ({
   ...(raw as Record<string, unknown>),
   version,
   macros: {
     x: {
       description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
       ...(version === '8' ? { default_style: { en: 'default' } } : {}),
+      ...(version === '10' ? { kind: 'const' } : {}),
       styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
     }
   }
@@ -23,11 +25,13 @@ class MemoryStorage implements DataMigrationStorage {
   failOnceAt: string | null = null;
   beforeWrite: ((path: string) => void) | null = null;
   afterWrite: ((path: string) => void) | null = null;
+  beforeList: ((directory: string) => void) | null = null;
 
   async readJson(path: string): Promise<unknown | null> {
     return this.values.has(path) ? structuredClone(this.values.get(path)) : null;
   }
   async listJsonFiles(directory: string): Promise<string[]> {
+    this.beforeList?.(directory);
     const prefix = `${directory}/`;
     return [...this.values.keys()]
       .filter((path) => path.startsWith(prefix) && path.endsWith('.json'))
@@ -68,7 +72,9 @@ function legacyStorage(): MemoryStorage {
     version: '6', name: 'Logic', macros: { x: { styles: [] } }
   });
   storage.values.set('relationships.json', { version: 1, relationships: [] });
-  storage.values.set('entries.json', [{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);
+  storage.values.set('entries.json', [{
+    id: 'Set.mem', kind: 'theorem', title: 'Membership', content: { snl: '' }
+  }]);
   return storage;
 }
 
@@ -88,7 +94,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -99,7 +105,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.6');
+    expect(report.to).toBe('0.0.8');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -108,7 +114,7 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.6');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.8');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
@@ -199,12 +205,150 @@ describe('stored workspace data migration', () => {
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
   });
 
-  it('rejects a manually bumped 0.0.6 workspace with no entity topology', async () => {
+  it('rejects a manually bumped 0.0.8 workspace with no entity topology', async () => {
     const storage = legacyStorage();
-    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.6';
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.8';
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('invalid');
     expect(inspection.message).toMatch(/entity|package|topology/i);
+  });
+
+  it.each([
+    ['0.0.6', true],
+    ['0.0.7', false]
+  ])('accepts a real %s predecessor Macro payload', async (version, needsDefaultStyle) => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = version;
+    const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
+    const envelope = storage.values.get(macroPath) as Record<string, unknown>;
+    const macro = envelope.macro as Record<string, unknown>;
+    delete macro.kind;
+    if (needsDefaultStyle) macro.default_style = { en: 'default' };
+    storage.writes.length = 0;
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: version,
+      to: '0.0.8'
+    });
+  });
+
+  it('rejects a 0.0.7 orphan Macro before migrating or writing', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.7';
+    storage.values.delete(packageManifestPath('Logic'));
+    storage.writes.length = 0;
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/Package.*manifest|entity topology/i);
+    expect(config.version).toBe('0.0.7');
+    expect(storage.writes).toEqual([]);
+  });
+
+  it('revalidates the loaded 0.0.7 snapshot when a Package disappears after preflight', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.7';
+    let packageLists = 0;
+    storage.beforeList = (directory) => {
+      if (directory === 'packages' && ++packageLists === 2) {
+        storage.values.delete(packageManifestPath('Logic'));
+      }
+    };
+    storage.writes.length = 0;
+    const canonicalizeSpy = vi.fn(canonicalize);
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalizeSpy))
+      .rejects.toThrow(/Package.*manifest|entity topology/i);
+    expect(canonicalizeSpy).not.toHaveBeenCalled();
+    expect(config.version).toBe('0.0.7');
+    expect(storage.writes).toEqual([]);
+  });
+
+  it('rejects a current workspace with a non-canonical v10 Macro payload', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
+    const envelope = storage.values.get(macroPath) as Record<string, unknown>;
+    const macro = envelope.macro as Record<string, unknown>;
+    delete macro.kind;
+
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/kind.*v10/i);
+  });
+
+  it('rejects a current workspace Entry whose canonical pointer field is missing', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const entryPath = [...storage.values.keys()].find((path) => path.startsWith('entries/'))!;
+    const envelope = storage.values.get(entryPath) as Record<string, unknown>;
+    delete (envelope.entry as Record<string, unknown>).pointer;
+
+    const inspection = await inspectStoredWorkspaceData(storage);
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/canonical Entry payload/i);
+  });
+
+  it('rolls back the config marker if topology changes inside the final commit seam', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.7';
+    storage.writes.length = 0;
+    storage.beforeWrite = (path) => {
+      if (path !== 'config.json') return;
+      storage.beforeWrite = null;
+      storage.values.set(macroEntityPath('Ghost', 'orphan'), makeMacroEnvelope('Ghost', {
+        name: 'orphan', kind: 'const', description: '',
+        source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+      }));
+    };
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/post-commit topology|rolled back/i);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
+  });
+
+  it('rolls back the config marker if a validated Macro is deleted inside the final commit seam', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.7';
+    const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
+    const originalBeforeWrite = storage.beforeWrite;
+    storage.beforeWrite = (path) => {
+      if (path === 'config.json') storage.values.delete(macroPath);
+      originalBeforeWrite?.(path);
+    };
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/verification|rolled back/i);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.7');
+  });
+
+  it('rolls back when a schema-valid entity value is replaced during final enumeration', async () => {
+    const storage = legacyStorage();
+    storage.afterWrite = (path) => {
+      if (path !== 'config.json') return;
+      storage.afterWrite = null;
+      storage.beforeList = (directory) => {
+        if (directory !== 'macros') return;
+        storage.beforeList = null;
+        const macroPath = [...storage.values.keys()].find((candidate) => candidate.startsWith('macros/'))!;
+        const envelope = structuredClone(storage.values.get(macroPath)) as any;
+        envelope.macro.description = 'schema-valid replacement';
+        storage.values.set(macroPath, envelope);
+      };
+    };
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/exact path\/value set|rolled back/i);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
   });
 
   it('validates the immutable migration receipt against frozen legacy backups', async () => {

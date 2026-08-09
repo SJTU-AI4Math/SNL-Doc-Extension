@@ -11,7 +11,7 @@ const entry = (snl: string): EntryData => ({
 
 const macro = (sources: string[]): MacroPackageEntry => ({
   name: 'Logic.rule', description: '', source: { entries: sources, urls: [] },
-  dynamic_arity: false, default_style: {}, styles: [], tags: []
+  dynamic_arity: false, styles: [], tags: []
 });
 
 describe('SNoogL cross-domain filters', () => {

@@ -11,6 +11,7 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const files = new Map<string, Uint8Array>();
 let failConfigWrite = false;
+const createdDirectories: string[] = [];
 
 function uri(path: string): MemUri {
   return {
@@ -50,7 +51,7 @@ vi.mock('vscode', () => ({
         files.set(target.fsPath, new Uint8Array(value));
       }),
       delete: vi.fn(async (target: MemUri) => { files.delete(target.fsPath); }),
-      createDirectory: vi.fn(async () => undefined),
+      createDirectory: vi.fn(async (target: MemUri) => { createdDirectories.push(target.fsPath); }),
       readDirectory: vi.fn(async (target: MemUri) =>
         target.fsPath.endsWith('/term_macros') ? [['core.json', 1]] : [])
     },
@@ -76,23 +77,25 @@ beforeEach(() => {
     macros: {}
   })));
   failConfigWrite = false;
+  createdDirectories.length = 0;
 });
 
-describe('legacy Macro Package creation transaction', () => {
-  it('creates the package and activates it in the same transaction', async () => {
-    expect(await createMacroPackage(root, 'algebra', 'Algebra')).toEqual({
-      status: 'ok',
-      file: 'algebra.json'
-    });
-    expect(files.has(packagePath)).toBe(true);
-    const config = JSON.parse(dec.decode(files.get(configPath)!));
-    expect(config.active_macro_packages).toEqual(['algebra', 'core']);
+describe('predecessor Macro Package write gate', () => {
+  it('blocks creation before touching the frozen aggregate package set or config', async () => {
+    const configBefore = dec.decode(files.get(configPath)!);
+    const result = await createMacroPackage(root, 'algebra', 'Algebra');
+    expect(result).toMatchObject({ status: 'error' });
+    expect(result.status === 'error' ? result.message : '').toMatch(/requires migration/i);
+    expect(files.has(packagePath)).toBe(false);
+    expect(createdDirectories).toEqual([]);
+    expect(dec.decode(files.get(configPath)!)).toBe(configBefore);
   });
 
-  it('rolls back the package file when activation cannot be persisted', async () => {
+  it('runs the migration gate before an injected config writer failure', async () => {
     failConfigWrite = true;
     const result = await createMacroPackage(root, 'algebra', 'Algebra');
     expect(result).toMatchObject({ status: 'error' });
+    expect(result.status === 'error' ? result.message : '').toMatch(/requires migration/i);
     expect(files.has(packagePath)).toBe(false);
   });
 });

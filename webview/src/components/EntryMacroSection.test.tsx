@@ -26,7 +26,6 @@ const macro = (name: string): MacroPackageEntry => ({
   description: `${name} description`,
   source: { entries: [], urls: [] },
   dynamic_arity: false,
-  default_style: { en: 'default' },
   styles: [
     {
       style_name: 'default',
@@ -47,6 +46,26 @@ describe('EntryMacroSection', () => {
       macros.alpha
     ]);
   });
+
+  it.each(['__proto__', 'constructor', 'toString', 'valueOf'])(
+    'treats absent prototype-colliding Macro %s as unregistered through the rendered consumer',
+    (name) => {
+      expect(selectUsedMacros(name, {})).toEqual([]);
+      const { container, unmount } = render(
+        <EntryMacroSection
+          snl={name}
+          macros={{}}
+          macroKinds={[] as MacroKind[]}
+          entryPoolIds={new Set<string>()}
+          postMessage={() => undefined}
+        />
+      );
+      const q = within(container);
+      fireEvent.click(q.getByRole('button', { name: /Macros/ }));
+      expect(q.getByText(/No registered macros/)).toBeTruthy();
+      unmount();
+    }
+  );
 
   it('renders the package-panel Macro List UI inside a collapsed Entry section', () => {
     const postMessage = vi.fn();

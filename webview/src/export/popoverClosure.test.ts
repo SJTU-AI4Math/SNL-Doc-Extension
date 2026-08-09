@@ -37,6 +37,14 @@ describe('buildPopoverClosure', () => {
     expect(result.fragments.a).toBe('<p>A</p>');
   });
 
+  it('preserves a prototype-sensitive Entry id as an own fragment key', async () => {
+    const renderEntry = vi.fn(async () => '<p>prototype entry</p>');
+    const result = await buildPopoverClosure(ref('__proto__'), { renderEntry });
+    expect(Object.hasOwn(result.fragments, '__proto__')).toBe(true);
+    expect(result.fragments.__proto__).toBe('<p>prototype entry</p>');
+    expect(JSON.parse(JSON.stringify(result.fragments)).__proto__).toBe('<p>prototype entry</p>');
+  });
+
   it('follows indirect references A→B→C to a fixed point', async () => {
     // The whole reason discovery and rendering interleave: B's reference to C
     // is only visible in B's RENDERED markup, not in the body.

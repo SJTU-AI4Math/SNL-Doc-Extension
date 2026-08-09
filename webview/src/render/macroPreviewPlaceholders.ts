@@ -15,7 +15,6 @@ for (let index = 0; index < MAX_MACRO_PREVIEW_ARGS; index += 1) {
     description: `Argument placeholder ${index}`,
     source: { entries: [], urls: [] },
     dynamic_arity: false,
-    default_style: { en: 'default' },
     tags: [],
     styles: [
       {

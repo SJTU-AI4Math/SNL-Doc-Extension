@@ -17,6 +17,12 @@ describe('toEntryOption', () => {
     });
   });
 
+  it('preserves package identity for current-storage point-read popovers', () => {
+    expect(toEntryOption({
+      id: 'ctx', package: 'logic', title: 'Context', content: { snl: 'x' }
+    })).toMatchObject({ id: 'ctx', package: 'logic' });
+  });
+
   it('treats whitespace-only SNL as no content while preserving the source', () => {
     expect(
       toEntryOption({ id: 'empty', title: '', content: { snl: '   ' } })

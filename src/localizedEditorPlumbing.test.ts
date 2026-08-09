@@ -16,11 +16,13 @@ describe('localized editor data-loss guards', () => {
     expect(entry).toContain('contentDirtyRef.current.has(format)');
   });
 
-  it('protects Macro drafts while keeping templates invariant and defaults language-indexed', () => {
+  it('protects Macro drafts while localizing text Templates without language-selected Styles', () => {
     const macro = source('webview/src/CreateMacroApp.tsx');
     expect(macro).toContain('sameDirtyDraft');
-    expect(macro).toContain('Default style by language');
-    expect(macro).toContain('default_style: { ...defaultStyle }');
+    expect(macro).toContain('<LocalizedEditScope');
+    expect(macro).toContain('useLocalizedBinding');
+    expect(macro).toContain('localizedModeConfirm');
+    expect(macro).not.toContain('defaultStyleByLanguage');
     expect(macro).not.toContain('template_i18n');
     expect(macro).not.toContain('merge_localized_projection');
   });

@@ -65,7 +65,7 @@ export async function buildPopoverClosure(
 ): Promise<ClosureResult> {
   const { renderEntry, maxEntries = 0, isCancelled = () => false } = options;
 
-  const fragments: Record<string, string> = {};
+  const fragments = Object.create(null) as Record<string, string>;
   const missing: string[] = [];
   const visited = new Set<string>();
   const queue: string[] = [];

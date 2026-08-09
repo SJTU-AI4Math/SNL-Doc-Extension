@@ -12,7 +12,17 @@ describe('macroKindsToPalette', () => {
     });
     const css = paletteToCss(palette!);
     expect(css).toContain('color: #123456');
-    expect(css).toContain('box-shadow: 0 0 0 1px #abcdef');
+    expect(css).toContain('background: rgba(171, 205, 239, 0.5)');
+    expect(css).toContain('box-shadow: 0 0 0 1px rgba(18, 52, 86, 0.5)');
+  });
+
+  it('preserves a prototype-sensitive valid Macro Kind id', () => {
+    const palette = macroKindsToPalette([
+      { id: '__proto__', coloring: { stroke: '#123456', background: '#abcdef' } }
+    ]);
+    expect(palette).toBeDefined();
+    expect(Object.hasOwn(palette!, '__proto__')).toBe(true);
+    expect(palette!.__proto__).toEqual({ stroke: '#123456', background: '#abcdef' });
   });
 
   it('drops unsafe CSS selector ids and returns undefined for an empty palette', () => {

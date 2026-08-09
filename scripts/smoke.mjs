@@ -204,12 +204,21 @@ async function main() {
     writeLibraryMeta,
     addRelationship,
     updateRelationship,
-    readRelationships
+    readRelationships,
+    readWorkspaceSupportedLanguages,
+    addWorkspaceSupportedLanguage
   } = snlDoc;
 
   const tmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-'));
   const root = Uri.file(tmpRoot);
   console.log(`temp workspace: ${tmpRoot}`);
+
+  const uninitializedLanguageRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-no-config-'));
+  const uninitializedLanguages = await readWorkspaceSupportedLanguages(Uri.file(uninitializedLanguageRoot));
+  assert(uninitializedLanguages.some((language) => language.id === 'en') &&
+    uninitializedLanguages.some((language) => language.id === 'zh-CN'),
+  'uninitialized workspace exposes built-in authoring languages without an error');
+  await fs.rm(uninitializedLanguageRoot, { recursive: true, force: true });
 
   console.log('\n[0] initSnlDoc repairs an empty partial skeleton');
   const partialRootPath = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-partial-'));
@@ -387,6 +396,41 @@ async function main() {
   console.log('\n[1] initSnlDoc');
   const init = await initSnlDoc(root);
   assert(init.status === 'created', 'initSnlDoc -> created');
+
+  console.log('\n[1b] repo-level supported languages');
+  assert(
+    (await readWorkspaceSupportedLanguages(root)).map((language) => language.id).join(',') === 'zh-CN,en',
+    'new workspace exposes built-in authoring languages'
+  );
+  const addFrench = await addWorkspaceSupportedLanguage(root, {
+    id: 'fr_fr', display_name: ' Français '
+  });
+  assert(addFrench.status === 'added' && addFrench.language.id === 'fr-FR',
+    'custom language is canonicalized and persisted');
+  const languageConfig = await readConfig(tmpRoot);
+  assert(Array.isArray(languageConfig.supported_languages) &&
+    languageConfig.supported_languages.some((language) => language.id === 'fr-FR'),
+  'custom language catalog lives in repo .SNL_Doc/config.json');
+  assert((await readWorkspaceSupportedLanguages(root)).some((language) => language.id === 'fr-FR'),
+    'persisted custom language is visible to later readers');
+  const duplicateFrench = await addWorkspaceSupportedLanguage(root, {
+    id: 'FR-fr', display_name: 'French duplicate'
+  });
+  assert(duplicateFrench.status === 'exists', 'language ids are unique after canonicalization');
+  languageConfig.supported_languages.find((language) => language.id === 'fr-FR').vendor = { keep: true };
+  await fs.writeFile(
+    nodePath.join(tmpRoot, '.SNL_Doc', 'config.json'),
+    `${JSON.stringify(languageConfig, null, 2)}\n`,
+    'utf8'
+  );
+  const addGerman = await addWorkspaceSupportedLanguage(root, {
+    id: 'de', display_name: 'Deutsch'
+  });
+  assert(addGerman.status === 'added', 'a second custom language is persisted');
+  const extendedLanguageConfig = await readConfig(tmpRoot);
+  assert(extendedLanguageConfig.supported_languages.find((language) => language.id === 'fr-FR')
+    ?.vendor?.keep === true,
+  'adding a language preserves unknown fields on existing language descriptors');
 
   console.log('\n[2] applyEntryKindsPreset(fulcrum-math-notes)');
   const applied = await applyEntryKindsPreset(root, 'fulcrum-math-notes');

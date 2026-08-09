@@ -28,7 +28,12 @@ import {
   type LibraryEntry,
   type MacroPackageEntry
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handleWebviewTraceMessage } from './panelUtil';
+import {
+  buildPanelHtml,
+  firstWorkspaceFolder,
+  handleWebviewTraceMessage,
+  webviewLocalResourceRoots
+} from './panelUtil';
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
@@ -46,6 +51,7 @@ import {
   groupEntryRelationships,
   type EntryReturnRoute
 } from './entryInfoviewRelationships';
+import { WORKSPACE_ASSET_BROKER_BASE } from './panelHtml';
 
 /**
  * One node in the outline tree pushed to the webview for the Library page
@@ -65,14 +71,6 @@ interface OutlineNode {
   children: OutlineNode[];
 }
 
-function infoviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[] {
-  const roots = [vscode.Uri.joinPath(extensionUri, 'media')];
-  const workspace = firstWorkspaceFolder();
-  if (workspace) {
-    roots.push(vscode.Uri.joinPath(workspace, '.SNL_Doc', 'assets'));
-  }
-  return roots;
-}
 
 /**
  * Manager for the SNL Infoview webview panels.
@@ -184,7 +182,7 @@ export class InfoviewPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: infoviewLocalResourceRoots(extensionUri)
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     bind_preferences_panel_title(panel, () => hostText()('browserTitle'));
@@ -237,7 +235,7 @@ export class InfoviewPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: infoviewLocalResourceRoots(extensionUri)
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     const instance = new InfoviewPanel(
@@ -817,10 +815,8 @@ export class InfoviewPanel {
     }
   }
 
-  private assetBaseUri(root: vscode.Uri): string {
-    return this.panel.webview.asWebviewUri(
-      vscode.Uri.joinPath(root, '.SNL_Doc', 'assets')
-    ).toString();
+  private assetBaseUri(_root: vscode.Uri): string {
+    return WORKSPACE_ASSET_BROKER_BASE;
   }
 
   /**

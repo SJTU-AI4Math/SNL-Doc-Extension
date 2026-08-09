@@ -104,6 +104,42 @@ describe('PanelHeader', () => {
     });
   });
 
+  it('adds repo authoring languages from the top menu and shows host-confirmed entries', async () => {
+    document.documentElement.lang = 'en';
+    document.documentElement.dataset.snlLanguagePreference = 'en';
+    const postMessage = vi.fn();
+    const api = { postMessage } as unknown as VsCodeApi;
+    const view = render(<PanelHeader vsApi={api} title="Create Macro" />);
+
+    fireEvent.click(view.getByRole('button', { name: /Interface language/ }));
+    fireEvent.click(view.getByRole('button', { name: 'Add authoring language' }));
+    fireEvent.change(view.getByRole('textbox', { name: 'Language tag' }), {
+      target: { value: 'fr' }
+    });
+    fireEvent.change(view.getByRole('textbox', { name: 'Display name' }), {
+      target: { value: 'Français' }
+    });
+    fireEvent.click(view.getByRole('button', { name: 'Save language' }));
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: 'snl.languages/add',
+      language: { id: 'fr', display_name: 'Français' }
+    });
+
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'panel-language-catalog', revision: 1,
+      preferences: { language: 'en', language_preference: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+        { id: 'en', display_name: 'English (US)' },
+        { id: 'fr', display_name: 'Français' }
+      ]
+    });
+    await waitFor(() => expect(view.getByText('Français')).toBeTruthy());
+    const customRow = view.getByText('Français').closest('.snl-panel-header__authoring-language');
+    expect(customRow?.querySelector('svg[data-language-icon="custom"]')).toBeTruthy();
+    expect(view.queryByRole('menuitemradio', { name: 'Français' })).toBeNull();
+  });
+
   it('uses roving menu focus and closes cleanly for keyboard users', () => {
     document.documentElement.lang = 'en';
     document.documentElement.dataset.snlLanguagePreference = 'en';

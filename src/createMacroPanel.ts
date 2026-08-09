@@ -27,7 +27,8 @@ import {
   buildPanelHtml,
   firstWorkspaceFolder,
   handlePanelNavMessage,
-  installSnlDocWatcher
+  installSnlDocWatcher,
+  webviewLocalResourceRoots
 } from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
 import { stripJsonExt } from './macroPackageName';
@@ -168,7 +169,7 @@ export class CreateMacroPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     const instance = new CreateMacroPanel(

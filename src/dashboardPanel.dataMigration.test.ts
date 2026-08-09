@@ -61,7 +61,8 @@ vi.mock('./snlDoc', () => ({
 }));
 vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
-  firstWorkspaceFolder: () => ({ path: '/ws', scheme: 'file', toString: () => 'file:/ws' })
+  firstWorkspaceFolder: () => ({ path: '/ws', scheme: 'file', toString: () => 'file:/ws' }),
+  webviewLocalResourceRoots: () => []
 }));
 vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) }));
 vi.mock('./vscodeDataMigration', () => ({

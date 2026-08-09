@@ -23,13 +23,25 @@ describe('resolveMarkdownAssetUrl', () => {
     expect(resolveMarkdownAssetUrl('../secret.png', base)).toBe('../secret.png');
   });
 
-  it('configures the Infoview host to expose only the workspace asset root', () => {
+  it('configures the Infoview host with shared Markdown and brokered-image roots', () => {
     const host = readFileSync(
       new URL('../../../src/infoviewPanel.ts', import.meta.url),
       'utf8'
     );
-    expect(host).toContain("vscode.Uri.joinPath(workspace, '.SNL_Doc', 'assets')");
-    expect(host).toContain('localResourceRoots: infoviewLocalResourceRoots(extensionUri)');
+    const panelUtil = readFileSync(
+      new URL('../../../src/panelUtil.ts', import.meta.url),
+      'utf8'
+    );
+    const runtime = readFileSync(
+      new URL('../runtime/preferencesRuntime.ts', import.meta.url),
+      'utf8'
+    );
+    expect(panelUtil).not.toContain(
+      "roots.push(vscode.Uri.joinPath(workspaceRoot, '.SNL_Doc', 'assets'))"
+    );
+    expect(panelUtil).toContain('roots.push(assetCacheRoot)');
+    expect(runtime).toContain('installWorkspaceAssetBroker(api)');
+    expect(host).toContain('localResourceRoots: webviewLocalResourceRoots(extensionUri)');
     expect(host).toContain('assetBaseUri: this.assetBaseUri(root)');
   });
 });

@@ -109,7 +109,8 @@ vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
   firstWorkspaceFolder: () => ({ path: '/ws' }),
   handlePanelNavMessage: async () => false,
-  installSnlDocWatcher: () => undefined
+  installSnlDocWatcher: () => undefined,
+  webviewLocalResourceRoots: () => []
 }));
 
 vi.mock('./snlDoc', async (importOriginal) => {

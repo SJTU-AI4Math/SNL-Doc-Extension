@@ -2,13 +2,23 @@ import * as vscode from 'vscode';
 import { type Trace } from './trace';
 import * as fs from 'fs';
 import { extension_preferences_runtime } from './preferences';
-import { register_preferences_webview } from './preferencesHost';
+import {
+  get_preferences_asset_cache_root,
+  register_preferences_webview
+} from './preferencesHost';
+import { cacheWorkspaceAsset } from './workspaceAssets';
+import {
+  addWorkspaceSupportedLanguage,
+  readWorkspaceSupportedLanguages
+} from './snlDoc';
 import {
   brand_html_attributes,
   escape_html_attribute,
   panel_content_security_policy,
   panel_script_type_attribute,
-  preference_html_attributes
+  preference_html_attributes,
+  workspace_asset_html_attribute,
+  WORKSPACE_ASSET_BROKER_BASE
 } from './panelHtml';
 
 /**
@@ -61,7 +71,24 @@ export function buildPanelHtml(
   const csp = panel_content_security_policy(nonce, webview.cspSource);
   const scriptType = panel_script_type_attribute(entry);
 
-  const preferencesDisposable = register_preferences_webview(webview);
+  const workspaceRoot = firstWorkspaceFolder();
+  const assetCacheRoot = get_preferences_asset_cache_root();
+  const preferencesDisposable = register_preferences_webview(webview, workspaceRoot ? {
+    read: () => readWorkspaceSupportedLanguages(workspaceRoot),
+    add: async (input: unknown) => {
+      const result = await addWorkspaceSupportedLanguage(workspaceRoot, input);
+      if (result.status === 'invalid') throw new Error(result.message);
+      if (result.status === 'noSnlDoc') throw new Error('.SNL_Doc/config.json does not exist');
+      return result;
+    }
+  } : undefined, workspaceRoot && assetCacheRoot ? {
+    resolve: (path: string) => cacheWorkspaceAsset({
+      workspaceRoot,
+      cacheRoot: assetCacheRoot,
+      relativePath: path,
+      asWebviewUri: (target) => webview.asWebviewUri(target).toString()
+    })
+  } : undefined);
   ownerDisposables?.push(preferencesDisposable);
   const preferences = extension_preferences_runtime.query_environment();
   const htmlAttributes = preference_html_attributes(preferences);
@@ -75,10 +102,13 @@ export function buildPanelHtml(
     blackLogoUri.toString(),
     whiteLogoUri.toString()
   );
+  const workspaceAssetAttributes = workspace_asset_html_attribute(workspaceRoot
+    ? WORKSPACE_ASSET_BROKER_BASE
+    : '');
   const safeTitle = escape_html_attribute(title);
 
   return `<!DOCTYPE html>
-<html ${htmlAttributes} ${brandAttributes}>
+<html ${htmlAttributes} ${brandAttributes} ${workspaceAssetAttributes}>
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
@@ -119,6 +149,14 @@ export function buildPanelHtml(
   <script${scriptType} nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+}
+
+/** Local roots shared by every renderer-capable panel. */
+export function webviewLocalResourceRoots(extensionUri: vscode.Uri): vscode.Uri[] {
+  const roots = [vscode.Uri.joinPath(extensionUri, 'media')];
+  const assetCacheRoot = get_preferences_asset_cache_root();
+  if (assetCacheRoot) roots.push(assetCacheRoot);
+  return roots;
 }
 
 /** Helper: the first workspace folder URI, or undefined when none open. */

@@ -8,7 +8,7 @@ const source = (path: string): string => readFileSync(resolve(root, path), 'utf8
 describe('preference plumbing architecture', () => {
   it('initializes one host and registers every buildPanelHtml webview', () => {
     expect(source('src/extension.ts')).toContain('initialize_preferences_host(context)');
-    expect(source('src/panelUtil.ts')).toContain('register_preferences_webview(webview)');
+    expect(source('src/panelUtil.ts')).toContain('register_preferences_webview(webview, workspaceRoot');
     expect(source('src/preferencesHost.ts')).toContain("snl.preferences/ready");
     expect(source('src/preferencesHost.ts')).toContain("inspect<string>('locale')");
     expect(source('src/preferencesHost.ts')).toContain('showErrorMessage(message)');

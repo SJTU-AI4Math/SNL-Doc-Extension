@@ -10,7 +10,8 @@ import {
   batchMoveToNewPackage,
   readEntries
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
+  webviewLocalResourceRoots } from './panelUtil';
 import { packageManifestPath } from './entityStorage';
 import { stripJsonExt } from './macroPackageName';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
@@ -123,7 +124,7 @@ export class PackagePanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     bind_preferences_panel_title(panel, () => packageT()('title', { file: bare }));

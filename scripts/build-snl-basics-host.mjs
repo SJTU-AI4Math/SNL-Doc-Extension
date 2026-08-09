@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const outfile = fileURLToPath(new URL('../vendor/snl-basics-host.cjs', import.meta.url));
+const outfile = fileURLToPath(new URL('../out/snl-basics-host.cjs', import.meta.url));
 
 await build({
   stdin: {

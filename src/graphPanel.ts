@@ -20,7 +20,12 @@ import {
   type EntryKind,
   type RelationshipData
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage } from './panelUtil';
+import {
+  buildPanelHtml,
+  firstWorkspaceFolder,
+  handlePanelNavMessage,
+  webviewLocalResourceRoots
+} from './panelUtil';
 import { entryPackageIdentities, readPopoverEntry } from './popoverEntryReader';
 
 /**
@@ -108,7 +113,7 @@ export class GraphPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     bind_preferences_panel_title(panel, () => scope.mode === 'pool'

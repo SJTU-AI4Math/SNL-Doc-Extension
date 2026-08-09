@@ -42,7 +42,12 @@ vi.mock('./preferences', () => ({
   }
 }));
 
-import { bind_preferences_panel_title, PreferencesHost } from './preferencesHost';
+import {
+  bind_preferences_panel_title,
+  get_preferences_asset_cache_root,
+  initialize_preferences_host,
+  PreferencesHost
+} from './preferencesHost';
 
 describe('PreferencesHost language writes', () => {
   beforeEach(() => {
@@ -52,7 +57,12 @@ describe('PreferencesHost language writes', () => {
     mocks.update.mockResolvedValue(undefined);
   });
 
-  function register(host: PreferencesHost): {
+  function register(host: PreferencesHost, languageService?: {
+    read(): Promise<Array<{ id: string; display_name: string }>>;
+    add(input: unknown): Promise<unknown>;
+  }, assetService?: {
+    resolve(path: string): Promise<string>;
+  }): {
     receive: (message: unknown) => void;
     postMessage: ReturnType<typeof vi.fn>;
     listenerDispose: ReturnType<typeof vi.fn>;
@@ -67,7 +77,7 @@ describe('PreferencesHost language writes', () => {
         return { dispose: listenerDispose };
       },
       postMessage
-    } as never);
+    } as never, languageService, assetService);
     return {
       receive: (message) => receive(message),
       postMessage,
@@ -75,6 +85,37 @@ describe('PreferencesHost language writes', () => {
       disposeRegistration: () => registration.dispose()
     };
   }
+
+  it('exposes extension-owned storage as the only webview asset cache root', () => {
+    const root = { path: '/trusted-cache' };
+    const subscriptions: Array<{ dispose(): void }> = [];
+    initialize_preferences_host({ globalStorageUri: root, subscriptions } as never);
+    expect(get_preferences_asset_cache_root()).toBe(root);
+    subscriptions.at(-1)?.dispose();
+  });
+
+  it('returns only a host-validated trusted-cache URI for workspace image requests', async () => {
+    const assetService = {
+      resolve: vi.fn(async (path: string) => `vscode-webview://trusted/${path}`)
+    };
+    const host = new PreferencesHost();
+    const webview = register(host, undefined, assetService);
+
+    webview.receive({
+      type: 'snl.assets/resolve',
+      request_id: 'asset-1',
+      path: 'figures/proof.png'
+    });
+
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({
+      type: 'snl.assets/resolved',
+      request_id: 'asset-1',
+      path: 'figures/proof.png',
+      url: 'vscode-webview://trusted/figures/proof.png'
+    }));
+    expect(assetService.resolve).toHaveBeenCalledWith('figures/proof.png');
+    host.dispose();
+  });
 
   it('writes at workspace scope when a workspace override is effective', async () => {
     mocks.inspect.mockReturnValue({ workspaceValue: 'auto' });
@@ -151,6 +192,40 @@ describe('PreferencesHost language writes', () => {
     expect(firstSnapshot.generation).toBeTruthy();
     expect(secondSnapshot.generation).not.toBe(firstSnapshot.generation);
     second.dispose();
+  });
+
+  it('includes the repo language catalog and broadcasts additions', async () => {
+    const languages = [
+      { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+      { id: 'en', display_name: 'English (US)' }
+    ];
+    const service = {
+      read: vi.fn(async () => languages.slice()),
+      add: vi.fn(async (input: unknown) => {
+        languages.push(input as { id: string; display_name: string });
+        return { status: 'added' };
+      })
+    };
+    const host = new PreferencesHost();
+    const webview = register(host, service);
+    webview.receive({ type: 'snl.preferences/ready' });
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ supported_languages: languages })
+    ));
+
+    webview.receive({
+      type: 'snl.languages/add',
+      language: { id: 'fr', display_name: 'Français' }
+    });
+    await vi.waitFor(() => expect(service.add).toHaveBeenCalledWith({
+      id: 'fr', display_name: 'Français'
+    }));
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        supported_languages: expect.arrayContaining([{ id: 'fr', display_name: 'Français' }])
+      })
+    ));
+    host.dispose();
   });
 
   it('broadcasts hover-popover preference changes to live Webviews', async () => {

@@ -1,14 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+
 const posted: unknown[] = [];
+let webviewState: unknown;
 
 vi.mock('./vscodeApi', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./vscodeApi');
   const api = {
     postMessage: (message: unknown) => { posted.push(message); },
-    getState: () => undefined,
-    setState: () => undefined
+    getState: () => webviewState,
+    setState: (state: unknown) => { webviewState = state; }
   };
   return {
     ...actual,
@@ -18,10 +20,12 @@ vi.mock('./vscodeApi', async () => {
 });
 
 const { BlockRendererPresetControl, CreateMacroApp } = await import('./CreateMacroApp');
+const { apply_preferences_snapshot } = await import('./runtime/preferencesRuntime');
 
 afterEach(() => {
   cleanup();
   posted.length = 0;
+  webviewState = undefined;
   document.documentElement.lang = 'en';
 });
 
@@ -65,6 +69,138 @@ describe('Create Macro localization', () => {
     expect(screen.getByText(/\\begin\{itemize\}/)).toBeTruthy();
   });
 
+  it('lets a new empty style switch directly to block mode and preview a preset', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Figure' }
+    });
+    const blockModes = screen.getAllByRole('button', { name: 'Block' });
+    fireEvent.click(blockModes[blockModes.length - 1]);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Render preset' }), {
+      target: { value: 'image' }
+    });
+    expect(screen.getByRole('textbox', { name: 'Image path' })).toBeTruthy();
+    expect(screen.queryByText('SNL Macro Preview')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('Image path is required');
+    expect(screen.getByRole('button', { name: 'Create Macro' })).toHaveProperty('disabled', true);
+    expect(screen.queryByText('KaTeX template is required.')).toBeNull();
+  });
+
+  it('restores an invalid visible image-path draft after the webview remounts', () => {
+    document.documentElement.lang = 'en';
+    const context = {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null
+    };
+    const first = render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: context })));
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Figure' }
+    });
+    const blockModes = screen.getAllByRole('button', { name: 'Block' });
+    fireEvent.click(blockModes[blockModes.length - 1]);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Render preset' }), {
+      target: { value: 'image' }
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Image path' }), {
+      target: { value: '../outside.png' }
+    });
+    expect(screen.getByRole('textbox', { name: 'Image path' })).toHaveProperty(
+      'value', '../outside.png'
+    );
+    first.unmount();
+
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: context })));
+    expect(screen.getByRole('textbox', { name: 'Image path' })).toHaveProperty(
+      'value', '../outside.png'
+    );
+    expect(screen.getByRole('alert').textContent).toContain('.SNL_Doc/assets');
+    expect(screen.getByRole('button', { name: 'Create Macro' })).toHaveProperty('disabled', true);
+  });
+
+  it('edits preset-specific enumerate and image parameters', () => {
+    document.documentElement.lang = 'en';
+    const onEnumerate = vi.fn();
+    const enumerate = render(
+      <BlockRendererPresetControl value="enumerate" onChange={onEnumerate} />
+    );
+    fireEvent.change(enumerate.getByRole('combobox', { name: 'Numbering' }), {
+      target: { value: 'lower-alpha' }
+    });
+    expect(onEnumerate).toHaveBeenLastCalledWith(
+      'snl-ext-preset:v1:enumerate?marker=lower-alpha'
+    );
+    enumerate.unmount();
+
+    const onImage = vi.fn();
+    const image = render(<BlockRendererPresetControl value="image" onChange={onImage} />);
+    const pathInput = image.getByRole('textbox', { name: 'Image path' });
+    fireEvent.change(pathInput, { target: { value: 'figures/' } });
+    expect(pathInput).toHaveProperty('value', 'figures/');
+    expect(image.getByRole('alert').textContent).toContain('.SNL_Doc/assets');
+    expect(onImage).toHaveBeenLastCalledWith('image');
+    fireEvent.change(pathInput, { target: { value: '../secret.png' } });
+    expect(image.getByRole('alert')).toBeTruthy();
+    expect(onImage).toHaveBeenLastCalledWith('image');
+    fireEvent.change(pathInput, {
+      target: { value: 'figures/diagram.png' }
+    });
+    expect(onImage).toHaveBeenLastCalledWith(
+      'snl-ext-preset:v1:image?src=figures%2Fdiagram.png&layout=block&alt=diagram.png'
+    );
+    image.rerender(
+      <BlockRendererPresetControl
+        value="snl-ext-preset:v1:image?src=figures%2Fdiagram.png&layout=block&alt=diagram.png"
+        onChange={onImage}
+      />
+    );
+    fireEvent.change(image.getByRole('textbox', { name: 'Image alt text' }), {
+      target: { value: 'Proof diagram' }
+    });
+    expect(onImage).toHaveBeenLastCalledWith(
+      'snl-ext-preset:v1:image?src=figures%2Fdiagram.png&layout=block&alt=Proof%20diagram'
+    );
+    image.rerender(
+      <BlockRendererPresetControl
+        value="snl-ext-preset:v1:image?src=figures%2Fdiagram.png&layout=block&alt=Proof%20diagram"
+        onChange={onImage}
+      />
+    );
+    fireEvent.change(image.getByRole('combobox', { name: 'Image layout' }), {
+      target: { value: 'inline' }
+    });
+    expect(onImage).toHaveBeenLastCalledWith(
+      'snl-ext-preset:v1:image?src=figures%2Fdiagram.png&layout=inline&alt=Proof%20diagram'
+    );
+  });
+
+  it('clears the persisted image preset while an edited path is invalid', () => {
+    const onChange = vi.fn();
+    const view = render(
+      <BlockRendererPresetControl
+        value="snl-ext-preset:v1:image?src=old.png&layout=block&alt=Old"
+        onChange={onChange}
+      />
+    );
+    const path = view.getByRole('textbox', { name: 'Image path' });
+    fireEvent.change(path, { target: { value: '../outside.png' } });
+    expect(path).toHaveProperty('value', '../outside.png');
+    expect(view.getByRole('alert').textContent).toContain('.SNL_Doc/assets');
+    expect(onChange).toHaveBeenLastCalledWith('image');
+  });
+
   it('edits a local text-template language without changing the interface language', () => {
     document.documentElement.lang = 'en';
     render(<CreateMacroApp />);
@@ -96,6 +232,33 @@ describe('Create Macro localization', () => {
     expect(screen.queryByRole('button', { name: 'Reset all args' })).toBeNull();
     fireEvent.click(preview);
     expect(screen.getByRole('button', { name: 'Reset all args' })).toBeTruthy();
+  });
+
+  it('offers repo-configured languages in the I18N Template editor', () => {
+    document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'macro-authoring-language', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+        { id: 'en', display_name: 'English (US)' },
+        { id: 'fr', display_name: 'Français' }
+      ]
+    });
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+    const textModes = screen.getAllByRole('button', { name: 'Text' });
+    fireEvent.click(textModes[textModes.length - 1]);
+    fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
+    expect(screen.getByRole('option', { name: /Français/ })).toBeTruthy();
   });
 
   it('keeps a fixed formula Template when enabling dynamic arity', () => {

@@ -4,7 +4,9 @@ import {
   escape_html_attribute,
   panel_content_security_policy,
   panel_script_type_attribute,
-  preference_html_attributes
+  preference_html_attributes,
+  workspace_asset_html_attribute,
+  WORKSPACE_ASSET_BROKER_BASE
 } from './panelHtml'
 
 describe('panel HTML preference bootstrap', () => {
@@ -36,6 +38,14 @@ describe('panel HTML preference bootstrap', () => {
   it('emits escaped shared brand logo URLs for every panel', () => {
     expect(brand_html_attributes('webview://black?a=1&b=2', 'webview://white')).toBe(
       'data-snl-logo-black="webview://black?a=1&amp;b=2" data-snl-logo-white="webview://white"'
+    )
+  })
+
+  it('bootstraps the safe broker placeholder used by legacy Markdown images', () => {
+    expect(WORKSPACE_ASSET_BROKER_BASE).toContain('#snl-workspace-asset')
+    expect(WORKSPACE_ASSET_BROKER_BASE).toMatch(/^data:image\/gif;base64,/)
+    expect(workspace_asset_html_attribute('vscode-webview://panel/assets?a=1&b=2')).toBe(
+      'data-snl-asset-base-uri="vscode-webview://panel/assets?a=1&amp;b=2"'
     )
   })
 })

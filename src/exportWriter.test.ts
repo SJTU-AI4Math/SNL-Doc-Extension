@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 /** In-memory filesystem standing in for `vscode.workspace.fs`. */
 const files = new Map<string, Uint8Array>();
 const dirs = new Set<string>();
+const symlinks = new Set<string>();
 
 const key = (u: { path: string }): string => u.path;
 
 vi.mock('vscode', () => ({
+  FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
   Uri: {
     joinPath: (base: { path: string }, ...parts: string[]) => ({
       path: [base.path.replace(/\/$/, ''), ...parts.filter(Boolean)].join('/')
@@ -24,6 +26,14 @@ vi.mock('vscode', () => ({
       },
       createDirectory: async (u: { path: string }) => {
         dirs.add(key(u));
+      },
+      stat: async (u: { path: string }) => {
+        if (symlinks.has(key(u))) return { type: 64, ctime: 0, mtime: 0, size: 0 };
+        if (files.has(key(u))) return { type: 1, ctime: 0, mtime: 0, size: 0 };
+        if ([...files.keys()].some((path) => path.startsWith(`${key(u)}/`))) {
+          return { type: 2, ctime: 0, mtime: 0, size: 0 };
+        }
+        throw new Error(`ENOENT ${u.path}`);
       }
     }
   }
@@ -39,6 +49,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 function seed(): void {
   files.clear();
   dirs.clear();
+  symlinks.clear();
   files.set(
     '/ext/media/webview/main.css',
     new TextEncoder().encode(
@@ -64,7 +75,12 @@ const request = {
   inline: false
 };
 
-const testUri = (path: string): { path: string; with: (change: { path?: string }) => ReturnType<typeof testUri> } => ({
+interface TestUri {
+  path: string;
+  with(change: { path?: string }): TestUri;
+}
+
+const testUri = (path: string): TestUri => ({
   path,
   with: (change) => testUri(change.path ?? path)
 });
@@ -73,6 +89,18 @@ const deps = (destination: { path: string }) => ({
   extensionUri: EXT as never,
   workspaceRoot: WS as never,
   destination: testUri(destination.path) as never,
+  assetReader: async ({ relativePath }: { relativePath: string }) => {
+    const root = '/ws/.SNL_Doc/assets';
+    let cursor = root;
+    for (const segment of relativePath.split('/')) {
+      if (symlinks.has(cursor)) throw new Error('symbolic link');
+      cursor = `${cursor}/${segment}`;
+    }
+    if (symlinks.has(cursor)) throw new Error('symbolic link');
+    const bytes = files.get(cursor);
+    if (!bytes) throw new Error('ENOENT');
+    return bytes;
+  },
   buildDocument: (input: {
     title: string;
     subtitle?: string;
@@ -126,6 +154,33 @@ describe('writeExport — directory shape', () => {
 
     expect(out.warnings[0]).toContain('suspicious asset path');
     expect([...files.keys()].some((k) => k.includes('passwd'))).toBe(false);
+  });
+
+  it.each([
+    '/ws/.SNL_Doc/assets',
+    '/ws/.SNL_Doc/assets/Dashboard-Panel.png'
+  ])('does not export through symbolic-link boundary %s', async (link) => {
+    symlinks.add(link);
+    const out = await writeExport(request, deps({ path: '/out/tour' }) as never);
+    expect(out.warnings).toEqual([
+      'Skipped symbolic-link asset: assets/Dashboard-Panel.png'
+    ]);
+    expect(files.has('/out/tour/assets/Dashboard-Panel.png')).toBe(false);
+  });
+
+  it('does not follow symbolic links while collecting workspace assets', async () => {
+    symlinks.add('/ws/.SNL_Doc/assets/leak');
+    files.set('/ws/.SNL_Doc/assets/leak/secret.png', PNG);
+    const out = await writeExport(
+      {
+        ...request,
+        assets: [{ path: 'assets/leak/secret.png', sourceUrl: 'x' }]
+      },
+      deps({ path: '/out/tour' }) as never
+    );
+
+    expect(out.warnings).toEqual(['Skipped symbolic-link asset: assets/leak/secret.png']);
+    expect(files.has('/out/tour/assets/leak/secret.png')).toBe(false);
   });
 });
 

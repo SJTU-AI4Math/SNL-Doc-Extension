@@ -3,7 +3,8 @@ import {
   apply_preferences_snapshot,
   create_webview_reader_runtime,
   get_formatter_preferences,
-  get_popover_preferences
+  get_popover_preferences,
+  get_supported_languages
 } from './preferencesRuntime';
 
 describe('webview preference Reader runtime', () => {
@@ -61,5 +62,22 @@ describe('webview preference Reader runtime', () => {
       preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
     })).toBe(true);
     expect(document.documentElement.lang).toBe('en');
+  });
+
+  it('publishes the repo authoring-language catalog from host snapshots', () => {
+    expect(apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'language-host', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+        { id: 'en', display_name: 'English (US)' },
+        { id: 'fr', display_name: 'Français' }
+      ]
+    })).toBe(true);
+    expect(get_supported_languages()).toEqual([
+      { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+      { id: 'en', display_name: 'English (US)' },
+      { id: 'fr', display_name: 'Français' }
+    ]);
   });
 });

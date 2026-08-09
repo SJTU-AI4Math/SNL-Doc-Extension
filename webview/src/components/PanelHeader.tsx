@@ -7,6 +7,7 @@ import {
 } from '../runtime/useLocalized';
 import { BUILT_IN_LANGUAGE_CATALOG } from '../../../src/languageCatalog';
 import { invariantText } from '../i18n/uiMessages';
+import { use_supported_languages } from '../runtime/preferencesRuntime';
 
 export interface PanelHeaderAction {
   /** Text on the button. Kept terse. */
@@ -77,6 +78,7 @@ export function PanelHeader({
     default_language: 'en',
     values: { en: 'Interface language', 'zh-CN': '界面语言' }
   });
+  const supportedLanguages = use_supported_languages();
   const root = document.documentElement.dataset;
   const effectiveLanguage = document.documentElement.lang === 'zh-CN' ? 'zh-CN' : 'en';
   const currentPreference = root.snlLanguagePreference === 'auto'
@@ -164,6 +166,7 @@ export function PanelHeader({
           autoLabel={autoLanguageLabel}
           current={currentPreference}
           effectiveLanguage={effectiveLanguage}
+          supportedLanguages={supportedLanguages}
         />
       </div>
     </nav>
@@ -177,15 +180,20 @@ function LanguageSelector({
   label,
   autoLabel,
   current,
-  effectiveLanguage
+  effectiveLanguage,
+  supportedLanguages
 }: {
   vsApi: VsCodeApi | undefined;
   label: string;
   autoLabel: string;
   current: HeaderLanguagePreference;
   effectiveLanguage: 'en' | 'zh-CN';
+  supportedLanguages: readonly { id: string; display_name: string }[];
 }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
+  const [addingLanguage, setAddingLanguage] = React.useState(false);
+  const [languageId, setLanguageId] = React.useState('');
+  const [languageDisplayName, setLanguageDisplayName] = React.useState('');
   const [activeLanguage, setActiveLanguage] = React.useState<HeaderLanguagePreference>(current);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
@@ -193,6 +201,29 @@ function LanguageSelector({
   const currentLabel = current === 'auto'
     ? autoLabel
     : currentLanguage?.display_name ?? current;
+  const authoringLanguagesLabel = use_localized({
+    type: 'i18n', default_language: 'en',
+    values: { en: 'Authoring languages', 'zh-CN': '内容语言' }
+  });
+  const addLanguageLabel = use_localized({
+    type: 'i18n', default_language: 'en',
+    values: { en: 'Add authoring language', 'zh-CN': '添加内容语言' }
+  });
+  const languageTagLabel = use_localized({
+    type: 'i18n', default_language: 'en',
+    values: { en: 'Language tag', 'zh-CN': '语言标签' }
+  });
+  const displayNameLabel = use_localized({
+    type: 'i18n', default_language: 'en',
+    values: { en: 'Display name', 'zh-CN': '显示名称' }
+  });
+  const saveLanguageLabel = use_localized({
+    type: 'i18n', default_language: 'en',
+    values: { en: 'Save language', 'zh-CN': '保存语言' }
+  });
+  const cancelLabel = use_localized({
+    type: 'i18n', default_language: 'en', values: { en: 'Cancel', 'zh-CN': '取消' }
+  });
 
   React.useEffect(() => {
     if (!open) return;
@@ -290,6 +321,52 @@ function LanguageSelector({
               onChoose={choose}
             />
           ))}
+          <div className="snl-panel-header__authoring-languages" role="group"
+            aria-label={authoringLanguagesLabel}>
+            <div className="snl-panel-header__language-section-label">
+              {authoringLanguagesLabel}
+            </div>
+            {supportedLanguages.map((language) => (
+              <div key={language.id} className="snl-panel-header__authoring-language">
+                <LanguageIcon language={language.id} />
+                <span>{language.display_name}</span>
+                <code>{language.id}</code>
+              </div>
+            ))}
+            {addingLanguage ? (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const id = languageId.trim();
+                const display_name = languageDisplayName.trim();
+                if (!id || !display_name) return;
+                vsApi?.postMessage({
+                  type: 'snl.languages/add', language: { id, display_name }
+                });
+                setLanguageId('');
+                setLanguageDisplayName('');
+                setAddingLanguage(false);
+              }}>
+                <label>
+                  <span>{languageTagLabel}</span>
+                  <input aria-label={languageTagLabel} value={languageId}
+                    onChange={(event) => setLanguageId(event.target.value)} placeholder="fr-FR" />
+                </label>
+                <label>
+                  <span>{displayNameLabel}</span>
+                  <input aria-label={displayNameLabel} value={languageDisplayName}
+                    onChange={(event) => setLanguageDisplayName(event.target.value)} />
+                </label>
+                <div>
+                  <button type="submit">{saveLanguageLabel}</button>
+                  <button type="button" onClick={() => setAddingLanguage(false)}>{cancelLabel}</button>
+                </div>
+              </form>
+            ) : (
+              <button type="button" onClick={() => setAddingLanguage(true)}>
+                {addLanguageLabel}
+              </button>
+            )}
+          </div>
         </div>
       ) : null}
     </div>
@@ -359,7 +436,7 @@ export function LanguageIcon({ language }: { language: string }): React.ReactEle
     );
   }
   return (
-    <svg data-language-icon="auto" aria-hidden="true" viewBox="0 0 20 14">
+    <svg data-language-icon={language === 'auto' ? 'auto' : 'custom'} aria-hidden="true" viewBox="0 0 20 14">
       <circle cx="10" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
       <path d="M4.8 7h10.4M10 1.5c2.7 2.8 2.7 8.2 0 11M10 1.5c-2.7 2.8-2.7 8.2 0 11" fill="none" stroke="currentColor" strokeWidth="1" />
     </svg>

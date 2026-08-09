@@ -68,6 +68,19 @@ describe('harvestLibraryHtml', () => {
     ]);
   });
 
+  it('rewrites host-brokered image presets from their author path', () => {
+    const cached = 'vscode-webview://panel/trusted-cache/abc.png';
+    const { html, assets } = harvestLibraryHtml(
+      el(`<img src="${cached}" data-snl-asset-path="figures/proof.png">`),
+      BASE
+    );
+    expect(html).toContain('src="assets/figures/proof.png"');
+    expect(html).not.toContain(cached);
+    expect(assets).toEqual([
+      { path: 'assets/figures/proof.png', sourceUrl: cached }
+    ]);
+  });
+
   it('deduplicates an asset used by several entries', () => {
     const { assets } = harvestLibraryHtml(
       el(`<img src="${BASE}/a.png"><img src="${BASE}/a.png"><img src="${BASE}/b.png">`),

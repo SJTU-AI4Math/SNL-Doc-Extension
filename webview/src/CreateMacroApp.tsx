@@ -78,6 +78,7 @@ import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
 import {
   use_preferences_revision,
+  use_supported_languages,
   webview_language_runtime
 } from './runtime/preferencesRuntime';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
@@ -88,6 +89,10 @@ import {
   useLocalizedBinding,
   useLocalizedEditLanguage
 } from './components/LocalizedEditScope';
+import {
+  parseBlockRendererSpec,
+  serializeBlockRendererSpec
+} from './render/blockRendererSpec';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
   'createMacro',
@@ -189,6 +194,20 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetTableHint: 'Table — variadic children are rows; the first child with kind="table-header" becomes <thead>.',
     presetCenteredHint: 'Horizontally-centered block wrapper.',
     presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
+    presetImageHint: 'Image — path is relative to .SNL_Doc/assets.',
+    numbering: 'Numbering',
+    numberingDecimal: '123',
+    numberingLowerAlpha: 'abc',
+    numberingUpperAlpha: 'ABC',
+    numberingDots: '· · ·',
+    numberingEllipsis: '...',
+    imagePath: 'Image path',
+    imageLayout: 'Image layout',
+    imageAlt: 'Image alt text',
+    imagePathRequired: 'Image path is required.',
+    imagePathInvalid: 'Use a safe path relative to .SNL_Doc/assets.',
+    imageInline: 'Inline',
+    imageBlock: 'Block',
     emptyStyle: '(empty)',
     renameStyle: 'Double-click to rename',
     searchEntry: 'Search entry id or title…',
@@ -303,7 +322,21 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetEnumerateHint: '有序列表 — LaTeX \\begin{environment} → <ol><li>…',
     presetTableHint: '表格 — 可变参数子节点作为行；kind="table-header" 的第一个子节点会成为 <thead>。',
     presetCenteredHint: '水平居中的块包装器。',
-    presetCollapsibleHint: '可折叠块 — 第一个子节点始终显示为摘要，其余内容收起在切换按钮后。',
+    presetCollapsibleHint: '折叠块 — 第一个子节点始终显示为摘要，其余内容可通过开关折叠。',
+    presetImageHint: '图片 — 路径相对于 .SNL_Doc/assets。',
+    numbering: '编号样式',
+    numberingDecimal: '123',
+    numberingLowerAlpha: 'abc',
+    numberingUpperAlpha: 'ABC',
+    numberingDots: '· · ·',
+    numberingEllipsis: '...',
+    imagePath: '图片路径',
+    imageLayout: '图片布局',
+    imageAlt: '图片替代文本',
+    imagePathRequired: '必须填写图片路径。',
+    imagePathInvalid: '请输入相对于 .SNL_Doc/assets 的安全路径。',
+    imageInline: '行内',
+    imageBlock: '块级',
     emptyStyle: '（空）',
     renameStyle: '双击重命名',
     searchEntry: '搜索条目 ID 或标题…',
@@ -405,6 +438,9 @@ interface StyleDraft {
   separator: string;
   template_right: string;
   block_template_name: string;
+  /** Webview-session draft only; never serialized into the Macro entity. */
+  image_path_draft: string;
+  image_path_invalid: boolean;
   tags: string[];
   typst_built_in: string;
   typst_synthesis: string;
@@ -442,6 +478,8 @@ function newStyleDraft(styleName: string): StyleDraft {
     separator: '',
     template_right: '',
     block_template_name: '',
+    image_path_draft: '',
+    image_path_invalid: false,
     tags: [],
     typst_built_in: '',
     typst_synthesis: '',
@@ -660,6 +698,7 @@ const labelStyle: React.CSSProperties = {
 
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
+  const supportedLanguages = use_supported_languages();
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const apiRef = useVsCodeApiRef();
   const formDirtyRef = useRef(false);
@@ -835,6 +874,13 @@ export function CreateMacroApp(): React.ReactElement {
           const template = s.template;
           const invariantTemplate = localizedTemplate(template, 'en');
           const marker = invariantTemplate.indexOf('#*');
+          let imagePathDraft = '';
+          try {
+            const renderer = parseBlockRendererSpec(s.block_template_name ?? '');
+            if (renderer.name === 'image') imagePathDraft = renderer.params.src ?? '';
+          } catch {
+            // Unknown/custom renderers do not own an image-path draft.
+          }
           return {
         extensions,
         typst_extensions: typstExtensions,
@@ -848,6 +894,8 @@ export function CreateMacroApp(): React.ReactElement {
         separator: s.separator ?? '',
         template_right: marker >= 0 ? invariantTemplate.slice(marker + 2) : '',
         block_template_name: s.block_template_name ?? '',
+        image_path_draft: imagePathDraft,
+        image_path_invalid: false,
         tags: s.tags.slice(),
         typst_built_in: s.typst?.built_in ?? '',
         typst_synthesis: s.typst?.synthesis?.macro ?? '',
@@ -1130,13 +1178,16 @@ export function CreateMacroApp(): React.ReactElement {
   // --- Arg slots -----------------------------------------------------------
 
   const currentTemplate = localizedTemplate(current?.template ?? '', templateLanguage);
+  const previewTemplate = current?.mode === 'block' && currentTemplate.trim().length === 0
+    ? '#*'
+    : currentTemplate;
   const argCount = useMemo(() => {
     if (dynamicArity) {
       return Math.min(Math.max(variadicArgCount, 0), MAX_MACRO_PREVIEW_ARGS);
     }
-    const derived = maxMacroTemplateChildIndex(currentTemplate) + 1;
+    const derived = maxMacroTemplateChildIndex(previewTemplate) + 1;
     return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
-  }, [dynamicArity, variadicArgCount, currentTemplate]);
+  }, [dynamicArity, variadicArgCount, previewTemplate]);
 
   const parseErrors = useMemo(() => {
     const errs: (string | null)[] = [];
@@ -1155,7 +1206,7 @@ export function CreateMacroApp(): React.ReactElement {
   const draftTree: SnlSyntaxTree = useMemo(() => {
     // Empty template → show the "SNL Macro Preview" placeholder root so users
     // don't see the raw internal `_snl_draft` name (猫猫 req).
-    if (currentTemplate.trim().length === 0) {
+    if (previewTemplate.trim().length === 0) {
       return {
         macro_name: PREVIEW_PLACEHOLDER_KEY,
         kind: '',
@@ -1178,7 +1229,7 @@ export function CreateMacroApp(): React.ReactElement {
       style_name: current?.style_name,
       kind: '', mdata: null, children
     };
-  }, [argCount, previewArgs, currentTemplate, current?.style_name]);
+  }, [argCount, previewArgs, previewTemplate, current?.style_name]);
 
   // --- Validation ----------------------------------------------------------
 
@@ -1196,12 +1247,23 @@ export function CreateMacroApp(): React.ReactElement {
         )
       : [defaultStyleDraft.template]
     : [];
-  const templateEmpty = defaultTemplates.length === 0 ||
-    defaultTemplates.some((template) => template.trim().length === 0);
+  const templateEmpty = defaultStyleDraft?.mode !== 'block' && (
+    defaultTemplates.length === 0 ||
+    defaultTemplates.some((template) => template.trim().length === 0)
+  );
   const tagList = styles.map((s) => s.style_name);
   const hasEmptyTag = tagList.some((t) => t.length === 0);
   const hasInvalidTag = tagList.some((t) => !isSnlIdentifier(t));
   const hasDupTag = new Set(tagList).size !== tagList.length;
+  const hasIncompleteImagePreset = styles.some((style) => {
+    if (style.mode !== 'block') return false;
+    try {
+      const renderer = parseBlockRendererSpec(style.block_template_name);
+      return renderer.name === 'image' && !renderer.params.src;
+    } catch {
+      return style.block_template_name.startsWith('snl-ext-preset:v1:image');
+    }
+  });
   const canCreate =
     targetState !== 'notFound' &&
     exactName.length > 0 &&
@@ -1211,6 +1273,7 @@ export function CreateMacroApp(): React.ReactElement {
     !hasEmptyTag &&
     !hasInvalidTag &&
     !hasDupTag &&
+    !hasIncompleteImagePreset &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
@@ -1419,7 +1482,7 @@ export function CreateMacroApp(): React.ReactElement {
             onClick={() => setActiveTab(tab.id)}
           >
             {t(tab.messageKey)}
-            {tab.id === 'katex_template' && currentTemplate.trim().length === 0
+            {tab.id === 'katex_template' && current?.mode !== 'block' && currentTemplate.trim().length === 0
               ? ' *'
               : ''}
           </TabButton>
@@ -1449,7 +1512,7 @@ export function CreateMacroApp(): React.ReactElement {
             <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
               <PreviewBoundary
                 key={
-                  currentTemplate +
+                  previewTemplate +
                   dynamicArity +
                   (current?.mode ?? '') +
                   (current?.style_name ?? '') +
@@ -1482,7 +1545,7 @@ export function CreateMacroApp(): React.ReactElement {
               <LocalizedEditScope
                 initialLanguage={outerLanguage}
                 availableLanguages={[...new Set([
-                  'en', 'zh-CN',
+                  ...supportedLanguages.map((language) => language.id),
                   ...(is_i18n(current.template) ? Object.keys(current.template.values) : [])
                 ])]}
                 onLanguageChange={setTemplateLanguage}
@@ -2500,20 +2563,25 @@ function TagsEditor({
   );
 }
 
-function languageDisplayName(language: string): string {
-  return BUILT_IN_LANGUAGE_CATALOG.find((item) => item.id === language)?.display_name ?? language;
+function languageDisplayName(
+  language: string,
+  catalog: readonly { id: string; display_name: string }[] = BUILT_IN_LANGUAGE_CATALOG
+): string {
+  return catalog.find((item) => item.id === language)?.display_name ?? language;
 }
 
 function MacroLanguageSelector({
   languages,
   value,
   label,
-  onChange
+  onChange,
+  catalog = BUILT_IN_LANGUAGE_CATALOG
 }: {
   languages: string[];
   value: string;
   label: string;
   onChange: (language: string) => void;
+  catalog?: readonly { id: string; display_name: string }[];
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -2537,7 +2605,7 @@ function MacroLanguageSelector({
         ref={triggerRef}
         type="button"
         className="snl-control snl-panel-header__language-trigger"
-        aria-label={`${label}: ${languageDisplayName(value)}`}
+        aria-label={`${label}: ${languageDisplayName(value, catalog)}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -2590,7 +2658,7 @@ function MacroLanguageSelector({
               }}
             >
               <LanguageIcon language={language} />
-              <span>{languageDisplayName(language)}</span>
+              <span>{languageDisplayName(language, catalog)}</span>
               <span aria-hidden="true" className="snl-panel-header__language-check">
                 {language === value ? '✓' : ''}
               </span>
@@ -2618,12 +2686,15 @@ function LocalizedTemplateEditor({
   onSeparator(value: string): void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
+  const supportedLanguages = use_supported_languages();
   const local = useLocalizedEditLanguage();
   const binding = useLocalizedBinding({ value, onChange, defaultLanguage: 'en' });
   const status = binding.state === 'explicit'
     ? t('localizedExplicit')
     : binding.state === 'fallback'
-      ? t('localizedFallback', { language: languageDisplayName(binding.sourceLanguage ?? '') })
+      ? t('localizedFallback', {
+          language: languageDisplayName(binding.sourceLanguage ?? '', supportedLanguages)
+        })
       : binding.state === 'invariant'
         ? t('localizedInvariant')
         : t('localizedMissing');
@@ -2642,6 +2713,7 @@ function LocalizedTemplateEditor({
         value={local.language}
         label={t('language')}
         onChange={local.setLanguage}
+        catalog={supportedLanguages}
       />
       <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{status}</span>
       {binding.canClear ? <Button size="sm" onClick={binding.clearValue}>
@@ -2742,6 +2814,12 @@ function StylesEditor({
     {current?.mode === 'block' ? <BlockRendererPresetControl
       value={current.block_template_name ?? ''}
       onChange={(value) => patchStyle({ block_template_name: value })}
+      imagePathDraft={current.image_path_draft}
+      imagePathInvalid={current.image_path_invalid}
+      onImagePathDraftChange={(draft, invalid) => patchStyle({
+        image_path_draft: draft,
+        image_path_invalid: invalid
+      })}
     /> : null}
   </>;
 }
@@ -2756,14 +2834,15 @@ function StylesEditor({
  */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   key: string;
-  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint';
+  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint' | 'presetImageHint';
 }> = [
   // Render preset keys are protocol tokens and remain language-invariant.
   { key: 'list', hintKey: 'presetListHint' },
   { key: 'enumerate', hintKey: 'presetEnumerateHint' },
   { key: 'table', hintKey: 'presetTableHint' },
   { key: 'centered', hintKey: 'presetCenteredHint' },
-  { key: 'collapsible', hintKey: 'presetCollapsibleHint' }
+  { key: 'collapsible', hintKey: 'presetCollapsibleHint' },
+  { key: 'image', hintKey: 'presetImageHint' }
 ];
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 
@@ -2777,30 +2856,62 @@ const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
  */
 export function BlockRendererPresetControl({
   value,
-  onChange
+  onChange,
+  imagePathDraft: controlledImagePathDraft,
+  imagePathInvalid: controlledImagePathInvalid = false,
+  onImagePathDraftChange
 }: {
   value: string;
   onChange: (v: string) => void;
+  imagePathDraft?: string;
+  imagePathInvalid?: boolean;
+  onImagePathDraftChange?: (draft: string, invalid: boolean) => void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
+  let spec: { name: string; params: Record<string, string> };
+  try {
+    spec = value ? parseBlockRendererSpec(value) : { name: '', params: {} };
+  } catch {
+    spec = { name: value, params: {} };
+  }
   const [mode, setMode] = useState<'preset' | 'custom' | 'unset'>(() => {
     if (!value) return 'unset';
-    return PRESET_KEYS.has(value) ? 'preset' : 'custom';
+    return PRESET_KEYS.has(spec.name) ? 'preset' : 'custom';
   });
+  const [localImagePathDraft, setLocalImagePathDraft] = useState(spec.params.src ?? '');
+  const [localImagePathError, setLocalImagePathError] = useState(false);
+  const imagePathControlled = controlledImagePathDraft !== undefined;
+  const imagePathDraft = imagePathControlled ? controlledImagePathDraft : localImagePathDraft;
+  const imagePathError = imagePathControlled
+    ? controlledImagePathInvalid
+    : localImagePathError;
+  const setImageDraft = (draft: string, invalid: boolean): void => {
+    if (!imagePathControlled) {
+      setLocalImagePathDraft(draft);
+      setLocalImagePathError(invalid);
+    }
+    onImagePathDraftChange?.(draft, invalid);
+  };
 
   // If the parent's value changes out from under us (e.g. loading a
   // different style), resync the mode.
   useEffect(() => {
     if (!value) setMode('unset');
-    else if (PRESET_KEYS.has(value)) setMode('preset');
+    else if (PRESET_KEYS.has(spec.name)) setMode('preset');
     else setMode('custom');
-  }, [value]);
+  }, [spec.name, value]);
+  useEffect(() => {
+    if (imagePathControlled) return;
+    if (value === 'image' && imagePathError) return;
+    setLocalImagePathDraft(spec.params.src ?? '');
+    setLocalImagePathError(false);
+  }, [imagePathControlled, value]);
 
-  const selectedPreset = mode === 'preset' ? value : '';
+  const selectedPreset = mode === 'preset' ? spec.name : '';
   const hint =
     mode === 'preset'
       ? (() => {
-          const hintKey = BLOCK_RENDERER_PRESETS.find((p) => p.key === value)?.hintKey;
+          const hintKey = BLOCK_RENDERER_PRESETS.find((p) => p.key === spec.name)?.hintKey;
           if (!hintKey) return '';
           if (hintKey === 'presetListHint') {
             return t(hintKey, { environment: '{itemize}' });
@@ -2831,7 +2942,7 @@ export function BlockRendererPresetControl({
               // If the current value is a preset key, wipe it so the
               // custom input starts empty; if it was already custom
               // preserve it.
-              if (PRESET_KEYS.has(value) || !value) onChange('');
+              if (PRESET_KEYS.has(spec.name) || !value) onChange('');
             } else {
               setMode('preset');
               onChange(v);
@@ -2857,6 +2968,87 @@ export function BlockRendererPresetControl({
           />
         ) : null}
       </div>
+      {mode === 'preset' && spec.name === 'enumerate' ? (
+        <label style={{ ...labelStyle, marginTop: '0.5rem' }}>
+          {t('numbering')}
+          <select aria-label={t('numbering')}
+            value={spec.params.marker ?? 'decimal'}
+            onChange={(event) => onChange(serializeBlockRendererSpec('enumerate', {
+              marker: event.target.value
+            }))}
+            style={{ ...inputStyle, display: 'block', marginTop: '0.25rem' }}>
+            <option value="decimal">{t('numberingDecimal')}</option>
+            <option value="lower-alpha">{t('numberingLowerAlpha')}</option>
+            <option value="upper-alpha">{t('numberingUpperAlpha')}</option>
+            <option value="disc">{t('numberingDots')}</option>
+            <option value="ellipsis">{t('numberingEllipsis')}</option>
+          </select>
+        </label>
+      ) : null}
+      {mode === 'preset' && spec.name === 'image' ? (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+          <label style={{ ...labelStyle, flex: '1 1 16rem' }}>
+            {t('imagePath')}
+            <input aria-label={t('imagePath')} value={imagePathDraft}
+              placeholder="figures/diagram.png"
+              onChange={(event) => {
+                const path = event.target.value;
+                if (!path) {
+                  setImageDraft(path, false);
+                  onChange('image');
+                  return;
+                }
+                try {
+                  onChange(serializeBlockRendererSpec('image', {
+                    src: path,
+                    layout: spec.params.layout ?? 'block',
+                    alt: spec.params.alt ?? ''
+                  }));
+                  setImageDraft(path, false);
+                } catch {
+                  setImageDraft(path, true);
+                  onChange('image');
+                }
+              }}
+              style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.25rem' }} />
+            {!spec.params.src || imagePathError ? (
+              <span className="snl-field-error" role="alert">
+                {t(imagePathError ? 'imagePathInvalid' : 'imagePathRequired')}
+              </span>
+            ) : null}
+          </label>
+          <label style={labelStyle}>
+            {t('imageLayout')}
+            <select aria-label={t('imageLayout')} value={spec.params.layout ?? 'block'}
+              onChange={(event) => {
+                if (!spec.params.src) return;
+                onChange(serializeBlockRendererSpec('image', {
+                  src: spec.params.src,
+                  layout: event.target.value,
+                  alt: spec.params.alt ?? ''
+                }));
+              }}
+              style={{ ...inputStyle, display: 'block', marginTop: '0.25rem' }}>
+              <option value="inline">{t('imageInline')}</option>
+              <option value="block">{t('imageBlock')}</option>
+            </select>
+          </label>
+          <label style={{ ...labelStyle, flex: '1 1 16rem' }}>
+            {t('imageAlt')}
+            <input aria-label={t('imageAlt')} value={spec.params.alt ?? ''}
+              placeholder="diagram"
+              onChange={(event) => {
+                if (!spec.params.src) return;
+                onChange(serializeBlockRendererSpec('image', {
+                  src: spec.params.src,
+                  layout: spec.params.layout ?? 'block',
+                  alt: event.target.value
+                }));
+              }}
+              style={{ ...inputStyle, display: 'block', width: '100%', marginTop: '0.25rem' }} />
+          </label>
+        </div>
+      ) : null}
       <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', opacity: 0.65 }}>
         {hint}
       </p>

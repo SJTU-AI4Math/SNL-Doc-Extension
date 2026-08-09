@@ -11,6 +11,10 @@ import {
   buildPopoverScript,
   POPOVER_SCRIPT_PATH
 } from './exportPopoverPayload';
+import {
+  readWorkspaceAsset,
+  type ReadWorkspaceAssetOptions
+} from './workspaceAssets';
 
 /** What the webview sends when the reader hits Export. */
 export interface ExportRequest {
@@ -60,6 +64,7 @@ async function collectBinaries(
   extensionUri: vscode.Uri,
   fontFiles: { bundleName: string; exportPath: string }[],
   fsApi: vscode.FileSystem,
+  assetReader: (options: ReadWorkspaceAssetOptions) => Promise<Uint8Array>,
   warnings: string[]
 ): Promise<BinaryAsset[]> {
   const binaries: BinaryAsset[] = [];
@@ -70,11 +75,17 @@ async function collectBinaries(
       warnings.push(`Skipped suspicious asset path: ${asset.path}`);
       continue;
     }
-    const uri = vscode.Uri.joinPath(workspaceRoot, '.SNL_Doc', 'assets', name);
     try {
-      binaries.push({ path: asset.path, bytes: await fsApi.readFile(uri) });
-    } catch {
-      warnings.push(`Missing asset, exported without it: ${asset.path}`);
+      const bytes = await assetReader({
+        workspaceRoot,
+        relativePath: name,
+        fsApi
+      });
+      binaries.push({ path: asset.path, bytes });
+    } catch (error) {
+      warnings.push(error instanceof Error && /symbolic link/i.test(error.message)
+        ? `Skipped symbolic-link asset: ${asset.path}`
+        : `Missing asset, exported without it: ${asset.path}`);
     }
   }
 
@@ -107,6 +118,7 @@ export interface ExportDeps {
   workspaceRoot: vscode.Uri;
   destination: vscode.Uri;
   fsApi?: vscode.FileSystem;
+  assetReader?: (options: ReadWorkspaceAssetOptions) => Promise<Uint8Array>;
   /** Injected so the pure assembly can be tested without a webview. */
   buildDocument: (input: {
     title: string;
@@ -139,6 +151,7 @@ export async function writeExport(
     deps.extensionUri,
     fontFiles,
     fsApi,
+    deps.assetReader ?? readWorkspaceAsset,
     warnings
   );
 

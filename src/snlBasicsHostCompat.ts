@@ -1,9 +1,10 @@
 /*
  * CommonJS host bridge for the ESM-only @sjtu-ai4math/snl-basics@0.2.0.
- * vendor/snl-basics-host.cjs is generated with esbuild from the package's
+ * out/snl-basics-host.cjs is generated with esbuild from the package's
  * public root/core/runtime exports and must remain loadable by VS Code's
  * Node 20 Extension Host.
  */
+
 
 type I18nValue<T> = {
   type: 'i18n';
@@ -26,7 +27,7 @@ interface HostBridge {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const bridge = require('../vendor/snl-basics-host.cjs') as HostBridge;
+const bridge = require('../out/snl-basics-host.cjs') as HostBridge;
 
 export const isSnlIdentifier = bridge.isSnlIdentifier;
 export const migrateMacroDocument = bridge.migrateMacroDocument;

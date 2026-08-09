@@ -129,18 +129,25 @@ export function harvestLibraryHtml(
 
   for (const img of Array.from(clone.querySelectorAll('img'))) {
     const src = img.getAttribute('src') ?? '';
-    if (!base || !src.startsWith(`${base}/`)) continue;
-    const rest = src.slice(base.length + 1);
+    const brokeredPath = img.getAttribute('data-snl-asset-path');
     let clean: string;
-    try {
-      // Webview URIs percent-encode workspace filenames. The exported path and
-      // the host-side filesystem lookup must use the real filename, otherwise
-      // `a b.png` turns into a request for the non-existent `a%20b.png`.
-      clean = decodeURIComponent(rest.split(/[?#]/)[0]);
-    } catch {
-      clean = '';
+    if (brokeredPath !== null) {
+      clean = brokeredPath;
+    } else {
+      if (!base || !src.startsWith(`${base}/`)) continue;
+      const rest = src.slice(base.length + 1);
+      try {
+        // Webview URIs percent-encode workspace filenames. The exported path and
+        // the host-side filesystem lookup must use the real filename, otherwise
+        // `a b.png` turns into a request for the non-existent `a%20b.png`.
+        clean = decodeURIComponent(rest.split(/[?#]/)[0]);
+      } catch {
+        clean = '';
+      }
     }
-    if (!clean || clean.split('/').some((s) => !s || s === '..')) {
+    if (!clean || clean.includes('\\') || clean.startsWith('/') ||
+        /^[a-z][a-z0-9+.-]*:/i.test(clean) || clean.includes('?') || clean.includes('#') ||
+        clean.split('/').some((s) => !s || s === '.' || s === '..')) {
       // Never let a webview-internal URL survive into a portable file: it
       // would be a guaranteed dead link outside VS Code. Neutralise instead.
       img.removeAttribute('src');
@@ -149,6 +156,7 @@ export function harvestLibraryHtml(
     }
     const path = `assets/${clean}`;
     img.setAttribute('src', path);
+    img.removeAttribute('data-snl-asset-path');
     img.setAttribute('loading', 'lazy');
     if (!assets.has(path)) assets.set(path, { path, sourceUrl: src });
   }

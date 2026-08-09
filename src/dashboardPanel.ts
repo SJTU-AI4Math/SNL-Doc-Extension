@@ -5,7 +5,11 @@ import {
   setMacroPackageActive,
   type InitResult
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
+import {
+  buildPanelHtml,
+  firstWorkspaceFolder,
+  webviewLocalResourceRoots
+} from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { readDashboardWorkspaceData } from './vscodeDataMigration';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
@@ -103,7 +107,7 @@ export class DashboardPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     bind_preferences_panel_title(panel, () => dashboardT()('title'));

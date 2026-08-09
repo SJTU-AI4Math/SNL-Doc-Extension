@@ -1,16 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { COLLAPSE_TOGGLE_GEOMETRY } from '../../../src/collapseToggleContract';
 import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
+
+const assetPostMessage = vi.fn();
+(globalThis as { __snlApi?: unknown }).__snlApi = { postMessage: assetPostMessage };
 
 // This project does not enable vitest `globals`, so testing-library's automatic
 // cleanup hook is not installed. Unmount explicitly or renders pile up in the
 // same document and `getByRole` finds several toggles.
 afterEach(() => {
   cleanup();
+  assetPostMessage.mockClear();
   document.documentElement.lang = 'en';
 });
 
@@ -45,6 +49,90 @@ describe('extensionRenderers', () => {
       expect(typeof extensionRenderers[key]).toBe('function');
     }
     expect(extensionRenderers.collapsible).toBe(CollapsibleRenderer);
+  });
+
+  it('resolves parameterized enumerate and host-brokered image renderer keys', async () => {
+    const Enumerate = extensionRenderers['snl-ext-preset:v1:enumerate?marker=upper-alpha'];
+    expect(typeof Enumerate).toBe('function');
+    const ParameterizedEnumerate = Enumerate!;
+    const numbered = render(
+      <ParameterizedEnumerate
+        node={blockNode([node('first')])}
+        macro_data_driver={{} as never}
+        renderChild={renderChild}
+      />
+    );
+    expect((numbered.container.querySelector('ol') as HTMLOListElement).style.listStyleType)
+      .toBe('upper-alpha');
+    numbered.unmount();
+
+
+    const Image = extensionRenderers[
+      'snl-ext-preset:v1:image?src=figures%2Fmy%20plot.png&layout=inline&alt=My%20plot'
+    ];
+    expect(typeof Image).toBe('function');
+    const ParameterizedImage = Image!;
+    const renderedImage = render(
+      <ParameterizedImage
+        node={blockNode([])}
+        macro_data_driver={{} as never}
+        renderChild={renderChild}
+      />
+    );
+    const request = assetPostMessage.mock.calls[0]?.[0] as {
+      type: string; request_id: string; path: string;
+    };
+    expect(request).toMatchObject({
+      type: 'snl.assets/resolve', path: 'figures/my plot.png'
+    });
+    expect(renderedImage.queryByRole('img')).toBeNull();
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved',
+      request_id: request.request_id,
+      path: request.path,
+      url: 'vscode-webview://panel/trusted-cache/proof.png'
+    } }));
+    await waitFor(() => expect(renderedImage.getByRole('img')).toBeTruthy());
+    const image = renderedImage.getByRole('img');
+    expect(image.getAttribute('src')).toBe('vscode-webview://panel/trusted-cache/proof.png');
+    expect(image.getAttribute('data-snl-asset-path')).toBe('figures/my plot.png');
+    expect(image.getAttribute('data-snl-image-layout')).toBe('inline');
+    expect(image.getAttribute('alt')).toBe('My plot');
+    expect(extensionRenderers[
+      'snl-ext-preset:v1:image?src=..%2Fsecret.png&layout=block&alt=secret'
+    ]).toBeUndefined();
+  });
+
+  it('styles inline and block image presets without overflowing the reader', async () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(resolve(__dirname, '../components/ui.css'), 'utf8');
+    document.head.append(style);
+    try {
+      document.documentElement.dataset.snlAssetBaseUri = 'vscode-webview://panel/assets';
+      const Inline = extensionRenderers[
+        'snl-ext-preset:v1:image?src=figure.png&layout=inline&alt=figure'
+      ]!;
+      const rendered = render(
+        <Inline node={blockNode([])} macro_data_driver={{} as never} renderChild={renderChild} />
+      );
+      const request = assetPostMessage.mock.calls[0]?.[0] as {
+        request_id: string; path: string;
+      };
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/resolved',
+        request_id: request.request_id,
+        path: request.path,
+        url: 'vscode-webview://panel/trusted-cache/figure.png'
+      } }));
+      await waitFor(() => expect(rendered.queryByRole('img')).toBeTruthy());
+      const { container } = rendered;
+      const wrapper = container.querySelector<HTMLElement>('.snl-macro-image--inline')!;
+      const image = wrapper.querySelector<HTMLImageElement>('img')!;
+      expect(getComputedStyle(wrapper).display).toBe('inline-flex');
+      expect(getComputedStyle(image).maxWidth).toBe('100%');
+    } finally {
+      style.remove();
+    }
   });
 
   it('renders enumerate markers in a dedicated first-line grid column', () => {

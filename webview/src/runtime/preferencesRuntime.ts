@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { getVsCodeApi } from '../vscodeApi';
+import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
 // Lean subpath: the Reader runtime only, with no path to the React views
 // (and therefore none to KaTeX). See vite.runtime.config.ts in SNL-Basics.
 import {
@@ -17,6 +18,11 @@ interface WebviewPreferences {
   popover_hover_enabled?: boolean;
 }
 
+export interface SupportedLanguageDescriptor {
+  id: string;
+  display_name: string;
+}
+
 export interface FormatterPreferences {
   indentSpaces: number;
   inlineParenthesisDepth: number;
@@ -31,6 +37,7 @@ export interface PreferencesSnapshotMessage {
   generation: string;
   revision: number;
   preferences: WebviewPreferences;
+  supported_languages?: SupportedLanguageDescriptor[];
 }
 
 let hostRevision = -1;
@@ -45,6 +52,10 @@ let formatterPreferences: FormatterPreferences = {
   inlineParenthesisDepth: 3
 };
 let popoverPreferences: PopoverPreferences = { hoverEnabled: true };
+let supportedLanguages: SupportedLanguageDescriptor[] = [
+  { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+  { id: 'en', display_name: 'English (US)' }
+];
 const subscribers = new Set<() => void>();
 
 function safe_formatter_integer(value: unknown, fallback: number, maximum: number): number {
@@ -59,6 +70,10 @@ export function get_formatter_preferences(): FormatterPreferences {
 
 export function get_popover_preferences(): PopoverPreferences {
   return { ...popoverPreferences };
+}
+
+export function get_supported_languages(): SupportedLanguageDescriptor[] {
+  return supportedLanguages.map((language) => ({ ...language }));
 }
 
 function effective_motion(value: string): string {
@@ -114,6 +129,12 @@ export function apply_preferences_snapshot(
   popoverPreferences = {
     hoverEnabled: message.preferences.popover_hover_enabled !== false
   };
+  if (Array.isArray(message.supported_languages) && message.supported_languages.every(
+    (language) => language && typeof language.id === 'string' &&
+      typeof language.display_name === 'string'
+  )) {
+    supportedLanguages = message.supported_languages.map((language) => ({ ...language }));
+  }
   renderRevision += 1;
   for (const subscriber of subscribers) subscriber();
   return true;
@@ -131,6 +152,11 @@ function get_revision(): number {
 /** Re-render a React consumer after a valid preference snapshot. */
 export function use_preferences_revision(): number {
   return useSyncExternalStore(subscribe, get_revision, get_revision);
+}
+
+export function use_supported_languages(): readonly SupportedLanguageDescriptor[] {
+  use_preferences_revision();
+  return supportedLanguages;
 }
 
 if (typeof window !== 'undefined') {
@@ -159,7 +185,11 @@ if (typeof window !== 'undefined') {
       }
     );
   }
-  getVsCodeApi()?.postMessage({ type: 'snl.preferences/ready' });
+  const api = getVsCodeApi();
+  if (api) {
+    installWorkspaceAssetBroker(api);
+    api.postMessage({ type: 'snl.preferences/ready' });
+  }
 }
 
 /** Shared runtime for all Entry/Macro rendering in this webview document. */

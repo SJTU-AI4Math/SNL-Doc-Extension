@@ -121,7 +121,8 @@ vi.mock('./panelUtil', () => ({
   buildPanelHtml: () => '<html></html>',
   firstWorkspaceFolder: () => ({ path: '/ws', fsPath: '/ws' }),
   handlePanelNavMessage: async () => false,
-  installSnlDocWatcher: () => undefined
+  installSnlDocWatcher: () => undefined,
+  webviewLocalResourceRoots: () => []
 }));
 
 const extUri = { path: '/ext', fsPath: '/ext' } as never;

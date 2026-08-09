@@ -60,6 +60,11 @@ import { withWorkspaceDataLock } from './workspaceDataLock';
 import { stripJsonExt } from './macroPackageName';
 import { loadKindPresetPackages, type KindPresetPackage } from './kindPresets';
 import { prepareKindPresetApplication } from './kindPresetApplication';
+import {
+  normalizeSupportedLanguage,
+  supportedLanguagesFromConfig,
+  type SupportedLanguageDescriptor
+} from './workspaceLanguages';
 
 /**
  * Filesystem helpers for the `.SNL_Doc/` tree.
@@ -3883,6 +3888,56 @@ export async function readEntries(
 // ---------------------------------------------------------------------------
 // Kind Presets — independently versioned JSON extension resources
 // ---------------------------------------------------------------------------
+
+export async function readWorkspaceSupportedLanguages(
+  workspaceRoot: vscode.Uri
+): Promise<SupportedLanguageDescriptor[]> {
+  const uri = configUri(workspaceRoot);
+  if (!(await exists(uri))) return supportedLanguagesFromConfig({});
+  const raw = await readJson<unknown>(uri);
+  return supportedLanguagesFromConfig(raw);
+}
+
+export type AddWorkspaceSupportedLanguageResult =
+  | { status: 'added'; language: SupportedLanguageDescriptor }
+  | { status: 'exists'; language: SupportedLanguageDescriptor }
+  | { status: 'invalid'; message: string }
+  | { status: 'noSnlDoc' };
+
+export async function addWorkspaceSupportedLanguage(
+  workspaceRoot: vscode.Uri,
+  input: unknown
+): Promise<AddWorkspaceSupportedLanguageResult> {
+  let language: SupportedLanguageDescriptor;
+  try {
+    language = normalizeSupportedLanguage(input);
+  } catch (error) {
+    return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+  }
+  if (!(await exists(configUri(workspaceRoot)))) return { status: 'noSnlDoc' };
+  return withExtensionWriterLock(workspaceRoot, 'add supported language', async () => {
+    const uri = configUri(workspaceRoot);
+    const raw = await readJson<unknown>(uri);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { status: 'invalid', message: 'config.json must be an object' };
+    }
+    const existing = supportedLanguagesFromConfig(raw);
+    const duplicate = existing.find((candidate) =>
+      candidate.id.toLowerCase() === language.id.toLowerCase());
+    if (duplicate) return { status: 'exists', language: duplicate };
+    if (existing.length >= 100) {
+      return { status: 'invalid', message: 'supported_languages may contain at most 100 entries' };
+    }
+    const original = structuredClone(raw);
+    const next = raw as Record<string, unknown>;
+    const stored = Array.isArray(next.supported_languages)
+      ? structuredClone(next.supported_languages)
+      : [];
+    next.supported_languages = [...stored, language];
+    await writeWorkspaceFile(workspaceRoot, uri, jsonBytes(next), original);
+    return { status: 'added', language };
+  });
+}
 
 export interface EntryKindPreset extends Omit<KindPresetPackage<'entry'>, 'kinds'> {
   kinds: EntryKind[];

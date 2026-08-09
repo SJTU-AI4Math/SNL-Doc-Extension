@@ -1,5 +1,9 @@
 import type { ExtensionPreferences } from './preferences-core';
 
+/** Safe placeholder rewritten by the Webview asset broker before real loading. */
+export const WORKSPACE_ASSET_BROKER_BASE =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==#snl-workspace-asset';
+
 export function escape_html_attribute(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -40,4 +44,9 @@ export function brand_html_attributes(black_logo: string, white_logo: string): s
     `data-snl-logo-black="${escape_html_attribute(black_logo)}"`,
     `data-snl-logo-white="${escape_html_attribute(white_logo)}"`
   ].join(' ');
+}
+
+/** Repo-local `.SNL_Doc/assets` root consumed by legacy Markdown image rendering. */
+export function workspace_asset_html_attribute(asset_base_uri: string): string {
+  return `data-snl-asset-base-uri="${escape_html_attribute(asset_base_uri)}"`;
 }

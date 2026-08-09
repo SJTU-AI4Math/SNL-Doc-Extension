@@ -32,7 +32,7 @@ try {
   const required = [
     'out/extension.js',
     'out/snlDoc.js',
-    'vendor/snl-basics-host.cjs',
+    'out/snl-basics-host.cjs',
     'node_modules/@sjtu-ai4math/snl-basics/package.json',
     'node_modules/@sjtu-ai4math/snl-basics/dist-lib/index.js',
     'node_modules/@sjtu-ai4math/snl-basics/dist-lib/core.js',

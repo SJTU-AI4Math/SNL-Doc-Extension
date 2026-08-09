@@ -31,7 +31,7 @@ import {
   type EntryData
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
-  installSnlDocWatcher
+  installSnlDocWatcher, webviewLocalResourceRoots
 } from './panelUtil';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import { readPopoverEntry } from './popoverEntryReader';
@@ -186,7 +186,7 @@ export class CreateEntryPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')]
+        localResourceRoots: webviewLocalResourceRoots(extensionUri)
       }
     );
     bind_preferences_panel_title(panel, () => {

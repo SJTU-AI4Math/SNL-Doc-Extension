@@ -19,7 +19,7 @@
 // contract (both the Infoview and the export read it; changing it breaks the
 // parity test that keeps the two honest).
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   defaultRenderers,
   type SnlBlockRenderer,
@@ -32,16 +32,24 @@ import {
   COLLAPSE_TOGGLE_STYLE
 } from '../../../src/collapseToggleContract';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+import { getVsCodeApi } from '../vscodeApi';
+import { parseBlockRendererSpec } from './blockRendererSpec';
 
 const MESSAGES = defineUiMessages(
   'collapsibleBlock',
   {
     title: { arg: 'count', one: '{action} {count} part', other: '{action} {count} parts' },
     expand: 'Expand', collapse: 'Collapse',
-    noun: { arg: 'count', one: 'part', other: 'parts' }
+    noun: { arg: 'count', one: 'part', other: 'parts' },
+    imagePathRequired: 'Image path is required.',
+    imageLoading: 'Loading image…',
+    imageLoadFailed: 'Could not load this workspace image.'
   },
   {
-    title: '{action} {count} 个部分', expand: '展开', collapse: '收起', noun: '个部分'
+    title: '{action} {count} 个部分', expand: '展开', collapse: '收起', noun: '个部分',
+    imagePathRequired: '必须填写图片路径。',
+    imageLoading: '正在加载图片…',
+    imageLoadFailed: '无法加载此工作区图片。'
   }
 );
 
@@ -190,7 +198,10 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
  * custom `@counter-style` prefix/suffix rules still work. The native `<ol>/<li>`
  * structure remains intact for list semantics.
  */
-export const EnumerateRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
+function renderEnumerate(
+  { node, renderChild }: Parameters<SnlBlockRenderer>[0],
+  configuredListStyle?: string
+): React.ReactElement {
   const mdata = node.mdata && typeof node.mdata === 'object'
     ? node.mdata as { start?: unknown; listStyle?: unknown }
     : undefined;
@@ -198,9 +209,11 @@ export const EnumerateRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
     Number.isFinite(mdata.start) && mdata.start >= 1
     ? mdata.start
     : undefined;
-  const listStyle = typeof mdata?.listStyle === 'string' && mdata.listStyle.length > 0
-    ? mdata.listStyle
-    : undefined;
+  const listStyle = configuredListStyle ?? (
+    typeof mdata?.listStyle === 'string' && mdata.listStyle.length > 0
+      ? mdata.listStyle
+      : undefined
+  );
   const firstCounter = Math.trunc(start ?? 1);
 
   return (
@@ -221,6 +234,87 @@ export const EnumerateRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
       ))}
     </ol>
   );
+}
+
+export const EnumerateRenderer: SnlBlockRenderer = (props) => renderEnumerate(props);
+
+const MARKER_LIST_STYLE: Record<string, string> = {
+  decimal: 'decimal',
+  'lower-alpha': 'lower-alpha',
+  'upper-alpha': 'upper-alpha',
+  disc: 'disc',
+  ellipsis: '"..."'
+};
+
+let nextAssetRequest = 0;
+
+function useWorkspaceAsset(path: string): { url?: string; failed: boolean } {
+  const [result, setResult] = useState<{ url?: string; failed: boolean }>({ failed: false });
+  useEffect(() => {
+    const api = getVsCodeApi();
+    if (!api) {
+      setResult({ failed: true });
+      return;
+    }
+    const request_id = `snl-asset-${++nextAssetRequest}`;
+    let active = true;
+    const receive = (event: MessageEvent): void => {
+      const message = event.data as {
+        type?: unknown;
+        request_id?: unknown;
+        path?: unknown;
+        url?: unknown;
+      } | null;
+      if (!active || message?.type !== 'snl.assets/resolved' ||
+          message.request_id !== request_id || message.path !== path) return;
+      if (typeof message.url === 'string' && message.url) {
+        setResult({ url: message.url, failed: false });
+      } else {
+        setResult({ failed: true });
+      }
+    };
+    window.addEventListener('message', receive);
+    setResult({ failed: false });
+    api.postMessage({ type: 'snl.assets/resolve', request_id, path });
+    return () => {
+      active = false;
+      window.removeEventListener('message', receive);
+    };
+  }, [path]);
+  return result;
+}
+
+function imageRenderer(
+  path: string,
+  display: 'inline' | 'block',
+  alt: string
+): SnlBlockRenderer {
+  const ImageRenderer: SnlBlockRenderer = () => {
+    const t = useUiMessages(MESSAGES);
+    const asset = useWorkspaceAsset(path);
+    if (asset.failed) {
+      return <span className="snl-render-error" role="alert">{t('imageLoadFailed')}</span>;
+    }
+    if (!asset.url) {
+      return <span className="snl-render-status" role="status">{t('imageLoading')}</span>;
+    }
+    const image = <img
+      src={asset.url}
+      alt={alt}
+      loading="lazy"
+      data-snl-asset-path={path}
+      data-snl-image-layout={display}
+    />;
+    return display === 'inline'
+      ? <span className="snl-macro-image snl-macro-image--inline">{image}</span>
+      : <figure className="snl-macro-image snl-macro-image--block">{image}</figure>;
+  };
+  return ImageRenderer;
+}
+
+const MissingImageRenderer: SnlBlockRenderer = () => {
+  const t = useUiMessages(MESSAGES);
+  return <span className="snl-render-error" role="alert">{t('imagePathRequired')}</span>;
 };
 
 /**
@@ -229,8 +323,38 @@ export const EnumerateRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
  * MUST spread `defaultRenderers` — see the module header. Dropping the spread
  * silently disables every SNL-Basics built-in block renderer.
  */
-export const extensionRenderers: SnlRendererRegistry = {
+const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
   enumerate: EnumerateRenderer,
-  collapsible: CollapsibleRenderer
+  collapsible: CollapsibleRenderer,
+  image: MissingImageRenderer
 };
+
+const parameterizedRendererCache = new Map<string, SnlBlockRenderer>();
+
+export const extensionRenderers: SnlRendererRegistry = new Proxy(baseExtensionRenderers, {
+  get(target, property, receiver): unknown {
+    const direct = Reflect.get(target, property, receiver);
+    if (direct !== undefined || typeof property !== 'string' || !property.includes('?')) return direct;
+    const cached = parameterizedRendererCache.get(property);
+    if (cached) return cached;
+    try {
+      const spec = parseBlockRendererSpec(property);
+      let renderer: SnlBlockRenderer | undefined;
+      if (spec.name === 'enumerate' && spec.params.marker) {
+        const listStyle = MARKER_LIST_STYLE[spec.params.marker];
+        if (listStyle) renderer = (props) => renderEnumerate(props, listStyle);
+      } else if (spec.name === 'image' && spec.params.src) {
+        renderer = imageRenderer(
+          spec.params.src,
+          spec.params.layout === 'inline' ? 'inline' : 'block',
+          spec.params.alt
+        );
+      }
+      if (renderer) parameterizedRendererCache.set(property, renderer);
+      return renderer;
+    } catch {
+      return undefined;
+    }
+  }
+}) as SnlRendererRegistry;

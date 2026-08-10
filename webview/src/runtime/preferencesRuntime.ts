@@ -112,6 +112,11 @@ export function get_content_language(): string {
   return contentLanguageStore.get();
 }
 
+export function get_kind_color_scheme(): 'light' | 'dark' {
+  const scheme = documentRoot.dataset.snlColorScheme;
+  return scheme === 'dark' || scheme === 'high-contrast' ? 'dark' : 'light';
+}
+
 export function set_content_language(language: string): void {
   contentLanguageStore.set(language);
 }

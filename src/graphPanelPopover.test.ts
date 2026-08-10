@@ -33,7 +33,7 @@ vi.mock('vscode', () => {
           state.readFiles.push(uri.path);
           if (uri.path.endsWith('/config.json')) {
             return encoder.encode(JSON.stringify({
-              version: '0.0.8',
+              version: '0.0.9',
               ...(!state.missingMetadata ? {
                 entity_storage: {
                   version: 1,
@@ -83,7 +83,7 @@ vi.mock('./snlDoc', () => ({
     id, package: entryPackage, title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: 'x' }
   }))),
   readEntryKinds: vi.fn(async () => [{
-    id: 'k1', name: 'Definition', coloring: { stroke: '#111', background: '#fff' }
+    id: 'k1', name: 'Definition', coloring: { light: { stroke: '#111', background: '#fff' }, dark: { stroke: '#111', background: '#fff' } }
   }]),
   readRelationships: vi.fn(async () => Object.keys(state.entryPackages).length > 1 ? [{
     id: 'r1', from: 'e1', to: 'e2', label: 'uses', metadata: null
@@ -159,10 +159,19 @@ describe('GraphPanel correlated topology-aware popovers', () => {
     const panel = await harness();
     await panel.pushGraph();
     const graph = state.posted.find((message) => message.type === 'graph');
-    expect(graph?.nodes).toEqual([
-      expect.objectContaining({ id: 'e1', packageId: 'logic' }),
+    const nodes = graph?.nodes as Array<Record<string, unknown>>;
+    expect(nodes).toEqual([
+      expect.objectContaining({
+        id: 'e1', packageId: 'logic',
+        coloring: {
+          light: { stroke: '#111', background: '#fff' },
+          dark: { stroke: '#111', background: '#fff' }
+        }
+      }),
       expect.objectContaining({ id: 'e2', packageId: '_unpackaged' })
     ]);
+    expect(nodes[0]).not.toHaveProperty('color');
+    expect(nodes[0]).not.toHaveProperty('background');
   });
 
   it('echoes the request key after an exact current-storage success', async () => {

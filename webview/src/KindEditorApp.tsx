@@ -17,6 +17,12 @@ import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+import {
+  DEFAULT_DARK_KIND_COLORING,
+  DEFAULT_LIGHT_KIND_COLORING,
+  normalizeKindColoring,
+  type ThemedKindColoring
+} from '../../src/kindColoring';
 
 const MESSAGES = defineUiMessages(
   'kindEditor',
@@ -26,7 +32,9 @@ const MESSAGES = defineUiMessages(
     immutable: '. IDs are unique and immutable.', unknownError: 'Unknown error',
     idReadonly: 'ID (readonly)', id: 'ID', entryIdExample: 'e.g. theorem', macroIdExample: 'e.g. operator',
     displayName: 'Display name', description: 'Description', defaultCounter: 'Default counter name',
-    styleTag: 'Style tag', stroke: 'Stroke', background: 'Background', preview: 'preview',
+    styleTag: 'Style tag', lightTheme: 'Light theme', darkTheme: 'Dark theme',
+    lightStroke: 'Light stroke', lightBackground: 'Light background',
+    darkStroke: 'Dark stroke', darkBackground: 'Dark background', preview: 'preview',
     updating: 'Updating…', creating: 'Creating…', updateKind: 'Update {kind}', createKind: 'Create {kind}',
     created: 'Created “{name}” ({id}).', updated: 'Updated “{name}” ({id}).'
   },
@@ -36,7 +44,9 @@ const MESSAGES = defineUiMessages(
     immutable: '。ID 必须唯一且不可修改。', unknownError: '未知错误',
     idReadonly: 'ID（只读）', id: 'ID', entryIdExample: '例如 theorem', macroIdExample: '例如 operator',
     displayName: '显示名称', description: '说明', defaultCounter: '默认计数器名称',
-    styleTag: '样式标签', stroke: '描边', background: '背景', preview: '预览',
+    styleTag: '样式标签', lightTheme: '浅色主题', darkTheme: '深色主题',
+    lightStroke: '浅色描边', lightBackground: '浅色背景',
+    darkStroke: '深色描边', darkBackground: '深色背景', preview: '预览',
     updating: '正在更新…', creating: '正在创建…', updateKind: '更新{kind}', createKind: '创建{kind}',
     created: '已创建“{name}”（{id}）。', updated: '已更新“{name}”（{id}）。'
   }
@@ -65,6 +75,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const kindName = t(domain === 'entry' ? 'entryKind' : 'macroKind');
   const dirtyRef = useRef(false);
   const revisionRef = useRef<string | undefined>(undefined);
+  const preservedColoringRef = useRef<ThemedKindColoring | null>(null);
   const [contextReady, setContextReady] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [mode, setMode] = useState<Mode>('create');
@@ -73,8 +84,10 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const [existingIds, setExistingIds] = useState<EntryOption[]>([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [stroke, setStroke] = useState('#888888');
-  const [background, setBackground] = useState('#eeeeee');
+  const [lightStroke, setLightStroke] = useState(DEFAULT_LIGHT_KIND_COLORING.stroke);
+  const [lightBackground, setLightBackground] = useState(DEFAULT_LIGHT_KIND_COLORING.background);
+  const [darkStroke, setDarkStroke] = useState(DEFAULT_DARK_KIND_COLORING.stroke);
+  const [darkBackground, setDarkBackground] = useState(DEFAULT_DARK_KIND_COLORING.background);
   const [defaultCounterName, setDefaultCounterName] = useState('');
   const [style, setStyle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -106,15 +119,19 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       setContextReady(true);
       setTargetId(nextMode === 'edit' ? (msg.id ?? '') : '');
       setExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
+      if (nextMode === 'create') preservedColoringRef.current = null;
       if (nextMode === 'edit' && !dirtyRef.current) {
         revisionRef.current = msg.kindRevision;
         setId(msg.id ?? '');
         const existing = msg.existing ?? {};
         setName(typeof existing.name === 'string' ? existing.name : '');
         setDescription(typeof existing.description === 'string' ? existing.description : '');
-        const coloring = typeof existing.coloring === 'object' && existing.coloring ? existing.coloring as Record<string, unknown> : {};
-        setStroke(typeof coloring.stroke === 'string' ? coloring.stroke : '#888888');
-        setBackground(typeof coloring.background === 'string' ? coloring.background : '#eeeeee');
+        const coloring = normalizeKindColoring(existing.coloring);
+        preservedColoringRef.current = coloring;
+        setLightStroke(coloring.light.stroke);
+        setLightBackground(coloring.light.background);
+        setDarkStroke(coloring.dark.stroke);
+        setDarkBackground(coloring.dark.background);
         setDefaultCounterName(typeof existing.defaultCounterName === 'string' ? existing.defaultCounterName : '');
         setStyle(typeof existing.style === 'string' ? existing.style : '');
       }
@@ -142,8 +159,12 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       id: string;
       name: string;
       description: string;
-      stroke: string;
-      background: string;
+      lightStroke?: string;
+      lightBackground?: string;
+      darkStroke?: string;
+      darkBackground?: string;
+      stroke?: string;
+      background?: string;
       defaultCounterName: string;
       style: string;
       expectedRevision?: string;
@@ -155,8 +176,12 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     setId(restored.id);
     setName(restored.name);
     setDescription(restored.description);
-    setStroke(restored.stroke);
-    setBackground(restored.background);
+    const legacyStroke = restored.stroke;
+    const legacyBackground = restored.background;
+    setLightStroke(restored.lightStroke ?? legacyStroke ?? DEFAULT_LIGHT_KIND_COLORING.stroke);
+    setLightBackground(restored.lightBackground ?? legacyBackground ?? DEFAULT_LIGHT_KIND_COLORING.background);
+    setDarkStroke(restored.darkStroke ?? legacyStroke ?? DEFAULT_DARK_KIND_COLORING.stroke);
+    setDarkBackground(restored.darkBackground ?? legacyBackground ?? DEFAULT_DARK_KIND_COLORING.background);
     setDefaultCounterName(restored.defaultCounterName);
     setStyle(restored.style);
   }, [contextReady, draftKey]);
@@ -168,8 +193,10 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       id,
       name,
       description,
-      stroke,
-      background,
+      lightStroke,
+      lightBackground,
+      darkStroke,
+      darkBackground,
       defaultCounterName,
       style,
       expectedRevision: mode === 'edit' ? revisionRef.current : undefined
@@ -183,11 +210,22 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   const submit = (): void => {
     if (!canSubmit) return;
     setStatus({ kind: 'creating' });
-    const payload: Record<string, string> = {
+    const payload: Record<string, unknown> = {
       id: trimmedId,
       name: trimmedName,
-      stroke: stroke.trim() || '#888888',
-      background: background.trim() || '#eeeeee'
+      coloring: {
+        ...(preservedColoringRef.current ?? {}),
+        light: {
+          ...(preservedColoringRef.current?.light ?? {}),
+          stroke: lightStroke.trim() || DEFAULT_LIGHT_KIND_COLORING.stroke,
+          background: lightBackground.trim() || DEFAULT_LIGHT_KIND_COLORING.background
+        },
+        dark: {
+          ...(preservedColoringRef.current?.dark ?? {}),
+          stroke: darkStroke.trim() || DEFAULT_DARK_KIND_COLORING.stroke,
+          background: darkBackground.trim() || DEFAULT_DARK_KIND_COLORING.background
+        }
+      }
     };
     if (domain === 'entry') {
       payload.defaultCounterName = defaultCounterName.trim();
@@ -221,11 +259,50 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       <KindTextField label={t('defaultCounter')} value={defaultCounterName} onChange={setDefaultCounterName} mono />
       <KindTextField label={t('styleTag')} value={style} onChange={setStyle} mono />
     </>}
-    <div style={{ display: 'flex', gap: '.75rem' }}><ColorField label={t('stroke')} value={stroke} onChange={setStroke} /><ColorField label={t('background')} value={background} onChange={setBackground} /></div>
-    <ColorPreview stroke={stroke} background={background} name={trimmedName || t('preview')} />
+    <KindColorThemeFields
+      title={t('lightTheme')}
+      strokeLabel={t('lightStroke')}
+      backgroundLabel={t('lightBackground')}
+      stroke={lightStroke}
+      background={lightBackground}
+      name={trimmedName || t('preview')}
+      onStroke={setLightStroke}
+      onBackground={setLightBackground}
+    />
+    <KindColorThemeFields
+      title={t('darkTheme')}
+      strokeLabel={t('darkStroke')}
+      backgroundLabel={t('darkBackground')}
+      stroke={darkStroke}
+      background={darkBackground}
+      name={trimmedName || t('preview')}
+      onStroke={setDarkStroke}
+      onBackground={setDarkBackground}
+    />
     <Button variant="primary" onClick={submit} disabled={!canSubmit} loading={status.kind === 'creating'} loadingLabel={t(mode === 'edit' ? 'updating' : 'creating')}>{t(mode === 'edit' ? 'updateKind' : 'createKind', { kind: kindName })}</Button>
     <KindStatus status={status} t={t} />
   </main>;
+}
+
+
+function KindColorThemeFields({ title, strokeLabel, backgroundLabel, stroke, background, name, onStroke, onBackground }: {
+  title: string;
+  strokeLabel: string;
+  backgroundLabel: string;
+  stroke: string;
+  background: string;
+  name: string;
+  onStroke: (value: string) => void;
+  onBackground: (value: string) => void;
+}): React.ReactElement {
+  return <section aria-label={title} style={{ marginBottom: '1rem' }}>
+    <h2 style={{ margin: '0 0 .35rem', fontSize: '1rem' }}>{title}</h2>
+    <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap' }}>
+      <ColorField label={strokeLabel} value={stroke} onChange={onStroke} />
+      <ColorField label={backgroundLabel} value={background} onChange={onBackground} />
+    </div>
+    <ColorPreview stroke={stroke} background={background} name={`${title} ${name}`} />
+  </section>;
 }
 
 function KindStatus({ status, t }: { status: Status; t: UiTranslator<typeof MESSAGES.catalogs.en> }): React.ReactElement | null {

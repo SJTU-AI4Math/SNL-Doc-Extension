@@ -13,7 +13,7 @@ vi.mock('../runtime/preferencesRuntime', async (importOriginal) => {
 import { EntryRender } from './EntryRender';
 import { HoverPopoverProvider } from './HoverPopoverProvider';
 import type { MacroRecord } from './macroData';
-import { set_content_language } from '../runtime/preferencesRuntime';
+import { apply_preferences_snapshot, set_content_language } from '../runtime/preferencesRuntime';
 
 const root = {
   id: 'root', kind: 'definition', title: 'Root',
@@ -25,6 +25,32 @@ const child = {
 };
 
 afterEach(cleanup);
+
+it('selects the Entry Kind variant from the live dark theme context', async () => {
+  apply_preferences_snapshot({
+    type: 'snl.preferences/snapshot', generation: 'entry-theme', revision: 1,
+    preferences: { language: 'en', color_scheme: 'dark', motion: 'full' }
+  });
+  const view = render(
+    <HoverPopoverProvider postMessage={vi.fn()} entries={[]}>
+      <EntryRender
+        entry={{ ...root, content: { text: 'Body' } }}
+        kind={{
+          id: 'definition', name: 'Definition', style: '',
+          coloring: {
+            light: { stroke: '#111111', background: '#eeeeee' },
+            dark: { stroke: '#dddddd', background: '#222222' }
+          }
+        }}
+        entries={[]}
+        postMessage={vi.fn()}
+      />
+    </HoverPopoverProvider>
+  );
+  const surface = await waitFor(() => view.container.querySelector<HTMLElement>('[data-entry-id="root"]')!);
+  expect(surface.style.borderLeft).toContain('rgb(221, 221, 221)');
+  expect(surface.style.background).toBe('rgb(34, 34, 34)');
+});
 
 it('renders both Entry title and body from the Panel content language', async () => {
   set_content_language('zh-CN');

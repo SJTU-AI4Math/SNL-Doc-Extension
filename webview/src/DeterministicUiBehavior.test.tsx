@@ -174,8 +174,8 @@ describe('graph keyboard accessibility', () => {
     send({
       type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [], entryOptions: [], macros: {}, macroKinds: [],
       nodes: [
-        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
-        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } },
+        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } }
       ],
       edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
     });
@@ -201,8 +201,8 @@ describe('graph keyboard accessibility', () => {
       entryOptions: [{ id: 'a', title: 'Alpha', hasContent: false }],
       entryPackages: { a: 'logic' }, macros: {}, macroKinds: [],
       nodes: [
-        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
-        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+        { id: 'a', packageId: 'logic', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } },
+        { id: 'b', packageId: 'logic', title: 'Beta', kind: 'Lemma', kindId: 'lemma', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } }
       ],
       edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
     });
@@ -221,8 +221,8 @@ describe('graph keyboard accessibility', () => {
       nodes,
       edges: [{ id: 'cross', from: 'a', to: 'z', label: 'uses', isDependency: false, isAtomic: null }]
     });
-    const alpha = { id: 'a', packageId: 'alpha', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' };
-    const zeta = { id: 'z', packageId: 'zeta', title: 'Zeta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' };
+    const alpha = { id: 'a', packageId: 'alpha', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } };
+    const zeta = { id: 'z', packageId: 'zeta', title: 'Zeta', kind: 'Lemma', kindId: 'lemma', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } };
     send(graph([zeta, alpha]));
 
     const alphaLane = screen.getByRole('group', { name: 'Package alpha: 1 entry' });
@@ -254,8 +254,8 @@ describe('graph keyboard accessibility', () => {
       send({
         type: 'graph', scope: { mode: 'pool' }, title: 'Graph', warnings: [], entryOptions: [], macros: {}, macroKinds: [],
         nodes: [
-          { id: 'a', packageId: '_unpackaged', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', color: '#fff', background: '#000' },
-          { id: 'b', packageId: '_unpackaged', title: 'Beta', kind: 'Lemma', kindId: 'lemma', color: '#fff', background: '#000' }
+          { id: 'a', packageId: '_unpackaged', title: 'Alpha', kind: 'Theorem', kindId: 'theorem', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } },
+          { id: 'b', packageId: '_unpackaged', title: 'Beta', kind: 'Lemma', kindId: 'lemma', coloring: { light: { stroke: '#fff', background: '#000' }, dark: { stroke: '#fff', background: '#000' } } }
         ],
         edges: [{ id: 'r', from: 'a', to: 'b', label: 'uses', isDependency: false, isAtomic: null }]
       });

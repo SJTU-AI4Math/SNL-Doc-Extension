@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 1,
+  "version": 2,
   "domain": "entry",
   "id": "fulcrum-math-notes",
   "copyKeys": {
@@ -12,8 +12,14 @@
       "id": "chapter",
       "name": "Chapter",
       "coloring": {
-        "stroke": "#787878",
-        "background": "#F0F0F0"
+        "light": {
+          "stroke": "#5F5F5F",
+          "background": "#F0F0F0"
+        },
+        "dark": {
+          "stroke": "#A3A3A3",
+          "background": "#262626"
+        }
       },
       "defaultCounterName": "chapter",
       "style": "section"
@@ -22,8 +28,14 @@
       "id": "section",
       "name": "Section",
       "coloring": {
-        "stroke": "#787878",
-        "background": "#F0F0F0"
+        "light": {
+          "stroke": "#5F5F5F",
+          "background": "#F0F0F0"
+        },
+        "dark": {
+          "stroke": "#A3A3A3",
+          "background": "#262626"
+        }
       },
       "defaultCounterName": "section",
       "style": "section"
@@ -32,8 +44,14 @@
       "id": "subsection",
       "name": "Subsection",
       "coloring": {
-        "stroke": "#787878",
-        "background": "#F0F0F0"
+        "light": {
+          "stroke": "#5F5F5F",
+          "background": "#F0F0F0"
+        },
+        "dark": {
+          "stroke": "#A3A3A3",
+          "background": "#262626"
+        }
       },
       "defaultCounterName": "subsection",
       "style": "section"
@@ -42,8 +60,14 @@
       "id": "definition",
       "name": "Definition",
       "coloring": {
-        "stroke": "#009C27",
-        "background": "#D6FEE0"
+        "light": {
+          "stroke": "#00651B",
+          "background": "#D6FEE0"
+        },
+        "dark": {
+          "stroke": "#4ADE80",
+          "background": "#14532D"
+        }
       },
       "defaultCounterName": "definition",
       "style": ""
@@ -52,8 +76,14 @@
       "id": "axiom",
       "name": "Axiom",
       "coloring": {
-        "stroke": "#C1C103",
-        "background": "#FFFFAC"
+        "light": {
+          "stroke": "#6B6B00",
+          "background": "#FFFFAC"
+        },
+        "dark": {
+          "stroke": "#FDE047",
+          "background": "#422006"
+        }
       },
       "defaultCounterName": "axiom",
       "style": ""
@@ -62,8 +92,14 @@
       "id": "lemma",
       "name": "Lemma",
       "coloring": {
-        "stroke": "#005B9C",
-        "background": "#DAF0FF"
+        "light": {
+          "stroke": "#005B9C",
+          "background": "#DAF0FF"
+        },
+        "dark": {
+          "stroke": "#60A5FA",
+          "background": "#172554"
+        }
       },
       "defaultCounterName": "lemma",
       "style": ""
@@ -72,8 +108,14 @@
       "id": "theorem",
       "name": "Theorem",
       "coloring": {
-        "stroke": "#005B9C",
-        "background": "#DAF0FF"
+        "light": {
+          "stroke": "#005B9C",
+          "background": "#DAF0FF"
+        },
+        "dark": {
+          "stroke": "#60A5FA",
+          "background": "#172554"
+        }
       },
       "defaultCounterName": "theorem",
       "style": ""
@@ -82,8 +124,14 @@
       "id": "corollary",
       "name": "Corollary",
       "coloring": {
-        "stroke": "#005B9C",
-        "background": "#DAF0FF"
+        "light": {
+          "stroke": "#005B9C",
+          "background": "#DAF0FF"
+        },
+        "dark": {
+          "stroke": "#60A5FA",
+          "background": "#172554"
+        }
       },
       "defaultCounterName": "corollary",
       "style": ""
@@ -92,8 +140,14 @@
       "id": "property",
       "name": "Property",
       "coloring": {
-        "stroke": "#AC00AF",
-        "background": "#FFEDFF"
+        "light": {
+          "stroke": "#AC00AF",
+          "background": "#FFEDFF"
+        },
+        "dark": {
+          "stroke": "#E879F9",
+          "background": "#4A044E"
+        }
       },
       "defaultCounterName": "property",
       "style": ""
@@ -102,8 +156,14 @@
       "id": "remark",
       "name": "Remark",
       "coloring": {
-        "stroke": "#E07B00",
-        "background": "#FFEBD2"
+        "light": {
+          "stroke": "#9A4D00",
+          "background": "#FFEBD2"
+        },
+        "dark": {
+          "stroke": "#FB923C",
+          "background": "#431407"
+        }
       },
       "defaultCounterName": "remark",
       "style": "remark"
@@ -112,8 +172,14 @@
       "id": "example",
       "name": "Example",
       "coloring": {
-        "stroke": "#7700E4",
-        "background": "#EFDFFF"
+        "light": {
+          "stroke": "#7700E4",
+          "background": "#EFDFFF"
+        },
+        "dark": {
+          "stroke": "#C084FC",
+          "background": "#3B0764"
+        }
       },
       "defaultCounterName": "example",
       "style": ""
@@ -122,8 +188,14 @@
       "id": "counterexample",
       "name": "Counterexample",
       "coloring": {
-        "stroke": "#D20022",
-        "background": "#FFD6DC"
+        "light": {
+          "stroke": "#B0001C",
+          "background": "#FFD6DC"
+        },
+        "dark": {
+          "stroke": "#FB7185",
+          "background": "#4C0519"
+        }
       },
       "defaultCounterName": "counterexample",
       "style": ""
@@ -132,8 +204,14 @@
       "id": "construction",
       "name": "Construction",
       "coloring": {
-        "stroke": "#787878",
-        "background": "#F0F0F0"
+        "light": {
+          "stroke": "#5F5F5F",
+          "background": "#F0F0F0"
+        },
+        "dark": {
+          "stroke": "#A3A3A3",
+          "background": "#262626"
+        }
       },
       "defaultCounterName": "construction",
       "style": "proof"
@@ -142,8 +220,14 @@
       "id": "proof",
       "name": "Proof",
       "coloring": {
-        "stroke": "#787878",
-        "background": "#F0F0F0"
+        "light": {
+          "stroke": "#5F5F5F",
+          "background": "#F0F0F0"
+        },
+        "dark": {
+          "stroke": "#A3A3A3",
+          "background": "#262626"
+        }
       },
       "defaultCounterName": "proof",
       "style": "proof"
@@ -152,8 +236,14 @@
       "id": "problem",
       "name": "Problem",
       "coloring": {
-        "stroke": "#005B9C",
-        "background": "#DAF0FF"
+        "light": {
+          "stroke": "#005B9C",
+          "background": "#DAF0FF"
+        },
+        "dark": {
+          "stroke": "#60A5FA",
+          "background": "#172554"
+        }
       },
       "defaultCounterName": "problem",
       "style": "problem"
@@ -162,8 +252,14 @@
       "id": "context",
       "name": "Context",
       "coloring": {
-        "stroke": "#8B5CF6",
-        "background": "#EDE9FE"
+        "light": {
+          "stroke": "#6D28D9",
+          "background": "#EDE9FE"
+        },
+        "dark": {
+          "stroke": "#A78BFA",
+          "background": "#2E1065"
+        }
       },
       "defaultCounterName": "context",
       "style": ""

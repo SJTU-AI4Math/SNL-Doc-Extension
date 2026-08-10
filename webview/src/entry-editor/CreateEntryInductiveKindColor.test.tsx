@@ -29,7 +29,10 @@ describe('CreateEntryApp Inductive Macro Kind coloring', () => {
         kinds: [{
           id: 'definition',
           name: 'Definition',
-          coloring: { stroke: '#888888', background: '#222222' },
+          coloring: {
+            light: { stroke: '#555555', background: '#eeeeee' },
+            dark: { stroke: '#888888', background: '#222222' }
+          },
           numbering: '1',
           style: 'default'
         }],
@@ -50,7 +53,10 @@ describe('CreateEntryApp Inductive Macro Kind coloring', () => {
           id: 'custom-kind',
           name: 'Custom kind',
           description: '',
-          coloring: { stroke: '#123456', background: '#abcdef' }
+          coloring: {
+            light: { stroke: '#123456', background: '#abcdef' },
+            dark: { stroke: '#fedcba', background: '#654321' }
+          }
         }],
         macroOrigin: { colored: 'core' },
         existing: {
@@ -74,11 +80,11 @@ describe('CreateEntryApp Inductive Macro Kind coloring', () => {
       return input as HTMLInputElement;
     });
     await waitFor(() => expect(macroInput.title).toContain('custom-kind'));
-    expect(macroInput.style.borderColor).toBe('rgb(18, 52, 86)');
+    expect(macroInput.style.borderColor).toBe('rgb(254, 220, 186)');
     expect(macroInput.closest<HTMLElement>('[data-macro-id-control="true"]')!.style.background)
-      .toBe('rgba(171, 205, 239, 0.18)');
+      .toBe('rgba(101, 67, 33, 0.18)');
     const row = macroInput.closest<HTMLElement>('.snl-tree-row')!;
-    expect(row.style.borderColor).toBe('rgb(18, 52, 86)');
-    expect(row.style.background).toBe('rgba(171, 205, 239, 0.18)');
+    expect(row.style.borderColor).toBe('rgb(254, 220, 186)');
+    expect(row.style.background).toBe('rgba(101, 67, 33, 0.18)');
   });
 });

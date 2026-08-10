@@ -5,6 +5,7 @@ import {
   create_webview_reader_runtime,
   get_content_language,
   get_formatter_preferences,
+  get_kind_color_scheme,
   get_popover_preferences,
   get_supported_languages,
   set_content_language
@@ -51,6 +52,7 @@ describe('webview preference Reader runtime', () => {
     expect(document.documentElement.lang).toBe('zh-CN');
     expect(document.documentElement.dataset.snlLanguagePreference).toBe('auto');
     expect(document.documentElement.dataset.snlMotion).toBe('reduced');
+    expect(get_kind_color_scheme()).toBe('dark');
     expect(get_formatter_preferences()).toEqual({
       indentSpaces: 8,
       inlineParenthesisDepth: 2
@@ -78,6 +80,13 @@ describe('webview preference Reader runtime', () => {
       preferences: { language: 'en', color_scheme: 'light', motion: 'full' }
     })).toBe(true);
     expect(document.documentElement.lang).toBe('en');
+  });
+
+  it('maps VS Code high-contrast themes onto the two Kind palette variants', () => {
+    document.documentElement.dataset.snlColorScheme = 'high-contrast-light';
+    expect(get_kind_color_scheme()).toBe('light');
+    document.documentElement.dataset.snlColorScheme = 'high-contrast';
+    expect(get_kind_color_scheme()).toBe('dark');
   });
 
   it('publishes the repo authoring-language catalog from host snapshots', () => {

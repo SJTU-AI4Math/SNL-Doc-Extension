@@ -1,15 +1,16 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { requireThemedKindColoring, type ThemedKindColoring } from './kindColoring';
 
 export const KIND_PRESET_SCHEMA = 'snl-doc.kind-preset' as const;
-export const KIND_PRESET_VERSION = 1 as const;
+export const KIND_PRESET_VERSION = 2 as const;
 
 export type KindPresetDomain = 'entry' | 'macro';
 
 export interface EntryPresetKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -18,7 +19,7 @@ export interface MacroPresetKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 export interface KindPresetPackage<D extends KindPresetDomain = KindPresetDomain> {
@@ -55,12 +56,17 @@ function nonEmptyString(value: unknown, path: string, field: string): string {
   return value;
 }
 
-function validateColoring(value: unknown, path: string, field: string): { stroke: string; background: string } {
-  const coloring = objectAt(value, path, field);
-  return {
-    stroke: nonEmptyString(coloring.stroke, path, `${field}.stroke`),
-    background: nonEmptyString(coloring.background, path, `${field}.background`)
-  };
+function validateColoring(value: unknown, path: string, field: string): ThemedKindColoring {
+  try {
+    const coloring = requireThemedKindColoring(value, field);
+    for (const scheme of ['light', 'dark'] as const) {
+      nonEmptyString(coloring[scheme].stroke, path, `${field}.${scheme}.stroke`);
+      nonEmptyString(coloring[scheme].background, path, `${field}.${scheme}.background`);
+    }
+    return coloring;
+  } catch (error) {
+    fail(path, error instanceof Error ? error.message : String(error));
+  }
 }
 
 function validateEntryKind(value: unknown, path: string, index: number): EntryPresetKind {

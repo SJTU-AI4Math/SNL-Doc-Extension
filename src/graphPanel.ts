@@ -57,8 +57,7 @@ interface GraphNodeOut {
   title: EntryData['title'];
   kind: string; // entry kind name (fallback: kind id)
   kindId: string;
-  color: string; // stroke/border color from kind palette
-  background: string;
+  coloring: EntryKind['coloring'] | null;
 }
 
 interface GraphEdgeOut {
@@ -389,8 +388,7 @@ export class GraphPanel {
         title: e ? e.title || hostText()('untitled') : `⚠ ${id}`,
         kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',
-        color: kind ? kind.coloring.stroke : '#888888',
-        background: kind ? kind.coloring.background : 'transparent'
+        coloring: kind ? kind.coloring : null
       });
     }
     nodes.sort((a, b) => a.id.localeCompare(b.id));

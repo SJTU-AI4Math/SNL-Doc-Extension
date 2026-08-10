@@ -21,11 +21,13 @@ import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import { resolve_localized_string } from '../../../src/localizedContent';
 import {
   get_content_language,
+  get_kind_color_scheme,
   get_popover_preferences,
   use_preferences_revision,
   webview_language_runtime
 } from '../runtime/preferencesRuntime';
 import type { MacroRecord } from './macroData';
+import type { ThemedKindColoring } from '../../../src/kindColoring';
 import { extensionRenderers } from './blockRenderers';
 import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
 
@@ -54,7 +56,7 @@ export interface EntryData {
 export interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
   /** Legacy reader field; current host data uses defaultCounterName. */
   numbering?: string;
   defaultCounterName?: string;
@@ -134,6 +136,7 @@ function createEntryDataDriver(
     });
   }
   return new EntryDataDriver({
+    context_reader: () => ({ color_scheme: get_kind_color_scheme() }),
     queries: {
       query_entry: async ({ entry_id, signal }) => {
         if (signal?.aborted) {
@@ -175,6 +178,7 @@ export function EntryRender({
   const currentPopoverId = useCurrentPopoverId();
   const macroDataDriver = useMemo(
     () => new MacroDataDriver({
+      context_reader: () => ({ color_scheme: get_kind_color_scheme() }),
       queries: {
         query_macro: async ({ macro_name, signal }) => {
           if (signal?.aborted) {

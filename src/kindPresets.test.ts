@@ -4,6 +4,18 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadKindPresetPackages } from './kindPresets';
 
+function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5]
+    .map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const values = [relativeLuminance(foreground), relativeLuminance(background)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -21,13 +33,16 @@ function fixtureRoot(): string {
 function entryPackage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schema: 'snl-doc.kind-preset',
-    version: 1,
+    version: 2,
     domain: 'entry',
     id: 'example-entry',
     copyKeys: { label: 'leanLabel', description: 'leanDescription' },
     kinds: [{
       id: 'module', name: 'Module',
-      coloring: { stroke: '#123456', background: '#abcdef' },
+      coloring: {
+        light: { stroke: '#123456', background: '#abcdef' },
+        dark: { stroke: '#fedcba', background: '#654321' }
+      },
       defaultCounterName: 'module', style: 'section'
     }],
     ...overrides
@@ -53,7 +68,7 @@ describe('loadKindPresetPackages', () => {
   it.each([
     ['malformed JSON', '{'],
     ['unsupported schema', entryPackage({ schema: 'other' })],
-    ['unsupported version', entryPackage({ version: 2 })],
+    ['unsupported version', entryPackage({ version: 1 })],
     ['wrong domain', entryPackage({ domain: 'macro' })],
     ['empty kinds', entryPackage({ kinds: [] })],
     ['placeholder copy', entryPackage({ copyKeys: { label: 'placeholder', description: 'todo' } })],
@@ -100,6 +115,20 @@ describe('shipped Kind preset packages', () => {
     ]);
     expect(macros.map((preset) => preset.id)).toEqual(['snl-basics-defaults']);
     expect(macros[0].kinds.map((kind) => kind.id)).toEqual(['rule', 'const', 'bvar', 'binder', 'fvar', 'sub']);
+    for (const kind of [...entries.flatMap((preset) => preset.kinds), ...macros.flatMap((preset) => preset.kinds)]) {
+      expect(kind.coloring.light).toEqual(expect.objectContaining({ stroke: expect.any(String), background: expect.any(String) }));
+      expect(kind.coloring.dark).toEqual(expect.objectContaining({ stroke: expect.any(String), background: expect.any(String) }));
+      for (const scheme of ['light', 'dark'] as const) {
+        const coloring = kind.coloring[scheme];
+        if (coloring.stroke.startsWith('#') && coloring.background.startsWith('#')) {
+          expect(
+            contrastRatio(coloring.stroke, coloring.background),
+            `${kind.id} ${scheme} palette`
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      if (kind.id !== 'sub') expect(kind.coloring.dark).not.toEqual(kind.coloring.light);
+    }
   });
 
   it('is included by VS Code extension packaging rules', () => {

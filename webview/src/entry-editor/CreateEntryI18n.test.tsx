@@ -23,7 +23,7 @@ function sendCreateContext(openPackageCreator = false): void {
       kinds: [{
         id: 'theorem',
         name: 'Theorem',
-        coloring: { stroke: '#888', background: '#222' },
+        coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } },
         numbering: 'theorem',
         style: 'default'
       }],
@@ -126,7 +126,7 @@ describe('CreateEntryApp localization', () => {
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         type: 'context', targetGeneration: 0, mode: 'edit', id: 'localized-entry',
-        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' }, numbering: 'theorem', style: 'default' }],
+        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
         entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
         existing: {
           id: 'localized-entry', package: '_unpackaged', kind: 'theorem',

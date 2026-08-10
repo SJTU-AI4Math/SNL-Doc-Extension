@@ -19,6 +19,7 @@ import {
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage, installSnlDocWatcher } from './panelUtil';
 import { kindPanelDescriptor, type KindPanelDomain } from './kindPanelDescriptor';
+import { requireThemedKindColoring } from './kindColoring';
 
 type Mode = 'create' | 'edit';
 const instances = new Map<string, KindPanelController>();
@@ -130,8 +131,7 @@ export class KindPanelController {
   private async saveEntry(root: vscode.Uri, action: string, payload: Record<string, unknown>, expectedRevision?: string): Promise<void> {
     const input = {
       name: stringValue(payload.name),
-      stroke: stringValue(payload.stroke),
-      background: stringValue(payload.background),
+      coloring: requireThemedKindColoring(payload.coloring, 'payload.coloring'),
       defaultCounterName: stringValue(payload.defaultCounterName),
       style: stringValue(payload.style)
     };
@@ -145,7 +145,7 @@ export class KindPanelController {
     const fields = {
       name: stringValue(payload.name),
       description: stringValue(payload.description),
-      coloring: { stroke: stringValue(payload.stroke), background: stringValue(payload.background) }
+      coloring: requireThemedKindColoring(payload.coloring, 'payload.coloring')
     };
     const result = action === 'update' || this.mode === 'edit'
       ? await updateMacroKind(root, this.id, fields, expectedRevision)

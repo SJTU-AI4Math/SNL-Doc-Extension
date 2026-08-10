@@ -1,8 +1,9 @@
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
+import type { ThemedKindColoring } from '../../../src/kindColoring';
 
 export interface MacroKindPaletteSource {
   id: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 /** Convert config.macro_kinds into the palette consumed by SnlSyntaxTreeView. */
@@ -15,8 +16,8 @@ export function macroKindsToPalette(
     // SNL-Basics interpolates kind ids into CSS attribute selectors.
     if (!/^[A-Za-z0-9_-]+$/.test(kind.id)) continue;
     palette[kind.id] = {
-      stroke: kind.coloring.stroke,
-      background: kind.coloring.background
+      light: { ...kind.coloring.light },
+      dark: { ...kind.coloring.dark }
     };
   }
   return Object.keys(palette).length > 0 ? palette : undefined;

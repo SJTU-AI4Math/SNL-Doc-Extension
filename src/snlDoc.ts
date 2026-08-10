@@ -21,6 +21,14 @@ import {
 import { slugify } from './slug';
 import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
 import {
+  assertThemedKindCatalogs,
+  fillKindColoringDefaults,
+  mergeThemedKindColoring,
+  normalizeKindColoring,
+  requireThemedKindColoring,
+  type ThemedKindColoring
+} from './kindColoring';
+import {
   updateRawLibraryGraphNodeEntryId,
   wrapRawLibraryGraphNodeWithParent
 } from './libraryGraph';
@@ -149,12 +157,10 @@ async function assertWorkspaceWritableOnDisk(
     rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
     (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
   ) {
-    const currentConfig = rawConfig as Record<string, unknown>;
-    if (!Array.isArray(currentConfig.entry_kinds)) {
-      throw new Error('Workspace data is not writable: current config.json entry_kinds must be an array.');
-    }
-    if (!Array.isArray(currentConfig.macro_kinds)) {
-      throw new Error('Workspace data is not writable: current config.json macro_kinds must be an array.');
+    try {
+      assertThemedKindCatalogs(rawConfig);
+    } catch (error) {
+      throw new Error(`Workspace data is not writable: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   if (
@@ -622,8 +628,8 @@ export function libraryCountersUri(
  *
  *  - `id`: stable identifier used in cross-references.
  *  - `name`: display name (any language).
- *  - `coloring.stroke` / `coloring.background`: any CSS colour value; the
- *    Dashboard uses these to render both the swatch and the frame preview.
+ *  - `coloring.light` / `coloring.dark`: theme-specific CSS stroke/background
+ *    pairs used by previews and Entry rendering.
  *  - `defaultCounterName`: name of a Library-scoped counter (matched by
  *    `counter.name`). Empty string = no default counter (entry contributes
  *    no numbering unless the outline ref pins one). Renamed 2026-07-16 from
@@ -639,7 +645,7 @@ export function libraryCountersUri(
 export interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -681,8 +687,8 @@ export interface LibraryCountersFile {
  *  - `id`: stable identifier referenced by a macro's `kind` (e.g. `rule`).
  *  - `name`: display name shown in dropdowns / dashboard (e.g. `Rule`).
  *  - `description`: short blurb shown next to the kind.
- *  - `coloring.stroke` / `coloring.background`: any CSS colour value; drives
- *    both the swatch and the rendered frame in the view's KindPalette.
+ *  - `coloring.light` / `coloring.dark`: theme-specific CSS stroke/background
+ *    pairs used by swatches and the rendered KindPalette.
  *
  * Stored under `config.json#macro_kinds` (sibling of `entry_kinds`). Extra
  * on-disk fields survive round-trips; see {@link normalizeMacroKind}.
@@ -691,7 +697,7 @@ export interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 /** Persisted shapes. Kept minimal and forward-compatible. */
@@ -789,6 +795,9 @@ function normalizeConfig(raw: unknown): SnlConfig {
   }
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
+  if (cfg.version === CURRENT_DATA_VERSION) {
+    assertThemedKindCatalogs(raw);
+  }
   for (const [field, records] of [
     ['entry_kinds', rawKinds],
     ['macro_kinds', rawMacroKinds]
@@ -808,14 +817,30 @@ function normalizeConfig(raw: unknown): SnlConfig {
       if ('name' in managed && typeof managed.name !== 'string') {
         throw new Error(`config.json#${field}[${JSON.stringify(id)}].name must be a string.`);
       }
-      if ('coloring' in managed) {
+      if (cfg.version === CURRENT_DATA_VERSION) {
+        requireThemedKindColoring(
+          managed.coloring,
+          `config.json#${field}[${JSON.stringify(id)}].coloring`
+        );
+      } else if ('coloring' in managed) {
         const coloring = managed.coloring;
-        if (!coloring || typeof coloring !== 'object' || Array.isArray(coloring)) {
-          throw new Error(`config.json#${field}[${JSON.stringify(id)}].coloring must be an object.`);
-        }
-        for (const colorField of ['stroke', 'background'] as const) {
-          if (colorField in coloring && typeof (coloring as Record<string, unknown>)[colorField] !== 'string') {
-            throw new Error(`config.json#${field}[${JSON.stringify(id)}].coloring.${colorField} must be a string.`);
+        const themed = !!coloring && typeof coloring === 'object' && !Array.isArray(coloring) &&
+          ('light' in coloring || 'dark' in coloring);
+        if (themed) {
+          try {
+            normalizeKindColoring(coloring);
+          } catch (error) {
+            throw new Error(
+              `config.json#${field}[${JSON.stringify(id)}].coloring is invalid: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        } else {
+          const legacy = coloring as Record<string, unknown> | null;
+          if (!legacy || typeof legacy !== 'object' ||
+              typeof legacy.stroke !== 'string' || typeof legacy.background !== 'string') {
+            throw new Error(
+              `config.json#${field}[${JSON.stringify(id)}].coloring must contain string stroke and background.`
+            );
           }
         }
       }
@@ -902,17 +927,11 @@ function normalizeMacroKind(raw: unknown): MacroKind {
   const description =
     typeof obj.description === 'string' ? obj.description : '';
 
-  let stroke = '#888888';
-  let background = '#eeeeee';
-  const coloringRaw = obj.coloring;
-  if (coloringRaw && typeof coloringRaw === 'object') {
-    const c = coloringRaw as Record<string, unknown>;
-    if (typeof c.stroke === 'string') stroke = c.stroke;
-    if (typeof c.background === 'string') background = c.background;
-  } else if (typeof obj.color === 'string') {
-    stroke = obj.color;
-    background = obj.color;
-  }
+  const coloring = normalizeKindColoring(
+    obj.coloring ?? (typeof obj.color === 'string'
+      ? { stroke: obj.color, background: obj.color }
+      : undefined)
+  );
 
   const {
     id: _id,
@@ -927,20 +946,19 @@ function normalizeMacroKind(raw: unknown): MacroKind {
     id,
     name,
     description,
-    coloring: { stroke, background }
+    coloring
   };
 }
 
 /**
- * Coerce a persisted entry-kind record (possibly from an older schema) into
- * the current {@link EntryKind} shape. Never throws — bad fields fall back
- * to safe defaults so the Dashboard always renders something.
+ * Coerce a validated persisted entry-kind record (possibly from an older
+ * schema) into the current {@link EntryKind} shape. Compatibility omissions
+ * use deterministic fallbacks; malformed managed themed fields are rejected
+ * by config validation instead of being silently replaced.
  *
  * Migrations handled:
- *  - v0.0.2 `color: string` → `coloring.stroke = color`, background
- *    defaults to the same value at 20% alpha via a light overlay heuristic;
- *    we intentionally reuse `stroke` for background too when we can't
- *    guess, keeping the migration lossless-ish and visible.
+ *  - v0.0.2 `color: string` → the same stroke/background value in both
+ *    themes, preserving the only authored color exactly;
  *  - 2026-07-16 rename: `numbering` (a DSL string) → `defaultCounterName`
  *    (a counter NAME). These are semantically different, so a legacy
  *    `numbering` value is NOT copied into `defaultCounterName` — the field
@@ -954,20 +972,13 @@ function normalizeEntryKind(raw: unknown): EntryKind {
   const id = typeof obj.id === 'string' ? obj.id : '';
   const name = typeof obj.name === 'string' ? obj.name : id;
 
-  // coloring: prefer the new `{stroke, background}` shape, fall back to the
-  // v0.0.2 flat `color` field.
-  let stroke = '#888888';
-  let background = '#eeeeee';
-  const coloringRaw = obj.coloring;
-  if (coloringRaw && typeof coloringRaw === 'object') {
-    const c = coloringRaw as Record<string, unknown>;
-    if (typeof c.stroke === 'string') stroke = c.stroke;
-    if (typeof c.background === 'string') background = c.background;
-  } else if (typeof obj.color === 'string') {
-    // Legacy: single colour → use it for both, user can split later.
-    stroke = obj.color;
-    background = obj.color;
-  }
+  // coloring: accept legacy `{stroke, background}` while old workspaces are
+  // waiting for migration; current writes always use explicit theme variants.
+  const coloring = normalizeKindColoring(
+    obj.coloring ?? (typeof obj.color === 'string'
+      ? { stroke: obj.color, background: obj.color }
+      : undefined)
+  );
 
   // defaultCounterName: prefer the new plain-string name. A legacy
   // `numbering` (string or v0.0.2 `{pattern}` object) is deliberately NOT
@@ -991,7 +1002,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
     ...extensions,
     id,
     name,
-    coloring: { stroke, background },
+    coloring,
     defaultCounterName,
     style
   };
@@ -3460,8 +3471,7 @@ export async function createEntryKind(
   input: {
     id: string;
     name: string;
-    stroke: string;
-    background: string;
+    coloring: ThemedKindColoring;
     defaultCounterName: string;
     style: string;
   }
@@ -3485,10 +3495,7 @@ export async function createEntryKind(
   const kind: EntryKind = {
     id,
     name,
-    coloring: {
-      stroke: (input.stroke ?? '').trim() || '#888888',
-      background: (input.background ?? '').trim() || '#eeeeee'
-    },
+    coloring: fillKindColoringDefaults(input.coloring),
     defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
@@ -3598,7 +3605,7 @@ export async function createMacroKind(
     id: string;
     name: string;
     description: string;
-    coloring: { stroke: string; background: string };
+    coloring: ThemedKindColoring;
   }
 ): Promise<CreateMacroKindResult> {
   if (!(await exists(snlRootUri(workspaceRoot)))) {
@@ -3621,10 +3628,7 @@ export async function createMacroKind(
     id,
     name,
     description: (input.description ?? '').trim(),
-    coloring: {
-      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
-      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
-    }
+    coloring: fillKindColoringDefaults(input.coloring)
   };
     await writeMacroKinds(workspaceRoot, [...existing, kind]);
     return { status: 'created', kind };
@@ -4000,8 +4004,7 @@ export async function updateEntryKind(
   id: string,
   input: {
     name: string;
-    stroke: string;
-    background: string;
+    coloring: ThemedKindColoring;
     defaultCounterName: string;
     style: string;
   },
@@ -4031,10 +4034,10 @@ export async function updateEntryKind(
     ...existing[idx],
     id: targetId,
     name,
-    coloring: {
-      stroke: (input.stroke ?? '').trim() || '#888888',
-      background: (input.background ?? '').trim() || '#eeeeee'
-    },
+    coloring: mergeThemedKindColoring(
+      existing[idx].coloring,
+      fillKindColoringDefaults(input.coloring)
+    ),
     defaultCounterName: (input.defaultCounterName ?? '').trim(),
     style: (input.style ?? '').trim()
   };
@@ -4060,7 +4063,7 @@ export async function updateMacroKind(
   input: {
     name: string;
     description: string;
-    coloring: { stroke: string; background: string };
+    coloring: ThemedKindColoring;
   },
   expectedRevision?: string
 ): Promise<UpdateMacroKindResult> {
@@ -4089,10 +4092,10 @@ export async function updateMacroKind(
     id: targetId,
     name,
     description: (input.description ?? '').trim(),
-    coloring: {
-      stroke: (input.coloring?.stroke ?? '').trim() || '#888888',
-      background: (input.coloring?.background ?? '').trim() || '#eeeeee'
-    }
+    coloring: mergeThemedKindColoring(
+      existing[idx].coloring,
+      fillKindColoringDefaults(input.coloring)
+    )
   };
   const kinds = existing.slice();
   kinds[idx] = next;

@@ -124,7 +124,11 @@ describe('identity-scoped editor draft persistence', () => {
         existingIds: [{ id, title: 'Host kind', hasContent: false }],
         existing: {
           name: 'Host kind', description: 'host description', defaultCounterName: 'host-counter',
-          style: 'host-style', coloring: { stroke: '#111111', background: '#eeeeee' }
+          style: 'host-style', coloring: {
+            vendor: { keep: true },
+            light: { stroke: '#111111', background: '#eeeeee', token: 'light-token' },
+            dark: { stroke: '#dddddd', background: '#222222', token: 'dark-token' }
+          }
         }
       };
       const first = render(<KindEditorApp domain={domain} />);
@@ -136,15 +140,19 @@ describe('identity-scoped editor draft persistence', () => {
       } else {
         fireEvent.change(first.getByLabelText('Description'), { target: { value: 'draft description' } });
       }
-      fireEvent.change(first.getByLabelText('Stroke color value'), { target: { value: '#123456' } });
-      fireEvent.change(first.getByLabelText('Background color value'), { target: { value: '#abcdef' } });
+      fireEvent.change(first.getByLabelText('Light stroke color value'), { target: { value: '#123456' } });
+      fireEvent.change(first.getByLabelText('Light background color value'), { target: { value: '#abcdef' } });
+      fireEvent.change(first.getByLabelText('Dark stroke color value'), { target: { value: '#fedcba' } });
+      fireEvent.change(first.getByLabelText('Dark background color value'), { target: { value: '#654321' } });
 
       const key = editorDraftKey(`${domain}-kind`, 'edit', id);
       await waitFor(() => expect(loadDraft<Record<string, unknown>>(api, key)).toMatchObject({
         id,
         name: 'Draft kind',
-        stroke: '#123456',
-        background: '#abcdef',
+        lightStroke: '#123456',
+        lightBackground: '#abcdef',
+        darkStroke: '#fedcba',
+        darkBackground: '#654321',
         expectedRevision: `${domain}-rev-original`,
         ...(domain === 'entry'
           ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
@@ -165,8 +173,11 @@ describe('identity-scoped editor draft persistence', () => {
         payload: {
           id,
           name: 'Draft kind',
-          stroke: '#123456',
-          background: '#abcdef',
+          coloring: {
+            vendor: { keep: true },
+            light: { stroke: '#123456', background: '#abcdef', token: 'light-token' },
+            dark: { stroke: '#fedcba', background: '#654321', token: 'dark-token' }
+          },
           ...(domain === 'entry'
             ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
             : { description: 'draft description' })

@@ -15,6 +15,11 @@ describe('Kind panel localization', () => {
     expect(view.getByRole('heading', { name: '创建条目类型' })).toBeTruthy();
     expect(view.getByText('显示名称')).toBeTruthy();
     expect(view.getByText('默认计数器名称')).toBeTruthy();
+    expect(view.getByText('浅色主题')).toBeTruthy();
+    expect(view.getByText('深色主题')).toBeTruthy();
+    expect(view.getByLabelText('浅色描边颜色值')).toBeTruthy();
+    expect(view.getByLabelText('深色背景颜色值')).toBeTruthy();
+    expect(view.getAllByText(/预览/)).toHaveLength(2);
     expect(view.getByRole('button', { name: '创建条目类型' })).toBeTruthy();
   });
 

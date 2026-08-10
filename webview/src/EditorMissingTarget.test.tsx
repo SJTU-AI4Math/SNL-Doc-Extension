@@ -65,7 +65,7 @@ describe('editor missing-target terminal states', () => {
     const view = render(<CreateEntryApp />);
     const base = {
       type: 'context', mode: 'edit', id: 'entry-gone', targetState: 'found',
-      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#000', background: '#fff' } }],
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#000', background: '#fff' }, dark: { stroke: '#000', background: '#fff' } } }],
       macros: {}, macroKinds: [], macroOrigin: {}, entryPackages: ['_unpackaged'],
       existingIds: [], relationships: []
     };
@@ -124,7 +124,7 @@ describe('editor missing-target terminal states', () => {
       const id = `${domain}-kind-gone`;
       const view = render(<KindEditorApp domain={domain} />);
       const base = { type: 'context', mode: 'edit', id, targetState: 'found', existingIds: [] };
-      await send({ ...base, existing: { id, name: 'Before', coloring: { stroke: '#111', background: '#eee' } } });
+      await send({ ...base, existing: { id, name: 'Before', coloring: { light: { stroke: '#111', background: '#eee' }, dark: { stroke: '#111', background: '#eee' } } } });
       expect(await view.findByLabelText('Display name')).not.toBeNull();
       await send({ ...base, targetState: 'notFound', existing: null });
       await waitFor(() => expectTerminalMissing(view, id));

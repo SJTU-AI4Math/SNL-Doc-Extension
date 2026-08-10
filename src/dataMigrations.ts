@@ -20,6 +20,7 @@ import {
   type MacroEnvelope,
   type PackageManifest
 } from './entityStorage';
+import { assertThemedKindCatalogs, normalizeKindColoring } from './kindColoring';
 
 export interface EntityStorageReceipt {
   legacy_backup_present: boolean;
@@ -345,6 +346,37 @@ function migrate003To004(context: WorkspaceMigrationContext): void {
   }
 }
 
+function migrate008To009ThemedKindColors(context: WorkspaceMigrationContext): void {
+  const config = context.data.config;
+  for (const field of ['entry_kinds', 'macro_kinds'] as const) {
+    config[field] = array(config[field]).map((value, index) => {
+      const item = { ...object(value) };
+      const rawColoring = 'coloring' in item
+        ? item.coloring
+        : (typeof item.color === 'string'
+          ? { stroke: item.color, background: item.color }
+          : undefined);
+      const coloring = object(rawColoring);
+      const themed = 'light' in coloring || 'dark' in coloring;
+      if (themed && ('stroke' in coloring || 'background' in coloring)) {
+        throw new Error(
+          `config.json#${field}[${index}].coloring must not mix legacy stroke/background with light/dark variants.`
+        );
+      }
+      try {
+        item.coloring = normalizeKindColoring(rawColoring);
+      } catch (error) {
+        throw new Error(
+          `config.json#${field}[${index}].coloring is invalid: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      delete item.color;
+      return item;
+    });
+  }
+  assertThemedKindCatalogs(config);
+}
+
 function migrate004To005MacroV8(context: WorkspaceMigrationContext): void {
   for (const [file, raw] of context.data.macroPackages) {
     assertCanonicalMacroPackage(file, raw, '7');
@@ -627,6 +659,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.8',
     description: 'Upgrade Macro entities to package schema v10 canonical semantic kinds.',
     migrate: async (context) => { migrate007To008MacroV10(context); }
+  },
+  {
+    from: '0.0.8',
+    to: '0.0.9',
+    description: 'Split Entry Kind and Macro Kind colors into light and dark variants.',
+    migrate: async (context) => { migrate008To009ThemedKindColors(context); }
   }
 ];
 

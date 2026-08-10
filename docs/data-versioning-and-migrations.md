@@ -5,7 +5,7 @@
 SNL Doc has intentionally separate version domains:
 
 - **Extension release**: `package.json#version` (currently `0.0.1`). This is the VS Code Marketplace/package release and never drives workspace migration.
-- **Workspace data schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.8`; this is the only version used to plan workspace migrations.
+- **Workspace data schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.9`; this is the only version used to plan workspace migrations.
 - **Macro package format**: each Macro package's `version` (currently string generation `"10"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
 - **Relationships file format**: `relationships.json#version` (currently numeric generation `1`). It is likewise subordinate to the workspace data version.
 - Library `meta.json`, `graph.json`, `counters.json`, and the legacy aggregate `entries.json` currently have no independent version field. Their supported shapes are determined by the workspace data version.
@@ -39,6 +39,7 @@ The registry is intentionally explicit; SemVer arithmetic does not invent missin
 - `0.0.5 -> 0.0.6`: validate canonical Macro v8 input, then split aggregate Entries and Macros into stable per-entity Package storage; legacy aggregates remain frozen backups at `0.0.5`.
 - `0.0.6 -> 0.0.7`: migrate active Macro entities from published package schema v8 to v9. The v9 model removes language-to-Style defaults, uses `styles[0]` as the sole implicit default, and localizes only text Templates. Redundant maps are stripped; structurally equivalent language-split text Styles are merged; incompatible mappings abort migration.
 - `0.0.7 -> 0.0.8`: migrate Macro entities to package schema v10. Missing kinds become `const`, persisted `partial` becomes `sub`, and all other consumer-defined kind strings are preserved.
+- `0.0.8 -> 0.0.9`: split Entry Kind and Macro Kind colors into explicit `light` and `dark` stroke/background variants. Legacy pairs are duplicated exactly so migration does not change existing visuals; a one-sided themed compatibility record copies its surviving side before the current schema is committed. Newly initialized presets provide intentional theme-specific colors.
 
 Unknown future versions are rejected by migration and treated as read-only by ordinary data writers, preventing an older Extension from rewriting a newer schema.
 

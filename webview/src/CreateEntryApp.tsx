@@ -23,6 +23,8 @@
 // 里的 Syntax Tree Editor 先给它搬过来，变成 {t('guiInductive')}".
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ThemedKindColoring } from '../../src/kindColoring';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 import { flushSync } from 'react-dom';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
@@ -392,7 +394,7 @@ type WirePackageMacro = WireMacro;
 interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
   numbering: string;
   style: string;
 }
@@ -1862,8 +1864,8 @@ export function CreateEntryApp(): React.ReactElement {
               selectionLabel={(item) => t('kindSelection', { name: item.name })}
               details={(item) => t('kindDetails', {
                 id: item.id,
-                stroke: item.coloring.stroke,
-                background: item.coloring.background
+                stroke: resolveWebviewKindColoring(item.coloring).stroke,
+                background: resolveWebviewKindColoring(item.coloring).background
               })}
               onSelect={(next) => {
                 markFormDirty(true);
@@ -2579,9 +2581,9 @@ function EntryKindPicker({
         style={{
           width: '100%',
           justifyContent: 'flex-start',
-          background: selected?.coloring.background,
-          color: selected?.coloring.stroke,
-          borderColor: selected?.coloring.stroke,
+          background: selected ? resolveWebviewKindColoring(selected.coloring).background : undefined,
+          color: selected ? resolveWebviewKindColoring(selected.coloring).stroke : undefined,
+          borderColor: selected ? resolveWebviewKindColoring(selected.coloring).stroke : undefined,
           borderWidth: '2px'
         }}
       >
@@ -2632,10 +2634,10 @@ function EntryKindPicker({
                 gap: '0.55rem',
                 alignItems: 'center',
                 padding: '0.45rem 0.55rem',
-                border: `2px solid ${item.coloring.stroke}`,
+                border: `2px solid ${resolveWebviewKindColoring(item.coloring).stroke}`,
                 borderRadius: '4px',
-                background: item.coloring.background,
-                color: item.coloring.stroke,
+                background: resolveWebviewKindColoring(item.coloring).background,
+                color: resolveWebviewKindColoring(item.coloring).stroke,
                 font: 'inherit',
                 textAlign: 'left',
                 cursor: 'pointer'

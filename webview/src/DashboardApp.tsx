@@ -25,6 +25,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
+import type { ThemedKindColoring } from '../../src/kindColoring';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 import { Button } from './components/Button';
 import { IconButton } from './components/IconButton';
 import { Icon } from './components/Icon';
@@ -110,7 +112,7 @@ interface AllMacroIndexEntry {
 interface EntryKind {
   id: string;
   name: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
 }
@@ -119,7 +121,7 @@ interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 interface EntryData {
@@ -1077,10 +1079,7 @@ function EntryKindsTable({
             primaryCellIndex={1}
           >
             <td style={CELL}>
-              <KindPreview
-                stroke={kind.coloring.stroke}
-                background={kind.coloring.background}
-              />
+              <ThemedKindPreview coloring={kind.coloring} />
             </td>
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
@@ -1139,10 +1138,7 @@ function MacroKindsTable({
             primaryCellIndex={1}
           >
             <td style={CELL}>
-              <KindPreview
-                stroke={kind.coloring.stroke}
-                background={kind.coloring.background}
-              />
+              <ThemedKindPreview coloring={kind.coloring} />
             </td>
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
@@ -1183,6 +1179,11 @@ function KindPreview({
       }}
     />
   );
+}
+
+function ThemedKindPreview({ coloring, width }: { coloring: ThemedKindColoring; width?: string }): React.ReactElement {
+  const resolved = resolveWebviewKindColoring(coloring);
+  return <KindPreview stroke={resolved.stroke} background={resolved.background} width={width} />;
 }
 
 /** List of populated content formats for an entry, e.g. "snl, typst". */
@@ -1263,11 +1264,9 @@ function EntriesTable({
               primaryCellIndex={1}
             >
               <td style={CELL}>
-                <KindPreview
-                  stroke={kind ? kind.coloring.stroke : '#888888'}
-                  background={kind ? kind.coloring.background : '#f0f0f0'}
-                  width="2rem"
-                />
+                {kind
+                  ? <ThemedKindPreview coloring={kind.coloring} width="2rem" />
+                  : <KindPreview stroke="#888888" background="#f0f0f0" width="2rem" />}
               </td>
               <td style={CELL}>{entryTitle}</td>
               <td style={{ ...CELL, ...MONO }}>{entry.id}</td>

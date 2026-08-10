@@ -69,10 +69,16 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: entityMode ? '0.0.8' : '0.0.4',
+          version: entityMode ? '0.0.9' : '0.0.4',
           active_macro_packages: entityMode ? [] : ALL_PACKAGES,
-          entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c' }],
-          macro_kinds: [{ id: 'mk1', name: 'Operator' }],
+          entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c', style: '', coloring: {
+            light: { stroke: '#111111', background: '#eeeeee' },
+            dark: { stroke: '#dddddd', background: '#222222' }
+          } }],
+          macro_kinds: [{ id: 'mk1', name: 'Operator', description: '', coloring: {
+            light: { stroke: '#123456', background: '#abcdef' },
+            dark: { stroke: '#fedcba', background: '#654321' }
+          } }],
           ...(entityMode && !missingEntityStorageMetadata ? {
             entity_storage: {
               version: 1,

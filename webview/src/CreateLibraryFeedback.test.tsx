@@ -226,7 +226,7 @@ describe('Create Library feedback', () => {
       entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', hasContent: true }],
       kinds: [{
         id: 'definition', name: 'Definition', defaultCounterName: 'theorem',
-        coloring: { stroke: '#00ff00', background: '#ff0000' }
+        coloring: { light: { stroke: '#00ff00', background: '#ff0000' }, dark: { stroke: '#00ff00', background: '#ff0000' } }
       }]
     });
 
@@ -298,7 +298,7 @@ describe('Create Library feedback', () => {
       ],
       kinds: [{
         id: 'definition', name: 'Definition', defaultCounterName: '',
-        coloring: { stroke: '#00ff00', background: '#ff0000' }
+        coloring: { light: { stroke: '#00ff00', background: '#ff0000' }, dark: { stroke: '#00ff00', background: '#ff0000' } }
       }]
     });
 

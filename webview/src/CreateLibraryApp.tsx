@@ -13,6 +13,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
+import type { ThemedKindColoring } from '../../src/kindColoring';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 import {
   editorDraftKey,
   loadDraft,
@@ -144,7 +146,7 @@ interface KindItem {
   id: string;
   name: string;
   defaultCounterName: string;
-  coloring?: { stroke: string; background: string };
+  coloring?: ThemedKindColoring;
 }
 
 interface GraphState {
@@ -1630,7 +1632,7 @@ function OutlineEntryTargetEditor({
 }
 
 function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
-  const color = kind.coloring;
+  const color = kind.coloring ? resolveWebviewKindColoring(kind.coloring) : null;
   return (
     <span
       className="snl-library-outline-kind"

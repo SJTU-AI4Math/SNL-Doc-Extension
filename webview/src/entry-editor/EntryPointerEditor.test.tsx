@@ -16,7 +16,7 @@ const api: VsCodeApi = {
 const kind = {
   id: 'theorem',
   name: 'Theorem',
-  coloring: { stroke: '#888', background: '#222' },
+  coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } },
   numbering: 'theorem',
   style: 'default'
 };

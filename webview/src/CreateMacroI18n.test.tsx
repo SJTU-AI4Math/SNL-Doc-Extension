@@ -319,7 +319,7 @@ describe('Create Macro localization', () => {
       existingNames: [], macroCandidates: [],
       macroKinds: [{
         id: 'partial', name: 'Partial', description: 'Legacy preset kind',
-        coloring: { stroke: 'inherit', background: 'transparent' }
+        coloring: { light: { stroke: 'inherit', background: 'transparent' }, dark: { stroke: 'inherit', background: 'transparent' } }
       }],
       existing: null, entries: [], prefill: null
     } })));

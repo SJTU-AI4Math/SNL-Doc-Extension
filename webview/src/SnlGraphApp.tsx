@@ -32,7 +32,9 @@ import {
   is_valid_i18n_string,
   resolve_localized_string
 } from '../../src/localizedContent';
-import { use_content_language } from './runtime/preferencesRuntime';
+import { isThemedKindColoring, type ThemedKindColoring } from '../../src/kindColoring';
+import { use_content_language, use_preferences_revision } from './runtime/preferencesRuntime';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 
 const MESSAGES = defineUiMessages('relationshipGraph', {
   title: 'SNL Relationship Graph', infoview: 'Infoview', backInfoview: 'Back to SNL Infoview',
@@ -78,7 +80,10 @@ interface GraphNode {
   background: string;
 }
 
-type GraphNodeWire = Omit<GraphNode, 'title'> & { title: Localized<string, string> };
+type GraphNodeWire = Omit<GraphNode, 'title' | 'color' | 'background'> & {
+  title: Localized<string, string>;
+  coloring: ThemedKindColoring | null;
+};
 
 interface GraphEdge {
   id: string;
@@ -124,8 +129,9 @@ const isScope = (value: unknown): value is Scope =>
   isRecord(value) && (value.mode === 'pool' ||
     (value.mode === 'library' && typeof value.slug === 'string'));
 const isGraphNode = (value: unknown): value is GraphNodeWire =>
-  isRecord(value) && ['id', 'packageId', 'kind', 'kindId', 'color', 'background']
+  isRecord(value) && ['id', 'packageId', 'kind', 'kindId']
     .every((key) => typeof value[key] === 'string') &&
+  (value.coloring === null || isThemedKindColoring(value.coloring)) &&
   (typeof value.title === 'string' || is_valid_i18n_string(value.title));
 const isGraphEdge = (value: unknown): value is GraphEdge =>
   isRecord(value) && ['id', 'from', 'to', 'label']
@@ -138,9 +144,7 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.hasContent === undefined || typeof value.hasContent === 'boolean') &&
   (value.snl === undefined || typeof value.snl === 'string');
 const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
-  isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string';
+  isRecord(value) && typeof value.id === 'string' && isThemedKindColoring(value.coloring);
 const isGraphMessage = (value: unknown): value is GraphMessage =>
   isRecord(value) && value.type === 'graph' && isScope(value.scope) &&
   typeof value.title === 'string' && Array.isArray(value.nodes) &&
@@ -684,6 +688,13 @@ function edgePath(
   };
 }
 
+/** Selection is represented by a thicker stroke; never replace the themed fill. */
+export function graphNodeFill(background: string, _highlighted: boolean): string {
+  return background && background !== 'transparent'
+    ? background
+    : 'var(--vscode-editorWidget-background, #252526)';
+}
+
 export function SnlGraphApp(): React.ReactElement {
   const apiRef = useVsCodeApiRef();
   const [msg, setMsg] = useState<GraphMessage | null>(null);
@@ -741,6 +752,7 @@ function SnlGraphInner({
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const contentLanguage = use_content_language();
+  const preferencesRevision = use_preferences_revision();
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
@@ -800,12 +812,20 @@ function SnlGraphInner({
     }
     const filteredNodes: GraphNode[] = kindKeptNodes
       .filter((n) => kept.has(n.id))
-      .map((node) => ({
-        ...node,
-        title: resolve_localized_string(node.title, contentLanguage)
-      }));
+      .map((node) => {
+        const { coloring, ...base } = node;
+        const colors = coloring
+          ? resolveWebviewKindColoring(coloring)
+          : { stroke: '#888888', background: 'transparent' };
+        return {
+          ...base,
+          title: resolve_localized_string(node.title, contentLanguage),
+          color: colors.stroke,
+          background: colors.background
+        };
+      });
     return layout(filteredNodes, filteredEdges);
-  }, [msg, depFilter, kindFilter, contentLanguage]);
+  }, [msg, depFilter, kindFilter, contentLanguage, preferencesRevision]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current
@@ -819,10 +839,11 @@ function SnlGraphInner({
     const seen = new Map<string, { kindId: string; label: string; color: string }>();
     for (const n of msg.nodes) {
       if (seen.has(n.kindId)) continue;
-      seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color: n.color });
+      const color = n.coloring ? resolveWebviewKindColoring(n.coloring).stroke : '#888888';
+      seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color });
     }
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
-  }, [msg]);
+  }, [msg, preferencesRevision]);
 
   // Fit-to-view on first load.
   useEffect(() => {
@@ -1209,17 +1230,9 @@ function SnlGraphInner({
               {laid.nodes.map((n) => {
                 const isHovered = hoverNodeId === n.id;
                 const isSelected = selectedId === n.id;
-                // Cat 2026-07-10: hover/selection → OPAQUE WHITE bg
-                // (dark-vs-light theme handling deferred). Text color
-                // stays at the node's kind-stroke color, which reads
-                // fine on white.
                 const highlighted = isHovered || isSelected;
                 const stroke = n.color;
-                const fill = highlighted
-                  ? '#ffffff'
-                  : n.background && n.background !== 'transparent'
-                    ? n.background
-                    : 'var(--vscode-editorWidget-background, #252526)';
+                const fill = graphNodeFill(n.background, highlighted);
                 const titleHtml = renderTitleKatex(n.title);
                 return (
                   <g

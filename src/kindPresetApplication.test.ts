@@ -5,7 +5,10 @@ const presets = [{
   id: 'lean4-document',
   kinds: [{
     id: 'module', name: 'Module',
-    coloring: { stroke: '#475569', background: '#f1f5f9' },
+    coloring: {
+      light: { stroke: '#475569', background: '#f1f5f9' },
+      dark: { stroke: '#94a3b8', background: '#1e293b' }
+    },
     defaultCounterName: 'module', style: 'section'
   }]
 }];
@@ -18,6 +21,8 @@ describe('prepareKindPresetApplication', () => {
     expect(result.kinds).not.toBe(presets[0].kinds);
     expect(result.kinds[0]).not.toBe(presets[0].kinds[0]);
     expect(result.kinds[0].coloring).not.toBe(presets[0].kinds[0].coloring);
+    expect(result.kinds[0].coloring.light).not.toBe(presets[0].kinds[0].coloring.light);
+    expect(result.kinds[0].coloring.dark).not.toBe(presets[0].kinds[0].coloring.dark);
   });
 
   it('refuses to clobber a non-empty catalog', () => {

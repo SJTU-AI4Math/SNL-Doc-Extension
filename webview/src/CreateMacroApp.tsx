@@ -34,6 +34,8 @@
 //     the raw internal `_snl_draft` name.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ThemedKindColoring } from '../../src/kindColoring';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 import {
   editorDraftKey,
   loadDraft,
@@ -603,7 +605,7 @@ interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 /**
@@ -1568,20 +1570,22 @@ export function CreateMacroApp(): React.ReactElement {
             {kind
               ? (() => {
                   const sel = macroKinds.find((k) => k.id === kind);
-                  return sel ? (
+                  if (!sel) return null;
+                  const colors = resolveWebviewKindColoring(sel.coloring);
+                  return (
                     <span
-                      title={t('colorPreview', { stroke: sel.coloring.stroke, background: sel.coloring.background })}
+                      title={t('colorPreview', { stroke: colors.stroke, background: colors.background })}
                       style={{
                         display: 'inline-block',
                         width: '1.4rem',
                         height: '1.1rem',
                         borderRadius: '3px',
-                        background: sel.coloring.background,
-                        border: `2px solid ${sel.coloring.stroke}`,
+                        background: colors.background,
+                        border: `2px solid ${colors.stroke}`,
                         flex: '0 0 auto'
                       }}
                     />
-                  ) : null;
+                  );
                 })()
               : null}
           </div>

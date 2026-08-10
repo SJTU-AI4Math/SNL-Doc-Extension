@@ -102,7 +102,7 @@ describe('editor optimistic concurrency', () => {
       type: 'context', mode: 'edit', id: 'definition', kindRevision: 'revision-1',
       existing: {
         id: 'definition', name: 'Definition',
-        coloring: { stroke: '#111111', background: '#eeeeee' },
+        coloring: { light: { stroke: '#111111', background: '#eeeeee' }, dark: { stroke: '#111111', background: '#eeeeee' } },
         defaultCounterName: '', style: ''
       },
       existingIds: [{ id: 'definition', title: 'Definition', hasContent: true }]
@@ -113,7 +113,7 @@ describe('editor optimistic concurrency', () => {
       type: 'context', mode: 'edit', id: 'definition', kindRevision: 'revision-2',
       existing: {
         id: 'definition', name: 'External kind',
-        coloring: { stroke: '#222222', background: '#dddddd' },
+        coloring: { light: { stroke: '#222222', background: '#dddddd' }, dark: { stroke: '#222222', background: '#dddddd' } },
         defaultCounterName: '', style: ''
       },
       existingIds: [{ id: 'definition', title: 'External kind', hasContent: true }]

@@ -51,19 +51,30 @@ const canonicalize = (_file: string, raw: unknown, version: '7' | '8' | '9' | '1
   };
 };
 
-const snapshot = (version: string): WorkspaceDataSnapshot => ({
+const snapshot = (version: string): WorkspaceDataSnapshot => {
+  const patch = Number(version.split('.')[2] ?? 0);
+  const entryKind = patch >= 3
+    ? {
+        id: 'theorem', name: 'Theorem',
+        coloring: { stroke: '#123456', background: '#123456' },
+        defaultCounterName: '', style: 'box', custom: 'preserve'
+      }
+    : {
+        id: 'theorem', name: 'Theorem', color: '#123456',
+        numbering: { pattern: '.1' }, style: 'box', custom: 'preserve'
+      };
+  const macroKind = patch >= 3
+    ? {
+        id: 'rule', name: 'Rule', description: '',
+        coloring: { stroke: '#abcdef', background: '#abcdef' }, custom: 7
+      }
+    : { id: 'rule', name: 'Rule', color: '#abcdef', custom: 7 };
+  return {
   config: {
     version,
     vendor_extension: { keep: true },
-    entry_kinds: [{
-      id: 'theorem',
-      name: 'Theorem',
-      color: '#123456',
-      numbering: { pattern: '.1' },
-      style: 'box',
-      custom: 'preserve'
-    }],
-    macro_kinds: [{ id: 'rule', name: 'Rule', color: '#abcdef', custom: 7 }]
+    entry_kinds: [entryKind],
+    macro_kinds: [macroKind]
   },
   macroPackages: new Map([
     ['Logic.json', { version: '6', name: 'Logic', macros: { old: {} }, custom: 'package' }]
@@ -73,7 +84,8 @@ const snapshot = (version: string): WorkspaceDataSnapshot => ({
   packageManifests: new Map(),
   entryEntities: new Map(),
   macroEntities: new Map()
-});
+};
+};
 
 describe('workspace data migrations', () => {
   it('deep-clones every workspace snapshot field and map value', () => {
@@ -104,7 +116,8 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData({ version: '0.0.5' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.6' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.7' }).status).toBe('needsMigration');
-    expect(inspectWorkspaceData({ version: '0.0.8' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.8' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.0.9' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
@@ -114,7 +127,8 @@ describe('workspace data migrations', () => {
       '0.0.4->0.0.5',
       '0.0.5->0.0.6',
       '0.0.6->0.0.7',
-      '0.0.7->0.0.8'
+      '0.0.7->0.0.8',
+      '0.0.8->0.0.9'
     ]);
   });
 
@@ -128,7 +142,126 @@ describe('workspace data migrations', () => {
     expect(() => assertWorkspaceDataWritable({ version: '0.0.4' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.6' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.7' })).toThrow(/migration/i);
-    expect(() => assertWorkspaceDataWritable({ version: '0.0.8' })).not.toThrow();
+    expect(() => assertWorkspaceDataWritable({ version: '0.0.8' })).toThrow(/migration/i);
+    expect(() => assertWorkspaceDataWritable({ version: '0.0.9' })).not.toThrow();
+  });
+
+  it('migrates legacy Kind color pairs into lossless light and dark variants', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [{
+      id: 'theorem', name: 'Theorem',
+      coloring: { stroke: '#123456', background: '#abcdef', vendor: { keep: 'entry-coloring' } },
+      defaultCounterName: 'theorem', style: '', custom: { keep: true }
+    }];
+    data.config.macro_kinds = [{
+      id: 'rule', name: 'Rule', description: 'Rule nodes',
+      coloring: { stroke: '#654321', background: '#fedcba' }, custom: 7
+    }];
+
+    const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.8->0.0.9']);
+    expect(data.config.version).toBe('0.0.9');
+    expect(data.config.entry_kinds).toEqual([{
+      id: 'theorem', name: 'Theorem',
+      coloring: {
+        vendor: { keep: 'entry-coloring' },
+        light: { stroke: '#123456', background: '#abcdef' },
+        dark: { stroke: '#123456', background: '#abcdef' }
+      },
+      defaultCounterName: 'theorem', style: '', custom: { keep: true }
+    }]);
+    expect(data.config.macro_kinds).toEqual([{
+      id: 'rule', name: 'Rule', description: 'Rule nodes',
+      coloring: {
+        light: { stroke: '#654321', background: '#fedcba' },
+        dark: { stroke: '#654321', background: '#fedcba' }
+      },
+      custom: 7
+    }]);
+  });
+
+  it('repairs blank and incomplete legacy pairs before committing current themed catalogs', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [
+      { id: 'blank', name: 'Blank', defaultCounterName: '', style: '', coloring: { stroke: '', background: '#abcdef' } },
+      { id: 'missing', name: 'Missing', defaultCounterName: '', style: '', coloring: { stroke: '#123456' } },
+      { id: 'flat-color', name: 'Flat', defaultCounterName: '', style: '', color: '#654321' }
+    ];
+
+    await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+    expect(data.config.entry_kinds).toEqual([
+      { id: 'blank', name: 'Blank', defaultCounterName: '', style: '', coloring: {
+        light: { stroke: '#abcdef', background: '#abcdef' },
+        dark: { stroke: '#abcdef', background: '#abcdef' }
+      } },
+      { id: 'missing', name: 'Missing', defaultCounterName: '', style: '', coloring: {
+        light: { stroke: '#123456', background: '#123456' },
+        dark: { stroke: '#123456', background: '#123456' }
+      } },
+      { id: 'flat-color', name: 'Flat', defaultCounterName: '', style: '', coloring: {
+        light: { stroke: '#654321', background: '#654321' },
+        dark: { stroke: '#654321', background: '#654321' }
+      } }
+    ]);
+  });
+
+  it('canonicalizes a one-sided themed compatibility record before committing 0.0.9', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [{
+      id: 'theorem', name: 'Theorem', defaultCounterName: '', style: '',
+      coloring: {
+        vendor: { keep: true },
+        light: { stroke: '#111111', background: '#eeeeee', token: 'light-token' }
+      }
+    }];
+
+    await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+    expect(data.config.entry_kinds).toEqual([{
+      id: 'theorem', name: 'Theorem', defaultCounterName: '', style: '',
+      coloring: {
+        vendor: { keep: true },
+        light: { stroke: '#111111', background: '#eeeeee', token: 'light-token' },
+        dark: { stroke: '#111111', background: '#eeeeee', token: 'light-token' }
+      }
+    }]);
+  });
+
+  it('rejects mixed flat and themed Kind coloring before committing 0.0.9', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [{ id: 'theorem', name: 'Theorem', coloring: {
+      stroke: '#legacy', background: '#legacy-bg',
+      light: { stroke: '#111111', background: '#eeeeee' },
+      dark: { stroke: '#dddddd', background: '#222222' }
+    } }];
+    const original = structuredClone(data.config);
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/coloring|light|dark|mix/i);
+    expect(data.config).toEqual(original);
+  });
+
+  it('rejects malformed non-object Kind coloring without committing 0.0.9', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [{ id: 'theorem', coloring: 'red' }];
+    const original = structuredClone(data.config);
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/coloring|object/i);
+    expect(data.config).toEqual(original);
+  });
+
+  it('rejects a projected 0.0.9 catalog missing required Kind fields atomically', async () => {
+    const data = snapshot('0.0.8');
+    data.config.entry_kinds = [{
+      id: 'theorem', name: 'Theorem', defaultCounterName: '',
+      coloring: { stroke: '#123456', background: '#abcdef' }
+    }];
+    const original = structuredClone(data.config);
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/entry_kinds.*style/i);
+    expect(data.config).toEqual(original);
   });
 
   it('rejects a stale config write that would undo a completed migration', () => {
@@ -201,9 +334,10 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.6->0.0.7',
-      '0.0.7->0.0.8'
+      '0.0.7->0.0.8',
+      '0.0.8->0.0.9'
     ]);
-    expect(data.config.version).toBe('0.0.8');
+    expect(data.config.version).toBe('0.0.9');
     expect(canonicalizeV10).toHaveBeenCalledTimes(2);
     const migrated = data.macroEntities.get('macros/logic-x.json')!.macro as any;
     expect(migrated).not.toHaveProperty('default_style');
@@ -385,10 +519,11 @@ describe('workspace data migrations', () => {
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.5->0.0.6',
       '0.0.6->0.0.7',
-      '0.0.7->0.0.8'
+      '0.0.7->0.0.8',
+      '0.0.8->0.0.9'
     ]);
     expect(data.config).toMatchObject({
-      version: '0.0.8',
+      version: '0.0.9',
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',
@@ -488,7 +623,7 @@ describe('workspace data migrations', () => {
       description: 'Legacy Entries without an assigned package.'
     });
     await expect(migrateWorkspaceSnapshot(data, canonicalize)).resolves.toMatchObject({
-      to: '0.0.8'
+      to: '0.0.9'
     });
 
     const conflict = snapshot('0.0.5');
@@ -509,13 +644,16 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
 
     expect(report.applied).toEqual(WORKSPACE_DATA_MIGRATIONS);
-    expect(data.config.version).toBe('0.0.8');
+    expect(data.config.version).toBe('0.0.9');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
       id: 'theorem',
       name: 'Theorem',
-      coloring: { stroke: '#123456', background: '#123456' },
+      coloring: {
+        light: { stroke: '#123456', background: '#123456' },
+        dark: { stroke: '#123456', background: '#123456' }
+      },
       defaultCounterName: '',
       style: 'box',
       custom: 'preserve'
@@ -527,7 +665,10 @@ describe('workspace data migrations', () => {
       id: 'rule',
       name: 'Rule',
       description: '',
-      coloring: { stroke: '#abcdef', background: '#abcdef' },
+      coloring: {
+        light: { stroke: '#abcdef', background: '#abcdef' },
+        dark: { stroke: '#abcdef', background: '#abcdef' }
+      },
       custom: 7
     });
     expect(data.macroPackages.get('Logic.json')).toMatchObject({
@@ -655,8 +796,8 @@ describe('workspace data migrations', () => {
     const data = snapshot('0.0.3');
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
-    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.7']);
-    expect(data.config.version).toBe('0.0.8');
+    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8']);
+    expect(data.config.version).toBe('0.0.9');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

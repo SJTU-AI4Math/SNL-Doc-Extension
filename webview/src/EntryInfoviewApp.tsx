@@ -29,6 +29,7 @@ import type {
   EntryReturnRoute
 } from '../../src/entryInfoviewRelationships';
 import { is_valid_i18n_string, resolve_localized_string } from '../../src/localizedContent';
+import { isThemedKindColoring } from '../../src/kindColoring';
 import { use_content_language } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages('entryInfoview', {
@@ -92,14 +93,11 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   (value.snl === undefined || typeof value.snl === 'string');
 const isEntryKind = (value: unknown): value is EntryKind =>
   isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
-  isRecord(value.coloring) && typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string' && typeof value.style === 'string' &&
+  isThemedKindColoring(value.coloring) && typeof value.style === 'string' &&
   (value.numbering === undefined || typeof value.numbering === 'string') &&
   (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
 const isMacroKindPaletteSource = (value: unknown): value is MacroKindPaletteSource =>
-  isRecord(value) && typeof value.id === 'string' && isRecord(value.coloring) &&
-  typeof value.coloring.stroke === 'string' &&
-  typeof value.coloring.background === 'string';
+  isRecord(value) && typeof value.id === 'string' && isThemedKindColoring(value.coloring);
 const isRelationshipSection = (value: unknown): value is EntryRelationshipSection =>
   isRecord(value) && typeof value.label === 'string' &&
   (value.direction === 'incoming' || value.direction === 'outgoing') &&

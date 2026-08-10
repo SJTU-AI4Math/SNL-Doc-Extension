@@ -133,6 +133,13 @@ function assert(cond, label) {
   console.log(`  ok ${label}`);
 }
 
+function themedColoring(stroke, background, darkStroke = stroke, darkBackground = background) {
+  return {
+    light: { stroke, background },
+    dark: { stroke: darkStroke, background: darkBackground }
+  };
+}
+
 async function readConfig(root) {
   const raw = await fs.readFile(
     nodePath.join(root, '.SNL_Doc', 'config.json'),
@@ -226,7 +233,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.8', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.0.9', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -368,8 +375,7 @@ async function main() {
   const remoteKind = createEntryKind(remoteRoot, {
     id: 'remote-kind',
     name: 'Remote Kind',
-    stroke: '#123456',
-    background: '#abcdef',
+    coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: '',
     style: ''
   }).then((result) => {
@@ -439,8 +445,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.8',
-    `config.version === "0.0.8" (got ${cfg.version})`
+    cfg.version === '0.0.9',
+    `config.version === "0.0.9" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -450,8 +456,10 @@ async function main() {
   assert(!!defn, 'definition kind present');
   assert(
     defn.coloring &&
-      defn.coloring.stroke === '#009C27' &&
-      defn.coloring.background === '#D6FEE0',
+      defn.coloring.light.stroke === '#00651B' &&
+      defn.coloring.light.background === '#D6FEE0' &&
+      typeof defn.coloring.dark.stroke === 'string' &&
+      typeof defn.coloring.dark.background === 'string',
     'definition coloring matches Fulcrum preset'
   );
   // 2026-07-16: EntryKind.numbering renamed to defaultCounterName (a plain
@@ -479,8 +487,7 @@ async function main() {
   const created = await createEntryKind(root, {
     id: 'scratch-note',
     name: 'Scratch Note',
-    stroke: '#123456',
-    background: '#abcdef',
+    coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: 'scratch',
     style: ''
   });
@@ -496,7 +503,7 @@ async function main() {
   const scratchRevisionRecord = (await readEntryKinds(root)).find((kind) => kind.id === 'scratch-note');
   const staleKindRevision = entityRevision(scratchRevisionRecord);
   const newerKind = await updateEntryKind(root, 'scratch-note', {
-    name: 'Scratch Note Newer', stroke: '#123456', background: '#abcdef',
+    name: 'Scratch Note Newer', coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: 'scratch', style: ''
   }, staleKindRevision);
   assert(newerKind.status === 'updated', 'concurrent Entry Kind edit fixture succeeds');
@@ -506,7 +513,7 @@ async function main() {
   assert(cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'scratch-note').vendor_kind?.editedRecord === true,
     'Entry Kind update overlays managed fields onto unknown fields of the edited record');
   assert((await updateEntryKind(root, 'scratch-note', {
-    name: 'Scratch Note Stale', stroke: '#123456', background: '#abcdef',
+    name: 'Scratch Note Stale', coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: 'scratch', style: ''
   }, staleKindRevision)).status === 'conflict', 'stale Kind editor revision is rejected');
 
@@ -514,8 +521,7 @@ async function main() {
   const dupKind = await createEntryKind(root, {
     id: 'scratch-note',
     name: 'Scratch Note Again',
-    stroke: '#000000',
-    background: '#ffffff',
+    coloring: themedColoring('#000000', '#ffffff'),
     defaultCounterName: '',
     style: ''
   });
@@ -1191,16 +1197,20 @@ async function main() {
   const ruleKind = mkAfterPreset.find((k) => k.id === 'rule');
   assert(!!ruleKind, 'rule macro kind present');
   assert(
-    ruleKind.coloring.stroke === '#009C27' &&
-      ruleKind.coloring.background === '#D6FEE0',
-    'rule kind colors match DEFAULT_KIND_PALETTE (green)'
+    ruleKind.coloring.light.stroke === '#00651B' &&
+      ruleKind.coloring.light.background === '#D6FEE0' &&
+      ruleKind.coloring.dark.stroke === '#4ADE80' &&
+      ruleKind.coloring.dark.background === '#14532D',
+    'rule kind colors match the themed green preset'
   );
   const subKind = mkAfterPreset.find((k) => k.id === 'sub');
   assert(!!subKind, 'sub macro kind present in preset');
   assert(
-    subKind.coloring.stroke === 'inherit' &&
-      subKind.coloring.background === 'transparent',
-    'sub kind uses inherit / transparent (no visual frame)'
+    subKind.coloring.light.stroke === 'inherit' &&
+      subKind.coloring.light.background === 'transparent' &&
+      subKind.coloring.dark.stroke === 'inherit' &&
+      subKind.coloring.dark.background === 'transparent',
+    'sub kind uses inherit / transparent in both themes (no visual frame)'
   );
 
   const mkPresetAgain = await applyMacroKindsPreset(root, 'snl-basics-defaults');
@@ -1213,7 +1223,7 @@ async function main() {
     id: 'custom',
     name: 'Custom',
     description: 'A user-defined macro kind.',
-    coloring: { stroke: '#123456', background: '#abcdef' }
+    coloring: themedColoring('#123456', '#abcdef')
   });
   assert(mkCreated.status === 'created', 'createMacroKind -> created');
   const mkAfterCreate = await readMacroKinds(root);
@@ -1223,8 +1233,10 @@ async function main() {
     !!custom &&
       custom.name === 'Custom' &&
       custom.description === 'A user-defined macro kind.' &&
-      custom.coloring.stroke === '#123456' &&
-      custom.coloring.background === '#abcdef',
+      custom.coloring.light.stroke === '#123456' &&
+      custom.coloring.light.background === '#abcdef' &&
+      custom.coloring.dark.stroke === '#123456' &&
+      custom.coloring.dark.background === '#abcdef',
     'created macro kind round-trips'
   );
 
@@ -1232,7 +1244,7 @@ async function main() {
     id: 'rule',
     name: 'Dupe',
     description: '',
-    coloring: { stroke: '#000000', background: '#ffffff' }
+    coloring: themedColoring('#000000', '#ffffff')
   });
   assert(mkDup.status === 'duplicate', 'createMacroKind dup id -> duplicate');
 
@@ -2395,7 +2407,7 @@ async function main() {
   let malformedKindsRejected = false;
   try {
     const result = await createEntryKind(root10, {
-      id: 'must-not-save', name: 'Must Not Save', stroke: '#000', background: '#fff',
+      id: 'must-not-save', name: 'Must Not Save', coloring: themedColoring('#000', '#fff'),
       defaultCounterName: '', style: ''
     });
     malformedKindsRejected = result.status === 'error';
@@ -2736,7 +2748,7 @@ async function main() {
   catch { configCreatedEarly = false; }
   assert(!configCreatedEarly, 'failed initialization does not commit config.json');
   assert((await initSnlDoc(root11)).status === 'created', 'partial initialization can be retried safely');
-  assert((await readConfig(tmpRoot11)).version === '0.0.8', 'retry commits the current config last');
+  assert((await readConfig(tmpRoot11)).version === '0.0.9', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

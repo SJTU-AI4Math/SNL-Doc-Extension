@@ -16,7 +16,7 @@ function context(id: string, contributor?: unknown): void {
   window.dispatchEvent(new MessageEvent('message', { data: {
     type: 'context', mode: 'edit', targetState: 'found', id,
     entryRevision: `revision-${id}`,
-    kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' } }],
+    kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
     entryPackages: ['_unpackaged'], existingIds: [{ id, title: id }], relationships: [],
     existing: { id, package: '_unpackaged', kind: 'theorem', title: id, content: {}, contribution_info: contributor, pointer: null }
   }}));

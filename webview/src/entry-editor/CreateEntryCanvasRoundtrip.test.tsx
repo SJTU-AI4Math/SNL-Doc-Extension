@@ -72,7 +72,7 @@ describe('CreateEntryApp Canvas update round-trip', () => {
         kinds: [{
           id: 'definition',
           name: 'Definition',
-          coloring: { stroke: '#888888', background: '#222222' },
+          coloring: { light: { stroke: '#888888', background: '#222222' }, dark: { stroke: '#888888', background: '#222222' } },
           numbering: '1',
           style: 'default'
         }],
@@ -117,7 +117,7 @@ describe('CreateEntryApp Canvas update round-trip', () => {
       kinds: [{
         id: 'definition',
         name: 'Definition',
-        coloring: { stroke: '#888888', background: '#222222' },
+        coloring: { light: { stroke: '#888888', background: '#222222' }, dark: { stroke: '#888888', background: '#222222' } },
         numbering: '1',
         style: 'default'
       }],

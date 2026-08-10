@@ -154,7 +154,7 @@ describe('VS Code workspace data migration adapter', () => {
   it('inspects and migrates the real workspace layout through the adapter', async () => {
     put('/ws/.SNL_Doc/config.json', {
       version: '0.0.3',
-      entry_kinds: [{ id: 'theorem', numbering: '.1' }],
+      entry_kinds: [{ id: 'theorem', name: 'Theorem', numbering: '.1' }],
       macro_kinds: []
     });
     put('/ws/.SNL_Doc/term_macros/Logic.json', {
@@ -177,8 +177,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.0.8');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.8' });
+    expect(report.to).toBe('0.0.9');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.9' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 
@@ -187,7 +187,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.8',
+      version: '0.0.9',
       entry_kinds: [],
       macro_kinds: [],
       active_macro_packages: ['Logic'],
@@ -232,7 +232,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.8', entry_kinds: [], macro_kinds: [],
+      version: '0.0.9', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,
@@ -255,7 +255,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.8', entry_kinds: [], macro_kinds: [],
+      version: '0.0.9', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,

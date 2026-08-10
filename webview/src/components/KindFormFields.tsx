@@ -79,7 +79,7 @@ export function ColorPreview({ stroke, background, name }: {
   name: string;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  return <div style={{ marginBottom: '.9rem', padding: '.55rem .75rem', border: `2px solid ${stroke}`, background, color: '#000', borderRadius: 3, fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '.9rem' }}>
+  return <div style={{ marginBottom: '.9rem', padding: '.55rem .75rem', border: `2px solid ${stroke}`, background, color: stroke, borderRadius: 3, fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '.9rem' }}>
     {t('preview', { name })}
   </div>;
 }

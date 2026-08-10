@@ -57,7 +57,7 @@ function sendInit(contentOverrides: Record<string, unknown> = {}): void {
       type: 'context',
       mode: 'edit',
       id: 'thm-1',
-      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' } }],
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
       existingIds: ['thm-1'],
       existing: {
         id: 'thm-1',
@@ -498,7 +498,7 @@ describe('restored draft in edit mode', () => {
         type: 'context',
         mode: 'edit',
         id: 'thm-1',
-        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' } }],
+        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
         existingIds: ['thm-1'],
         existing: { id: 'thm-1', title: 'One', kind: 'theorem', content: { snl: '' } },
         relationships: [

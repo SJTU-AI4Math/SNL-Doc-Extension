@@ -65,7 +65,7 @@ function legacyStorage(): MemoryStorage {
   const storage = new MemoryStorage();
   storage.values.set('config.json', {
     version: '0.0.3',
-    entry_kinds: [{ id: 'theorem', numbering: '.1', color: '#123' }],
+    entry_kinds: [{ id: 'theorem', name: 'Theorem', numbering: '.1', color: '#123' }],
     macro_kinds: []
   });
   storage.values.set('term_macros/Logic.json', {
@@ -80,7 +80,13 @@ function legacyStorage(): MemoryStorage {
 
 function macroV8Storage(): MemoryStorage {
   const storage = legacyStorage();
-  (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.5';
+  const config = storage.values.get('config.json') as Record<string, unknown>;
+  config.version = '0.0.5';
+  config.entry_kinds = [{
+    id: 'theorem', name: 'Theorem',
+    coloring: { stroke: '#123', background: '#123' },
+    defaultCounterName: '', style: ''
+  }];
   storage.values.set(
     'term_macros/Logic.json',
     canonicalize('Logic.json', storage.values.get('term_macros/Logic.json'), '8')
@@ -94,7 +100,7 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8']);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8', '0.0.9']);
     expect(storage.writes).toEqual([]);
   });
 
@@ -105,7 +111,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.8');
+    expect(report.to).toBe('0.0.9');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -114,7 +120,7 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.8');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.9');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
@@ -205,9 +211,9 @@ describe('stored workspace data migration', () => {
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
   });
 
-  it('rejects a manually bumped 0.0.8 workspace with no entity topology', async () => {
+  it('rejects a manually bumped 0.0.9 workspace with no entity topology', async () => {
     const storage = legacyStorage();
-    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.8';
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.9';
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('invalid');
     expect(inspection.message).toMatch(/entity|package|topology/i);
@@ -230,7 +236,7 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: version,
-      to: '0.0.8'
+      to: '0.0.9'
     });
   });
 

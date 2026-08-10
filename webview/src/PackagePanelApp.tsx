@@ -12,6 +12,8 @@
 // try/catch keeps a bad macro from crashing the whole table.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { ThemedKindColoring } from '../../src/kindColoring';
+import { resolveWebviewKindColoring } from './render/kindColoring';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
@@ -106,7 +108,7 @@ export interface MacroKind {
   id: string;
   name: string;
   description: string;
-  coloring: { stroke: string; background: string };
+  coloring: ThemedKindColoring;
 }
 
 interface MacroPackageFile {
@@ -1208,17 +1210,18 @@ function KindCell({
       </span>
     );
   }
+  const colors = resolveWebviewKindColoring(kind.coloring);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
       <span
-        title={t('colorTitle', { stroke: kind.coloring.stroke, background: kind.coloring.background })}
+        title={t('colorTitle', { stroke: colors.stroke, background: colors.background })}
         style={{
           display: 'inline-block',
           width: '1.2rem',
           height: '1rem',
           borderRadius: '3px',
-          background: kind.coloring.background,
-          border: `2px solid ${kind.coloring.stroke}`
+          background: colors.background,
+          border: `2px solid ${colors.stroke}`
         }}
       />
       {kind.name}

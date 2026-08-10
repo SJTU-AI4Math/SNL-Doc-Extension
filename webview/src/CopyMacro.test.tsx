@@ -85,7 +85,7 @@ function sendMacroContext(mode: 'create' | 'edit'): void {
       id: 'operator',
       name: 'Operator',
       description: '',
-      coloring: { stroke: '#000', background: '#fff' }
+      coloring: { light: { stroke: '#000', background: '#fff' }, dark: { stroke: '#000', background: '#fff' } }
     }],
     existing: mode === 'edit' ? original : null,
     entries: [{ id: 'entry-a', title: 'Entry A', hasContent: true }],

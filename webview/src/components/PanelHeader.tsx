@@ -461,6 +461,14 @@ function LanguageMenuItem({
 }
 
 export function LanguageIcon({ language }: { language: string }): React.ReactElement {
+  if (language === '__snl_general__') {
+    return (
+      <svg data-language-icon="general" aria-hidden="true" viewBox="0 0 20 14">
+        <circle cx="10" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4.8 7h10.4M10 1.5c2.7 2.8 2.7 8.2 0 11M10 1.5c-2.7 2.8-2.7 8.2 0 11" fill="none" stroke="currentColor" strokeWidth="1" />
+      </svg>
+    );
+  }
   if (language === 'zh-CN') {
     return (
       <svg data-language-icon="zh-CN" aria-hidden="true" viewBox="0 0 20 14">

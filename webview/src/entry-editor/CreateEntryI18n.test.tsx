@@ -74,7 +74,9 @@ describe('CreateEntryApp localization', () => {
 
     await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
     expect(view.getByLabelText('标题').getAttribute('placeholder')).toBe('例如：勾股定理');
-    expect(view.getByText('标题语言：zh-CN')).toBeTruthy();
+    expect(view.getByRole('combobox', { name: '标题语言' })).toHaveProperty(
+      'value', '__snl_general__'
+    );
     expect(view.getByLabelText('ID').getAttribute('placeholder')).toBe('例如：pythagorean-theorem');
     expect(view.getByLabelText('条目包')).toBeTruthy();
     expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy();
@@ -93,7 +95,18 @@ describe('CreateEntryApp localization', () => {
       .toBe('例如：src/theorems/pythagorean.ts');
   });
 
-  it('edits a partial localized title through the panel content language without changing UI language', async () => {
+  it('gives each localized content editor its own General language selector', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
+    fireEvent.click(view.getByRole('button', { name: '文本' }));
+    const selector = view.getByRole('combobox', { name: 'TEXT 内容语言' });
+    expect(selector).toHaveProperty('value', '__snl_general__');
+    act(() => set_content_language('en'));
+    expect(selector).toHaveProperty('value', '__snl_general__');
+  });
+
+  it('gives the title editor its own language selector independent from panel content language', async () => {
     const view = render(<CreateEntryApp />);
     window.dispatchEvent(new MessageEvent('message', {
       data: {
@@ -108,8 +121,9 @@ describe('CreateEntryApp localization', () => {
       }
     }));
 
-    const title = await view.findByLabelText('标题') as HTMLInputElement;
-    expect(title.value).toBe('中文标题');
+    await view.findByLabelText('标题');
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
+    expect(view.getByRole('combobox', { name: '标题语言' })).toHaveProperty('value', 'en');
     act(() => set_content_language('en'));
     await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
     expect(view.getByText('正在显示来自 zh-CN 的回退标题')).toBeTruthy();

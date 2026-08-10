@@ -33,7 +33,6 @@ import {
   SnlSyntaxTreeView,
   SnlDslFormatter,
   DEFAULT_KIND_PALETTE,
-  read_localized,
   resolve_style_template,
   type I18n,
   type Localized,
@@ -43,6 +42,7 @@ import {
   type KindColoring,
   type KindPalette
 } from '@sjtu-ai4math/snl-basics';
+import { is_i18n } from '@sjtu-ai4math/snl-basics/runtime';
 import {
   getVsCodeApi,
   useVsCodeApiRef,
@@ -54,7 +54,12 @@ import {
   type EntryRelationshipRow
 } from './components/EntryRelationshipsSection';
 import { PanelHeader } from './components/PanelHeader';
-import { LocalizedEditScope, useLocalizedBinding } from './components/LocalizedEditScope';
+import {
+  LOCALIZED_GENERAL_LANGUAGE,
+  LocalizedEditScope,
+  useLocalizedBinding,
+  useLocalizedEditLanguage
+} from './components/LocalizedEditScope';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
@@ -99,7 +104,6 @@ import {
   setCanvasDynamicArity
 } from './entry-editor/canvasForest';
 import { loadDraft, saveDraft, usePersistedDraft, useSaveShortcut } from './components/draftState';
-import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   get_formatter_preferences,
   use_content_language,
@@ -151,7 +155,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   title: 'Title (I18N)',
   titleInputLabel: 'Title',
   titlePlaceholder: 'e.g. Pythagorean Theorem',
-  titleLanguage: 'Title language: {language}',
+  titleLanguage: 'Title language', contentEditLanguage: '{format} content language', generalLanguage: 'General',
   titleInvariant: 'Invariant title',
   titleExplicit: 'Explicit translation',
   titleFallback: 'Showing fallback from {language}',
@@ -329,7 +333,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   editEntry: '编辑条目', createEntry: '创建条目', editEntryHeader: '编辑条目', createEntryHeader: '创建条目', editTitle: '编辑标题', dashboard: '仪表板', backDashboard: '返回仪表板',
   viewInfoview: '在信息视图中查看', openEntryInfoview: '在信息视图阅读界面中打开条目“{id}”',
   noKindsBefore: '未定义条目种类——请先运行', initializeKinds: '初始化条目种类', noKindsAfter: '。在至少存在一种条目种类之前，表单将被禁用。',
-  title: '标题（I18N）', titleInputLabel: '标题', titlePlaceholder: '例如：勾股定理', titleLanguage: '标题语言：{language}', titleInvariant: '通用标题', titleExplicit: '当前语言已有翻译', titleFallback: '正在显示来自 {language} 的回退标题', titleMissing: '当前语言没有标题', clearTitleTranslation: '清除当前语言标题', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
+  title: '标题（I18N）', titleInputLabel: '标题', titlePlaceholder: '例如：勾股定理', titleLanguage: '标题语言', contentEditLanguage: '{format} 内容语言', generalLanguage: '通用', titleInvariant: '通用标题', titleExplicit: '当前语言已有翻译', titleFallback: '正在显示来自 {language} 的回退标题', titleMissing: '当前语言没有标题', clearTitleTranslation: '清除当前语言标题', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
   immutableIdTitle: 'ID 不可变；如需重命名，请删除后重新创建',
   overwriteUuidTitle: '用新的 UUID v4 覆盖 ID（允许但不推荐——强烈建议使用语义化 ID）',
   fillUuidTitle: '用新的 UUID v4 填充 ID（仅当没有合适的语义化 ID 时使用）', regenerateUuid: '重新生成 UUID', useUuid: '改用 UUID',
@@ -393,6 +397,12 @@ interface EntryKind {
 
 type ContentFormat = 'snl' | 'typst' | 'latex' | 'markdown' | 'text';
 type LocalizableContentFormat = Exclude<ContentFormat, 'snl'>;
+const GENERAL_CONTENT_EDIT_LANGUAGES: Record<LocalizableContentFormat, string> = {
+  typst: LOCALIZED_GENERAL_LANGUAGE,
+  latex: LOCALIZED_GENERAL_LANGUAGE,
+  markdown: LOCALIZED_GENERAL_LANGUAGE,
+  text: LOCALIZED_GENERAL_LANGUAGE
+};
 
 const LOCALIZABLE_CONTENT_FORMATS: readonly LocalizableContentFormat[] = [
   'typst',
@@ -562,9 +572,7 @@ function projectLocalizedContent(
   if (value === undefined) return { text: '' };
   if (typeof value === 'string') return { text: value };
   return {
-    text: webview_language_runtime.run_reader(
-      read_localized<string, string>(value)
-    ),
+    text: resolve_localized_string(value, value.default_language),
     i18n: value
   };
 }
@@ -572,12 +580,12 @@ function projectLocalizedContent(
 interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
-  language: string;
   availableLanguages: readonly string[];
   label: string;
   inputLabel: string;
   placeholder: string;
   languageLabel: string;
+  generalLanguageLabel: string;
   invariantLabel: string;
   explicitLabel: string;
   fallbackLabel(sourceLanguage: string): string;
@@ -586,11 +594,18 @@ interface EntryTitleLocalizedEditorProps {
 }
 
 function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React.ReactElement {
+  const initialLanguage = is_i18n(props.value)
+    ? props.value.default_language
+    : LOCALIZED_GENERAL_LANGUAGE;
   return (
     <LocalizedEditScope
-      key={props.language}
-      initialLanguage={props.language}
-      availableLanguages={props.availableLanguages}
+      key={initialLanguage}
+      initialLanguage={initialLanguage}
+      availableLanguages={[...new Set([
+        LOCALIZED_GENERAL_LANGUAGE,
+        ...props.availableLanguages,
+        ...(is_i18n(props.value) ? [props.value.default_language, ...Object.keys(props.value.values)] : [])
+      ])]}
     >
       <EntryTitleLocalizedField {...props} />
     </LocalizedEditScope>
@@ -604,12 +619,14 @@ function EntryTitleLocalizedField({
   inputLabel,
   placeholder,
   languageLabel,
+  generalLanguageLabel,
   invariantLabel,
   explicitLabel,
   fallbackLabel,
   missingLabel,
   clearLabel
 }: EntryTitleLocalizedEditorProps): React.ReactElement {
+  const local = useLocalizedEditLanguage();
   const binding = useLocalizedBinding({ value, onChange, defaultLanguage: 'en' });
   const status = binding.state === 'invariant'
     ? invariantLabel
@@ -622,7 +639,20 @@ function EntryTitleLocalizedField({
     <section className="snl-localized-title-editor">
       <div className="snl-localized-title-editor__heading">
         <label htmlFor="snl-entry-title">{label}</label>
-        <span>{languageLabel}</span>
+        <label>
+          <span className="snl-visually-hidden">{languageLabel}</span>
+          <select
+            aria-label={languageLabel}
+            value={local.language}
+            onChange={(event) => local.setLanguage(event.target.value)}
+          >
+            {local.availableLanguages.map((language) => (
+              <option key={language} value={language}>
+                {language === LOCALIZED_GENERAL_LANGUAGE ? generalLanguageLabel : language}
+              </option>
+            ))}
+          </select>
+        </label>
         <span data-localized-state={binding.state}>{status}</span>
         {binding.canClear ? (
           <Button type="button" variant="secondary" onClick={binding.clearValue}>
@@ -694,7 +724,6 @@ export function CreateEntryApp(): React.ReactElement {
       default: return 'vs-dark';
     }
   })();
-  const languageRef = useRef(webview_language_runtime.query_environment().language);
   const [mode, setMode] = useState<Mode>('create');
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const [kinds, setKinds] = useState<EntryKind[]>([]);
@@ -786,6 +815,15 @@ export function CreateEntryApp(): React.ReactElement {
   const [contentI18n, setContentI18n] = useState<
     Partial<Record<LocalizableContentFormat, I18n<string, string>>>
   >({});
+  const [contentEditLanguages, setContentEditLanguages] = useState<
+    Record<LocalizableContentFormat, string>
+  >({ ...GENERAL_CONTENT_EDIT_LANGUAGES });
+  const contentEditLanguagesRef = useRef<Record<LocalizableContentFormat, string>>(
+    { ...GENERAL_CONTENT_EDIT_LANGUAGES }
+  );
+  useEffect(() => {
+    contentEditLanguagesRef.current = contentEditLanguages;
+  }, [contentEditLanguages]);
   const [contributor, setContributor] = useState('');
   const contributorDirtyRef = useRef(false);
   const [pointerDraft, setPointerDraft] = useState<PointerDraft>(() => ({
@@ -823,6 +861,7 @@ export function CreateEntryApp(): React.ReactElement {
    * survives that. See components/draftState.ts.
    */
   const restoredDraftIdRef = useRef<string | null>(null);
+  const restoredContentEditLanguagesRef = useRef(false);
   const contentDirtyRef = useRef<Set<LocalizableContentFormat>>(new Set());
   const editingIdRef = useRef('');
   /**
@@ -844,31 +883,7 @@ export function CreateEntryApp(): React.ReactElement {
     contributionInfo: unknown;
   }>({ pointer: null, contributionInfo: null });
 
-  useEffect(() => {
-    const nextLanguage = webview_language_runtime.query_environment().language;
-    const previousLanguage = languageRef.current;
-    if (nextLanguage === previousLanguage) return;
-    const nextMaps = { ...contentI18n };
-    const nextContent = { ...content };
-    for (const format of ['typst', 'latex', 'markdown', 'text'] as const) {
-      const original = contentI18n[format];
-      if (!original) continue;
-      const updated = merge_localized_projection(
-        original,
-        content[format],
-        previousLanguage,
-        contentDirtyRef.current.has(format)
-      );
-      nextMaps[format] = updated;
-      nextContent[format] = webview_language_runtime.run_reader(
-        read_localized<string, string>(updated)
-      );
-    }
-    setContentI18n(nextMaps);
-    setContent(nextContent);
-    contentDirtyRef.current.clear();
-    languageRef.current = nextLanguage;
-  }, [preferencesRevision]);
+
 
   // Report the first painted frame exactly once, so the timeline ends at
   // "the author can actually see the panel".
@@ -1010,6 +1025,7 @@ export function CreateEntryApp(): React.ReactElement {
           setShowPackageCreator(false);
           setSelectedKind('');
           setContentI18n({});
+          setContentEditLanguages({ ...GENERAL_CONTENT_EDIT_LANGUAGES });
           setContributor('');
           contributorDirtyRef.current = false;
           setPointerDraft({ ...EMPTY_POINTER_DRAFT });
@@ -1101,12 +1117,50 @@ export function CreateEntryApp(): React.ReactElement {
                 contributorDirtyRef.current = false;
               }
               if (!justSaved) {
-                setContentI18n({
+                const hydratedI18n: Partial<
+                  Record<LocalizableContentFormat, I18n<string, string>>
+                > = {
                   ...(typst.i18n ? { typst: typst.i18n } : {}),
                   ...(latex.i18n ? { latex: latex.i18n } : {}),
                   ...(markdown.i18n ? { markdown: markdown.i18n } : {}),
                   ...(text.i18n ? { text: text.i18n } : {})
+                };
+                setContentI18n((previous) => {
+                  if (!preserveDraft) return hydratedI18n;
+                  const merged = { ...hydratedI18n };
+                  for (const format of contentDirtyRef.current) {
+                    if (previous[format]) merged[format] = previous[format];
+                    else delete merged[format];
+                  }
+                  return merged;
                 });
+                if (!preserveDraft) {
+                  setContentEditLanguages({
+                    typst: typst.i18n?.default_language ?? LOCALIZED_GENERAL_LANGUAGE,
+                    latex: latex.i18n?.default_language ?? LOCALIZED_GENERAL_LANGUAGE,
+                    markdown: markdown.i18n?.default_language ?? LOCALIZED_GENERAL_LANGUAGE,
+                    text: text.i18n?.default_language ?? LOCALIZED_GENERAL_LANGUAGE
+                  });
+                } else {
+                  const incoming = { typst, latex, markdown, text };
+                  setContent((previous) => {
+                    const next = { ...previous };
+                    for (const format of LOCALIZABLE_CONTENT_FORMATS) {
+                      if (contentDirtyRef.current.has(format)) continue;
+                      const projected = incoming[format];
+                      const editLanguage = contentEditLanguagesRef.current[format];
+                      next[format] = projected.i18n
+                        ? resolve_localized_string(
+                            projected.i18n,
+                            editLanguage === LOCALIZED_GENERAL_LANGUAGE
+                              ? projected.i18n.default_language
+                              : editLanguage
+                          )
+                        : projected.text;
+                    }
+                    return next;
+                  });
+                }
               }
               if (!preserveDraft) {
                 editingIdRef.current = incomingId;
@@ -1124,23 +1178,10 @@ export function CreateEntryApp(): React.ReactElement {
                 });
                 contentDirtyRef.current.clear();
                 markFormDirty(false);
-              } else if (restoredDraftIdRef.current === incomingId) {
-                // ONLY on the restored-draft path: the stash carries no
-                // record of which formats were edited, so treating them all
-                // as edited is the lesser evil — otherwise `persist` merges
-                // the draft text into the host's i18n as if untouched and
-                // the author's work is dropped.
-                //
-                // The other `preserveDraft` source (a live dirty form being
-                // re-pushed by the file watcher) must NOT come here: its
-                // `contentDirtyRef` is accurate, and widening it would
-                // freeze every untouched format's language fallback into an
-                // explicit translation. Review 2026-07-25.
-                editingIdRef.current = incomingId;
-                for (const format of LOCALIZABLE_CONTENT_FORMATS) {
-                  contentDirtyRef.current.add(format);
-                }
               } else {
+                // restoreEntryDraft already reconstructed either the exact
+                // modern dirty set or the legacy all-formats fallback. A
+                // watcher refresh must never widen that set.
                 editingIdRef.current = incomingId;
               }
             }
@@ -1323,7 +1364,60 @@ export function CreateEntryApp(): React.ReactElement {
   );
 
   const trimmedTitle = resolve_localized_string(title, contentLanguage).trim();
+  const previewContent = useMemo<Record<ContentFormat, string>>(() => {
+    const projected = { ...content };
+    for (const format of LOCALIZABLE_CONTENT_FORMATS) {
+      const localized = contentI18n[format];
+      if (localized) projected[format] = resolve_localized_string(localized, contentLanguage);
+    }
+    return projected;
+  }, [content, contentI18n, contentLanguage]);
   const trimmedId = id.trim();
+  function selectContentEditLanguage(
+    format: LocalizableContentFormat,
+    language: string
+  ): void {
+    const localized = contentI18n[format];
+    const projectionLanguage = language === LOCALIZED_GENERAL_LANGUAGE
+      ? localized?.default_language
+      : language;
+    setContentEditLanguages((previous) => ({ ...previous, [format]: language }));
+    if (localized) {
+      setContent((previous) => ({
+        ...previous,
+        [format]: resolve_localized_string(localized, projectionLanguage ?? localized.default_language)
+      }));
+    }
+  }
+
+  function updateLocalizedContent(
+    format: LocalizableContentFormat,
+    next: string
+  ): void {
+    const language = contentEditLanguages[format];
+    if (language === LOCALIZED_GENERAL_LANGUAGE) {
+      setContentI18n((previous) => {
+        const updated = { ...previous };
+        delete updated[format];
+        return updated;
+      });
+    } else {
+      setContentI18n((previous) => {
+        const existing = previous[format];
+        return {
+          ...previous,
+          [format]: existing
+            ? { ...existing, values: { ...existing.values, [language]: next } }
+            : { type: 'i18n', default_language: language, values: { [language]: next } }
+        };
+      });
+    }
+    contentDirtyRef.current.add(format);
+    setContent((previous) => previous[format] === next
+      ? previous
+      : { ...previous, [format]: next });
+  }
+
   // Existing metadata is preserved byte-for-byte until the author actually
   // touches Pointer. A malformed legacy pointer must not block an unrelated
   // title/content edit merely because the editor cannot project it cleanly.
@@ -1353,16 +1447,18 @@ export function CreateEntryApp(): React.ReactElement {
     const persist = (
       format: LocalizableContentFormat
     ): Localized<string, string> | undefined => {
-      const value = content[format];
-      const original = contentI18n[format];
-      if (!original) return value || undefined;
-      if (!contentDirtyRef.current.has(format)) return original;
-      return merge_localized_projection(
-        original,
-        value,
-        webview_language_runtime.query_environment().language,
-        true
-      );
+      const localized = contentI18n[format];
+      if (!localized) return content[format] || undefined;
+      if (!contentDirtyRef.current.has(format)) return localized;
+      const language = contentEditLanguages[format];
+      // Merely selecting General is a viewing-scope change. The map is
+      // converted to a plain string only when updateLocalizedContent handles
+      // an actual edit in General and removes this localized state.
+      if (language === LOCALIZED_GENERAL_LANGUAGE) return localized;
+      return {
+        ...localized,
+        values: { ...localized.values, [language]: content[format] }
+      };
     };
     const persistedContent = {
       typst: persist('typst'),
@@ -1370,14 +1466,6 @@ export function CreateEntryApp(): React.ReactElement {
       markdown: persist('markdown'),
       text: persist('text')
     };
-    setContentI18n((previous) => {
-      const next = { ...previous };
-      for (const format of ['typst', 'latex', 'markdown', 'text'] as const) {
-        const value = persistedContent[format];
-        if (value && typeof value === 'object') next[format] = value;
-      }
-      return next;
-    });
     const entry = {
       id: trimmedId,
       package: selectedPackage,
@@ -1429,6 +1517,9 @@ export function CreateEntryApp(): React.ReactElement {
       selectedKind: string;
       selectedPackage?: string;
       content: Record<ContentFormat, string>;
+      contentI18n?: Partial<Record<LocalizableContentFormat, I18n<string, string>>>;
+      contentEditLanguages?: Partial<Record<LocalizableContentFormat, string>>;
+      contentDirtyFormats?: LocalizableContentFormat[];
       activeFormat: ContentFormat;
       snlMode: 'text' | 'gui' | 'canvas';
       canvasForest?: SnlSyntaxTree[];
@@ -1440,20 +1531,35 @@ export function CreateEntryApp(): React.ReactElement {
     restoredDraftIdRef.current = restored.id;
     entryRevisionRef.current = restored.entryRevision ?? '__snl_restored_draft_without_revision__';
     markFormDirty(true);
-    // The stash records no per-format edit history, so treat every format it
-    // carries as edited. Without this `persist` returns the host's original
-    // i18n unchanged and the author's restored text is silently dropped.
-    // This lives here (not only in the `init` handler) because the draft key
-    // depends on mode+id, so a restore can land AFTER init — which is the
-    // normal order now that one panel is retargeted between entries.
-    for (const format of LOCALIZABLE_CONTENT_FORMATS) {
-      contentDirtyRef.current.add(format);
-    }
+    // Modern drafts record the exact dirty formats. Legacy drafts did not,
+    // so all localizable projections remain the only lossless compatibility choice.
+    contentDirtyRef.current.clear();
+    const restoredDirtyFormats = Array.isArray(restored.contentDirtyFormats)
+      ? restored.contentDirtyFormats.filter(
+          (format): format is LocalizableContentFormat =>
+            LOCALIZABLE_CONTENT_FORMATS.includes(format as LocalizableContentFormat)
+        )
+      : LOCALIZABLE_CONTENT_FORMATS;
+    for (const format of restoredDirtyFormats) contentDirtyRef.current.add(format);
     setId(restored.id);
     setTitle(restored.title);
     setSelectedKind(restored.selectedKind);
     setSelectedPackage(restored.selectedPackage || '_unpackaged');
     setContent(restored.content);
+    if (restored.contentI18n) setContentI18n(restored.contentI18n);
+    const restoredLanguages = restored.contentEditLanguages;
+    const legacyLanguage = webview_language_runtime.query_environment().language;
+    restoredContentEditLanguagesRef.current = true;
+    setContentEditLanguages({
+      typst: typeof restoredLanguages?.typst === 'string'
+        ? restoredLanguages.typst : legacyLanguage,
+      latex: typeof restoredLanguages?.latex === 'string'
+        ? restoredLanguages.latex : legacyLanguage,
+      markdown: typeof restoredLanguages?.markdown === 'string'
+        ? restoredLanguages.markdown : legacyLanguage,
+      text: typeof restoredLanguages?.text === 'string'
+        ? restoredLanguages.text : legacyLanguage
+    });
     if (typeof restored.contributor === 'string') {
       setContributor(restored.contributor);
       contributorDirtyRef.current = true;
@@ -1488,6 +1594,9 @@ export function CreateEntryApp(): React.ReactElement {
       selectedKind,
       selectedPackage,
       content,
+      contentI18n,
+      contentEditLanguages,
+      contentDirtyFormats: Array.from(contentDirtyRef.current),
       activeFormat,
       snlMode,
       canvasForest,
@@ -1503,6 +1612,7 @@ export function CreateEntryApp(): React.ReactElement {
   useEffect(() => {
     if ((status.kind === 'created' || status.kind === 'updated') && !formDirty) {
       restoredDraftIdRef.current = null;
+      restoredContentEditLanguagesRef.current = false;
       saveDraft(draftApi, draftKey, undefined);
     }
   }, [status.kind, formDirty]);
@@ -1555,6 +1665,7 @@ export function CreateEntryApp(): React.ReactElement {
     setId('');
     setContent({ snl: '', typst: '', latex: '', markdown: '', text: '' });
     setContentI18n({});
+    setContentEditLanguages({ ...GENERAL_CONTENT_EDIT_LANGUAGES });
     setPointerDraft({ ...EMPTY_POINTER_DRAFT });
     pointerDirtyRef.current = false;
     contentDirtyRef.current.clear();
@@ -1608,12 +1719,12 @@ export function CreateEntryApp(): React.ReactElement {
       <EntryTitleLocalizedEditor
         value={title}
         onChange={setTitle}
-        language={contentLanguage}
         availableLanguages={supportedLanguages.map((item) => item.id)}
         label={t('title')}
         inputLabel={t('titleInputLabel')}
         placeholder={t('titlePlaceholder')}
-        languageLabel={t('titleLanguage', { language: contentLanguage })}
+        languageLabel={t('titleLanguage')}
+        generalLanguageLabel={t('generalLanguage')}
         invariantLabel={t('titleInvariant')}
         explicitLabel={t('titleExplicit')}
         fallbackLabel={(source) => t('titleFallback', { language: source })}
@@ -1831,7 +1942,7 @@ export function CreateEntryApp(): React.ReactElement {
             kind={kind}
             entryId={trimmedId || t('newEntryId')}
             title={trimmedTitle}
-            content={content}
+            content={previewContent}
             entries={existingIds}
             userMacros={userMacros}
             kindPalette={kindPalette}
@@ -1953,6 +2064,33 @@ export function CreateEntryApp(): React.ReactElement {
               }}
             />
           ) : (
+            <>
+              {activeFormat !== 'snl' ? (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span>{t('contentEditLanguage', { format: activeFormat.toUpperCase() })}</span>
+                <select
+                  aria-label={t('contentEditLanguage', { format: activeFormat.toUpperCase() })}
+                  value={contentEditLanguages[activeFormat]}
+                  onChange={(event) => selectContentEditLanguage(activeFormat, event.target.value)}
+                  style={{ marginBottom: '0.5rem' }}
+                >
+                  {[...new Set([
+                    LOCALIZED_GENERAL_LANGUAGE,
+                    ...supportedLanguages.map((language) => language.id),
+                    ...(contentI18n[activeFormat]
+                      ? [
+                          contentI18n[activeFormat].default_language,
+                          ...Object.keys(contentI18n[activeFormat].values)
+                        ]
+                      : [])
+                  ])].map((language) => (
+                    <option key={language} value={language}>
+                      {language === LOCALIZED_GENERAL_LANGUAGE ? t('generalLanguage') : language}
+                    </option>
+                  ))}
+                </select>
+                </label>
+              ) : null}
             <MonacoTextEditor
               value={content[activeFormat]}
               language={activeFormat === 'text' ? 'plaintext' : activeFormat}
@@ -1962,11 +2100,12 @@ export function CreateEntryApp(): React.ReactElement {
               onChange={(next) => {
                 markFormDirty(true);
                 if (activeFormat !== 'snl') {
-                  contentDirtyRef.current.add(activeFormat);
+                  updateLocalizedContent(activeFormat, next);
+                } else {
+                  setContent((previous) => previous[activeFormat] === next
+                    ? previous
+                    : { ...previous, [activeFormat]: next });
                 }
-                setContent((previous) => previous[activeFormat] === next
-                  ? previous
-                  : { ...previous, [activeFormat]: next });
               }}
               onSave={handleSubmit}
               format={activeFormat === 'snl'
@@ -1981,6 +2120,7 @@ export function CreateEntryApp(): React.ReactElement {
                 })
               })}
             />
+            </>
           )}
         </div>
 

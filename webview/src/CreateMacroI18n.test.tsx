@@ -69,6 +69,49 @@ describe('Create Macro localization', () => {
     expect(screen.getByText(/\\begin\{itemize\}/)).toBeTruthy();
   });
 
+  it('keeps Create disabled while any non-block style has an empty template', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Two.styles' }
+    });
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: '#0' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: '+ Add style' }));
+    const create = screen.getByRole('button', { name: 'Create Macro' });
+    expect(create).toHaveProperty('disabled', true);
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: '#0 + #1' } }
+    );
+    expect(create).toHaveProperty('disabled', false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Macro tags/ }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Add tag' }));
+    const macroTag = screen.getAllByPlaceholderText('tag')[0];
+    fireEvent.change(macroTag, { target: { value: 'bad\\tag' } });
+    expect(create).toHaveProperty('disabled', true);
+    fireEvent.change(macroTag, { target: { value: 'good-tag' } });
+    expect(create).toHaveProperty('disabled', false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Style tags/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: '+ Add tag' }).at(-1)!);
+    const styleTag = screen.getAllByPlaceholderText('tag').at(-1)!;
+    fireEvent.change(styleTag, { target: { value: 'bad\\style' } });
+    expect(create).toHaveProperty('disabled', true);
+  });
+
   it('lets a new empty style switch directly to block mode and preview a preset', () => {
     document.documentElement.lang = 'en';
     render(<CreateMacroApp />);
@@ -201,7 +244,7 @@ describe('Create Macro localization', () => {
     expect(onChange).toHaveBeenLastCalledWith('image');
   });
 
-  it('edits a local text-template language without changing the interface language', () => {
+  it('defaults a new text template to General independently of panel content language', () => {
     document.documentElement.lang = 'en';
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot', generation: 'macro-local-language', revision: 1,
@@ -225,8 +268,8 @@ describe('Create Macro localization', () => {
     const textModeButtons = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModeButtons[textModeButtons.length - 1]);
     expect(screen.getByRole('heading', { name: 'Template (I18N)' })).toBeTruthy();
-    const language = screen.getByRole('button', { name: /Language: English/ });
-    expect(language.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
+    const language = screen.getByRole('button', { name: /Language: General/ });
+    expect(language.querySelector('svg[data-language-icon="general"]')).toBeTruthy();
     fireEvent.click(language);
     const languageMenu = screen.getByRole('listbox', { name: 'Language' });
     expect(languageMenu.style.left).toBe('0px');
@@ -241,6 +284,64 @@ describe('Create Macro localization', () => {
     expect(screen.queryByRole('button', { name: 'Reset all args' })).toBeNull();
     fireEvent.click(preview);
     expect(screen.getByRole('button', { name: 'Reset all args' })).toBeTruthy();
+  });
+
+  it('creates a text Macro from the default General template', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null
+    } })));
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Group.prose' }
+    });
+    const textModes = screen.getAllByRole('button', { name: 'Text (I18N)' });
+    fireEvent.click(textModes[textModes.length - 1]);
+    expect(screen.getByRole('button', { name: /Language: General/ })).toBeTruthy();
+    const template = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
+    fireEvent.change(template, { target: { value: 'Group #0' } });
+    const create = screen.getByRole('button', { name: 'Create Macro' });
+    expect(create).toHaveProperty('disabled', false);
+    fireEvent.click(create);
+    const message = posted.find((candidate) =>
+      typeof candidate === 'object' && candidate !== null && (candidate as { type?: string }).type === 'create'
+    ) as { macro?: { styles?: Array<{ template?: unknown }> } } | undefined;
+    expect(message?.macro?.styles?.[0]?.template).toBe('Group #0');
+  });
+
+  it('canonicalizes the legacy partial Macro Kind to v10 sub before create', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [],
+      macroKinds: [{
+        id: 'partial', name: 'Partial', description: 'Legacy preset kind',
+        coloring: { stroke: 'inherit', background: 'transparent' }
+      }],
+      existing: null, entries: [], prefill: null
+    } })));
+    const kind = screen.getByLabelText('Kind') as HTMLSelectElement;
+    expect(Array.from(kind.options).map((option) => option.value)).toContain('sub');
+    expect(Array.from(kind.options).map((option) => option.value)).not.toContain('partial');
+    fireEvent.change(kind, { target: { value: 'sub' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Partial.helper' }
+    });
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: '#0' } }
+    );
+    const create = screen.getByRole('button', { name: 'Create Macro' });
+    expect(create).toHaveProperty('disabled', false);
+    fireEvent.click(create);
+    const message = posted.find((candidate) =>
+      typeof candidate === 'object' && candidate !== null &&
+      (candidate as { type?: string }).type === 'create'
+    ) as { macro?: { kind?: string } } | undefined;
+    expect(message?.macro?.kind).toBe('sub');
   });
 
   it('offers repo-configured languages in the I18N Template editor', () => {
@@ -266,8 +367,68 @@ describe('Create Macro localization', () => {
     });
     const textModes = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModes[textModes.length - 1]);
-    fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Language: General/ }));
     expect(screen.getByRole('option', { name: /Français/ })).toBeTruthy();
+  });
+
+  it('converts every retained mode draft when dynamic arity changes', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Dynamic.prose' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: 'prose' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: 'inline' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (display)' }));
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: 'display' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Dynamic Arity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (display)' }));
+    const displayLeft = screen.getByRole('textbox', { name: 'Left delimiter' });
+    expect(displayLeft).toHaveProperty('value', 'display');
+    fireEvent.change(displayLeft, { target: { value: 'display-edited' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Dynamic Arity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (display)' }));
+    expect((screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA') as HTMLTextAreaElement).value)
+      .toBe('display-edited#*');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Dynamic Arity' }));
+    expect(screen.getByRole('textbox', { name: 'Left delimiter' })).toHaveProperty(
+      'value', 'display-edited'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
+    const localizedEditor = screen.getByRole('heading', { level: 4, name: 'Template (I18N)' })
+      .parentElement?.querySelector('textarea');
+    expect(localizedEditor).toHaveProperty('value', 'prose');
+    const create = screen.getByRole('button', { name: 'Create Macro' });
+    expect(create).toHaveProperty('disabled', false);
+    fireEvent.click(create);
+    const submission = posted.find((message) => (
+      typeof message === 'object' && message !== null &&
+      (message as { type?: string }).type === 'create'
+    )) as { macro: { dynamic_arity: boolean; styles: Array<{ template: unknown }> } };
+    expect(submission.macro.dynamic_arity).toBe(true);
+    expect(submission.macro.styles[0].template).toBe('prose#*');
   });
 
   it('keeps a fixed formula Template when enabling dynamic arity', () => {
@@ -288,7 +449,7 @@ describe('Create Macro localization', () => {
     expect((screen.getByLabelText('Left delimiter') as HTMLTextAreaElement).value).toBe('#0 + #1');
   });
 
-  it('requires confirmation before discarding translations on a structural mode switch', () => {
+  it('switches away from and back to text mode without disabling the buttons or losing translations', () => {
     document.documentElement.lang = 'en';
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<CreateMacroApp />);
@@ -305,19 +466,32 @@ describe('Create Macro localization', () => {
     const textModes = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModes[textModes.length - 1]);
     const template = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
+    fireEvent.click(screen.getByRole('button', { name: /Language: General/ }));
+    fireEvent.click(screen.getByRole('option', { name: /English/ }));
     fireEvent.change(template, { target: { value: 'English text' } });
-    const language = screen.getByRole('button', { name: /Language: English/ });
-    fireEvent.click(language);
+    fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
     fireEvent.click(screen.getByRole('option', { name: /简体中文/ }));
     fireEvent.change(template, { target: { value: '中文文本' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(screen.getByRole('button', { name: /Language: 简体中文/ })).toBeTruthy();
-
-    confirm.mockReturnValue(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
+    expect(confirm).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /Language:/ })).toBeNull();
+    fireEvent.change(
+      screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
+      { target: { value: 'formula-only' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
+    expect(screen.getByRole('button', { name: /Language: 简体中文/ })).toBeTruthy();
+    expect((screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA') as HTMLTextAreaElement).value)
+      .toBe('中文文本');
+    fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
+    expect((screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA') as HTMLTextAreaElement).value)
+      .toBe('formula-only');
+    fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Language: 简体中文/ }));
+    fireEvent.click(screen.getByRole('option', { name: /English/ }));
+    expect((screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA') as HTMLTextAreaElement).value)
+      .toBe('English text');
     confirm.mockRestore();
   });
 

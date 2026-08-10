@@ -9,9 +9,11 @@ import React, {
 } from 'react';
 import {
   is_i18n,
-  type I18n,
   type Localized
 } from '@sjtu-ai4math/snl-basics/runtime';
+
+/** Editor-local sentinel for a language-invariant plain string. */
+export const LOCALIZED_GENERAL_LANGUAGE = '__snl_general__';
 
 export interface LocalizedEditLanguageContextValue {
   language: string;
@@ -143,28 +145,26 @@ function inspectLocalized<Value>(
 /** A generic localized-value lens driven by the nearest local editor scope. */
 export function useLocalizedBinding<Value>({
   value,
-  onChange,
-  defaultLanguage
+  onChange
 }: UseLocalizedBindingOptions<Value>): LocalizedBinding<Value> {
   const { language } = useLocalizedEditLanguage();
   const projection = inspectLocalized(value, language);
 
   const setValue = useCallback((next: Value): void => {
+    if (language === LOCALIZED_GENERAL_LANGUAGE) {
+      onChange(next);
+      return;
+    }
     if (is_i18n(value)) {
       onChange({ ...value, values: { ...value.values, [language]: next } });
       return;
     }
-    if (language === defaultLanguage) {
-      onChange(next);
-      return;
-    }
-    const promoted: I18n<string, Value> = {
+    onChange({
       type: 'i18n',
-      default_language: defaultLanguage,
-      values: { [defaultLanguage]: value, [language]: next }
-    };
-    onChange(promoted);
-  }, [defaultLanguage, language, onChange, value]);
+      default_language: language,
+      values: { [language]: next }
+    });
+  }, [language, onChange, value]);
 
   const clearValue = useCallback((): void => {
     if (!is_i18n(value) ||
@@ -183,7 +183,7 @@ export function useLocalizedBinding<Value>({
   return {
     language,
     ...projection,
-    canClear: is_i18n(value) &&
+    canClear: language !== LOCALIZED_GENERAL_LANGUAGE && is_i18n(value) &&
       Object.prototype.hasOwnProperty.call(value.values, language) &&
       value.values[language] !== undefined &&
       Object.values(value.values).filter((item) => item !== undefined).length > 1,

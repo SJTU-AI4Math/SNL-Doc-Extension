@@ -33,7 +33,7 @@
 //   * Empty-template preview shows `\text{SNL Macro Preview}` instead of
 //     the raw internal `_snl_draft` name.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   editorDraftKey,
   loadDraft,
@@ -85,6 +85,7 @@ import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { BUILT_IN_LANGUAGE_CATALOG } from '../../src/languageCatalog';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import {
+  LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
   useLocalizedBinding,
   useLocalizedEditLanguage
@@ -178,6 +179,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     removeStyle: 'Remove style {style}',
     duplicateStyleTags: 'Duplicate style tags — each style tag must be unique.',
     fallbackHelp: '★ = the sole implicit default (styles[0]). Explicit [style] always wins; language changes only the selected text style’s localized template.',
+    generalLanguage: 'General',
     localizedExplicit: 'Explicit translation',
     localizedFallback: 'Fallback from {language}',
     localizedInvariant: 'Language-invariant value',
@@ -308,6 +310,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     removeStyle: '移除样式 {style}',
     duplicateStyleTags: '样式标签重复；每个样式标签必须唯一。',
     fallbackHelp: '★ = 唯一隐式默认样式（styles[0]）。显式 [style] 始终优先；切换语言只会选择当前文本样式内的本地化模板。',
+    generalLanguage: '通用',
     localizedExplicit: '当前语言的显式翻译',
     localizedFallback: '回退自 {language}',
     localizedInvariant: '与语言无关的值',
@@ -399,6 +402,12 @@ function previewPlaceholderMacro(label: string): SnlMacro {
 
 type Mode = 'formula_inline' | 'formula_display' | 'text' | 'block';
 type SynthesisMode = 'formula' | 'text';
+type StructuralTemplateDraft = {
+  template: string;
+  template_left: string;
+  separator: string;
+  template_right: string;
+};
 
 function localizedTemplate(value: Localized<string, string>, language: string): string {
   return read_localized(value)({ language });
@@ -416,6 +425,46 @@ function mapLocalizedTemplate(
       template === undefined ? undefined : map(template)
     ]))
   };
+}
+
+function toggleTextTemplateArity(
+  value: Localized<string, string> | undefined,
+  dynamic: boolean
+): Localized<string, string> | undefined {
+  if (value === undefined) return undefined;
+  return mapLocalizedTemplate(value, (template) => {
+    if (dynamic) return template.includes('#*') ? template : `${template}#*`;
+    return template === '#*' ? '' : template;
+  });
+}
+
+function toggleStructuralDraftArity(
+  draft: StructuralTemplateDraft,
+  dynamic: boolean
+): StructuralTemplateDraft {
+  if (dynamic) {
+    const template = draft.template.includes('#*') ? draft.template : `${draft.template}#*`;
+    const marker = template.indexOf('#*');
+    return {
+      ...draft,
+      template,
+      template_left: template.slice(0, marker),
+      template_right: template.slice(marker + 2)
+    };
+  }
+  const template = `${draft.template_left}#*${draft.template_right}`;
+  return { ...draft, template: template === '#*' ? '' : template };
+}
+
+function toggleStructuralDraftMapArity(
+  drafts: StyleDraft['structural_template_drafts'],
+  dynamic: boolean
+): StyleDraft['structural_template_drafts'] {
+  if (!drafts) return undefined;
+  return Object.fromEntries(Object.entries(drafts).map(([mode, draft]) => [
+    mode,
+    toggleStructuralDraftArity(draft, dynamic)
+  ])) as StyleDraft['structural_template_drafts'];
 }
 
 const MODE_MESSAGE_KEYS: Record<Mode, 'modeFormulaInline' | 'modeFormulaDisplay' | 'modeText' | 'modeBlock'> = {
@@ -436,6 +485,12 @@ interface StyleDraft {
   style_name: string;
   mode: Mode;
   template: Localized<string, string>;
+  /** Webview-session-only language choice for this style's I18N editor. */
+  template_edit_language: string;
+  /** Reversible text-mode draft retained while previewing another mode. */
+  text_template_draft?: Localized<string, string>;
+  /** Reversible, editor-only draft for each non-text mode. */
+  structural_template_drafts?: Partial<Record<Exclude<Mode, 'text'>, StructuralTemplateDraft>>;
   template_left: string;
   separator: string;
   template_right: string;
@@ -476,6 +531,7 @@ function newStyleDraft(styleName: string): StyleDraft {
     style_name: styleName,
     mode: 'formula_inline',
     template: '',
+    template_edit_language: LOCALIZED_GENERAL_LANGUAGE,
     template_left: '',
     separator: '',
     template_right: '',
@@ -694,6 +750,21 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600
 };
 
+function canonicalMacroKindId(id: string): string {
+  return id === 'partial' ? 'sub' : id;
+}
+
+function canonicalMacroKindCatalog(kinds: readonly MacroKind[]): MacroKind[] {
+  const canonical = kinds
+    .filter((kind) => kind.id !== 'partial')
+    .map((kind) => ({ ...kind }));
+  if (!canonical.some((kind) => kind.id === 'sub')) {
+    const legacyPartial = kinds.find((kind) => kind.id === 'partial');
+    if (legacyPartial) canonical.push({ ...legacyPartial, id: 'sub' });
+  }
+  return canonical;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -740,8 +811,6 @@ export function CreateMacroApp(): React.ReactElement {
   // implicit default (marked ★). `activeStyle` is the style currently being
   // edited in the Content tabs and used as the preview's style.
   const [styles, setStyles] = useState<StyleDraft[]>([newStyleDraft('default')]);
-  const outerLanguage = webview_language_runtime.query_environment().language;
-  const [templateLanguage, setTemplateLanguage] = useState(outerLanguage);
   const [activeStyle, setActiveStyle] = useState(0);
 
   const [activeTab, setActiveTab] = useState<TabId>('katex_template');
@@ -766,29 +835,85 @@ export function CreateMacroApp(): React.ReactElement {
     );
   }
 
+  const setActiveTemplateLanguage = useCallback((language: string): void => {
+    setStyles((previous) => previous.map((style, index) => index === activeStyle
+      ? { ...style, template_edit_language: language }
+      : style));
+  }, [activeStyle]);
+
   function changeStyleMode(mode: Mode): void {
     const selected = styles[activeStyle];
-    if (mode !== 'text' && selected && is_i18n(selected.template)) {
-      const confirmed = window.confirm(t('localizedModeConfirm', {
-        language: languageDisplayName(templateLanguage)
-      }));
-      if (!confirmed) return;
-      const template = localizedTemplate(selected.template, templateLanguage);
-      if (dynamicArity) {
+    if (!selected || selected.mode === mode) return;
+    const currentStructural = {
+      template: typeof selected.template === 'string'
+        ? selected.template
+        : localizedTemplate(selected.template, selected.template_edit_language),
+      template_left: selected.template_left,
+      separator: selected.separator,
+      template_right: selected.template_right
+    };
+    const structuralDrafts = selected.mode === 'text'
+      ? { ...(selected.structural_template_drafts ?? {}) }
+      : {
+          ...(selected.structural_template_drafts ?? {}),
+          [selected.mode]: currentStructural
+        };
+    if (mode === 'text') {
+      patchStyle({
+        mode,
+        template: selected.text_template_draft ?? selected.template,
+        structural_template_drafts: structuralDrafts
+      });
+      return;
+    }
+    if (selected.mode === 'text') {
+      const template = localizedTemplate(
+        selected.template,
+        selected.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
+          ? (is_i18n(selected.template) ? selected.template.default_language : 'en')
+          : selected.template_edit_language
+      );
+      const restored = structuralDrafts[mode];
+      if (restored) {
+        patchStyle({
+          mode,
+          template: restored.template,
+          text_template_draft: selected.template,
+          structural_template_drafts: structuralDrafts,
+          template_left: restored.template_left,
+          separator: restored.separator,
+          template_right: restored.template_right
+        });
+      } else if (dynamicArity) {
         const dynamicTemplate = template.includes('#*') ? template : `${template}#*`;
         const marker = dynamicTemplate.indexOf('#*');
         patchStyle({
           mode,
           template: dynamicTemplate,
+          text_template_draft: selected.template,
+          structural_template_drafts: structuralDrafts,
           template_left: dynamicTemplate.slice(0, marker),
           template_right: dynamicTemplate.slice(marker + 2)
         });
       } else {
-        patchStyle({ mode, template });
+        patchStyle({
+          mode,
+          template,
+          text_template_draft: selected.template,
+          structural_template_drafts: structuralDrafts
+        });
       }
       return;
     }
-    patchStyle({ mode });
+    const restored = structuralDrafts[mode] ?? currentStructural;
+    patchStyle({
+      mode,
+      template: restored.template,
+      structural_template_drafts: structuralDrafts,
+      template_left: restored.template_left,
+      separator: restored.separator,
+      template_right: restored.template_right
+    });
   }
 
   /** Keep pass-through fields current even when a restored visible draft wins. */
@@ -815,8 +940,14 @@ export function CreateMacroApp(): React.ReactElement {
     setSourceUrls(draft.sourceUrls.slice());
     setDynamicArity(draft.dynamicArity);
     setMacroTags(draft.macroTags.slice());
-    setKind(draft.kind);
-    setStyles(draft.styles.map((style) => ({ ...style, tags: style.tags.slice() })));
+    setKind(canonicalMacroKindId(draft.kind));
+    setStyles(draft.styles.map((style) => ({
+      ...style,
+      template_edit_language: style.template_edit_language ?? (
+        is_i18n(style.template) ? style.template.default_language : LOCALIZED_GENERAL_LANGUAGE
+      ),
+      tags: style.tags.slice()
+    })));
     setActiveStyle(0);
     setActiveTab('katex_template');
     editingNameRef.current = draft.name;
@@ -843,7 +974,7 @@ export function CreateMacroApp(): React.ReactElement {
       Array.isArray(src.urls) && src.urls.length > 0 ? src.urls.slice() : ['']
     );
     setDynamicArity(!!existing.dynamic_arity);
-    setKind(existing.kind ?? '');
+    setKind(canonicalMacroKindId(existing.kind ?? ''));
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
       ? existing.styles.map((s) => {
@@ -892,6 +1023,9 @@ export function CreateMacroApp(): React.ReactElement {
         style_name: s.style_name || 'default',
         mode: s.mode,
         template,
+        template_edit_language: is_i18n(template)
+          ? template.default_language
+          : LOCALIZED_GENERAL_LANGUAGE,
         template_left: marker >= 0 ? invariantTemplate.slice(0, marker) : '',
         separator: s.separator ?? '',
         template_right: marker >= 0 ? invariantTemplate.slice(marker + 2) : '',
@@ -940,7 +1074,7 @@ export function CreateMacroApp(): React.ReactElement {
           setWorkspaceMacros(msg.workspaceMacros && typeof msg.workspaceMacros === 'object'
             ? msg.workspaceMacros
             : {});
-          setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+          setMacroKinds(canonicalMacroKindCatalog(Array.isArray(msg.macroKinds) ? msg.macroKinds : []));
           setEntryPool(Array.isArray(msg.entries) ? msg.entries : []);
 
           const identity = msg.mode === 'edit' && msg.existing
@@ -1003,7 +1137,7 @@ export function CreateMacroApp(): React.ReactElement {
         case 'kindsRefresh':
           // Cat 2026-07-12: dropdown "+ New macro kind…" flow. Refresh
           // the list without touching any other form state.
-          setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
+          setMacroKinds(canonicalMacroKindCatalog(Array.isArray(msg.macroKinds) ? msg.macroKinds : []));
           break;
         case 'created':
           // The host flips this panel to edit mode for the macro we just
@@ -1114,7 +1248,10 @@ export function CreateMacroApp(): React.ReactElement {
         tags: extended.tags
       };
       if (extended.mode === 'text') {
-        return { ...base, mode: 'text', template: localizedTemplate(extended.template, templateLanguage) };
+        const previewLanguage = s.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
+          ? (is_i18n(extended.template) ? extended.template.default_language : 'en')
+          : s.template_edit_language;
+        return { ...base, mode: 'text', template: localizedTemplate(extended.template, previewLanguage) };
       }
       if (extended.mode === 'block') {
         return {
@@ -1140,11 +1277,11 @@ export function CreateMacroApp(): React.ReactElement {
       description: '',
       source: { entries: [], urls: [] },
       dynamic_arity: dynamicArity,
-      kind: kind || undefined,
+      kind: canonicalMacroKindId(kind) || undefined,
       tags: [],
       styles: previewStyles
     };
-  }, [dynamicArity, kind, styles, preferencesRevision, templateLanguage]);
+  }, [dynamicArity, kind, styles, preferencesRevision]);
 
   // Build a KindPalette from the user's macro kinds so the live preview frames
   // the draft macro's subtree with its declared kind's colours. Falls back to
@@ -1179,7 +1316,10 @@ export function CreateMacroApp(): React.ReactElement {
 
   // --- Arg slots -----------------------------------------------------------
 
-  const currentTemplate = localizedTemplate(current?.template ?? '', templateLanguage);
+  const currentTemplateLanguage = current?.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
+    ? (is_i18n(current?.template) ? current.template.default_language : 'en')
+    : current?.template_edit_language ?? 'en';
+  const currentTemplate = localizedTemplate(current?.template ?? '', currentTemplateLanguage);
   const previewTemplate = current?.mode === 'block' && currentTemplate.trim().length === 0
     ? '#*'
     : currentTemplate;
@@ -1241,22 +1381,21 @@ export function CreateMacroApp(): React.ReactElement {
   // create-mode collision blocks submission.
   const isDuplicate =
     panelMode === 'edit' ? false : existingNames.includes(exactName);
-  const defaultStyleDraft = styles[0];
-  const defaultTemplates = defaultStyleDraft
-    ? is_i18n(defaultStyleDraft.template)
-      ? Object.values(defaultStyleDraft.template.values).filter(
+  const templateEmpty = styles.some((style) => {
+    if (style.mode === 'block') return false;
+    const templates = is_i18n(style.template)
+      ? Object.values(style.template.values).filter(
           (template): template is string => template !== undefined
         )
-      : [defaultStyleDraft.template]
-    : [];
-  const templateEmpty = defaultStyleDraft?.mode !== 'block' && (
-    defaultTemplates.length === 0 ||
-    defaultTemplates.some((template) => template.trim().length === 0)
-  );
+      : [style.template];
+    return templates.length === 0 || templates.some((template) => template.trim().length === 0);
+  });
   const tagList = styles.map((s) => s.style_name);
   const hasEmptyTag = tagList.some((t) => t.length === 0);
   const hasInvalidTag = tagList.some((t) => !isSnlIdentifier(t));
   const hasDupTag = new Set(tagList).size !== tagList.length;
+  const hasInvalidTags = [...macroTags, ...styles.flatMap((style) => style.tags)]
+    .some((tag) => tag.includes('\\'));
   const hasIncompleteImagePreset = styles.some((style) => {
     if (style.mode !== 'block') return false;
     try {
@@ -1265,6 +1404,15 @@ export function CreateMacroApp(): React.ReactElement {
     } catch {
       return style.block_template_name.startsWith('snl-ext-preset:v1:image');
     }
+  });
+  const hasInvalidDynamicTemplate = dynamicArity && styles.some((style) => {
+    if (style.mode !== 'text') return false;
+    const templates = is_i18n(style.template)
+      ? Object.values(style.template.values).filter(
+          (template): template is string => template !== undefined
+        )
+      : [style.template];
+    return templates.length === 0 || templates.some((template) => !template.includes('#*'));
   });
   const canCreate =
     targetState !== 'notFound' &&
@@ -1275,7 +1423,9 @@ export function CreateMacroApp(): React.ReactElement {
     !hasEmptyTag &&
     !hasInvalidTag &&
     !hasDupTag &&
+    !hasInvalidTags &&
     !hasIncompleteImagePreset &&
+    !hasInvalidDynamicTemplate &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
@@ -1316,7 +1466,7 @@ export function CreateMacroApp(): React.ReactElement {
         entries: sourceEntries.map((s) => s.trim()).filter((s) => s.length > 0),
         urls: sourceUrls.map((s) => s.trim()).filter((s) => s.length > 0)
       },
-      kind: kind || 'const',
+      kind: canonicalMacroKindId(kind) || 'const',
       dynamic_arity: dynamicArity,
       styles: styleList,
       tags: trimmedMacroTags
@@ -1545,12 +1695,14 @@ export function CreateMacroApp(): React.ReactElement {
               null
             ) : current?.mode === 'text' ? (
               <LocalizedEditScope
-                initialLanguage={outerLanguage}
+                key={activeStyle}
+                initialLanguage={current.template_edit_language}
                 availableLanguages={[...new Set([
+                  LOCALIZED_GENERAL_LANGUAGE,
                   ...supportedLanguages.map((language) => language.id),
                   ...(is_i18n(current.template) ? Object.keys(current.template.values) : [])
                 ])]}
-                onLanguageChange={setTemplateLanguage}
+                onLanguageChange={setActiveTemplateLanguage}
               >
                 <LocalizedTemplateEditor
                   value={current.template}
@@ -1657,28 +1809,37 @@ export function CreateMacroApp(): React.ReactElement {
               // transformed independently. When toggling OFF, compose the latest
               // delimiter edits back into the invariant formula template.
               setStyles((prev) => prev.map((style) => {
+                const textTemplateDraft = toggleTextTemplateArity(
+                  style.text_template_draft,
+                  next
+                );
+                const structuralDrafts = toggleStructuralDraftMapArity(
+                  style.structural_template_drafts,
+                  next
+                );
                 if (style.mode === 'text') {
                   return {
                     ...style,
-                    template: mapLocalizedTemplate(style.template, (template) => {
-                      if (next) return template.includes('#*') ? template : `${template}#*`;
-                      return template === '#*' ? '' : template;
-                    })
+                    template: toggleTextTemplateArity(style.template, next)!,
+                    text_template_draft: textTemplateDraft,
+                    structural_template_drafts: structuralDrafts
                   };
                 }
-                if (next) {
-                  const template = localizedTemplate(style.template, 'en');
-                  const dynamicTemplate = template.includes('#*') ? template : `${template}#*`;
-                  const marker = dynamicTemplate.indexOf('#*');
-                  return {
-                    ...style,
-                    template: dynamicTemplate,
-                    template_left: dynamicTemplate.slice(0, marker),
-                    template_right: dynamicTemplate.slice(marker + 2)
-                  };
-                }
-                const dynamicTemplate = `${style.template_left}#*${style.template_right}`;
-                return { ...style, template: dynamicTemplate === '#*' ? '' : dynamicTemplate };
+                const active = toggleStructuralDraftArity({
+                  template: localizedTemplate(style.template, 'en'),
+                  template_left: style.template_left,
+                  separator: style.separator,
+                  template_right: style.template_right
+                }, next);
+                return {
+                  ...style,
+                  template: active.template,
+                  template_left: active.template_left,
+                  separator: active.separator,
+                  template_right: active.template_right,
+                  text_template_draft: textTemplateDraft,
+                  structural_template_drafts: structuralDrafts
+                };
               }));
             }}
           />
@@ -2567,8 +2728,10 @@ function TagsEditor({
 
 function languageDisplayName(
   language: string,
-  catalog: readonly { id: string; display_name: string }[] = BUILT_IN_LANGUAGE_CATALOG
+  catalog: readonly { id: string; display_name: string }[] = BUILT_IN_LANGUAGE_CATALOG,
+  generalLabel = 'General'
 ): string {
+  if (language === LOCALIZED_GENERAL_LANGUAGE) return generalLabel;
   return catalog.find((item) => item.id === language)?.display_name ?? language;
 }
 
@@ -2585,6 +2748,7 @@ function MacroLanguageSelector({
   onChange: (language: string) => void;
   catalog?: readonly { id: string; display_name: string }[];
 }): React.ReactElement {
+  const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -2607,12 +2771,14 @@ function MacroLanguageSelector({
         ref={triggerRef}
         type="button"
         className="snl-control snl-panel-header__language-trigger"
-        aria-label={`${label}: ${languageDisplayName(value, catalog)}`}
+        aria-label={`${label}: ${languageDisplayName(value, catalog, t('generalLanguage'))}`}
         aria-haspopup="listbox"
         aria-expanded={open}
+        style={{ width: 'auto', gap: '0.35rem', paddingInline: '0.5rem' }}
         onClick={() => setOpen((current) => !current)}
       >
         <LanguageIcon language={value} />
+        <span>{languageDisplayName(value, catalog, t('generalLanguage'))}</span>
       </button>
       {open ? (
         <div
@@ -2660,7 +2826,7 @@ function MacroLanguageSelector({
               }}
             >
               <LanguageIcon language={language} />
-              <span>{languageDisplayName(language, catalog)}</span>
+              <span>{languageDisplayName(language, catalog, t('generalLanguage'))}</span>
               <span aria-hidden="true" className="snl-panel-header__language-check">
                 {language === value ? '✓' : ''}
               </span>

@@ -1184,7 +1184,7 @@ async function main() {
   );
   assert(
     mkApplied.count === 6,
-    `snl-basics-defaults seeds 6 kinds (5 Lean-Expr + partial) (got ${mkApplied.count})`
+    `snl-basics-defaults seeds 6 kinds (5 Lean-Expr + sub) (got ${mkApplied.count})`
   );
   const mkAfterPreset = await readMacroKinds(root);
   assert(mkAfterPreset.length === 6, 'readMacroKinds now 6 after preset');
@@ -1195,12 +1195,12 @@ async function main() {
       ruleKind.coloring.background === '#D6FEE0',
     'rule kind colors match DEFAULT_KIND_PALETTE (green)'
   );
-  const partialKind = mkAfterPreset.find((k) => k.id === 'partial');
-  assert(!!partialKind, 'partial macro kind present in preset');
+  const subKind = mkAfterPreset.find((k) => k.id === 'sub');
+  assert(!!subKind, 'sub macro kind present in preset');
   assert(
-    partialKind.coloring.stroke === 'inherit' &&
-      partialKind.coloring.background === 'transparent',
-    'partial kind uses inherit / transparent (no visual frame)'
+    subKind.coloring.stroke === 'inherit' &&
+      subKind.coloring.background === 'transparent',
+    'sub kind uses inherit / transparent (no visual frame)'
   );
 
   const mkPresetAgain = await applyMacroKindsPreset(root, 'snl-basics-defaults');
@@ -1239,7 +1239,7 @@ async function main() {
   const overviewMk = await readOverview(root);
   assert(
     Array.isArray(overviewMk.macroKinds) && overviewMk.macroKinds.length === 7,
-    'readOverview surfaces 7 macroKinds (5 Lean-Expr + partial + custom)'
+    'readOverview surfaces 7 macroKinds (5 Lean-Expr + sub + custom)'
   );
   // SNoogL index: overview.allMacros = flat index of every macro across every
   // package. This test root has multiple macros in test_pkg (Add.add.infix

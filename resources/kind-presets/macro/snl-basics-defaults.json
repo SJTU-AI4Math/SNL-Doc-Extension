@@ -54,7 +54,7 @@
       }
     },
     {
-      "id": "partial",
+      "id": "sub",
       "name": "Partial",
       "description": "Helper subtree that is NOT a complete syntactic node — e.g. a matrix.row inside a Matrix macro. Rendered with no visual frame, and hover feedback skips over it to its parent macro. Use for implementation-only intermediate macros that shouldn't attract user attention.",
       "coloring": {

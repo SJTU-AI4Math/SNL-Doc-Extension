@@ -62,6 +62,42 @@ function BindingProbe({ initial }: { initial: string | I18n<string, string> }): 
 }
 
 describe('useLocalizedBinding', () => {
+  it('keeps a general edit as an invariant string', () => {
+    const view = render(
+      <LocalizedEditScope initialLanguage="__snl_general__" availableLanguages={['__snl_general__', 'en']}>
+        <BindingProbe initial="" />
+      </LocalizedEditScope>
+    );
+    fireEvent.click(view.getByRole('button', { name: 'write' }));
+    expect(view.getByTestId('serialized').textContent).toBe('"中文"');
+    expect(view.getByTestId('state').textContent).toContain('invariant');
+  });
+
+  it('promotes an empty general value without creating an empty default projection', () => {
+    const view = render(
+      <LocalizedEditScope initialLanguage="zh-CN" availableLanguages={['zh-CN', 'en']}>
+        <BindingProbe initial="" />
+      </LocalizedEditScope>
+    );
+    fireEvent.click(view.getByRole('button', { name: 'write' }));
+    expect(view.getByTestId('serialized').textContent).toBe(
+      '{"type":"i18n","default_language":"zh-CN","values":{"zh-CN":"中文"}}'
+    );
+  });
+
+  it('falls back from a missing declared default to the first partial projection', () => {
+    const value: I18n<string, string> = {
+      type: 'i18n', default_language: 'en', values: { 'zh-CN': '中文标题' }
+    };
+    const view = render(
+      <LocalizedEditScope initialLanguage="en" availableLanguages={['en', 'zh-CN']}>
+        <BindingProbe initial={value} />
+      </LocalizedEditScope>
+    );
+    expect(view.getByTestId('resolved').textContent).toBe('中文标题');
+    expect(view.getByTestId('source').textContent).toBe('zh-CN');
+  });
+
   it('reports explicit, fallback, and source language separately', () => {
     const value: I18n<string, string> = {
       type: 'i18n', default_language: 'en', values: { en: 'English' }
@@ -92,16 +128,16 @@ describe('useLocalizedBinding', () => {
     expect(view.getByTestId('serialized').textContent).toContain('"zh-CN":"中文"');
   });
 
-  it('promotes an invariant value when editing a non-default language', () => {
+  it('turns a General value into the explicitly selected language without relabeling it as English', () => {
     const view = render(
       <LocalizedEditScope initialLanguage="zh-CN" availableLanguages={['en', 'zh-CN']}>
-        <BindingProbe initial="English" />
+        <BindingProbe initial="General text" />
       </LocalizedEditScope>
     );
     expect(view.getByTestId('state').textContent).toContain('invariant');
     fireEvent.click(view.getByRole('button', { name: 'write' }));
-    expect(view.getByTestId('serialized').textContent).toContain('"default_language":"en"');
-    expect(view.getByTestId('serialized').textContent).toContain('"en":"English"');
+    expect(view.getByTestId('serialized').textContent).toContain('"default_language":"zh-CN"');
+    expect(view.getByTestId('serialized').textContent).not.toContain('"en"');
     expect(view.getByTestId('serialized').textContent).toContain('"zh-CN":"中文"');
   });
 

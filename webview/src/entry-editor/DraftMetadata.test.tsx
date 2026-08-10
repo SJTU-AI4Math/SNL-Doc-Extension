@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CreateEntryApp } from '../CreateEntryApp';
 import { loadDraft, saveDraft } from '../components/draftState';
+import { set_content_language } from '../runtime/preferencesRuntime';
 import type { VsCodeApi } from '../vscodeApi';
 
 /**
@@ -39,7 +40,7 @@ function submitButton(view: ReturnType<typeof render>): HTMLButtonElement {
   return button;
 }
 
-function sendInit(): void {
+function sendInit(contentOverrides: Record<string, unknown> = {}): void {
   window.dispatchEvent(new MessageEvent('message', {
     data: {
       type: 'context',
@@ -64,7 +65,8 @@ function sendInit(): void {
             type: 'i18n',
             default_language: 'en',
             values: { en: 'typst only in english' }
-          }
+          },
+          ...contentOverrides
         },
         contribution_info: 'someone',
         pointer: { file: 'a.lean' }
@@ -76,12 +78,14 @@ function sendInit(): void {
 beforeEach(() => {
   cleanup();
   document.documentElement.lang = 'en';
+  set_content_language('en');
   posted.length = 0;
   installApi();
 });
 afterEach(() => {
   cleanup();
   document.documentElement.lang = 'en';
+  set_content_language('en');
 });
 
 describe('restored draft in edit mode', () => {
@@ -93,7 +97,9 @@ describe('restored draft in edit mode', () => {
     expect(title.closest('nav')).toBeNull();
     expect(title.readOnly).toBe(false);
     expect(view.getByText('Title (I18N)')).toBeTruthy();
-    expect(view.getByText('Title language: en')).toBeTruthy();
+    expect(view.getByRole('combobox', { name: 'Title language' })).toHaveProperty(
+      'value', '__snl_general__'
+    );
 
     const metadata = view.container.querySelector('[data-entry-metadata-row]');
     expect(metadata).toBeTruthy();
@@ -201,6 +207,165 @@ describe('restored draft in edit mode', () => {
     });
     const content = submission.entry.content as Record<string, unknown>;
     expect(JSON.stringify(content.markdown)).toContain('my draft body');
+  });
+
+  it('restores the per-format edit language so a draft cannot overwrite another translation', async () => {
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1',
+      title: 'My Unsaved Title',
+      selectedKind: 'theorem',
+      content: { snl: 'host_snl', typst: '', latex: '', markdown: '修改后的中文', text: '' },
+      contentI18n: {
+        markdown: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'unsaved English', 'zh-CN': '修改后的中文' }
+        }
+      },
+      contentEditLanguages: {
+        typst: '__snl_general__', latex: '__snl_general__',
+        markdown: 'zh-CN', text: '__snl_general__'
+      },
+      contentDirtyFormats: ['markdown'],
+      activeFormat: 'markdown',
+      snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit();
+    await waitFor(() => expect(titleInput(view).value).toBe('My Unsaved Title'));
+    await waitFor(() => expect(
+      (view.getByRole('combobox', { name: 'MARKDOWN content language' }) as HTMLSelectElement).value
+    ).toBe('zh-CN'));
+    fireEvent.click(await waitFor(() => submitButton(view)));
+
+    const submission = await waitFor(() => {
+      const found = posted.find(
+        (message): message is { type: string; entry: Record<string, unknown> } =>
+          typeof message === 'object' && message !== null &&
+          (message as { type?: string }).type === 'update'
+      );
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    const content = submission.entry.content as Record<string, unknown>;
+    expect(content.markdown).toEqual({
+      type: 'i18n', default_language: 'en',
+      values: { en: 'unsaved English', 'zh-CN': '修改后的中文' }
+    });
+  });
+
+  it('keeps every unsaved localized projection across a modern draft remount', async () => {
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1', title: 'Draft', selectedKind: 'theorem',
+      content: { snl: 'host_snl', typst: '', latex: '', markdown: '本地中文', text: '' },
+      contentI18n: {
+        markdown: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'local English', 'zh-CN': '本地中文' }
+        }
+      },
+      contentEditLanguages: { markdown: 'zh-CN' },
+      contentDirtyFormats: ['markdown'],
+      activeFormat: 'markdown', snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit();
+    await waitFor(() => expect(titleInput(view).value).toBe('Draft'));
+    fireEvent.change(
+      view.getByRole('combobox', { name: 'MARKDOWN content language' }),
+      { target: { value: 'en' } }
+    );
+    // A file-watcher context refresh must merge around the dirty local map,
+    // not replace its other unsaved language projections with disk values.
+    sendInit();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Selecting General without editing is not permission to collapse the
+    // localized map into a plain string.
+    fireEvent.change(
+      view.getByRole('combobox', { name: 'MARKDOWN content language' }),
+      { target: { value: '__snl_general__' } }
+    );
+    fireEvent.click(await waitFor(() => submitButton(view)));
+    const submission = await waitFor(() => {
+      const found = posted.find(
+        (message): message is { type: string; entry: Record<string, unknown> } =>
+          typeof message === 'object' && message !== null &&
+          (message as { type?: string }).type === 'update'
+      );
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    const content = submission.entry.content as Record<string, unknown>;
+    expect(content.markdown).toEqual({
+      type: 'i18n', default_language: 'en',
+      values: { en: 'local English', 'zh-CN': '本地中文' }
+    });
+  });
+
+  it('keeps an exact empty dirty-format set after a modern draft watcher refresh', async () => {
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1', title: 'Retitled only', selectedKind: 'theorem',
+      content: {
+        snl: 'host_snl', typst: 'typst only in english', latex: '',
+        markdown: 'old on disk', text: ''
+      },
+      contentI18n: {
+        typst: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'typst only in english' }
+        }
+      },
+      contentEditLanguages: { typst: 'zh-CN' },
+      contentDirtyFormats: [],
+      activeFormat: 'typst', snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit({ markdown: 'old on disk' });
+    await waitFor(() => expect(titleInput(view).value).toBe('Retitled only'));
+    sendInit({ markdown: 'new on disk' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    fireEvent.click(await waitFor(() => submitButton(view)));
+    const submission = await waitFor(() => {
+      const found = posted.find(
+        (message): message is { type: string; entry: Record<string, unknown> } =>
+          typeof message === 'object' && message !== null &&
+          (message as { type?: string }).type === 'update'
+      );
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    const content = submission.entry.content as Record<string, unknown>;
+    expect(content.typst).toEqual({
+      type: 'i18n', default_language: 'en',
+      values: { en: 'typst only in english' }
+    });
+    expect(content.markdown).toBe('new on disk');
+  });
+
+  it('migrates a legacy draft using the old panel authoring language', async () => {
+    set_content_language('zh-CN');
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1', title: 'Legacy Draft', selectedKind: 'theorem',
+      content: { snl: 'host_snl', typst: '', latex: '', markdown: '旧中文草稿', text: '' },
+      activeFormat: 'markdown', snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit();
+    await waitFor(() => expect(titleInput(view).value).toBe('Legacy Draft'));
+    fireEvent.click(await waitFor(() => submitButton(view)));
+    const submission = await waitFor(() => {
+      const found = posted.find(
+        (message): message is { type: string; entry: Record<string, unknown> } =>
+          typeof message === 'object' && message !== null &&
+          (message as { type?: string }).type === 'update'
+      );
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    const content = submission.entry.content as Record<string, unknown>;
+    expect(content.markdown).toEqual({
+      type: 'i18n', default_language: 'en',
+      values: { en: 'english body', 'zh-CN': '旧中文草稿' }
+    });
   });
 
   it('restores a Canvas forest that has no serialized form', async () => {

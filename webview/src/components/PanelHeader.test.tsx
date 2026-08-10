@@ -4,7 +4,11 @@ import path from 'node:path';
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanelHeader } from './PanelHeader';
-import { apply_preferences_snapshot } from '../runtime/preferencesRuntime';
+import {
+  apply_preferences_snapshot,
+  get_content_language,
+  set_content_language
+} from '../runtime/preferencesRuntime';
 import type { VsCodeApi } from '../vscodeApi';
 
 const back = {
@@ -111,6 +115,9 @@ describe('PanelHeader', () => {
     const api = { postMessage } as unknown as VsCodeApi;
     const view = render(<PanelHeader vsApi={api} title="Create Macro" />);
 
+    fireEvent.click(view.getByRole('button', { name: /Content language/ }));
+    expect(view.queryByRole('button', { name: 'Add authoring language' })).toBeNull();
+    fireEvent.click(view.getByRole('button', { name: /Content language/ }));
     fireEvent.click(view.getByRole('button', { name: /Interface language/ }));
     fireEvent.click(view.getByRole('button', { name: 'Add authoring language' }));
     fireEvent.change(view.getByRole('textbox', { name: 'Language tag' }), {
@@ -134,10 +141,25 @@ describe('PanelHeader', () => {
         { id: 'fr', display_name: 'Français' }
       ]
     });
-    await waitFor(() => expect(view.getByText('Français')).toBeTruthy());
-    const customRow = view.getByText('Français').closest('.snl-panel-header__authoring-language');
-    expect(customRow?.querySelector('svg[data-language-icon="custom"]')).toBeTruthy();
-    expect(view.queryByRole('menuitemradio', { name: 'Français' })).toBeNull();
+    await waitFor(() => expect(view.getByRole('button', { name: /Content language/ })).toBeTruthy());
+    fireEvent.click(view.getByRole('button', { name: /Content language/ }));
+    const customChoice = view.getByRole('menuitemradio', { name: 'Français' });
+    expect(customChoice.querySelector('svg[data-language-icon="custom"]')).toBeTruthy();
+    fireEvent.click(customChoice);
+    expect(get_content_language()).toBe('fr');
+    expect(document.documentElement.lang).toBe('en');
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: 'snl.preferences/set-language', language: 'fr'
+    }));
+  });
+
+  it('exposes separate interface and panel content language selectors', () => {
+    document.documentElement.lang = 'en';
+    document.documentElement.dataset.snlLanguagePreference = 'en';
+    set_content_language('zh-CN');
+    const view = render(<PanelHeader vsApi={undefined} title="Reader" />);
+    expect(view.getByRole('button', { name: /Interface language: English/ })).toBeTruthy();
+    expect(view.getByRole('button', { name: /Content language: 简体中文/ })).toBeTruthy();
   });
 
   it('uses roving menu focus and closes cleanly for keyboard users', () => {

@@ -203,6 +203,14 @@ describe('Create Macro localization', () => {
 
   it('edits a local text-template language without changing the interface language', () => {
     document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'macro-local-language', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+        { id: 'en', display_name: 'English (US)' }
+      ]
+    });
     render(<CreateMacroApp />);
     act(() => {
       window.dispatchEvent(new MessageEvent('message', {
@@ -214,8 +222,9 @@ describe('Create Macro localization', () => {
       }));
     });
 
-    const textModeButtons = screen.getAllByRole('button', { name: 'Text' });
+    const textModeButtons = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModeButtons[textModeButtons.length - 1]);
+    expect(screen.getByRole('heading', { name: 'Template (I18N)' })).toBeTruthy();
     const language = screen.getByRole('button', { name: /Language: English/ });
     expect(language.querySelector('svg[data-language-icon="en"]')).toBeTruthy();
     fireEvent.click(language);
@@ -255,7 +264,7 @@ describe('Create Macro localization', () => {
         }
       }));
     });
-    const textModes = screen.getAllByRole('button', { name: 'Text' });
+    const textModes = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModes[textModes.length - 1]);
     fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
     expect(screen.getByRole('option', { name: /Français/ })).toBeTruthy();
@@ -293,7 +302,7 @@ describe('Create Macro localization', () => {
       }));
     });
 
-    const textModes = screen.getAllByRole('button', { name: 'Text' });
+    const textModes = screen.getAllByRole('button', { name: 'Text (I18N)' });
     fireEvent.click(textModes[textModes.length - 1]);
     const template = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
     fireEvent.change(template, { target: { value: 'English text' } });

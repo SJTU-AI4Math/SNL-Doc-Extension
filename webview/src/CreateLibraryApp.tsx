@@ -12,6 +12,7 @@
 //      All graph mutations post `{ type: 'graphOp', op }` to the host.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import {
   editorDraftKey,
   loadDraft,
@@ -40,6 +41,8 @@ import {
 } from './components/EntryMetrics';
 import type { EntryOption } from './render/EntryRender';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import { resolve_localized_string } from '../../src/localizedContent';
+import { use_content_language } from './runtime/preferencesRuntime';
 
 const LIBRARY_MESSAGES = defineUiMessages(
   'libraryEditor',
@@ -133,7 +136,7 @@ interface GraphRelationship {
 interface EntryPoolItem {
   id: string;
   kind: string;
-  title: string;
+  title: Localized<string, string>;
   content?: { snl?: string };
 }
 
@@ -1360,6 +1363,7 @@ function OutlineRowContent({
   onUpdateNodeEntry
 }: OutlineRowContentProps): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
+  const contentLanguage = use_content_language();
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
@@ -1376,7 +1380,7 @@ function OutlineRowContent({
   const currentCounterId =
     typeof node.props.counterId === 'string' ? node.props.counterId : '';
 
-  const title = entry?.title ?? '';
+  const title = entry ? resolve_localized_string(entry.title, contentLanguage) : '';
   const displayTitle =
     title.trim().length > 0 ? title : <em style={{ opacity: 0.65 }}>{t('untitled')}</em>;
 
@@ -1694,6 +1698,7 @@ function AddNodeForm({
   ) => void;
 }): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
+  const contentLanguage = use_content_language();
   const entryIdTrimmed = state.entryId.trim();
   const isEmpty = entryIdTrimmed.length === 0;
   const referencedEntry = !isEmpty ? entriesById.get(entryIdTrimmed) : undefined;
@@ -1861,7 +1866,9 @@ function AddNodeForm({
         >
           {mode === 'matched'
             ? t('referenceStatus', {
-                title: referencedEntry?.title || t('untitled'),
+                title: referencedEntry
+                  ? resolve_localized_string(referencedEntry.title, contentLanguage) || t('untitled')
+                  : t('untitled'),
                 kind: referencedEntry?.kind ?? ''
               })
             : mode === 'nomatch'

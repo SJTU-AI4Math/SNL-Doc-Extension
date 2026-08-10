@@ -691,7 +691,7 @@ async function main() {
   const partialLocalizedEntry = {
     id: 'partial-localized-entry',
     kind: 'definition',
-    title: 'Partial localized Entry',
+    title: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '局部标题' } },
     content: {
       text: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '条目' } }
     },
@@ -706,6 +706,11 @@ async function main() {
     partialLocalizedRoundTrip?.content?.text?.values?.['zh-CN'] === '条目' &&
       !Object.prototype.hasOwnProperty.call(partialLocalizedRoundTrip.content.text.values, 'en'),
     'Entry partial localized content survives write then current-topology read'
+  );
+  assert(
+    partialLocalizedRoundTrip?.title?.values?.['zh-CN'] === '局部标题' &&
+      !Object.prototype.hasOwnProperty.call(partialLocalizedRoundTrip.title.values, 'en'),
+    'Entry partial localized title survives write then current-topology read'
   );
 
   console.log('\n[7] addEntry duplicate id');

@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../runtime/preferencesRuntime', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/preferencesRuntime')>();
   return {
     ...actual,
-    use_preferences_revision: () => 0,
     get_popover_preferences: () => ({ hoverEnabled: false })
   };
 });
@@ -14,6 +13,7 @@ vi.mock('../runtime/preferencesRuntime', async (importOriginal) => {
 import { EntryRender } from './EntryRender';
 import { HoverPopoverProvider } from './HoverPopoverProvider';
 import type { MacroRecord } from './macroData';
+import { set_content_language } from '../runtime/preferencesRuntime';
 
 const root = {
   id: 'root', kind: 'definition', title: 'Root',
@@ -25,6 +25,34 @@ const child = {
 };
 
 afterEach(cleanup);
+
+it('renders both Entry title and body from the Panel content language', async () => {
+  set_content_language('zh-CN');
+  const localizedEntry = {
+    id: 'localized', kind: 'definition',
+    title: {
+      type: 'i18n' as const, default_language: 'en',
+      values: { en: 'English title', 'zh-CN': '中文标题' }
+    },
+    content: {
+      text: {
+        type: 'i18n' as const, default_language: 'en',
+        values: { en: 'English body', 'zh-CN': '中文正文' }
+      }
+    },
+    pointer: null, contribution_info: null
+  };
+  const view = render(
+    <HoverPopoverProvider postMessage={vi.fn()} entries={[]}>
+      <EntryRender entry={localizedEntry} kind={null} entries={[]} postMessage={vi.fn()} />
+    </HoverPopoverProvider>
+  );
+  expect((await view.findAllByText('中文标题')).length).toBeGreaterThan(0);
+  expect(view.getByText('中文正文')).toBeTruthy();
+  act(() => set_content_language('en'));
+  expect((await view.findAllByText('English title')).length).toBeGreaterThan(0);
+  expect(view.getByText('English body')).toBeTruthy();
+});
 
 describe('EntryRender real dependency click pinning', () => {
   it('pins a catalog-sourced Macro without an explicit @ annotation', async () => {

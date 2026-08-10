@@ -28,6 +28,8 @@ import type {
   EntryRelationshipSection,
   EntryReturnRoute
 } from '../../src/entryInfoviewRelationships';
+import { is_valid_i18n_string, resolve_localized_string } from '../../src/localizedContent';
+import { use_content_language } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages('entryInfoview', {
   title: 'Entry Infoview', edit: '✎ Edit', editTitle: 'Open this entry in the Edit Entry panel',
@@ -80,9 +82,11 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
 const isEntryData = (value: unknown): value is EntryData =>
   isRecord(value) && typeof value.id === 'string' && typeof value.kind === 'string' &&
-  typeof value.title === 'string' && isRecord(value.content);
+  (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
+  isRecord(value.content);
 const isEntryOption = (value: unknown): value is EntryOption =>
-  isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' &&
+  isRecord(value) && typeof value.id === 'string' &&
+  (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
   typeof value.hasContent === 'boolean' &&
   (value.package === undefined || typeof value.package === 'string') &&
   (value.snl === undefined || typeof value.snl === 'string');
@@ -100,7 +104,8 @@ const isRelationshipSection = (value: unknown): value is EntryRelationshipSectio
   isRecord(value) && typeof value.label === 'string' &&
   (value.direction === 'incoming' || value.direction === 'outgoing') &&
   Array.isArray(value.rows) && value.rows.every((row) =>
-    isRecord(row) && typeof row.id === 'string' && typeof row.title === 'string' &&
+    isRecord(row) && typeof row.id === 'string' &&
+    (typeof row.title === 'string' || is_valid_i18n_string(row.title)) &&
     typeof row.relationshipId === 'string' &&
     (row.kindId === undefined || typeof row.kindId === 'string') &&
     (row.package === undefined || typeof row.package === 'string'));
@@ -134,6 +139,7 @@ const isEntryDetails = (value: unknown): value is Exclude<Incoming, undefined | 
 
 export function EntryInfoviewApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<{
@@ -221,7 +227,9 @@ export function EntryInfoviewApp(): React.ReactElement {
       <main style={{ ...PANEL_STYLE, position: 'relative' }}>
         <PanelHeader
           vsApi={apiRef.current}
-          title={state?.entry.title || t('title')}
+          title={state
+            ? resolve_localized_string(state.entry.title, contentLanguage) || t('title')
+            : t('title')}
           subtitle={state?.entry.id}
           showRefresh={false}
           back={state ? {
@@ -366,6 +374,7 @@ function RelatedSection({
   postMessage: (m: unknown) => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const [open, setOpen] = useState<boolean>(true);
   const count = rows.length;
   const panelId = `related-${id}`;
@@ -427,7 +436,9 @@ function RelatedSection({
                 gap: '0.15rem'
               }}
             >
-              {rows.map((r) => (
+              {rows.map((r) => {
+                const rowTitle = resolve_localized_string(r.title, contentLanguage);
+                return (
                 <li key={r.relationshipId}>
                   <Button
                     type="button"
@@ -438,8 +449,8 @@ function RelatedSection({
                         entryPackage: r.package
                       })
                     }
-                    aria-label={t('openEntry', { title: r.title || r.id, id: r.id })}
-                    title={t('openEntry', { title: r.title || r.id, id: r.id })}
+                    aria-label={t('openEntry', { title: rowTitle || r.id, id: r.id })}
+                    title={t('openEntry', { title: rowTitle || r.id, id: r.id })}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -455,7 +466,7 @@ function RelatedSection({
                       textDecoration: 'underline'
                     }}
                   >
-                    <span>{r.title || <em>{t('untitled')}</em>}</span>
+                    <span>{rowTitle || <em>{t('untitled')}</em>}</span>
                     {r.kindId ? (
                       <span
                         style={{
@@ -478,7 +489,8 @@ function RelatedSection({
 
                   </Button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
         </div>
       ) : null}

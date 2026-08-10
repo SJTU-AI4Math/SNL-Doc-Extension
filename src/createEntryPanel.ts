@@ -35,6 +35,11 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
 } from './panelUtil';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import { readPopoverEntry } from './popoverEntryReader';
+import { resolve_localized_string } from './localizedContent';
+
+function hostEntryTitle(title: EntryData['title']): string {
+  return resolve_localized_string(title, read_extension_preferences().language);
+}
 
 /**
  * Rough serialized size of a context payload, for tracing only. The exact
@@ -729,7 +734,7 @@ export class CreateEntryPanel {
               return;
             }
             vscode.window.showInformationMessage(
-              hostText()('updated', { title: entry.title, id: result.id })
+              hostText()('updated', { title: hostEntryTitle(entry.title), id: result.id })
             );
             await postRequestMessage({
               type: 'updated',
@@ -830,7 +835,7 @@ export class CreateEntryPanel {
             return;
           }
           vscode.window.showInformationMessage(
-            hostText()('created', { title: entry.title, id: result.id })
+            hostText()('created', { title: hostEntryTitle(entry.title), id: result.id })
           );
           await postRequestMessage({
             type: 'created',

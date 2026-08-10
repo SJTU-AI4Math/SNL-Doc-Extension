@@ -1,10 +1,12 @@
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CreateEntryApp } from '../CreateEntryApp';
 import type { VsCodeApi } from '../vscodeApi';
+import { set_content_language } from '../runtime/preferencesRuntime';
 
+const postMessage = vi.fn();
 const api: VsCodeApi = {
-  postMessage: () => undefined,
+  postMessage,
   getState: () => undefined,
   setState: () => undefined
 };
@@ -33,7 +35,9 @@ function sendCreateContext(openPackageCreator = false): void {
 }
 
 beforeEach(() => {
+  postMessage.mockClear();
   document.documentElement.lang = 'zh-CN';
+  set_content_language('zh-CN');
 });
 
 afterEach(() => {
@@ -70,6 +74,7 @@ describe('CreateEntryApp localization', () => {
 
     await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
     expect(view.getByLabelText('标题').getAttribute('placeholder')).toBe('例如：勾股定理');
+    expect(view.getByText('标题语言：zh-CN')).toBeTruthy();
     expect(view.getByLabelText('ID').getAttribute('placeholder')).toBe('例如：pythagorean-theorem');
     expect(view.getByLabelText('条目包')).toBeTruthy();
     expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy();
@@ -86,5 +91,37 @@ describe('CreateEntryApp localization', () => {
     fireEvent.click(within(pointer).getByLabelText('将此条目绑定到源代码位置'));
     expect(within(pointer).getByLabelText('项目相对路径文件').getAttribute('placeholder'))
       .toBe('例如：src/theorems/pythagorean.ts');
+  });
+
+  it('edits a partial localized title through the panel content language without changing UI language', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'context', targetGeneration: 0, mode: 'edit', id: 'localized-entry',
+        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { stroke: '#888', background: '#222' }, numbering: 'theorem', style: 'default' }],
+        entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
+        existing: {
+          id: 'localized-entry', package: '_unpackaged', kind: 'theorem',
+          title: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '中文标题' } },
+          content: {}, pointer: null
+        }
+      }
+    }));
+
+    const title = await view.findByLabelText('标题') as HTMLInputElement;
+    expect(title.value).toBe('中文标题');
+    act(() => set_content_language('en'));
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
+    expect(view.getByText('正在显示来自 zh-CN 的回退标题')).toBeTruthy();
+    expect(view.getByRole('heading', { name: '编辑条目' })).toBeTruthy();
+
+    fireEvent.change(view.getByLabelText('标题'), { target: { value: 'English title' } });
+    fireEvent.click(view.getByRole('button', { name: '更新条目' }));
+    const update = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'update');
+    expect(update?.entry.title).toEqual({
+      type: 'i18n', default_language: 'en',
+      values: { 'zh-CN': '中文标题', en: 'English title' }
+    });
   });
 });

@@ -1,14 +1,16 @@
+import type { Localized } from './snlBasicsHostCompat';
+
 export interface EntryPoolSource {
   id: string;
   package?: string;
-  title?: string;
+  title?: Localized<string, string>;
   content?: { snl?: string } | null;
 }
 
 export interface EntryPoolOption {
   id: string;
   package?: string;
-  title: string;
+  title: Localized<string, string>;
   hasContent: boolean;
   snl?: string;
 }

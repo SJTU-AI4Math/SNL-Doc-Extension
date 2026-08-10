@@ -157,7 +157,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     mode: 'Mode',
     modeFormulaInline: 'Formula (inline)',
     modeFormulaDisplay: 'Formula (display)',
-    modeText: 'Text',
+    modeText: 'Text (I18N)',
+    templateI18nHeading: 'Template (I18N)',
     modeBlock: 'Block',
     leftDelimiter: 'Left delimiter',
     leftDelimiterPlaceholder: 'e.g. \\begin{environment} or [',
@@ -286,7 +287,8 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     mode: '模式',
     modeFormulaInline: '公式（行内）',
     modeFormulaDisplay: '公式（展示）',
-    modeText: '文本',
+    modeText: '文本（I18N）',
+    templateI18nHeading: '模板（I18N）',
     modeBlock: '块',
     leftDelimiter: '左侧定界符',
     leftDelimiterPlaceholder: '例如 \\begin{environment} 或 [',
@@ -2706,6 +2708,7 @@ function LocalizedTemplateEditor({
     binding.setValue(`${left}#*${right}`);
   };
   return <div>
+    <h4 style={{ margin: '0 0 0.35rem' }}>{t('templateI18nHeading')}</h4>
     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center',
       justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
       <MacroLanguageSelector

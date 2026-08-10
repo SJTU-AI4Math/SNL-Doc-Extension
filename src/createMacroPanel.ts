@@ -41,7 +41,7 @@ import { stripJsonExt } from './macroPackageName';
  */
 interface EntryOption {
   id: string;
-  title: string;
+  title: EntryData['title'];
   hasContent: boolean;
 }
 

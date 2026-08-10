@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardApp } from './DashboardApp';
 import type { VsCodeApi } from './vscodeApi';
+import { set_content_language } from './runtime/preferencesRuntime';
 
 const postMessage = vi.fn();
 
@@ -12,6 +13,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  set_content_language('en');
   cleanup();
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
@@ -223,6 +225,40 @@ describe('Dashboard library actions', () => {
     expect(await screen.findByText('SNL Structural Index')).toBeTruthy();
     expect(screen.queryByText('Semantic freedom')).toBeNull();
     expect(screen.queryByText('Structured')).toBeNull();
+  });
+
+  it('renders relationship endpoints in the panel content language', async () => {
+    set_content_language('zh-CN');
+    render(<DashboardApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'overview',
+        overview: {
+          hasSnlDoc: true,
+          totalEntryCount: 2,
+          entries: [
+            {
+              id: 'entry-1', kind: 'definition', content: {},
+              title: {
+                type: 'i18n', default_language: 'en',
+                values: { en: 'Entry One', 'zh-CN': '条目一' }
+              }
+            },
+            { id: 'entry-2', kind: 'definition', content: {}, title: 'Entry Two' }
+          ],
+          libraries: [], macroPackages: [], allMacros: [], metricMacroSources: {},
+          entryKinds: [], macroKinds: [],
+          relationships: [
+            { id: 'r1', from: 'entry-1', to: 'entry-2', label: 'depends', metadata: {} }
+          ]
+        }
+      }
+    }));
+
+    const relationshipsToggle = (await screen.findByText('Relationships')).closest('button');
+    if (!relationshipsToggle) throw new Error('Relationships toggle not found');
+    fireEvent.click(relationshipsToggle);
+    expect(await screen.findByText('条目一')).toBeTruthy();
   });
 });
 

@@ -1,3 +1,6 @@
+import type { Localized } from './snlBasicsHostCompat';
+import { resolve_localized_string } from './localizedContent';
+
 /**
  * Entry-panel view of the pool-wide relationship graph (cat 2026-07-25).
  *
@@ -37,7 +40,7 @@ export interface RelationshipLike {
 /** Minimal shape of an entry this selector needs. */
 export interface EntryLike {
   id: string;
-  title?: string;
+  title?: Localized<string, string>;
   kind?: string;
 }
 
@@ -59,7 +62,7 @@ export interface EntryRelationshipRow {
   /** The entry at the other end (=== the entry itself for a self-loop). */
   otherId: string;
   /** Title of the other entry; `''` when it is not in the pool. */
-  otherTitle: string;
+  otherTitle: Localized<string, string>;
   /** Kind id of the other entry, when known. */
   otherKindId?: string;
 }
@@ -108,8 +111,8 @@ export function selectEntryRelationships(
   rows.sort((a, b) => {
     if (a.direction !== b.direction) return a.direction === 'outgoing' ? -1 : 1;
     if (a.label !== b.label) return a.label.localeCompare(b.label);
-    const an = a.otherTitle || a.otherId;
-    const bn = b.otherTitle || b.otherId;
+    const an = resolve_localized_string(a.otherTitle, 'en') || a.otherId;
+    const bn = resolve_localized_string(b.otherTitle, 'en') || b.otherId;
     if (an !== bn) return an.localeCompare(bn);
     return a.id.localeCompare(b.id);
   });

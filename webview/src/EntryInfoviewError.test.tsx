@@ -10,6 +10,7 @@ vi.mock('./vscodeApi', async (importOriginal) => ({
 }));
 
 import { EntryInfoviewApp } from './EntryInfoviewApp';
+import { set_content_language } from './runtime/preferencesRuntime';
 
 const entry = { id: 'entry-1', package: 'logic', title: 'Entry One', kind: 'definition', content: { snl: 'x' } };
 const base = {
@@ -24,10 +25,53 @@ function push(data: unknown): void {
 afterEach(() => {
   cleanup();
   document.documentElement.lang = 'en';
+  set_content_language('en');
   api.postMessage.mockReset();
 });
 
 describe('EntryInfoview relationship availability', () => {
+  it('keeps the UI fallback heading for an untitled Entry', () => {
+    render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      entry: { ...entry, title: '' },
+      relationshipSections: [],
+      returnRoute: { kind: 'root' }
+    });
+    expect(screen.getByRole('heading', { level: 1, name: 'Entry Infoview' })).toBeTruthy();
+  });
+
+  it('uses panel content language for the header and accepts localized relationship titles', () => {
+    document.documentElement.lang = 'en';
+    set_content_language('zh-CN');
+    render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      entry: {
+        ...entry,
+        title: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'Entry One', 'zh-CN': '条目一' }
+        }
+      },
+      relationshipSections: [{
+        label: 'depends', direction: 'outgoing',
+        rows: [{
+          id: 'entry-2', package: 'logic', relationshipId: 'r-localized', metadata: null,
+          title: {
+            type: 'i18n', default_language: 'en',
+            values: { en: 'Entry Two', 'zh-CN': '条目二' }
+          }
+        }]
+      }],
+      returnRoute: { kind: 'root' }
+    });
+
+    expect(screen.getByRole('heading', { level: 1, name: '条目一' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Open Infoview for 条目二/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '✎ Edit' })).toBeTruthy();
+  });
+
   it('ignores malformed macro-kind arrays without replacing the last valid Entry', () => {
     render(<EntryInfoviewApp />);
     push({ ...base, relationshipSections: [], returnRoute: { kind: 'root' } });

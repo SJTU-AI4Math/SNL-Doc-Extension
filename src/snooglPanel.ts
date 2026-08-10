@@ -68,7 +68,7 @@ interface SnoogLFilters {
 interface SnoogLHitEntry {
   kind: 'entry';
   id: string;
-  title: string;
+  title: EntryData['title'];
   entryKind: string | null;
   score: number;
 }
@@ -355,7 +355,9 @@ function rankEntries(
     hits.map((hit) => createSnooglSearchDocument({
       id: hit.id,
       value: hit,
-      labels: hit.title ? [hit.title] : []
+      labels: typeof hit.title === 'string'
+        ? (hit.title ? [hit.title] : [])
+        : Object.values(hit.title.values).filter((value): value is string => typeof value === 'string')
     }))
   ).map((result) => ({ ...result.value, score: result.score }));
 }

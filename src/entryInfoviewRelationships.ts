@@ -1,17 +1,19 @@
 import type { RelationshipData } from './snlDoc';
+import type { Localized } from './snlBasicsHostCompat';
+import { resolve_localized_string } from './localizedContent';
 
 export type RelationshipDirection = 'incoming' | 'outgoing';
 
 export interface RelationshipEntrySummary {
   id: string;
-  title: string;
+  title: Localized<string, string>;
   kind?: string;
   package?: string;
 }
 
 export interface EntryRelationshipRow {
   id: string;
-  title: string;
+  title: Localized<string, string>;
   kindId?: string;
   package?: string;
   relationshipId: string;
@@ -71,7 +73,7 @@ export function groupEntryRelationships(
   const sections = [...grouped.values()];
   for (const section of sections) {
     section.rows.sort((a, b) =>
-      a.title.localeCompare(b.title) ||
+      resolve_localized_string(a.title, 'en').localeCompare(resolve_localized_string(b.title, 'en')) ||
       a.id.localeCompare(b.id) ||
       a.relationshipId.localeCompare(b.relationshipId));
   }

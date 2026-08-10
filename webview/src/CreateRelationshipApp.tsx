@@ -15,6 +15,7 @@
 //   7. Submit + status banner
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import {
   useVsCodeApiRef,
   PANEL_STYLE
@@ -84,7 +85,7 @@ interface ContextMessage {
   existing?: RelationshipData | null;
   relationshipRevision?: string;
   targetState?: 'found' | 'notFound';
-  entryPool: Array<{ id: string; title: string }>;
+  entryPool: Array<{ id: string; title: Localized<string, string> }>;
   existingIds: string[];
 }
 

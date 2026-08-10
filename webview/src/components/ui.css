@@ -275,3 +275,10 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
 .snl-panel-header__authoring-languages form label { display:grid; gap:.2rem; font-size:.75rem; }
 .snl-panel-header__authoring-languages form input { min-width:0; padding:.3rem .4rem; color:var(--vscode-input-foreground); background:var(--vscode-input-background); border:1px solid var(--vscode-input-border,var(--vscode-contrastBorder,#555)); }
 .snl-panel-header__authoring-languages form > div { display:flex; gap:.4rem; }
+
+
+.snl-localized-title-editor { margin:0 0 1rem; padding:.75rem; border:1px solid var(--vscode-panel-border,var(--vscode-contrastBorder,#444)); border-radius:4px; background:var(--vscode-editorWidget-background,transparent); }
+.snl-localized-title-editor__heading { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-bottom:.4rem; font-size:.8rem; }
+.snl-localized-title-editor__heading label { font-size:.95rem; font-weight:600; }
+.snl-localized-title-editor__heading [data-localized-state] { opacity:.7; }
+.snl-localized-title-editor > input { box-sizing:border-box; width:100%; }

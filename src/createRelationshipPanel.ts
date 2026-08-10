@@ -14,6 +14,7 @@ import {
   readEntries,
   readRelationships,
   updateRelationship,
+  type EntryData,
   type RelationshipData
 } from './snlDoc';
 import {
@@ -128,7 +129,7 @@ export class CreateRelationshipPanel {
     const root = firstWorkspaceFolder();
     let existing: RelationshipData | null = null;
     let relationshipRevision: string | undefined;
-    let entryPool: Array<{ id: string; title: string }> = [];
+    let entryPool: Array<{ id: string; title: EntryData['title'] }> = [];
     let existingIds: string[] = [];
     if (root) {
       try {

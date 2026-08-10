@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
+import { resolve_localized_string } from './localizedContent';
 
 const MESSAGES = defineHostMessages(
   {
@@ -140,6 +141,8 @@ export class InfoviewPanel {
    */
   private currentLibrarySlug: string | null = null;
   private entryDisplayTitle: string | null = null;
+  private entryRawTitle: EntryData['title'] | null = null;
+  private contentLanguage: string | null = null;
   private disposables: vscode.Disposable[] = [];
   private viewGeneration = 0;
 
@@ -395,6 +398,19 @@ export class InfoviewPanel {
     InfoviewPanel.output = undefined;
   }
 
+  private refreshEntryPanelTitle(fallbackId: string): void {
+    const displayTitle = this.entryRawTitle === null
+      ? ''
+      : resolve_localized_string(
+          this.entryRawTitle,
+          this.contentLanguage ?? read_extension_preferences().language
+        );
+    this.entryDisplayTitle = displayTitle || null;
+    this.panel.title = hostText()('entryTitle', {
+      id: this.entryDisplayTitle ?? fallbackId
+    });
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     // Timing marks reported by the webview itself, folded into the open
     // trace so the Infoview and the editor panels are directly comparable.
@@ -408,6 +424,7 @@ export class InfoviewPanel {
           entryPackage?: string;
           origin?: EntryReturnRoute;
           popoverRequestKey?: string;
+          language?: string;
           level?: string;
           msg?: string;
         }
@@ -417,6 +434,15 @@ export class InfoviewPanel {
     }
 
     switch (msg.type) {
+      case 'snl.content-language/changed':
+        if (this.entryId !== null && typeof msg.language === 'string') {
+          const language = msg.language.trim();
+          if (language && language.length <= 100) {
+            this.contentLanguage = language;
+            this.refreshEntryPanelTitle(this.currentEntryId ?? this.entryId);
+          }
+        }
+        return;
       case 'ready':
         if (this.entryId === null) {
           if (this.currentLibrarySlug) {
@@ -731,7 +757,7 @@ export class InfoviewPanel {
       const flatEntries: {
         id: string;
         package?: string;
-        title: string;
+        title: EntryData['title'];
         hasContent: boolean;
         snl?: string;
       }[] = [];
@@ -969,6 +995,7 @@ export class InfoviewPanel {
       if (generation !== this.viewGeneration) return;
       const entry: EntryData | undefined = entries.find((e) => e.id === id);
       if (!entry) {
+        this.entryRawTitle = null;
         this.entryDisplayTitle = null;
         this.panel.title = hostText()('entryTitle', { id });
         void this.panel.webview.postMessage({
@@ -983,8 +1010,8 @@ export class InfoviewPanel {
         });
         return;
       }
-      this.entryDisplayTitle = entry.title;
-      this.panel.title = hostText()('entryTitle', { id: this.entryDisplayTitle });
+      this.entryRawTitle = entry.title;
+      this.refreshEntryPanelTitle(id);
       const kinds = await readEntryKinds(root);
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;

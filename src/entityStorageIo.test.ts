@@ -95,6 +95,22 @@ describe('entity storage reads', () => {
       .resolves.toMatchObject({ entry });
   });
 
+  it('point-reads an Entry with a partial localized title map', async () => {
+    const entry = {
+      id: 'entry-title-i18n', package: 'logic', kind: 'definition',
+      title: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '局部标题' } },
+      content: { snl: '' }, pointer: null
+    };
+    const path = entryEntityPath(entry.package, entry.id);
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => [],
+      readJson: async (requested) => requested === path ? makeEntryEnvelope('logic', entry) : null
+    };
+
+    await expect(readEntryEntityRecord(storage, 'logic', entry.id))
+      .resolves.toMatchObject({ entry });
+  });
+
   it('point-rejects a current Entry whose canonical pointer field is missing', async () => {
     const entry = {
       id: 'entry-1', package: 'logic', kind: 'definition', title: 'One', content: { snl: '' }

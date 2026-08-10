@@ -15,6 +15,7 @@ import {
   is_valid_macro_i18n_string,
   macro_template_variants,
   normalize_entry_content,
+  normalize_entry_title,
   normalize_macro_template
 } from './localizedContent';
 import { slugify } from './slug';
@@ -3648,7 +3649,7 @@ export async function listMacroKinds(
  * Schema (see Plan.md §"Entry schema"):
  *  - `id`: UUID v4, unique across the pool.
  *  - `kind`: MUST reference an existing `entry_kinds[].id`.
- *  - `title`: display title (English for now; i18n later).
+ *  - `title`: invariant string or partial localized map.
  *  - `content`: at most one non-empty format in practice, but all optional —
  *    the editor lets the author fill any subset.
  *  - `contribution_info`: TEMPORARY single Contributor string. This shape may
@@ -3661,7 +3662,7 @@ export interface EntryData {
   /** Immutable Package identity for per-entity storage; defaults to `_unpackaged`. */
   package?: string;
   kind: string;
-  title: string;
+  title: Localized<string, string>;
   content: {
     snl?: string;
     typst?: Localized<string, string>;
@@ -3712,10 +3713,12 @@ export async function addEntry(
     await assertWorkspaceWritableOnDisk(workspaceRoot);
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
-  // Title is optional as of 2026-07-06 (cat: "支持无标题或无内容的 entry").
-  // We keep the field always present in on-disk shape but accept the empty
-  // string; the UI renders "(untitled)" in place of a title bar.
-  const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
+  let title: EntryData['title'];
+  try {
+    title = normalize_entry_title(entry?.title ?? '');
+  } catch (error) {
+    return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
+  }
 
   if (!id) {
     return { status: 'invalid', reason: 'id is required' };
@@ -4188,8 +4191,12 @@ export async function updateEntry(
     return { status: 'invalid', message: 'id is required' };
   }
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
-  // Title and content are optional as of 2026-07-06 (see addEntry note).
-  const title = typeof entry?.title === 'string' ? entry.title.trim() : '';
+  let title: EntryData['title'];
+  try {
+    title = normalize_entry_title(entry?.title ?? '');
+  } catch (error) {
+    return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+  }
   if (!kind) {
     return { status: 'invalid', message: 'kind is required' };
   }

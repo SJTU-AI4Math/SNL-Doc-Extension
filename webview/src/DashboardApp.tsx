@@ -24,6 +24,7 @@
 // message; when the list is empty the section shows only that bar.
 
 import React, { useEffect, useMemo, useState } from 'react';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import { Button } from './components/Button';
 import { IconButton } from './components/IconButton';
 import { Icon } from './components/Icon';
@@ -44,7 +45,8 @@ import {
   PANEL_STYLE,
   type VsCodeApi
 } from './vscodeApi';
-import { use_preferences_revision } from './runtime/preferencesRuntime';
+import { use_content_language, use_preferences_revision } from './runtime/preferencesRuntime';
+import { resolve_localized_string } from '../../src/localizedContent';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 
 const DASHBOARD_MESSAGES = defineUiMessages(
@@ -123,13 +125,13 @@ interface MacroKind {
 interface EntryData {
   id: string;
   kind: string;
-  title: string;
+  title: Localized<string, string>;
   content: {
     snl?: string;
-    typst?: string;
-    latex?: string;
-    markdown?: string;
-    text?: string;
+    typst?: Localized<string, string>;
+    latex?: Localized<string, string>;
+    markdown?: Localized<string, string>;
+    text?: Localized<string, string>;
   };
   /** TEMPORARY: exactly one Contributor string; this shape may change. */
   contribution_info?: string | null;
@@ -1194,7 +1196,11 @@ function populatedFormats(entry: EntryData): string {
   ];
   const present = order.filter((k) => {
     const v = entry.content?.[k];
-    return typeof v === 'string' && v.trim().length > 0;
+    return typeof v === 'string'
+      ? v.trim().length > 0
+      : !!v && Object.values(v.values).some(
+          (projection) => typeof projection === 'string' && projection.trim().length > 0
+        );
   });
   return present.length > 0 ? present.join(', ') : '—';
 }
@@ -1215,6 +1221,7 @@ function EntriesTable({
   onDelete: (id: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
+  const contentLanguage = use_content_language();
   const metricContext = useMemo(
     () => buildEntryMetricContext(entries),
     [entries]
@@ -1241,6 +1248,7 @@ function EntriesTable({
       </thead>
       <tbody>
         {entries.map((entry) => {
+          const entryTitle = resolve_localized_string(entry.title, contentLanguage);
           const kind = kinds.find((k) => k.id === entry.kind);
           const metrics = computeEntryMetrics(
             entry.content?.snl,
@@ -1250,7 +1258,7 @@ function EntriesTable({
           return (
             <ClickableRow
               key={entry.id}
-              label={t('editEntry', { title: entry.title })}
+              label={t('editEntry', { title: entryTitle })}
               onActivate={() => onOpen(entry.id)}
               primaryCellIndex={1}
             >
@@ -1261,7 +1269,7 @@ function EntriesTable({
                   width="2rem"
                 />
               </td>
-              <td style={CELL}>{entry.title}</td>
+              <td style={CELL}>{entryTitle}</td>
               <td style={{ ...CELL, ...MONO }}>{entry.id}</td>
               <td style={CELL}>
                 {kind ? (
@@ -1321,7 +1329,11 @@ function RelationshipsTable({
   onDelete: (id: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
-  const titleById = new Map(entries.map((e) => [e.id, e.title || t('untitled')]));
+  const contentLanguage = use_content_language();
+  const titleById = new Map(entries.map((entry) => [
+    entry.id,
+    resolve_localized_string(entry.title, contentLanguage) || t('untitled')
+  ]));
   return (
     <table
       style={{
@@ -1377,9 +1389,10 @@ function EndpointCell({
   title
 }: {
   id: string;
-  title: string | undefined;
+  title: Localized<string, string> | undefined;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
+  const contentLanguage = use_content_language();
   if (!title) {
     return (
       <span
@@ -1398,7 +1411,7 @@ function EndpointCell({
       <span style={{ ...MONO, marginRight: '0.4rem', opacity: 0.75 }}>
         {id}
       </span>
-      <span>{title}</span>
+      <span>{resolve_localized_string(title, contentLanguage)}</span>
     </span>
   );
 }

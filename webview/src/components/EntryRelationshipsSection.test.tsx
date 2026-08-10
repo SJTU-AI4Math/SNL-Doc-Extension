@@ -4,6 +4,7 @@ import {
   EntryRelationshipsSection,
   type EntryRelationshipRow
 } from './EntryRelationshipsSection';
+import { set_content_language } from '../runtime/preferencesRuntime';
 
 const row = (over: Partial<EntryRelationshipRow> = {}): EntryRelationshipRow => ({
   id: 'r1',
@@ -48,6 +49,19 @@ describe('EntryRelationshipsSection', () => {
     expect(q.getByText('depends')).toBeTruthy();
     expect(q.getByText('Alpha')).toBeTruthy();
     expect(q.getByText('alpha')).toBeTruthy();
+  });
+
+  it('renders localized relationship titles in the panel content language', () => {
+    set_content_language('zh-CN');
+    const { q, expand } = mount([row({
+      otherTitle: {
+        type: 'i18n', default_language: 'en',
+        values: { en: 'Alpha', 'zh-CN': '阿尔法' }
+      }
+    })]);
+    expand();
+    expect(q.getByText('阿尔法')).toBeTruthy();
+    set_content_language('en');
   });
 
   it('falls back to the id when the other entry has no title', () => {

@@ -54,7 +54,7 @@ interface GraphNodeOut {
   id: string;
   /** Current-storage Entry package identity; never derived from Library membership. */
   packageId: string;
-  title: string;
+  title: EntryData['title'];
   kind: string; // entry kind name (fallback: kind id)
   kindId: string;
   color: string; // stroke/border color from kind palette

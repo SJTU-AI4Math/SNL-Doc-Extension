@@ -31,6 +31,7 @@ let missingSecondEntity = false;
 let missingEntityStorageMetadata = false;
 let missingOwnerManifest = false;
 let malformedRelationships = false;
+let localizedEntryTitles = false;
 /** Messages the panel posted to its webview. */
 const posted: Array<Record<string, unknown>> = [];
 /** Commands the panel executed (used to observe findActiveMacroPackage). */
@@ -91,7 +92,13 @@ vi.mock('vscode', () => {
         });
       case 'entries.json':
         return JSON.stringify([
-          { id: 'e1', title: 'First', kind: 'k1', content: { snl: 'x' } },
+          {
+            id: 'e1',
+            title: localizedEntryTitles
+              ? { type: 'i18n', default_language: 'en', values: { en: 'First', 'zh-CN': '第一' } }
+              : 'First',
+            kind: 'k1', content: { snl: 'x' }
+          },
           { id: 'e2', title: 'Second', kind: 'k1', content: { snl: 'y' } }
         ]);
       case 'relationships.json':
@@ -258,6 +265,7 @@ function reset(): void {
   missingEntityStorageMetadata = false;
   missingOwnerManifest = false;
   malformedRelationships = false;
+  localizedEntryTitles = false;
   posted.length = 0;
   commands.length = 0;
   dashboardGate = null;
@@ -294,6 +302,22 @@ describe('infoview panel read cost', () => {
 
     configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
     expect(panelTitle).toBe('SNL — First');
+  }, 10_000);
+
+  it('updates the native Entry tab from this panel content language only', async () => {
+    localizedEntryTitles = true;
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+    expect(panelTitle).toBe('SNL — First');
+
+    await onMessage({ type: 'snl.content-language/changed', language: 'zh-CN' });
+    expect(panelTitle).toBe('SNL — 第一');
+
+    configurationHandlers.at(-1)?.({ affectsConfiguration: (key) => key === 'snlDoc.locale' });
+    expect(panelTitle).toBe('SNL — 第一');
   }, 10_000);
 
   it('derives a one-Library return route when no origin was supplied', async () => {

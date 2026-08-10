@@ -8,6 +8,12 @@ import {
   queryKey
 } from './components/interactionModel';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
+import {
+  is_valid_i18n_string,
+  resolve_localized_string
+} from '../../src/localizedContent';
+import { use_content_language } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages('snoogl', {
   title: 'SNoogL', subtitle: "Search across your workspace's entries and macros.",
@@ -44,7 +50,7 @@ interface Filters {
 interface HitEntry {
   kind: 'entry';
   id: string;
-  title: string;
+  title: Localized<string, string>;
   entryKind: string | null;
   score: number;
 }
@@ -95,7 +101,7 @@ const isHit = (value: unknown): value is Hit => {
   if (!isRecord(value) || typeof value.id !== 'string' ||
       typeof value.score !== 'number') return false;
   if (value.kind === 'entry') {
-    return typeof value.title === 'string' &&
+    return (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
       (value.entryKind === null || typeof value.entryKind === 'string');
   }
   return value.kind === 'macro' && typeof value.packageFile === 'string' &&
@@ -545,6 +551,7 @@ function ResultList({
   onOpen: (h: Hit) => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const [activeIdx, setActiveIdx] = useState(0);
   const listboxId = `snoogl-${mode}-results`;
 
@@ -604,6 +611,9 @@ function ResultList({
     >
       {results.map((r, i) => {
         const active = i === activeIdx;
+        const entryTitle = r.kind === 'entry'
+          ? resolve_localized_string(r.title, contentLanguage)
+          : '';
         return (
           <li
             id={`${listboxId}-option-${i}`}
@@ -643,7 +653,7 @@ function ResultList({
             >
               {r.id || <em style={{ opacity: 0.65 }}>{t('untitled')}</em>}
             </span>
-            {r.kind === 'entry' && r.title ? (
+            {r.kind === 'entry' && entryTitle ? (
               <span
                 style={{
                   opacity: 0.8,
@@ -655,7 +665,7 @@ function ResultList({
                   whiteSpace: 'nowrap'
                 }}
               >
-                {r.title}
+                {entryTitle}
               </span>
             ) : null}
             {r.kind === 'entry' && r.entryKind ? (

@@ -36,6 +36,8 @@ import { EntrySurface, type EntryOption } from '../render/EntrySurface';
 import type { MacroRecord } from '../render/macroData';
 import { buildPopoverClosure, type ClosureResult } from './popoverClosure';
 import type { EntryDetail } from './entryDetailBridge';
+import { resolve_localized_string } from '../../../src/localizedContent';
+import { get_content_language } from '../runtime/preferencesRuntime';
 
 /** How long one Entry may take to settle before we ship the fallback. */
 export const PRERENDER_TIMEOUT_MS = 4000;
@@ -213,7 +215,10 @@ export async function prerenderPopovers(
 
         const html = settled
           ? harvestFragment(host)
-          : fallbackFragment(entryId, detail.entry.title);
+          : fallbackFragment(
+              entryId,
+              resolve_localized_string(detail.entry.title, get_content_language())
+            );
 
         root.unmount();
         root = null;

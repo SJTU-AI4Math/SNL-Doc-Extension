@@ -1,20 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import {
   apply_preferences_snapshot,
+  create_content_language_store,
   create_webview_reader_runtime,
+  get_content_language,
   get_formatter_preferences,
   get_popover_preferences,
-  get_supported_languages
+  get_supported_languages,
+  set_content_language
 } from './preferencesRuntime';
 
 describe('webview preference Reader runtime', () => {
-  it('queries the current document attributes on every run', () => {
+  it('uses panel-scoped content language independently from the global UI language', () => {
+    expect(get_supported_languages()).toEqual([]);
     document.documentElement.lang = 'en';
+    set_content_language('zh-CN');
     const runtime = create_webview_reader_runtime(document.documentElement);
     const language = ({ language }: { language: string }): string => language;
-    expect(runtime.run_reader(language)).toBe('en');
-    document.documentElement.lang = 'zh-CN';
     expect(runtime.run_reader(language)).toBe('zh-CN');
+    document.documentElement.lang = 'en';
+    expect(runtime.run_reader(language)).toBe('zh-CN');
+    set_content_language('fr');
+    expect(runtime.run_reader(language)).toBe('fr');
+    expect(get_content_language()).toBe('fr');
+  });
+
+  it('keeps content-language stores isolated between panels', () => {
+    const left = create_content_language_store('en');
+    const right = create_content_language_store('en');
+    left.set('zh-CN');
+    expect(left.get()).toBe('zh-CN');
+    expect(right.get()).toBe('en');
   });
 
   it('applies only newer snapshots and updates document attributes', () => {

@@ -17,7 +17,10 @@ import {
   type SnlInteractionContext,
   type SnlRenderHooks
 } from '@sjtu-ai4math/snl-basics/entry';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
+import { resolve_localized_string } from '../../../src/localizedContent';
 import {
+  get_content_language,
   get_popover_preferences,
   use_preferences_revision,
   webview_language_runtime
@@ -30,7 +33,7 @@ export interface EntryOption {
   id: string;
   /** Stable current-storage package identity used for exact entity reads. */
   package?: string;
-  title: string;
+  title: Localized<string, string>;
   hasContent: boolean;
   /** Raw SNL used by Basics to resolve cross-Entry x@source bindings. */
   snl?: string;
@@ -41,7 +44,7 @@ export type EntryContent = BasicsEntryContent;
 export interface EntryData {
   id: string;
   kind: string;
-  title: string;
+  title: Localized<string, string>;
   content: EntryContent;
   /** New writes are scalar; older structured values remain opaque/read-only. */
   contribution_info?: unknown;
@@ -105,15 +108,26 @@ function hasStructuralPointer(value: unknown): boolean {
 }
 
 /** Local query adapter used only for Basics's cross-Entry context resolution. */
-function createEntryDataDriver(entry: EntryData, entries: EntryOption[]): EntryDataDriver {
-  const pool = new Map<string, EntryData>();
-  pool.set(entry.id, entry);
+function createEntryDataDriver(
+  entry: EntryData,
+  entries: EntryOption[],
+  language: string
+): EntryDataDriver {
+  const pool = new Map<string, {
+    id: string;
+    kind: string;
+    title: string;
+    content: EntryContent;
+    contribution_info?: unknown;
+    pointer: unknown;
+  }>();
+  pool.set(entry.id, { ...entry, title: resolve_localized_string(entry.title, language) });
   for (const option of entries) {
     if (pool.has(option.id)) continue;
     pool.set(option.id, {
       id: option.id,
       kind: '',
-      title: option.title,
+      title: resolve_localized_string(option.title, language),
       content: option.snl === undefined ? {} : { snl: option.snl },
       contribution_info: null,
       pointer: null
@@ -151,6 +165,11 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
+  const contentLanguage = get_content_language();
+  const resolvedEntry = useMemo(
+    () => ({ ...entry, title: resolve_localized_string(entry.title, contentLanguage) }),
+    [contentLanguage, entry]
+  );
   const hoverEnabled = get_popover_preferences().hoverEnabled;
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
@@ -171,11 +190,10 @@ export function EntryRender({
   );
   const contextRevision = entryContextRevision(entry, entries);
   const entryDataDriver = useMemo(
-    () => createEntryDataDriver(entry, entries),
-    // The adapter only queries ids and SNL. Title/pointer/contribution edits
-    // must not restart context resolution or flash the loading placeholder.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contextRevision]
+    () => createEntryDataDriver(entry, entries, contentLanguage),
+    // Presentation edits do not restart context resolution; a content-language
+    // switch does, because referenced Entry titles are resolved inside the driver.
+    [contextRevision, contentLanguage]
   );
 
   const hoverStateRef = useRef<{
@@ -303,7 +321,7 @@ export function EntryRender({
   return (
     <BasicsEntrySurface
       key={`preferences-${preferencesRevision}`}
-      entry={entry}
+      entry={resolvedEntry}
       kind={kind}
       entry_data_driver={entryDataDriver}
       macro_data_driver={macroDataDriver}

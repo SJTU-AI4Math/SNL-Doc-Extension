@@ -55,6 +55,8 @@ import {
   defineUiMessages,
   useUiMessages
 } from '../i18n/uiMessages';
+import { resolve_localized_string } from '../../../src/localizedContent';
+import { use_content_language } from '../runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages(
   'entityIdSearch',
@@ -251,6 +253,7 @@ export function EntityIdSearchBox(
     suggestionsInFlow = false
   } = props;
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
 
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
@@ -272,14 +275,14 @@ export function EntityIdSearchBox(
     for (const e of entries) {
       if (
         e.id.toLowerCase().includes(needle) ||
-        e.title.toLowerCase().includes(needle)
+        resolve_localized_string(e.title, contentLanguage).toLowerCase().includes(needle)
       ) {
         matched.push(e);
         if (matched.length >= maxResults) break;
       }
     }
     return matched;
-  }, [entries, trimmed, maxResults]);
+  }, [contentLanguage, entries, trimmed, maxResults]);
 
   // Clamp the highlight so it stays valid as results shrink; do NOT reset it
   // on every keystroke (that would fight the user's ArrowDown state).
@@ -474,7 +477,9 @@ export function EntityIdSearchBox(
             {resolved.id}
           </span>
           <span>→</span>
-          <span style={{ fontWeight: 500 }}>{resolved.title || t('untitled')}</span>
+          <span style={{ fontWeight: 500 }}>
+            {resolve_localized_string(resolved.title, contentLanguage) || t('untitled')}
+          </span>
           {resolved.hasContent ? null : (
             <span
               title={t('stubTitle')}
@@ -517,6 +522,7 @@ export function EntityIdSearchBox(
         >
           {results.map((e, i) => {
             const isHighlight = i === highlightIdx;
+            const entryTitle = resolve_localized_string(e.title, contentLanguage);
             return (
               <li
                 id={`${listboxId}-option-${i}`}
@@ -560,7 +566,7 @@ export function EntityIdSearchBox(
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {e.title || t('untitled')}
+                  {entryTitle || t('untitled')}
                 </span>
                 {e.hasContent ? null : (
                   <span

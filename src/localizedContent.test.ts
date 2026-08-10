@@ -4,7 +4,9 @@ import {
   localized_string_or_undefined,
   macro_template_variants,
   normalize_entry_content,
+  normalize_entry_title,
   normalize_macro_template,
+  resolve_localized_string,
   template_placeholder_signature
 } from './localizedContent';
 
@@ -26,6 +28,19 @@ describe('localized persistence boundaries', () => {
       snl: 'Group(G)',
       markdown: localized
     });
+  });
+
+  it('preserves partial localized Entry titles and resolves them by content language', () => {
+    const title = {
+      type: 'i18n' as const,
+      default_language: 'en',
+      values: JSON.parse('{"zh-CN":"群","__proto__":"Prototype title"}') as Record<string, string>
+    };
+    expect(normalize_entry_title(title)).toEqual(title);
+    expect(resolve_localized_string(title, 'zh-CN')).toBe('群');
+    expect(resolve_localized_string(title, '__proto__')).toBe('Prototype title');
+    expect(resolve_localized_string(title, 'fr')).toBe('群');
+    expect(normalize_entry_title(' Plain title ')).toBe('Plain title');
   });
 
   it('rejects localized values in invariant fields', () => {

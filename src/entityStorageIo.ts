@@ -132,7 +132,8 @@ function assertExpectedPath(actual: string, expected: string): void {
 
 function assertCanonicalEntryPayload(path: string, entry: Record<string, unknown>): void {
   if (typeof entry.kind !== 'string' || !entry.kind ||
-      typeof entry.title !== 'string' || !isRecord(entry.content) ||
+      (typeof entry.title !== 'string' && !is_valid_i18n_string(entry.title)) ||
+      !isRecord(entry.content) ||
       !Object.hasOwn(entry, 'pointer')) {
     throw new Error(`${path} has an invalid canonical Entry payload.`);
   }

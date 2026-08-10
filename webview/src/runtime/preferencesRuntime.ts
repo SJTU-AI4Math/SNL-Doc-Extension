@@ -32,6 +32,31 @@ export interface PopoverPreferences {
   hoverEnabled: boolean;
 }
 
+export interface ContentLanguageStore {
+  get(): string;
+  set(language: string): void;
+  subscribe(subscriber: () => void): () => void;
+}
+
+/** One module instance is bundled into each Webview, so this store is Panel-scoped. */
+export function create_content_language_store(initialLanguage: string): ContentLanguageStore {
+  let language = initialLanguage || 'en';
+  const listeners = new Set<() => void>();
+  return {
+    get: () => language,
+    set: (nextLanguage) => {
+      const next = nextLanguage.trim();
+      if (!next || next === language) return;
+      language = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (subscriber) => {
+      listeners.add(subscriber);
+      return () => listeners.delete(subscriber);
+    }
+  };
+}
+
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
   generation: string;
@@ -46,17 +71,24 @@ let renderRevision = 0;
 const documentRoot = typeof document !== 'undefined'
   ? document.documentElement
   : ({ lang: 'en', dataset: {} } as unknown as HTMLElement);
+const contentLanguageStore = create_content_language_store(
+  documentRoot.dataset.snlContentLanguage || documentRoot.lang || 'en'
+);
 let configuredMotion = documentRoot.dataset.snlMotion || 'auto';
 let formatterPreferences: FormatterPreferences = {
   indentSpaces: 4,
   inlineParenthesisDepth: 3
 };
 let popoverPreferences: PopoverPreferences = { hoverEnabled: true };
-let supportedLanguages: SupportedLanguageDescriptor[] = [
-  { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
-  { id: 'en', display_name: 'English (US)' }
-];
+// Fail closed until PreferencesHost publishes the repo-authoritative catalog.
+let supportedLanguages: SupportedLanguageDescriptor[] = [];
 const subscribers = new Set<() => void>();
+
+contentLanguageStore.subscribe(() => {
+  documentRoot.dataset.snlContentLanguage = contentLanguageStore.get();
+  renderRevision += 1;
+  for (const subscriber of subscribers) subscriber();
+});
 
 function safe_formatter_integer(value: unknown, fallback: number, maximum: number): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum
@@ -76,6 +108,14 @@ export function get_supported_languages(): SupportedLanguageDescriptor[] {
   return supportedLanguages.map((language) => ({ ...language }));
 }
 
+export function get_content_language(): string {
+  return contentLanguageStore.get();
+}
+
+export function set_content_language(language: string): void {
+  contentLanguageStore.set(language);
+}
+
 function effective_motion(value: string): string {
   if (value !== 'auto') return value;
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
@@ -87,12 +127,20 @@ function effective_motion(value: string): string {
 documentRoot.dataset.snlMotion = effective_motion(configuredMotion);
 
 export function create_webview_reader_runtime(
-  root: HTMLElement
+  _root: HTMLElement
 ): ReaderRuntime<LanguageEnvironment<string>> {
   return new ReaderRuntime({
     queries: {
-      query_environment: () => ({ language: root.lang || 'en' })
+      query_environment: () => ({ language: contentLanguageStore.get() })
     }
+  });
+}
+
+export function create_webview_ui_reader_runtime(
+  root: HTMLElement
+): ReaderRuntime<LanguageEnvironment<string>> {
+  return new ReaderRuntime({
+    queries: { query_environment: () => ({ language: root.lang || 'en' }) }
   });
 }
 
@@ -159,6 +207,14 @@ export function use_supported_languages(): readonly SupportedLanguageDescriptor[
   return supportedLanguages;
 }
 
+export function use_content_language(): string {
+  return useSyncExternalStore(
+    contentLanguageStore.subscribe,
+    contentLanguageStore.get,
+    contentLanguageStore.get
+  );
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event: MessageEvent<unknown>) => {
     const value = event.data;
@@ -187,6 +243,12 @@ if (typeof window !== 'undefined') {
   }
   const api = getVsCodeApi();
   if (api) {
+    contentLanguageStore.subscribe(() => {
+      api.postMessage({
+        type: 'snl.content-language/changed',
+        language: contentLanguageStore.get()
+      });
+    });
     installWorkspaceAssetBroker(api);
     api.postMessage({ type: 'snl.preferences/ready' });
   }
@@ -196,3 +258,4 @@ if (typeof window !== 'undefined') {
 export const webview_language_runtime = create_webview_reader_runtime(
   documentRoot
 );
+export const webview_ui_language_runtime = create_webview_ui_reader_runtime(documentRoot);

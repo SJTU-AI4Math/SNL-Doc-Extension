@@ -85,19 +85,15 @@ afterEach(() => {
 });
 
 describe('restored draft in edit mode', () => {
-  it('puts title editing and permanent metadata in the compact editor header layout', async () => {
+  it('puts the localized title editor above the permanent metadata row', async () => {
     const view = render(<CreateEntryApp />);
     sendInit();
 
     const title = await waitFor(() => titleInput(view));
-    const navigation = title.closest('nav');
-    expect(navigation).toBeTruthy();
-    expect(title.readOnly).toBe(true);
-    const editTitle = navigation?.querySelector<HTMLButtonElement>('button[aria-label="Edit title"]');
-    expect(editTitle).toBeTruthy();
-    expect(editTitle?.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
-    fireEvent.click(editTitle!);
+    expect(title.closest('nav')).toBeNull();
     expect(title.readOnly).toBe(false);
+    expect(view.getByText('Title (I18N)')).toBeTruthy();
+    expect(view.getByText('Title language: en')).toBeTruthy();
 
     const metadata = view.container.querySelector('[data-entry-metadata-row]');
     expect(metadata).toBeTruthy();

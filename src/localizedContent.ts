@@ -44,6 +44,43 @@ export function localized_string_or_undefined(
   throw new Error('localized string must be a string or I18n map');
 }
 
+export function normalize_entry_title(value: unknown): Localized<string, string> {
+  if (typeof value === 'string') return value.trim();
+  if (!is_valid_i18n_string(value)) {
+    throw new Error('Entry title must be a string or valid partial I18n map');
+  }
+  const values: Record<string, string> = {};
+  for (const language of Object.keys(value.values)) {
+    Object.defineProperty(values, language, {
+      value: value.values[language], enumerable: true, configurable: true, writable: true
+    });
+  }
+  return {
+    type: 'i18n',
+    default_language: value.default_language,
+    values
+  };
+}
+
+export function resolve_localized_string(
+  value: Localized<string, string> | null | undefined,
+  language: string
+): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (Object.prototype.hasOwnProperty.call(value.values, language)) {
+    return value.values[language] ?? '';
+  }
+  if (Object.prototype.hasOwnProperty.call(value.values, value.default_language)) {
+    return value.values[value.default_language] ?? '';
+  }
+  for (const sourceLanguage of Object.keys(value.values)) {
+    const candidate = value.values[sourceLanguage];
+    if (candidate !== undefined) return candidate;
+  }
+  return '';
+}
+
 export interface LocalizedEntryContent {
   snl?: string;
   typst?: Localized<string, string>;

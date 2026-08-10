@@ -1,7 +1,10 @@
 import React, { useId, useState } from 'react';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import { Disclosure } from './Disclosure';
 import { Icon } from './Icon';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+import { resolve_localized_string } from '../../../src/localizedContent';
+import { use_content_language } from '../runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages(
   'entry.relationships',
@@ -29,7 +32,7 @@ export interface EntryRelationshipRow {
   label: string;
   direction: 'outgoing' | 'incoming';
   otherId: string;
-  otherTitle: string;
+  otherTitle: Localized<string, string>;
   otherKindId?: string;
 }
 
@@ -58,6 +61,7 @@ export function EntryRelationshipsSection({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const sectionId = useId();
   const panelId = `entry-relationships-${sectionId.replace(/[^a-z0-9_-]+/gi, '-')}`;
 
@@ -115,7 +119,9 @@ export function EntryRelationshipsSection({
                 gap: '0.25rem'
               }}
             >
-              {relationships.map((row) => (
+              {relationships.map((row) => {
+                const otherTitle = resolve_localized_string(row.otherTitle, contentLanguage) || row.otherId;
+                return (
                 <li
                   key={row.id}
                   style={{
@@ -154,10 +160,10 @@ export function EntryRelationshipsSection({
                         textAlign: 'left'
                       }}
                     >
-                      {row.otherTitle || row.otherId}
+                      {otherTitle}
                     </button>
                   ) : (
-                    <span>{row.otherTitle || row.otherId}</span>
+                    <span>{otherTitle}</span>
                   )}
                   <span
                     style={{
@@ -169,7 +175,8 @@ export function EntryRelationshipsSection({
                     {row.otherId}
                   </span>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           ) : (
             <p

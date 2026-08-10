@@ -1,8 +1,9 @@
 import type { EntryOption } from './EntrySurface';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 
 export interface DraftEntryContext {
   id: string;
-  title: string;
+  title: Localized<string, string>;
   snl: string;
 }
 

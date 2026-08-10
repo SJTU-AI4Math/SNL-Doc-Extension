@@ -27,6 +27,12 @@ import {
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
+import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
+import {
+  is_valid_i18n_string,
+  resolve_localized_string
+} from '../../src/localizedContent';
+import { use_content_language } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages('relationshipGraph', {
   title: 'SNL Relationship Graph', infoview: 'Infoview', backInfoview: 'Back to SNL Infoview',
@@ -72,6 +78,8 @@ interface GraphNode {
   background: string;
 }
 
+type GraphNodeWire = Omit<GraphNode, 'title'> & { title: Localized<string, string> };
+
 interface GraphEdge {
   id: string;
   from: string;
@@ -87,7 +95,7 @@ interface GraphMessage {
   type: 'graph';
   scope: Scope;
   title: string;
-  nodes: GraphNode[];
+  nodes: GraphNodeWire[];
   edges: GraphEdge[];
   warnings: string[];
   /** Full pool for popover render (cross-entry macro source resolution). */
@@ -115,16 +123,18 @@ const isStringRecord = (value: unknown): value is Record<string, string> =>
 const isScope = (value: unknown): value is Scope =>
   isRecord(value) && (value.mode === 'pool' ||
     (value.mode === 'library' && typeof value.slug === 'string'));
-const isGraphNode = (value: unknown): value is GraphNode =>
-  isRecord(value) && ['id', 'packageId', 'title', 'kind', 'kindId', 'color', 'background']
-    .every((key) => typeof value[key] === 'string');
+const isGraphNode = (value: unknown): value is GraphNodeWire =>
+  isRecord(value) && ['id', 'packageId', 'kind', 'kindId', 'color', 'background']
+    .every((key) => typeof value[key] === 'string') &&
+  (typeof value.title === 'string' || is_valid_i18n_string(value.title));
 const isGraphEdge = (value: unknown): value is GraphEdge =>
   isRecord(value) && ['id', 'from', 'to', 'label']
     .every((key) => typeof value[key] === 'string') &&
   typeof value.isDependency === 'boolean' &&
   (value.isAtomic === null || typeof value.isAtomic === 'boolean');
 const isEntryOption = (value: unknown): value is EntryOption =>
-  isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' &&
+  isRecord(value) && typeof value.id === 'string' &&
+  (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
   (value.hasContent === undefined || typeof value.hasContent === 'boolean') &&
   (value.snl === undefined || typeof value.snl === 'string');
 const isMacroKind = (value: unknown): value is MacroKindPaletteSource =>
@@ -730,6 +740,7 @@ function SnlGraphInner({
   apiRef: React.MutableRefObject<VsCodeApi | undefined>;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
@@ -787,9 +798,14 @@ function SnlGraphInner({
       kept.add(e.from);
       kept.add(e.to);
     }
-    const filteredNodes = kindKeptNodes.filter((n) => kept.has(n.id));
+    const filteredNodes: GraphNode[] = kindKeptNodes
+      .filter((n) => kept.has(n.id))
+      .map((node) => ({
+        ...node,
+        title: resolve_localized_string(node.title, contentLanguage)
+      }));
     return layout(filteredNodes, filteredEdges);
-  }, [msg, depFilter, kindFilter]);
+  }, [msg, depFilter, kindFilter, contentLanguage]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current

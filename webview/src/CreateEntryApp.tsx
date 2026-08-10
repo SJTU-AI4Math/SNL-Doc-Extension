@@ -54,6 +54,7 @@ import {
   type EntryRelationshipRow
 } from './components/EntryRelationshipsSection';
 import { PanelHeader } from './components/PanelHeader';
+import { LocalizedEditScope, useLocalizedBinding } from './components/LocalizedEditScope';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
 import { Icon } from './components/Icon';
@@ -101,7 +102,9 @@ import { loadDraft, saveDraft, usePersistedDraft, useSaveShortcut } from './comp
 import { merge_localized_projection } from './runtime/localizedDraft';
 import {
   get_formatter_preferences,
+  use_content_language,
   use_preferences_revision,
+  use_supported_languages,
   webview_language_runtime
 } from './runtime/preferencesRuntime';
 import {
@@ -110,6 +113,7 @@ import {
 } from './render/macroKindPalette';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
+import { resolve_localized_string } from '../../src/localizedContent';
 import { MonacoTextEditor } from './entry-editor/MonacoTextEditor';
 
 
@@ -144,8 +148,15 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   noKindsBefore: 'No entry kinds defined — run',
   initializeKinds: 'Initialize Entry Kinds',
   noKindsAfter: 'first. The form is disabled until at least one kind exists.',
-  title: 'Title',
+  title: 'Title (I18N)',
+  titleInputLabel: 'Title',
   titlePlaceholder: 'e.g. Pythagorean Theorem',
+  titleLanguage: 'Title language: {language}',
+  titleInvariant: 'Invariant title',
+  titleExplicit: 'Explicit translation',
+  titleFallback: 'Showing fallback from {language}',
+  titleMissing: 'No title in this language',
+  clearTitleTranslation: 'Clear this title translation',
   idReadonly: 'ID (readonly)',
   id: 'ID',
   idPlaceholder: 'e.g. pythagorean-theorem',
@@ -318,7 +329,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   editEntry: '编辑条目', createEntry: '创建条目', editEntryHeader: '编辑条目', createEntryHeader: '创建条目', editTitle: '编辑标题', dashboard: '仪表板', backDashboard: '返回仪表板',
   viewInfoview: '在信息视图中查看', openEntryInfoview: '在信息视图阅读界面中打开条目“{id}”',
   noKindsBefore: '未定义条目种类——请先运行', initializeKinds: '初始化条目种类', noKindsAfter: '。在至少存在一种条目种类之前，表单将被禁用。',
-  title: '标题', titlePlaceholder: '例如：勾股定理', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
+  title: '标题（I18N）', titleInputLabel: '标题', titlePlaceholder: '例如：勾股定理', titleLanguage: '标题语言：{language}', titleInvariant: '通用标题', titleExplicit: '当前语言已有翻译', titleFallback: '正在显示来自 {language} 的回退标题', titleMissing: '当前语言没有标题', clearTitleTranslation: '清除当前语言标题', idReadonly: 'ID（只读）', id: 'ID', idPlaceholder: '例如：pythagorean-theorem',
   immutableIdTitle: 'ID 不可变；如需重命名，请删除后重新创建',
   overwriteUuidTitle: '用新的 UUID v4 覆盖 ID（允许但不推荐——强烈建议使用语义化 ID）',
   fillUuidTitle: '用新的 UUID v4 填充 ID（仅当没有合适的语义化 ID 时使用）', regenerateUuid: '重新生成 UUID', useUuid: '改用 UUID',
@@ -396,7 +407,7 @@ interface ExistingEntry {
   id: string;
   package?: string;
   kind: string;
-  title: string;
+  title: Localized<string, string>;
   content: {
     snl?: string;
     typst?: Localized<string, string>;
@@ -558,6 +569,79 @@ function projectLocalizedContent(
   };
 }
 
+interface EntryTitleLocalizedEditorProps {
+  value: Localized<string, string>;
+  onChange(value: Localized<string, string>): void;
+  language: string;
+  availableLanguages: readonly string[];
+  label: string;
+  inputLabel: string;
+  placeholder: string;
+  languageLabel: string;
+  invariantLabel: string;
+  explicitLabel: string;
+  fallbackLabel(sourceLanguage: string): string;
+  missingLabel: string;
+  clearLabel: string;
+}
+
+function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React.ReactElement {
+  return (
+    <LocalizedEditScope
+      key={props.language}
+      initialLanguage={props.language}
+      availableLanguages={props.availableLanguages}
+    >
+      <EntryTitleLocalizedField {...props} />
+    </LocalizedEditScope>
+  );
+}
+
+function EntryTitleLocalizedField({
+  value,
+  onChange,
+  label,
+  inputLabel,
+  placeholder,
+  languageLabel,
+  invariantLabel,
+  explicitLabel,
+  fallbackLabel,
+  missingLabel,
+  clearLabel
+}: EntryTitleLocalizedEditorProps): React.ReactElement {
+  const binding = useLocalizedBinding({ value, onChange, defaultLanguage: 'en' });
+  const status = binding.state === 'invariant'
+    ? invariantLabel
+    : binding.state === 'explicit'
+      ? explicitLabel
+      : binding.state === 'fallback'
+        ? fallbackLabel(binding.sourceLanguage ?? '')
+        : missingLabel;
+  return (
+    <section className="snl-localized-title-editor">
+      <div className="snl-localized-title-editor__heading">
+        <label htmlFor="snl-entry-title">{label}</label>
+        <span>{languageLabel}</span>
+        <span data-localized-state={binding.state}>{status}</span>
+        {binding.canClear ? (
+          <Button type="button" variant="secondary" onClick={binding.clearValue}>
+            {clearLabel}
+          </Button>
+        ) : null}
+      </div>
+      <input
+        id="snl-entry-title"
+        type="text"
+        aria-label={inputLabel}
+        value={binding.explicitValue ?? binding.resolvedValue ?? ''}
+        placeholder={placeholder}
+        onChange={(event) => binding.setValue(event.target.value)}
+      />
+    </section>
+  );
+}
+
 function newUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -655,10 +739,9 @@ export function CreateEntryApp(): React.ReactElement {
   // preview; the EntryRender path derives its own query internally so we
   // no longer need one at this layer.)
 
-  const [title, setTitle] = useState('');
-  const [titleEditing, setTitleEditing] = useState(true);
-  const titleInputRef = useRef<HTMLInputElement | null>(null);
-  const titleModeInitializedRef = useRef(false);
+  const contentLanguage = use_content_language();
+  const supportedLanguages = use_supported_languages();
+  const [title, setTitle] = useState<Localized<string, string>>('');
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
   // (`requireUnique`). In edit mode we still use it — the widget is
@@ -919,8 +1002,6 @@ export function CreateEntryApp(): React.ReactElement {
           setStatus({ kind: 'idle' });
           setTargetState('found');
           setTitle('');
-          setTitleEditing(false);
-          titleModeInitializedRef.current = false;
           setSelectedPackage('_unpackaged');
           activePackageRequestRef.current = null;
           setPackageCreating(false);
@@ -946,10 +1027,6 @@ export function CreateEntryApp(): React.ReactElement {
             Array.isArray(msg.relationships) ? msg.relationships : []
           );
           setMode(msg.mode);
-          if (!titleModeInitializedRef.current) {
-            setTitleEditing(msg.mode === 'create');
-            titleModeInitializedRef.current = true;
-          }
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setKinds(Array.isArray(msg.kinds) ? msg.kinds : []);
           setKindsLoaded(true);
@@ -1033,7 +1110,7 @@ export function CreateEntryApp(): React.ReactElement {
               }
               if (!preserveDraft) {
                 editingIdRef.current = incomingId;
-                setTitle(msg.existing.title || '');
+                setTitle(msg.existing.title ?? '');
                 setSelectedPackage(msg.existing.package || '_unpackaged');
                 setSelectedKind(msg.existing.kind || '');
                 setPointerDraft(pointerDraftFrom(msg.existing.pointer));
@@ -1110,7 +1187,6 @@ export function CreateEntryApp(): React.ReactElement {
           editingIdRef.current = createdId;
           justSavedIdRef.current = createdId;
           setMode('edit');
-          setTitleEditing(false);
           setId(createdId);
           activePackageRequestRef.current = null;
           setPackageCreating(false);
@@ -1246,7 +1322,7 @@ export function CreateEntryApp(): React.ReactElement {
     [kinds, selectedKind]
   );
 
-  const trimmedTitle = title.trim();
+  const trimmedTitle = resolve_localized_string(title, contentLanguage).trim();
   const trimmedId = id.trim();
   // Existing metadata is preserved byte-for-byte until the author actually
   // touches Pointer. A malformed legacy pointer must not block an unrelated
@@ -1306,7 +1382,7 @@ export function CreateEntryApp(): React.ReactElement {
       id: trimmedId,
       package: selectedPackage,
       kind: selectedKind,
-      title: trimmedTitle,
+      title: typeof title === 'string' ? title.trim() : title,
       content: {
         snl: content.snl || undefined,
         ...persistedContent
@@ -1349,7 +1425,7 @@ export function CreateEntryApp(): React.ReactElement {
   useEffect(() => {
     const restored = loadDraft<{
       id: string;
-      title: string;
+      title: Localized<string, string>;
       selectedKind: string;
       selectedPackage?: string;
       content: Record<ContentFormat, string>;
@@ -1490,12 +1566,6 @@ export function CreateEntryApp(): React.ReactElement {
     setSelectedKind(kinds.length > 0 ? kinds[0].id : '');
   }
 
-  useEffect(() => {
-    if (!titleEditing) return;
-    titleInputRef.current?.focus();
-    titleInputRef.current?.select();
-  }, [titleEditing]);
-
   const noKinds = kindsLoaded && kinds.length === 0;
 
   if (mode === 'edit' && targetState === 'notFound') {
@@ -1519,38 +1589,6 @@ export function CreateEntryApp(): React.ReactElement {
       <PanelHeader
         vsApi={apiRef.current}
         title={t(mode === 'edit' ? 'editEntryHeader' : 'createEntryHeader')}
-        titleAction={
-          <>
-            <input
-              ref={titleInputRef}
-              id="snl-entry-title"
-              type="text"
-              aria-label={t('title')}
-              value={title}
-              placeholder={t('titlePlaceholder')}
-              readOnly={!titleEditing}
-              onChange={(event) => setTitle(event.target.value)}
-              onBlur={() => setTitleEditing(false)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === 'Escape') {
-                  event.preventDefault();
-                  event.currentTarget.blur();
-                }
-              }}
-              className="snl-panel-header__title-input"
-              data-editing={titleEditing ? 'true' : 'false'}
-            />
-            <IconButton
-              icon="edit"
-              label={t('editTitle')}
-              title={t('editTitle')}
-              variant="ghost"
-              size="sm"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setTitleEditing(true)}
-            />
-          </>
-        }
         back={{
           label: t('dashboard'),
           title: t('backDashboard'),
@@ -1565,6 +1603,22 @@ export function CreateEntryApp(): React.ReactElement {
               }
             : undefined
         }
+      />
+
+      <EntryTitleLocalizedEditor
+        value={title}
+        onChange={setTitle}
+        language={contentLanguage}
+        availableLanguages={supportedLanguages.map((item) => item.id)}
+        label={t('title')}
+        inputLabel={t('titleInputLabel')}
+        placeholder={t('titlePlaceholder')}
+        languageLabel={t('titleLanguage', { language: contentLanguage })}
+        invariantLabel={t('titleInvariant')}
+        explicitLabel={t('titleExplicit')}
+        fallbackLabel={(source) => t('titleFallback', { language: source })}
+        missingLabel={t('titleMissing')}
+        clearLabel={t('clearTitleTranslation')}
       />
 
       {noKinds ? (
@@ -2047,7 +2101,7 @@ function LivePreview({
 }: {
   kind: EntryKind | undefined;
   entryId: string;
-  title: string;
+  title: Localized<string, string>;
   content: Record<ContentFormat, string>;
   entries: EntryOption[];
   userMacros: MacroRecord;

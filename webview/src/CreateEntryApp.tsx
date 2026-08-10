@@ -2003,6 +2003,7 @@ export function CreateEntryApp(): React.ReactElement {
               macroDataDriver={macroDataDriver}
               macroCandidates={macroCandidates}
               macroOrigin={macroOrigin}
+              kindPalette={kindPalette}
               onOpenMacroEditor={(payload) =>
                 apiRef.current?.postMessage({
                   type: 'openMacroEditor',
@@ -2941,46 +2942,122 @@ export function canvasVisualDeltaToLogical(visualDelta: number, zoom: number): n
   return Number.isFinite(zoom) && zoom > 0 ? visualDelta / zoom : visualDelta;
 }
 
-type CanvasPathPrefixedTreeProps = React.ComponentProps<typeof SnlSyntaxTreeView> & {
+type CanvasStructuredTreeProps = React.ComponentProps<typeof SnlSyntaxTreeView> & {
   canonicalPath: number[];
+  rootPathOwnedByParent?: boolean;
 };
 
 /**
- * A nested SnlSyntaxTreeView reports paths relative to its own root. Canvas
- * interactions, however, require paths relative to the forest root. Prefix the
- * renderer-owned annotations whenever its imperative DOM changes.
+ * Canvas interaction cannot be derived solely from the active render style:
+ * a valid style may intentionally omit one of the Macro's arguments. Keep the
+ * production rendering canonical, but surface each minimal omitted subtree in
+ * a structural rail so it remains independently selectable/editable.
+ *
+ * Nested views report paths relative to their own root, so this component also
+ * prefixes every renderer-owned annotation back to the forest-root path.
  */
-function CanvasPathPrefixedTreeView({
+function CanvasStructuredTreeView({
   canonicalPath,
+  rootPathOwnedByParent = false,
   ...props
-}: CanvasPathPrefixedTreeProps): React.ReactElement {
+}: CanvasStructuredTreeProps): React.ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
   const prefix = canonicalPath.join('.');
+  const [missingPaths, setMissingPaths] = React.useState<number[][]>([]);
 
   React.useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const decorate = (): void => {
+    const decorateAndFindMissing = (): void => {
       host.querySelectorAll<HTMLElement>('[data-tree-path]').forEach((element) => {
         const relative = element.dataset.canvasRelativeTreePath ??
           element.getAttribute('data-tree-path') ?? '';
         element.dataset.canvasRelativeTreePath = relative;
-        const canonical = relative ? `${prefix}.${relative}` : prefix;
+        if (rootPathOwnedByParent && relative === '') {
+          element.removeAttribute('data-tree-path');
+          return;
+        }
+        const canonical = relative
+          ? (prefix ? `${prefix}.${relative}` : relative)
+          : prefix;
         if (element.getAttribute('data-tree-path') !== canonical) {
           element.setAttribute('data-tree-path', canonical);
         }
       });
+
+      const rendered = new Set(
+        Array.from(host.querySelectorAll<HTMLElement>('[data-tree-path]'))
+          .map((element) => element.getAttribute('data-tree-path') ?? '')
+      );
+      const allRelative = canvasTreePaths(props.tree);
+      const next: number[][] = [];
+      for (const relative of allRelative) {
+        const canonical = [...canonicalPath, ...relative];
+        const encoded = canonical.join('.');
+        if (rendered.has(encoded)) continue;
+        // Wrapperless dynamic renderers are still represented by descendants;
+        // the geometry resolver already handles those. A subtree needs a rail
+        // only when neither it nor anything below it exists in the DOM.
+        const descendantPrefix = `${encoded}.`;
+        if (Array.from(rendered).some((path) => path.startsWith(descendantPrefix))) continue;
+        if (next.some((parent) =>
+          parent.length < relative.length &&
+          parent.every((part, index) => relative[index] === part)
+        )) continue;
+        next.push([...relative]);
+      }
+      setMissingPaths((previous) => {
+        const left = previous.map((path) => path.join('.')).join('|');
+        const right = next.map((path) => path.join('.')).join('|');
+        return left === right ? previous : next;
+      });
     };
-    decorate();
-    const observer = new MutationObserver(decorate);
+    decorateAndFindMissing();
+    const observer = new MutationObserver(decorateAndFindMissing);
     observer.observe(host, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [prefix]);
+  }, [canonicalPath, prefix, props.tree, rootPathOwnedByParent]);
 
   return (
-    <div ref={hostRef}>
-      <SnlSyntaxTreeView {...props} />
-    </div>
+    <>
+      <div ref={hostRef}>
+        <SnlSyntaxTreeView {...props} />
+      </div>
+      {missingPaths.length > 0 ? (
+        <div
+          data-canvas-structural-fallbacks
+          style={{ display: 'flex', gap: '0.35rem', alignItems: 'flex-start', marginTop: '0.35rem' }}
+        >
+          {missingPaths.map((relative) => {
+            const child = getNodeAtPath(props.tree, relative.join('.'));
+            if (!child) return null;
+            const canonical = [...canonicalPath, ...relative];
+            const encoded = canonical.join('.');
+            return (
+              <div
+                key={encoded}
+                data-canvas-structural-fallback={encoded}
+                data-tree-path={encoded}
+                data-kind={child.kind}
+                style={{
+                  padding: '0.2rem 0.35rem',
+                  border: '1px dashed var(--vscode-input-placeholderForeground, #888)',
+                  borderRadius: '4px',
+                  background: 'var(--vscode-editorWidget-background, #252526)'
+                }}
+              >
+                <CanvasStructuredTreeView
+                  {...props}
+                  canonicalPath={canonical}
+                  rootPathOwnedByParent
+                  tree={child}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -4158,7 +4235,7 @@ export function GuiCanvasEditor({
               {hole ? (
                 <span aria-hidden="true" style={{ opacity: 0.65 }}>+</span>
               ) : (
-                <CanvasPathPrefixedTreeView
+                <CanvasStructuredTreeView
                   canonicalPath={childPath}
                   tree={child}
                   macro_data_driver={macroDataDriver}
@@ -4260,7 +4337,8 @@ export function GuiCanvasEditor({
                 WebkitUserSelect: 'none'
               }}
             >
-              <SnlSyntaxTreeView
+              <CanvasStructuredTreeView
+                canonicalPath={[]}
                 tree={root}
                 macro_data_driver={macroDataDriver}
                 reader_runtime={webview_language_runtime}
@@ -4995,8 +5073,8 @@ function macroTemplateArity(macro: SnlMacro): number {
   return max + 1;
 }
 
-function paletteFor(kindId: string): KindColoring {
-  return DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
+function paletteFor(kindId: string, kindPalette?: KindPalette): KindColoring {
+  return kindPalette?.[kindId] ?? DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
 }
 
 /**
@@ -5017,6 +5095,7 @@ export function GuiInductiveEditor({
   macroDataDriver,
   macroCandidates,
   macroOrigin,
+  kindPalette,
   onOpenMacroEditor,
   onChange
 }: {
@@ -5026,6 +5105,7 @@ export function GuiInductiveEditor({
   macroDataDriver: MacroDataDriver;
   macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
+  kindPalette?: KindPalette;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   onChange: (nextSnl: string) => void;
 }): React.ReactElement {
@@ -5399,6 +5479,7 @@ export function GuiInductiveEditor({
         entryCandidates={entryCandidates}
         macroCandidates={macroCandidates}
         macroOrigin={macroOrigin}
+        kindPalette={kindPalette}
         onOpenMacroEditor={onOpenMacroEditor}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
@@ -5751,6 +5832,7 @@ function InductiveNode({
   entryCandidates,
   macroCandidates,
   macroOrigin,
+  kindPalette,
   onOpenMacroEditor,
   collapsed,
   onToggleCollapsed,
@@ -5776,6 +5858,7 @@ function InductiveNode({
   entryCandidates: readonly EntryOption[];
   macroCandidates: readonly SnooglSearchCandidate[];
   macroOrigin: Record<string, string>;
+  kindPalette?: KindPalette;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
   onToggleCollapsed: (nodeId: string) => void;
@@ -5912,7 +5995,7 @@ function InductiveNode({
    */
   const reconciledMacroRef = useRef<string | null>(null);
   const effectiveKind = resolveRowKind(node, macroEntry);
-  const palette = paletteFor(effectiveKind);
+  const palette = paletteFor(effectiveKind, kindPalette);
   const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
 
   /**
@@ -6312,6 +6395,7 @@ function InductiveNode({
                 entryCandidates={entryCandidates}
                 macroCandidates={macroCandidates}
                 macroOrigin={macroOrigin}
+                kindPalette={kindPalette}
                 onOpenMacroEditor={onOpenMacroEditor}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}

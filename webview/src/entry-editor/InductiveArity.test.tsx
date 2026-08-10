@@ -91,6 +91,66 @@ describe('Inductive editor arity auto-fill', () => {
     host.remove();
   });
 
+  it('uses the queried Macro Kind and the editor Macro Kind palette for row coloring', async () => {
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'colored'
+          ? Object.assign({}, macro('colored', false, 'C'), { kind: 'custom-kind' })
+          : null
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="colored"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        kindPalette={{
+          'custom-kind': { stroke: '#123456', background: '#abcdef' }
+        }}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('custom-kind'));
+    expect(input.style.borderColor).toBe('rgb(18, 52, 86)');
+    const control = input.closest<HTMLElement>('[data-macro-id-control="true"]')!;
+    expect(control.style.background).toBe('rgba(171, 205, 239, 0.18)');
+  });
+
+  it('propagates the Macro Kind palette to recursively rendered child rows', async () => {
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        if (macro_name === 'container') return macro('container', false, '#0');
+        if (macro_name === 'colored') {
+          return Object.assign({}, macro('colored', false, 'C'), { kind: 'custom-kind' });
+        }
+        return null;
+      }
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="container(colored)"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        kindPalette={{
+          'custom-kind': { stroke: '#123456', background: '#abcdef' }
+        }}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const inputs = view.getAllByRole('textbox') as HTMLInputElement[];
+    const child = inputs[1];
+    await waitFor(() => expect(child.title).toContain('custom-kind'));
+    expect(child.style.borderColor).toBe('rgb(18, 52, 86)');
+    expect(child.closest<HTMLElement>('[data-macro-id-control="true"]')!.style.background)
+      .toBe('rgba(171, 205, 239, 0.18)');
+  });
+
   it('localizes Inductive inputs, Style states, helper copy, and parse errors in Simplified Chinese', async () => {
     document.documentElement.lang = 'zh-CN';
     const localized = renderEditor('styled@missing-entry', [

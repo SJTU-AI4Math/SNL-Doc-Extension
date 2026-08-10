@@ -876,6 +876,7 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'Enter' });
     const shell = view.container.querySelector<HTMLElement>('.dynamic-shell')!;
     await waitFor(() => expect(shell.classList.contains('snl-canvas-focused')).toBe(true));
+    expect(view.container.querySelector('[data-canvas-structural-fallback="0"]')).toBeNull();
   });
 
   it('moves the whole block from blank card space with grab cursor', async () => {

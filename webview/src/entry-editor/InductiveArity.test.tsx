@@ -119,6 +119,89 @@ describe('Inductive editor arity auto-fill', () => {
     expect(control.style.background).toBe('rgba(171, 205, 239, 0.18)');
   });
 
+  it('does not misrepresent a resolved Macro whose Kind is absent from the palette as fvar', async () => {
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'colored'
+          ? Object.assign({}, macro('colored', false, 'C'), { kind: 'missing-kind' })
+          : null
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="colored"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        kindPalette={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('missing-kind'));
+    expect(input.getAttribute('style'))
+      .toContain('border-color: var(--vscode-input-border, var(--vscode-contrastBorder, #555))');
+    const row = input.closest<HTMLElement>('.snl-tree-row')!;
+    expect(row.getAttribute('style'))
+      .toContain('border-color: var(--vscode-input-border, var(--vscode-contrastBorder, #555))');
+  });
+
+  it('resolves the themed SNL-Basics palette before painting a built-in Macro Kind', async () => {
+    document.documentElement.dataset.snlColorScheme = 'dark';
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'constant'
+          ? Object.assign({}, macro('constant', false, 'C'), { kind: 'const' })
+          : null
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="constant"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('const'));
+    expect(input.style.borderColor).toBe('rgb(0, 91, 156)');
+    const row = input.closest<HTMLElement>('.snl-tree-row')!;
+    expect(row.style.borderColor).toBe('rgb(0, 91, 156)');
+    expect(row.style.background).toBe('rgba(218, 240, 255, 0.18)');
+    delete document.documentElement.dataset.snlColorScheme;
+  });
+
+  it('preserves the built-in sub Kind transparent surface and one-pixel frame geometry', async () => {
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'subtree'
+          ? Object.assign({}, macro('subtree', false, 'S'), { kind: 'sub' })
+          : null
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="subtree"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('sub'));
+    const row = input.closest<HTMLElement>('.snl-tree-row')!;
+    expect(row.style.borderWidth).toBe('1px');
+    expect(row.style.borderStyle).toBe('solid');
+    expect(row.style.borderColor).toBe('inherit');
+    expect(row.style.background).toBe('transparent');
+  });
+
   it('propagates the Macro Kind palette to recursively rendered child rows', async () => {
     const kindDriver = new MacroDataDriver({ queries: {
       query_macro: async ({ macro_name }: { macro_name: string }) => {

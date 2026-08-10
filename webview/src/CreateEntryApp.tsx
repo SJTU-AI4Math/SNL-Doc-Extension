@@ -33,13 +33,14 @@ import {
   SnlSyntaxTreeView,
   SnlDslFormatter,
   DEFAULT_KIND_PALETTE,
+  resolveKindColoring,
   resolve_style_template,
   type I18n,
   type Localized,
   type MacroDataDriver,
   type SnlMacro,
   type SnlSyntaxTree,
-  type KindColoring,
+  type KindColoringVariant,
   type KindPalette
 } from '@sjtu-ai4math/snl-basics';
 import { is_i18n } from '@sjtu-ai4math/snl-basics/runtime';
@@ -5073,8 +5074,18 @@ function macroTemplateArity(macro: SnlMacro): number {
   return max + 1;
 }
 
-function paletteFor(kindId: string, kindPalette?: KindPalette): KindColoring {
-  return kindPalette?.[kindId] ?? DEFAULT_KIND_PALETTE[kindId] ?? DEFAULT_KIND_PALETTE.fvar;
+function paletteFor(kindId: string, kindPalette?: KindPalette): KindColoringVariant | undefined {
+  const configured = kindPalette && Object.hasOwn(kindPalette, kindId)
+    ? kindPalette[kindId]
+    : Object.hasOwn(DEFAULT_KIND_PALETTE, kindId)
+      ? DEFAULT_KIND_PALETTE[kindId]
+      : undefined;
+  if (!configured) return undefined;
+  const scheme = document.documentElement.dataset.snlColorScheme;
+  return resolveKindColoring(
+    configured,
+    scheme === 'light' || scheme === 'high-contrast-light' ? 'light' : 'dark'
+  );
 }
 
 /**
@@ -5997,6 +6008,7 @@ function InductiveNode({
   const effectiveKind = resolveRowKind(node, macroEntry);
   const palette = paletteFor(effectiveKind, kindPalette);
   const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
+  const kindColorMatched = macroMatched && palette !== undefined;
 
   /**
    * Open the child rows a fixed-arity Macro requires, as soon as the row
@@ -6057,10 +6069,10 @@ function InductiveNode({
   // fvar-kind macros DO get the palette's fvar color (red) — that's the
   // author's declared kind, so it's what we surface. If a macro looks red
   // and shouldn't, fix its `kind` in .SNL_Doc/term_macros/*.json.
-  const frameBorder = macroMatched
+  const frameBorder = kindColorMatched
     ? palette.stroke
     : 'var(--vscode-input-border, var(--vscode-contrastBorder, #555))';
-  const frameBackground = macroMatched
+  const frameBackground = kindColorMatched
     ? kindBackgroundTint(palette.background)
     : 'var(--vscode-input-background, #2a2a2a)';
 
@@ -6145,9 +6157,16 @@ function InductiveNode({
           alignItems: 'center',
           gap: '0.35rem',
           paddingLeft: `${0.3 + depth * 1.1}rem`,
-          // Very subtle depth-tint so nested rows visually anchor.
-          background:
-            depth === 0
+          borderWidth: '1px',
+          borderStyle: 'solid',
+          borderColor: macroMatched ? frameBorder : 'transparent',
+          borderRadius: '3px',
+          // A resolved Macro owns the whole Inductive node frame, not merely
+          // the nested text input. Otherwise the Kind color is effectively
+          // invisible in the actual editor layout.
+          background: macroMatched
+            ? frameBackground
+            : depth === 0
               ? 'transparent'
               : `rgba(255,255,255,${Math.min(0.015 * depth, 0.08)})`
         }}
@@ -6411,20 +6430,19 @@ function InductiveNode({
 }
 
 /**
- * Map a light-mode palette background (`#DAF0FF` etc.) to a dark-mode tint
- * that's readable behind white text. We take the kind's stroke color at ~15%
- * alpha over the panel bg — small enough to keep contrast, strong enough to
- * signal "this matches kind X".
+ * Turn the active theme's resolved Kind background into a subtle row tint.
+ * Semantic transparent/inherit values must survive unchanged.
  */
-function kindBackgroundTint(lightBg: string | undefined): string {
+function kindBackgroundTint(background: string | undefined): string {
   // Legacy compatible palettes may omit either flat color. Treat a missing
   // background as the neutral editor surface instead of crashing the editor.
-  if (typeof lightBg !== 'string') {
+  if (typeof background !== 'string') {
     return 'var(--vscode-input-background, #2a2a2a)';
   }
-  // Naive: use the light bg at 18% alpha over transparent. VS Code themes
-  // supply their own base; the tint reads as a subtle colored wash on dark.
-  const hex = /^#([0-9a-fA-F]{6})$/.exec(lightBg.trim());
+  const normalized = background.trim();
+  if (normalized === 'transparent' || normalized === 'inherit') return normalized;
+  // Use a solid hex background at 18% alpha over the VS Code theme surface.
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(normalized);
   if (hex) {
     const r = parseInt(hex[1].slice(0, 2), 16);
     const g = parseInt(hex[1].slice(2, 4), 16);

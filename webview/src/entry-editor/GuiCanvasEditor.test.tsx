@@ -446,6 +446,43 @@ describe('GuiCanvasEditor', () => {
     expect(Number.parseFloat(control.style.top)).toBe(74);
   });
 
+  it('keeps the focused Macro controls attached while the selected block moves', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    const block = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    const target = view.container.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(100, 200, 800, 512);
+    target.getBoundingClientRect = () => new DOMRect(
+      100 + Number.parseFloat(block.style.left),
+      200 + Number.parseFloat(block.style.top),
+      80,
+      20
+    );
+
+    fireEvent.click(target, { clientX: 130, clientY: 230 });
+    const control = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-canvas-macro-control]')!
+    );
+    const leftBefore = Number.parseFloat(control.style.left);
+    const topBefore = Number.parseFloat(control.style.top);
+
+    fireEvent.pointerDown(target, { pointerId: 72, button: 0, clientX: 130, clientY: 230 });
+    fireEvent.pointerMove(target, { pointerId: 72, clientX: 170, clientY: 260 });
+    fireEvent.pointerUp(target, { pointerId: 72, clientX: 170, clientY: 260 });
+
+    await waitFor(() => expect(Number.parseFloat(block.style.left)).toBe(leftBefore + 40));
+    expect(Number.parseFloat(control.style.left)).toBe(leftBefore + 40);
+    expect(Number.parseFloat(control.style.top)).toBe(topBefore + 30);
+  });
+
   it('localizes Canvas controls, Macro actions, styles, and context menus in Simplified Chinese', async () => {
     document.documentElement.lang = 'zh-CN';
     const localizedDriver = new MacroDataDriver({
@@ -1111,6 +1148,34 @@ describe('GuiCanvasEditor', () => {
     fireEvent.change(cancelled, { target: { value: 'discarded' } });
     fireEvent.keyDown(cancelled, { key: 'Escape' });
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
+  });
+
+  it('selects the clicked node while dismissing an open node editor', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch'), node('leaf')])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!
+    );
+    const branch = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    const leaf = view.container.querySelector<HTMLElement>('[data-tree-path="1"]')!;
+    fireEvent.click(branch);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+
+    fireEvent.pointerDown(leaf, { pointerId: 71, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(leaf, { pointerId: 71, clientX: 10, clientY: 10 });
+    fireEvent.click(leaf, { clientX: 10, clientY: 10 });
+
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+    expect(leaf.classList.contains('snl-canvas-focused')).toBe(true);
+    expect(branch.classList.contains('snl-canvas-focused')).toBe(false);
   });
 
   it('preserves an explicitly typed binder when committing a focused Macro edit', async () => {

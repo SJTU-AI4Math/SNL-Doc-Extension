@@ -3038,7 +3038,6 @@ export function GuiCanvasEditor({
   const nodeEditRequestRef = React.useRef(0);
   const forestRef = React.useRef(forest);
   const suppressClickRef = React.useRef(false);
-  const suppressCanvasClickRef = React.useRef(false);
   const dragRef = React.useRef<CanvasPendingDrag | null>(null);
   const lastPointerTargetRef = React.useRef<CanvasFocus | null>(null);
   // Local undo stack (Ctrl/Cmd+Z). Canvas edits are structural and easy to
@@ -3690,7 +3689,6 @@ export function GuiCanvasEditor({
     // stop the inner delegated click while still resolving/focusing the exact
     // tree path in this capture handler.
     if (insideRenderedSnl(event.target as Node)) event.stopPropagation();
-    if (suppressCanvasClickRef.current) return;
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
@@ -3912,25 +3910,57 @@ export function GuiCanvasEditor({
    * Position and metadata for the floating focused-Macro control. Every real
    * Macro gets ↗; variadic ones share the same panel with [- n +].
    */
-  const focusedMacroControl = React.useMemo(() => {
-    if (!focused || editingNode || contextMenu) return null;
-    const node = getNodeAtPath(forest[focused.rootIndex], focused.path.join('.'));
-    if (!node || isCanvasHole(node) || !node.macro_name.trim()) return null;
+  const [focusedControlAnchor, setFocusedControlAnchor] = React.useState<{
+    key: string;
+    left: number;
+    top: number;
+  } | null>(null);
+
+  React.useLayoutEffect(() => {
+    if (!focused || editingNode || contextMenu) {
+      setFocusedControlAnchor(null);
+      return;
+    }
     const element = elementForTarget(focused);
     const canvas = canvasRef.current;
-    if (!element || !canvas) return null;
+    if (!element || !canvas) {
+      setFocusedControlAnchor(null);
+      return;
+    }
     const rect = element.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
+    const next = {
+      key: `${focused.rootIndex}:${focused.path.join('.')}`,
+      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
+      top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
+    };
+    setFocusedControlAnchor((previous) =>
+      previous?.key === next.key && previous.left === next.left && previous.top === next.top
+        ? previous
+        : next
+    );
+    // Geometry is committed only after render. Re-measure whenever a block
+    // moves or the Canvas scale/tree changes instead of caching stale DOMRect
+    // values in the render phase.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, editingNode, contextMenu, forest, positions, canvasZoom, dynamicArityVersion]);
+
+  const focusedMacroControl = React.useMemo(() => {
+    if (!focused || editingNode || contextMenu) return null;
+    const focusKey = `${focused.rootIndex}:${focused.path.join('.')}`;
+    if (!focusedControlAnchor || focusedControlAnchor.key !== focusKey) return null;
+    const node = getNodeAtPath(forest[focused.rootIndex], focused.path.join('.'));
+    if (!node || isCanvasHole(node) || !node.macro_name.trim()) return null;
     return {
       target: focused,
       node,
       dynamic: isDynamicMacro(node.macro_name),
       count: node.children.length,
-      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
-      top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
+      left: focusedControlAnchor.left,
+      top: focusedControlAnchor.top
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused, editingNode, contextMenu, forest, dynamicArityVersion]);
+  }, [focused, editingNode, contextMenu, forest, dynamicArityVersion, focusedControlAnchor]);
 
   const commitNodeEdit = async (): Promise<void> => {
     if (!editingNode) return;
@@ -4037,14 +4067,9 @@ export function GuiCanvasEditor({
     const commitOnOutsidePointer = (event: PointerEvent): void => {
       const target = event.target as Node | null;
       if (insideOpenEditor(target)) return;
-      suppressCanvasClickRef.current = true;
-      document.addEventListener('click', () => {
-        suppressCanvasClickRef.current = false;
-      }, { once: true });
-      document.addEventListener('pointerup', () => {
-        window.setTimeout(() => { suppressCanvasClickRef.current = false; }, 0);
-      }, { once: true });
       // Clicking away has the same semantics as Escape: discard the draft.
+      // Do not consume the click itself: when it lands on another Canvas node,
+      // that same single gesture must also move selection there.
       closeCanvasInputs();
       restoreCanvasFocus();
     };

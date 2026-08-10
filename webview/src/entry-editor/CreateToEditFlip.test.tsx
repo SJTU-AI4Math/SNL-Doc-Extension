@@ -765,8 +765,8 @@ describe('CreateEntryApp create → edit flip', () => {
             dynamic_arity: true, source: { entries: [], urls: [] },
             default_style: 'default',
             styles: [{
-              style_name: 'default', mode: 'formula_inline', template: '#*',
-              separator: ', ', tags: []
+              style_name: 'default',  template: { mode: 'formula_inline', body: '#*', separator: ', ' },
+               tags: []
             }]
           }
         }

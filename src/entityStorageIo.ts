@@ -258,7 +258,7 @@ export async function readPackageManifestRecords(storage: EntityReadStorage): Pr
 
 export async function readMacroEntityRecords(
   storage: EntityReadStorage,
-  schemaVersion: '8' | '9' | '10' = '10'
+  schemaVersion: '8' | '9' | '10' | '11' = '11'
 ): Promise<MacroEntityRecord[]> {
   const records: MacroEntityRecord[] = [];
   const ids = new Set<string>();
@@ -284,7 +284,7 @@ export async function readMacroEntityRecords(
 
 export async function readEntityStorageSnapshot(
   storage: EntityReadStorage,
-  macroSchemaVersion: '8' | '9' | '10' = '10'
+  macroSchemaVersion: '8' | '9' | '10' | '11' = '11'
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),

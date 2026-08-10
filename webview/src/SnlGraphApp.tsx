@@ -22,6 +22,7 @@ import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
 import type { EntryOption } from './render/EntryRender';
 import type { MacroRecord } from './render/macroData';
+import { wireMacroEntriesToRenderable, type WireMacro } from './render/macroWire';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -108,7 +109,7 @@ interface GraphMessage {
   /** Operation-local package identities for exact lazy Entry reads. */
   entryPackages?: Readonly<Record<string, string>>;
   /** Workspace-wide macros for popover EntryRender. */
-  macros?: MacroRecord;
+  macros?: Record<string, WireMacro>;
   macroKinds?: MacroKindPaletteSource[];
 }
 
@@ -697,6 +698,7 @@ export function graphNodeFill(background: string, _highlighted: boolean): string
 
 export function SnlGraphApp(): React.ReactElement {
   const apiRef = useVsCodeApiRef();
+  const contentLanguage = use_content_language();
   const [msg, setMsg] = useState<GraphMessage | null>(null);
   const [graphError, setGraphError] = useState<GraphErrorMessage | null>(null);
 
@@ -724,6 +726,13 @@ export function SnlGraphApp(): React.ReactElement {
     () => macroKindsToPalette(msg?.macroKinds),
     [msg?.macroKinds]
   );
+  const userMacros: MacroRecord = useMemo(
+    () => wireMacroEntriesToRenderable(
+      Object.entries(msg?.macros ?? {}),
+      contentLanguage
+    ),
+    [contentLanguage, msg?.macros]
+  );
 
   // Popover provider needs the pool + macros; both come from the host.
   return (
@@ -731,7 +740,7 @@ export function SnlGraphApp(): React.ReactElement {
       postMessage={post}
       entries={msg?.entryOptions ?? []}
       entryPackages={msg?.entryPackages}
-      userMacros={msg?.macros ?? {}}
+      userMacros={userMacros}
       kindPalette={kindPalette}
     >
       <SnlGraphInner msg={msg} graphError={graphError} post={post} apiRef={apiRef} />

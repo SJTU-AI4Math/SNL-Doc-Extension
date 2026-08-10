@@ -44,31 +44,33 @@ const original = {
   styles: [
     {
       style_name: 'default',
-      mode: 'formula_display',
-      template: '\\left(#*\\right)',
-      separator: ', ',
-      tags: ['style-tag'],
-      typst: {
-        built_in: 'sum',
-        synthesis: { mode: 'formula', macro: 'sum(#*)', vendor_synthesis: 'keep-me' },
-        vendor_backend: { engine: 'typst-x' }
+
+      template: {
+        mode: 'formula_display', body: '\\left(#*\\right)', separator: ', ',
+        typst: {
+          built_in: 'sum',
+          synthesis: { mode: 'formula', macro: 'sum(#*)', vendor_synthesis: 'keep-me' },
+          vendor_backend: { engine: 'typst-x' }
+        },
+        latex: { built_in: '\\sum', synthesis: { mode: 'text', macro: 'sum #*' } },
+        markdown: '**#***',
+        text: 'items: #*',
+        custom_renderer: { engine: 'consumer-x', options: { compact: false } }
       },
-      latex: { built_in: '\\sum', synthesis: { mode: 'text', macro: 'sum #*' } },
-      markdown: '**#***',
-      text: 'items: #*',
-      custom_renderer: { engine: 'consumer-x', options: { compact: false } }
+      tags: ['style-tag']
     },
     {
       style_name: 'compact',
-      mode: 'text',
-      template: 'compact #*',
-      separator: '',
-      tags: ['compact-tag'],
-      typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
-      latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
-      markdown: '',
-      text: 'compact',
-      custom_renderer: { engine: 'consumer-y', options: { compact: true } }
+
+      template: {
+        mode: 'text', body: 'compact #*', separator: '',
+        typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
+        latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
+        markdown: '',
+        text: 'compact',
+        custom_renderer: { engine: 'consumer-y', options: { compact: true } }
+      },
+      tags: ['compact-tag']
     }
   ]
 };
@@ -220,10 +222,10 @@ describe('Copy Macro', () => {
     expect(submitted).toBeDefined();
     const defaultStyle = submitted!.macro.styles.find((style) => style.style_name === 'default')!;
     const compactStyle = submitted!.macro.styles.find((style) => style.style_name === 'compact')!;
-    expect(defaultStyle.template).toBe(`${defaultValues.left}#*${defaultValues.right}`);
-    expect(defaultStyle.separator).toBe(defaultValues.separator);
-    expect(compactStyle.template).toBe(`${compactValues.left}#*${compactValues.right}`);
-    expect(compactStyle.separator).toBe(compactValues.separator);
+    expect(defaultStyle.template.body).toBe(`${defaultValues.left}#*${defaultValues.right}`);
+    expect(defaultStyle.template.separator).toBe(defaultValues.separator);
+    expect(compactStyle.template.body).toBe(`${compactValues.left}#*${compactValues.right}`);
+    expect(compactStyle.template.separator).toBe(compactValues.separator);
   });
 
   it('keeps opaque style fields attached to their logical style after reordering', () => {
@@ -240,10 +242,10 @@ describe('Copy Macro', () => {
     );
     expect(submitted).toBeDefined();
     expect(submitted!.macro.styles.map((style) => style.style_name)).toEqual(['compact', 'default']);
-    expect(submitted!.macro.styles[0].custom_renderer).toEqual({
+    expect(submitted!.macro.styles[0].template.custom_renderer).toEqual({
       engine: 'consumer-y', options: { compact: true }
     });
-    expect(submitted!.macro.styles[1].custom_renderer).toEqual({
+    expect(submitted!.macro.styles[1].template.custom_renderer).toEqual({
       engine: 'consumer-x', options: { compact: false }
     });
   });

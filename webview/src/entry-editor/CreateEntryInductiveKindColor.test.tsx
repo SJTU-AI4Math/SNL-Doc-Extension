@@ -44,7 +44,8 @@ describe('CreateEntryApp Inductive Macro Kind coloring', () => {
             kind: 'custom-kind',
             dynamic_arity: false,
             styles: [{
-              style_name: 'default', mode: 'formula_inline', template: 'C', tags: []
+              style_name: 'default', tags: [],
+              template: { mode: 'formula_inline', body: 'C' }
             }],
             tags: []
           }

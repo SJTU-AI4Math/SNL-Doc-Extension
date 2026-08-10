@@ -17,7 +17,11 @@ const macro = (name: string, dynamic: boolean, template: string): never => ({
   source: { entries: [], urls: [] },
   tags: [],
   dynamic_arity: dynamic,
-  styles: [{ style_name: 'default', mode: 'formula_inline', template, tags: [] }]
+  styles: [{
+    style_name: 'default',
+    template: { mode: 'formula_inline', body: template },
+    tags: []
+  }]
 } as never);
 
 const driver = new MacroDataDriver({
@@ -40,8 +44,8 @@ const driver = new MacroDataDriver({
           tags: [],
           dynamic_arity: false,
           styles: [
-            { style_name: 'default', mode: 'formula_inline', template: 'S', tags: [] },
-            { style_name: 'compact', mode: 'formula_inline', template: 's', tags: [] }
+            { style_name: 'default',  template: { mode: 'formula_inline', body: 'S' }, tags: [] },
+            { style_name: 'compact',  template: { mode: 'formula_inline', body: 's' }, tags: [] }
           ]
         } as never;
       }

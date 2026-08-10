@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ postMessage: vi.fn() }));
@@ -30,6 +30,41 @@ afterEach(() => {
 });
 
 describe('EntryInfoview relationship availability', () => {
+  it('adapts v11 workspace Macros before the Basics 0.2 Entry renderer and reacts to language', async () => {
+    set_content_language('zh-CN');
+    render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      entry: { ...entry, content: { snl: 'Existing()' } },
+      entries: [{ ...base.entries[0], snl: 'Existing()' }],
+      macros: {
+        Existing: {
+          name: 'Existing', description: '', source: { entries: [], urls: [] },
+          kind: 'const', dynamic_arity: false, tags: [],
+          styles: [{
+            style_name: 'default', tags: [],
+            template: {
+              type: 'i18n', default_language: 'en',
+              values: {
+                en: { mode: 'formula_inline', body: '\\text{INFOVIEW-EN}' },
+                'zh-CN': { mode: 'text', body: 'INFOVIEW-ZH' }
+              }
+            }
+          }]
+        }
+      },
+      relationshipSections: [], returnRoute: { kind: 'root' }
+    });
+    await waitFor(() => expect(screen.getAllByText('INFOVIEW-ZH').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: /Macros \(1\)/ }));
+    expect(screen.getAllByText('Existing').length).toBeGreaterThan(0);
+    act(() => set_content_language('en'));
+    await waitFor(() => {
+      expect(screen.getAllByText('INFOVIEW-EN').length).toBeGreaterThan(0);
+      expect(screen.queryAllByText('INFOVIEW-ZH')).toHaveLength(0);
+    });
+  });
+
   it('keeps the UI fallback heading for an untitled Entry', () => {
     render(<EntryInfoviewApp />);
     push({

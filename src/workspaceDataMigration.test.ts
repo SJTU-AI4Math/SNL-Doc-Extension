@@ -6,15 +6,25 @@ import {
   type DataMigrationStorage
 } from './workspaceDataMigration';
 
-const canonicalize = (_file: string, raw: unknown, version: '7' | '8' | '9' | '10'): unknown => ({
+const canonicalize = (
+  _file: string,
+  raw: unknown,
+  version: '7' | '8' | '9' | '10' | '11'
+): unknown => ({
   ...(raw as Record<string, unknown>),
   version,
   macros: {
     x: {
       description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
       ...(version === '8' ? { default_style: { en: 'default' } } : {}),
-      ...(version === '10' ? { kind: 'const' } : {}),
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+      ...(version === '10' || version === '11' ? { kind: 'const' } : {}),
+      styles: [version === '11'
+        ? {
+            style_name: 'default',
+            template: { mode: 'formula_inline', body: 'x' },
+            tags: []
+          }
+        : { style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
     }
   }
 });
@@ -94,14 +104,44 @@ function macroV8Storage(): MemoryStorage {
   return storage;
 }
 
+function downgradeEntityMacros(
+  storage: MemoryStorage,
+  schema: '8' | '9' | '10'
+): void {
+  for (const [path, value] of storage.values) {
+    if (!path.startsWith('macros/')) continue;
+    const envelope = value as Record<string, unknown>;
+    const macro = envelope.macro as Record<string, any>;
+    macro.styles = (macro.styles as Record<string, any>[]).map((style) => {
+      const template = style.template as Record<string, any>;
+      const projection = template.type === 'i18n'
+        ? template.values[template.default_language]
+        : template;
+      return {
+        style_name: style.style_name,
+        mode: projection.mode,
+        template: projection.body,
+        ...(projection.separator !== undefined ? { separator: projection.separator } : {}),
+        ...(projection.block_template_name !== undefined
+          ? { block_template_name: projection.block_template_name }
+          : {}),
+        tags: style.tags
+      };
+    });
+    if (schema === '8') macro.default_style = { en: macro.styles[0].style_name };
+    else delete macro.default_style;
+    if (schema === '10') macro.kind = macro.kind || 'const';
+    else delete macro.kind;
+  }
+}
+
 describe('stored workspace data migration', () => {
   it('inspects without writing and reports the exact pending chain', async () => {
     const storage = legacyStorage();
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8', '0.0.9']);
-    expect(storage.writes).toEqual([]);
+    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.9']);    expect(storage.writes).toEqual([]);
   });
 
   it('persists canonical package files first and commits config version last', async () => {
@@ -227,6 +267,7 @@ describe('stored workspace data migration', () => {
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;
     config.version = version;
+    downgradeEntityMacros(storage, version === '0.0.6' ? '8' : '9');
     const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
     const envelope = storage.values.get(macroPath) as Record<string, unknown>;
     const macro = envelope.macro as Record<string, unknown>;
@@ -245,6 +286,7 @@ describe('stored workspace data migration', () => {
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;
     config.version = '0.0.7';
+    downgradeEntityMacros(storage, '9');
     storage.values.delete(packageManifestPath('Logic'));
     storage.writes.length = 0;
 
@@ -259,6 +301,7 @@ describe('stored workspace data migration', () => {
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;
     config.version = '0.0.7';
+    downgradeEntityMacros(storage, '9');
     let packageLists = 0;
     storage.beforeList = (directory) => {
       if (directory === 'packages' && ++packageLists === 2) {
@@ -275,7 +318,7 @@ describe('stored workspace data migration', () => {
     expect(storage.writes).toEqual([]);
   });
 
-  it('rejects a current workspace with a non-canonical v10 Macro payload', async () => {
+  it('rejects a current workspace with a non-canonical v11 Macro payload', async () => {
     const storage = legacyStorage();
     await migrateStoredWorkspaceData(storage, canonicalize);
     const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
@@ -285,7 +328,7 @@ describe('stored workspace data migration', () => {
 
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('invalid');
-    expect(inspection.message).toMatch(/kind.*v10/i);
+    expect(inspection.message).toMatch(/kind.*v11/i);
   });
 
   it('rejects a current workspace Entry whose canonical pointer field is missing', async () => {
@@ -305,6 +348,7 @@ describe('stored workspace data migration', () => {
     await migrateStoredWorkspaceData(storage, canonicalize);
     const config = storage.values.get('config.json') as Record<string, unknown>;
     config.version = '0.0.7';
+    downgradeEntityMacros(storage, '9');
     storage.writes.length = 0;
     storage.beforeWrite = (path) => {
       if (path !== 'config.json') return;
@@ -312,7 +356,11 @@ describe('stored workspace data migration', () => {
       storage.values.set(macroEntityPath('Ghost', 'orphan'), makeMacroEnvelope('Ghost', {
         name: 'orphan', kind: 'const', description: '',
         source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
-        styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+        styles: [{
+          style_name: 'default',
+          template: { mode: 'formula_inline', body: 'x' },
+          tags: []
+        }]
       }));
     };
 
@@ -325,6 +373,7 @@ describe('stored workspace data migration', () => {
     const storage = legacyStorage();
     await migrateStoredWorkspaceData(storage, canonicalize);
     (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.7';
+    downgradeEntityMacros(storage, '9');
     const macroPath = [...storage.values.keys()].find((path) => path.startsWith('macros/'))!;
     const originalBeforeWrite = storage.beforeWrite;
     storage.beforeWrite = (path) => {

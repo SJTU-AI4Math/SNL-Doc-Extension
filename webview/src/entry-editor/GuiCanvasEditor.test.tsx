@@ -496,8 +496,8 @@ describe('GuiCanvasEditor', () => {
                 tags: [],
                 dynamic_arity: true,
                 styles: [
-                  { style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] },
-                  { style_name: 'compact', mode: 'formula_inline', template: '#*', tags: [] }
+                  { style_name: 'default',  template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                  { style_name: 'compact',  template: { mode: 'formula_inline', body: '#*' }, tags: [] }
                 ]
               } as never)
             : null
@@ -633,7 +633,7 @@ describe('GuiCanvasEditor', () => {
                 source: { entries: [], urls: [] },
                 tags: [],
                 dynamic_arity: false,
-                styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+                styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '#0 + #1' }, tags: [] }]
               } as never)
             : null
       }
@@ -675,7 +675,7 @@ describe('GuiCanvasEditor', () => {
             ? ({
                 name: 'list', description: '', source: { entries: [], urls: [] }, tags: [],
                 dynamic_arity: true,
-                styles: [{ style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] }]
+                styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '#*' }, tags: [] }]
               } as never)
             : null
       }
@@ -772,7 +772,7 @@ describe('GuiCanvasEditor', () => {
             source: { entries: [], urls: [] },
             tags: [],
             dynamic_arity: false,
-            styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+            styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '#0 + #1' }, tags: [] }]
           } as never;
         }
       }
@@ -836,7 +836,7 @@ describe('GuiCanvasEditor', () => {
       source: { entries: [], urls: [] },
       tags: [],
       dynamic_arity: false,
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0 + #1', tags: [] }]
+      styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '#0 + #1' }, tags: [] }]
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(onForestChange).not.toHaveBeenCalled();
@@ -1790,10 +1790,10 @@ describe('GuiCanvasEditor', () => {
       queries: {
         query_macro: async ({ macro_name }: { macro_name: string }) => {
           if (macro_name === 'binary') {
-            return { macro_name, dynamic_arity: false, styles: [{ template: '#0 + #1' }] } as never;
+            return { macro_name, dynamic_arity: false, styles: [{ template: { mode: 'formula_inline', body: '#0 + #1' } }] } as never;
           }
           if (macro_name === 'unary') {
-            return { macro_name, dynamic_arity: false, styles: [{ template: '-#0' }] } as never;
+            return { macro_name, dynamic_arity: false, styles: [{ template: { mode: 'formula_inline', body: '-#0' } }] } as never;
           }
           return null;
         }
@@ -1922,13 +1922,13 @@ describe('GuiCanvasEditor', () => {
         if (macro_name === 'list') {
           return {
             macro_name, dynamic_arity: true,
-            styles: [{ template: '#*', separator: ', ' }]
+            styles: [{ template: { mode: 'formula_inline', body: '#*', separator: ', ' } }]
           } as never;
         }
         if (macro_name === 'pair') {
           return {
             macro_name, dynamic_arity: false,
-            styles: [{ template: '#0 + #1' }]
+            styles: [{ template: { mode: 'formula_inline', body: '#0 + #1' } }]
           } as never;
         }
         return null;
@@ -2019,7 +2019,7 @@ describe('GuiCanvasEditor', () => {
             return {
               macro_name,
               dynamic_arity: false,
-              styles: [{ template: '#0 + #1' }]
+              styles: [{ template: { mode: 'formula_inline', body: '#0 + #1' } }]
             } as never;
           }
           return null;
@@ -2054,7 +2054,7 @@ describe('GuiCanvasEditor', () => {
 
     await waitFor(() => expect(view.getByTestId('racing-name').textContent).toBe('pair'));
     expect(view.getByTestId('racing-arity').textContent).toBe('2');
-    resolveList({ macro_name: 'list', dynamic_arity: true, styles: [{ template: '#*' }] });
+    resolveList({ macro_name: 'list', dynamic_arity: true, styles: [{ template: { mode: 'formula_inline', body: '#*' } }] });
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(view.getByTestId('racing-name').textContent).toBe('pair');
     expect(view.getByTestId('racing-arity').textContent).toBe('2');
@@ -2497,7 +2497,7 @@ describe('GuiCanvasEditor', () => {
         queries: {
           query_macro: async ({ macro_name }: { macro_name: string }) =>
             macro_name === 'list'
-              ? ({ macro_name, dynamic_arity: variadic, styles: [{ template: '#*' }] } as never)
+              ? ({ macro_name, dynamic_arity: variadic, styles: [{ template: { mode: 'formula_inline', body: '#*' } }] } as never)
               : null
         }
       }), [variadic]);

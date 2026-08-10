@@ -20,8 +20,7 @@ import './create-macro.css';
 import {
   defaultRenderHooks,
   SnlSyntaxTreeView,
-  resolve_style_template,
-  type SnlMacroStyle,
+  type Localized,
   type MacroDataDriver,
   type SnlSyntaxTree,
   type SnlRenderHooks,
@@ -31,7 +30,12 @@ import {
   createMacroDataDriver,
   type MacroRecord
 } from './render/macroData';
-import { wireMacroEntriesToRenderable } from './render/macroWire';
+import {
+  resolveWireTemplate,
+  wireMacroEntriesToRenderable,
+  type WireMacroStyle,
+  type WireMacroTemplate
+} from './render/macroWire';
 import {
   MACRO_PREVIEW_ARGUMENTS,
   MAX_MACRO_PREVIEW_ARGS,
@@ -84,15 +88,16 @@ const PACKAGE_MESSAGES = defineUiMessages(
 // v6: `mode` is 4 flat values (formula_inline/formula_display/text/block),
 // no `display` axis; `dynamic_arity: boolean` replaces `arity`; variadic
 // delimiters are 3 optional strings; per-macro + per-style `tags`.
-interface MacroStyleBackends {
+interface MacroTemplateBackends {
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   markdown?: string;
   text?: string;
 }
-type MacroPackageStyle =
-  | (Extract<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends)
-  | (Exclude<SnlMacroStyle, { mode: 'text' }> & MacroStyleBackends);
+type MacroPackageTemplate = WireMacroTemplate & MacroTemplateBackends;
+type MacroPackageStyle = Omit<WireMacroStyle, 'template'> & {
+  template: Localized<string, MacroPackageTemplate>;
+};
 
 export interface MacroPackageEntry {
   name: string;
@@ -598,7 +603,10 @@ function arityLabel(
     return dynamicLabel;
   }
   const template = style
-    ? resolve_style_template(style, webview_language_runtime)
+    ? resolveWireTemplate(
+        style.template as WireMacroStyle['template'],
+        webview_language_runtime.query_environment().language
+      ).body
     : '';
   const count = Math.max(0, maxMacroTemplateChildIndex(template) + 1);
   return String(count);
@@ -628,6 +636,8 @@ export function MacroTable({
   onToggleSelect: (name: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
+  const preferencesRevision = use_preferences_revision();
+  const language = webview_language_runtime.query_environment().language;
   const kindById = useMemo(() => {
     const m = new Map<string, MacroKind>();
     for (const k of macroKinds) {
@@ -649,9 +659,9 @@ export function MacroTable({
     const packageMacros = wireMacroEntriesToRenderable([
       ...Object.entries(workspaceMacros),
       ...macros.map((macro) => [macro.name, macro] as const)
-    ]);
+    ], language);
     return { ...packageMacros, ...MACRO_PREVIEW_ARGUMENTS };
-  }, [macros, workspaceMacros]);
+  }, [language, macros, preferencesRevision, workspaceMacros]);
 
   const previewMacroDataDriver = useMemo(
     () => createMacroDataDriver(previewMacroRecord),
@@ -891,7 +901,12 @@ function MacroStyleRow({
   const macroTags = Array.isArray(macro.tags) ? macro.tags : [];
   const styleTags = Array.isArray(style?.tags) ? (style?.tags as string[]) : [];
   const styleTag = style?.style_name ?? t('untagged');
-  const styleMode = style?.mode ?? '';
+  const styleMode = style
+    ? resolveWireTemplate(
+        style.template as WireMacroStyle['template'],
+        webview_language_runtime.query_environment().language
+      ).mode
+    : '';
   const rowBackground =
     selectMode && selected
       ? 'var(--vscode-list-activeSelectionBackground, rgba(60,120,220,0.25))'
@@ -1267,15 +1282,17 @@ function MacroPreview({
     return macro.styles.find((s) => s.style_name === styleTag) ?? macro.styles[0];
   }, [macro, language, styleTag]);
   const resolvedTemplate = useMemo(
-    () => style ? resolve_style_template(style, webview_language_runtime) : '',
-    [style, preferencesRevision]
+    () => style
+      ? resolveWireTemplate(style.template as WireMacroStyle['template'], language)
+      : undefined,
+    [language, style, preferencesRevision]
   );
 
   const argCount = useMemo(() => {
     if (macro.dynamic_arity) {
       return Math.min(VARIADIC_PREVIEW_ARGS, MAX_MACRO_PREVIEW_ARGS);
     }
-    const derived = maxMacroTemplateChildIndex(resolvedTemplate) + 1;
+    const derived = maxMacroTemplateChildIndex(resolvedTemplate?.body ?? '') + 1;
     return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
   }, [macro.dynamic_arity, resolvedTemplate]);
 
@@ -1298,7 +1315,7 @@ function MacroPreview({
 
   // A style with an empty template renders as nothing useful — bail to
   // a soft "—" so the row doesn't show a phantom empty preview.
-  const template = resolvedTemplate.trim();
+  const template = resolvedTemplate?.body.trim() ?? '';
   if (!template) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }

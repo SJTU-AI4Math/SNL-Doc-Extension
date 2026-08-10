@@ -901,8 +901,8 @@ async function main() {
     'readMacroPackage macros is empty array'
   );
   assert(
-    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '10',
-    'readMacroPackage pkg metadata round-trips at canonical version 10'
+    readEmpty.pkg.name === 'Test Package' && readEmpty.pkg.version === '11',
+    'readMacroPackage pkg metadata round-trips at canonical version 11'
   );
 
   const validMacro = {
@@ -915,13 +915,13 @@ async function main() {
     styles: [
       {
         style_name: 'infix',
-        mode: 'formula_inline',
-        template: '#0 + #1',
         tags: [],
-        typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
-        latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
-        markdown: '',
-        text: ''
+        template: {
+          mode: 'formula_inline', body: '#0 + #1',
+          typst: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
+          latex: { built_in: '', synthesis: { mode: 'formula', macro: '' } },
+          markdown: '', text: ''
+        }
       }
     ]
   };
@@ -936,8 +936,11 @@ async function main() {
     ...validMacro,
     name: 'Group.prose',
     styles: [{
-      style_name: 'prose', mode: 'text',
-      template: { type: 'i18n', default_language: 'en', values: { en: '#0 is a group', 'zh-CN': '#0 是群' } },
+      style_name: 'prose',
+      template: { type: 'i18n', default_language: 'en', values: {
+        en: { mode: 'text', body: '#0 is a group' },
+        'zh-CN': { mode: 'text', body: '#0 是群' }
+      } },
       tags: []
     }]
   };
@@ -945,7 +948,7 @@ async function main() {
   assert(addLocalizedMacro.status === 'ok', `addMacro accepts localized text template (${JSON.stringify(addLocalizedMacro)})`);
   const localizedMacroRead = await readMacroPackage(root, 'test_pkg');
   assert(
-    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[0]?.template?.values?.['zh-CN'] === '#0 是群',
+    localizedMacroRead.macros.find((m) => m.name === 'Group.prose')?.styles?.[0]?.template?.values?.['zh-CN']?.body === '#0 是群',
     'localized text template round-trips without changing style identity'
   );
 
@@ -957,7 +960,7 @@ async function main() {
   const badMacro = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.macro',
-    styles: [{ style_name: 'default', mode: 'formula_inline', template: '   ', tags: [] }]
+    styles: [{ style_name: 'default', template: { mode: 'formula_inline', body: '   ' }, tags: [] }]
   });
   assert(badMacro.status === 'invalid', 'addMacro empty template -> invalid');
 
@@ -1010,38 +1013,42 @@ async function main() {
     ...validMacro,
     name: 'DupTag.macro',
     styles: [
-      { style_name: 'x', mode: 'formula_inline', template: '#0', tags: [] },
-      { style_name: 'x', mode: 'text', template: '#0 (text)', tags: [] }
+      { style_name: 'x', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+      { style_name: 'x', template: { mode: 'text', body: '#0 (text)' }, tags: [] }
     ]
   });
   assert(dupTagMacro.status === 'invalid', 'addMacro duplicate tags -> invalid');
 
-  console.log('\n[17e] Macro v9 localization invariants');
+  console.log('\n[17e] Macro v11 localization invariants');
   const localizedFormula = await addMacro(root, 'test_pkg', {
     ...validMacro,
     name: 'Bad.localizedFormula',
     styles: [{
       style_name: 'default',
-      mode: 'formula_inline',
       template: {
         type: 'i18n',
         default_language: 'en',
-        values: { en: '#0', 'zh-CN': '#0' }
+        values: {
+          en: { mode: 'formula_inline', body: '#0' },
+          'zh-CN': { mode: 'formula_inline', body: '#0' }
+        }
       },
       tags: []
     }]
   });
-  assert(localizedFormula.status === 'invalid', 'formula Macro rejects I18n template');
+  assert(localizedFormula.status === 'ok', 'formula Macro accepts whole-template I18n');
   const localizedText = await addMacro(root, 'test_pkg', {
     ...localizedMacro,
     name: 'Bad.localizedText',
     styles: [{
       style_name: 'default',
-      mode: 'text',
       template: {
         type: 'i18n',
         default_language: 'en',
-        values: { en: '#0 is a group', 'zh-CN': '#0 是群' }
+        values: {
+          en: { mode: 'text', body: '#0 is a group' },
+          'zh-CN': { mode: 'text', body: '#0 是群' }
+        }
       },
       tags: []
     }]
@@ -1054,8 +1061,10 @@ async function main() {
     ...localizedMacro,
     name: 'Bad.missingMacroDefault',
     styles: [{
-      style_name: 'default', mode: 'text', tags: [],
-      template: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '#0 是群' } }
+      style_name: 'default', tags: [],
+      template: { type: 'i18n', default_language: 'en', values: {
+        'zh-CN': { mode: 'text', body: '#0 是群' }
+      } }
     }]
   });
   assert(
@@ -1066,7 +1075,7 @@ async function main() {
     ...validMacro,
     name: 'Bad.dynamicTemplate',
     dynamic_arity: true,
-    styles: [{ style_name: 'default', mode: 'text', template: 'all', tags: [] }]
+    styles: [{ style_name: 'default', template: { mode: 'text', body: 'all' }, tags: [] }]
   });
   assert(
     incompleteDynamic.status === 'invalid',
@@ -1081,16 +1090,38 @@ async function main() {
   const readOne = await readMacroPackage(root, 'test_pkg.json');
   assert(readOne.status === 'ok', 'readMacroPackage (with .json) -> ok');
   assert(
-    // 1 initial + 2 localized text Macros + 5 allowed names.
-    readOne.macros.length === 8 &&
+    // 1 initial + 3 localized whole-template Macros + 5 allowed names.
+    readOne.macros.length === 9 &&
       readOne.macros.some((m) => m.name === 'Add.add.infix') &&
       readOne.macros.some((m) => m.name === 'Group.prose'),
-    'readMacroPackage returns all 8 appended macros including localized text Macros'
+    'readMacroPackage returns all 9 appended macros including localized whole-template Macros'
   );
 
   console.log('\n[20] readMacroPackage missing -> noFile');
   const readMissing = await readMacroPackage(root, 'does_not_exist');
   assert(readMissing.status === 'noFile', 'readMacroPackage missing -> noFile');
+
+  console.log('\n[20a] readMacroPackage rejects an explicit future package version');
+  const futureTmpRoot = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-smoke-future-macro-'));
+  const futureRoot = Uri.file(futureTmpRoot);
+  await fs.mkdir(nodePath.join(futureTmpRoot, '.SNL_Doc', 'term_macros'), { recursive: true });
+  await fs.writeFile(
+    nodePath.join(futureTmpRoot, '.SNL_Doc', 'config.json'),
+    JSON.stringify({ version: '0.0.4', entry_kinds: [], macro_kinds: [] }, null, 2)
+  );
+  const futureMacroPackageUri = Uri.joinPath(
+    futureRoot, '.SNL_Doc', 'term_macros', 'future_pkg.json'
+  );
+  const futureMacroPackageBytes = JSON.stringify({
+    version: '12', name: 'Future', macros: {}
+  }, null, 2);
+  await fs.writeFile(futureMacroPackageUri.fsPath, futureMacroPackageBytes);
+  const readFutureMacro = await readMacroPackage(futureRoot, 'future_pkg');
+  assert(readFutureMacro.status === 'error', 'readMacroPackage future package -> error');
+  assert(
+    await fs.readFile(futureMacroPackageUri.fsPath, 'utf8') === futureMacroPackageBytes,
+    'future Macro package rejection is byte-preserving'
+  );
 
   console.log('\n[20b] readMacroPackage normalizes a legacy-shape package on load');
   // Write an OLD-shape package straight to disk: two macros sharing a base name
@@ -1142,7 +1173,7 @@ async function main() {
   assert(oldMacro.dynamic_arity === false, 'v9: dynamic_arity=false (was arity=fixed)');
   assert(!('arity' in oldMacro), 'legacy arity field dropped in v9');
   assert(oldMacro.kind === 'const', 'kind lifted to top-level');
-  assert(Array.isArray(oldMacro.styles), 'styles is a v9 array');
+  assert(Array.isArray(oldMacro.styles), 'styles is a v11 array');
   assert(
     oldMacro.styles.length === 2,
     `both dotted suffixes became styles (got ${oldMacro.styles.length})`
@@ -1156,25 +1187,25 @@ async function main() {
   );
   assert(!('default_style' in oldMacro), 'legacy Macro normalizes without a language-to-style map');
   assert(
-    infixStyle.mode === 'formula_inline',
-    "v9: per-style mode 'math'->'formula_inline' (no display=block on legacy)"
+    infixStyle.template.mode === 'formula_inline',
+    "v11: template mode 'math'->'formula_inline' (no display=block on legacy)"
   );
   assert(!('display' in infixStyle), 'v6: display axis folded into mode');
   assert(
-    infixStyle.template === '#0 \\cdot #1',
+    infixStyle.template.body === '#0 \\cdot #1',
     'style template preserved'
   );
   assert(Array.isArray(oldMacro.tags) && oldMacro.tags.length === 0, 'v8 macro tags default to []');
   assert(oldMacro.styles.every((style) => Array.isArray(style.tags)), 'v8 style tags default to []');
   assert(
-    infixStyle.typst.synthesis.mode === 'text' &&
-      !('output_type' in infixStyle.typst.synthesis),
-    'per-style typst.synthesis.output_type moved to .mode'
+    infixStyle.template.typst.synthesis.mode === 'text' &&
+      !('output_type' in infixStyle.template.typst.synthesis),
+    'template typst.synthesis.output_type moved to .mode'
   );
   assert(
-    infixStyle.latex.synthesis.mode === 'formula' &&
-      !('output_type' in infixStyle.latex.synthesis),
-    'per-style latex.synthesis.output_type moved to .mode'
+    infixStyle.template.latex.synthesis.mode === 'formula' &&
+      !('output_type' in infixStyle.template.latex.synthesis),
+    'template latex.synthesis.output_type moved to .mode'
   );
 
   console.log('\n[20c] macro kinds: read empty -> apply preset -> create -> readback');
@@ -1564,25 +1595,25 @@ async function main() {
     'v5→v9: arity=variadic → dynamic_arity=true'
   );
   assert(
-    migAdd.styles[0].mode === 'formula_inline' &&
+    migAdd.styles[0].template.mode === 'formula_inline' &&
       !('display' in migAdd.styles[0]),
     'v5→v9: formula+display=inline → formula_inline, display axis removed'
   );
   assert(
-    migMatrix.styles[0].mode === 'formula_display' &&
+    migMatrix.styles[0].template.mode === 'formula_display' &&
       !('display' in migMatrix.styles[0]),
     'v5→v9: formula+display=block → formula_display, display axis removed'
   );
   assert(
-    migMatrix.styles[0].separator === ' \\\\ ' &&
-      migMatrix.styles[0].template === '#*',
+    migMatrix.styles[0].template.separator === ' \\\\ ' &&
+      migMatrix.styles[0].template.body === '#*',
     'v5→v9: variadic_join becomes separator and legacy dynamic fields compose #*'
   );
   assert(
     !('default_style' in migAdd) && !('default_style' in migMatrix),
     'v5→v9 uses styles[0] as the sole implicit default'
   );
-  assert(readV5.pkg.version === '10', 'readMacroPackage exposes canonical package version 10');
+  assert(readV5.pkg.version === '11', 'readMacroPackage exposes canonical package version 11');
 
   // Regression: Dashboard's per-package macroCount used to always report 1
   // for v6 packages because inferMacroCount only recognized v5's array shape
@@ -1646,16 +1677,17 @@ async function main() {
   const migratedV6 = readV6.macros.find((macro) => macro.name === 'a');
   assert(
     migratedV6.styles[0].style_name === 'default' &&
-      migratedV6.styles[0].template === '[#*]' &&
-      migratedV6.styles[0].separator === '' &&
-      migratedV6.styles[0].block_template_name === 'list',
-    'v6→v9 maps style/dynamic/block fields and preserves empty separator'
+      migratedV6.styles[0].template.body === '[#*]' &&
+      migratedV6.styles[0].template.separator === '' &&
+      migratedV6.styles[0].template.block_template_name === 'list',
+    'v6→v11 maps style/dynamic/block fields and preserves empty separator'
   );
   assert(
     migratedV6.extension_data.keep === true &&
-      migratedV6.styles[0].extension_style_data === 42 &&
-      migratedV6.styles[0].typst.built_in === 'legacy',
-    'v6→v9 preserves macro/style extension fields and output backends'
+      !('extension_style_data' in migratedV6.styles[0]) &&
+      migratedV6.styles[0].template.extension_style_data === 42 &&
+      migratedV6.styles[0].template.typst.built_in === 'legacy',
+    'v6→v11 moves style extensions and output backends into the template projection'
   );
   const rewriteV7 = await updateMacro(root3, 'v6_count', migratedV6, entityRevision(migratedV6));
   assert(

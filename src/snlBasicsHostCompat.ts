@@ -5,6 +5,7 @@
  * Node 20 Extension Host.
  */
 
+export { analyzeLatexTemplatePlaceholders } from './templatePlaceholders';
 
 type I18nValue<T> = {
   type: 'i18n';

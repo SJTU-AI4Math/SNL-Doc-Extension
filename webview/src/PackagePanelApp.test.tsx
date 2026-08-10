@@ -52,7 +52,7 @@ describe('Macro package panel Chinese localization', () => {
         macros: [{
           name: 'alpha', description: 'dynamic data',
           source: { entries: [], urls: [] }, dynamic_arity: false,
-          styles: [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }],
+          styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '' }, tags: [] }],
           tags: []
         }],
         workspaceMacros: {}, macroKinds: [], otherPackages: [],

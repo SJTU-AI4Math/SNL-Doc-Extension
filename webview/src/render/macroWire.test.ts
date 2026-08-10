@@ -9,12 +9,33 @@ describe('wireMacroToRenderable', () => {
       kind: 'operator',
       dynamic_arity: false,
       source: { entries: ['src'], urls: [] },
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
+      styles: [{ style_name: 'default',  template: { mode: 'formula_inline', body: '#0' }, tags: [] }],
       tags: []
-    })).toMatchObject({
+    }, 'en')).toMatchObject({
       name: 'm', kind: 'operator', source: { entries: ['src'], urls: [] },
       styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
       tags: []
+    });
+  });
+
+  it('projects one complete v11 template atomically for the 0.2 renderer', () => {
+    const rendered = wireMacroToRenderable({
+      name: 'm', description: '', source: { entries: [], urls: [] },
+      dynamic_arity: true,
+      styles: [{
+        style_name: 'default', tags: [],
+        template: {
+          type: 'i18n', default_language: 'en',
+          values: {
+            en: { mode: 'formula_inline', body: '#*', separator: ', ', custom: 'en' },
+            'zh-CN': { mode: 'text', body: '#*', separator: '、', custom: 'zh' }
+          }
+        }
+      }],
+      tags: []
+    }, 'zh-CN');
+    expect(rendered.styles[0]).toEqual({
+      style_name: 'default', tags: [], mode: 'text', template: '#*', separator: '、'
     });
   });
 
@@ -22,10 +43,10 @@ describe('wireMacroToRenderable', () => {
     const macro = {
       name: '__proto__', description: '', source: { entries: [], urls: [] },
       dynamic_arity: false,
-      styles: [{ style_name: 'default', mode: 'formula_inline' as const, template: '#0', tags: [] }],
+      styles: [{ style_name: 'default',  template: { mode: 'formula_inline' as const, body: '#0' }, tags: [] }],
       tags: []
     };
-    const rendered = wireMacroEntriesToRenderable([['__proto__', macro]]);
+    const rendered = wireMacroEntriesToRenderable([['__proto__', macro]], 'en');
     expect(Object.prototype.hasOwnProperty.call(rendered, '__proto__')).toBe(true);
     expect(rendered.__proto__.styles[0].template).toBe('#0');
   });
@@ -34,6 +55,6 @@ describe('wireMacroToRenderable', () => {
     expect(wireMacroToRenderable({
       name: 'm', description: '', source: { entries: [], urls: [] },
       dynamic_arity: false, styles: [], tags: []
-    }).styles).toHaveLength(1);
+    }, 'en').styles).toHaveLength(1);
   });
 });

@@ -267,7 +267,8 @@ const RUNTIME_TEMPLATE = String.raw`
             return;
           }
           var root = hover.resolveRoot(target, body);
-          if (!root || !root.hasAttribute('data-name') || root.getAttribute('data-kind') === 'partial') {
+          var kind = root && root.getAttribute('data-kind');
+          if (!root || !root.hasAttribute('data-name') || kind === 'sub' || kind === 'partial') {
             hover.clear(body);
             return;
           }

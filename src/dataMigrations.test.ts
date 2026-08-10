@@ -11,14 +11,22 @@ import {
   type WorkspaceDataSnapshot
 } from './dataMigrations';
 
-const canonicalEntry = (version: '7' | '8' | '9' | '10'): Record<string, unknown> => ({
+const canonicalEntry = (
+  version: '7' | '8' | '9' | '10' | '11'
+): Record<string, unknown> => ({
   description: '',
   source: { entries: [], urls: [] },
   dynamic_arity: false,
   tags: [],
   ...(version === '8' ? { default_style: { en: 'default' } } : {}),
-  ...(version === '10' ? { kind: 'const' } : {}),
-  styles: [{ style_name: 'default', mode: 'formula_inline', template: 'old', tags: [] }]
+  ...(version === '10' || version === '11' ? { kind: 'const' } : {}),
+  styles: [version === '11'
+    ? {
+        style_name: 'default',
+        template: { mode: 'formula_inline', body: 'old' },
+        tags: []
+      }
+    : { style_name: 'default', mode: 'formula_inline', template: 'old', tags: [] }]
 });
 
 const setStyleField = (
@@ -30,8 +38,76 @@ const setStyleField = (
   styles[0] = { ...styles[0], [field]: value };
 };
 
-const canonicalize = (_file: string, raw: unknown, version: '7' | '8' | '9' | '10'): unknown => {
+const canonicalize = (
+  _file: string,
+  raw: unknown,
+  version: '7' | '8' | '9' | '10' | '11'
+): unknown => {
   const wrapper = raw as Record<string, unknown>;
+  if (version === '11' && wrapper.macros && typeof wrapper.macros === 'object') {
+    const macros = Object.fromEntries(Object.entries(
+      wrapper.macros as Record<string, Record<string, any>>
+    ).map(([name, macro]) => {
+      const oldStyles = Array.isArray(macro.styles) ? macro.styles as Record<string, any>[] : [];
+      const projection = (style: Record<string, any>, language: string): Record<string, unknown> => {
+        const localized = style.template && typeof style.template === 'object' && style.template.type === 'i18n'
+          ? style.template.values[language] ?? style.template.values[style.template.default_language]
+          : style.template;
+        return {
+          mode: style.mode,
+          body: typeof localized === 'string' ? localized : '',
+          ...(style.separator !== undefined ? { separator: style.separator } : {}),
+          ...(style.mode === 'block' && style.block_template_name !== undefined
+            ? { block_template_name: style.block_template_name }
+            : {}),
+          ...(style.typst !== undefined ? { typst: style.typst } : {}),
+          ...(style.latex !== undefined ? { latex: style.latex } : {}),
+          ...(style.markdown !== undefined ? { markdown: style.markdown } : {}),
+          ...(style.text !== undefined ? { text: style.text } : {})
+        };
+      };
+      const migrated = oldStyles.map((style) => ({
+        style_name: style.style_name,
+        tags: style.tags,
+        template: style.template && typeof style.template === 'object' && style.template.type === 'i18n'
+          ? {
+              ...style.template,
+              values: Object.fromEntries(Object.keys(style.template.values).map((language) => [
+                language,
+                projection(style, language)
+              ]))
+            }
+          : projection(style, 'en')
+      }));
+      const defaultMap = macro.default_style as Record<string, string> | undefined;
+      if (defaultMap && new Set(Object.values(defaultMap)).size > 1) {
+        const byName = new Map(oldStyles.map((style) => [style.style_name, style]));
+        const fallback = byName.get(defaultMap.en) ?? oldStyles[0];
+        migrated.unshift({
+          style_name: 'localized-default',
+          tags: [],
+          template: {
+            type: 'i18n',
+            default_language: 'en',
+            values: {
+              en: projection(fallback, 'en'),
+              ...Object.fromEntries(Object.entries(defaultMap).map(([language, styleName]) => [
+                language,
+                projection(byName.get(styleName)!, language)
+              ]))
+            }
+          }
+        });
+      }
+      const { default_style: _legacy, ...current } = macro;
+      return [name, {
+        ...current,
+        kind: current.kind === 'partial' ? 'sub' : current.kind || 'const',
+        styles: migrated
+      }];
+    }));
+    return { ...wrapper, version, macros };
+  }
   if ((version === '9' || version === '10') && wrapper.macros && typeof wrapper.macros === 'object') {
     return {
       ...wrapper,
@@ -126,10 +202,7 @@ describe('workspace data migrations', () => {
       '0.0.3->0.0.4',
       '0.0.4->0.0.5',
       '0.0.5->0.0.6',
-      '0.0.6->0.0.7',
-      '0.0.7->0.0.8',
-      '0.0.8->0.0.9'
-    ]);
+      '0.0.6->0.0.9'    ]);
   });
 
   it('blocks ordinary writes to future, invalid, or missing workspace schemas', () => {
@@ -261,8 +334,7 @@ describe('workspace data migrations', () => {
 
     await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
       .rejects.toThrow(/entry_kinds.*style/i);
-    expect(data.config).toEqual(original);
-  });
+    expect(data.config).toEqual(original);  });
 
   it('rejects a stale config write that would undo a completed migration', () => {
     expect(() => assertWorkspaceDataVersionNotRegressed(
@@ -288,61 +360,37 @@ describe('workspace data migrations', () => {
     )).not.toThrow();
   });
 
-  it('migrates entity Macros from package schema v8 through v10', async () => {
+  it('migrates v8 language-selected Styles directly to atomic v11 TemplateSpecs', async () => {
     const data = snapshot('0.0.6');
     data.macroPackages.clear();
     data.macroEntities.set('macros/logic-x.json', {
       format: 'snl-macro', version: 1, package: 'Logic',
       macro: {
         name: 'X', description: '', source: { entries: [], urls: [] },
-        dynamic_arity: false, tags: [], default_style: { en: 'english', 'zh-CN': 'chinese' },
+        dynamic_arity: true, tags: [], default_style: { en: 'english', 'zh-CN': 'chinese' },
         styles: [
-          { style_name: 'english', mode: 'text', template: 'English', tags: [] },
-          { style_name: 'chinese', mode: 'text', template: '中文', tags: [] }
+          { style_name: 'english', mode: 'text', template: '#*', separator: ', ', tags: [] },
+          { style_name: 'chinese', mode: 'text', template: '#*', separator: '、', tags: [] }
         ]
       }
     });
-    const canonicalizeV10 = vi.fn((_file: string, raw: unknown, target: '7' | '8' | '9' | '10') => {
-      const wrapper = raw as any;
-      const macro = wrapper.macros.X;
-      if (target === '10') {
-        return {
-          ...wrapper, version: '10',
-          macros: { X: { ...macro, kind: macro.kind || 'const' } }
-        };
-      }
-      expect(target).toBe('9');
-      const { default_style: _legacy, ...current } = macro;
-      return {
-        ...wrapper, version: '9',
-        macros: {
-          X: {
-            ...current,
-            styles: [{
-              ...macro.styles[0], style_name: 'english_localized_default',
-              template: {
-                type: 'i18n', default_language: 'en',
-                values: { en: 'English', 'zh-CN': '中文' }
-              }
-            }, ...macro.styles]
-          }
-        }
-      };
-    });
+    const canonicalizeV11 = vi.fn(canonicalize);
 
-    const report = await migrateWorkspaceSnapshot(data, canonicalizeV10);
+    const report = await migrateWorkspaceSnapshot(data, canonicalizeV11);
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
-      '0.0.6->0.0.7',
-      '0.0.7->0.0.8',
-      '0.0.8->0.0.9'
+      '0.0.6->0.0.9'
     ]);
     expect(data.config.version).toBe('0.0.9');
-    expect(canonicalizeV10).toHaveBeenCalledTimes(2);
-    const migrated = data.macroEntities.get('macros/logic-x.json')!.macro as any;
+    expect(canonicalizeV11).toHaveBeenCalledTimes(1);    const migrated = data.macroEntities.get('macros/logic-x.json')!.macro as any;
     expect(migrated).not.toHaveProperty('default_style');
     expect(migrated.kind).toBe('const');
-    expect(migrated.styles[0].template.values).toEqual({ en: 'English', 'zh-CN': '中文' });
+    expect(migrated.styles[0].template.values).toEqual({
+      en: { mode: 'text', body: '#*', separator: ', ' },
+      'zh-CN': { mode: 'text', body: '#*', separator: '、' }
+    });
+    expect(migrated.styles.slice(1).map((style: any) => style.style_name))
+      .toEqual(['english', 'chinese']);
   });
 
   it('rejects malformed v8 entity Macro fields before canonicalization', async () => {
@@ -352,7 +400,7 @@ describe('workspace data migrations', () => {
       format: 'snl-macro', version: 1, package: 'Logic',
       macro: { name: 'X', ...canonicalEntry('8'), source: { entries: 'bad', urls: [] } }
     });
-    const sanitizingCanonicalizer = vi.fn((_file: string, _raw: unknown, target: '7' | '8' | '9' | '10') => ({
+    const sanitizingCanonicalizer = vi.fn((_file: string, _raw: unknown, target: '7' | '8' | '9' | '10' | '11') => ({
       version: target,
       name: 'Logic',
       macros: { X: canonicalEntry(target === '9' ? '9' : '10') }
@@ -394,7 +442,68 @@ describe('workspace data migrations', () => {
     }
   });
 
-  it('rejects managed fields at the wrong Macro/Style layer but preserves unknown extensions', () => {
+  it('rejects v11 localized template projections with different arity', () => {
+    const macro = canonicalEntry('11') as any;
+    macro.styles[0].template = {
+      type: 'i18n', default_language: 'en',
+      values: {
+        en: { mode: 'text', body: '#0' },
+        'zh-CN': { mode: 'text', body: '#0 #1' }
+      }
+    };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: macro }
+    }, '11')).toThrow(/identical arity/i);
+
+    const crossStyle = canonicalEntry('11') as any;
+    crossStyle.styles = [
+      { style_name: 'one', tags: [], template: { mode: 'text', body: '#0' } },
+      { style_name: 'two', tags: [], template: { mode: 'text', body: '#0 #1' } }
+    ];
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: crossStyle }
+    }, '11')).not.toThrow();
+
+    const misplaced = canonicalEntry('11') as any;
+    misplaced.styles[0].vendor_style = { ignored: true };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: misplaced }
+    }, '11')).toThrow(/outside the Macro v11 Style boundary/i);
+  });
+
+  it('uses the renderer placeholder grammar for v11 variadic contracts', () => {
+    const escaped = canonicalEntry('11') as any;
+    escaped.dynamic_arity = true;
+    escaped.styles[0].template = { mode: 'text', body: '\\#*' };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: escaped }
+    }, '11')).toThrow(/variadic marker/i);
+
+    const fixed = canonicalEntry('11') as any;
+    fixed.dynamic_arity = false;
+    fixed.styles[0].template = { mode: 'text', body: '#*' };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: fixed }
+    }, '11')).toThrow(/variadic marker/i);
+
+    const hybrid = canonicalEntry('11') as any;
+    hybrid.styles[0].template = {
+      type: 'i18n', default_language: 'en',
+      values: { en: { mode: 'text', body: '#0' } },
+      mode: 'block', body: 'IGNORED'
+    };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: hybrid }
+    }, '11')).toThrow(/localized whole-template|invalid localized template/i);
+
+    const outOfRange = canonicalEntry('11') as any;
+    outOfRange.styles[0].template = { mode: 'text', body: '#100' };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: outOfRange }
+    }, '11')).toThrow(/out-of-range/i);
+  });
+
+  it('rejects managed fields at the wrong Macro/Style layer but preserves unknown extensions', async () => {
     for (const field of [
       'style_name', 'mode', 'template', 'separator', 'block_template_name',
       'typst', 'latex', 'markdown', 'text',
@@ -465,7 +574,7 @@ describe('workspace data migrations', () => {
       format: 'snl-macro', version: 1, package: 'Logic',
       macro: { name: 'X', ...canonicalEntry('9'), description: 42 }
     });
-    const sanitizingCanonicalizer = vi.fn((_file: string, _raw: unknown, target: '7' | '8' | '9' | '10') => ({
+    const sanitizingCanonicalizer = vi.fn((_file: string, _raw: unknown, target: '7' | '8' | '9' | '10' | '11') => ({
       version: target,
       name: 'Logic',
       macros: { X: canonicalEntry('10') }
@@ -477,7 +586,7 @@ describe('workspace data migrations', () => {
     expect(data.config.version).toBe('0.0.7');
   });
 
-  it('rejects a v9 canonicalizer result whose Macro default projection is not own', async () => {
+  it('rejects a v11 canonicalizer result whose default projection is not own', async () => {
     const data = snapshot('0.0.6');
     data.macroPackages.clear();
     data.macroEntities.set('macros/logic-x.json', {
@@ -492,17 +601,21 @@ describe('workspace data migrations', () => {
       const wrapper = raw as any;
       const { default_style: _legacy, ...macro } = wrapper.macros.X;
       return {
-        ...wrapper, version: '9',
+        ...wrapper, version: '11',
         macros: { X: {
-          ...macro,
+          ...macro, kind: 'const',
           styles: [{
-            style_name: 'default', mode: 'text', tags: [],
-            template: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '中文' } }
+            style_name: 'default', tags: [],
+            template: {
+              type: 'i18n', default_language: 'en',
+              values: { 'zh-CN': { mode: 'text', body: '中文' } }
+            }
           }]
         } }
       };
     };
-    await expect(migrateWorkspaceSnapshot(data, malformedCanonicalizer)).rejects.toThrow(/valid I18n/);
+    await expect(migrateWorkspaceSnapshot(data, malformedCanonicalizer))
+      .rejects.toThrow(/localized whole-template|default language/i);
     expect(data.config.version).toBe('0.0.6');
   });
 
@@ -518,10 +631,7 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.5->0.0.6',
-      '0.0.6->0.0.7',
-      '0.0.7->0.0.8',
-      '0.0.8->0.0.9'
-    ]);
+      '0.0.6->0.0.9'    ]);
     expect(data.config).toMatchObject({
       version: '0.0.9',
       entity_storage: {
@@ -552,7 +662,7 @@ describe('workspace data migrations', () => {
     expect([...data.macroEntities]).toEqual([
       ['macros/Logic-315ab0b5e1a20cdc1802.json', {
         format: 'snl-macro', version: 1, package: 'Logic',
-        macro: { name: 'old', ...canonicalEntry('10'), custom: true }
+        macro: { name: 'old', ...canonicalEntry('11'), custom: true }
       }]
     ]);
     expect(data.entries).toEqual([{ id: 'Set.mem', kind: 'theorem', title: 'Membership' }]);
@@ -643,8 +753,9 @@ describe('workspace data migrations', () => {
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
 
-    expect(report.applied).toEqual(WORKSPACE_DATA_MIGRATIONS);
-    expect(data.config.version).toBe('0.0.9');
+    expect(report.applied).toEqual(
+      WORKSPACE_DATA_MIGRATIONS.filter((step) => step.from !== '0.0.7' && step.from !== '0.0.8')
+    );    expect(data.config.version).toBe('0.0.9');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -676,8 +787,8 @@ describe('workspace data migrations', () => {
       custom: 'package',
       macros: { old: { default_style: { en: 'default' } } }
     });
-    expect(canonicalizeMacroPackage).toHaveBeenCalledTimes(4);
-    expect(canonicalizeMacroPackage.mock.calls.map((call) => call[2])).toEqual(['7', '8', '9', '10']);
+    expect(canonicalizeMacroPackage).toHaveBeenCalledTimes(3);
+    expect(canonicalizeMacroPackage.mock.calls.map((call) => call[2])).toEqual(['7', '8', '11']);
   });
 
   it('rejects malformed catalogs and Macro packages instead of normalizing them to empty', async () => {
@@ -743,16 +854,26 @@ describe('workspace data migrations', () => {
     unicode.macroPackages.set('Unicode.json', {
       version: '7', name: 'Unicode', macros: { '群.是群🐈': unicodeEntry7 }
     });
-    const unicodeCanonicalize = vi.fn((file: string, raw: unknown, version: '7' | '8' | '9' | '10') => {
+    const unicodeCanonicalize = vi.fn((file: string, raw: unknown, version: '7' | '8' | '9' | '10' | '11') => {
       if (file === 'Logic.json') return canonicalize(file, raw, version);
       return {
         ...(raw as Record<string, unknown>), version,
         macros: {
-          '群.是群🐈': {
-            ...unicodeEntry7,
-            ...(version === '8' ? { default_style: { en: '默认🐈' } } : {}),
-            ...(version === '10' ? { kind: 'const' } : {})
-          }
+          '群.是群🐈': version === '11'
+            ? {
+                ...unicodeEntry7,
+                kind: 'const',
+                styles: [{
+                  style_name: '默认🐈',
+                  template: { mode: 'formula_inline', body: 'old' },
+                  tags: []
+                }]
+              }
+            : {
+                ...unicodeEntry7,
+                ...(version === '8' ? { default_style: { en: '默认🐈' } } : {}),
+                ...(version === '10' ? { kind: 'const' } : {})
+              }
         }
       };
     });
@@ -796,8 +917,9 @@ describe('workspace data migrations', () => {
     const data = snapshot('0.0.3');
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
-    expect(report.applied.map((step) => step.from)).toEqual(['0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.7', '0.0.8']);
-    expect(data.config.version).toBe('0.0.9');
+    expect(report.applied.map((step) => step.from)).toEqual([
+      '0.0.3', '0.0.4', '0.0.5', '0.0.6'
+    ]);    expect(data.config.version).toBe('0.0.9');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

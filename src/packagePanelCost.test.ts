@@ -15,14 +15,17 @@ function seedCurrentTopology(): void {
       source: { entries: [], urls: [] },
       kind: 'const',
       dynamic_arity: false,
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
+      styles: [{
+        style_name: 'default',
+        template: { mode: 'formula_inline', body: name },
+        tags: []
+      }],
       tags: []
     }));
   }
   jsonByPath.set('config.json', {
     version: '0.0.9',
-    entry_kinds: [],
-    macro_kinds: [],
+    entry_kinds: [],    macro_kinds: [],
     active_macro_packages: packageIds
   });
 }
@@ -221,8 +224,7 @@ describe('PackagePanel read cost', () => {
   it('folds collisions deterministically in file order and exposes the winning origin', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.9', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']
-    });
+      version: '0.0.9', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']    });
     for (const id of ['core', 'core-extra']) {
       jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
       jsonByPath.set(`macros/${macroEntityPath(id, 'Shared.name').slice('macros/'.length)}`, makeMacroEnvelope(id, {
@@ -231,7 +233,11 @@ describe('PackagePanel read cost', () => {
         source: { entries: [], urls: [] },
         kind: 'const',
         dynamic_arity: false,
-        styles: [{ style_name: 'default', mode: 'formula_inline', template: id, tags: [] }],
+        styles: [{
+          style_name: 'default',
+          template: { mode: 'formula_inline', body: id },
+          tags: []
+        }],
         tags: []
       }));
     }
@@ -303,8 +309,7 @@ describe('PackagePanel read cost', () => {
   it('fails closed when a configured active package has no manifest', async () => {
     jsonByPath.set('config.json', {
       version: '0.0.9',
-      entry_kinds: [],
-      macro_kinds: [],
+      entry_kinds: [],      macro_kinds: [],
       active_macro_packages: [...packageIds, 'missing-active']
     });
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
@@ -322,7 +327,11 @@ describe('PackagePanel read cost', () => {
       source: { entries: [], urls: [] },
       kind: 'const',
       dynamic_arity: false,
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: name, tags: [] }],
+      styles: [{
+        style_name: 'default',
+        template: { mode: 'formula_inline', body: name },
+        tags: []
+      }],
       tags: []
     }));
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { analyzeLatexTemplatePlaceholders } from './snlBasicsHostCompat';
 import {
   CURRENT_DATA_VERSION,
   compareDataVersions,
@@ -68,7 +69,7 @@ export interface WorkspaceDataSnapshot {
   macroEntities: Map<string, MacroEnvelope>;
 }
 
-export type MacroPackageSchemaVersion = '7' | '8' | '9' | '10';
+export type MacroPackageSchemaVersion = '7' | '8' | '9' | '10' | '11';
 
 export interface WorkspaceMigrationContext {
   data: WorkspaceDataSnapshot;
@@ -125,6 +126,68 @@ function macroTemplateVariants(mode: unknown, template: unknown): string[] {
     : [];
 }
 
+function macroTemplateProjections(template: unknown, path: string): Record<string, unknown>[] {
+  if (isRecord(template) && template.type === 'i18n') {
+    const localizedFields = new Set(['type', 'default_language', 'values']);
+    if (Object.keys(template).some((field) => !localizedFields.has(field)) ||
+        typeof template.default_language !== 'string' || !template.default_language ||
+        !isRecord(template.values) ||
+        !Object.hasOwn(template.values, template.default_language) ||
+        template.values[template.default_language] === undefined) {
+      throw new Error(`${path} must be a valid localized whole-template value.`);
+    }
+    const projections = Object.values(template.values).filter((value) => value !== undefined);
+    if (projections.length === 0 || !projections.every(isRecord)) {
+      throw new Error(`${path} localized projections must be objects.`);
+    }
+    return projections as Record<string, unknown>[];
+  }
+  if (!isRecord(template)) throw new Error(`${path} must be a TemplateSpec object.`);
+  return [template];
+}
+
+function assertMacroTemplateProjection(
+  projection: Record<string, unknown>,
+  path: string,
+  dynamicArity: boolean
+): void {
+  if (Object.hasOwn(projection, 'type') ||
+      !['formula_inline', 'formula_display', 'text', 'block'].includes(String(projection.mode))) {
+    throw new Error(`${path}.mode is invalid.`);
+  }
+  if (typeof projection.body !== 'string' ||
+      (projection.mode !== 'block' && projection.body.trim().length === 0)) {
+    throw new Error(`${path}.body must be a non-empty string outside block mode.`);
+  }
+  const placeholderAnalysis = analyzeLatexTemplatePlaceholders(projection.body);
+  if (placeholderAnalysis.invalid) {
+    throw new Error(`${path}.body contains an out-of-range positional placeholder.`);
+  }
+  if (placeholderAnalysis.variadic !== dynamicArity) {
+    throw new Error(`${path}.body variadic marker disagrees with the Macro arity contract.`);
+  }
+  if (projection.separator !== undefined && typeof projection.separator !== 'string') {
+    throw new Error(`${path}.separator must be a string.`);
+  }
+  if (projection.block_template_name !== undefined &&
+      (projection.mode !== 'block' || typeof projection.block_template_name !== 'string')) {
+    throw new Error(`${path}.block_template_name is invalid.`);
+  }
+  if (projection.typst !== undefined) assertBackend(projection.typst, `${path}.typst`);
+  if (projection.latex !== undefined) assertBackend(projection.latex, `${path}.latex`);
+  if (projection.markdown !== undefined && typeof projection.markdown !== 'string') {
+    throw new Error(`${path}.markdown must be a string.`);
+  }
+  if (projection.text !== undefined && typeof projection.text !== 'string') {
+    throw new Error(`${path}.text must be a string.`);
+  }
+}
+
+function macroTemplateArityContract(template: Record<string, unknown>): string {
+  const analysis = analyzeLatexTemplatePlaceholders(String(template.body));
+  return `${analysis.variadic ? 'dynamic' : 'fixed'}:${analysis.positional_arity}`;
+}
+
 export function assertCanonicalMacroPackage(
   file: string,
   raw: unknown,
@@ -154,9 +217,9 @@ export function assertCanonicalMacroPackage(
     if (typeof value.description !== 'string' || typeof value.dynamic_arity !== 'boolean') {
       throw new Error(`${file}#macros[${JSON.stringify(macroName)}] has invalid required fields.`);
     }
-    if (version === '10' &&
+    if ((version === '10' || version === '11') &&
         (typeof value.kind !== 'string' || value.kind.length === 0 || value.kind === 'partial')) {
-      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].kind is not canonical Macro v10.`);
+      throw new Error(`${file}#macros[${JSON.stringify(macroName)}].kind is not canonical Macro v${version}.`);
     }
     if ((version === '8' || version === '9') && value.kind !== undefined &&
         (typeof value.kind !== 'string' || value.kind.length === 0)) {
@@ -203,6 +266,44 @@ export function assertCanonicalMacroPackage(
         throw new Error(`${file} ${macroName} styles[${index}].style_name is invalid or duplicated.`);
       }
       names.add(styleName);
+      if (version === '11') {
+        assertStringArray(styleValue.tags, `${file} ${macroName} styles[${index}].tags`);
+        if (styleValue.tags.some((tag: string) => tag.includes('\\'))) {
+          throw new Error(`${file} ${macroName} styles[${index}].tags may not contain backslashes.`);
+        }
+        for (const retired of [
+          'mode', 'separator', 'block_template_name', 'typst', 'latex', 'markdown', 'text',
+          'tag', 'variadic_left', 'variadic_join', 'variadic_right',
+          'react_renderer_key', 'display'
+        ]) {
+          if (Object.hasOwn(styleValue, retired)) {
+            throw new Error(
+              `${file} ${macroName} styles[${index}].${retired} is retired in v11; it belongs inside template.`
+            );
+          }
+        }
+        const currentStyleFields = new Set(['style_name', 'tags', 'template']);
+        if (Object.keys(styleValue).some((field) => !currentStyleFields.has(field))) {
+          throw new Error(
+            `${file} ${macroName} styles[${index}] has fields outside the Macro v11 Style boundary.`
+          );
+        }
+        const projections = macroTemplateProjections(
+          styleValue.template,
+          `${file} ${macroName} styles[${index}].template`
+        );
+        projections.forEach((projection, projectionIndex) => assertMacroTemplateProjection(
+          projection,
+          `${file} ${macroName} styles[${index}].template[${projectionIndex}]`,
+          value.dynamic_arity === true
+        ));
+        if (new Set(projections.map(macroTemplateArityContract)).size !== 1) {
+          throw new Error(
+            `${file} ${macroName} styles[${index}].template projections must have identical arity.`
+          );
+        }
+        return;
+      }
       if (!['formula_inline', 'formula_display', 'text', 'block'].includes(String(styleValue.mode))) {
         throw new Error(`${file} ${macroName} styles[${index}].mode is invalid.`);
       }
@@ -251,7 +352,8 @@ export function assertCanonicalMacroPackage(
           throw new Error(`${file} ${macroName}.default_style contains an invalid language or style.`);
         }
       }
-    } else if ((version === '9' || version === '10') && value.default_style !== undefined) {
+    } else if ((version === '9' || version === '10' || version === '11') &&
+        value.default_style !== undefined) {
       throw new Error(`${file} ${macroName}.default_style is not valid in Macro package v${version}.`);
     }
   }
@@ -549,7 +651,10 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
   };
 }
 
-function migrate006To007MacroV9(context: WorkspaceMigrationContext): void {
+function migrateMacroEntitiesToV11(
+  context: WorkspaceMigrationContext,
+  sourceVersion: '8' | '9' | '10'
+): void {
   for (const [path, envelope] of context.data.macroEntities) {
     const macroName = envelope.macro.name;
     if (typeof macroName !== 'string' || !macroName) {
@@ -557,58 +662,18 @@ function migrate006To007MacroV9(context: WorkspaceMigrationContext): void {
     }
     const { name: _name, ...macro } = envelope.macro;
     const sourcePackage = {
-      version: '8',
+      version: sourceVersion,
       name: envelope.package,
       macros: { [macroName]: macro }
     };
-    assertCanonicalMacroPackage(path, sourcePackage, '8');
-    const canonical = context.canonicalizeMacroPackage(path, sourcePackage, '9');
-    assertCanonicalMacroPackage(path, canonical, '9');
+    assertCanonicalMacroPackage(path, sourcePackage, sourceVersion);
+    const canonical = context.canonicalizeMacroPackage(path, sourcePackage, '11');
+    assertCanonicalMacroPackage(path, canonical, '11');
     const migrated = Object.hasOwn(canonical.macros, macroName)
       ? canonical.macros[macroName]
       : undefined;
     if (!isRecord(migrated)) {
-      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v9 migration.`);
-    }
-    context.data.macroEntities.set(path, {
-      ...envelope,
-      macro: { ...migrated, name: macroName }
-    });
-  }
-}
-
-function migrate007To008MacroV10(context: WorkspaceMigrationContext): void {
-  for (const [path, envelope] of context.data.macroEntities) {
-    const macroName = envelope.macro.name;
-    if (typeof macroName !== 'string' || !macroName) {
-      throw new Error(`${path} Macro entity is missing its name.`);
-    }
-    const { name: _name, ...macro } = envelope.macro;
-    const sourcePackage = {
-      version: '9',
-      name: envelope.package,
-      macros: { [macroName]: macro }
-    };
-    assertCanonicalMacroPackage(path, sourcePackage, '9');
-    const v10Macro = {
-      ...macro,
-      kind: macro.kind === 'partial'
-        ? 'sub'
-        : typeof macro.kind === 'string' && macro.kind.length > 0
-          ? macro.kind
-          : 'const'
-    };
-    const canonical = context.canonicalizeMacroPackage(path, {
-      version: '9',
-      name: envelope.package,
-      macros: { [macroName]: v10Macro }
-    }, '10');
-    assertCanonicalMacroPackage(path, canonical, '10');
-    const migrated = Object.hasOwn(canonical.macros, macroName)
-      ? canonical.macros[macroName]
-      : undefined;
-    if (!isRecord(migrated)) {
-      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v10 migration.`);
+      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v11 migration.`);
     }
     context.data.macroEntities.set(path, {
       ...envelope,
@@ -650,21 +715,30 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
   },
   {
     from: '0.0.6',
-    to: '0.0.7',
-    description: 'Upgrade Macro entities to package schema v9 localized text styles.',
-    migrate: async (context) => { migrate006To007MacroV9(context); }
+    to: '0.0.9',
+    description: 'Upgrade Macro v8 entities to v11 and split Kind colors into theme variants.',
+    migrate: async (context) => {
+      migrateMacroEntitiesToV11(context, '8');
+      migrate008To009ThemedKindColors(context);
+    }
   },
   {
     from: '0.0.7',
-    to: '0.0.8',
-    description: 'Upgrade Macro entities to package schema v10 canonical semantic kinds.',
-    migrate: async (context) => { migrate007To008MacroV10(context); }
+    to: '0.0.9',
+    description: 'Upgrade Macro v9 entities to v11 and split Kind colors into theme variants.',
+    migrate: async (context) => {
+      migrateMacroEntitiesToV11(context, '9');
+      migrate008To009ThemedKindColors(context);
+    }
   },
   {
     from: '0.0.8',
     to: '0.0.9',
-    description: 'Split Entry Kind and Macro Kind colors into light and dark variants.',
-    migrate: async (context) => { migrate008To009ThemedKindColors(context); }
+    description: 'Upgrade Macro v10 entities to v11 and split Kind colors into theme variants.',
+    migrate: async (context) => {
+      migrateMacroEntitiesToV11(context, '10');
+      migrate008To009ThemedKindColors(context);
+    }
   }
 ];
 

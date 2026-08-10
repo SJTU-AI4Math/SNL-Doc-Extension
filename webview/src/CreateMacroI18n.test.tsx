@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 
@@ -20,7 +20,7 @@ vi.mock('./vscodeApi', async () => {
 });
 
 const { BlockRendererPresetControl, CreateMacroApp } = await import('./CreateMacroApp');
-const { apply_preferences_snapshot } = await import('./runtime/preferencesRuntime');
+const { apply_preferences_snapshot, set_content_language } = await import('./runtime/preferencesRuntime');
 
 afterEach(() => {
   cleanup();
@@ -30,6 +30,56 @@ afterEach(() => {
 });
 
 describe('Create Macro localization', () => {
+  it('adapts localized workspace Macros through the released Basics 0.2 preview boundary', async () => {
+    document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'macro-cross-preview', revision: 20,
+      preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文（中国大陆）' },
+        { id: 'en', display_name: 'English (US)' }
+      ]
+    });
+    act(() => set_content_language('zh-CN'));
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['Existing'], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null,
+      workspaceMacros: {
+        Existing: {
+          name: 'Existing', description: '', source: { entries: [], urls: [] },
+          kind: 'const', dynamic_arity: false, tags: [],
+          styles: [{
+            style_name: 'default', tags: [],
+            template: {
+              type: 'i18n', default_language: 'en',
+              values: {
+                en: { mode: 'formula_inline', body: '\\text{CROSS-EN}' },
+                'zh-CN': { mode: 'text', body: 'CROSS-ZH' }
+              }
+            }
+          }]
+        }
+      }
+    } })));
+    const template = screen.getAllByRole('textbox').find(
+      (element) => element.tagName === 'TEXTAREA'
+    )!;
+    fireEvent.change(template, { target: { value: '#0' } });
+    fireEvent.click(screen.getByRole('button', { name: /Argument overrides|预览参数覆盖/ }));
+    const argument = screen.getAllByRole('textbox').filter(
+      (element) => element.tagName === 'TEXTAREA'
+    ).at(-1)!;
+    fireEvent.change(argument, { target: { value: 'Existing()' } });
+    await waitFor(() => expect(screen.getAllByText('CROSS-ZH').length).toBeGreaterThan(0));
+    act(() => set_content_language('en'));
+    await waitFor(() => {
+      expect(screen.getAllByText('CROSS-EN').length).toBeGreaterThan(0);
+      expect(screen.queryAllByText('CROSS-ZH')).toHaveLength(0);
+    });
+  });
+
   it('renders the macro creation form in Chinese while preserving technical tokens', () => {
     document.documentElement.lang = 'zh-CN';
     render(<CreateMacroApp />);
@@ -308,10 +358,12 @@ describe('Create Macro localization', () => {
     const message = posted.find((candidate) =>
       typeof candidate === 'object' && candidate !== null && (candidate as { type?: string }).type === 'create'
     ) as { macro?: { styles?: Array<{ template?: unknown }> } } | undefined;
-    expect(message?.macro?.styles?.[0]?.template).toBe('Group #0');
+    expect(message?.macro?.styles?.[0]?.template).toMatchObject({
+      mode: 'text', body: 'Group #0'
+    });
   });
 
-  it('canonicalizes the legacy partial Macro Kind to v10 sub before create', () => {
+  it('canonicalizes the legacy partial Macro Kind to v11 sub before create', () => {
     document.documentElement.lang = 'en';
     render(<CreateMacroApp />);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -417,9 +469,8 @@ describe('Create Macro localization', () => {
       'value', 'display-edited'
     );
     fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
-    const localizedEditor = screen.getByRole('heading', { level: 4, name: 'Template (I18N)' })
-      .parentElement?.querySelector('textarea');
-    expect(localizedEditor).toHaveProperty('value', 'prose');
+    expect(screen.getByRole('textbox', { name: 'Left delimiter' }))
+      .toHaveProperty('value', 'prose');
     const create = screen.getByRole('button', { name: 'Create Macro' });
     expect(create).toHaveProperty('disabled', false);
     fireEvent.click(create);
@@ -428,7 +479,38 @@ describe('Create Macro localization', () => {
       (message as { type?: string }).type === 'create'
     )) as { macro: { dynamic_arity: boolean; styles: Array<{ template: unknown }> } };
     expect(submission.macro.dynamic_arity).toBe(true);
-    expect(submission.macro.styles[0].template).toBe('prose#*');
+    expect(submission.macro.styles[0].template).toMatchObject({
+      mode: 'text', body: 'prose#*'
+    });
+  });
+
+  it('treats escaped variadic text literally and gates effective fixed variadics', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+          existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+          entries: [], prefill: null
+        }
+      }));
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Escaped.dynamic' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Text (I18N)' }));
+    const template = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
+    fireEvent.change(template, { target: { value: '\\#*' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Dynamic Arity' }));
+    expect(screen.getByRole('textbox', { name: 'Left delimiter' })).toHaveProperty('value', '\\#*');
+    expect(screen.getByRole('button', { name: 'Create Macro' })).toHaveProperty('disabled', false);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Dynamic Arity' }));
+    const fixedTemplate = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
+    expect(fixedTemplate).toHaveProperty('value', '\\#*');
+    fireEvent.change(fixedTemplate, { target: { value: '#*' } });
+    expect(screen.getByRole('button', { name: 'Create Macro' })).toHaveProperty('disabled', true);
   });
 
   it('keeps a fixed formula Template when enabling dynamic arity', () => {
@@ -475,7 +557,7 @@ describe('Create Macro localization', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Formula (inline)' }));
     expect(confirm).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: /Language:/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Language: 简体中文/ })).toBeTruthy();
     fireEvent.change(
       screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!,
       { target: { value: 'formula-only' } }
@@ -508,10 +590,13 @@ describe('Create Macro localization', () => {
             name: 'Dynamic.localized', description: '', source: { entries: [], urls: [] },
             dynamic_arity: true, tags: [],
             styles: [{
-              style_name: 'default', mode: 'text', tags: [],
+              style_name: 'default',  tags: [],
               template: {
                 type: 'i18n', default_language: 'en',
-                values: { en: 'English #*', 'zh-CN': '中文 #*' }
+                values: {
+                  en: { mode: 'text', body: 'English #*' },
+                  'zh-CN': { mode: 'text', body: '中文 #*' }
+                }
               }
             }]
           }
@@ -526,7 +611,13 @@ describe('Create Macro localization', () => {
     const update = posted.find((message): message is { type: string; macro: { kind: string; styles: Array<{ template: unknown }> } } =>
       typeof message === 'object' && message !== null && (message as { type?: string }).type === 'update');
     expect(update?.macro.kind).toBe('const');
-    expect(update?.macro.styles[0].template).toBe('中文 #*');
+    expect(update?.macro.styles[0].template).toMatchObject({
+      type: 'i18n',
+      values: {
+        en: { mode: 'text', body: 'English #*' },
+        'zh-CN': { mode: 'formula_inline', body: '中文 #*' }
+      }
+    });
     confirm.mockRestore();
   });
 });

@@ -10,14 +10,20 @@ const macro: MacroPackageEntry = {
   styles: [
     {
       style_name: 'prose',
-      mode: 'text',
       template: {
         type: 'i18n', default_language: 'en',
-        values: { en: 'hello #0', 'zh-CN': '你好 #0' }
+        values: {
+          en: { mode: 'text', body: 'hello #0' },
+          'zh-CN': { mode: 'text', body: '你好 #0' }
+        }
       },
       tags: []
     },
-    { style_name: 'compact', mode: 'formula_inline', template: '#0', tags: [] }
+    {
+      style_name: 'compact',
+      template: { mode: 'formula_inline', body: '#0' },
+      tags: []
+    }
   ]
 };
 

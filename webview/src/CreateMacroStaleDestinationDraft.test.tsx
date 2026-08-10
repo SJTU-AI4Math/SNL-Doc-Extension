@@ -48,8 +48,8 @@ describe('Macro create-to-edit destination drafts', () => {
       styles: [{
         extensions: {}, typst_extensions: {}, typst_synthesis_extensions: {},
         latex_extensions: {}, latex_synthesis_extensions: {}, style_name: 'default',
-        mode: 'text', template: 'STALE TEMPLATE', template_left: '', separator: '',
-        template_right: '', block_template_name: '', tags: [], typst_built_in: '',
+         template: { mode: 'text', body: 'STALE TEMPLATE', separator: '', block_template_name: '' }, template_left: '',
+        template_right: '',  tags: [], typst_built_in: '',
         typst_synthesis: '', typst_synthesis_mode: 'formula', latex_built_in: '',
         latex_synthesis: '', latex_synthesis_mode: 'formula', markdown: '', text: ''
       }],
@@ -70,7 +70,7 @@ describe('Macro create-to-edit destination drafts', () => {
       existing: {
         name, description: 'FRESHLY CREATED', source: { entries: [], urls: [] },
         dynamic_arity: false, tags: [],
-        styles: [{ style_name: 'default', mode: 'text', template: 'FRESH TEMPLATE', tags: [] }]
+        styles: [{ style_name: 'default',  template: { mode: 'text', body: 'FRESH TEMPLATE' }, tags: [] }]
       }
     });
 

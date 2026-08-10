@@ -131,23 +131,24 @@ SNL-Basics checkout, then `npm run build:webview` here.
 ## Macro package schema
 
 The extension reads historical macro packages through an explicit migration
-boundary and exposes only Macro v10 values at runtime. In v10, styles use
-`style_name`, dynamic templates contain `#*` with optional `separator`, block
-renderers use `block_template_name`, every Macro has a non-empty semantic
-`kind`, and `styles[0]` is the sole implicit default. Explicit `[style]` always
-wins. Text styles may localize their Template with an I18N value; formula and
-block Templates remain invariant strings. Locale therefore resolves text
-inside the already-selected Style and never changes Style identity, arity,
-mode, backend, or separator.
+boundary and exposes only Macro v11 values at runtime. A v11 Style contains
+exactly `style_name`, invariant `tags`, and `template`. The template is either
+one complete TemplateSpec or an I18N map of complete TemplateSpecs, so locale
+atomically selects `mode`, `body`, `separator`, `block_template_name`, output
+backends, and presentation extensions without changing Style identity. All
+projections within one localized Style have the same positional arity contract;
+different explicit Styles may intentionally use different arities. Every Macro
+has a non-empty semantic `kind`, `styles[0]` is the sole implicit default, and
+explicit `[style]` always wins.
 
-Any package write emits version `10`. Historical v7 and published-v8 input is
-upgraded without discarding consumer output backends or unknown extension
-fields: v8→v9 merges a valid language-to-Style default map into a localized
-text Template, and v9→v10 adds the canonical semantic `kind` (`partial` becomes
-`sub`; a missing legacy kind becomes `const`; other non-empty kinds are
-preserved). A v8 language map is merged only when its mapped text Styles are
-structurally equivalent; incompatible maps are rejected rather than silently
-changing rendering. Macro and style names use SNL-Basics' shared Unicode
+Any package write emits version `11`. Historical v1–v10 input is upgraded
+without discarding consumer output backends or unknown extension fields.
+Published-v8 language-to-Style defaults become one synthetic localized default
+Style while every original named Style remains available to explicit source.
+Unrepresentable maps, including selected Styles with divergent invariant tags,
+abort migration rather than inventing merged metadata. Missing kinds become
+`const`, persisted `partial` becomes `sub`, and other non-empty kinds are
+preserved. Macro and style names use SNL-Basics' shared Unicode
 identifier policy: visible non-ASCII is accepted broadly, while ASCII
 punctuation outside the grammar allow-list and invisible Unicode controls are
 rejected.
@@ -156,8 +157,9 @@ rejected.
 
 Locale, theme, and motion preferences are VS Code Extension Settings and are
 adapted to SNL-Basics through query-initialized `ReaderRuntime` instances.
-Text-mode Macro Templates and non-SNL Entry content may be invariant strings or
-serialized language maps. Formula and block Macro Templates remain invariant.
+Macro TemplateSpecs and non-SNL Entry content may be invariant or serialized
+language maps. A localized Macro value always contains complete TemplateSpecs;
+it never localizes only one render field.
 See [docs/i18n-preferences.md](docs/i18n-preferences.md) for the ownership boundary, schema, hot-update protocol, and verification rules.
 
 ## Macro naming rule (enforced by SNL-Basics parser)

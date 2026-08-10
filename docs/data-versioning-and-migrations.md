@@ -6,7 +6,7 @@ SNL Doc has intentionally separate version domains:
 
 - **Extension release**: `package.json#version` (currently `0.0.1`). This is the VS Code Marketplace/package release and never drives workspace migration.
 - **Workspace data schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.9`; this is the only version used to plan workspace migrations.
-- **Macro package format**: each Macro package's `version` (currently string generation `"10"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
+- **Macro package format**: each Macro package's `version` (currently string generation `"11"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
 - **Relationships file format**: `relationships.json#version` (currently numeric generation `1`). It is likewise subordinate to the workspace data version.
 - Library `meta.json`, `graph.json`, `counters.json`, and the legacy aggregate `entries.json` currently have no independent version field. Their supported shapes are determined by the workspace data version.
 
@@ -37,9 +37,15 @@ The registry is intentionally explicit; SemVer arithmetic does not invent missin
 - `0.0.3 -> 0.0.4`: persist `defaultCounterName`, current kind records, and canonical Macro package v7 data.
 - `0.0.4 -> 0.0.5`: validate canonical Macro v7 input, canonicalize plain-string packages to v8, and add `default_style.en`. Localized Macro templates block automatic migration because splitting them would silently change explicit `[style]` source semantics.
 - `0.0.5 -> 0.0.6`: validate canonical Macro v8 input, then split aggregate Entries and Macros into stable per-entity Package storage; legacy aggregates remain frozen backups at `0.0.5`.
-- `0.0.6 -> 0.0.7`: migrate active Macro entities from published package schema v8 to v9. The v9 model removes language-to-Style defaults, uses `styles[0]` as the sole implicit default, and localizes only text Templates. Redundant maps are stripped; structurally equivalent language-split text Styles are merged; incompatible mappings abort migration.
-- `0.0.7 -> 0.0.8`: migrate Macro entities to package schema v10. Missing kinds become `const`, persisted `partial` becomes `sub`, and all other consumer-defined kind strings are preserved.
-- `0.0.8 -> 0.0.9`: split Entry Kind and Macro Kind colors into explicit `light` and `dark` stroke/background variants. Legacy pairs are duplicated exactly so migration does not change existing visuals; a one-sided themed compatibility record copies its surviving side before the current schema is committed. Newly initialized presets provide intentional theme-specific colors.
+- `0.0.6 -> 0.0.9`: migrate published Macro schema v8 directly to v11, preserving every explicit Style while replacing language-to-Style defaults with one atomically localized complete TemplateSpec; also apply themed Kind colors.
+- `0.0.7 -> 0.0.9`: migrate Macro schema v9 directly to v11 and apply themed Kind colors.
+- `0.0.8 -> 0.0.9`: migrate Macro schema v10 directly to v11 and apply themed Kind colors. Missing kinds become `const`, persisted `partial` becomes `sub`, and all other consumer-defined kind strings are preserved.
+
+All three direct edges compose every transformation omitted between their source
+and `0.0.9`. Macro v11 localizes a complete TemplateSpec rather than only a text
+body. The Kind-color step splits each pair into explicit `light` and `dark`
+stroke/background variants; legacy pairs are duplicated exactly, while a
+one-sided themed compatibility record copies its surviving side before commit.
 
 Unknown future versions are rejected by migration and treated as read-only by ordinary data writers, preventing an older Extension from rewriting a newer schema.
 

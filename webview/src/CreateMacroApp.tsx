@@ -54,10 +54,17 @@ import {
   SnlSyntaxTreeView,
   type SnlMacro,
   type SnlMacroStyle,
+
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type Localized
 } from '@sjtu-ai4math/snl-basics';
+import { analyzeLatexTemplatePlaceholders } from '../../src/templatePlaceholders';
+import {
+  wireMacroEntriesToRenderable,
+  type WireMacro,
+  type WireMacroTemplate
+} from './render/macroWire';
 import {
   createMacroDataDriver,
   type MacroRecord
@@ -412,33 +419,8 @@ type StructuralTemplateDraft = {
   template_right: string;
 };
 
-function localizedTemplate(value: Localized<string, string>, language: string): string {
+function localizedTemplate<Value>(value: Localized<string, Value>, language: string): Value {
   return read_localized(value)({ language });
-}
-
-function mapLocalizedTemplate(
-  value: Localized<string, string>,
-  map: (template: string) => string
-): Localized<string, string> {
-  if (!is_i18n(value)) return map(value);
-  return {
-    ...value,
-    values: Object.fromEntries(Object.entries(value.values).map(([language, template]) => [
-      language,
-      template === undefined ? undefined : map(template)
-    ]))
-  };
-}
-
-function toggleTextTemplateArity(
-  value: Localized<string, string> | undefined,
-  dynamic: boolean
-): Localized<string, string> | undefined {
-  if (value === undefined) return undefined;
-  return mapLocalizedTemplate(value, (template) => {
-    if (dynamic) return template.includes('#*') ? template : `${template}#*`;
-    return template === '#*' ? '' : template;
-  });
 }
 
 function toggleStructuralDraftArity(
@@ -478,30 +460,25 @@ const MODE_MESSAGE_KEYS: Record<Mode, 'modeFormulaInline' | 'modeFormulaDisplay'
 };
 const MODE_ORDER: Mode[] = ['formula_inline', 'formula_display', 'text', 'block'];
 
-/** Editable current-schema style plus split controls for authoring `#*`. */
-interface StyleDraft {
-  extensions: Record<string, unknown>;
-  typst_extensions: Record<string, unknown>;
-  typst_synthesis_extensions: Record<string, unknown>;
-  latex_extensions: Record<string, unknown>;
-  latex_synthesis_extensions: Record<string, unknown>;
-  style_name: string;
+interface TemplateProjectionDraft {
+  template_extensions: Record<string, unknown>;
   mode: Mode;
-  template: Localized<string, string>;
-  /** Webview-session-only language choice for this style's I18N editor. */
-  template_edit_language: string;
-  /** Reversible text-mode draft retained while previewing another mode. */
-  text_template_draft?: Localized<string, string>;
-  /** Reversible, editor-only draft for each non-text mode. */
+  /** Current projection's render body. */
+  template: string;
+  /** Reversible text-mode body retained while previewing another mode. */
+  text_template_draft?: string;
+  /** Reversible, editor-only draft for each non-text mode in this language. */
   structural_template_drafts?: Partial<Record<Exclude<Mode, 'text'>, StructuralTemplateDraft>>;
   template_left: string;
   separator: string;
   template_right: string;
   block_template_name: string;
-  /** Webview-session draft only; never serialized into the Macro entity. */
   image_path_draft: string;
   image_path_invalid: boolean;
-  tags: string[];
+  typst_extensions: Record<string, unknown>;
+  typst_synthesis_extensions: Record<string, unknown>;
+  latex_extensions: Record<string, unknown>;
+  latex_synthesis_extensions: Record<string, unknown>;
   typst_built_in: string;
   typst_synthesis: string;
   typst_synthesis_mode: SynthesisMode;
@@ -510,6 +487,16 @@ interface StyleDraft {
   latex_synthesis_mode: SynthesisMode;
   markdown: string;
   text: string;
+}
+
+/** Editable style identity plus a full localized Template projection map. */
+interface StyleDraft extends TemplateProjectionDraft {
+  extensions: Record<string, unknown>;
+  style_name: string;
+  template_localized: Localized<string, TemplateProjectionDraft>;
+  /** Webview-session-only language choice for this style's template editor. */
+  template_edit_language: string;
+  tags: string[];
 }
 
 interface MacroEditorDraft {
@@ -524,24 +511,21 @@ interface MacroEditorDraft {
   originalRevision?: string;
 }
 
-function newStyleDraft(styleName: string): StyleDraft {
+function newTemplateProjection(): TemplateProjectionDraft {
   return {
-    extensions: {},
+    template_extensions: {},
     typst_extensions: {},
     typst_synthesis_extensions: {},
     latex_extensions: {},
     latex_synthesis_extensions: {},
-    style_name: styleName,
     mode: 'formula_inline',
     template: '',
-    template_edit_language: LOCALIZED_GENERAL_LANGUAGE,
     template_left: '',
     separator: '',
     template_right: '',
     block_template_name: '',
     image_path_draft: '',
     image_path_invalid: false,
-    tags: [],
     typst_built_in: '',
     typst_synthesis: '',
     typst_synthesis_mode: 'formula',
@@ -553,50 +537,234 @@ function newStyleDraft(styleName: string): StyleDraft {
   };
 }
 
-/** Serialize a draft to strict Macro v9 storage. */
-function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
-  const invariantTemplate = dynamicArity
-    ? `${s.template_left}#*${s.template_right}`
-    : (localizedTemplate(s.template, 'en') || (s.mode === 'block' ? '#*' : ''));
-  const common = {
-    ...s.extensions,
-    style_name: s.style_name,
-    ...(dynamicArity ? { separator: s.separator } : {}),
-    tags: s.tags.map((t) => t.trim()).filter((t) => t.length > 0),
+function newStyleDraft(styleName: string): StyleDraft {
+  const projection = newTemplateProjection();
+  return {
+    extensions: {},
+    style_name: styleName,
+    ...projection,
+    template_localized: projection,
+    template_edit_language: LOCALIZED_GENERAL_LANGUAGE,
+    tags: []
+  };
+}
+
+function normalizeRestoredStyleDraft(input: unknown): StyleDraft {
+  const raw = input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const base = newStyleDraft(typeof raw.style_name === 'string' ? raw.style_name : 'default');
+  const merged = { ...base, ...raw } as StyleDraft;
+  if (raw.template_localized !== undefined) {
+    const source = raw.template_localized as Localized<string, TemplateProjectionDraft>;
+    const language = typeof raw.template_edit_language === 'string'
+      ? raw.template_edit_language
+      : (is_i18n(source) ? source.default_language : LOCALIZED_GENERAL_LANGUAGE);
+    const projection = localizedTemplate(
+      source,
+      language === LOCALIZED_GENERAL_LANGUAGE
+        ? (is_i18n(source) ? source.default_language : 'en')
+        : language
+    );
+    return {
+      ...applyProjection(merged, projection),
+      template_localized: source,
+      template_edit_language: language,
+      tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === 'string') : []
+    };
+  }
+
+  const legacy = raw.template as Localized<string, string> | undefined;
+  const projectionBase = { ...projectionFromStyle(merged), template: '' };
+  const template_localized: Localized<string, TemplateProjectionDraft> = legacy === undefined
+    ? projectionBase
+    : is_i18n(legacy)
+      ? {
+          ...legacy,
+          values: Object.fromEntries(Object.entries(legacy.values).map(([language, body]) => [
+            language,
+            body === undefined ? undefined : { ...projectionBase, template: body }
+          ]))
+        }
+      : { ...projectionBase, template: legacy };
+  const language = typeof raw.template_edit_language === 'string'
+    ? raw.template_edit_language
+    : (is_i18n(template_localized) ? template_localized.default_language : LOCALIZED_GENERAL_LANGUAGE);
+  const projection = localizedTemplate(
+    template_localized,
+    language === LOCALIZED_GENERAL_LANGUAGE
+      ? (is_i18n(template_localized) ? template_localized.default_language : 'en')
+      : language
+  );
+  return {
+    ...applyProjection(merged, projection),
+    template_localized,
+    template_edit_language: language,
+    tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === 'string') : []
+  };
+}
+
+function projectionFromStyle(style: StyleDraft): TemplateProjectionDraft {
+  const {
+    template_extensions,
+    mode, template, text_template_draft, structural_template_drafts,
+    template_left, separator, template_right, block_template_name,
+    image_path_draft, image_path_invalid,
+    typst_extensions, typst_synthesis_extensions,
+    latex_extensions, latex_synthesis_extensions,
+    typst_built_in, typst_synthesis, typst_synthesis_mode,
+    latex_built_in, latex_synthesis, latex_synthesis_mode,
+    markdown, text
+  } = style;
+  return {
+    template_extensions,
+    mode, template, text_template_draft, structural_template_drafts,
+    template_left, separator, template_right, block_template_name,
+    image_path_draft, image_path_invalid,
+    typst_extensions, typst_synthesis_extensions,
+    latex_extensions, latex_synthesis_extensions,
+    typst_built_in, typst_synthesis, typst_synthesis_mode,
+    latex_built_in, latex_synthesis, latex_synthesis_mode,
+    markdown, text
+  };
+}
+
+function applyProjection(style: StyleDraft, projection: TemplateProjectionDraft): StyleDraft {
+  return { ...style, ...projection };
+}
+
+function writeTemplateProjection(
+  value: Localized<string, TemplateProjectionDraft>,
+  language: string,
+  projection: TemplateProjectionDraft
+): Localized<string, TemplateProjectionDraft> {
+  if (language === LOCALIZED_GENERAL_LANGUAGE) return projection;
+  if (is_i18n(value)) {
+    return { ...value, values: { ...value.values, [language]: projection } };
+  }
+  return { type: 'i18n', default_language: language, values: { [language]: projection } };
+}
+
+function mapTemplateProjections(
+  value: Localized<string, TemplateProjectionDraft>,
+  map: (projection: TemplateProjectionDraft) => TemplateProjectionDraft
+): Localized<string, TemplateProjectionDraft> {
+  if (!is_i18n(value)) return map(value);
+  return {
+    ...value,
+    values: Object.fromEntries(Object.entries(value.values).map(([language, projection]) => [
+      language,
+      projection === undefined ? undefined : map(projection)
+    ]))
+  };
+}
+
+function effectiveVariadicIndex(body: string): number {
+  for (let index = 0; index < body.length - 1; index += 1) {
+    if (body[index] === '#' && body[index + 1] === '*' && body[index - 1] !== '\\') return index;
+  }
+  return -1;
+}
+
+function toggleTextTemplateArity(body: string, dynamic: boolean): string {
+  const marker = effectiveVariadicIndex(body);
+  if (dynamic) return marker >= 0 ? body : `${body}#*`;
+  return marker >= 0 ? `${body.slice(0, marker)}${body.slice(marker + 2)}` : body;
+}
+
+function toggleTemplateProjectionArity(
+  projection: TemplateProjectionDraft,
+  dynamic: boolean
+): TemplateProjectionDraft {
+  const text_template_draft = projection.text_template_draft === undefined
+    ? undefined
+    : toggleTextTemplateArity(projection.text_template_draft, dynamic);
+  const structural_template_drafts = toggleStructuralDraftMapArity(
+    projection.structural_template_drafts,
+    dynamic
+  );
+  if (projection.mode === 'text') {
+    const template = toggleTextTemplateArity(projection.template, dynamic);
+    const marker = effectiveVariadicIndex(template);
+    return {
+      ...projection,
+      template,
+      template_left: marker >= 0 ? template.slice(0, marker) : '',
+      template_right: marker >= 0 ? template.slice(marker + 2) : '',
+      text_template_draft,
+      structural_template_drafts
+    };
+  }
+  const active = toggleStructuralDraftArity({
+    template: projection.template,
+    template_left: projection.template_left,
+    separator: projection.separator,
+    template_right: projection.template_right
+  }, dynamic);
+  return {
+    ...projection,
+    ...active,
+    text_template_draft,
+    structural_template_drafts
+  };
+}
+
+/** Serialize a draft to strict Macro v11 storage. */
+function projectionToExtendedTemplate(
+  projection: TemplateProjectionDraft,
+  dynamicArity: boolean
+): ExtendedTemplateSpec {
+  const body = dynamicArity
+    ? `${projection.template_left}#*${projection.template_right}`
+    : projection.template;
+  return {
+    ...projection.template_extensions,
+    mode: projection.mode,
+    body,
+    ...(dynamicArity ? { separator: projection.separator } : {}),
+    ...(projection.mode === 'block' && projection.block_template_name
+      ? { block_template_name: projection.block_template_name }
+      : {}),
     typst: {
-      ...s.typst_extensions,
-      built_in: s.typst_built_in,
+      ...projection.typst_extensions,
+      built_in: projection.typst_built_in,
       synthesis: {
-        ...s.typst_synthesis_extensions,
-        mode: s.typst_synthesis_mode,
-        macro: s.typst_synthesis
+        ...projection.typst_synthesis_extensions,
+        mode: projection.typst_synthesis_mode,
+        macro: projection.typst_synthesis
       }
     },
     latex: {
-      ...s.latex_extensions,
-      built_in: s.latex_built_in,
+      ...projection.latex_extensions,
+      built_in: projection.latex_built_in,
       synthesis: {
-        ...s.latex_synthesis_extensions,
-        mode: s.latex_synthesis_mode,
-        macro: s.latex_synthesis
+        ...projection.latex_synthesis_extensions,
+        mode: projection.latex_synthesis_mode,
+        macro: projection.latex_synthesis
       }
     },
-    markdown: s.markdown,
-    text: s.text
-  };
-  if (s.mode === 'text') return { ...common, mode: 'text', template: s.template };
-  if (s.mode === 'block') {
-    return {
-      ...common,
-      mode: 'block',
-      template: invariantTemplate,
-      ...(s.block_template_name ? { block_template_name: s.block_template_name } : {})
-    };
-  }
+    markdown: projection.markdown,
+    text: projection.text
+  } as ExtendedTemplateSpec;
+}
+
+function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
+  const template = is_i18n(s.template_localized)
+    ? {
+        ...s.template_localized,
+        values: Object.fromEntries(Object.entries(s.template_localized.values).map(
+          ([language, projection]) => [
+            language,
+            projection === undefined ? undefined : projectionToExtendedTemplate(projection, dynamicArity)
+          ]
+        ))
+      }
+    : projectionToExtendedTemplate(s.template_localized, dynamicArity);
   return {
-    ...common,
-    mode: s.mode,
-    template: invariantTemplate
+    ...s.extensions,
+    style_name: s.style_name,
+    tags: s.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+    template
   };
 }
 
@@ -625,9 +793,13 @@ interface ExtendedStyleBackends {
   markdown?: string;
   text?: string;
 }
-type ExtendedSnlMacroStyle =
-  | (Extract<SnlMacroStyle, { mode: 'text' }> & ExtendedStyleBackends)
-  | (Exclude<SnlMacroStyle, { mode: 'text' }> & ExtendedStyleBackends);
+type ExtendedTemplateSpec = WireMacroTemplate & ExtendedStyleBackends;
+type ExtendedSnlMacroStyle = {
+  [key: string]: unknown;
+  style_name: string;
+  tags: string[];
+  template: Localized<string, ExtendedTemplateSpec>;
+};
 
 /**
  * The extended, on-disk macro shape written to a package file (v6). Superset
@@ -644,6 +816,72 @@ interface ExtendedSnlMacro {
   dynamic_arity: boolean;
   styles: ExtendedSnlMacroStyle[];
   tags: string[];
+}
+
+function extendedTemplateToDraft(template: ExtendedTemplateSpec): TemplateProjectionDraft {
+  const raw = template as unknown as Record<string, unknown>;
+  const {
+    mode: _mode, body: _body, separator: _separator,
+    block_template_name: _blockTemplateName,
+    typst: _typst, latex: _latex, markdown: _markdown, text: _text,
+    ...template_extensions
+  } = raw;
+  const typstRaw = template.typst && typeof template.typst === 'object'
+    ? template.typst as unknown as Record<string, unknown> : {};
+  const { built_in: _typstBuiltIn, synthesis: _typstSynthesis, ...typst_extensions } = typstRaw;
+  const typstSynthesisRaw = template.typst?.synthesis && typeof template.typst.synthesis === 'object'
+    ? template.typst.synthesis as unknown as Record<string, unknown> : {};
+  const { mode: _typstMode, macro: _typstMacro, ...typst_synthesis_extensions } = typstSynthesisRaw;
+  const latexRaw = template.latex && typeof template.latex === 'object'
+    ? template.latex as unknown as Record<string, unknown> : {};
+  const { built_in: _latexBuiltIn, synthesis: _latexSynthesis, ...latex_extensions } = latexRaw;
+  const latexSynthesisRaw = template.latex?.synthesis && typeof template.latex.synthesis === 'object'
+    ? template.latex.synthesis as unknown as Record<string, unknown> : {};
+  const { mode: _latexMode, macro: _latexMacro, ...latex_synthesis_extensions } = latexSynthesisRaw;
+  const marker = template.body.indexOf('#*');
+  let image_path_draft = '';
+  try {
+    const renderer = parseBlockRendererSpec(template.block_template_name ?? '');
+    if (renderer.name === 'image') image_path_draft = renderer.params.src ?? '';
+  } catch {
+    // Unknown/custom renderers do not own an image-path draft.
+  }
+  return {
+    template_extensions,
+    mode: template.mode,
+    template: template.body,
+    template_left: marker >= 0 ? template.body.slice(0, marker) : '',
+    separator: template.separator ?? '',
+    template_right: marker >= 0 ? template.body.slice(marker + 2) : '',
+    block_template_name: template.block_template_name ?? '',
+    image_path_draft,
+    image_path_invalid: false,
+    typst_extensions,
+    typst_synthesis_extensions,
+    latex_extensions,
+    latex_synthesis_extensions,
+    typst_built_in: template.typst?.built_in ?? '',
+    typst_synthesis: template.typst?.synthesis?.macro ?? '',
+    typst_synthesis_mode: template.typst?.synthesis?.mode ?? 'formula',
+    latex_built_in: template.latex?.built_in ?? '',
+    latex_synthesis: template.latex?.synthesis?.macro ?? '',
+    latex_synthesis_mode: template.latex?.synthesis?.mode ?? 'formula',
+    markdown: template.markdown ?? '',
+    text: template.text ?? ''
+  };
+}
+
+function extendedLocalizedTemplateToDraft(
+  template: Localized<string, ExtendedTemplateSpec>
+): Localized<string, TemplateProjectionDraft> {
+  if (!is_i18n(template)) return extendedTemplateToDraft(template);
+  return {
+    ...template,
+    values: Object.fromEntries(Object.entries(template.values).map(([language, projection]) => [
+      language,
+      projection === undefined ? undefined : extendedTemplateToDraft(projection)
+    ]))
+  };
 }
 
 type Status =
@@ -671,7 +909,7 @@ interface ContextMsg {
   packageName: string;
   existingNames: string[];
   macroCandidates?: SnooglSearchCandidate[];
-  workspaceMacros?: MacroRecord;
+  workspaceMacros?: Record<string, WireMacro>;
   macroKinds?: MacroKind[];
   existing?: ExtendedSnlMacro | null;
   macroRevision?: string;
@@ -774,6 +1012,7 @@ function canonicalMacroKindCatalog(kinds: readonly MacroKind[]): MacroKind[] {
 
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
+  const contentLanguage = webview_language_runtime.query_environment().language;
   const supportedLanguages = use_supported_languages();
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const apiRef = useVsCodeApiRef();
@@ -795,7 +1034,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [packageName, setPackageName] = useState('');
   const [existingNames, setExistingNames] = useState<string[]>([]);
   const [macroCandidates, setMacroCandidates] = useState<SnooglSearchCandidate[]>([]);
-  const [workspaceMacros, setWorkspaceMacros] = useState<MacroRecord>({});
+  const [workspaceMacros, setWorkspaceMacros] = useState<Record<string, WireMacro>>({});
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
@@ -830,27 +1069,60 @@ export function CreateMacroApp(): React.ReactElement {
     formDirtyRef.current = true;
   }
 
-  /** Patch a field on the currently-active style. */
+  /** Patch fields on the active style and atomically persist its full template projection. */
   function patchStyle(patch: Partial<StyleDraft>): void {
     markFormDirty();
-    setStyles((prev) =>
-      prev.map((s, i) => i === activeStyle ? { ...s, ...patch } : s)
-    );
+    setStyles((previous) => previous.map((style, index) => {
+      if (index !== activeStyle) return style;
+      const next = { ...style, ...patch };
+      return {
+        ...next,
+        template_localized: writeTemplateProjection(
+          next.template_localized,
+          next.template_edit_language,
+          projectionFromStyle(next)
+        )
+      };
+    }));
   }
 
   const setActiveTemplateLanguage = useCallback((language: string): void => {
-    setStyles((previous) => previous.map((style, index) => index === activeStyle
-      ? { ...style, template_edit_language: language }
-      : style));
+    setStyles((previous) => previous.map((style, index) => {
+      if (index !== activeStyle) return style;
+      const lookupLanguage = language === LOCALIZED_GENERAL_LANGUAGE
+        ? (is_i18n(style.template_localized) ? style.template_localized.default_language : 'en')
+        : language;
+      const projection = localizedTemplate(style.template_localized, lookupLanguage);
+      return {
+        ...applyProjection(style, projection),
+        template_edit_language: language
+      };
+    }));
+  }, [activeStyle]);
+
+  const replaceActiveLocalizedTemplate = useCallback((
+    value: Localized<string, TemplateProjectionDraft>
+  ): void => {
+    markFormDirty();
+    setStyles((previous) => previous.map((style, index) => {
+      if (index !== activeStyle) return style;
+      const language = style.template_edit_language;
+      const lookupLanguage = language === LOCALIZED_GENERAL_LANGUAGE
+        ? (is_i18n(value) ? value.default_language : 'en')
+        : language;
+      const projection = localizedTemplate(value, lookupLanguage);
+      return {
+        ...applyProjection(style, projection),
+        template_localized: value
+      };
+    }));
   }, [activeStyle]);
 
   function changeStyleMode(mode: Mode): void {
     const selected = styles[activeStyle];
     if (!selected || selected.mode === mode) return;
     const currentStructural = {
-      template: typeof selected.template === 'string'
-        ? selected.template
-        : localizedTemplate(selected.template, selected.template_edit_language),
+      template: selected.template,
       template_left: selected.template_left,
       separator: selected.separator,
       template_right: selected.template_right
@@ -862,20 +1134,19 @@ export function CreateMacroApp(): React.ReactElement {
           [selected.mode]: currentStructural
         };
     if (mode === 'text') {
+      const template = selected.text_template_draft ?? selected.template;
+      const marker = template.indexOf('#*');
       patchStyle({
         mode,
-        template: selected.text_template_draft ?? selected.template,
+        template,
+        template_left: marker >= 0 ? template.slice(0, marker) : '',
+        template_right: marker >= 0 ? template.slice(marker + 2) : '',
         structural_template_drafts: structuralDrafts
       });
       return;
     }
     if (selected.mode === 'text') {
-      const template = localizedTemplate(
-        selected.template,
-        selected.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
-          ? (is_i18n(selected.template) ? selected.template.default_language : 'en')
-          : selected.template_edit_language
-      );
+      const template = selected.template;
       const restored = structuralDrafts[mode];
       if (restored) {
         patchStyle({
@@ -944,13 +1215,7 @@ export function CreateMacroApp(): React.ReactElement {
     setDynamicArity(draft.dynamicArity);
     setMacroTags(draft.macroTags.slice());
     setKind(canonicalMacroKindId(draft.kind));
-    setStyles(draft.styles.map((style) => ({
-      ...style,
-      template_edit_language: style.template_edit_language ?? (
-        is_i18n(style.template) ? style.template.default_language : LOCALIZED_GENERAL_LANGUAGE
-      ),
-      tags: style.tags.slice()
-    })));
+    setStyles(draft.styles.map(normalizeRestoredStyleDraft));
     setActiveStyle(0);
     setActiveTab('katex_template');
     editingNameRef.current = draft.name;
@@ -980,72 +1245,31 @@ export function CreateMacroApp(): React.ReactElement {
     setKind(canonicalMacroKindId(existing.kind ?? ''));
     setMacroTags(Array.isArray(existing.tags) ? existing.tags.slice() : []);
     const drafts: StyleDraft[] = Array.isArray(existing.styles)
-      ? existing.styles.map((s) => {
-          const raw = s as unknown as Record<string, unknown>;
+      ? existing.styles.map((style) => {
+          const raw = style as unknown as Record<string, unknown>;
           const {
             style_name: _styleName,
-            mode: _mode,
             template: _template,
-            separator: _separator,
-            block_template_name: _blockTemplateName,
             tags: _tags,
-            typst: _typst,
-            latex: _latex,
-            markdown: _markdown,
-            text: _text,
             ...extensions
           } = raw;
-          const typstRaw = s.typst && typeof s.typst === 'object'
-            ? s.typst as unknown as Record<string, unknown> : {};
-          const { built_in: _typstBuiltIn, synthesis: _typstSynthesis, ...typstExtensions } = typstRaw;
-          const typstSynthesisRaw = s.typst?.synthesis && typeof s.typst.synthesis === 'object'
-            ? s.typst.synthesis as unknown as Record<string, unknown> : {};
-          const { mode: _typstMode, macro: _typstMacro, ...typstSynthesisExtensions } = typstSynthesisRaw;
-          const latexRaw = s.latex && typeof s.latex === 'object'
-            ? s.latex as unknown as Record<string, unknown> : {};
-          const { built_in: _latexBuiltIn, synthesis: _latexSynthesis, ...latexExtensions } = latexRaw;
-          const latexSynthesisRaw = s.latex?.synthesis && typeof s.latex.synthesis === 'object'
-            ? s.latex.synthesis as unknown as Record<string, unknown> : {};
-          const { mode: _latexMode, macro: _latexMacro, ...latexSynthesisExtensions } = latexSynthesisRaw;
-          const template = s.template;
-          const invariantTemplate = localizedTemplate(template, 'en');
-          const marker = invariantTemplate.indexOf('#*');
-          let imagePathDraft = '';
-          try {
-            const renderer = parseBlockRendererSpec(s.block_template_name ?? '');
-            if (renderer.name === 'image') imagePathDraft = renderer.params.src ?? '';
-          } catch {
-            // Unknown/custom renderers do not own an image-path draft.
-          }
+          const template_localized = extendedLocalizedTemplateToDraft(style.template);
+          const template_edit_language = is_i18n(template_localized)
+            ? template_localized.default_language
+            : LOCALIZED_GENERAL_LANGUAGE;
+          const projection = localizedTemplate(
+            template_localized,
+            is_i18n(template_localized) ? template_localized.default_language : 'en'
+          );
           return {
-        extensions,
-        typst_extensions: typstExtensions,
-        typst_synthesis_extensions: typstSynthesisExtensions,
-        latex_extensions: latexExtensions,
-        latex_synthesis_extensions: latexSynthesisExtensions,
-        style_name: s.style_name || 'default',
-        mode: s.mode,
-        template,
-        template_edit_language: is_i18n(template)
-          ? template.default_language
-          : LOCALIZED_GENERAL_LANGUAGE,
-        template_left: marker >= 0 ? invariantTemplate.slice(0, marker) : '',
-        separator: s.separator ?? '',
-        template_right: marker >= 0 ? invariantTemplate.slice(marker + 2) : '',
-        block_template_name: s.block_template_name ?? '',
-        image_path_draft: imagePathDraft,
-        image_path_invalid: false,
-        tags: s.tags.slice(),
-        typst_built_in: s.typst?.built_in ?? '',
-        typst_synthesis: s.typst?.synthesis?.macro ?? '',
-        typst_synthesis_mode: (s.typst?.synthesis?.mode as SynthesisMode) ?? 'formula',
-        latex_built_in: s.latex?.built_in ?? '',
-        latex_synthesis: s.latex?.synthesis?.macro ?? '',
-        latex_synthesis_mode: (s.latex?.synthesis?.mode as SynthesisMode) ?? 'formula',
-        markdown: s.markdown ?? '',
-        text: s.text ?? ''
-      };
-      })
+            extensions,
+            style_name: style.style_name || 'default',
+            ...projection,
+            template_localized,
+            template_edit_language,
+            tags: style.tags.slice()
+          };
+        })
       : [newStyleDraft('default')];
     setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
     setActiveStyle(0);
@@ -1133,6 +1357,11 @@ export function CreateMacroApp(): React.ReactElement {
               ) {
                 patched.mode = p.mode;
               }
+              patched.template_localized = writeTemplateProjection(
+                patched.template_localized,
+                patched.template_edit_language,
+                projectionFromStyle(patched)
+              );
               return [patched, ...prev.slice(1)];
             });
           }
@@ -1243,38 +1472,29 @@ export function CreateMacroApp(): React.ReactElement {
   // --- Draft macro + preview DB -------------------------------------------
 
   const draftMacro: SnlMacro = useMemo(() => {
-    const styleList: SnlMacroStyle[] = styles.map((s) => {
-      const extended = styleDraftToExtended(s, dynamicArity);
-      const base = {
-        style_name: extended.style_name,
-        ...(extended.separator !== undefined ? { separator: extended.separator } : {}),
-        tags: extended.tags
-      };
-      if (extended.mode === 'text') {
-        const previewLanguage = s.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
-          ? (is_i18n(extended.template) ? extended.template.default_language : 'en')
-          : s.template_edit_language;
-        return { ...base, mode: 'text', template: localizedTemplate(extended.template, previewLanguage) };
-      }
-      if (extended.mode === 'block') {
-        return {
-          ...base,
-          mode: 'block',
-          template: extended.template,
-          ...(extended.block_template_name
-            ? { block_template_name: extended.block_template_name }
-            : {})
-        };
-      }
+    const styleList: SnlMacroStyle[] = styles.map((style) => {
+      const projection = projectionToExtendedTemplate(
+        projectionFromStyle(style), dynamicArity
+      );
       return {
-        ...base,
-        mode: extended.mode,
-        template: extended.template
-      };
+        style_name: style.style_name,
+        tags: style.tags,
+        mode: projection.mode,
+        template: projection.body,
+        ...(projection.separator === undefined ? {} : { separator: projection.separator }),
+        ...(projection.mode === 'block' && projection.block_template_name !== undefined
+          ? { block_template_name: projection.block_template_name }
+          : {})
+      } as SnlMacroStyle;
     });
-    const previewStyles = styleList.length > 0
+    const previewStyles: SnlMacroStyle[] = styleList.length > 0
       ? styleList
-      : [{ style_name: 'default', mode: 'formula_inline' as const, template: '', tags: [] }];
+      : [{
+          style_name: 'default',
+          mode: 'formula_inline',
+          template: '',
+          tags: []
+        }];
     return {
       name: DRAFT_KEY,
       description: '',
@@ -1295,13 +1515,18 @@ export function CreateMacroApp(): React.ReactElement {
     [macroKinds]
   );
 
+  const renderableWorkspaceMacros = useMemo(
+    () => wireMacroEntriesToRenderable(Object.entries(workspaceMacros), contentLanguage),
+    [contentLanguage, preferencesRevision, workspaceMacros]
+  );
+
   const previewMacroRecord: MacroRecord = useMemo(
     () => ({
-      ...workspaceMacros,
+      ...renderableWorkspaceMacros,
       ...MACRO_PREVIEW_ARGUMENTS,
       [PREVIEW_PLACEHOLDER_KEY]: previewPlaceholderMacro(t('macroPreview')),      [DRAFT_KEY]: draftMacro
     }),
-    [draftMacro, workspaceMacros, t]
+    [draftMacro, renderableWorkspaceMacros, t]
   );
 
   const previewMacroDataDriver = useMemo(
@@ -1319,10 +1544,7 @@ export function CreateMacroApp(): React.ReactElement {
 
   // --- Arg slots -----------------------------------------------------------
 
-  const currentTemplateLanguage = current?.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
-    ? (is_i18n(current?.template) ? current.template.default_language : 'en')
-    : current?.template_edit_language ?? 'en';
-  const currentTemplate = localizedTemplate(current?.template ?? '', currentTemplateLanguage);
+  const currentTemplate = current?.template ?? '';
   const previewTemplate = current?.mode === 'block' && currentTemplate.trim().length === 0
     ? '#*'
     : currentTemplate;
@@ -1385,13 +1607,14 @@ export function CreateMacroApp(): React.ReactElement {
   const isDuplicate =
     panelMode === 'edit' ? false : existingNames.includes(exactName);
   const templateEmpty = styles.some((style) => {
-    if (style.mode === 'block') return false;
-    const templates = is_i18n(style.template)
-      ? Object.values(style.template.values).filter(
-          (template): template is string => template !== undefined
+    const projections = is_i18n(style.template_localized)
+      ? Object.values(style.template_localized.values).filter(
+          (projection): projection is TemplateProjectionDraft => projection !== undefined
         )
-      : [style.template];
-    return templates.length === 0 || templates.some((template) => template.trim().length === 0);
+      : [style.template_localized];
+    return projections.length === 0 || projections.some(
+      (projection) => projection.mode !== 'block' && projection.template.trim().length === 0
+    );
   });
   const tagList = styles.map((s) => s.style_name);
   const hasEmptyTag = tagList.some((t) => t.length === 0);
@@ -1400,23 +1623,43 @@ export function CreateMacroApp(): React.ReactElement {
   const hasInvalidTags = [...macroTags, ...styles.flatMap((style) => style.tags)]
     .some((tag) => tag.includes('\\'));
   const hasIncompleteImagePreset = styles.some((style) => {
-    if (style.mode !== 'block') return false;
-    try {
-      const renderer = parseBlockRendererSpec(style.block_template_name);
-      return renderer.name === 'image' && !renderer.params.src;
-    } catch {
-      return style.block_template_name.startsWith('snl-ext-preset:v1:image');
-    }
-  });
-  const hasInvalidDynamicTemplate = dynamicArity && styles.some((style) => {
-    if (style.mode !== 'text') return false;
-    const templates = is_i18n(style.template)
-      ? Object.values(style.template.values).filter(
-          (template): template is string => template !== undefined
+    const projections = is_i18n(style.template_localized)
+      ? Object.values(style.template_localized.values).filter(
+          (projection): projection is TemplateProjectionDraft => projection !== undefined
         )
-      : [style.template];
-    return templates.length === 0 || templates.some((template) => !template.includes('#*'));
+      : [style.template_localized];
+    return projections.some((projection) => {
+      if (projection.mode !== 'block') return false;
+      try {
+        const renderer = parseBlockRendererSpec(projection.block_template_name);
+        return renderer.name === 'image' && !renderer.params.src;
+      } catch {
+        return projection.block_template_name.startsWith('snl-ext-preset:v1:image');
+      }
+    });
   });
+  let hasInvalidTemplateContract = false;
+  for (const style of styles) {
+    const styleTemplateContracts = new Set<string>();
+    const projections = is_i18n(style.template_localized)
+      ? Object.values(style.template_localized.values).filter(
+          (projection): projection is TemplateProjectionDraft => projection !== undefined
+        )
+      : [style.template_localized];
+    if (projections.length === 0) {
+      hasInvalidTemplateContract = true;
+      continue;
+    }
+    for (const projection of projections) {
+      const body = projectionToExtendedTemplate(projection, dynamicArity).body;
+      const analysis = analyzeLatexTemplatePlaceholders(body);
+      if (analysis.invalid || analysis.variadic !== dynamicArity) {
+        hasInvalidTemplateContract = true;
+      }
+      styleTemplateContracts.add(`${analysis.variadic ? 'dynamic' : 'fixed'}:${analysis.positional_arity}`);
+    }
+    if (styleTemplateContracts.size !== 1) hasInvalidTemplateContract = true;
+  }
   const canCreate =
     targetState !== 'notFound' &&
     exactName.length > 0 &&
@@ -1428,7 +1671,7 @@ export function CreateMacroApp(): React.ReactElement {
     !hasDupTag &&
     !hasInvalidTags &&
     !hasIncompleteImagePreset &&
-    !hasInvalidDynamicTemplate &&
+    !hasInvalidTemplateContract &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
 
@@ -1623,6 +1866,25 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* --- Content tabs --------------------------------------------------- */}
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
+      {current ? (
+        <LocalizedEditScope
+          key={activeStyle}
+          initialLanguage={current.template_edit_language}
+          availableLanguages={[...new Set([
+            LOCALIZED_GENERAL_LANGUAGE,
+            ...supportedLanguages.map((language) => language.id),
+            ...(is_i18n(current.template_localized)
+              ? Object.keys(current.template_localized.values)
+              : [])
+          ])]}
+          onLanguageChange={setActiveTemplateLanguage}
+        >
+          <TemplateLanguageToolbar
+            value={current.template_localized}
+            onChange={replaceActiveLocalizedTemplate}
+          />
+        </LocalizedEditScope>
+      ) : null}
       <TabList
         aria-label={t('contentStyle', { style: current?.style_name || 'default' })}
         style={{
@@ -1698,26 +1960,6 @@ export function CreateMacroApp(): React.ReactElement {
               // "delimiter 和 separator 在 block mode 下应该是没有用的,
               // 那就给它删掉."
               null
-            ) : current?.mode === 'text' ? (
-              <LocalizedEditScope
-                key={activeStyle}
-                initialLanguage={current.template_edit_language}
-                availableLanguages={[...new Set([
-                  LOCALIZED_GENERAL_LANGUAGE,
-                  ...supportedLanguages.map((language) => language.id),
-                  ...(is_i18n(current.template) ? Object.keys(current.template.values) : [])
-                ])]}
-                onLanguageChange={setActiveTemplateLanguage}
-              >
-                <LocalizedTemplateEditor
-                  value={current.template}
-                  onChange={(template) => patchStyle({ template })}
-                  placeholder={t('katexPlaceholder', { arg0: '#0', arg1: '#1' })}
-                  dynamicArity={dynamicArity}
-                  separator={current.separator}
-                  onSeparator={(separator) => patchStyle({ separator })}
-                />
-              </LocalizedEditScope>
             ) : dynamicArity ? (
               <DynamicArityTemplateRow
                 left={current?.template_left ?? ''}
@@ -1813,37 +2055,17 @@ export function CreateMacroApp(): React.ReactElement {
               // replaced by the dynamic editor. Text-mode projections are
               // transformed independently. When toggling OFF, compose the latest
               // delimiter edits back into the invariant formula template.
-              setStyles((prev) => prev.map((style) => {
-                const textTemplateDraft = toggleTextTemplateArity(
-                  style.text_template_draft,
-                  next
+              setStyles((previous) => previous.map((style) => {
+                const template_localized = mapTemplateProjections(
+                  style.template_localized,
+                  (projection) => toggleTemplateProjectionArity(projection, next)
                 );
-                const structuralDrafts = toggleStructuralDraftMapArity(
-                  style.structural_template_drafts,
-                  next
-                );
-                if (style.mode === 'text') {
-                  return {
-                    ...style,
-                    template: toggleTextTemplateArity(style.template, next)!,
-                    text_template_draft: textTemplateDraft,
-                    structural_template_drafts: structuralDrafts
-                  };
-                }
-                const active = toggleStructuralDraftArity({
-                  template: localizedTemplate(style.template, 'en'),
-                  template_left: style.template_left,
-                  separator: style.separator,
-                  template_right: style.template_right
-                }, next);
+                const lookupLanguage = style.template_edit_language === LOCALIZED_GENERAL_LANGUAGE
+                  ? (is_i18n(template_localized) ? template_localized.default_language : 'en')
+                  : style.template_edit_language;
                 return {
-                  ...style,
-                  template: active.template,
-                  template_left: active.template_left,
-                  separator: active.separator,
-                  template_right: active.template_right,
-                  text_template_draft: textTemplateDraft,
-                  structural_template_drafts: structuralDrafts
+                  ...applyProjection(style, localizedTemplate(template_localized, lookupLanguage)),
+                  template_localized
                 };
               }));
             }}
@@ -2763,20 +2985,12 @@ function MacroLanguageSelector({
   );
 }
 
-function LocalizedTemplateEditor({
+function TemplateLanguageToolbar({
   value,
-  onChange,
-  placeholder,
-  dynamicArity,
-  separator,
-  onSeparator
+  onChange
 }: {
-  value: Localized<string, string>;
-  onChange(value: Localized<string, string>): void;
-  placeholder: string;
-  dynamicArity: boolean;
-  separator: string;
-  onSeparator(value: string): void;
+  value: Localized<string, TemplateProjectionDraft>;
+  onChange(value: Localized<string, TemplateProjectionDraft>): void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   const supportedLanguages = use_supported_languages();
@@ -2791,17 +3005,10 @@ function LocalizedTemplateEditor({
       : binding.state === 'invariant'
         ? t('localizedInvariant')
         : t('localizedMissing');
-  const projection = binding.explicitValue ?? binding.resolvedValue ?? '';
-  const marker = projection.indexOf('#*');
-  const dynamicLeft = marker >= 0 ? projection.slice(0, marker) : projection;
-  const dynamicRight = marker >= 0 ? projection.slice(marker + 2) : '';
-  const setDynamicTemplate = (left: string, right: string): void => {
-    binding.setValue(`${left}#*${right}`);
-  };
-  return <div>
+  return <div style={{ marginBottom: '0.55rem' }}>
     <h4 style={{ margin: '0 0 0.35rem' }}>{t('templateI18nHeading')}</h4>
     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center',
-      justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+      justifyContent: 'space-between', flexWrap: 'wrap' }}>
       <MacroLanguageSelector
         languages={[...local.availableLanguages]}
         value={local.language}
@@ -2814,24 +3021,6 @@ function LocalizedTemplateEditor({
         {t('clearTranslation')}
       </Button> : null}
     </div>
-    {dynamicArity ? (
-      <DynamicArityTemplateRow
-        left={dynamicLeft}
-        sep={separator}
-        right={dynamicRight}
-        onLeft={(left) => setDynamicTemplate(left, dynamicRight)}
-        onSep={onSeparator}
-        onRight={(right) => setDynamicTemplate(dynamicLeft, right)}
-      />
-    ) : (
-      <textarea
-        value={projection}
-        onChange={(event) => binding.setValue(event.target.value)}
-        placeholder={placeholder}
-        rows={4}
-        style={{ ...inputStyle, width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
-      />
-    )}
   </div>;
 }
 

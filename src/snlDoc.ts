@@ -6,14 +6,13 @@ import { read_extension_preferences } from './preferences';
 import { formatMacroConflict } from './macroOutputI18n';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
+  analyzeLatexTemplatePlaceholders,
   isSnlIdentifier,
-  migrateMacroDocument,
   migrateMacroV7toV8,
   type Localized
 } from './snlBasicsHostCompat';
 import {
   is_valid_macro_i18n_string,
-  macro_template_variants,
   normalize_entry_content,
   normalize_entry_title,
   normalize_macro_template
@@ -1377,49 +1376,72 @@ export async function readMacroPackages(
  * canonical shape. The webviews import the real render type from
  * `@sjtu-ai4math/snl-basics` for previews and keep their own extended copy for saves.
  */
-/**
- * One strict Macro v10 render style, extended with consumer-owned output
- * backends (typst / latex / markdown / text) which live per style.
- */
-interface MacroPackageStyleBase {
-  /** Style token used in `foo[style](…)`. Must be unique per macro. */
+/** Historical v7–v10 direct-field style used only at migration boundaries. */
+interface LegacyMacroPackageStyleBase {
   style_name: string;
-  /** Separator between children substituted at `#*`. */
   separator?: string;
-  /** Free-text labels attached to this style (backslash forbidden). */
   tags: string[];
-  // Extended (consumer-owned) output backends per style:
   typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
   markdown?: string;
   text?: string;
 }
-
-export interface InvariantMacroPackageStyle extends MacroPackageStyleBase {
+interface LegacyInvariantMacroPackageStyle extends LegacyMacroPackageStyleBase {
   mode: 'formula_inline' | 'formula_display' | 'block';
   template: string;
-  /** Named block renderer; valid only for block mode. */
   block_template_name?: string;
 }
-
-export interface TextMacroPackageStyle extends MacroPackageStyleBase {
+interface LegacyTextMacroPackageStyle extends LegacyMacroPackageStyleBase {
   mode: 'text';
   template: Localized<string, string>;
   block_template_name?: never;
 }
+type LegacyMacroPackageStyle =
+  | LegacyInvariantMacroPackageStyle
+  | LegacyTextMacroPackageStyle;
 
-export type MacroPackageStyle = InvariantMacroPackageStyle | TextMacroPackageStyle;
+interface LegacyMacroPackageEntry {
+  name: string;
+  description: string;
+  source: { entries: string[]; urls: string[] };
+  kind: string;
+  dynamic_arity: boolean;
+  default_style?: Record<string, string>;
+  styles: LegacyMacroPackageStyle[];
+  tags: string[];
+}
+
+interface MacroTemplateBackends {
+  typst?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  latex?: { built_in: string; synthesis: { mode: 'formula' | 'text'; macro: string } };
+  markdown?: string;
+  text?: string;
+}
+export type MacroPackageTemplate = ({
+  mode: 'formula_inline' | 'formula_display' | 'text';
+  body: string;
+  separator?: string;
+  block_template_name?: never;
+} | {
+  mode: 'block';
+  body: string;
+  separator?: string;
+  block_template_name?: string;
+}) & MacroTemplateBackends & Record<string, unknown>;
+
+export interface MacroPackageStyle {
+  style_name: string;
+  tags: string[];
+  template: Localized<string, MacroPackageTemplate>;
+}
 
 export interface MacroPackageEntry {
   name: string;
   description: string;
   source: { entries: string[]; urls: string[] };
-  /** Canonical semantic kind. Missing legacy values migrate to `const`. */
   kind: string;
   dynamic_arity: boolean;
-  /** Ordered styles; styles[0] is the sole implicit default. */
   styles: MacroPackageStyle[];
-  /** Free-text labels attached to the macro itself (backslash forbidden). */
   tags: string[];
 }
 
@@ -1437,7 +1459,7 @@ export interface MacroPackageFile {
 
 /** Bare filename regex for a macro package (no path, no extension). */
 const MACRO_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const MACRO_PACKAGE_VERSION = '10';
+const MACRO_PACKAGE_VERSION = '11';
 
 /** URI of a package file given a bare-or-suffixed filename. */
 function macroPackageUri(
@@ -1646,11 +1668,11 @@ function v5MacroToV6(entry: Record<string, unknown>): Record<string, unknown> {
 }
 
 /** v7/v8 → v9: preserve localized text templates and remove language-selected styles safely. */
-function v7MacroToV9(input: Record<string, unknown>): MacroPackageEntry {
+function v7MacroToV9(input: Record<string, unknown>): LegacyMacroPackageEntry {
   const rawStyles = Array.isArray(input.styles)
     ? input.styles.map((style) => ({ ...(style as Record<string, unknown>) }))
     : [];
-  const styles: MacroPackageStyle[] = [];
+  const styles: LegacyMacroPackageStyle[] = [];
 
   rawStyles.forEach((style, styleIndex) => {
     const styleName = typeof style.style_name === 'string' ? style.style_name : `style${styleIndex}`;
@@ -1661,7 +1683,7 @@ function v7MacroToV9(input: Record<string, unknown>): MacroPackageEntry {
       template: mode === 'text' && is_valid_macro_i18n_string(style.template)
         ? style.template
         : normalize_macro_template(mode, style.template)
-    } as MacroPackageStyle);
+    } as LegacyMacroPackageStyle);
   });
 
   const source = input.source && typeof input.source === 'object' && !Array.isArray(input.source)
@@ -1681,16 +1703,16 @@ function v7MacroToV9(input: Record<string, unknown>): MacroPackageEntry {
     styles,
     tags: Array.isArray(input.tags) && input.tags.every((tag) => typeof tag === 'string')
       ? input.tags as string[] : []
-  } as MacroPackageEntry;
+  } as LegacyMacroPackageEntry;
   if (legacyDefaultStyle === undefined) return normalized;
-  const migrated = migrateMacroDocument({
-    [normalized.name]: { ...normalized, default_style: legacyDefaultStyle }
-  } as never);
-  return migrated[normalized.name] as unknown as MacroPackageEntry;
+  return {
+    ...normalized,
+    default_style: legacyDefaultStyle as Record<string, string>
+  };
 }
 
 /** v9 → v10: materialize canonical kind while preserving custom kind ids. */
-function v9MacroToV10(input: MacroPackageEntry): MacroPackageEntry {
+function v9MacroToV10(input: LegacyMacroPackageEntry): LegacyMacroPackageEntry {
   return {
     ...input,
     kind: input.kind === 'partial'
@@ -1701,6 +1723,120 @@ function v9MacroToV10(input: MacroPackageEntry): MacroPackageEntry {
   };
 }
 
+/** v10 → v11: move every render/backend field into one atomically localized TemplateSpec. */
+function legacyStyleExtensions(style: LegacyMacroPackageStyle): Record<string, unknown> {
+  const {
+    style_name: _styleName,
+    tags: _tags,
+    mode: _mode,
+    template: _template,
+    separator: _separator,
+    block_template_name: _blockTemplateName,
+    typst: _typst,
+    latex: _latex,
+    markdown: _markdown,
+    text: _text,
+    ...extensions
+  } = style as LegacyMacroPackageStyle & Record<string, unknown>;
+  for (const reserved of ['body', 'type']) {
+    if (Object.hasOwn(extensions, reserved)) {
+      throw new Error(`legacy Style extension ${JSON.stringify(reserved)} collides with TemplateSpec`);
+    }
+  }
+  return extensions;
+}
+
+function legacyStyleProjection(
+  style: LegacyMacroPackageStyle,
+  language: string
+): MacroPackageTemplate {
+  const body = typeof style.template === 'string'
+    ? style.template
+    : (() => {
+        const values = style.template.values;
+        return values[language] ?? values[style.template.default_language] ?? '';
+      })();
+  const projection: MacroPackageTemplate = {
+    ...legacyStyleExtensions(style),
+    mode: style.mode,
+    body,
+    ...(typeof style.separator === 'string' ? { separator: style.separator } : {}),
+    ...(style.mode === 'block' && typeof style.block_template_name === 'string'
+      ? { block_template_name: style.block_template_name }
+      : {}),
+    ...(style.typst !== undefined ? { typst: style.typst } : {}),
+    ...(style.latex !== undefined ? { latex: style.latex } : {}),
+    ...(style.markdown !== undefined ? { markdown: style.markdown } : {}),
+    ...(style.text !== undefined ? { text: style.text } : {})
+  } as MacroPackageTemplate;
+  return projection;
+}
+
+function legacyStyleToV11(style: LegacyMacroPackageStyle): MacroPackageStyle {
+  const { style_name, tags, template: legacyTemplate } = style;
+  const template: Localized<string, MacroPackageTemplate> = typeof legacyTemplate === 'string'
+    ? legacyStyleProjection(style, 'en')
+    : {
+        ...legacyTemplate,
+        values: Object.fromEntries(Object.keys(legacyTemplate.values).map((language) => [
+          language,
+          legacyStyleProjection(style, language)
+        ]))
+      };
+  return { style_name, tags, template };
+}
+
+function uniqueLocalizedDefaultName(styles: readonly LegacyMacroPackageStyle[]): string {
+  const names = new Set(styles.map((style) => style.style_name));
+  let candidate = 'localized-default';
+  let suffix = 2;
+  while (names.has(candidate)) candidate = `localized-default-${suffix++}`;
+  return candidate;
+}
+
+function v10MacroToV11(input: LegacyMacroPackageEntry): MacroPackageEntry {
+  const originalStyles = input.styles;
+  const migratedStyles = originalStyles.map(legacyStyleToV11);
+  const defaultMap = input.default_style;
+  let styles = migratedStyles;
+  if (defaultMap && Object.keys(defaultMap).length > 0) {
+    const byName = new Map(originalStyles.map((style) => [style.style_name, style] as const));
+    const first = originalStyles[0];
+    if (!first) throw new Error(`macro "${input.name}" has no styles`);
+    const selected = Object.entries(defaultMap).map(([language, styleName]) => {
+      const style = byName.get(styleName);
+      if (!style) {
+        throw new Error(`macro "${input.name}" default_style.${language} references missing style "${styleName}"`);
+      }
+      return [language, style] as const;
+    });
+    const allFirst = selected.every(([, style]) => style.style_name === first.style_name);
+    if (!allFirst) {
+      const defaultLanguage = Object.hasOwn(defaultMap, 'en') ? 'en' : 'en';
+      const fallback = byName.get(defaultMap.en ?? '') ?? first;
+      const projectionStyles = [fallback, ...selected.map(([, style]) => style)];
+      const invariantTags = projectionStyles[0].tags;
+      if (!projectionStyles.every((style) =>
+        JSON.stringify(style.tags) === JSON.stringify(invariantTags))) {
+        throw new Error(`macro "${input.name}" has a legacy default_style map whose selected Style tags cannot be localized`);
+      }
+      const values = Object.fromEntries([
+        ['en', legacyStyleProjection(fallback, 'en')],
+        ...selected.map(([language, style]) => [
+          language, legacyStyleProjection(style, language)
+        ] as const)
+      ]) as Record<string, MacroPackageTemplate>;
+      styles = [{
+        style_name: uniqueLocalizedDefaultName(originalStyles),
+        tags: [...invariantTags],
+        template: { type: 'i18n', default_language: defaultLanguage, values }
+      }, ...migratedStyles];
+    }
+  }
+  const { default_style: _defaultStyle, ...current } = input;
+  return { ...current, styles };
+}
+
 /**
  * Explicit Macro v6 → v7 input migration. Legacy names are confined to this
  * boundary; callers may then apply the explicit v7 → v8 migration.
@@ -1708,7 +1844,7 @@ function v9MacroToV10(input: MacroPackageEntry): MacroPackageEntry {
  */
 function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
   const rawStyles = Array.isArray(input.styles) ? input.styles : [];
-  const styles = rawStyles.map((value, index): MacroPackageStyle => {
+  const styles = rawStyles.map((value, index): LegacyMacroPackageStyle => {
     const raw = { ...(value as Record<string, unknown>) };
     const legacyTag = raw.tag;
     const legacyLeft = raw.variadic_left;
@@ -1741,7 +1877,7 @@ function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
     const dynamicTemplate = hasLegacyDynamic
       ? `${typeof legacyLeft === 'string' ? legacyLeft : ''}#*${typeof legacyRight === 'string' ? legacyRight : ''}`
       : undefined;
-    const style: MacroPackageStyle = mode === 'text'
+    const style: LegacyMacroPackageStyle = mode === 'text'
       ? {
           ...styleBase,
           mode,
@@ -1750,7 +1886,7 @@ function v6MacroToV7(input: Record<string, unknown>): Record<string, unknown> {
               ? raw.template
               : normalize_macro_template('text', raw.template)
           )
-        } as unknown as MacroPackageStyle
+        } as unknown as LegacyMacroPackageStyle
       : {
           ...styleBase,
           mode,
@@ -1955,9 +2091,53 @@ function normalizeMacrosV7(raw: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
-function normalizeMacros(raw: unknown, targetVersion: '9' | '10' = '10'): MacroPackageEntry[] {
+function normalizeLegacyMacros(
+  raw: unknown,
+  targetVersion: '9' | '10'
+): LegacyMacroPackageEntry[] {
   const v9 = normalizeMacrosV7(raw).map((macro) => v7MacroToV9(macro));
   return targetVersion === '10' ? v9.map(v9MacroToV10) : v9;
+}
+
+function normalizeCurrentMacros(raw: unknown): MacroPackageEntry[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Macro v11 package must be an object.');
+  }
+  const macros = (raw as Record<string, unknown>).macros;
+  if (!macros || typeof macros !== 'object' || Array.isArray(macros)) {
+    throw new Error('Macro v11 package must contain a keyed macros object.');
+  }
+  return Object.entries(macros as Record<string, unknown>).map(([name, value]) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`macro ${JSON.stringify(name)} must be an object`);
+    }
+    const macro = { ...(value as Record<string, unknown>), name } as MacroPackageEntry;
+    const error = validateMacro(macro);
+    if (error) throw new Error(error);
+    return macro;
+  });
+}
+
+const SUPPORTED_MACRO_PACKAGE_VERSIONS = new Set([
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'
+]);
+
+function assertSupportedMacroPackageVersion(raw: unknown): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  const version = (raw as Record<string, unknown>).version;
+  if (version !== undefined &&
+      (typeof version !== 'string' || !SUPPORTED_MACRO_PACKAGE_VERSIONS.has(version))) {
+    throw new Error(`Unsupported Macro package version ${JSON.stringify(version)}.`);
+  }
+}
+
+function normalizeMacros(raw: unknown): MacroPackageEntry[] {
+  assertSupportedMacroPackageVersion(raw);
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const version = (raw as Record<string, unknown>).version;
+    if (version === '11') return normalizeCurrentMacros(raw);
+  }
+  return normalizeLegacyMacros(raw, '10').map(v10MacroToV11);
 }
 
 /**
@@ -2181,13 +2361,13 @@ export async function readMacroPackage(
 function buildMacroPackageResult(
   bare: string,
   raw: unknown,
-  targetVersion: '9' | '10' = MACRO_PACKAGE_VERSION
+  targetVersion: '11' = MACRO_PACKAGE_VERSION
 ):
   | { status: 'ok'; pkg: MacroPackageFile; macros: MacroPackageEntry[] }
   | { status: 'error'; message: string } {
   let macros: MacroPackageEntry[];
   try {
-    macros = normalizeMacros(raw, targetVersion);
+    macros = normalizeMacros(raw);
   } catch (error) {
     return {
       status: 'error',
@@ -2485,8 +2665,9 @@ export async function readPackagePanelSnapshot(
 export function canonicalizeMacroPackageData(
   file: string,
   raw: unknown,
-  targetVersion: '7' | '8' | '9' | '10' = '10'
+  targetVersion: '7' | '8' | '9' | '10' | '11' = '11'
 ): Record<string, unknown> {
+  assertSupportedMacroPackageVersion(raw);
   const bare = stripJsonExt(file);
   const wrapper = raw && typeof raw === 'object' && !Array.isArray(raw) &&
     'macros' in (raw as Record<string, unknown>)
@@ -2532,6 +2713,26 @@ export function canonicalizeMacroPackageData(
     return {
       ...wrapper,
       version: '8',
+      name: typeof rawObject.name === 'string' && rawObject.name.trim() ? rawObject.name : bare,
+      ...(typeof rawObject.description === 'string' && rawObject.description.trim()
+        ? { description: rawObject.description }
+        : {}),
+      macros: macrosMap
+    };
+  }
+
+  if (targetVersion === '9' || targetVersion === '10') {
+    const macros = normalizeLegacyMacros(raw, targetVersion);
+    const macrosMap = Object.fromEntries(macros.map((macro) => {
+      const { name, ...rest } = macro;
+      return [name, rest];
+    }));
+    const rawObject = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw as Record<string, unknown>
+      : {};
+    return {
+      ...wrapper,
+      version: targetVersion,
       name: typeof rawObject.name === 'string' && rawObject.name.trim() ? rawObject.name : bare,
       ...(typeof rawObject.description === 'string' && rawObject.description.trim()
         ? { description: rawObject.description }
@@ -2958,39 +3159,69 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       return `styles[${i}].style_name "${styleName}" is duplicated`;
     }
     seen.add(styleName);
-    if (
-      style.mode !== 'formula_inline' &&
-      style.mode !== 'formula_display' &&
-      style.mode !== 'text' &&
-      style.mode !== 'block'
-    ) {
-      return `styles[${i}].mode must be one of 'formula_inline', 'formula_display', 'text', 'block'`;
-    }
-    let templates: string[];
-    try {
-      templates = macro_template_variants(style.mode, style.template);
-    } catch (error) {
-      return `styles[${i}].template is invalid: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    if (templates.length === 0 || templates.some((template) => template.trim().length === 0)) {
-      return `styles[${i}].template is required`;
-    }
-    if (macro.dynamic_arity && templates.some((template) => !template.includes('#*'))) {
-      return `styles[${i}].template must contain #* for a dynamic macro`;
-    }
-    if (style.separator !== undefined && typeof style.separator !== 'string') {
-      return `styles[${i}].separator must be a string`;
-    }
-    if (style.mode !== 'block' && style.block_template_name !== undefined) {
-      return `styles[${i}].block_template_name is valid only in block mode`;
-    }
-    const raw = style as unknown as Record<string, unknown>;
-    for (const legacyKey of [
+    const rawStyle = style as unknown as Record<string, unknown>;
+    const retiredStyleFields = [
+      'mode', 'separator', 'block_template_name', 'typst', 'latex', 'markdown', 'text',
       'tag', 'variadic_left', 'variadic_join', 'variadic_right',
       'react_renderer_key', 'display'
-    ]) {
-      if (legacyKey in raw) {
-        return `styles[${i}].${legacyKey} is not valid in Macro v9`;
+    ];
+    const retiredStyleField = retiredStyleFields.find((field) => field in rawStyle);
+    if (retiredStyleField) {
+      return `styles[${i}].${retiredStyleField} is retired in Macro v11; it belongs inside template`;
+    }
+    const currentStyleFields = new Set(['style_name', 'tags', 'template']);
+    if (Object.keys(rawStyle).some((field) => !currentStyleFields.has(field))) {
+      return `styles[${i}] has fields outside the Macro v11 Style boundary`;
+    }
+    const rawTemplate = rawStyle.template;
+    let projections: unknown[];
+    if (
+      rawTemplate && typeof rawTemplate === 'object' && !Array.isArray(rawTemplate) &&
+      (rawTemplate as { type?: unknown }).type === 'i18n'
+    ) {
+      const localized = rawTemplate as Record<string, unknown> & {
+        default_language?: unknown; values?: unknown
+      };
+      const localizedFields = new Set(['type', 'default_language', 'values']);
+      if (Object.keys(localized).some((field) => !localizedFields.has(field)) ||
+          typeof localized.default_language !== 'string' || localized.default_language.length === 0 ||
+          !localized.values || typeof localized.values !== 'object' || Array.isArray(localized.values)) {
+        return `styles[${i}].template is an invalid localized template`;
+      }
+      const values = localized.values as Record<string, unknown>;
+      if (!Object.hasOwn(values, localized.default_language) || values[localized.default_language] === undefined) {
+        return `styles[${i}].template must define its default language`;
+      }
+      projections = Object.values(values).filter((projection) => projection !== undefined);
+    } else {
+      projections = [rawTemplate];
+    }
+    if (projections.length === 0) return `styles[${i}].template is required`;
+    for (const [projectionIndex, value] of projections.entries()) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return `styles[${i}].template projection ${projectionIndex} must be an object`;
+      }
+      const projection = value as Record<string, unknown>;
+      if (
+        Object.hasOwn(projection, 'type') ||
+        (projection.mode !== 'formula_inline' && projection.mode !== 'formula_display' &&
+        projection.mode !== 'text' && projection.mode !== 'block'
+        )
+      ) {
+        return `styles[${i}].template projection ${projectionIndex} has an invalid mode`;
+      }
+      if (typeof projection.body !== 'string' ||
+          (projection.mode !== 'block' && projection.body.trim().length === 0)) {
+        return `styles[${i}].template projection ${projectionIndex}.body is required`;
+      }
+      if (analyzeLatexTemplatePlaceholders(projection.body).variadic !== macro.dynamic_arity) {
+        return `styles[${i}].template projection ${projectionIndex}.body variadic marker disagrees with macro arity`;
+      }
+      if (projection.separator !== undefined && typeof projection.separator !== 'string') {
+        return `styles[${i}].template projection ${projectionIndex}.separator must be a string`;
+      }
+      if (projection.mode !== 'block' && projection.block_template_name !== undefined) {
+        return `styles[${i}].template projection ${projectionIndex}.block_template_name is valid only in block mode`;
       }
     }
   }
@@ -3027,9 +3258,9 @@ function validateMacro(macro: MacroPackageEntry): string | null {
   }
   try {
     assertCanonicalMacroPackage('Macro', {
-      version: '10',
+      version: '11',
       macros: { [name]: macro }
-    }, '10');
+    }, '11');
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

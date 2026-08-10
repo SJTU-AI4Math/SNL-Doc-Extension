@@ -65,7 +65,8 @@ export async function inspectStoredWorkspaceData(
     const inspection = inspectWorkspaceData(config);
     const hasEntityTopology = inspection.status === 'current' ||
       (inspection.status === 'needsMigration' &&
-        (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7'));
+        (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7' ||
+          inspection.currentVersion === '0.0.8'));
     if (hasEntityTopology) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
@@ -120,7 +121,9 @@ export async function inspectStoredWorkspaceData(
       }
       const macroSchemaVersion = inspection.currentVersion === '0.0.6'
         ? '8'
-        : inspection.currentVersion === '0.0.7' ? '9' : '10';
+        : inspection.currentVersion === '0.0.7'
+          ? '9'
+          : inspection.currentVersion === '0.0.8' ? '10' : '11';
       const { packages, entries, macros } = snapshot?.entities ??
         await readEntityStorageSnapshot(storage, macroSchemaVersion);
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));

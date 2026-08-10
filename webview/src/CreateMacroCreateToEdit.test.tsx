@@ -44,8 +44,8 @@ const existing = {
   styles: [
     {
       style_name: 'default',
-      template: '\\foo',
-      mode: 'formula_inline',
+      template: { mode: 'formula_inline', body: '\\foo' },
+
       tags: []
     }
   ]

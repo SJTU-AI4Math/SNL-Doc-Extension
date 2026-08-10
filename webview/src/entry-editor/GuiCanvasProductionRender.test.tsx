@@ -20,8 +20,14 @@ const projectionMacro = {
   tags: [],
   dynamic_arity: false,
   styles: [
-    { style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] },
-    { style_name: 'complete', mode: 'formula_inline', template: '#0 + #1 + #2', tags: [] }
+    {
+      style_name: 'default', tags: [],
+      mode: 'formula_inline', template: '#0'
+    },
+    {
+      style_name: 'complete', tags: [],
+      mode: 'formula_inline', template: '#0 + #1 + #2'
+    }
   ]
 } as never;
 

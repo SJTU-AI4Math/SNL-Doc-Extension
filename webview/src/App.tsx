@@ -11,7 +11,7 @@
 // the management surface — reader → editor handoff. Layer 2 also has a
 // Back button that walks the stack up one step.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { Button } from './components/Button';
 import { PanelHeader } from './components/PanelHeader';
@@ -24,6 +24,8 @@ import {
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import type { MacroRecord } from './render/macroData';
+import { wireMacroEntriesToRenderable, type WireMacro } from './render/macroWire';
+import { use_content_language } from './runtime/preferencesRuntime';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -105,7 +107,7 @@ type Incoming =
       entries: EntryOption[];
       entryPackages?: Record<string, string>;
       outline: OutlineNode[];
-      macros?: MacroRecord;
+      macros?: Record<string, WireMacro>;
       macroKinds?: MacroKindPaletteSource[];
       assetBaseUri?: string;
       warnings?: string[];
@@ -128,8 +130,9 @@ type View =
 
 export function App(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const contentLanguage = use_content_language();
   const [view, setView] = useState<View>({ kind: 'loading' });
-  const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
+  const [wireUserMacros, setWireUserMacros] = useState<Record<string, WireMacro> | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
   const [entryPackages, setEntryPackages] = useState<Record<string, string>>({});
@@ -164,7 +167,7 @@ export function App(): React.ReactElement {
           break;
         case 'libraryEntries':
           if (msg.macros && typeof msg.macros === 'object') {
-            setUserMacros(msg.macros);
+            setWireUserMacros(msg.macros);
           }
           setKindPalette(macroKindsToPalette(msg.macroKinds));
           setAssetBaseUri(typeof msg.assetBaseUri === 'string' ? msg.assetBaseUri : '');
@@ -192,6 +195,13 @@ export function App(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
+
+  const userMacros: MacroRecord | undefined = useMemo(
+    () => wireUserMacros
+      ? wireMacroEntriesToRenderable(Object.entries(wireUserMacros), contentLanguage)
+      : undefined,
+    [contentLanguage, wireUserMacros]
+  );
 
   const outlineRef = useRef<HTMLDivElement | null>(null);
 

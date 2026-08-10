@@ -2,7 +2,7 @@
 // renders exactly one Entry — the host sends its details (plus the full entry
 // pool for macro-source resolution) after we announce readiness.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import {
   EntrySurface,
@@ -13,6 +13,7 @@ import {
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import type { MacroRecord } from './render/macroData';
+import { wireMacroEntriesToRenderable } from './render/macroWire';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -67,7 +68,7 @@ type Incoming =
       kind: EntryKind | null;
       entries: EntryOption[];
       entryPackages?: Record<string, string>;
-      macros?: MacroRecord;
+      macros?: Record<string, MacroPackageEntry>;
       macroKinds?: MacroKind[];
       relationshipSections?: EntryRelationshipSection[] | null;
       relationshipsError?: string;
@@ -149,7 +150,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     relationshipsError: string | null;
     returnRoute: EntryReturnRoute;
   } | null>(null);
-  const [userMacros, setUserMacros] = useState<MacroRecord | undefined>(undefined);
+  const [wireUserMacros, setWireUserMacros] = useState<Record<string, MacroPackageEntry> | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
   const [assetBaseUri, setAssetBaseUri] = useState('');
@@ -171,7 +172,7 @@ export function EntryInfoviewApp(): React.ReactElement {
         setLoaded(true);
         setLoadError(null);
         if (msg.macros && typeof msg.macros === 'object') {
-          setUserMacros(msg.macros);
+          setWireUserMacros(msg.macros);
         }
         setKindPalette(macroKindsToPalette(msg.macroKinds));
         setMacroKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
@@ -202,6 +203,13 @@ export function EntryInfoviewApp(): React.ReactElement {
     apiRef.current?.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
+
+  const userMacros: MacroRecord | undefined = useMemo(
+    () => wireUserMacros
+      ? wireMacroEntriesToRenderable(Object.entries(wireUserMacros), contentLanguage)
+      : undefined,
+    [contentLanguage, wireUserMacros]
+  );
 
   const postMessage = (message: unknown): void => {
     apiRef.current?.postMessage(message);
@@ -268,7 +276,7 @@ export function EntryInfoviewApp(): React.ReactElement {
             />
             <EntryMacroSection
               snl={state.entry.content?.snl ?? ''}
-              macros={(userMacros ?? {}) as Record<string, MacroPackageEntry>}
+              macros={wireUserMacros ?? {}}
               macroKinds={macroKinds}
               entryPoolIds={new Set(state.entries.map((entry) => entry.id))}
               postMessage={postMessage}

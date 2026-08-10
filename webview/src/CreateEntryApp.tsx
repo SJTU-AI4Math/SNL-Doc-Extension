@@ -89,7 +89,12 @@ import {
   type EntryKind as RenderEntryKind
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
-import { wireMacroEntriesToRenderable, type WireMacro } from './render/macroWire';
+import {
+  resolveWireTemplate,
+  wireMacroEntriesToRenderable,
+  type WireMacro,
+  type WireMacroStyle
+} from './render/macroWire';
 import {
   createMacroDataDriver,
   type MacroRecord
@@ -708,6 +713,7 @@ function sameWireCatalogValue(left: unknown, right: unknown): boolean {
 
 export function CreateEntryApp(): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
+  const contentLanguage = use_content_language();
   const preferencesRevision = use_preferences_revision();
   const formatterPreferences = get_formatter_preferences();
   const snlFormatter = useMemo(
@@ -742,8 +748,8 @@ export function CreateEntryApp(): React.ReactElement {
 
   // User-only DB for EntryRender and the GUI editor's flat lookup.
   const userMacros: MacroRecord = useMemo(
-    () => wireMacroEntriesToRenderable(Object.entries(wireMacros)),
-    [wireMacros]
+    () => wireMacroEntriesToRenderable(Object.entries(wireMacros), contentLanguage),
+    [contentLanguage, wireMacros]
   );
 
   const macroDataDriver = useMemo(
@@ -769,7 +775,6 @@ export function CreateEntryApp(): React.ReactElement {
   // preview; the EntryRender path derives its own query internally so we
   // no longer need one at this layer.)
 
-  const contentLanguage = use_content_language();
   const supportedLanguages = use_supported_languages();
   const [title, setTitle] = useState<Localized<string, string>>('');
   const [id, setId] = useState<string>('');
@@ -5065,7 +5070,13 @@ export function useQueriedMacro(
 function macroTemplateArity(macro: SnlMacro): number {
   let max = -1;
   for (const style of macro.styles ?? []) {
-    const tpl = resolve_style_template(style, webview_language_runtime);
+    const rawTemplate = (style as unknown as { template?: unknown }).template;
+    const tpl = rawTemplate !== null && typeof rawTemplate === 'object'
+      ? resolveWireTemplate(
+          rawTemplate as WireMacroStyle['template'],
+          webview_language_runtime.query_environment().language
+        ).body
+      : resolve_style_template(style, webview_language_runtime);
     const re = /(?<!\\)#(\d+)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(tpl)) !== null) {

@@ -54,12 +54,12 @@ Supported project fields:
 - Entry `content.latex`
 - Entry `content.markdown`
 - Entry `content.text`
-- Text-mode Macro Style `template`
+- Macro Style `template` as a complete TemplateSpec projection
 
 Language-invariant fields remain strings:
 
 - Entry `content.snl`
-- Formula and block Macro Style templates
+- Macro Style identity (`style_name`, `tags`) and explicit selector semantics
 - IDs, slugs, Macro names, command IDs, paths, and schema keys
 
 The Entry editor retains the complete language map. Editing changes the
@@ -70,17 +70,18 @@ Switching locale while an Entry editor is open stores only an actually edited
 projection before loading the new one. Watcher refreshes do not overwrite dirty
 drafts.
 
-Text-mode Macro Templates may be invariant strings or serialized language maps.
-A Macro's Style identity is orthogonal to locale: explicit `[style]` selection
-always wins, otherwise rendering uses `styles[0]`; locale resolves only the
-selected text Style's Template projection. Formula and block Templates remain
-invariant strings.
+Macro v11 Templates may be one complete TemplateSpec or a serialized language
+map of complete TemplateSpecs. A Macro's Style identity is orthogonal to locale:
+explicit `[style]` selection always wins, otherwise rendering uses `styles[0]`.
+Locale then atomically selects the chosen Style's `mode`, `body`, `separator`,
+`block_template_name`, output backends, and presentation extensions. It never
+combines fields from different languages or changes the selected Style identity.
 
 The Macro editor wraps each localized Template editor in a local
 `LocalizedEditScope`. Its selector initially follows the interface language,
 but a manual choice stays local to that editor and does not mutate the panel or
 runtime language. Merely switching the local language does not materialize a
-translation. Editing fallback text creates a projection for the selected
+translation. Editing a fallback projection creates a projection for the selected
 language; deleting that projection restores fallback and reports its source.
 
 ## Shared panel header and language selection
@@ -187,6 +188,7 @@ The regression suite covers:
 - package NLS key parity;
 - malformed I18n rejection;
 - Entry add/update round trips without projection;
-- Macro v8 language-default migration, persistence, and validation;
+- Macro v8 language-default migration to v11 whole-TemplateSpec localization,
+  atomic projection persistence, and strict Style/envelope validation;
 - strict TypeScript checks for host and webview;
 - all webview bundles and the filesystem smoke suite.

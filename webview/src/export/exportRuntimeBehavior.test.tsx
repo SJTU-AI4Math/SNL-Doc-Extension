@@ -62,6 +62,8 @@ const HARVESTED = `
   </span>
   <span id="orphan-bvar" data-kind="bvar" data-bindref="b9" data-name="y">y</span>
   <span data-kind="bvar" data-bindref="b9" data-name="y">y</span>
+  <span id="sub-helper" data-kind="sub" data-name="helper">helper</span>
+  <span id="partial-helper" data-kind="partial" data-name="legacy-helper">legacy helper</span>
 </div>`;
 
 /** The subtree THIS host owns — mirrors the runtime's ownership rule. */
@@ -175,6 +177,13 @@ describe('the exported runtime, executed', () => {
     click(toggleOf(byId('nested')));
     expect(ownSubtree(byId('nested')).hidden).toBe(true);
     expect(ownSubtree(byId('block')).hidden).toBe(true); // parent unchanged
+  });
+
+  it('keeps current sub helpers and legacy partial helpers outside hover selection', () => {
+    hover(byId('sub-helper'));
+    expect(document.querySelectorAll('.snl-single-hover')).toHaveLength(0);
+    hover(byId('partial-helper'));
+    expect(document.querySelectorAll('.snl-single-hover')).toHaveLength(0);
   });
 
   it('sets --snl-base-text-color so nested subtrees keep their base colour', () => {

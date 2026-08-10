@@ -29,8 +29,8 @@ const macro = (name: string): MacroPackageEntry => ({
   styles: [
     {
       style_name: 'default',
-      mode: 'formula_inline',
-      template: name,
+
+      template: { mode: 'formula_inline', body: name },
       tags: []
     }
   ],

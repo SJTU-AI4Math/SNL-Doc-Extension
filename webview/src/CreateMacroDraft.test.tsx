@@ -27,7 +27,11 @@ function macro(name: string, description: string, template = '\\host'): Record<s
     source: { entries: [], urls: [] },
     dynamic_arity: false,
     tags: [],
-    styles: [{ style_name: 'default', template, mode: 'formula_inline', tags: [] }]
+    styles: [{
+      style_name: 'default',
+      template: { mode: 'formula_inline', body: template },
+      tags: []
+    }]
   };
 }
 

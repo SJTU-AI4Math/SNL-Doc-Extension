@@ -1,4 +1,5 @@
 import type { SnlMacro, SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
+import { analyzeLatexTemplatePlaceholders } from '../../../src/templatePlaceholders';
 
 /** Maximum number of numbered arguments rendered in a Macro preview. */
 export const MAX_MACRO_PREVIEW_ARGS = 8;
@@ -36,14 +37,8 @@ export function macroPreviewArgumentNode(index: number): SnlSyntaxTree {
   };
 }
 
-/** Max unescaped `#N` child index in a template, or -1 when none. */
+/** Max effective `#N` child index in a valid template, or -1 when none/invalid. */
 export function maxMacroTemplateChildIndex(template: string): number {
-  let max = -1;
-  const pattern = /(?<!\\)#(\d+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(template)) !== null) {
-    const index = Number(match[1]);
-    if (Number.isFinite(index) && index > max) max = index;
-  }
-  return max;
+  const analysis = analyzeLatexTemplatePlaceholders(template);
+  return analysis.invalid ? -1 : analysis.positional_arity - 1;
 }

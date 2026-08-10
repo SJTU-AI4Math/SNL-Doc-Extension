@@ -185,8 +185,8 @@ describe('Inductive node action dial', () => {
         query_macro: async ({ macro_name }: { macro_name: string }) =>
           macro_name === 'a'
             ? ({ name: 'a', dynamic_arity: true, styles: [
-                { style_name: 'default', mode: 'formula_inline', template: '#*', tags: [] },
-                { style_name: 'compact', mode: 'formula_inline', template: '#*', tags: [] }
+                { style_name: 'default',  template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                { style_name: 'compact',  template: { mode: 'formula_inline', body: '#*' }, tags: [] }
               ] } as never)
             : null
       }

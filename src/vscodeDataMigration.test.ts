@@ -172,8 +172,14 @@ describe('VS Code workspace data migration adapter', () => {
         x: {
           description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
           ...(version === '8' ? { default_style: { en: 'default' } } : {}),
-          ...(version === '10' ? { kind: 'const' } : {}),
-          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+          ...(version === '10' || version === '11' ? { kind: 'const' } : {}),
+          styles: [version === '11'
+            ? {
+                style_name: 'default',
+                template: { mode: 'formula_inline', body: 'x' },
+                tags: []
+              }
+            : { style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
         }
       }
     }));
@@ -210,7 +216,11 @@ describe('VS Code workspace data migration adapter', () => {
         makeMacroEnvelope('Logic', {
           name: 'logic.one', description: '', source: { entries: [], urls: [] },
           kind: 'const', dynamic_arity: false, tags: [],
-          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'x', tags: [] }]
+          styles: [{
+            style_name: 'default',
+            template: { mode: 'formula_inline', body: 'x' },
+            tags: []
+          }]
         })]
     ]);
     for (const [path, value] of entities) put(`/ws/.SNL_Doc/${path}`, value);

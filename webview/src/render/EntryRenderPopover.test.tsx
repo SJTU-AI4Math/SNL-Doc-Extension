@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({ hoverEnabled: false, explicitSrc: null as string | null }));
+const activation = vi.hoisted(() => ({ activation_id: 42, request_deactivate: vi.fn() }));
 const popovers = vi.hoisted(() => ({
   spawn: vi.fn(() => 'popover-hover'),
   pin: vi.fn(() => 'popover-pinned'),
@@ -48,7 +49,8 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
           target: event.currentTarget,
           client_x: 12, client_y: 14,
           ctrl_key: event.ctrlKey, meta_key: event.metaKey,
-          shift_key: event.shiftKey, alt_key: event.altKey
+          shift_key: event.shiftKey, alt_key: event.altKey,
+          activation
         })}
         onClick={(event) => interaction_driver.dispatch_click({
           node: {}, tree_path: [],
@@ -56,7 +58,8 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
           target: event.currentTarget,
           client_x: 12, client_y: 14,
           ctrl_key: event.ctrlKey, meta_key: event.metaKey,
-          shift_key: event.shiftKey, alt_key: event.altKey
+          shift_key: event.shiftKey, alt_key: event.altKey,
+          activation
         })}
       >reference</button>
     )
@@ -86,10 +89,10 @@ describe('EntryRender popover preference', () => {
     const reference = view.getByTestId('reference');
     fireEvent.mouseMove(reference);
     expect(popovers.spawn).toHaveBeenCalledWith(
-      'explicit-child', expect.anything(), 12, 14, null
+      'explicit-child', reference, 12, 14, null, { activation }
     );
     fireEvent.click(reference);
-    expect(popovers.pin).toHaveBeenCalledWith('explicit-child', reference, 12, 14, null);
+    expect(popovers.pin).toHaveBeenCalledWith('explicit-child', reference, 12, 14, null, { activation });
     fireEvent.click(reference, { ctrlKey: true });
     expect(postMessage).toHaveBeenCalledWith({
       type: 'openEntryInfoview', entryId: 'explicit-child'
@@ -106,7 +109,7 @@ describe('EntryRender popover preference', () => {
     />);
     fireEvent.mouseMove(view.getByTestId('reference'));
     view.unmount();
-    expect(popovers.cancelUnfrozen).toHaveBeenCalledWith('popover-hover');
+    expect(popovers.cancelUnfrozen).toHaveBeenCalledWith('popover-hover', 'owner-unmount');
   });
 
   it('suppresses hover while retaining primary-click pinning', async () => {
@@ -122,7 +125,7 @@ describe('EntryRender popover preference', () => {
 
     fireEvent.click(reference);
     await waitFor(() => expect(popovers.pin).toHaveBeenCalledWith(
-      'child', reference, 12, 14, null
+      'child', reference, 12, 14, null, { activation }
     ));
     expect(popovers.spawn).not.toHaveBeenCalled();
   });
@@ -141,7 +144,7 @@ describe('EntryRender popover preference', () => {
 
     state.hoverEnabled = false;
     view.rerender(<EntryRender {...props} />);
-    expect(popovers.cancelUnfrozen).toHaveBeenCalledWith('popover-hover');
+    expect(popovers.cancelUnfrozen).toHaveBeenCalledWith('popover-hover', 'explicit-api');
   });
 
   it('retains hover previews when the preference is enabled', () => {

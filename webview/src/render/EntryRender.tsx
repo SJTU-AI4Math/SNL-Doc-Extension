@@ -121,7 +121,6 @@ function createEntryDataDriver(entry: EntryData, entries: EntryOption[]): EntryD
     });
   }
   return new EntryDataDriver({
-    // @ts-expect-error available in the target SNL-Basics API; local tarball is pre-migration.
     context_reader: webviewContextReader,
     queries: {
       query_entry: async ({ entry_id, signal }) => {
@@ -159,7 +158,6 @@ export function EntryRender({
   const currentPopoverId = useCurrentPopoverId();
   const macroDataDriver = useMemo(
     () => new MacroDataDriver({
-      // @ts-expect-error available in the target SNL-Basics API; local tarball is pre-migration.
       context_reader: webviewContextReader,
       queries: {
         query_macro: async ({ macro_name, signal }) => {
@@ -187,13 +185,13 @@ export function EntryRender({
     timer: ReturnType<typeof setTimeout> | null;
   }>({ target: null, popoverId: null, timer: null });
 
-  const clearCurrentHover = useCallback((): void => {
+  const clearCurrentHover = useCallback((reason: 'explicit-api' | 'owner-unmount' = 'explicit-api'): void => {
     const state = hoverStateRef.current;
     if (state.timer) {
       clearTimeout(state.timer);
       state.timer = null;
     }
-    if (state.popoverId) popovers.cancelUnfrozen(state.popoverId);
+    if (state.popoverId) popovers.cancelUnfrozen(state.popoverId, reason);
     state.target = null;
     state.popoverId = null;
   }, [popovers]);
@@ -203,7 +201,7 @@ export function EntryRender({
   }, [clearCurrentHover, hoverEnabled]);
 
   useEffect(() => () => {
-    clearCurrentHover();
+    clearCurrentHover('owner-unmount');
   }, [clearCurrentHover]);
 
   const activateReferencedEntry = useCallback((context: SnlInteractionContext): void => {
@@ -231,10 +229,11 @@ export function EntryRender({
       clearCurrentHover();
       const id = popovers.spawn(
         entryId,
-        context.target.getBoundingClientRect(),
+        context.target,
         context.client_x,
         context.client_y,
-        currentPopoverId
+        currentPopoverId,
+        { activation: context.activation }
       );
       state.target = context.target;
       state.popoverId = id;
@@ -267,7 +266,8 @@ export function EntryRender({
         context.target,
         context.client_x,
         context.client_y,
-        currentPopoverId
+        currentPopoverId,
+        { activation: context.activation }
       );
       state.target = context.target;
       state.popoverId = id;

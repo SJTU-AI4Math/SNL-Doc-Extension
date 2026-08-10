@@ -64,6 +64,48 @@ describe('EntryRender real dependency click pinning', () => {
     expect(document.body.textContent?.match(/Pinned child body/g)).toHaveLength(1);
   });
 
+  it('lets the real Collapsible triangle toggle without SNL activation, pin, or popover', async () => {
+    const userMacros: MacroRecord = {
+      Fold: {
+        name: 'Fold', description: '', source: { entries: ['child'], urls: [] },
+        dynamic_arity: true, kind: 'const', tags: [],
+        styles: [{ style_name: 'default', mode: 'block', template: '#0', block_template_name: 'collapsible', tags: [] }]
+      }
+    };
+    const view = render(
+      <HoverPopoverProvider
+        postMessage={vi.fn()}
+        entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
+        localDetails={{ child: { entry: child, kind: null }}}
+        userMacros={userMacros}
+      >
+        <EntryRender
+          entry={{ ...root, content: { snl: 'Fold(summary,body)' } }}
+          kind={null}
+          entries={[{ id: 'child', title: 'Pinned child', hasContent: true, snl: '@x' }]}
+          postMessage={vi.fn()}
+          userMacros={userMacros}
+        />
+      </HoverPopoverProvider>
+    );
+    const toggle = await waitFor(() => view.getByRole('button', { name: 'Collapse' }));
+    const activationRoot = toggle.closest<HTMLElement>('[data-tree-path]');
+    expect(activationRoot).not.toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(toggle, { button: 0, clientX: 10, clientY: 10 });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(activationRoot!.classList.contains('snl-single-hover')).toBe(false);
+    expect(document.body.textContent).not.toContain('Pinned child body');
+    expect(document.querySelectorAll('[data-popover-id]')).toHaveLength(0);
+
+    expect(fireEvent.keyDown(toggle, { key: 'Enter' })).toBe(true);
+    expect(fireEvent.keyDown(toggle, { key: ' ' })).toBe(true);
+    expect(activationRoot!.classList.contains('snl-single-hover')).toBe(false);
+    expect(document.body.textContent).not.toContain('Pinned child body');
+    expect(document.querySelectorAll('[data-popover-id]')).toHaveLength(0);
+  });
+
   it('pins a referenced Entry through a real pointerdown → click sequence', async () => {
     const view = render(
       <HoverPopoverProvider
@@ -100,14 +142,17 @@ describe('EntryRender real dependency click pinning', () => {
 
     await waitFor(() => expect(document.body.textContent).toContain('Pinned child body'));
     expect(document.body.textContent?.match(/Pinned child body/g)).toHaveLength(1);
+    expect(view.container.querySelector('.snl-single-hover')).not.toBeNull();
 
     const section = view.container.querySelector('section')!;
     fireEvent.pointerDown(section, { button: 0, clientX: 5, clientY: 5 });
     await waitFor(() => expect(document.body.textContent).not.toContain('Pinned child body'));
+    expect(view.container.querySelector('.snl-single-hover')).toBeNull();
 
     fireEvent.click(clickTarget, { button: 0, clientX: 40, clientY: 30 });
     await waitFor(() => expect(document.body.textContent).toContain('Pinned child body'));
     fireEvent.pointerDown(view.getByTestId('stopped-blank'));
     await waitFor(() => expect(document.body.textContent).not.toContain('Pinned child body'));
+    expect(view.container.querySelector('.snl-single-hover')).toBeNull();
   });
 });

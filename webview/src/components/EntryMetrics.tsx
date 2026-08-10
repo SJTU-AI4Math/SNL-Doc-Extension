@@ -47,9 +47,9 @@ export type EntryMetricResult =
   | { kind: 'unavailable'; reason: 'parseError'; error: string };
 
 export interface SnlStructuralMetrics {
-  /** Unsourced non-catalog nodes, excluding numeric literals. */
+  /** Unsourced catalog constants. */
   weakSemanticFreedom: number;
-  /** Weak freedom plus catalog macros whose source cannot be resolved. */
+  /** Unsourced nodes without a matching catalog constant. */
   strongSemanticFreedom: number;
   /** Sum of length-adjusted weights for non-numeric nodes. */
   weightedTotal: number;
@@ -179,9 +179,10 @@ function hasResolvedSemantics(
 
 /**
  * Compute the SNL Structural Index while retaining raw strong/weak freedom.
- * A known macro with an unresolved source affects strong freedom only; an
- * unknown node affects both. Numeric literals are assumed semantically clear
- * and are excluded from both weighted numerator and denominator.
+ * A known macro with an unresolved source contributes weak freedom; an unknown
+ * node contributes strong freedom. The categories are disjoint. Numeric
+ * literals are assumed semantically clear and are excluded from both weighted
+ * numerator and denominator.
  */
 export function analyzeSnlStructuralIndex(
   root: SnlSyntaxTree,
@@ -229,11 +230,12 @@ export function analyzeSnlStructuralIndex(
       weightedTotal += weight;
 
       if (!sourced) {
-        strongSemanticFreedom += 1;
-        weightedStrongSemanticFreedom += weight;
-        if (!catalogConstant) {
+        if (catalogConstant) {
           weakSemanticFreedom += 1;
           weightedWeakSemanticFreedom += weight;
+        } else {
+          strongSemanticFreedom += 1;
+          weightedStrongSemanticFreedom += weight;
         }
       }
     }
@@ -247,7 +249,12 @@ export function analyzeSnlStructuralIndex(
       ? 1
       : Math.min(
           1,
-          Math.max(0, 1 - weightedStrongSemanticFreedom / weightedTotal)
+          Math.max(
+            0,
+            1 - (
+              weightedWeakSemanticFreedom + weightedStrongSemanticFreedom
+            ) / weightedTotal
+          )
         );
   return {
     weakSemanticFreedom,

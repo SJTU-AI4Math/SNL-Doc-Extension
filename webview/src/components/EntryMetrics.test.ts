@@ -61,8 +61,8 @@ describe('computeEntryMetrics context sources', () => {
 
     const metrics = okMetrics(computeEntryMetrics(snl, setMacros, context));
     expect(metrics).toMatchObject({
-      strongSemanticFreedom: 3,
-      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 0,
+      weakSemanticFreedom: 3,
       weightedTotal: 13
     });
     expect(metrics.structuralIndex).toBeCloseTo(10 / 13);
@@ -82,14 +82,14 @@ describe('computeEntryMetrics context sources', () => {
       { id: 'ctx', content: { snl: 'context(y)' } }
     ]);
     expect(okMetrics(computeEntryMetrics('x@ctx', macros, noDeclaration))).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
 
     const dangling = buildEntryMetricContext([]);
     expect(okMetrics(computeEntryMetrics('x@missing', macros, dangling))).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -112,7 +112,7 @@ describe('computeEntryMetrics context sources', () => {
       computeEntryMetrics('root(@ctx,x@ctx)', macros, context)
     );
     expect(metrics).toMatchObject({
-      weakSemanticFreedom: 2,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 2
     });
     expect(metrics.structuralIndex).toBeCloseTo(1 / 3);
@@ -163,7 +163,37 @@ describe('SNL Structural Index', () => {
     );
   });
 
-  it('uses unresolved constants only in strong freedom and excludes numbers', () => {
+  it('classifies an unindexed catalog constant as weak freedom only', () => {
+    const metrics = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('unresolved'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 0,
+      weightedWeakSemanticFreedom: 1,
+      weightedStrongSemanticFreedom: 0,
+      structuralIndex: 0
+    });
+  });
+
+  it('classifies a node without a catalog constant as strong freedom only', () => {
+    const metrics = analyzeSnlStructuralIndex(
+      parseSnlSyntaxTree('free'),
+      indexedMacros,
+      new Set(['entry-ok'])
+    );
+    expect(metrics).toMatchObject({
+      weakSemanticFreedom: 0,
+      strongSemanticFreedom: 1,
+      weightedWeakSemanticFreedom: 0,
+      weightedStrongSemanticFreedom: 1,
+      structuralIndex: 0
+    });
+  });
+
+  it('keeps weak and strong freedom disjoint while excluding numbers', () => {
     const tree = parseSnlSyntaxTree('root(free,unresolved,indexed,42)');
     const metrics = analyzeSnlStructuralIndex(
       tree,
@@ -173,10 +203,10 @@ describe('SNL Structural Index', () => {
 
     expect(metrics).toMatchObject({
       weakSemanticFreedom: 1,
-      strongSemanticFreedom: 2,
+      strongSemanticFreedom: 1,
       weightedTotal: 4,
       weightedWeakSemanticFreedom: 1,
-      weightedStrongSemanticFreedom: 2,
+      weightedStrongSemanticFreedom: 1,
       structuralIndex: 0.5
     });
   });
@@ -201,7 +231,7 @@ describe('SNL Structural Index', () => {
     );
     expect(freeText).toMatchObject({
       weightedTotal: 1,
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -213,7 +243,7 @@ describe('SNL Structural Index', () => {
     );
     expect(parent).toMatchObject({
       weightedTotal: 2,
-      weakSemanticFreedom: 2,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 2,
       structuralIndex: 0
     });
@@ -229,7 +259,7 @@ describe('SNL Structural Index', () => {
       new Set(['entry-ok'])
     );
     expect(metrics).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -247,7 +277,7 @@ describe('SNL Structural Index', () => {
     });
   });
 
-  it('keeps an invalid explicit source weakly free despite a catalog collision', () => {
+  it('keeps an invalid explicit source strongly free despite a catalog collision', () => {
     const collisionMacros: SnlMacroSourceLookup = {
       x: { source: { entries: ['entry-ok'], urls: [] } },
       indexed: { source: { entries: ['entry-ok'], urls: [] } }
@@ -258,14 +288,14 @@ describe('SNL Structural Index', () => {
     ]);
 
     expect(okMetrics(computeEntryMetrics('x@ctx', collisionMacros, context))).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
     expect(
       okMetrics(computeEntryMetrics('indexed@missing', collisionMacros, context))
     ).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -278,7 +308,7 @@ describe('SNL Structural Index', () => {
       new Set(['entry-ok'])
     );
     expect(metrics).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -289,7 +319,7 @@ describe('SNL Structural Index', () => {
       new Set(['entry-ok'])
     );
     expect(formula).toMatchObject({
-      weakSemanticFreedom: 1,
+      weakSemanticFreedom: 0,
       strongSemanticFreedom: 1,
       structuralIndex: 0
     });
@@ -417,10 +447,11 @@ describe('SNL Structural Index', () => {
     );
 
     expect(constant).toMatchObject({
-      weakSemanticFreedom: 0,
-      strongSemanticFreedom: 1,
+      weakSemanticFreedom: 1,
+      strongSemanticFreedom: 0,
       weightedTotal: 3,
-      weightedStrongSemanticFreedom: 1
+      weightedWeakSemanticFreedom: 1,
+      weightedStrongSemanticFreedom: 0
     });
     expect(constant.structuralIndex).toBeCloseTo(2 / 3);
     expect(free.weightedStrongSemanticFreedom).toBeGreaterThan(1);
@@ -449,7 +480,7 @@ describe('SNL Structural Index', () => {
         buildEntryMetricContext([])
       )
     );
-    expect(invalidCollision.weakSemanticFreedom).toBe(1);
+    expect(invalidCollision.weakSemanticFreedom).toBe(0);
     expect(invalidCollision.strongSemanticFreedom).toBe(1);
     expect(invalidCollision.weightedStrongSemanticFreedom).toBeGreaterThan(1);
     expect(invalidCollision.structuralIndex).toBe(0);

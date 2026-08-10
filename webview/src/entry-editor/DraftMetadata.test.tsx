@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CreateEntryApp } from '../CreateEntryApp';
 import { loadDraft, saveDraft } from '../components/draftState';
@@ -38,6 +38,17 @@ function submitButton(view: ReturnType<typeof render>): HTMLButtonElement {
   const button = view.container.querySelector<HTMLButtonElement>('button.snl-btn--primary');
   if (!button) throw new Error('entry submit button not rendered');
   return button;
+}
+
+function chooseContentLanguage(
+  view: ReturnType<typeof render>,
+  label: string,
+  current: string,
+  next: string
+): void {
+  fireEvent.click(view.getByLabelText(`${label}: ${current}`));
+  const menu = view.getByRole('listbox', { name: label });
+  fireEvent.click(within(menu).getByText(next).closest('button')!);
 }
 
 function sendInit(contentOverrides: Record<string, unknown> = {}): void {
@@ -97,9 +108,7 @@ describe('restored draft in edit mode', () => {
     expect(title.closest('nav')).toBeNull();
     expect(title.readOnly).toBe(false);
     expect(view.getByText('Title (I18N)')).toBeTruthy();
-    expect(view.getByRole('combobox', { name: 'Title language' })).toHaveProperty(
-      'value', '__snl_general__'
-    );
+    expect(view.getByLabelText('Title language: General')).toBeTruthy();
 
     const metadata = view.container.querySelector('[data-entry-metadata-row]');
     expect(metadata).toBeTruthy();
@@ -108,11 +117,10 @@ describe('restored draft in edit mode', () => {
     expect(metadataFieldset?.style.width).toBe('100%');
     expect(metadataFieldset?.style.boxSizing).toBe('border-box');
     expect(metadata?.querySelector('#snl-entry-id')).toBeTruthy();
-    const packageSelect = metadata?.querySelector<HTMLSelectElement>('#snl-entry-package');
-    expect(packageSelect?.options[0]?.value).toBe('__create__');
+    const packageField = metadata?.querySelector<HTMLInputElement>('#snl-entry-package');
+    expect(packageField?.readOnly).toBe(true);
+    expect(packageField?.value).toBe('Unpackaged (_unpackaged)');
     expect(view.queryByRole('button', { name: 'Create Entry Package' })).toBeNull();
-    fireEvent.change(packageSelect!, { target: { value: '__create__' } });
-    expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
 
     const kind = metadata?.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Entry kind: Theorem"]');
     expect(kind).toBeTruthy();
@@ -233,8 +241,8 @@ describe('restored draft in edit mode', () => {
     sendInit();
     await waitFor(() => expect(titleInput(view).value).toBe('My Unsaved Title'));
     await waitFor(() => expect(
-      (view.getByRole('combobox', { name: 'MARKDOWN content language' }) as HTMLSelectElement).value
-    ).toBe('zh-CN'));
+      view.getByLabelText('MARKDOWN content language: zh-CN')
+    ).toBeTruthy());
     fireEvent.click(await waitFor(() => submitButton(view)));
 
     const submission = await waitFor(() => {
@@ -270,20 +278,14 @@ describe('restored draft in edit mode', () => {
     const view = render(<CreateEntryApp />);
     sendInit();
     await waitFor(() => expect(titleInput(view).value).toBe('Draft'));
-    fireEvent.change(
-      view.getByRole('combobox', { name: 'MARKDOWN content language' }),
-      { target: { value: 'en' } }
-    );
+    chooseContentLanguage(view, 'MARKDOWN content language', 'zh-CN', 'en');
     // A file-watcher context refresh must merge around the dirty local map,
     // not replace its other unsaved language projections with disk values.
     sendInit();
     await new Promise((resolve) => setTimeout(resolve, 100));
     // Selecting General without editing is not permission to collapse the
     // localized map into a plain string.
-    fireEvent.change(
-      view.getByRole('combobox', { name: 'MARKDOWN content language' }),
-      { target: { value: '__snl_general__' } }
-    );
+    chooseContentLanguage(view, 'MARKDOWN content language', 'en', 'General');
     fireEvent.click(await waitFor(() => submitButton(view)));
     const submission = await waitFor(() => {
       const found = posted.find(

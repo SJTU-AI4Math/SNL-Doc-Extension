@@ -145,9 +145,14 @@ describe('CreateEntryPanel create -> edit flip', () => {
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {
     const { CreateEntryPanel } = await import('./createEntryPanel');
-    CreateEntryPanel.createOrShow(extUri);
+    CreateEntryPanel.createOrShow(extUri, 'seed-entry', 'core');
     expect(messageHandler).toBeTruthy();
+    await messageHandler!({ type: 'ready' });
+    expect(contexts().at(-1)).toMatchObject({
+      mode: 'create', seedId: 'seed-entry', selectedPackage: 'core'
+    });
     posted.length = 0;
+    events.length = 0;
 
     await messageHandler!({
       type: 'create',
@@ -346,22 +351,27 @@ describe('CreateEntryPanel create -> edit flip', () => {
   it('routes the next save to updateEntry instead of creating a duplicate', async () => {
     const snlDoc = await import('./snlDoc');
     const { CreateEntryPanel } = await import('./createEntryPanel');
-    CreateEntryPanel.createOrShow(extUri);
+    CreateEntryPanel.createOrShow(extUri, undefined, 'Logic');
     posted.length = 0;
     vi.mocked(snlDoc.addEntry).mockClear();
     vi.mocked(snlDoc.updateEntry).mockClear();
 
     await messageHandler!({
       type: 'create',
-      entry: { id: 'thm-second', kind: 'definition', title: 'Second', content: {} }
+      entry: {
+        id: 'thm-second', package: '_unpackaged',
+        kind: 'definition', title: 'Second', content: {}
+      }
     });
     expect(snlDoc.addEntry).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(snlDoc.addEntry).mock.calls[0][1]).toMatchObject({ package: 'Logic' });
 
     await messageHandler!({
       type: 'update',
       saveRequestId: 'update-request-1',
       entry: {
-        id: 'thm-second', kind: 'definition', title: 'Second edited', content: {},
+        id: 'thm-second', kind: 'definition', package: '_unpackaged',
+        title: 'Second edited', content: {},
         contribution_info: 'Grace Hopper'
       }
     });
@@ -373,10 +383,34 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(snlDoc.updateEntry).toHaveBeenCalledTimes(1);
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][1]).toBe('thm-second');
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][2]).toMatchObject({
-      contribution_info: 'Grace Hopper'
+      package: 'Logic', contribution_info: 'Grace Hopper'
     });
     expect(events.indexOf('save:update')).toBeLessThan(events.lastIndexOf('regenerate:thm-second'));
     expect(events.lastIndexOf('regenerate:thm-second')).toBeLessThan(events.lastIndexOf('post:updated'));
+  });
+
+  it('keeps an existing Entry package host-authoritative on direct edit', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    stored.push({
+      id: 'direct-package-edit', package: 'Logic', kind: 'definition',
+      title: 'Direct', content: {}
+    });
+    CreateEntryPanel.editOrShow(extUri, 'direct-package-edit');
+    await messageHandler!({ type: 'ready' });
+    vi.mocked(snlDoc.updateEntry).mockClear();
+
+    await messageHandler!({
+      type: 'update',
+      entry: {
+        id: 'direct-package-edit', package: '_unpackaged', kind: 'definition',
+        title: 'Tampered', content: {}
+      }
+    });
+
+    expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][2]).toMatchObject({
+      package: 'Logic', title: 'Tampered'
+    });
   });
 
   it('reports dependency regeneration failure as terminal error and refreshes saved state', async () => {

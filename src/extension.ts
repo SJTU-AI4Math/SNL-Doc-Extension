@@ -81,6 +81,11 @@ const UI_MESSAGES = defineHostMessages(
     regenerateFailed: 'Regenerate dependencies failed: {error}',
     regenerateSuccess: 'Dependencies regenerated. +{added} / ~{updated} / −{removed}. {depends} "depends" edges, {usesContext} "uses_context" edges ({atomic} atomic total). {preserved} user-authored rows preserved.',
     createMacroNoWorkspace: 'Open a folder / workspace before creating a macro.',
+    createEntryNoWorkspace: 'Open a folder / workspace before creating an Entry.',
+    listEntryPackagesFailed: 'Failed to list Entry Packages: {error}',
+    selectEntryPackageTitle: 'Create Entry',
+    selectEntryPackagePlaceholder: 'Select an Entry Package for the new Entry',
+    unpackagedEntryPackage: 'Unpackaged (_unpackaged)',
     listPackagesFailed: 'Failed to list macro packages: {error}',
     noActivePackages: 'No active macro packages. Create one first from the Dashboard.',
     selectPackagePlaceholder: 'Select package for the new macro',
@@ -153,6 +158,11 @@ const UI_MESSAGES = defineHostMessages(
     regenerateFailed: '重新生成依赖关系失败：{error}',
     regenerateSuccess: '依赖关系已重新生成。+{added} / ~{updated} / −{removed}。共 {depends} 条“depends”边、{usesContext} 条“uses_context”边（共 {atomic} 个原子条目）。保留了 {preserved} 条用户创建的记录。',
     createMacroNoWorkspace: '创建宏前请先打开文件夹或工作区。',
+    createEntryNoWorkspace: '创建条目前请先打开文件夹或工作区。',
+    listEntryPackagesFailed: '列出条目包失败：{error}',
+    selectEntryPackageTitle: '创建条目',
+    selectEntryPackagePlaceholder: '选择新条目所属的条目包',
+    unpackagedEntryPackage: '未归入条目包（_unpackaged）',
     listPackagesFailed: '列出宏包失败：{error}',
     noActivePackages: '没有活动的宏包。请先从仪表板创建一个。',
     selectPackagePlaceholder: '选择新宏所属的包',
@@ -693,14 +703,42 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const createEntry = vscode.commands.registerCommand(
     'snlDoc.createEntry',
-    (seedId?: unknown) => {
-      // Cat 2026-07-15: optional `seedId` from callers that already know
-      // the intended entry id (e.g. Library outline's Add form when the
-      // user typed an id that doesn't exist yet). CreateEntryPanel uses
-      // it to prefill the id field instead of minting a fresh UUID.
+    async (seedId?: unknown) => {
       const seed =
         typeof seedId === 'string' && seedId.trim() ? seedId.trim() : undefined;
-      CreateEntryPanel.createOrShow(context.extensionUri, seed);
+      const root = firstWorkspaceFolder();
+      if (!root) {
+        void vscode.window.showErrorMessage(t('createEntryNoWorkspace'));
+        return;
+      }
+      let packageFiles: { file: string }[];
+      try {
+        packageFiles = await snlDoc.readMacroPackages(root, true);
+      } catch (error) {
+        void vscode.window.showErrorMessage(t('listEntryPackagesFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        }));
+        return;
+      }
+      type EntryPackagePick = vscode.QuickPickItem & { packageId: string };
+      const items: EntryPackagePick[] = [
+        {
+          label: t('unpackagedEntryPackage'),
+          description: '_unpackaged',
+          packageId: '_unpackaged'
+        },
+        ...packageFiles
+          .map(({ file }) => file.replace(/\.json$/i, ''))
+          .filter((packageId) => packageId !== '_unpackaged')
+          .sort((a, b) => a.localeCompare(b))
+          .map((packageId) => ({ label: packageId, packageId }))
+      ];
+      const chosen = await vscode.window.showQuickPick(items, {
+        title: t('selectEntryPackageTitle'),
+        placeHolder: t('selectEntryPackagePlaceholder')
+      });
+      if (!chosen) return;
+      CreateEntryPanel.createOrShow(context.extensionUri, seed, chosen.packageId);
     }
   );
 

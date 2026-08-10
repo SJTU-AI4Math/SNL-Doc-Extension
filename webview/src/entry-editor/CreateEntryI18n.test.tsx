@@ -27,7 +27,8 @@ function sendCreateContext(openPackageCreator = false): void {
         numbering: 'theorem',
         style: 'default'
       }],
-      packages: ['core'],
+      entryPackages: ['_unpackaged', 'core'],
+      selectedPackage: 'core',
       existingIds: [],
       relationships: []
     }
@@ -38,6 +39,16 @@ beforeEach(() => {
   postMessage.mockClear();
   document.documentElement.lang = 'zh-CN';
   set_content_language('zh-CN');
+  window.dispatchEvent(new MessageEvent('message', {
+    data: {
+      type: 'snl.preferences/snapshot', generation: 'entry-i18n-test', revision: 1,
+      preferences: { language: 'zh-CN', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'zh-CN', display_name: '简体中文' },
+        { id: 'en', display_name: 'English' }
+      ]
+    }
+  }));
 });
 
 afterEach(() => {
@@ -74,11 +85,13 @@ describe('CreateEntryApp localization', () => {
 
     await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
     expect(view.getByLabelText('标题').getAttribute('placeholder')).toBe('例如：勾股定理');
-    expect(view.getByRole('combobox', { name: '标题语言' })).toHaveProperty(
-      'value', '__snl_general__'
-    );
+    const titleLanguage = view.getByLabelText('标题语言: 通用');
+    fireEvent.click(titleLanguage);
+    fireEvent.click(view.getByText('English', { selector: 'span' }).closest('button')!);
+    expect(view.getByLabelText('标题语言: English')).toBeTruthy();
     expect(view.getByLabelText('ID').getAttribute('placeholder')).toBe('例如：pythagorean-theorem');
-    expect(view.getByLabelText('条目包')).toBeTruthy();
+    expect(view.getByLabelText('条目包')).toHaveProperty('readOnly', true);
+    expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
     expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy();
     expect(view.queryByText('宏包')).toBeNull();
     expect(view.queryByText('种类')).toBeNull();
@@ -100,10 +113,12 @@ describe('CreateEntryApp localization', () => {
     sendCreateContext();
     await waitFor(() => expect(view.getByRole('heading', { name: '创建条目' })).toBeTruthy());
     fireEvent.click(view.getByRole('button', { name: '文本' }));
-    const selector = view.getByRole('combobox', { name: 'TEXT 内容语言' });
-    expect(selector).toHaveProperty('value', '__snl_general__');
+    const selector = view.getByLabelText('TEXT 内容语言: 通用');
+    fireEvent.click(selector);
+    fireEvent.click(view.getByText('English', { selector: 'span' }).closest('button')!);
+    expect(view.getByLabelText('TEXT 内容语言: English')).toBeTruthy();
     act(() => set_content_language('en'));
-    expect(selector).toHaveProperty('value', '__snl_general__');
+    expect(view.getByLabelText('TEXT 内容语言: English')).toBeTruthy();
   });
 
   it('gives the title editor its own language selector independent from panel content language', async () => {
@@ -123,11 +138,13 @@ describe('CreateEntryApp localization', () => {
 
     await view.findByLabelText('标题');
     await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
-    expect(view.getByRole('combobox', { name: '标题语言' })).toHaveProperty('value', 'en');
+    expect(view.getByLabelText('标题语言: English')).toBeTruthy();
     act(() => set_content_language('en'));
     await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
     expect(view.getByText('正在显示来自 zh-CN 的回退标题')).toBeTruthy();
     expect(view.getByRole('heading', { name: '编辑条目' })).toBeTruthy();
+    expect(view.getByLabelText('条目包')).toHaveProperty('readOnly', true);
+    expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
 
     fireEvent.change(view.getByLabelText('标题'), { target: { value: 'English title' } });
     fireEvent.click(view.getByRole('button', { name: '更新条目' }));

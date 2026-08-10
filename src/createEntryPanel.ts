@@ -105,6 +105,8 @@ export class CreateEntryPanel {
    * the webview treats it as a hint that overrides the auto-minted UUID.
    */
   private seedId: string;
+  /** Create-mode package selected by the host QuickPick before this panel opens. */
+  private selectedPackage: string;
   /** One-shot navigation intent used by the title-bar cat menu. */
   private openPackageCreatorOnNextContext = false;
   private disposables: vscode.Disposable[] = [];
@@ -127,20 +129,23 @@ export class CreateEntryPanel {
 
   public static createOrShow(
     extensionUri: vscode.Uri,
-    seedId?: string
+    seedId?: string,
+    selectedPackage = '_unpackaged'
   ): void {
-    CreateEntryPanel.open(extensionUri, 'create', '', seedId ?? '', false);
+    CreateEntryPanel.open(
+      extensionUri, 'create', '', seedId ?? '', selectedPackage, false
+    );
   }
 
   public static createPackageOrShow(extensionUri: vscode.Uri): void {
-    CreateEntryPanel.open(extensionUri, 'create', '', '', true);
+    CreateEntryPanel.open(extensionUri, 'create', '', '', '_unpackaged', true);
   }
 
   public static editOrShow(extensionUri: vscode.Uri, id: string): void {
     if (!id) {
       return;
     }
-    CreateEntryPanel.open(extensionUri, 'edit', id, '', false);
+    CreateEntryPanel.open(extensionUri, 'edit', id, '', '', false);
   }
 
   private static open(
@@ -148,6 +153,7 @@ export class CreateEntryPanel {
     mode: 'create' | 'edit',
     id: string,
     seedId: string,
+    selectedPackage: string,
     openPackageCreator: boolean
   ): void {
     // Cat 2026-07-25: trace the whole open path with ms timings so we can
@@ -177,7 +183,7 @@ export class CreateEntryPanel {
       }
       // Retarget the live panel instead of building a new one — this is the
       // whole point of the singleton: skip the ~1.09s webview stand-up.
-      existing.retarget(mode, id, seedId, column, trace);
+      existing.retarget(mode, id, seedId, selectedPackage, column, trace);
       return;
     }
 
@@ -208,6 +214,7 @@ export class CreateEntryPanel {
       mode,
       id,
       seedId,
+      selectedPackage,
       openPackageCreator,
       trace
     );
@@ -225,13 +232,16 @@ export class CreateEntryPanel {
     mode: 'create' | 'edit',
     id: string,
     seedId: string,
+    selectedPackage: string,
     column: vscode.ViewColumn,
     trace: Trace
   ): void {
-    const sameTarget = this.mode === mode && this.id === id;
+    const sameTarget = this.mode === mode && this.id === id &&
+      (mode === 'edit' || this.selectedPackage === selectedPackage);
     if (!sameTarget) this.targetGeneration += 1;
     this.mode = mode;
     this.id = id;
+    this.selectedPackage = selectedPackage;
     if (mode === 'create' && seedId) {
       this.seedId = seedId;
     }
@@ -270,6 +280,7 @@ export class CreateEntryPanel {
     mode: 'create' | 'edit',
     id: string,
     seedId: string,
+    selectedPackage: string,
     openPackageCreator: boolean,
     trace?: Trace
   ) {
@@ -278,6 +289,7 @@ export class CreateEntryPanel {
     this.mode = mode;
     this.id = id;
     this.seedId = seedId;
+    this.selectedPackage = selectedPackage;
     this.openPackageCreatorOnNextContext = openPackageCreator;
     this.openTrace = trace;
 
@@ -316,6 +328,7 @@ export class CreateEntryPanel {
         targetState: this.mode === 'edit' ? 'notFound' : 'found',
         id: this.id || undefined,
         seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
+        selectedPackage: this.mode === 'create' ? this.selectedPackage : undefined,
         openPackageCreator: this.openPackageCreatorOnNextContext,
         kinds: [],
         macros: {},
@@ -394,6 +407,9 @@ export class CreateEntryPanel {
         `kinds=${kinds.length}`
     );
     if (generation !== this.contextGeneration) return;
+    if (this.mode === 'edit' && existing) {
+      this.selectedPackage = existing.package || '_unpackaged';
+    }
     const payload = {
       type: 'context',
       targetGeneration: this.targetGeneration,
@@ -401,6 +417,9 @@ export class CreateEntryPanel {
       targetState: existing ? 'found' : this.mode === 'edit' ? 'notFound' : 'found',
       id: this.id || undefined,
       seedId: this.mode === 'create' && this.seedId ? this.seedId : undefined,
+      selectedPackage: this.mode === 'edit'
+        ? existing?.package
+        : this.selectedPackage,
       openPackageCreator: this.openPackageCreatorOnNextContext,
       kinds,
       macros,
@@ -706,7 +725,7 @@ export class CreateEntryPanel {
       if (msg.type === 'update' || requestMode === 'edit') {
         const result = await updateEntry(root, requestId, {
           kind: entry.kind,
-          package: entry.package,
+          package: this.selectedPackage,
           title: entry.title,
           content: entry.content,
           contribution_info: entry.contribution_info,
@@ -786,7 +805,10 @@ export class CreateEntryPanel {
         }
       }
       // Create path.
-      const result = await addEntry(root, entry);
+      const result = await addEntry(root, {
+        ...entry,
+        package: this.selectedPackage
+      });
       if (result.status !== 'ok' && !targetIsCurrent()) {
         await this.pushContext();
         return;

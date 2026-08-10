@@ -73,10 +73,8 @@ const KINDS = [{
   style: 'default'
 }];
 
-function openPackageCreator(view: ReturnType<typeof render>): void {
-  const select = view.container.querySelector<HTMLSelectElement>('#snl-entry-package');
-  if (!select) throw new Error('Entry Package selector not rendered');
-  fireEvent.change(select, { target: { value: '__create__' } });
+function openPackageCreator(_view: ReturnType<typeof render>): void {
+  act(() => send({ type: 'openPackageCreator' }));
 }
 
 function createContext(): unknown {
@@ -88,6 +86,7 @@ function createContext(): unknown {
     macroKinds: [],
     macroOrigin: {},
     existing: null,
+    selectedPackage: '_unpackaged',
     entryPackages: ['_unpackaged', 'Logic'],
     existingIds: []
   };
@@ -263,9 +262,9 @@ describe('CreateEntryApp create → edit flip', () => {
       entryPackages: ['_unpackaged', 'Logic', 'Deferred']
     });
 
-    const selector = view.getByLabelText('Entry Package') as HTMLSelectElement;
-    await waitFor(() => expect(selector.value).toBe('_unpackaged'));
-    expect(Array.from(selector.options).some((option) => option.value === 'Deferred')).toBe(true);
+    const packageField = view.getByLabelText('Entry Package') as HTMLInputElement;
+    await waitFor(() => expect(packageField.value).toBe('Unpackaged (_unpackaged)'));
+    expect(packageField.readOnly).toBe(true);
     expect(view.queryByRole('button', { name: 'Creating…' })).toBeNull();
     expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
 
@@ -274,7 +273,7 @@ describe('CreateEntryApp create → edit flip', () => {
       packageId: 'Deferred',
       requestId: packageRequest.requestId
     }));
-    expect(selector.value).toBe('_unpackaged');
+    expect(packageField.value).toBe('Unpackaged (_unpackaged)');
     openPackageCreator(view);
     fireEvent.change(view.getByLabelText('New Entry Package ID'), { target: { value: 'Fresh' } });
     expect((view.getByRole('button', { name: 'Add Entry Package' }) as HTMLButtonElement).disabled)
@@ -290,14 +289,14 @@ describe('CreateEntryApp create → edit flip', () => {
       kind: 'definition',
       content: {}
     }));
-    const packageSelect = await waitFor(() =>
-      view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!);
-    expect(packageSelect.value).toBe('Logic');
-    fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
+    const packageField = await waitFor(() =>
+      view.container.querySelector<HTMLInputElement>('#snl-entry-package')!);
+    expect(packageField.value).toBe('Logic');
+    expect(packageField.readOnly).toBe(true);
     fireEvent.click(view.getByRole('button', { name: 'Update Entry' }));
     await waitFor(() => expect(posted.some((message) => message?.type === 'update')).toBe(true));
     expect(posted.findLast((message) => message?.type === 'update').entry.package)
-      .toBe('_unpackaged');
+      .toBe('Logic');
   });
 
   it('keeps Live Preview visible without a disclosure control', async () => {
@@ -313,7 +312,7 @@ describe('CreateEntryApp create → edit flip', () => {
     expect(view.queryByRole('button', { name: /Live Preview.*section/i })).toBeNull();
   });
 
-  it('removes redundant edit prose while preserving create-mode ID and Package guidance', async () => {
+  it('keeps create-only ID guidance and explains read-only Package assignment in both modes', async () => {
     const editView = render(<CreateEntryApp />);
     send(editContext({
       id: 'compact-entry', package: '_unpackaged', title: 'Compact Entry',
@@ -323,17 +322,17 @@ describe('CreateEntryApp create → edit flip', () => {
     await waitFor(() => expect(editView.getByLabelText('ID (readonly)')).toBeTruthy());
     expect(editView.queryByText(/stable references used by relationship links/i)).toBeNull();
     expect(editView.queryByText(/Prefer a semantic id/i)).toBeNull();
-    expect(editView.queryByText(/Entry Package membership may be changed later/i)).toBeNull();
-    expect(editView.getByLabelText('Entry Package')).toBeTruthy();
+    expect(editView.getByText(/chosen in VS Code before this editor opened/i)).toBeTruthy();
+    expect(editView.getByLabelText('Entry Package')).toHaveProperty('readOnly', true);
     editView.unmount();
 
     const createView = render(<CreateEntryApp />);
     send(createContext());
     await waitFor(() => expect(createView.getByText(/Prefer a semantic id/i)).toBeTruthy());
-    expect(createView.getByText(/Entry Package membership may be changed later/i)).toBeTruthy();
+    expect(createView.getByText(/chosen in VS Code before this editor opened/i)).toBeTruthy();
   });
 
-  it('creates a Package from the selector and selects the host-confirmed Package', async () => {
+  it('creates a Package without mutating the Entry assignment', async () => {
     const view = render(<CreateEntryApp />);
     send(editContext({
       id: 'package-create-entry', package: '_unpackaged', title: 'Package Create Entry',
@@ -345,7 +344,7 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.change(packageId, { target: { value: 'Algebra' } });
     fireEvent.click(view.getByRole('button', { name: 'Add Entry Package' }));
 
-    const selector = view.getByLabelText('Entry Package') as HTMLSelectElement;
+    const packageField = view.getByLabelText('Entry Package') as HTMLInputElement;
     const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
     expect(updateButton.disabled).toBe(true);
     const request = posted.findLast((message) => message?.type === 'createPackage');
@@ -355,13 +354,12 @@ describe('CreateEntryApp create → edit flip', () => {
     act(() => send({
       type: 'packageCreated', packageId: 'Algebra', requestId: 'stale-request'
     }));
-    expect(selector.value).toBe('_unpackaged');
+    expect(packageField.value).toBe('Unpackaged (_unpackaged)');
     expect(view.getByLabelText('New Entry Package ID')).toBeTruthy();
 
     send({ type: 'packageCreated', packageId: 'Algebra', requestId: request.requestId });
-    await waitFor(() => expect(selector.value).toBe('Algebra'));
-    expect(Array.from(selector.options).some((option) => option.value === 'Algebra')).toBe(true);
-    expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
+    await waitFor(() => expect(view.queryByLabelText('New Entry Package ID')).toBeNull());
+    expect(packageField.value).toBe('Unpackaged (_unpackaged)');
     expect(updateButton.disabled).toBe(false);
   });
 
@@ -387,7 +385,7 @@ describe('CreateEntryApp create → edit flip', () => {
     expect((view.getByRole('button', { name: 'Add Entry Package' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('preserves a dirty Package selection when that Package disappears', async () => {
+  it('keeps a missing assigned Package read-only and blocks accidental reassignment', async () => {
     const view = render(<CreateEntryApp />);
     const entry = {
       id: 'packaged-draft', package: 'Logic', title: 'Draft', kind: 'definition', content: {}
@@ -398,13 +396,12 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.change(title, { target: { value: 'Dirty draft' } });
     send({ ...(editContext(entry) as Record<string, unknown>), entryPackages: ['_unpackaged'] });
 
-    const packageSelect = view.container.querySelector<HTMLSelectElement>('#snl-entry-package')!;
-    await waitFor(() => expect(packageSelect.value).toBe('Logic'));
-    expect(view.getByText(/selected Entry Package no longer exists/i)).toBeTruthy();
+    const packageField = view.container.querySelector<HTMLInputElement>('#snl-entry-package')!;
+    await waitFor(() => expect(packageField.value).toBe('Logic'));
+    expect(packageField.readOnly).toBe(true);
+    expect(view.getByText(/assigned Entry Package no longer exists/i)).toBeTruthy();
     const updateButton = view.getByRole('button', { name: 'Update Entry' }) as HTMLButtonElement;
     expect(updateButton.disabled).toBe(true);
-    fireEvent.change(packageSelect, { target: { value: '_unpackaged' } });
-    expect(updateButton.disabled).toBe(false);
   });
 
   it('keeps the original revision when restoring an edit draft', async () => {

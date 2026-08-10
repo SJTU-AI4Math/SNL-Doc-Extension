@@ -54,6 +54,7 @@ import {
   type EntryRelationshipRow
 } from './components/EntryRelationshipsSection';
 import { PanelHeader } from './components/PanelHeader';
+import { LocalizedLanguageSelector } from './components/LocalizedLanguageSelector';
 import {
   LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
@@ -180,8 +181,8 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   packageCreating: 'Creating…',
   missingPackageOption: '{packageId} (missing; choose another Entry Package)',
   unpackaged: 'Unpackaged (_unpackaged)',
-  missingPackage: 'The selected Entry Package no longer exists. Your draft was preserved; choose another Entry Package before saving.',
-  packageHint: 'Entry Package membership may be changed later; moving an Entry preserves its ID and references.',
+  missingPackage: 'The assigned Entry Package no longer exists. Restore that package before saving.',
+  packageHint: 'Entry Package assignment was chosen in VS Code before this editor opened and is read-only here.',
   kind: 'Entry kind',
   kindSelection: 'Entry kind: {name}',
   kindDetails: 'id {id}; stroke {stroke}; background {background}',
@@ -340,7 +341,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   immutableIdHint: 'ID 是关系链接使用的稳定引用，无法在此处编辑。',
   semanticIdHint: "建议使用 'pythagorean-theorem' 或 'context-linalg-vars' 等语义化 ID——人类可读的 ID 在跨条目引用（宏源、库图节点、bvar `x@<id>` 上下文引用）中显示效果更好。没有合适名称时才使用 UUID 按钮。ID 创建后不可变。",
   package: '条目包', createPackage: '创建条目包', newPackageId: '新条目包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加条目包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他条目包）', unpackaged: '未归入条目包（_unpackaged）',
-  missingPackage: '所选条目包已不存在。草稿已保留；保存前请选择其他条目包。', packageHint: '以后可以更改条目包归属；移动条目会保留其 ID 和引用。',
+  missingPackage: '已分配的条目包不存在。请先恢复该条目包再保存。', packageHint: '条目包已在打开编辑器前通过 VS Code 选择，此处只读。',
   kind: '条目类别', kindSelection: '条目类别：{name}', kindDetails: 'ID {id}；描边 {stroke}；背景 {background}', unsupportedFormat: '暂不支持编辑 {format}', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   editorMode: 'SNL 编辑器模式', guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
   sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
@@ -581,6 +582,7 @@ interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
   availableLanguages: readonly string[];
+  languageCatalog: readonly { id: string; display_name: string }[];
   label: string;
   inputLabel: string;
   placeholder: string;
@@ -619,6 +621,7 @@ function EntryTitleLocalizedField({
   inputLabel,
   placeholder,
   languageLabel,
+  languageCatalog,
   generalLanguageLabel,
   invariantLabel,
   explicitLabel,
@@ -639,20 +642,15 @@ function EntryTitleLocalizedField({
     <section className="snl-localized-title-editor">
       <div className="snl-localized-title-editor__heading">
         <label htmlFor="snl-entry-title">{label}</label>
-        <label>
-          <span className="snl-visually-hidden">{languageLabel}</span>
-          <select
-            aria-label={languageLabel}
-            value={local.language}
-            onChange={(event) => local.setLanguage(event.target.value)}
-          >
-            {local.availableLanguages.map((language) => (
-              <option key={language} value={language}>
-                {language === LOCALIZED_GENERAL_LANGUAGE ? generalLanguageLabel : language}
-              </option>
-            ))}
-          </select>
-        </label>
+        <LocalizedLanguageSelector
+          languages={local.availableLanguages}
+          value={local.language}
+          label={languageLabel}
+          generalLanguage={LOCALIZED_GENERAL_LANGUAGE}
+          generalLabel={generalLanguageLabel}
+          catalog={languageCatalog}
+          onChange={local.setLanguage}
+        />
         <span data-localized-state={binding.state}>{status}</span>
         {binding.canClear ? (
           <Button type="button" variant="secondary" onClick={binding.clearValue}>
@@ -908,6 +906,7 @@ export function CreateEntryApp(): React.ReactElement {
             targetState?: 'found' | 'notFound';
             id?: string;
             seedId?: string;
+            selectedPackage?: string;
             openPackageCreator?: boolean;
             kinds: EntryKind[];
             macros?: Record<string, WirePackageMacro>;
@@ -1065,8 +1064,10 @@ export function CreateEntryApp(): React.ReactElement {
             setShowPackageCreator(true);
             setPackageCreateError('');
           }
-          setSelectedPackage((previous) =>
-            formDirtyRef.current || packages.includes(previous) ? previous : '_unpackaged'
+          setSelectedPackage(
+            msg.mode === 'edit'
+              ? (msg.existing?.package || '_unpackaged')
+              : (msg.selectedPackage || '_unpackaged')
           );
           if (msg.mode === 'edit') {
             const incomingId = msg.id ?? msg.existing?.id ?? '';
@@ -1288,8 +1289,6 @@ export function CreateEntryApp(): React.ReactElement {
           setEntryPackages((previous) =>
             previous.includes(packageId) ? previous : [...previous, packageId]
           );
-          setSelectedPackage(packageId);
-          markFormDirty(true);
           setPackageCreating(false);
           setPackageCreateError('');
           setNewPackageId('');
@@ -1515,7 +1514,6 @@ export function CreateEntryApp(): React.ReactElement {
       id: string;
       title: Localized<string, string>;
       selectedKind: string;
-      selectedPackage?: string;
       content: Record<ContentFormat, string>;
       contentI18n?: Partial<Record<LocalizableContentFormat, I18n<string, string>>>;
       contentEditLanguages?: Partial<Record<LocalizableContentFormat, string>>;
@@ -1544,7 +1542,6 @@ export function CreateEntryApp(): React.ReactElement {
     setId(restored.id);
     setTitle(restored.title);
     setSelectedKind(restored.selectedKind);
-    setSelectedPackage(restored.selectedPackage || '_unpackaged');
     setContent(restored.content);
     if (restored.contentI18n) setContentI18n(restored.contentI18n);
     const restoredLanguages = restored.contentEditLanguages;
@@ -1592,7 +1589,6 @@ export function CreateEntryApp(): React.ReactElement {
       id,
       title,
       selectedKind,
-      selectedPackage,
       content,
       contentI18n,
       contentEditLanguages,
@@ -1720,6 +1716,7 @@ export function CreateEntryApp(): React.ReactElement {
         value={title}
         onChange={setTitle}
         availableLanguages={supportedLanguages.map((item) => item.id)}
+        languageCatalog={supportedLanguages}
         label={t('title')}
         inputLabel={t('titleInputLabel')}
         placeholder={t('titlePlaceholder')}
@@ -1830,41 +1827,29 @@ export function CreateEntryApp(): React.ReactElement {
 
           <div style={{ flex: '1.25 1 12rem', minWidth: 0 }}>
             <Label htmlFor="snl-entry-package">{t('package')}</Label>
-            <select
+            <input
               id="snl-entry-package"
-              value={selectedPackage}
-              onChange={(event) => {
-                if (event.target.value === '__create__') {
-                  setShowPackageCreator(true);
-                  setPackageCreateError('');
-                  return;
-                }
-                markFormDirty(true);
-                setSelectedPackage(event.target.value);
+              type="text"
+              value={selectedPackage === '_unpackaged' ? t('unpackaged') : selectedPackage}
+              readOnly
+              style={{
+                ...inputStyle,
+                ...monoStyle,
+                marginBottom: 0,
+                width: '100%',
+                color: 'var(--vscode-descriptionForeground, #999)',
+                cursor: 'default'
               }}
-              style={{ ...inputStyle, marginBottom: 0, width: '100%' }}
-            >
-              <option value="__create__">＋ {t('createPackage')}</option>
-              {!entryPackages.includes(selectedPackage) && selectedPackage ? (
-                <option value={selectedPackage} disabled>
-                  {t('missingPackageOption', { packageId: selectedPackage })}
-                </option>
-              ) : null}
-              {entryPackages.map((packageId) => (
-                <option key={packageId} value={packageId}>
-                  {packageId === '_unpackaged' ? t('unpackaged') : packageId}
-                </option>
-              ))}
-            </select>
+            />
             {!entryPackages.includes(selectedPackage) && selectedPackage ? (
               <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--vscode-errorForeground)' }}>
                 {t('missingPackage')}
               </p>
-            ) : mode === 'create' ? (
+            ) : (
               <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', opacity: 0.75 }}>
                 {t('packageHint')}
               </p>
-            ) : null}
+            )}
           </div>
 
           <div style={{ flex: '1 1 11rem', minWidth: 0 }}>
@@ -2066,30 +2051,26 @@ export function CreateEntryApp(): React.ReactElement {
           ) : (
             <>
               {activeFormat !== 'snl' ? (
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span>{t('contentEditLanguage', { format: activeFormat.toUpperCase() })}</span>
-                <select
-                  aria-label={t('contentEditLanguage', { format: activeFormat.toUpperCase() })}
-                  value={contentEditLanguages[activeFormat]}
-                  onChange={(event) => selectContentEditLanguage(activeFormat, event.target.value)}
-                  style={{ marginBottom: '0.5rem' }}
-                >
-                  {[...new Set([
-                    LOCALIZED_GENERAL_LANGUAGE,
-                    ...supportedLanguages.map((language) => language.id),
-                    ...(contentI18n[activeFormat]
-                      ? [
-                          contentI18n[activeFormat].default_language,
-                          ...Object.keys(contentI18n[activeFormat].values)
-                        ]
-                      : [])
-                  ])].map((language) => (
-                    <option key={language} value={language}>
-                      {language === LOCALIZED_GENERAL_LANGUAGE ? t('generalLanguage') : language}
-                    </option>
-                  ))}
-                </select>
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <LocalizedLanguageSelector
+                    languages={[...new Set([
+                      LOCALIZED_GENERAL_LANGUAGE,
+                      ...supportedLanguages.map((language) => language.id),
+                      ...(contentI18n[activeFormat]
+                        ? [
+                            contentI18n[activeFormat].default_language,
+                            ...Object.keys(contentI18n[activeFormat].values)
+                          ]
+                        : [])
+                    ])]}
+                    value={contentEditLanguages[activeFormat]}
+                    label={t('contentEditLanguage', { format: activeFormat.toUpperCase() })}
+                    generalLanguage={LOCALIZED_GENERAL_LANGUAGE}
+                    generalLabel={t('generalLanguage')}
+                    catalog={supportedLanguages}
+                    onChange={(language) => selectContentEditLanguage(activeFormat, language)}
+                  />
+                </div>
               ) : null}
             <MonacoTextEditor
               value={content[activeFormat]}

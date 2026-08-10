@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   showErrorMessage: vi.fn(),
   showQuickPick: vi.fn(),
   executeCommand: vi.fn(),
+  createEntryOrShow: vi.fn(),
   createEntryPackageOrShow: vi.fn(),
   initSnlDoc: vi.fn(),
   deleteEntry: vi.fn(),
@@ -47,7 +48,10 @@ vi.mock('./createEntryKindPanel', () => ({ CreateEntryKindPanel: {} }));
 vi.mock('./initMacroKindsPanel', () => ({ InitMacroKindsPanel: {} }));
 vi.mock('./createMacroKindPanel', () => ({ CreateMacroKindPanel: {} }));
 vi.mock('./createEntryPanel', () => ({
-  CreateEntryPanel: { createPackageOrShow: mocks.createEntryPackageOrShow }
+  CreateEntryPanel: {
+    createOrShow: mocks.createEntryOrShow,
+    createPackageOrShow: mocks.createEntryPackageOrShow
+  }
 }));
 vi.mock('./createMacroPackagePanel', () => ({ CreateMacroPackagePanel: {} }));
 vi.mock('./packagePanel', () => ({ PackagePanel: {} }));
@@ -158,6 +162,29 @@ describe('extension host UI localization', () => {
     expect(mocks.showQuickPick).toHaveBeenCalledWith(
       expect.any(Array),
       { placeHolder: '选择新宏所属的包' }
+    );
+  });
+
+  it('chooses an Entry Package in a native QuickPick before opening Create Entry', async () => {
+    mocks.readMacroPackages.mockResolvedValue([
+      { file: 'core.json' }, { file: 'notes.json' }
+    ]);
+    mocks.showQuickPick.mockResolvedValue({ label: 'notes', packageId: 'notes' });
+
+    await command('snlDoc.createEntry')('seed-entry');
+
+    expect(mocks.showQuickPick).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ packageId: '_unpackaged' }),
+        expect.objectContaining({ packageId: 'core' }),
+        expect.objectContaining({ packageId: 'notes' })
+      ]),
+      expect.objectContaining({ placeHolder: '选择新条目所属的条目包' })
+    );
+    expect(mocks.createEntryOrShow).toHaveBeenCalledWith(
+      (context as unknown as { extensionUri: unknown }).extensionUri,
+      'seed-entry',
+      'notes'
     );
   });
 

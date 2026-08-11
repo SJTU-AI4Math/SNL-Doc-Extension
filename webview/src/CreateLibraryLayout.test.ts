@@ -81,10 +81,10 @@ const title = '.snl-library-outline-row-main > .snl-outline-row-title';
 const metric = '.snl-library-outline-metric';
 
 describe('Library outline responsive grid contract', () => {
-  it('bounds the desktop Kind track and stacks medium rows before the toolbar can overlap them', () => {
+  it('keeps the counter clear of Collapse and sizes the centered Kind track to its label', () => {
     const desktop = blockBetween(rowMain, '@container snl-outline (max-width: 60rem)');
     expect(declarations(desktop, rowMain).get('grid-template-columns')).toBe(
-      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
+      'calc(8rem + var(--snl-library-outline-depth-offset, 0rem)) fit-content(10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
     );
     expect(declarations(desktop, rowMain).get('margin-left')).toBe(
       'calc(-1 * var(--snl-library-outline-depth-offset, 0rem))'
@@ -92,26 +92,28 @@ describe('Library outline responsive grid contract', () => {
     expect(declarations(desktop, rowMain).get('width')).toBe(
       'calc(100% + var(--snl-library-outline-depth-offset, 0rem))'
     );
+    expect(declarations(desktop, rowMain).get('pointer-events')).toBe('none');
+    expect(declarations(desktop, `${rowMain} > *`).get('pointer-events')).toBe('auto');
     const counterRule = declarations(desktop, counter);
     expect(counterRule.get('transform')).toBe(
       'translateX(var(--snl-library-counter-indent))'
     );
-    expect(counterRule.get('max-width')).toBe(
-      'max(4rem, calc(100% - var(--snl-library-counter-indent)))'
+    expect(counterRule.get('width')).toBe(
+      'calc(100% - var(--snl-library-counter-indent))'
     );
-    expect(counterRule.get('min-width')).toBe(
-      'max(4rem, calc(5.5rem - var(--snl-library-counter-indent)))'
-    );
+    expect(counterRule.get('min-width')).toBe('4rem');
     const metricRule = declarations(desktop, metric);
     expect(metricRule.get('margin-right')).toBe('0.35rem');
     expect(metricRule.get('pointer-events')).toBe('auto');
     expect(metricRule.has('grid-column')).toBe(false);
     const libraryRow = declarations(desktop, '.snl-library-outline-row');
     expect(libraryRow.get('padding-right')).toBe('11.3rem !important');
-    const deepMain = declarations(desktop, '.snl-library-outline-row-main--deep');
-    expect(deepMain.get('--snl-library-counter-indent')).toBe(
-      'min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem)'
-    );
+    const kindRule = declarations(desktop, kind);
+    expect(kindRule.get('width')).toBe('max-content');
+    expect(kindRule.get('justify-self')).toBe('start');
+    expect(kindRule.get('text-align')).toBe('center');
+    expect(kindRule.get('max-width')).toBe('10rem');
+    expect(kindRule.get('min-width')).toBe('0');
     expect(declarations(
       desktop,
       '.snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content'
@@ -136,10 +138,10 @@ describe('Library outline responsive grid contract', () => {
       '@container snl-outline (max-width: 26rem)'
     );
     expect(declarations(medium, rowMain).get('grid-template-columns')).toBe(
-      'minmax(5.5rem, 8rem) minmax(0, 1fr)'
+      'minmax(calc(5.5rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) fit-content(10rem) minmax(0, 1fr)'
     );
     expect(declarations(medium, rowMain).get('--snl-library-counter-indent')).toBe(
-      'min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem)'
+      'var(--snl-library-outline-depth-offset, 0rem)'
     );
     expect(declarations(
       medium,
@@ -167,12 +169,15 @@ describe('Library outline responsive grid contract', () => {
   it('stacks id, title and metric into exact rows at narrow widths', () => {
     const narrow = blockBetween('@container snl-outline (max-width: 26rem)');
     expect(declarations(narrow, rowMain).get('grid-template-columns')).toBe(
-      'minmax(5.5rem, 8rem) minmax(0, 1fr)'
+      'minmax(calc(4rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) minmax(0, 1fr)'
     );
     expectPlacement(narrow, counter, '1', '1');
     expectPlacement(narrow, kind, '2', '1');
     expectPlacement(narrow, entryId, '1 / -1', '2');
     expectPlacement(narrow, title, '1 / -1', '3');
+    const narrowKind = declarations(narrow, kind);
+    expect(narrowKind.get('width')).toBe('100%');
+    expect(narrowKind.get('max-width')).toBe('10rem');
   });
 
   it('validates the effective desktop grid cascade on the live row element', () => {
@@ -184,7 +189,7 @@ describe('Library outline responsive grid contract', () => {
     row.dataset.snlLibraryRowMain = '';
     document.body.appendChild(row);
     expect(getComputedStyle(row).gridTemplateColumns.replace(/\s+/g, ' ').trim()).toBe(
-      '8rem minmax(5rem, 10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
+      'calc(8rem + var(--snl-library-outline-depth-offset, 0rem)) fit-content(10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
     );
     row.remove();
     style.remove();

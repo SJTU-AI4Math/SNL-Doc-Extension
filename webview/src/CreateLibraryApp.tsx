@@ -1648,7 +1648,6 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
         fontWeight: 600,
         flexShrink: 0,
         boxSizing: 'border-box',
-        maxWidth: '100%',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'

@@ -1,8 +1,8 @@
 .snl-library-outline-row-main {
   display: grid;
   grid-template-columns:
-    8rem
-    minmax(5rem, 10rem)
+    calc(8rem + var(--snl-library-outline-depth-offset, 0rem))
+    fit-content(10rem)
     minmax(7rem, 11rem)
     minmax(8rem, 1fr);
   align-items: center;
@@ -10,12 +10,16 @@
   margin-left: calc(-1 * var(--snl-library-outline-depth-offset, 0rem));
   width: calc(100% + var(--snl-library-outline-depth-offset, 0rem));
   min-width: 0;
+  pointer-events: none;
   --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
 }
 
+.snl-library-outline-row-main > * {
+  pointer-events: auto;
+}
+
 .snl-library-outline-row-main--deep {
-  --snl-library-counter-indent:
-    min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem);
+  --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
 }
 
 .snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content {
@@ -26,13 +30,14 @@
   grid-column: 1;
   display: flex;
   align-items: center;
-  min-width: max(4rem, calc(5.5rem - var(--snl-library-counter-indent)));
+  width: calc(100% - var(--snl-library-counter-indent));
+  min-width: 4rem;
   min-height: 1.5rem;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.8rem;
   color: var(--vscode-descriptionForeground, #999);
   transform: translateX(var(--snl-library-counter-indent));
-  max-width: max(4rem, calc(100% - var(--snl-library-counter-indent)));
+  max-width: none;
 }
 
 .snl-library-outline-counter:focus-visible {
@@ -54,6 +59,11 @@
 
 .snl-library-outline-kind {
   grid-column: 2;
+  width: max-content;
+  min-width: 0;
+  max-width: 10rem;
+  justify-self: start;
+  text-align: center;
 }
 
 .snl-library-outline-entry-id {
@@ -113,9 +123,8 @@
 
 @container snl-outline (max-width: 60rem) {
   .snl-library-outline-row-main {
-    grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr);
-    --snl-library-counter-indent:
-      min(var(--snl-library-outline-depth-offset, 0rem), 1.5rem);
+    grid-template-columns: minmax(calc(5.5rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) fit-content(10rem) minmax(0, 1fr);
+    --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
   }
 
   .snl-library-outline-row > .snl-outline-row-content {
@@ -169,7 +178,7 @@
 
 @container snl-outline (max-width: 26rem) {
   .snl-library-outline-row-main {
-    grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr);
+    grid-template-columns: minmax(calc(4rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) minmax(0, 1fr);
   }
 
   .snl-library-outline-counter {
@@ -180,6 +189,8 @@
   .snl-library-outline-kind {
     grid-column: 2;
     grid-row: 1;
+    width: 100%;
+    max-width: 10rem;
   }
 
   .snl-library-outline-entry-id {

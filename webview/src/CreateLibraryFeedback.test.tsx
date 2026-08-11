@@ -249,6 +249,7 @@ describe('Create Library feedback', () => {
     expect(kind.getAttribute('title')).toBe('Definition');
     expect(kind.style.overflow).toBe('hidden');
     expect(kind.style.textOverflow).toBe('ellipsis');
+    expect(kind.classList.contains('snl-library-outline-kind')).toBe(true);
 
     fireEvent.mouseEnter(counter);
     const counterSelect = within(counter).getByRole('combobox', { name: 'Counter' });

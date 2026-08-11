@@ -14,7 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { Button } from './components/Button';
-import { PanelHeader } from './components/PanelHeader';
+import { PanelHeader, type PanelHeaderAction } from './components/PanelHeader';
 import {
   EntrySurface,
   type EntryOption,
@@ -557,6 +557,11 @@ function LibraryLayer({
       <TopBar
         title={title}
         subtitle={`${t('entries', { count: totalEntries })} · ${slug}`}
+        editAction={{
+          label: t('editLibrary'),
+          title: t('editLibraryTitle', { slug }),
+          onClick: () => ctx.postMessage({ type: 'editLibrary', slug })
+        }}
         actions={
           <>
             <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} />
@@ -585,13 +590,6 @@ function LibraryLayer({
                   ctx.exportHtml(slug, title, totalEntries)
                 );
               }}
-            />
-            <ToolbarButton
-              label={t('editLibrary')}
-              title={t('editLibraryTitle', { slug })}
-              onClick={() =>
-                ctx.postMessage({ type: 'editLibrary', slug })
-              }
             />
           </>
         }
@@ -850,16 +848,19 @@ function PlaceholderCard({
 function TopBar({
   title,
   subtitle,
+  editAction,
   actions
 }: {
   title: string;
   subtitle?: string;
+  editAction?: PanelHeaderAction;
   actions?: React.ReactNode;
 }): React.ReactElement {
   return <PanelHeader
     vsApi={getVsCodeApi()}
     title={title}
     subtitle={subtitle}
+    edit={editAction}
     actions={actions}
     showRefresh={false}
   />;

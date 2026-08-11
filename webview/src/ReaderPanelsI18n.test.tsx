@@ -59,6 +59,9 @@ describe('reader panel Chinese UI', () => {
     expect(api.postMessage).toHaveBeenCalledTimes(1);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'back' });
     expect(view.getByText('0 个条目 · algebra')).toBeTruthy();
+    const editLibrary = view.getByRole('button', { name: '打开文档库“algebra”的编辑器' });
+    expect(editLibrary.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    expect(editLibrary.classList.contains('snl-panel-header__edit-action')).toBe(true);
   });
 
   it('localizes entry loading, empty, related-entry, badge, and tooltip text', () => {
@@ -94,7 +97,9 @@ describe('reader panel Chinese UI', () => {
     expect(view.getByRole('heading', { name: '依赖项 · 传出' })).toBeTruthy();
     expect(view.getByText('（无标题）')).toBeTruthy();
     expect(view.getByText('原子').getAttribute('title')).toBe('原子依赖项——条目池中不存在更短的组合路径。');
-    expect(view.getByRole('button', { name: '✎ 编辑' }).textContent).toBe('✎ 编辑');
+    const editEntry = view.getByRole('button', { name: '在“编辑条目”面板中打开此条目' });
+    expect(editEntry.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    expect(editEntry.textContent).toBe('');
   });
 
   it('localizes graph loading, summaries, empty state, filters, and controls', () => {

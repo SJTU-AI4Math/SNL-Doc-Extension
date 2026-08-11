@@ -104,21 +104,9 @@
 }
 
 .snl-library-outline-row:hover > .snl-outline-row-toolbar button,
-.snl-library-outline-row:focus-within > .snl-outline-row-toolbar button {
+.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar button {
   opacity: 1;
   pointer-events: auto;
-}
-
-.snl-library-outline-row:has(.snl-tree-add-menu) {
-  padding-right: 0 !important;
-  padding-bottom: 0.3rem !important;
-}
-
-.snl-library-outline-row:has(.snl-tree-add-menu) > .snl-outline-row-toolbar {
-  position: static;
-  flex: 1 0 100%;
-  margin-left: auto;
-  justify-content: flex-end;
 }
 
 @container snl-outline (max-width: 60rem) {
@@ -162,17 +150,6 @@
     right: 0.3rem;
     bottom: 0.2rem;
     transform: none;
-  }
-
-  .snl-library-outline-row:has(.snl-tree-add-menu) {
-    padding-bottom: 0.3rem !important;
-  }
-
-  .snl-library-outline-row:has(.snl-tree-add-menu) > .snl-outline-row-toolbar {
-    position: static;
-    flex: 1 0 100%;
-    margin-left: auto;
-    justify-content: flex-end;
   }
 }
 

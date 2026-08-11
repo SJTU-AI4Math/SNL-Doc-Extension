@@ -36,6 +36,8 @@ export interface PanelHeaderProps {
   back?: PanelHeaderAction;
   /** Optional action that opens the corresponding Infoview surface. */
   viewInInfoview?: PanelHeaderAction;
+  /** Reverse navigation from a reading surface to its editor. */
+  edit?: PanelHeaderAction;
   /** Additional panel-specific controls placed before the language selector. */
   actions?: React.ReactNode;
   /** Set false only when the host does not implement nav.refresh. */
@@ -56,6 +58,7 @@ export function PanelHeader({
   titleAction,
   back,
   viewInInfoview,
+  edit,
   actions,
   showRefresh = true
 }: PanelHeaderProps): React.ReactElement {
@@ -67,6 +70,8 @@ export function PanelHeader({
   const viewTitle = use_localized(
     viewInInfoview?.title ?? viewInInfoview?.label ?? ''
   );
+  const editLabel = use_localized(edit?.label ?? '');
+  const editTitle = use_localized(edit?.title ?? edit?.label ?? '');
   const navigationLabel = use_localized({
     type: 'i18n',
     default_language: 'en',
@@ -159,14 +164,28 @@ export function PanelHeader({
         ) : null}
         {viewInInfoview ? (
           <IconButton
-            icon="chevron-right"
+            icon="book"
             label={viewTitle || viewLabel}
             variant="secondary"
             size="md"
+            className="snl-panel-header__reader-action"
             title={viewTitle}
             onClick={() => viewInInfoview.onClick
               ? viewInInfoview.onClick()
               : viewInInfoview.message && vsApi?.postMessage(viewInInfoview.message)}
+          />
+        ) : null}
+        {edit ? (
+          <IconButton
+            icon="edit"
+            label={editTitle || editLabel}
+            variant="secondary"
+            size="md"
+            className="snl-panel-header__edit-action"
+            title={editTitle}
+            onClick={() => edit.onClick
+              ? edit.onClick()
+              : edit.message && vsApi?.postMessage(edit.message)}
           />
         ) : null}
         {actions}

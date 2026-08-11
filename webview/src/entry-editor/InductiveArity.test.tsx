@@ -515,8 +515,7 @@ describe('Inductive editor arity auto-fill', () => {
   it('resolves fixed arity after a temporary child row is named', async () => {
     const { view, latest } = renderEditor('root');
     const rootRow = view.getAllByRole('textbox')[0].closest<HTMLElement>('.snl-tree-row')!;
-    fireEvent.click(within(rootRow).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(rootRow).getByRole('menuitem', { name: 'Add child node' }));
+    fireEvent.click(within(rootRow).getByRole('button', { name: 'Add child node' }));
 
     const temporary = view.getAllByRole('textbox')[1] as HTMLInputElement;
     expect(temporary.value).toBe('');
@@ -723,8 +722,7 @@ describe('Inductive editor arity auto-fill', () => {
     fireEvent.change(box, { target: { value: 'pair' } });
     await waitFor(() => expect(latest()).toBe('pair(,)'), { timeout: 2000 });
 
-    fireEvent.click(view.getAllByLabelText('Choose add position')[0]);
-    fireEvent.click(view.getByRole('menuitem', { name: 'Add child node' }));
+    fireEvent.click(view.getAllByLabelText('Add child node')[0]);
     await waitFor(() => expect(latest()).toBe('pair(,,)'), { timeout: 2000 });
     // And it stays: nothing reclaims it on a later render.
     await new Promise((resolve) => setTimeout(resolve, 250));

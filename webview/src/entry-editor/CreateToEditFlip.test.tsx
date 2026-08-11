@@ -192,7 +192,7 @@ describe('CreateEntryApp create → edit flip', () => {
       name: 'Open entry "thm-new" in the Infoview reading surface'
     });
     expect(infoview.textContent).toBe('');
-    expect(infoview.querySelector('svg[data-snl-icon="chevron-right"]')).toBeTruthy();
+    expect(infoview.querySelector('svg[data-snl-icon="book"]')).toBeTruthy();
 
     // (c) a second save is an update, not a duplicate create.
     const createsBefore = posted.filter((m) => m?.type === 'create').length;

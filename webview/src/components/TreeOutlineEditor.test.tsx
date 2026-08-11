@@ -32,8 +32,7 @@ describe('TreeOutlineEditor move modifiers', () => {
 
     expect(view.container.querySelector('.snl-tree-operation-dial')).toBeTruthy();
     expect(view.getByRole('button', { name: 'Domain action' })).toBeTruthy();
-    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(view.getByRole('menuitem', { name: 'Add parent node' }));
+    fireEvent.click(view.getByRole('button', { name: 'Add parent node' }));
     expect(onOp).toHaveBeenCalledWith({ kind: 'addParent', id: 'a' });
   });
 
@@ -57,7 +56,9 @@ describe('TreeOutlineEditor move modifiers', () => {
     expect(getComputedStyle(toolbar!).position).toBe('absolute');
     expect(getComputedStyle(toolbar!).pointerEvents).toBe('none');
     const css = document.getElementById('snl-tree-outline-hover-style')?.textContent ?? '';
-    expect(css).toContain('.snl-outline-row:hover .snl-outline-row-toolbar');
+    expect(css).toContain('.snl-outline-row:hover > .snl-outline-row-toolbar');
+    expect(css).not.toContain('.snl-outline-row:focus-within .snl-outline-row-toolbar');
+    expect(css).toContain('.snl-outline-row:has(> .snl-outline-row-toolbar:focus-within)');
     expect(css).toContain('@container snl-outline (max-width: 30rem)');
   });
 
@@ -126,7 +127,9 @@ describe('TreeOutlineEditor move modifiers', () => {
         moveToEdge
       />
     );
-    expect(view.getAllByRole('button', { name: '选择添加位置' })).toHaveLength(3);
+    expect(view.getAllByRole('button', { name: '添加父节点' })).toHaveLength(3);
+    expect(view.getAllByRole('button', { name: '添加同级节点' })).toHaveLength(3);
+    expect(view.getAllByRole('button', { name: '添加子节点' })).toHaveLength(3);
     expect(view.getAllByRole('button', { name: '上移' })).toHaveLength(3);
     document.documentElement.lang = 'en';
   });

@@ -1,6 +1,18 @@
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TreeNodeActionDashboard } from './TreeNodeActionDashboard';
+
+const ALL_CAPABILITIES = {
+  canMoveUp: true,
+  canMoveDown: true,
+  canIndent: true,
+  canOutdent: true,
+  canAddParent: true,
+  canAddChild: true,
+  canAddSibling: true,
+  canDelete: true
+};
 
 afterEach(() => {
   cleanup();
@@ -8,49 +20,63 @@ afterEach(() => {
 });
 
 describe('TreeNodeActionDashboard', () => {
-  it('emits the shared move, indentation, add-position and delete actions', () => {
+  it('emits every structural operation directly from its fixed nine-cell grid', () => {
     const onAction = vi.fn();
     const view = render(
       <TreeNodeActionDashboard
-        capabilities={{
-          canMoveUp: true,
-          canMoveDown: true,
-          canIndent: true,
-          canOutdent: true,
-          canAddParent: true,
-          canAddChild: true,
-          canAddSibling: true,
-          canDelete: true
-        }}
+        capabilities={ALL_CAPABILITIES}
+        bottomLeftAction={<button type="button">Macro action</button>}
         onAction={onAction}
       />
     );
+    const grid = view.container.querySelector<HTMLElement>('.snl-tree-operation-dial')!;
 
-    fireEvent.click(view.getByRole('button', { name: 'Move up' }), { ctrlKey: true });
-    fireEvent.click(view.getByRole('button', { name: 'Outdent' }));
-    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(view.getByRole('menuitem', { name: 'Add parent node' }));
-    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(view.getByRole('menuitem', { name: 'Add child node' }));
-    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(view.getByRole('menuitem', { name: 'Add sibling node' }));
-    fireEvent.click(view.getByRole('button', { name: 'Indent' }));
-    fireEvent.click(view.getByRole('button', { name: 'Move down' }));
-    fireEvent.click(view.getByRole('button', { name: 'Delete subtree' }));
+    const expected = [
+      ['Add parent node', 'add-parent', 'snl-tree-dial-action--add-parent'],
+      ['Move up', 'move-up', 'snl-tree-dial-action--up'],
+      ['Delete subtree', 'delete', 'snl-tree-dial-action--delete'],
+      ['Outdent', 'outdent', 'snl-tree-dial-action--outdent'],
+      ['Add sibling node', 'add-sibling', 'snl-tree-dial-action--add-sibling'],
+      ['Indent', 'indent', 'snl-tree-dial-action--indent'],
+      ['Move down', 'move-down', 'snl-tree-dial-action--down'],
+      ['Add child node', 'add-child', 'snl-tree-dial-action--add-child']
+    ] as const;
+    for (const [label, icon, className] of expected) {
+      const button = within(grid).getByRole('button', { name: label });
+      expect(button.classList.contains(className)).toBe(true);
+      expect(button.querySelector(`svg[data-snl-icon="${icon}"]`)).toBeTruthy();
+    }
+    expect(within(grid).getByRole('button', { name: 'Macro action' })
+      .closest('[data-snl-dashboard-bottom-left]')).toBeTruthy();
+    expect(within(grid).getByRole('button', { name: 'Outdent' })
+      .querySelector('path')?.getAttribute('d')).toBe('M3 3v10M12.5 8h-7M8 5.5 5.5 8 8 10.5');
+    expect(within(grid).getByRole('button', { name: 'Indent' })
+      .querySelector('path')?.getAttribute('d')).toBe('M3 3v10M5.5 8h7M10 5.5 12.5 8 10 10.5');
+    expect(view.queryByRole('menu')).toBeNull();
+    expect(view.queryByRole('button', { name: 'Choose add position' })).toBeNull();
+
+    fireEvent.click(within(grid).getByRole('button', { name: 'Move up' }), { ctrlKey: true });
+    fireEvent.click(within(grid).getByRole('button', { name: 'Outdent' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Add parent node' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Add sibling node' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Indent' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Move down' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Add child node' }));
+    fireEvent.click(within(grid).getByRole('button', { name: 'Delete subtree' }));
 
     expect(onAction.mock.calls.map((call: unknown[]) => call[0])).toEqual([
       { kind: 'moveUp', toEdge: true },
       { kind: 'outdent', toEdge: false },
       { kind: 'addParent' },
-      { kind: 'addChild' },
       { kind: 'addSibling' },
       { kind: 'indent', toEdge: false },
       { kind: 'moveDown', toEdge: false },
+      { kind: 'addChild' },
       { kind: 'delete' }
     ]);
   });
 
-  it('disables unavailable operations and accepts custom leading actions', () => {
+  it('keeps all unavailable grid cells present and disabled', () => {
     const view = render(
       <TreeNodeActionDashboard
         capabilities={{
@@ -59,93 +85,53 @@ describe('TreeNodeActionDashboard', () => {
           canIndent: false,
           canOutdent: false,
           canAddParent: false,
-          canAddChild: true,
+          canAddChild: false,
           canAddSibling: false,
           canDelete: false
         }}
-        leadingActions={<button type="button">Domain action</button>}
         onAction={() => undefined}
       />
     );
 
-    expect(view.getByRole('button', { name: 'Domain action' })).toBeTruthy();
-    expect((view.getByRole('button', { name: 'Move up' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((view.getByRole('button', { name: 'Outdent' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((view.getByRole('button', { name: 'Indent' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((view.getByRole('button', { name: 'Move down' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(view.queryByRole('button', { name: 'Delete subtree' })).toBeNull();
-
-    fireEvent.click(view.getByRole('button', { name: 'Choose add position' }));
-    expect((view.getByRole('menuitem', { name: 'Add parent node' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((view.getByRole('menuitem', { name: 'Add child node' }) as HTMLButtonElement).disabled).toBe(false);
-    expect((view.getByRole('menuitem', { name: 'Add sibling node' }) as HTMLButtonElement).disabled).toBe(true);
+    for (const label of [
+      'Move up', 'Move down', 'Outdent', 'Indent',
+      'Add parent node', 'Add child node', 'Add sibling node', 'Delete subtree'
+    ]) {
+      expect((view.getByRole('button', { name: label }) as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 
-  it('owns menu navigation while preserving native Tab traversal', () => {
-    const ancestorKeyDown = vi.fn();
-    const raf: FrameRequestCallback[] = [];
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
-      raf.push(callback);
-      return raf.length;
-    });
+  it('keeps non-grid domain content outside the fixed nine cells', () => {
     const view = render(
-      <div onKeyDown={ancestorKeyDown}>
-        <button type="button">Before menu</button>
-        <TreeNodeActionDashboard
-          capabilities={{
-            canMoveUp: true,
-            canMoveDown: true,
-            canIndent: true,
-            canOutdent: true,
-            canAddParent: true,
-            canAddChild: true,
-            canAddSibling: true,
-            canDelete: false
-          }}
-          onAction={() => undefined}
-        />
-        <button type="button">After menu</button>
-      </div>
+      <TreeNodeActionDashboard
+        capabilities={ALL_CAPABILITIES}
+        leadingActions={<span>Metric</span>}
+        onAction={() => undefined}
+      />
     );
-    const trigger = view.getByRole('button', { name: 'Choose add position' });
-    fireEvent.click(trigger);
-    const parent = view.getByRole('menuitem', { name: 'Add parent node' });
-    const sibling = view.getByRole('menuitem', { name: 'Add sibling node' });
-    expect((parent as HTMLButtonElement).tabIndex).toBe(0);
-    expect((sibling as HTMLButtonElement).tabIndex).toBe(-1);
+    expect(view.getByText('Metric').closest('.snl-tree-operation-dial')).toBeNull();
+  });
 
-    fireEvent.keyDown(parent, { key: 'End' });
-    expect(document.activeElement).toBe(sibling);
-    expect((sibling as HTMLButtonElement).tabIndex).toBe(0);
-    expect((parent as HTMLButtonElement).tabIndex).toBe(-1);
-    fireEvent.keyDown(sibling, { key: 'Home' });
-    expect(document.activeElement).toBe(parent);
-    expect(ancestorKeyDown).not.toHaveBeenCalled();
-
-    const tabAllowed = fireEvent.keyDown(parent, { key: 'Tab' });
-    expect(tabAllowed).toBe(true);
-    expect(ancestorKeyDown).not.toHaveBeenCalled();
-    const afterMenu = view.getByRole('button', { name: 'After menu' });
-    act(() => { afterMenu.focus(); });
-    act(() => { raf.shift()?.(0); });
-    expect(view.queryByRole('menu')).toBeNull();
-    expect(document.activeElement).toBe(afterMenu);
-
-    fireEvent.click(trigger);
-    const last = view.getByRole('menuitem', { name: 'Add sibling node' });
-    fireEvent.keyDown(last, { key: 'End' });
-    const reverseTabAllowed = fireEvent.keyDown(last, { key: 'Tab', shiftKey: true });
-    expect(reverseTabAllowed).toBe(true);
-    expect(ancestorKeyDown).not.toHaveBeenCalled();
-    const moveDown = view.getByRole('button', { name: 'Move down' });
-    act(() => { moveDown.focus(); });
-    act(() => { raf.shift()?.(0); });
-    expect(view.queryByRole('menu')).toBeNull();
-    expect(document.activeElement).toBe(moveDown);
-
-    fireEvent.click(trigger);
-    fireEvent.keyDown(view.getByRole('menuitem', { name: 'Add parent node' }), { key: 'Escape' });
-    expect(view.queryByRole('menu')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+  it('locks every action to the requested three-by-three coordinate', () => {
+    const css = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
+    const gridArea = (className: string): string | undefined => {
+      const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return css.match(new RegExp(`\\.${escaped}\\s*\\{[^}]*grid-area:\\s*([^;}]+)`))?.[1]?.trim();
+    };
+    expect({
+      parent: gridArea('snl-tree-dial-action--add-parent'),
+      up: gridArea('snl-tree-dial-action--up'),
+      delete: gridArea('snl-tree-dial-action--delete'),
+      left: gridArea('snl-tree-dial-action--outdent'),
+      sibling: gridArea('snl-tree-dial-action--add-sibling'),
+      right: gridArea('snl-tree-dial-action--indent'),
+      macro: gridArea('snl-tree-dial-action--domain'),
+      down: gridArea('snl-tree-dial-action--down'),
+      child: gridArea('snl-tree-dial-action--add-child')
+    }).toEqual({
+      parent: '1 / 1', up: '1 / 2', delete: '1 / 3',
+      left: '2 / 1', sibling: '2 / 2', right: '2 / 3',
+      macro: '3 / 1', down: '3 / 2', child: '3 / 3'
+    });
   });
 });

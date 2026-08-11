@@ -52,18 +52,18 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
     pointer-events: none;
     transition: opacity 90ms ease-in;
   }
-  .snl-outline-row:hover .snl-outline-row-toolbar,
-  .snl-outline-row:focus-within .snl-outline-row-toolbar {
+  .snl-outline-row:hover > .snl-outline-row-toolbar,
+  .snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar {
     opacity: 1;
     pointer-events: auto;
   }
   .snl-outline-row:hover,
-  .snl-outline-row:focus-within {
-    padding-right: 8.4rem !important;
+  .snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) {
+    padding-right: 5.1rem !important;
   }
   @container snl-outline (max-width: 30rem) {
     .snl-outline-row:hover,
-    .snl-outline-row:focus-within {
+    .snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) {
       padding-right: 0 !important;
       padding-bottom: 4.9rem !important;
     }
@@ -72,15 +72,6 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
       right: 0.3rem;
       bottom: 0.2rem;
       transform: none;
-    }
-    .snl-outline-row:has(.snl-tree-add-menu) {
-      padding-bottom: 0.3rem !important;
-    }
-    .snl-outline-row:has(.snl-tree-add-menu) .snl-outline-row-toolbar {
-      position: static;
-      flex: 1 0 100%;
-      margin-left: auto;
-      justify-content: flex-end;
     }
   }
   @media (hover: none), (pointer: coarse) {
@@ -97,15 +88,6 @@ export const TREE_OUTLINE_TOOLBAR_CSS = `
       transform: none;
       opacity: 1;
       pointer-events: auto;
-    }
-    .snl-outline-row:has(.snl-tree-add-menu) {
-      padding-bottom: 0.3rem !important;
-    }
-    .snl-outline-row:has(.snl-tree-add-menu) .snl-outline-row-toolbar {
-      position: static;
-      flex: 1 0 100%;
-      margin-left: auto;
-      justify-content: flex-end;
     }
   }
 `;

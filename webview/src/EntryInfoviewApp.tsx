@@ -242,16 +242,11 @@ export function EntryInfoviewApp(): React.ReactElement {
             label: t('back'),
             onClick: () => postMessage({ type: 'back' })
           } : undefined}
-          actions={state ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => postMessage({ type: 'editEntry', entryId: state.entry.id })}
-              title={t('editTitle')}
-            >
-              {t('edit')}
-            </Button>
-          ) : null}
+          edit={state ? {
+            label: t('edit'),
+            title: t('editTitle'),
+            onClick: () => postMessage({ type: 'editEntry', entryId: state.entry.id })
+          } : undefined}
         />
         {!loaded ? (
           <p style={{ opacity: 0.8 }}>{t('loading')}</p>

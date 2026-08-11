@@ -79,6 +79,8 @@ html,body { margin:0; padding:0; }
 .snl-panel-header__identity h1 { margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.15rem; line-height:1.25; }
 .snl-panel-header__subtitle { margin-top:.1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--vscode-descriptionForeground,#999); font-size:.75rem; }
 .snl-panel-header__actions { display:flex; align-items:center; justify-content:flex-end; gap:.4rem; min-width:0; }
+.snl-panel-header__reader-action,
+.snl-panel-header__edit-action { color: var(--vscode-textLink-foreground, #4a9eff); }
 .snl-panel-header__language { position:relative; display:flex; align-items:center; }
 .snl-panel-header__language-trigger { display:flex; align-items:center; justify-content:center; min-width:30px; min-height:28px; padding:.3rem .28rem; cursor:pointer; }
 .snl-panel-header__language svg { width:20px; height:14px; flex:none; border-radius:1px; box-shadow:0 0 0 1px rgba(127,127,127,.35); }

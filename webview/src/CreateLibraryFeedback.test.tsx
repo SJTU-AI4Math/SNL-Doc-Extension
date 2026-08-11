@@ -51,8 +51,7 @@ describe('Create Library feedback', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));
     const counterRow = screen.getByDisplayValue('theorem').closest<HTMLElement>('.snl-outline-row')!;
-    fireEvent.click(within(counterRow).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(counterRow).getByRole('menuitem', { name: 'Add parent node' }));
+    fireEvent.click(within(counterRow).getByRole('button', { name: 'Add parent node' }));
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
       type: 'counterOp',
       op: {
@@ -64,8 +63,7 @@ describe('Create Library feedback', () => {
 
     const entryInput = screen.getByRole('combobox', { name: 'Entry id' });
     const entryRow = entryInput.closest<HTMLElement>('.snl-outline-row')!;
-    fireEvent.click(within(entryRow).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(entryRow).getByRole('menuitem', { name: 'Add parent node' }));
+    fireEvent.click(within(entryRow).getByRole('button', { name: 'Add parent node' }));
     expect(screen.getByText('Entry id')).toBeTruthy();
   });
 

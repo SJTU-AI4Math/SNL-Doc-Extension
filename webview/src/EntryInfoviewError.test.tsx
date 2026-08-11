@@ -104,7 +104,9 @@ describe('EntryInfoview relationship availability', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: '条目一' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Open Infoview for 条目二/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '✎ Edit' })).toBeTruthy();
+    const edit = screen.getByRole('button', { name: 'Open this entry in the Edit Entry panel' });
+    expect(edit.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    expect(edit.classList.contains('snl-panel-header__edit-action')).toBe(true);
   });
 
   it('ignores malformed macro-kind arrays without replacing the last valid Entry', () => {

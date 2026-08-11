@@ -236,15 +236,10 @@ describe('Inductive node action dial', () => {
     expect(within(childRow).getByRole('button', { name: '删除子树' }).getAttribute('title'))
       .toBe('删除子树');
 
-    fireEvent.click(within(childRow).getByRole('button', { name: '选择添加位置' }));
-    const menu = within(childRow).getByRole('menu', { name: '添加节点位置' });
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      '添加父节点',
-      '添加子节点',
-      '添加同级节点'
-    ]);
-    expect(within(menu).getByRole('menuitem', { name: '添加父节点' }).getAttribute('title'))
-      .toBe('添加父节点');
+    expect(within(childRow).getByRole('button', { name: '添加父节点' })).toBeTruthy();
+    expect(within(childRow).getByRole('button', { name: '添加同级节点' })).toBeTruthy();
+    expect(within(childRow).getByRole('button', { name: '添加子节点' })).toBeTruthy();
+    expect(within(childRow).queryByRole('menu')).toBeNull();
   });
 
   it('uses a compact directional dial and keeps the Macro and delete actions', () => {
@@ -265,7 +260,7 @@ describe('Inductive node action dial', () => {
       .flatMap((sheet) => Array.from(sheet.cssRules))
       .find((rule) =>
         rule instanceof CSSStyleRule &&
-        rule.selectorText.includes('.snl-tree-row:hover .snl-tree-row-toolbar')
+        rule.selectorText.includes('.snl-tree-row:hover > .snl-tree-row-toolbar')
       ) as CSSStyleRule | undefined;
     expect(toolbarRevealRule?.style.pointerEvents).toBe('auto');
     const hoverRule = Array.from(document.styleSheets)
@@ -275,16 +270,16 @@ describe('Inductive node action dial', () => {
         rule.selectorText.includes('.snl-tree-row:hover') &&
         rule.style.paddingRight !== ''
       ) as CSSStyleRule | undefined;
-    expect(hoverRule?.style.paddingRight).toBe('8.4rem');
+    expect(hoverRule?.style.paddingRight).toBe('5.1rem');
     const responsiveCss = Array.from(view.container.querySelectorAll('style'))
       .map((style) => style.textContent ?? '')
       .join('\n');
     expect(responsiveCss).toContain('@container snl-inductive (max-width: 30rem)');
     expect(responsiveCss).toContain('@media (hover: none), (pointer: coarse)');
     expect(responsiveCss).toContain('padding-bottom: 4.9rem');
-    expect(responsiveCss).toContain('padding-bottom: 0.3rem');
-    expect(responsiveCss).toContain('position: static');
-    expect(responsiveCss).toContain('flex: 1 0 100%');
+    expect(responsiveCss).not.toContain('.snl-tree-row:focus-within .snl-tree-row-toolbar');
+    expect(responsiveCss).not.toContain('.snl-tree-row:focus-within {');
+    expect(responsiveCss).toContain('.snl-tree-row:has(> .snl-tree-row-toolbar:focus-within)');
     const styleSelect = within(childRow).getByRole('combobox') as HTMLSelectElement;
     expect(styleSelect.style.flexShrink).toBe('1');
     expect(styleSelect.style.minWidth).toBe('4rem');
@@ -296,14 +291,9 @@ describe('Inductive node action dial', () => {
     const compactWidth = Number(
       canvasCss.match(/\.snl-tree-compact-action[\s\S]*?width:\s*([\d.]+)rem/)?.[1]
     );
-    const actionGap = Number(
-      canvasCss.match(/\.snl-tree-operation-cluster[\s\S]*?gap:\s*([\d.]+)rem/)?.[1]
-    );
     expect(Number.isFinite(compactWidth)).toBe(true);
     expect(compactWidth).toBeGreaterThanOrEqual(1.5);
-    expect(Number.isFinite(actionGap)).toBe(true);
-    const authoredToolbarWidth =
-      compactWidth + actionGap + 3 * compactWidth + actionGap + compactWidth;
+    const authoredToolbarWidth = 3 * compactWidth;
     const visibleRowReserve = parseFloat(hoverRule!.style.paddingRight);
     const toolbarRight = parseFloat(getComputedStyle(toolbar).right);
     expect(visibleRowReserve - toolbarRight - authoredToolbarWidth).toBeGreaterThanOrEqual(0.25);
@@ -312,7 +302,10 @@ describe('Inductive node action dial', () => {
       ['Move down', 'move-down'],
       ['Outdent', 'outdent'],
       ['Indent', 'indent'],
-      ['Choose add position', 'add']
+      ['Add parent node', 'add-parent'],
+      ['Add sibling node', 'add-sibling'],
+      ['Add child node', 'add-child'],
+      ['Delete subtree', 'delete']
     ] as const) {
       const action = within(dial!).getByRole('button', { name: label });
       expect(action.querySelector(`svg[data-snl-icon="${icon}"]`)).toBeTruthy();
@@ -322,10 +315,8 @@ describe('Inductive node action dial', () => {
     expect(within(childRow).getByRole('button', { name: 'Delete subtree' })).toBeTruthy();
     expect(childRow.querySelector('.snl-tree-row-toolbar')?.textContent).not.toContain('+ child');
     expect(childRow.querySelector('.snl-tree-row-toolbar')?.textContent).not.toContain('+ parent');
-    expect(within(rootRow).queryByRole('button', { name: 'Delete subtree' })).toBeNull();
-    fireEvent.click(within(rootRow).getByRole('button', { name: 'Choose add position' }));
-    expect((within(rootRow).getByRole('menuitem', { name: 'Add sibling node' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.keyDown(within(rootRow).getByRole('menu'), { key: 'Escape' });
+    expect((within(rootRow).getByRole('button', { name: 'Delete subtree' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(rootRow).getByRole('button', { name: 'Add sibling node' }) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(within(rootRow).getByRole('button', { name: 'Edit macro' }));
     expect(onOpenMacroEditor).toHaveBeenCalledWith({
@@ -335,67 +326,44 @@ describe('Inductive node action dial', () => {
     });
   });
 
-  it('opens all three add positions from the center and closes the choices', () => {
-    const { view } = renderEditor();
-    const childRow = rowForInput(view.getAllByRole('textbox')[1]);
-    const add = within(childRow).getByRole('button', { name: 'Choose add position' });
+  it('places Macro edit/create in the lower-left cell and never opens an add menu', () => {
+    const known = renderEditor();
+    const knownRow = rowForInput(known.view.getAllByRole('textbox')[0]);
+    const edit = within(knownRow).getByRole('button', { name: 'Edit macro' });
+    expect(edit.closest('[data-snl-dashboard-bottom-left]')).toBeTruthy();
+    expect(edit.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    expect(edit.getAttribute('style')).toContain('--vscode-textLink-foreground');
+    expect(within(knownRow).queryByRole('menu')).toBeNull();
 
-    expect(add.getAttribute('aria-haspopup')).toBe('menu');
-    expect(add.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(add);
-
-    const menu = within(childRow).getByRole('menu', { name: 'Add node position' });
-    expect(add.getAttribute('aria-expanded')).toBe('true');
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      'Add parent node',
-      'Add child node',
-      'Add sibling node'
-    ]);
-    const choices = within(menu).getAllByRole('menuitem');
-    expect(document.activeElement).toBe(choices[0]);
-    fireEvent.keyDown(choices[0], { key: 'ArrowRight' });
-    expect(document.activeElement).toBe(choices[1]);
-
-    fireEvent.keyDown(menu, { key: 'Escape' });
-    expect(within(childRow).queryByRole('menu', { name: 'Add node position' })).toBeNull();
-    expect(document.activeElement).toBe(add);
-
-    fireEvent.click(add);
-    const reopened = within(childRow).getByRole('menu', { name: 'Add node position' });
-    const lastChoice = within(reopened).getByRole('menuitem', { name: 'Add sibling node' });
-    const deleteButton = within(childRow).getByRole('button', { name: 'Delete subtree' });
-    fireEvent.blur(lastChoice, { relatedTarget: deleteButton });
-    expect(within(childRow).queryByRole('menu', { name: 'Add node position' })).toBeNull();
-
-    fireEvent.click(add);
-    fireEvent.mouseDown(document.body);
-    expect(within(childRow).queryByRole('menu', { name: 'Add node position' })).toBeNull();
+    cleanup();
+    const missing = renderEditor('unknown');
+    const missingRow = rowForInput(missing.view.getAllByRole('textbox')[0]);
+    const create = within(missingRow).getByRole('button', { name: 'Create macro' });
+    expect(create.closest('[data-snl-dashboard-bottom-left]')).toBeTruthy();
+    expect(create.querySelector('svg[data-snl-icon="add"]')).toBeTruthy();
+    expect(create.getAttribute('style')).toContain('--vscode-testing-iconPassed');
   });
 
   it('dispatches parent, child, and sibling additions without changing their tree semantics', async () => {
     let rendered = renderEditor('root(a,b)');
     let firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
-    fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add parent node' }));
+    fireEvent.click(within(firstChild).getByRole('button', { name: 'Add parent node' }));
     expect(rendered.latest()).toBe('root((a),b)');
 
     cleanup();
     rendered = renderEditor('root(a,b)');
     firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
     const rowsBeforeChild = rendered.view.container.querySelectorAll('.snl-tree-row').length;
-    fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add child node' }));
+    fireEvent.click(within(firstChild).getByRole('button', { name: 'Add child node' }));
     expect(rendered.latest()).toBe('root(a,b)');
     expect(rendered.view.container.querySelectorAll('.snl-tree-row')).toHaveLength(rowsBeforeChild + 1);
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    expect(document.activeElement?.getAttribute('aria-label')).toBe('Choose add position');
-    expect(within(firstChild).queryByRole('menu')).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Add child node');
 
     cleanup();
     rendered = renderEditor('root(a,b)');
     firstChild = rowForInput(rendered.view.getAllByRole('textbox')[1]);
-    fireEvent.click(within(firstChild).getByRole('button', { name: 'Choose add position' }));
-    fireEvent.click(within(firstChild).getByRole('menuitem', { name: 'Add sibling node' }));
+    fireEvent.click(within(firstChild).getByRole('button', { name: 'Add sibling node' }));
     expect(rendered.latest()).toBe('root(a,,b)');
   });
 

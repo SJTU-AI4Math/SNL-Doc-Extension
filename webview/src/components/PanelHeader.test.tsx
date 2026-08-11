@@ -50,6 +50,7 @@ describe('PanelHeader', () => {
         title="Create Entry"
         back={back}
         viewInInfoview={{ label: 'View', title: 'View this entry', message: { type: 'view' } }}
+        edit={{ label: 'Edit', title: 'Edit this entry', message: { type: 'edit' } }}
       />
     );
 
@@ -65,8 +66,13 @@ describe('PanelHeader', () => {
     expect(backButton.querySelector('svg[data-snl-icon="chevron-left"]')).toBeTruthy();
     expect(backButton.textContent).toBe('');
     const viewButton = view.getByRole('button', { name: 'View this entry' });
-    expect(viewButton.querySelector('svg[data-snl-icon="chevron-right"]')).toBeTruthy();
+    expect(viewButton.querySelector('svg[data-snl-icon="book"]')).toBeTruthy();
+    expect(viewButton.classList.contains('snl-panel-header__reader-action')).toBe(true);
     expect(viewButton.textContent).toBe('');
+    const editButton = view.getByRole('button', { name: 'Edit this entry' });
+    expect(editButton.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
+    expect(editButton.classList.contains('snl-panel-header__edit-action')).toBe(true);
+    expect(editButton.textContent).toBe('');
     expect(view.getByRole('button', { name: /Refresh this panel/ })
       .querySelector('svg[data-snl-icon="refresh"]')).toBeTruthy();
     const trigger = view.getByRole('button', { name: /Interface language: English \(US\)/ });

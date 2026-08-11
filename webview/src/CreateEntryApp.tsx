@@ -5381,9 +5381,9 @@ export function GuiInductiveEditor({
         background: 'var(--vscode-editorWidget-background, #252526)'
       }}
     >
-      {/* Pure-CSS hover/focus reveal for the per-row toolbar. The row reserves
-          the toolbar's width only while it is visible, so the flexible Macro
-          input contracts instead of letting the actions spill outside. */}
+      {/* Mouse hover reveals only this row's dashboard. Keyboard selection or
+          focus in row fields does not reveal it; focus already inside the dashboard
+          keeps that dashboard visible for keyboard operation. */}
       <style>{`
         .snl-inductive-editor {
           container-name: snl-inductive;
@@ -5403,14 +5403,14 @@ export function GuiInductiveEditor({
           padding-right: 0.3rem;
           transition: padding-right 90ms ease-in, padding-bottom 90ms ease-in;
         }
-        .snl-tree-row:hover .snl-tree-row-toolbar,
-        .snl-tree-row:focus-within .snl-tree-row-toolbar {
+        .snl-tree-row:hover > .snl-tree-row-toolbar,
+        .snl-tree-row:has(> .snl-tree-row-toolbar:focus-within) > .snl-tree-row-toolbar {
           opacity: 1;
           pointer-events: auto;
         }
         .snl-tree-row:hover,
-        .snl-tree-row:focus-within {
-          padding-right: 8.4rem;
+        .snl-tree-row:has(> .snl-tree-row-toolbar:focus-within) {
+          padding-right: 5.1rem;
         }
         @container snl-inductive (max-width: 30rem) {
           .snl-tree-row {
@@ -5430,7 +5430,7 @@ export function GuiInductiveEditor({
             flex: 0 1 7rem !important;
           }
           .snl-tree-row:hover,
-          .snl-tree-row:focus-within {
+          .snl-tree-row:has(> .snl-tree-row-toolbar:focus-within) {
             padding-right: 0.3rem;
             padding-bottom: 4.9rem;
           }
@@ -5438,15 +5438,6 @@ export function GuiInductiveEditor({
             top: auto;
             bottom: 0.15rem;
             transform: none;
-          }
-          .snl-tree-row:has(.snl-tree-add-menu) {
-            padding-bottom: 0.3rem;
-          }
-          .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
-            position: static;
-            flex: 1 0 100%;
-            margin-left: auto;
-            justify-content: flex-end;
           }
         }
         @media (hover: none), (pointer: coarse) {
@@ -5462,15 +5453,6 @@ export function GuiInductiveEditor({
             transform: none;
             opacity: 1;
             pointer-events: auto;
-          }
-          .snl-tree-row:has(.snl-tree-add-menu) {
-            padding-bottom: 0.3rem;
-          }
-          .snl-tree-row:has(.snl-tree-add-menu) .snl-tree-row-toolbar {
-            position: static;
-            flex: 1 0 100%;
-            margin-left: auto;
-            justify-content: flex-end;
           }
         }
       `}</style>
@@ -6132,11 +6114,11 @@ function InductiveNode({
             ? t('openCreateMacroBlank')
             : t('openCreateMacroPrefill', { name: trimmedMacroName });
 
-  const restoreDashboardFocus = (): void => {
+  const restoreDashboardFocus = (action: 'addParent' | 'addChild' | 'addSibling'): void => {
     window.requestAnimationFrame(() => {
       const row = Array.from(document.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
         .find((candidate) => candidate.dataset.snlTreeNodeId === nodeId);
-      row?.querySelector<HTMLButtonElement>('[data-snl-add-position-trigger]')?.focus();
+      row?.querySelector<HTMLButtonElement>(`[data-snl-tree-action="${action}"]`)?.focus();
     });
   };
 
@@ -6147,11 +6129,11 @@ function InductiveNode({
       case 'moveDown': treeOp('moveDown', path, furthest); break;
       case 'outdent': treeOp('outdent', path, furthest); break;
       case 'indent': treeOp('indent', path, furthest); break;
-      case 'addParent': treeOp('wrapParent', path); restoreDashboardFocus(); break;
-      case 'addChild': addChild(); restoreDashboardFocus(); break;
+      case 'addParent': treeOp('wrapParent', path); restoreDashboardFocus('addParent'); break;
+      case 'addChild': addChild(); restoreDashboardFocus('addChild'); break;
       case 'addSibling':
         if (path !== '') treeOp('addSibling', path);
-        restoreDashboardFocus();
+        restoreDashboardFocus('addSibling');
         break;
       case 'delete': onDelete?.(); break;
     }
@@ -6380,7 +6362,7 @@ function InductiveNode({
               canAddSibling: path !== '',
               canDelete: onDelete !== undefined
             }}
-            leadingActions={
+            bottomLeftAction={
               <IconButton
                 icon={macroKnown ? 'edit' : 'add'}
                 label={macroKnown ? t('editMacro') : t('createMacro')}
@@ -6398,7 +6380,7 @@ function InductiveNode({
                 style={{
                   color: macroKnown
                     ? 'var(--vscode-textLink-foreground, #4a9eff)'
-                    : 'var(--vscode-descriptionForeground, #999)'
+                    : 'var(--vscode-testing-iconPassed, #2ea043)'
                 }}
               />
             }

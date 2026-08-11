@@ -47,10 +47,11 @@ describe('TreeOutlineEditor interaction model', () => {
     expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('@media (hover: none), (pointer: coarse)');
   });
 
-  it('puts an open narrow add menu in row flow instead of covering the next row', () => {
-    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('.snl-outline-row:has(.snl-tree-add-menu)');
-    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('position: static');
-    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('flex: 1 0 100%');
+  it('reveals only the hovered row, not the keyboard-selected row', () => {
+    expect(TREE_OUTLINE_TOOLBAR_CSS).toContain('.snl-outline-row:hover > .snl-outline-row-toolbar');
+    expect(TREE_OUTLINE_TOOLBAR_CSS).not.toContain('.snl-outline-row:focus-within .snl-outline-row-toolbar');
+    expect(TREE_OUTLINE_TOOLBAR_CSS)
+      .toContain('.snl-outline-row:has(> .snl-outline-row-toolbar:focus-within)');
   });
 
   it('exposes disclosure state and its controlled child list', () => {

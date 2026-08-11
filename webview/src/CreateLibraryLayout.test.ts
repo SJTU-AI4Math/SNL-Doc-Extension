@@ -124,15 +124,14 @@ describe('Library outline responsive grid contract', () => {
     );
     expect(libraryToolbar.get('opacity')).toBe('1');
     expect(libraryToolbar.get('pointer-events')).toBe('none');
-    const openMenuRow = declarations(desktop, '.snl-library-outline-row:has(.snl-tree-add-menu)');
-    expect(openMenuRow.get('padding-right')).toBe('0 !important');
-    expect(openMenuRow.get('padding-bottom')).toBe('0.3rem !important');
-    const openMenuToolbar = declarations(
+    const hoverToolbarButtons = declarations(
       desktop,
-      '.snl-library-outline-row:has(.snl-tree-add-menu) > .snl-outline-row-toolbar'
+      '.snl-library-outline-row:hover > .snl-outline-row-toolbar button,\n.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar button'
     );
-    expect(openMenuToolbar.get('position')).toBe('static');
-    expect(openMenuToolbar.get('flex')).toBe('1 0 100%');
+    expect(hoverToolbarButtons.get('opacity')).toBe('1');
+    expect(hoverToolbarButtons.get('pointer-events')).toBe('auto');
+    expect(css).not.toContain('.snl-library-outline-row:focus-within > .snl-outline-row-toolbar button');
+    expect(css).toContain('.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within)');
     const medium = blockBetween(
       '@container snl-outline (max-width: 60rem)',
       '@container snl-outline (max-width: 26rem)'

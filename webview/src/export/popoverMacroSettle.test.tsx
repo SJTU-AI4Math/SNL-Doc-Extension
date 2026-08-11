@@ -11,9 +11,8 @@ const macro: SnlMacro = {
   tags: [],
   styles: [{
     style_name: 'default',
-    mode: 'formula_inline',
-    template: '#0 : #1',
-    tags: []
+    tags: [],
+    template: { mode: 'formula_inline', body: '#0 : #1' }
   }]
 };
 

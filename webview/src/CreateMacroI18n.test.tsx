@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe('Create Macro localization', () => {
-  it('adapts localized workspace Macros through the released Basics 0.2 preview boundary', async () => {
+  it('preserves localized workspace Macros through the released Basics 0.2.1 preview boundary', async () => {
     document.documentElement.lang = 'en';
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot', generation: 'macro-cross-preview', revision: 20,

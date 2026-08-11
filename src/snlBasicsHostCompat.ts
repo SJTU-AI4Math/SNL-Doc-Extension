@@ -1,5 +1,5 @@
 /*
- * CommonJS host bridge for the ESM-only @sjtu-ai4math/snl-basics@0.2.0.
+ * CommonJS host bridge for the ESM-only @sjtu-ai4math/snl-basics@0.2.1.
  * out/snl-basics-host.cjs is generated with esbuild from the package's
  * public root/core/runtime exports and must remain loadable by VS Code's
  * Node 20 Extension Host.

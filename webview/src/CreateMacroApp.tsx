@@ -398,9 +398,8 @@ function previewPlaceholderMacro(label: string): SnlMacro {
     styles: [
       {
         style_name: 'default',
-        mode: 'text',
-        template: label,
-        tags: []
+        tags: [],
+        template: { mode: 'text', body: label }
       }
     ]
   };
@@ -1473,27 +1472,22 @@ export function CreateMacroApp(): React.ReactElement {
 
   const draftMacro: SnlMacro = useMemo(() => {
     const styleList: SnlMacroStyle[] = styles.map((style) => {
-      const projection = projectionToExtendedTemplate(
-        projectionFromStyle(style), dynamicArity
-      );
+      const extended = styleDraftToExtended(style, dynamicArity);
       return {
-        style_name: style.style_name,
-        tags: style.tags,
-        mode: projection.mode,
-        template: projection.body,
-        ...(projection.separator === undefined ? {} : { separator: projection.separator }),
-        ...(projection.mode === 'block' && projection.block_template_name !== undefined
-          ? { block_template_name: projection.block_template_name }
-          : {})
+        style_name: extended.style_name,
+        tags: extended.tags,
+        template: extended.template
       } as SnlMacroStyle;
     });
     const previewStyles: SnlMacroStyle[] = styleList.length > 0
       ? styleList
       : [{
           style_name: 'default',
-          mode: 'formula_inline',
-          template: '',
-          tags: []
+          tags: [],
+          template: {
+            mode: 'formula_inline',
+            body: dynamicArity ? '#*' : ''
+          }
         }];
     return {
       name: DRAFT_KEY,

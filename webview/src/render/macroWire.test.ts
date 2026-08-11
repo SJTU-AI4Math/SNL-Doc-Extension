@@ -13,12 +13,15 @@ describe('wireMacroToRenderable', () => {
       tags: []
     }, 'en')).toMatchObject({
       name: 'm', kind: 'operator', source: { entries: ['src'], urls: [] },
-      styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }],
+      styles: [{
+        style_name: 'default', tags: [],
+        template: { mode: 'formula_inline', body: '#0' }
+      }],
       tags: []
     });
   });
 
-  it('projects one complete v11 template atomically for the 0.2 renderer', () => {
+  it('preserves every complete v11 template projection for the 0.2.1 renderer', () => {
     const rendered = wireMacroToRenderable({
       name: 'm', description: '', source: { entries: [], urls: [] },
       dynamic_arity: true,
@@ -35,7 +38,14 @@ describe('wireMacroToRenderable', () => {
       tags: []
     }, 'zh-CN');
     expect(rendered.styles[0]).toEqual({
-      style_name: 'default', tags: [], mode: 'text', template: '#*', separator: '、'
+      style_name: 'default', tags: [],
+      template: {
+        type: 'i18n', default_language: 'en',
+        values: {
+          en: { mode: 'formula_inline', body: '#*', separator: ', ', custom: 'en' },
+          'zh-CN': { mode: 'text', body: '#*', separator: '、', custom: 'zh' }
+        }
+      }
     });
   });
 
@@ -48,13 +58,16 @@ describe('wireMacroToRenderable', () => {
     };
     const rendered = wireMacroEntriesToRenderable([['__proto__', macro]], 'en');
     expect(Object.prototype.hasOwnProperty.call(rendered, '__proto__')).toBe(true);
-    expect(rendered.__proto__.styles[0].template).toBe('#0');
+    expect(rendered.__proto__.styles[0].template).toEqual({ mode: 'formula_inline', body: '#0' });
   });
 
   it('supplies a renderable default style for malformed empty style arrays', () => {
     expect(wireMacroToRenderable({
       name: 'm', description: '', source: { entries: [], urls: [] },
       dynamic_arity: false, styles: [], tags: []
-    }, 'en').styles).toHaveLength(1);
+    }, 'en').styles).toEqual([{
+      style_name: 'default', tags: [],
+      template: { mode: 'formula_inline', body: '' }
+    }]);
   });
 });

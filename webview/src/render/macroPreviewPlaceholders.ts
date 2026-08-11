@@ -20,9 +20,11 @@ for (let index = 0; index < MAX_MACRO_PREVIEW_ARGS; index += 1) {
     styles: [
       {
         style_name: 'default',
-        mode: 'formula_inline',
-        template: `\\mathord{\\htmlClass{snlArgPlaceholder}{${index}}}`,
-        tags: []
+        tags: [],
+        template: {
+          mode: 'formula_inline',
+          body: `\\mathord{\\htmlClass{snlArgPlaceholder}{${index}}}`
+        }
       }
     ]
   };

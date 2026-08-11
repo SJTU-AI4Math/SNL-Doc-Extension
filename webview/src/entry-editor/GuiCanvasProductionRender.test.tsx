@@ -22,11 +22,11 @@ const projectionMacro = {
   styles: [
     {
       style_name: 'default', tags: [],
-      mode: 'formula_inline', template: '#0'
+      template: { mode: 'formula_inline', body: '#0' }
     },
     {
       style_name: 'complete', tags: [],
-      mode: 'formula_inline', template: '#0 + #1 + #2'
+      template: { mode: 'formula_inline', body: '#0 + #1 + #2' }
     }
   ]
 } as never;

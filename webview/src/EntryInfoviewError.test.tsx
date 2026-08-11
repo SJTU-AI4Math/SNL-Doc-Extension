@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe('EntryInfoview relationship availability', () => {
-  it('adapts v11 workspace Macros before the Basics 0.2 Entry renderer and reacts to language', async () => {
+  it('preserves v11 workspace Macros for the Basics 0.2.1 Entry renderer and reacts to language', async () => {
     set_content_language('zh-CN');
     render(<EntryInfoviewApp />);
     push({

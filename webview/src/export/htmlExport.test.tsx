@@ -27,7 +27,7 @@ describe('harvestLibraryHtml', () => {
           kind: 'const',
           dynamic_arity: false,
           tags: [],
-          styles: [{ style_name: 'default', mode: 'formula_inline', template: 'Set(#0)', tags: [] }]
+          styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: 'Set(#0)' } }]
         },
         T: {
           name: 'T',
@@ -36,7 +36,7 @@ describe('harvestLibraryHtml', () => {
           kind: 'fvar',
           dynamic_arity: false,
           tags: [],
-          styles: [{ style_name: 'default', mode: 'formula_inline', template: '#0', tags: [] }]
+          styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#0' } }]
         }
       }
     );

@@ -86,7 +86,10 @@ describe('EntryRender real dependency click pinning', () => {
       Ref: {
         name: 'Ref', description: '', source: { entries: ['child'], urls: [] },
         dynamic_arity: false, tags: [],
-        styles: [{ style_name: 'default', mode: 'formula_inline', template: '\\mathrm{Ref}', tags: [] }]
+        styles: [{
+          style_name: 'default', tags: [],
+          template: { mode: 'formula_inline', body: '\\mathrm{Ref}' }
+        }]
       }
     };
     const view = render(

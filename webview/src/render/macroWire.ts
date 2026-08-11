@@ -60,48 +60,58 @@ export function resolveWireTemplate(
   return first;
 }
 
-/**
- * Adapt Macro v11 to the published SNL-Basics 0.2 renderer contract. Localization
- * is resolved before adaptation so mode/body/separator/block renderer are chosen
- * atomically even though 0.2 stores those fields at Style scope.
- */
-function wireStyleToRenderable(style: WireMacroStyle, language: string): SnlMacroStyle {
-  const projection = resolveWireTemplate(style.template, language);
+/** Preserve the published 0.2.1 Macro v11 template boundary end to end. */
+function wireStyleToRenderable(style: WireMacroStyle): SnlMacroStyle {
+  const template = isLocalizedTemplate(style.template)
+    ? {
+        type: 'i18n' as const,
+        default_language: style.template.default_language,
+        values: Object.fromEntries(
+          Object.entries(style.template.values).flatMap(([language, projection]) =>
+            projection === undefined ? [] : [[language, { ...projection }] as const]
+          )
+        )
+      }
+    : { ...style.template };
   return {
     style_name: style.style_name,
-    tags: style.tags,
-    mode: projection.mode,
-    template: projection.body,
-    ...(projection.separator === undefined ? {} : { separator: projection.separator }),
-    ...(projection.mode === 'block' && projection.block_template_name !== undefined
-      ? { block_template_name: projection.block_template_name }
-      : {})
+    tags: [...style.tags],
+    template
   } as SnlMacroStyle;
 }
 
-/** Convert keyed wire entries without invoking Object.prototype setters. */
+/** Convert keyed wire entries without invoking Object.prototype setters.
+ * `_language` remains in this adapter API for call-site stability; the published
+ * renderer now resolves the retained localized Template through ReaderRuntime.
+ */
 export function wireMacroEntriesToRenderable(
   entries: Iterable<readonly [string, WireMacro]>,
-  language: string
+  _language: string
 ): SnlMacroRecord {
   return Object.fromEntries(
-    Array.from(entries, ([name, macro]) => [name, wireMacroToRenderable(macro, language)] as const)
+    Array.from(entries, ([name, macro]) => [name, wireMacroToRenderable(macro, _language)] as const)
   );
 }
 
-export function wireMacroToRenderable(macro: WireMacro, language: string): SnlMacro {
+export function wireMacroToRenderable(macro: WireMacro, _language: string): SnlMacro {
   const styles: SnlMacroStyle[] = Array.isArray(macro.styles)
-    ? macro.styles.map((style) => wireStyleToRenderable(style, language))
+    ? macro.styles.map(wireStyleToRenderable)
     : [];
   return {
     name: macro.name,
     description: macro.description,
-    source: { entries: macro.source.entries, urls: macro.source.urls },
+    source: { entries: [...macro.source.entries], urls: [...macro.source.urls] },
     ...(macro.kind ? { kind: macro.kind } : {}),
     dynamic_arity: !!macro.dynamic_arity,
-    tags: macro.tags,
+    tags: [...macro.tags],
     styles: styles.length > 0
       ? styles
-      : [{ style_name: 'default', mode: 'formula_inline', template: '', tags: [] }]
+      : [{
+          style_name: 'default', tags: [],
+          template: {
+            mode: 'formula_inline',
+            body: macro.dynamic_arity ? '#*' : ''
+          }
+        }]
   };
 }

@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 export const PACKAGE_STORAGE_VERSION = 1 as const;
 export const ENTRY_STORAGE_VERSION = 1 as const;
 export const MACRO_STORAGE_VERSION = 1 as const;
+export const CURRENT_PACKAGE_SCHEMA_VERSION = 1 as const;
+export const CURRENT_ENTRY_SCHEMA_VERSION = 1 as const;
+export const CURRENT_MACRO_SCHEMA_VERSION = 1 as const;
 export const UNPACKAGED_PACKAGE_ID = '_unpackaged' as const;
 
 export type EntityIdentityKind = 'package' | 'entry' | 'macro';
@@ -11,6 +14,7 @@ export interface PackageManifest {
   [key: string]: unknown;
   format: 'snl-package';
   version: typeof PACKAGE_STORAGE_VERSION;
+  schema_version: typeof CURRENT_PACKAGE_SCHEMA_VERSION;
   id: string;
   name: string;
   description: string;
@@ -20,6 +24,7 @@ export interface EntryEnvelope<T extends Record<string, unknown> = Record<string
   [key: string]: unknown;
   format: 'snl-entry';
   version: typeof ENTRY_STORAGE_VERSION;
+  schema_version: typeof CURRENT_ENTRY_SCHEMA_VERSION;
   package: string;
   entry: T;
 }
@@ -28,6 +33,7 @@ export interface MacroEnvelope<T extends Record<string, unknown> = Record<string
   [key: string]: unknown;
   format: 'snl-macro';
   version: typeof MACRO_STORAGE_VERSION;
+  schema_version: typeof CURRENT_MACRO_SCHEMA_VERSION;
   package: string;
   macro: T;
 }
@@ -81,7 +87,14 @@ export function makePackageManifest(
   description: string
 ): PackageManifest {
   assertPackageId(id);
-  return { format: 'snl-package', version: PACKAGE_STORAGE_VERSION, id, name, description };
+  return {
+    format: 'snl-package',
+    version: PACKAGE_STORAGE_VERSION,
+    schema_version: CURRENT_PACKAGE_SCHEMA_VERSION,
+    id,
+    name,
+    description
+  };
 }
 
 export function makeEntryEnvelope<T extends Record<string, unknown>>(
@@ -89,7 +102,13 @@ export function makeEntryEnvelope<T extends Record<string, unknown>>(
   entry: T
 ): EntryEnvelope<T> {
   assertPackageId(packageId);
-  return { format: 'snl-entry', version: ENTRY_STORAGE_VERSION, package: packageId, entry };
+  return {
+    format: 'snl-entry',
+    version: ENTRY_STORAGE_VERSION,
+    schema_version: CURRENT_ENTRY_SCHEMA_VERSION,
+    package: packageId,
+    entry
+  };
 }
 
 export function makeMacroEnvelope<T extends Record<string, unknown>>(
@@ -97,5 +116,54 @@ export function makeMacroEnvelope<T extends Record<string, unknown>>(
   macro: T
 ): MacroEnvelope<T> {
   assertPackageId(packageId);
-  return { format: 'snl-macro', version: MACRO_STORAGE_VERSION, package: packageId, macro };
+  return {
+    format: 'snl-macro',
+    version: MACRO_STORAGE_VERSION,
+    schema_version: CURRENT_MACRO_SCHEMA_VERSION,
+    package: packageId,
+    macro
+  };
+}
+
+function upgradeSchemaMarker<T extends Record<string, unknown>, V extends number>(
+  value: T,
+  current: V,
+  label: string
+): T & { schema_version: V } {
+  if (!Object.hasOwn(value, 'schema_version')) {
+    const { format, version, ...rest } = structuredClone(value);
+    return { format, version, schema_version: current, ...rest } as unknown as T & { schema_version: V };
+  }
+  if (!Number.isInteger(value.schema_version) || (value.schema_version as number) < 1) {
+    throw new Error(`${label} schema_version must be a positive integer.`);
+  }
+  if ((value.schema_version as number) > current) {
+    throw new Error(
+      `${label} schema version ${String(value.schema_version)} is newer than this Extension supports (${current}).`
+    );
+  }
+  if ((value.schema_version as number) < current) {
+    throw new Error(
+      `${label} schema_version ${String(value.schema_version)} has no registered migration to ${current}.`
+    );
+  }
+  return { ...structuredClone(value), schema_version: current } as T & { schema_version: V };
+}
+
+export function upgradePackageManifestSchema<T extends Record<string, unknown>>(
+  value: T
+): T & { schema_version: typeof CURRENT_PACKAGE_SCHEMA_VERSION } {
+  return upgradeSchemaMarker(value, CURRENT_PACKAGE_SCHEMA_VERSION, 'Package manifest');
+}
+
+export function upgradeEntryEnvelopeSchema<T extends Record<string, unknown>>(
+  value: T
+): T & { schema_version: typeof CURRENT_ENTRY_SCHEMA_VERSION } {
+  return upgradeSchemaMarker(value, CURRENT_ENTRY_SCHEMA_VERSION, 'Entry envelope');
+}
+
+export function upgradeMacroEnvelopeSchema<T extends Record<string, unknown>>(
+  value: T
+): T & { schema_version: typeof CURRENT_MACRO_SCHEMA_VERSION } {
+  return upgradeSchemaMarker(value, CURRENT_MACRO_SCHEMA_VERSION, 'Macro envelope');
 }

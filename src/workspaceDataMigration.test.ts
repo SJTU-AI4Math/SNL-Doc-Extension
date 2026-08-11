@@ -111,6 +111,7 @@ function downgradeEntityMacros(
   for (const [path, value] of storage.values) {
     if (!path.startsWith('macros/')) continue;
     const envelope = value as Record<string, unknown>;
+    delete envelope.schema_version;
     const macro = envelope.macro as Record<string, any>;
     macro.styles = (macro.styles as Record<string, any>[]).map((style) => {
       const template = style.template as Record<string, any>;
@@ -141,7 +142,9 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
-    expect(inspection.pending?.map((step) => step.to)).toEqual(['0.0.4', '0.0.5', '0.0.6', '0.0.9']);    expect(storage.writes).toEqual([]);
+    expect(inspection.pending?.map((step) => step.to)).toEqual([
+      '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10'
+    ]);    expect(storage.writes).toEqual([]);
   });
 
   it('persists canonical package files first and commits config version last', async () => {
@@ -151,7 +154,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.9');
+    expect(report.to).toBe('0.0.10');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -160,8 +163,42 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.9');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
+  });
+
+  it('upgrades a 0.0.9 split workspace without rewriting unversioned entity files', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    for (const [path, value] of storage.values) {
+      if (!/^(packages|entries|macros)\//.test(path)) continue;
+      delete (value as Record<string, unknown>).schema_version;
+    }
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.9';
+    storage.writes.length = 0;
+    const entityBytes = new Map(
+      [...storage.values]
+        .filter(([path]) => /^(packages|entries|macros)\//.test(path))
+        .map(([path, value]) => [path, JSON.stringify(value)])
+    );
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: '0.0.9',
+      to: '0.0.10'
+    });
+    expect(storage.writes).toEqual(['config.json']);
+    for (const [path, bytes] of entityBytes) {
+      expect(JSON.stringify(storage.values.get(path)), path).toBe(bytes);
+    }
+    expect((await inspectStoredWorkspaceData(storage)).status).toBe('current');
+
+    storage.writes.length = 0;
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: '0.0.10',
+      to: '0.0.10',
+      applied: []
+    });
+    expect(storage.writes).toEqual([]);
   });
 
   it('rolls every already-written file back if the final config commit fails', async () => {
@@ -251,9 +288,9 @@ describe('stored workspace data migration', () => {
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.3');
   });
 
-  it('rejects a manually bumped 0.0.9 workspace with no entity topology', async () => {
+  it('rejects a manually bumped 0.0.10 workspace with no entity topology', async () => {
     const storage = legacyStorage();
-    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.9';
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.10';
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('invalid');
     expect(inspection.message).toMatch(/entity|package|topology/i);
@@ -277,8 +314,22 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: version,
-      to: '0.0.9'
+      to: '0.0.10'
     });
+  });
+
+  it('resumes a 0.0.6 migration after current marked Macro files were published before config', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    const config = storage.values.get('config.json') as Record<string, unknown>;
+    config.version = '0.0.6';
+    storage.writes.length = 0;
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: '0.0.6',
+      to: '0.0.10'
+    });
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
   });
 
   it('rejects a 0.0.7 orphan Macro before migrating or writing', async () => {

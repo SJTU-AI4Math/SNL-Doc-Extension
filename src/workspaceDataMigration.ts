@@ -66,7 +66,7 @@ export async function inspectStoredWorkspaceData(
     const hasEntityTopology = inspection.status === 'current' ||
       (inspection.status === 'needsMigration' &&
         (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7' ||
-          inspection.currentVersion === '0.0.8'));
+          inspection.currentVersion === '0.0.8' || inspection.currentVersion === '0.0.9'));
     if (hasEntityTopology) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
@@ -257,9 +257,9 @@ async function verifyEntityStorageCommit(
     readMacroEntityRecords(storage)
   ]);
   const actualMaps = [
-    new Map(packages.map((record) => [record.path, record.manifest] as const)),
-    new Map(entries.map((record) => [record.path, record.envelope] as const)),
-    new Map(macros.map((record) => [record.path, record.envelope] as const))
+    new Map(packages.map((record) => [record.path, record.rawManifest] as const)),
+    new Map(entries.map((record) => [record.path, record.rawEnvelope] as const)),
+    new Map(macros.map((record) => [record.path, record.rawEnvelope] as const))
   ];
   const expectedMaps = [source.packageManifests, source.entryEntities, source.macroEntities];
   for (let index = 0; index < expectedMaps.length; index += 1) {

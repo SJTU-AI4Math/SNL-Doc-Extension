@@ -9,6 +9,7 @@ import {
   type DataMigrationReport
 } from './dataMigrationCore';
 import {
+  MACRO_STORAGE_VERSION,
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
   entryEntityPath,
@@ -17,6 +18,9 @@ import {
   makeMacroEnvelope,
   makePackageManifest,
   packageManifestPath,
+  upgradeEntryEnvelopeSchema,
+  upgradeMacroEnvelopeSchema,
+  upgradePackageManifestSchema,
   type EntryEnvelope,
   type MacroEnvelope,
   type PackageManifest
@@ -548,8 +552,10 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
     }
     foldedPackageIds.add(folded);
     assertCanonicalMacroPackage(file, raw, '8');
-    if ('format' in raw || 'id' in raw) {
-      throw new Error(`${file} uses reserved per-entity Package manifest fields "format" or "id".`);
+    if ('format' in raw || 'id' in raw || 'schema_version' in raw) {
+      throw new Error(
+        `${file} uses reserved per-entity Package manifest fields "format", "id", or "schema_version".`
+      );
     }
     const {
       version: _legacyVersion,
@@ -578,10 +584,12 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
       if ('name' in macroValue && macroValue.name !== macroName) {
         throw new Error(`${file} Macro key ${JSON.stringify(macroName)} disagrees with its name field.`);
       }
+      const generatedEnvelope = makeMacroEnvelope(packageId, { ...macroValue, name: macroName });
+      const { schema_version: _generatedSchema, ...legacyEnvelope } = generatedEnvelope;
       addUnique(
         macroEntities,
         macroEntityPath(packageId, macroName),
-        makeMacroEnvelope(packageId, { ...macroValue, name: macroName })
+        legacyEnvelope as unknown as MacroEnvelope
       );
     }
   }
@@ -601,7 +609,37 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
     label: string
   ): void => {
     for (const [path, value] of existing) {
-      if (!expected.has(path) || JSON.stringify(expected.get(path)) !== JSON.stringify(value)) {
+      if (!expected.has(path)) {
+        throw new Error(`Conflicting partial migration residue in ${label}: ${path}.`);
+      }
+      const explicitlyCurrentMacro = label === 'macros' && isRecord(value) &&
+        Object.hasOwn(value, 'schema_version');
+      if (explicitlyCurrentMacro) {
+        assertCurrentMacroEnvelope(path, value as unknown as MacroEnvelope);
+      }
+      const normalized = isRecord(value)
+        ? label === 'packages'
+          ? upgradePackageManifestSchema(value)
+          : label === 'entries'
+            ? upgradeEntryEnvelopeSchema(value)
+            : upgradeMacroEnvelopeSchema(value)
+        : value;
+      const expectedValue = expected.get(path)!;
+      const normalizedExpected = explicitlyCurrentMacro
+        ? migrateLegacyMacroEnvelopeToV11(
+            context,
+            path,
+            expectedValue as unknown as MacroEnvelope,
+            '8'
+          )
+        : isRecord(expectedValue)
+          ? label === 'packages'
+            ? upgradePackageManifestSchema(expectedValue)
+            : label === 'entries'
+              ? upgradeEntryEnvelopeSchema(expectedValue)
+              : upgradeMacroEnvelopeSchema(expectedValue)
+          : expectedValue;
+      if (JSON.stringify(normalizedExpected) !== JSON.stringify(normalized)) {
         throw new Error(`Conflicting partial migration residue in ${label}: ${path}.`);
       }
     }
@@ -651,34 +689,68 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
   };
 }
 
+function assertCurrentMacroEnvelope(path: string, envelope: MacroEnvelope): void {
+  const declared = upgradeMacroEnvelopeSchema(envelope);
+  if (declared.format !== 'snl-macro' || declared.version !== MACRO_STORAGE_VERSION ||
+      typeof declared.package !== 'string' || !isRecord(declared.macro) ||
+      typeof declared.macro.name !== 'string') {
+    throw new Error(`${path} is not a valid explicitly versioned Macro envelope.`);
+  }
+  assertCanonicalMacroPackage(path, {
+    version: '11',
+    name: declared.package,
+    macros: { [declared.macro.name]: declared.macro }
+  }, '11');
+}
+
+function migrateLegacyMacroEnvelopeToV11(
+  context: WorkspaceMigrationContext,
+  path: string,
+  envelope: MacroEnvelope,
+  sourceVersion: '8' | '9' | '10'
+): MacroEnvelope {
+  const macroName = envelope.macro.name;
+  if (typeof macroName !== 'string' || !macroName) {
+    throw new Error(`${path} Macro entity is missing its name.`);
+  }
+  const { name: _name, ...macro } = envelope.macro;
+  const sourcePackage = {
+    version: sourceVersion,
+    name: envelope.package,
+    macros: { [macroName]: macro }
+  };
+  assertCanonicalMacroPackage(path, sourcePackage, sourceVersion);
+  const canonical = context.canonicalizeMacroPackage(path, sourcePackage, '11');
+  assertCanonicalMacroPackage(path, canonical, '11');
+  const migrated = Object.hasOwn(canonical.macros, macroName)
+    ? canonical.macros[macroName]
+    : undefined;
+  if (!isRecord(migrated)) {
+    throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v11 migration.`);
+  }
+  return {
+    ...envelope,
+    ...makeMacroEnvelope(envelope.package, { ...migrated, name: macroName })
+  };
+}
+
 function migrateMacroEntitiesToV11(
   context: WorkspaceMigrationContext,
   sourceVersion: '8' | '9' | '10'
 ): void {
   for (const [path, envelope] of context.data.macroEntities) {
-    const macroName = envelope.macro.name;
-    if (typeof macroName !== 'string' || !macroName) {
-      throw new Error(`${path} Macro entity is missing its name.`);
+    if (Object.hasOwn(envelope, 'schema_version')) {
+      assertCurrentMacroEnvelope(path, envelope);
+      context.data.macroEntities.set(
+        path,
+        upgradeMacroEnvelopeSchema(envelope) as unknown as MacroEnvelope
+      );
+      continue;
     }
-    const { name: _name, ...macro } = envelope.macro;
-    const sourcePackage = {
-      version: sourceVersion,
-      name: envelope.package,
-      macros: { [macroName]: macro }
-    };
-    assertCanonicalMacroPackage(path, sourcePackage, sourceVersion);
-    const canonical = context.canonicalizeMacroPackage(path, sourcePackage, '11');
-    assertCanonicalMacroPackage(path, canonical, '11');
-    const migrated = Object.hasOwn(canonical.macros, macroName)
-      ? canonical.macros[macroName]
-      : undefined;
-    if (!isRecord(migrated)) {
-      throw new Error(`${path} Macro identity ${JSON.stringify(macroName)} disappeared during v11 migration.`);
-    }
-    context.data.macroEntities.set(path, {
-      ...envelope,
-      macro: { ...migrated, name: macroName }
-    });
+    context.data.macroEntities.set(
+      path,
+      migrateLegacyMacroEnvelopeToV11(context, path, envelope, sourceVersion)
+    );
   }
 }
 
@@ -738,6 +810,16 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     migrate: async (context) => {
       migrateMacroEntitiesToV11(context, '10');
       migrate008To009ThemedKindColors(context);
+    }
+  },
+  {
+    from: '0.0.9',
+    to: '0.0.10',
+    description: 'Enable lazy per-file schema migration for split entity storage.',
+    migrate: async () => {
+      // Files written before 0.0.10 intentionally remain unmarked. Readers
+      // treat an absent per-file marker as the unique legacy generation and
+      // ordinary writes replace the complete file with the current marker.
     }
   }
 ];

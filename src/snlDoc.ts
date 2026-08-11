@@ -47,9 +47,15 @@ import {
   normalizeUpdatedEntryContributor
 } from './entryContributor';
 import {
+  assertCurrentEntityFile,
   readEntryEntityRecords,
   readMacroEntityRecords,
+  readPackageManifestRecord,
   readPackageManifestRecords,
+  entityFileRewriteChanges,
+  rewriteEntryEntityRecord,
+  rewriteMacroEntityRecord,
+  rewritePackageManifestRecord,
   type EntityStorageSnapshot,
   type EntityReadStorage
 } from './entityStorageIo';
@@ -303,7 +309,8 @@ async function writeWorkspaceFile(
   uri: vscode.Uri,
   bytes: Uint8Array,
   expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT,
-  validateTopology = true
+  validateTopology = true,
+  validateEntityOutput = true
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
     const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
@@ -333,6 +340,23 @@ async function writeWorkspaceFile(
         );
       }
       assertWorkspaceDataVersionNotRegressed(currentConfig, nextConfig);
+    }
+    if (validateEntityOutput) {
+      const snlPath = snlRootUri(workspaceRoot).path.replace(/\/+$/, '');
+      const relative = uri.path.startsWith(`${snlPath}/`)
+        ? uri.path.slice(snlPath.length + 1)
+        : '';
+      if (/^(packages|entries|macros)\/[^/]+\.json$/.test(relative)) {
+        let nextEntity: unknown;
+        try {
+          nextEntity = JSON.parse(DECODER.decode(bytes));
+        } catch (error) {
+          throw new Error(
+            `Refusing to write invalid entity JSON: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+        assertCurrentEntityFile(relative, nextEntity);
+      }
     }
     await vscode.workspace.fs.writeFile(uri, bytes);
   });
@@ -413,6 +437,7 @@ async function applyJsonFileOperations(
                 operation.uri,
                 jsonBytes(operation.expected),
                 operation.value,
+                false,
                 false
               );
             }
@@ -422,6 +447,7 @@ async function applyJsonFileOperations(
               operation.uri,
               jsonBytes(operation.expected),
               null,
+              false,
               false
             );
           }
@@ -1072,10 +1098,16 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
       'Unpackaged',
       'Entries without an assigned package.'
     );
+    const unpackagedMatchesCurrent = async (): Promise<boolean> => {
+      const record = await readPackageManifestRecord(
+        entityReadStorage(workspaceRoot),
+        UNPACKAGED_PACKAGE_ID
+      );
+      return !!record && JSON.stringify(record.manifest) === JSON.stringify(unpackagedManifest);
+    };
     const unpackagedExists = await exists(unpackagedUri);
     if (unpackagedExists) {
-      const current = await readJson<unknown>(unpackagedUri);
-      if (JSON.stringify(current) !== JSON.stringify(unpackagedManifest)) {
+      if (!(await unpackagedMatchesCurrent())) {
         throw new Error('Cannot retry initialization: the existing _unpackaged manifest conflicts.');
       }
     }
@@ -1099,8 +1131,7 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
             await fsApi.delete(manifestTemporary, { recursive: false, useTrash: false });
           }
         } catch { /* preserve the publish error */ }
-        if (await exists(unpackagedUri) &&
-            JSON.stringify(await readJson<unknown>(unpackagedUri)) === JSON.stringify(unpackagedManifest)) {
+        if (await exists(unpackagedUri) && await unpackagedMatchesCurrent()) {
           // An external initializer published the identical immutable manifest.
         } else {
           throw error;
@@ -2313,8 +2344,15 @@ export async function readMacroPackage(
       ]);
       const packageRecord = packages.find(({ manifest }) => manifest.id === bare);
       if (!packageRecord) return { status: 'noFile' };
-      const { format: _format, version: _version, id: _id, name, description, ...extensions } =
-        packageRecord.manifest;
+      const {
+        format: _format,
+        version: _version,
+        schema_version: _schemaVersion,
+        id: _id,
+        name,
+        description,
+        ...extensions
+      } = packageRecord.manifest;
       const macros: Record<string, unknown> = {};
       for (const record of macroRecords.filter(({ envelope }) => envelope.package === bare)) {
         const { name: macroName, ...macro } = record.macro;
@@ -2524,6 +2562,7 @@ export async function readPackageMacroSnapshot(
         const {
           format: _format,
           version: _version,
+          schema_version: _schemaVersion,
           id: _id,
           name,
           description,
@@ -2777,19 +2816,27 @@ async function buildMacroPackageOperations(
   const operations: JsonFileOperation[] = [];
   for (const [macroName, macroValue] of Object.entries(next.macros)) {
     const existing = currentMacros.get(macroName);
-    const envelope = {
-      ...(existing?.envelope ?? fallbackEnvelopes.get(macroName) ?? {}),
-      ...makeMacroEnvelope(bare, {
-        ...(macroValue as unknown as Record<string, unknown>),
-        name: macroName
-      })
+    const macro = {
+      ...(macroValue as unknown as Record<string, unknown>),
+      name: macroName
     };
-    if (JSON.stringify(existing?.envelope) !== JSON.stringify(envelope)) {
+    const rewrite = existing
+      ? rewriteMacroEntityRecord(existing, bare, macro)
+      : {
+          value: {
+            ...(fallbackEnvelopes.get(macroName) ?? {}),
+            ...makeMacroEnvelope(bare, macro)
+          },
+          expected: null
+        };
+    // Compare normalized semantic content rather than raw legacy bytes. A
+    // Package edit must not stamp every untouched Macro in that Package.
+    if (!existing || entityFileRewriteChanges(rewrite, existing.envelope)) {
       operations.push({
         kind: 'write',
         uri: snlRelativeUri(workspaceRoot, macroEntityPath(bare, macroName)),
-        value: envelope,
-        expected: existing?.envelope ?? null
+        value: rewrite.value,
+        expected: rewrite.expected
       });
     }
     currentMacros.delete(macroName);
@@ -2798,32 +2845,23 @@ async function buildMacroPackageOperations(
     operations.push({
       kind: 'delete',
       uri: snlRelativeUri(workspaceRoot, record.path),
-      expected: record.envelope
+      expected: record.rawEnvelope
     });
   }
 
-  const {
-    format: _manifestFormat,
-    version: _manifestVersion,
-    id: _manifestId,
-    name: _manifestName,
-    description: _manifestDescription,
-    ...extensions
-  } = packageRecord.manifest;
-  const manifest = {
-    ...extensions,
-    ...makePackageManifest(
-      bare,
-      next.name || bare,
-      typeof next.description === 'string' ? next.description : ''
-    )
-  };
-  if (JSON.stringify(manifest) !== JSON.stringify(packageRecord.manifest)) {
+  const manifestRewrite = rewritePackageManifestRecord(
+    packageRecord,
+    next.name || bare,
+    typeof next.description === 'string' ? next.description : ''
+  );
+  // The Package manifest is independent from its Macro children. Rewrite it
+  // only when its own normalized content changed.
+  if (entityFileRewriteChanges(manifestRewrite, packageRecord.manifest)) {
     operations.push({
       kind: 'write',
       uri: snlRelativeUri(workspaceRoot, packageRecord.path),
-      value: manifest,
-      expected: packageRecord.manifest
+      value: manifestRewrite.value,
+      expected: manifestRewrite.expected
     });
   }
   return operations;
@@ -3078,13 +3116,13 @@ export async function deleteMacroPackage(
           .map((record) => ({
             kind: 'delete' as const,
             uri: snlRelativeUri(workspaceRoot, record.path),
-            expected: record.envelope
+            expected: record.rawEnvelope
           }));
         operations.push(
           {
             kind: 'delete',
             uri: snlRelativeUri(workspaceRoot, packageRecord.path),
-            expected: packageRecord.manifest
+            expected: packageRecord.rawManifest
           },
           {
             kind: 'write',
@@ -3498,6 +3536,7 @@ export async function readOverview(
         const {
           format: _format,
           version: _version,
+          schema_version: _schemaVersion,
           id: _id,
           name,
           description,
@@ -4530,29 +4569,30 @@ export async function updateEntry(
   next[idx] = record;
   try {
     if (entityMode && entityRecord) {
-      const nextEnvelope = {
-        ...entityRecord.envelope,
-        ...makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>)
-      };
+      const rewrite = rewriteEntryEntityRecord(
+        entityRecord,
+        packageId,
+        record as unknown as Record<string, unknown>
+      );
       if (packageId === currentPackageId) {
         await writeWorkspaceFile(
           workspaceRoot,
           snlRelativeUri(workspaceRoot, entityRecord.path),
-          jsonBytes(nextEnvelope),
-          entityRecord.envelope
+          jsonBytes(rewrite.value),
+          rewrite.expected
         );
       } else {
         await applyJsonFileOperations(workspaceRoot, `move Entry ${targetId}`, [
           {
             kind: 'write',
             uri: snlRelativeUri(workspaceRoot, entryEntityPath(packageId, targetId)),
-            value: nextEnvelope,
+            value: rewrite.value,
             expected: null
           },
           {
             kind: 'delete',
             uri: snlRelativeUri(workspaceRoot, entityRecord.path),
-            expected: entityRecord.envelope
+            expected: rewrite.expected
           }
         ]);
       }
@@ -6233,7 +6273,7 @@ export async function deleteEntry(
       await deleteWorkspaceJsonFile(
         workspaceRoot,
         snlRelativeUri(workspaceRoot, entityRecord.path),
-        entityRecord.envelope
+        entityRecord.rawEnvelope
       );
     } else {
       await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(pool), original);

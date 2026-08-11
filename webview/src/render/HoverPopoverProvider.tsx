@@ -3,15 +3,17 @@
 // subtree dismissal, and pointer-union hit testing. This file owns only the
 // Extension-specific entry loader and EntrySurface rendering.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  HoverPopoverDismissController,
   HoverPopoverProvider as SharedHoverPopoverProvider,
   useCurrentPopoverId as useSharedCurrentPopoverId,
   useHoverPopovers as useSharedHoverPopovers,
   type HoverPopover,
   type HoverPopoverApi,
   type KindPalette,
-  type PopoverPhase
+  type PopoverPhase,
+  type SnlActivationLease
 } from '@sjtu-ai4math/snl-basics';
 import {
   EntrySurface,
@@ -42,6 +44,33 @@ const MESSAGES = defineUiMessages(
 export type PopoverInstance = HoverPopover<string>;
 export type HoverPopoverContextValue = HoverPopoverApi<string>;
 export type { PopoverPhase };
+
+type RegisterPopoverActivation = (
+  popoverId: string | null,
+  activation: SnlActivationLease | undefined
+) => void;
+
+const PopoverActivationRegistryContext = React.createContext<RegisterPopoverActivation>(() => undefined);
+const useSsrSafeLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+export function useRegisterPopoverActivation(): RegisterPopoverActivation {
+  return React.useContext(PopoverActivationRegistryContext);
+}
+
+function PopoverApiBridge({
+  apiRef
+}: {
+  apiRef: React.MutableRefObject<HoverPopoverApi<string> | null>;
+}): null {
+  const api = useSharedHoverPopovers<string>();
+  useSsrSafeLayoutEffect(() => {
+    apiRef.current = api;
+    return () => {
+      if (apiRef.current === api) apiRef.current = null;
+    };
+  }, [api, apiRef]);
+  return null;
+}
 
 export function entryDetailsRequest(
   entryId: string,
@@ -214,6 +243,48 @@ export function HoverPopoverProvider({
   markdownImageUrlTransform,
   localDetails
 }: HoverPopoverProviderProps): React.ReactElement {
+  const popoverApiRef = useRef<HoverPopoverApi<string> | null>(null);
+  const activationRegistryRef = useRef<Map<string, Set<SnlActivationLease>>>(new Map());
+  const registerActivation = useCallback<RegisterPopoverActivation>((popoverId, activation) => {
+    if (!popoverId || !activation) return;
+    let activations = activationRegistryRef.current.get(popoverId);
+    if (!activations) {
+      activations = new Set();
+      activationRegistryRef.current.set(popoverId, activations);
+    }
+    activations.add(activation);
+  }, []);
+  const dismissController = useMemo(
+    () => new HoverPopoverDismissController<undefined, string>({
+      params: undefined,
+      on_request: ({ request, runDefault }) => {
+        if (request.reason !== 'escape') {
+          runDefault();
+          return;
+        }
+        const deepest = request.targets[0];
+        const api = popoverApiRef.current;
+        if (!deepest || !api) return;
+        request.native_event?.preventDefault();
+        request.native_event?.stopImmediatePropagation();
+        const activations = [...(activationRegistryRef.current.get(deepest.id) ?? [])];
+        // Reserve the popover's closing state before leases can re-enter dismissal.
+        api.dismissSubtree(deepest.id);
+        activationRegistryRef.current.delete(deepest.id);
+        for (const activation of activations) {
+          try {
+            activation.request_deactivate('popover-dismiss', request.native_event);
+          } catch {
+            // One consumer lease must not prevent the rest of the layer from clearing.
+          }
+        }
+      },
+      on_removed: (targets) => {
+        for (const target of targets) activationRegistryRef.current.delete(target.id);
+      }
+    }),
+    []
+  );
   const packageIdentities = entryPackages && Object.keys(entryPackages).length > 0
     ? entryPackages
     : EMPTY_ENTRY_PACKAGES;
@@ -334,12 +405,16 @@ export function HoverPopoverProvider({
   );
 
   return (
-    <SharedHoverPopoverProvider<string>
-      renderPopover={renderPopover}
-      options={{ openDelayMs: HOVER_OPEN_DELAY_MS, fadeMs: FADE_MS }}
-      style={style}
-    >
-      {children}
-    </SharedHoverPopoverProvider>
+    <PopoverActivationRegistryContext.Provider value={registerActivation}>
+      <SharedHoverPopoverProvider<string>
+        renderPopover={renderPopover}
+        options={{ openDelayMs: HOVER_OPEN_DELAY_MS, fadeMs: FADE_MS }}
+        style={style}
+        dismiss_controller={dismissController}
+      >
+        <PopoverApiBridge apiRef={popoverApiRef} />
+        {children}
+      </SharedHoverPopoverProvider>
+    </PopoverActivationRegistryContext.Provider>
   );
 }

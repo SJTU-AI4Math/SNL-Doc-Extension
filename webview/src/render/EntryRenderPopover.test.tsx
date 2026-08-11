@@ -1,7 +1,16 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ hoverEnabled: false, explicitSrc: null as string | null }));
+const state = vi.hoisted(() => ({
+  hoverEnabled: false,
+  explicitSrc: null as string | null,
+  currentPopoverId: null as string | null
+}));
+const activation = vi.hoisted(() => ({
+  activation_id: 41,
+  request_deactivate: vi.fn(() => true)
+}));
+const registerActivation = vi.hoisted(() => vi.fn());
 const popovers = vi.hoisted(() => ({
   spawn: vi.fn(() => 'popover-hover'),
   pin: vi.fn(() => 'popover-pinned'),
@@ -21,7 +30,8 @@ vi.mock('../runtime/preferencesRuntime', () => ({
 
 vi.mock('./HoverPopoverProvider', () => ({
   useHoverPopovers: () => popovers,
-  useCurrentPopoverId: () => null
+  useCurrentPopoverId: () => state.currentPopoverId,
+  useRegisterPopoverActivation: () => registerActivation
 }));
 
 vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
@@ -47,6 +57,7 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
           node: {}, tree_path: [],
           macro: { source: { entries: ['child'] } },
           target: event.currentTarget,
+          activation,
           client_x: 12, client_y: 14,
           ctrl_key: event.ctrlKey, meta_key: event.metaKey,
           shift_key: event.shiftKey, alt_key: event.altKey
@@ -55,6 +66,7 @@ vi.mock('@sjtu-ai4math/snl-basics/entry', () => {
           node: {}, tree_path: [],
           macro: { source: { entries: ['child'] } },
           target: event.currentTarget,
+          activation,
           client_x: 12, client_y: 14,
           ctrl_key: event.ctrlKey, meta_key: event.metaKey,
           shift_key: event.shiftKey, alt_key: event.altKey
@@ -71,12 +83,14 @@ afterEach(() => {
   vi.clearAllMocks();
   state.hoverEnabled = false;
   state.explicitSrc = null;
+  state.currentPopoverId = null;
 });
 
 describe('EntryRender popover preference', () => {
   it('prefers explicit data-src for hover, pin, and navigation', () => {
     state.hoverEnabled = true;
     state.explicitSrc = 'explicit-child';
+    state.currentPopoverId = 'parent-popover';
     const postMessage = vi.fn();
     const view = render(<EntryRender
       entry={{ id: 'root', kind: 'definition', title: 'Root', content: { snl: 'ref' }, pointer: null, contribution_info: null }}
@@ -87,10 +101,13 @@ describe('EntryRender popover preference', () => {
     const reference = view.getByTestId('reference');
     fireEvent.mouseMove(reference);
     expect(popovers.spawn).toHaveBeenCalledWith(
-      'explicit-child', expect.anything(), 12, 14, null
+      'explicit-child', expect.anything(), 12, 14, 'parent-popover', { activation }
     );
+    expect(registerActivation).toHaveBeenCalledWith('parent-popover', activation);
     fireEvent.click(reference);
-    expect(popovers.pin).toHaveBeenCalledWith('explicit-child', reference, 12, 14, null);
+    expect(popovers.pin).toHaveBeenCalledWith(
+      'explicit-child', reference, 12, 14, 'parent-popover', { activation }
+    );
     fireEvent.click(reference, { ctrlKey: true });
     expect(postMessage).toHaveBeenCalledWith({
       type: 'openEntryInfoview', entryId: 'explicit-child'
@@ -123,7 +140,7 @@ describe('EntryRender popover preference', () => {
 
     fireEvent.click(reference);
     await waitFor(() => expect(popovers.pin).toHaveBeenCalledWith(
-      'child', reference, 12, 14, null
+      'child', reference, 12, 14, null, { activation }
     ));
     expect(popovers.spawn).not.toHaveBeenCalled();
   });

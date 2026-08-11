@@ -29,7 +29,11 @@ import {
 import type { MacroRecord } from './macroData';
 import type { ThemedKindColoring } from '../../../src/kindColoring';
 import { extensionRenderers } from './blockRenderers';
-import { useCurrentPopoverId, useHoverPopovers } from './HoverPopoverProvider';
+import {
+  useCurrentPopoverId,
+  useHoverPopovers,
+  useRegisterPopoverActivation
+} from './HoverPopoverProvider';
 
 export interface EntryOption {
   id: string;
@@ -176,6 +180,7 @@ export function EntryRender({
   const hoverEnabled = get_popover_preferences().hoverEnabled;
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
+  const registerPopoverActivation = useRegisterPopoverActivation();
   const macroDataDriver = useMemo(
     () => new MacroDataDriver({
       context_reader: () => ({ color_scheme: get_kind_color_scheme() }),
@@ -225,13 +230,19 @@ export function EntryRender({
     clearCurrentHover();
   }, [clearCurrentHover]);
 
+  const rememberActivation = useCallback((context: SnlInteractionContext): void => {
+    registerPopoverActivation(currentPopoverId, context.activation);
+  }, [currentPopoverId, registerPopoverActivation]);
+
   const activateReferencedEntry = useCallback((context: SnlInteractionContext): void => {
+    rememberActivation(context);
     const entryId = referencedEntryId(context);
     if (entryId) postMessage({ type: 'openEntryInfoview', entryId });
-  }, [postMessage]);
+  }, [postMessage, rememberActivation]);
 
   const interactionDriver = useMemo(() => new SnlInteractionDriver({
     on_hover: (context) => {
+      rememberActivation(context);
       if (!hoverEnabled) {
         clearCurrentHover();
         return;
@@ -253,7 +264,8 @@ export function EntryRender({
         context.target.getBoundingClientRect(),
         context.client_x,
         context.client_y,
-        currentPopoverId
+        currentPopoverId,
+        { activation: context.activation }
       );
       state.target = context.target;
       state.popoverId = id;
@@ -270,6 +282,7 @@ export function EntryRender({
     // Basics deliberately keeps Meta distinct from Ctrl. Preserve the former
     // Extension behavior by handling Cmd-click through the regular callback.
     on_click: (context) => {
+      rememberActivation(context);
       if (context.meta_key) {
         activateReferencedEntry(context);
         return;
@@ -286,12 +299,14 @@ export function EntryRender({
         context.target,
         context.client_x,
         context.client_y,
-        currentPopoverId
+        currentPopoverId,
+        { activation: context.activation }
       );
       state.target = context.target;
       state.popoverId = id;
     }
-  }), [activateReferencedEntry, clearCurrentHover, currentPopoverId, hoverEnabled, popovers]);
+  }), [activateReferencedEntry, clearCurrentHover, currentPopoverId, hoverEnabled, popovers,
+    rememberActivation]);
 
   const hooks = useMemo<SnlRenderHooks>(() => ({
     renderTooltip: () => null,

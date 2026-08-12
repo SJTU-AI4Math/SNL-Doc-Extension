@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { macroEntityPath, makeMacroEnvelope, packageManifestPath } from './entityStorage';
+import { entryEntityPath, macroEntityPath, makeMacroEnvelope, packageManifestPath } from './entityStorage';
 import {
   inspectStoredWorkspaceData,
   migrateStoredWorkspaceData,
@@ -437,6 +437,48 @@ describe('stored workspace data migration', () => {
     const inspection = await inspectStoredWorkspaceData(storage);
     expect(inspection.status).toBe('invalid');
     expect(inspection.message).toMatch(/canonical Entry payload/i);
+  });
+
+  it.each([
+    ['omitted live Entry', (storage: MemoryStorage) => {
+      const manifest = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
+      manifest.entry_ids = [];
+    }],
+    ['stale listed Entry', (storage: MemoryStorage) => {
+      const manifest = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
+      manifest.entry_ids = ['Set.mem', 'stale.entry'];
+    }],
+    ['duplicate listed Entry', (storage: MemoryStorage) => {
+      const manifest = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
+      manifest.entry_ids = ['Set.mem', 'Set.mem'];
+    }],
+    ['wrong-owner Entry', (storage: MemoryStorage) => {
+      const owner = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
+      const other = storage.values.get(packageManifestPath('Logic')) as Record<string, unknown>;
+      owner.entry_ids = [];
+      other.entry_ids = ['Set.mem'];
+    }],
+    ['cross-manifest Entry', (storage: MemoryStorage) => {
+      const other = storage.values.get(packageManifestPath('Logic')) as Record<string, unknown>;
+      other.entry_ids = ['Set.mem'];
+    }],
+    ['orphan Entry owner', (storage: MemoryStorage) => {
+      const [entryPath, envelope] = [...storage.values].find(([path]) => path.startsWith('entries/'))!;
+      storage.values.delete(entryPath);
+      const orphan = structuredClone(envelope) as Record<string, any>;
+      orphan.package = 'Missing';
+      orphan.entry.package = 'Missing';
+      storage.values.set(entryEntityPath('Missing', 'Set.mem'), orphan);
+    }]
+  ])('rejects current Package membership divergence: %s', async (_label, mutate) => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    mutate(storage);
+
+    const inspection = await inspectStoredWorkspaceData(storage);
+
+    expect(inspection.status).toBe('invalid');
+    expect(inspection.message).toMatch(/entry_ids|membership|Package|Entry|entity path/i);
   });
 
   it('rolls back the config marker if topology changes inside the final commit seam', async () => {

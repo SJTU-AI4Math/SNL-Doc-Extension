@@ -90,15 +90,37 @@ export function rewriteMacroEntityRecord<T extends Record<string, unknown>>(
   };
 }
 
+export function packageManifestEntryIds(manifest: PackageManifest): readonly string[] | null {
+  return Array.isArray(manifest.entry_ids) ? manifest.entry_ids : null;
+}
+
 export function rewritePackageManifestRecord(
   record: PackageManifestRecord,
   name: string,
   description: string
 ): EntityFileRewrite<PackageManifest> {
+  const entryIds = packageManifestEntryIds(record.manifest);
+  const generated = makePackageManifest(record.manifest.id, name, description, entryIds ?? []);
+  if (entryIds === null) delete (generated as Partial<PackageManifest>).entry_ids;
+  return {
+    value: { ...record.manifest, ...generated },
+    expected: record.rawManifest
+  };
+}
+
+export function rewritePackageEntryMembership(
+  record: PackageManifestRecord,
+  entryIds: readonly string[]
+): EntityFileRewrite<PackageManifest> {
   return {
     value: {
       ...record.manifest,
-      ...makePackageManifest(record.manifest.id, name, description)
+      ...makePackageManifest(
+        record.manifest.id,
+        record.manifest.name,
+        record.manifest.description,
+        entryIds
+      )
     },
     expected: record.rawManifest
   };
@@ -272,6 +294,14 @@ function validatePackageManifest(path: string, value: unknown): PackageManifestR
     throw new Error(`${path} is not a valid SNL Package manifest.`);
   }
   const manifest = upgradePackageManifestSchema(value) as unknown as PackageManifest;
+  if (Object.hasOwn(manifest, 'entry_ids')) {
+    if (!Array.isArray(manifest.entry_ids) || manifest.entry_ids.some(
+      (entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()
+    ) || new Set(manifest.entry_ids).size !== manifest.entry_ids.length ||
+        manifest.entry_ids.some((entryId, index) => index > 0 && manifest.entry_ids[index - 1].localeCompare(entryId) > 0)) {
+      throw new Error(`${path}#entry_ids must be a sorted array of unique, non-empty canonical Entry ids.`);
+    }
+  }
   assertExpectedPath(path, packageManifestPath(manifest.id));
   return { path, rawManifest: value, manifest };
 }
@@ -308,6 +338,49 @@ export async function readEntryEntityRecordWithOwner(
     throw new Error(`Entry ${JSON.stringify(entryId)} references missing Package manifest ${JSON.stringify(packageId)}.`);
   }
   return entry;
+}
+
+/** Point-read exactly the Entry identities owned by an indexed Package. */
+export async function readIndexedPackageEntryRecords(
+  storage: EntityReadStorage,
+  packageId: string,
+  entryIds: readonly string[]
+): Promise<EntryEntityRecord[]> {
+  const records = await Promise.all(entryIds.map(async (entryId) => {
+    const record = await readEntryEntityRecord(storage, packageId, entryId);
+    if (!record) {
+      throw new Error(`Package ${JSON.stringify(packageId)} indexes missing Entry ${JSON.stringify(entryId)}.`);
+    }
+    return record;
+  }));
+  return records;
+}
+
+/**
+ * One-time compatibility read for a pre-index manifest. Directory metadata is
+ * filtered by the Package's exact deterministic filename shape before any
+ * entity is read, so unrelated Entry contents are never scanned.
+ */
+export async function readUnindexedPackageEntryRecords(
+  storage: EntityReadStorage,
+  packageId: string
+): Promise<EntryEntityRecord[]> {
+  const prefix = `${packageId}-`;
+  const files = (await storage.listJsonFiles('entries')).filter((file) =>
+    file.startsWith(prefix) && /^[0-9a-f]{20}\.json$/.test(file.slice(prefix.length))
+  );
+  const records: EntryEntityRecord[] = [];
+  for (const file of files) {
+    const path = `entries/${file}`;
+    const value = await storage.readJson(path);
+    if (value === null) throw new Error(`Entity file disappeared while reading: ${path}.`);
+    const record = validateEntryEntity(path, value);
+    if (record.envelope.package !== packageId) {
+      throw new Error(`${path} does not belong to Package ${JSON.stringify(packageId)}.`);
+    }
+    records.push(record);
+  }
+  return records.sort((left, right) => left.entry.id.localeCompare(right.entry.id));
 }
 
 export async function readPackageManifestRecords(storage: EntityReadStorage): Promise<PackageManifestRecord[]> {

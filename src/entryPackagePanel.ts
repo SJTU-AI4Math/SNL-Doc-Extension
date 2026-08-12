@@ -48,7 +48,7 @@ export class EntryPackagePanel {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = (): void => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = undefined; void this.pushPackage(); }, 120);
+      timer = setTimeout(() => { timer = undefined; if (!this.disposed) void this.pushPackage(); }, 120);
     };
     this.disposables.push({ dispose: () => { if (timer) clearTimeout(timer); } });
     const install = (glob: string, disposeOnDelete = false): void => {
@@ -63,7 +63,6 @@ export class EntryPackagePanel {
     // single-character globs avoid prefix collisions such as a vs a-b.
     install(`.SNL_Doc/entries/${this.packageId}-${'?'.repeat(20)}.json`);
     install('.SNL_Doc/config.json');
-    install('.SNL_Doc/macros/*.json');
     this.disposables.push(vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('snlDoc.metrics')) refresh();
     }));
@@ -73,12 +72,13 @@ export class EntryPackagePanel {
     const generation = ++this.generation;
     const root = firstWorkspaceFolder();
     if (!root) {
+      if (this.disposed || generation !== this.generation) return;
       void this.panel.webview.postMessage({ type: 'error', message: t()('noWorkspace') });
       return;
     }
     try {
       const snapshot = await readEntryPackagePanelSnapshot(root, this.packageId);
-      if (generation !== this.generation) return;
+      if (this.disposed || generation !== this.generation) return;
       if (snapshot.selected.status === 'noPackage') {
         void this.panel.webview.postMessage({ type: 'noEntryPackage', packageId: this.packageId });
         return;
@@ -89,7 +89,7 @@ export class EntryPackagePanel {
         metricThresholds: readEntryMetricThresholds()
       });
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (this.disposed || generation !== this.generation) return;
       void this.panel.webview.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -116,6 +116,7 @@ export class EntryPackagePanel {
   public dispose(disposePanel = true): void {
     if (this.disposed) return;
     this.disposed = true;
+    ++this.generation;
     EntryPackagePanel.panels.delete(this.packageId);
     if (disposePanel) this.panel.dispose();
     while (this.disposables.length) this.disposables.pop()?.dispose();

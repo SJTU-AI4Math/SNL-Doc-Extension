@@ -600,7 +600,8 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
     makePackageManifest(
       UNPACKAGED_PACKAGE_ID,
       'Unpackaged',
-      'Legacy Entries without an assigned package.'
+      'Legacy Entries without an assigned package.',
+      [...entryIds]
     )
   );
   const acceptCrashResidue = <T>(
@@ -625,6 +626,8 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
             : upgradeMacroEnvelopeSchema(value)
         : value;
       const expectedValue = expected.get(path)!;
+      const legacyPackageWithoutMembership = label === 'packages' && isRecord(value) &&
+        !Object.hasOwn(value, 'entry_ids');
       const normalizedExpected = explicitlyCurrentMacro
         ? migrateLegacyMacroEnvelopeToV11(
             context,
@@ -639,6 +642,9 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
               ? upgradeEntryEnvelopeSchema(expectedValue)
               : upgradeMacroEnvelopeSchema(expectedValue)
           : expectedValue;
+      if (legacyPackageWithoutMembership && isRecord(normalizedExpected)) {
+        delete (normalizedExpected as Record<string, unknown>).entry_ids;
+      }
       if (JSON.stringify(normalizedExpected) !== JSON.stringify(normalized)) {
         throw new Error(`Conflicting partial migration residue in ${label}: ${path}.`);
       }

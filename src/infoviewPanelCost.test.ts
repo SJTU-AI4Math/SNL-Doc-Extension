@@ -69,7 +69,7 @@ vi.mock('vscode', () => {
     switch (name) {
       case 'config.json':
         return JSON.stringify({
-          version: entityMode ? '0.0.10' : '0.0.4',
+          version: entityMode ? '0.0.11' : '0.0.4',
           active_macro_packages: entityMode ? [] : ALL_PACKAGES,
           entry_kinds: [{ id: 'k1', name: 'Definition', defaultCounterName: 'c', style: '', coloring: {
             light: { stroke: '#111111', background: '#eeeeee' },
@@ -137,7 +137,8 @@ vi.mock('vscode', () => {
         }
         if (path.includes('/packages/')) {
           return JSON.stringify({
-            format: 'snl-package', version: 1, id: 'logic', name: 'Logic', description: ''
+            format: 'snl-package', version: 1, schema_version: 2,
+            id: 'logic', name: 'Logic', description: '', entry_ids: ['e1', 'e2']
           });
         }
         return '{}';

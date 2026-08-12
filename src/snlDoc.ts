@@ -1115,16 +1115,34 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
       'Unpackaged',
       'Entries without an assigned package.'
     );
-    const unpackagedMatchesCurrent = async (): Promise<boolean> => {
-      const record = await readPackageManifestRecord(
-        entityReadStorage(workspaceRoot),
-        UNPACKAGED_PACKAGE_ID
-      );
-      return !!record && JSON.stringify(record.manifest) === JSON.stringify(unpackagedManifest);
+    const exactJsonObject = (actual: unknown, expected: Record<string, unknown>): boolean => {
+      if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+      const record = actual as Record<string, unknown>;
+      const keys = Object.keys(record);
+      return keys.length === Object.keys(expected).length &&
+        Object.entries(expected).every(([key, value]) =>
+          Object.hasOwn(record, key) && JSON.stringify(record[key]) === JSON.stringify(value)
+        );
     };
+    const unpackagedMatchesCurrent = async (): Promise<boolean> =>
+      exactJsonObject(await readJson<unknown>(unpackagedUri), unpackagedManifest);
     const unpackagedExists = await exists(unpackagedUri);
     if (unpackagedExists) {
-      if (!(await unpackagedMatchesCurrent())) {
+      const rawManifest = await readJson<unknown>(unpackagedUri);
+      const {
+        schema_version: _predecessorSchemaVersion,
+        entry_ids: _predecessorEntryIds,
+        ...predecessorManifest
+      } = unpackagedManifest;
+      if (exactJsonObject(rawManifest, predecessorManifest)) {
+        assertCurrentEntityFile(unpackagedPath, unpackagedManifest);
+        assertJsonSnapshotUnchanged(
+          rawManifest,
+          await readJson<unknown>(unpackagedUri),
+          unpackagedUri.fsPath
+        );
+        await fsApi.writeFile(unpackagedUri, jsonBytes(unpackagedManifest));
+      } else if (!exactJsonObject(rawManifest, unpackagedManifest)) {
         throw new Error('Cannot retry initialization: the existing _unpackaged manifest conflicts.');
       }
     }

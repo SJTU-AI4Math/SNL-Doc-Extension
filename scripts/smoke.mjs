@@ -233,7 +233,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.10', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.0.11', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -445,8 +445,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.10',
-    `config.version === "0.0.10" (got ${cfg.version})`
+    cfg.version === '0.0.11',
+    `config.version === "0.0.11" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -2830,7 +2830,13 @@ async function main() {
     description: 'Entries without an assigned package.'
   }, null, 2) + '\n');
   assert((await initSnlDoc(root11)).status === 'created', 'markerless pre-version initialization residue can be retried safely');
-  assert((await readConfig(tmpRoot11)).version === '0.0.10', 'retry commits the current config last');
+  const retriedInitManifest = JSON.parse(await fs.readFile(legacyInitManifestPath, 'utf8'));
+  assert(
+    retriedInitManifest.schema_version === 2 &&
+      Array.isArray(retriedInitManifest.entry_ids) && retriedInitManifest.entry_ids.length === 0,
+    'retry upgrades predecessor initialization residue before committing current config'
+  );
+  assert((await readConfig(tmpRoot11)).version === '0.0.11', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

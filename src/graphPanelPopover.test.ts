@@ -33,7 +33,7 @@ vi.mock('vscode', () => {
           state.readFiles.push(uri.path);
           if (uri.path.endsWith('/config.json')) {
             return encoder.encode(JSON.stringify({
-              version: '0.0.10',
+              version: '0.0.11',
               ...(!state.missingMetadata ? {
                 entity_storage: {
                   version: 1,
@@ -64,7 +64,8 @@ vi.mock('vscode', () => {
           if (uri.path.includes('/packages/')) {
             if (state.missingOwner) throw Object.assign(new Error('missing'), { code: 'FileNotFound' });
             return encoder.encode(JSON.stringify({
-              format: 'snl-package', version: 1, id: 'logic', name: 'Logic', description: ''
+              format: 'snl-package', version: 1, schema_version: 2,
+              id: 'logic', name: 'Logic', description: '', entry_ids: ['e1']
             }));
           }
           throw new Error(`unexpected read: ${uri.path}`);

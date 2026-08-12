@@ -23,7 +23,7 @@
 // dashed "+" bar (`AddBar`) that dispatches the section's create/init
 // message; when the list is empty the section shows only that bar.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { resolveWebviewKindColoring } from './render/kindColoring';
@@ -34,14 +34,6 @@ import { EmptyAction } from './components/EmptyAction';
 import { PanelHeader } from './components/PanelHeader';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
-import {
-  buildEntryMetricContext,
-  computeEntryMetrics,
-  DEFAULT_ENTRY_METRIC_THRESHOLDS,
-  EntryMetricValue,
-  type EntryMetricThresholds,
-  type SnlMacroSourceLookup
-} from './components/EntryMetrics';
 import {
   useVsCodeApiRef,
   PANEL_STYLE,
@@ -181,8 +173,6 @@ interface SnlOverview {
   macroPackages: MacroPackageSummary[];
   /** SNoogL search index — see AllMacroIndexEntry. */
   allMacros: AllMacroIndexEntry[];
-  metricMacroSources: SnlMacroSourceLookup;
-  metricThresholds: EntryMetricThresholds;
   entryKinds: EntryKind[];
   macroKinds: MacroKind[];
   relationships: RelationshipData[];
@@ -197,8 +187,6 @@ const EMPTY: SnlOverview = {
   libraries: [],
   macroPackages: [],
   allMacros: [],
-  metricMacroSources: {},
-  metricThresholds: DEFAULT_ENTRY_METRIC_THRESHOLDS,
   entryKinds: [],
   macroKinds: [],
   relationships: [],
@@ -254,9 +242,6 @@ export function DashboardApp(): React.ReactElement {
         ...EMPTY,
         ...msg.overview,
         entryPackages: Array.isArray(msg.overview.entryPackages) ? msg.overview.entryPackages : [],
-        metricMacroSources: msg.overview.metricMacroSources ?? {},
-        metricThresholds:
-          msg.overview.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS
       });
       setLoaded(true);
     }
@@ -1180,26 +1165,6 @@ function ThemedKindPreview({ coloring, width }: { coloring: ThemedKindColoring; 
   return <KindPreview stroke={resolved.stroke} background={resolved.background} width={width} />;
 }
 
-/** List of populated content formats for an entry, e.g. "snl, typst". */
-function populatedFormats(entry: EntryData): string {
-  const order: Array<keyof EntryData['content']> = [
-    'snl',
-    'typst',
-    'latex',
-    'markdown',
-    'text'
-  ];
-  const present = order.filter((k) => {
-    const v = entry.content?.[k];
-    return typeof v === 'string'
-      ? v.trim().length > 0
-      : !!v && Object.values(v.values).some(
-          (projection) => typeof projection === 'string' && projection.trim().length > 0
-        );
-  });
-  return present.length > 0 ? present.join(', ') : '—';
-}
-
 function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummary[]; onOpen: (packageId: string) => void }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
   return <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.5rem' }}>
@@ -1208,110 +1173,6 @@ function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummar
       <td style={CELL}>{pkg.name || pkg.id}</td><td style={{ ...CELL, ...MONO }}>{pkg.id}</td><td style={CELL}>{pkg.description || '—'}</td><td style={CELL}>{pkg.entryCount}</td>
     </ClickableRow>)}</tbody>
   </table>;
-}
-
-function EntriesTable({
-  entries,
-  kinds,
-  macroSources,
-  metricThresholds,
-  onOpen,
-  onDelete
-}: {
-  entries: EntryData[];
-  kinds: EntryKind[];
-  macroSources: SnlMacroSourceLookup;
-  metricThresholds: EntryMetricThresholds;
-  onOpen: (id: string) => void;
-  onDelete: (id: string) => void;
-}): React.ReactElement {
-  const t = useUiMessages(DASHBOARD_MESSAGES);
-  const contentLanguage = use_content_language();
-  const metricContext = useMemo(
-    () => buildEntryMetricContext(entries),
-    [entries]
-  );
-  return (
-    <table
-      style={{
-        width: '100%',
-        borderCollapse: 'collapse',
-        marginTop: '0.5rem',
-        fontSize: '0.95rem'
-      }}
-    >
-      <thead>
-        <tr>
-          <th style={{ ...HEAD, width: '3.5rem' }}>{t('colPreview')}</th>
-          <th style={HEAD}>{t('colTitle')}</th>
-          <th style={HEAD}>{t('colId')}</th>
-          <th style={HEAD}>{t('colKind')}</th>
-          <th style={HEAD}>{t('colFormats')}</th>
-          <th style={{ ...HEAD, textAlign: 'center' }}>{t('colStructuralIndex')}</th>
-          <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => {
-          const entryTitle = resolve_localized_string(entry.title, contentLanguage);
-          const kind = kinds.find((k) => k.id === entry.kind);
-          const metrics = computeEntryMetrics(
-            entry.content?.snl,
-            macroSources,
-            metricContext
-          );
-          return (
-            <ClickableRow
-              key={entry.id}
-              label={t('editEntry', { title: entryTitle })}
-              onActivate={() => onOpen(entry.id)}
-              primaryCellIndex={1}
-            >
-              <td style={CELL}>
-                {kind
-                  ? <ThemedKindPreview coloring={kind.coloring} width="2rem" />
-                  : <KindPreview stroke="#888888" background="#f0f0f0" width="2rem" />}
-              </td>
-              <td style={CELL}>{entryTitle}</td>
-              <td style={{ ...CELL, ...MONO }}>{entry.id}</td>
-              <td style={CELL}>
-                {kind ? (
-                  resolve_localized_string(kind.name, contentLanguage)
-                ) : (
-                  <span
-                    title={t('unknownKindTitle', { kind: entry.kind })}
-                    style={{
-                      display: 'inline-block',
-                      padding: '0.05rem 0.4rem',
-                      borderRadius: '3px',
-                      fontSize: '0.85rem',
-                      color: 'var(--vscode-errorForeground, #f14c4c)',
-                      border:
-                        '1px solid var(--vscode-errorForeground, #f14c4c)'
-                    }}
-                  >
-                    {t('unknownKind')}
-                  </span>
-                )}
-              </td>
-              <td style={{ ...CELL, ...MONO }}>{populatedFormats(entry)}</td>
-              <td style={{ ...CELL, textAlign: 'center' }}>
-                <EntryMetricValue
-                  result={metrics}
-                  metric="structuralIndex"
-                  thresholds={metricThresholds}
-                />
-              </td>
-              <RowDeleteCell
-                label={t('deleteEntry', { id: entry.id })}
-                onDelete={() => onDelete(entry.id)}
-              />
-            </ClickableRow>
-          );
-        })}
-      </tbody>
-    </table>
-  );
 }
 
 /**

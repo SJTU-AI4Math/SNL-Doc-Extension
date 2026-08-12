@@ -20,6 +20,7 @@ describe('CreateEntryPackageApp', () => {
   it('submits a genuine Entry Package payload and provides Dashboard back navigation', async () => {
     render(<CreateEntryPackageApp />);
     expect(postMessage).toHaveBeenCalledWith({ type: 'ready' });
+    expect(screen.queryByRole('button', { name: 'Refresh this panel from disk' })).toBeNull();
     fireEvent.change(screen.getByLabelText('Package ID'), { target: { value: 'logic' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Logic' } });
     fireEvent.change(screen.getByLabelText('Description (optional)'), { target: { value: 'Logical entries' } });

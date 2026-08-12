@@ -313,7 +313,14 @@ export async function revealResolvedPointer(resolved: ResolvedPointer): Promise<
     endPos = endLineText.range.end;
   }
   const selection = new vscode.Selection(startPos, endPos);
+  const targetUri = uri.toString();
+  const existingGroup = vscode.window.tabGroups.all.find((group) =>
+    group.tabs.some((tab) =>
+      tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === targetUri
+    )
+  );
   await vscode.window.showTextDocument(doc, {
+    viewColumn: existingGroup?.viewColumn ?? vscode.ViewColumn.One,
     selection,
     preserveFocus: false,
     preview: false

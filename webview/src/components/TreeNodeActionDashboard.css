@@ -1,3 +1,15 @@
+:root {
+  --snl-tree-board-opaque-background: #313131;
+}
+
+html[data-snl-color-scheme='light'] {
+  --snl-tree-board-opaque-background: #ffffff;
+}
+
+html[data-snl-color-scheme='dark'] {
+  --snl-tree-board-opaque-background: #313131;
+}
+
 .snl-tree-operation-cluster {
   display: flex;
   align-items: center;
@@ -10,7 +22,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1.5rem);
   grid-template-rows: repeat(3, 1.5rem);
-  background-color: #1e1e1e;
+  background-color: var(--snl-tree-board-opaque-background);
   background-image:
     linear-gradient(
       var(--vscode-editorWidget-background, transparent),

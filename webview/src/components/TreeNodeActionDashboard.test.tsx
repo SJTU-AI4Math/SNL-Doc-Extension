@@ -135,32 +135,40 @@ describe('TreeNodeActionDashboard', () => {
     });
   });
 
-  it('paints an opaque backing surface behind the complete grid', () => {
+  it('localizes the opaque backing to the tight grid without repainting its editor overlay', () => {
     const css = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
-    const dialRules = [...css.matchAll(/(?:^|})\s*\.snl-tree-operation-dial\s*\{([^}]*)\}/g)]
-      .map((match) => match[1]);
-    const effective = new Map<string, string>();
-    for (const rule of dialRules) {
-      for (const declaration of rule.split(';')) {
-        const separator = declaration.indexOf(':');
-        if (separator < 0) continue;
-        const property = declaration.slice(0, separator).trim();
-        const value = declaration.slice(separator + 1).trim()
-          .replace(/\s+/g, ' ')
-          .replace(/\(\s+/g, '(')
-          .replace(/\s+\)/g, ')');
-        if (property === 'background') {
-          effective.delete('background-color');
-          effective.delete('background-image');
-        }
-        effective.set(property, value);
-      }
-    }
-    expect(effective.get('background')).toBeUndefined();
-    expect(effective.get('background-color')).toBe('#1e1e1e');
-    expect(effective.get('background-image')).toBe(
-      'linear-gradient(var(--vscode-editorWidget-background, transparent), var(--vscode-editorWidget-background, transparent)), linear-gradient(var(--vscode-editor-background, transparent), var(--vscode-editor-background, transparent))'
+    const ruleBody = (selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matches = [...css.matchAll(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'g'))];
+      expect(matches, `unique rule for ${selector}`).toHaveLength(1);
+      return matches[0][1];
+    };
+    const properties = (body: string): Map<string, string> => new Map(
+      body.split(';').map((part) => part.trim()).filter(Boolean).map((part) => {
+        const separator = part.indexOf(':');
+        return [part.slice(0, separator).trim(), part.slice(separator + 1).trim().replace(/\s+/g, ' ')];
+      })
     );
+
+    expect(properties(ruleBody(':root')).get('--snl-tree-board-opaque-background')).toBe('#313131');
+    expect(properties(ruleBody("html[data-snl-color-scheme='light']")).get(
+      '--snl-tree-board-opaque-background'
+    )).toBe('#ffffff');
+    expect(properties(ruleBody("html[data-snl-color-scheme='dark']")).get(
+      '--snl-tree-board-opaque-background'
+    )).toBe('#313131');
+
+    const dial = properties(ruleBody('.snl-tree-operation-dial'));
+    expect(dial.get('background-color')).toBe('var(--snl-tree-board-opaque-background)');
+    expect(dial.get('background-image')).toContain('var(--vscode-editorWidget-background, transparent)');
+    expect(dial.get('grid-template-columns')).toBe('repeat(3, 1.5rem)');
+    expect(dial.get('grid-template-rows')).toBe('repeat(3, 1.5rem)');
+
+    const cluster = properties(ruleBody('.snl-tree-operation-cluster'));
+    expect([...cluster.keys()].some((property) =>
+      property.startsWith('background') || property === 'box-shadow'
+    )).toBe(false);
+    expect(css).not.toMatch(/\.snl-outline-row(?:-toolbar)?\s*\{[^}]*(?:background|box-shadow)/);
   });
 
   it('joins the parent and child plus signs to their dual elbow strokes', () => {

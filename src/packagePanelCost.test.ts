@@ -42,7 +42,8 @@ const state = vi.hoisted(() => ({
   entityInFlight: 0,
   maxEntityInFlight: 0,
   writes: [] as string[],
-  failOnceAt: null as string | null
+  failOnceAt: null as string | null,
+  mutateBeforeRead: null as ((relative: string) => void) | null
 }));
 
 function relativePath(uri: { path: string }): string {
@@ -53,7 +54,10 @@ vi.mock('vscode', () => ({
   ColorThemeKind: { Dark: 2 },
   FileType: { File: 1, Directory: 2 },
   env: { language: 'en' },
-  Uri: { joinPath: (base: { path: string }, ...parts: string[]) => ({ path: [base.path, ...parts].join('/') }) },
+  Uri: { joinPath: (base: { path: string }, ...parts: string[]) => {
+    const joined = [base.path, ...parts].join('/');
+    return { path: joined, fsPath: joined };
+  } },
   ViewColumn: { Active: -1 },
   RelativePattern: class {},
   commands: { executeCommand: async () => undefined },
@@ -94,6 +98,7 @@ vi.mock('vscode', () => ({
       },
       readFile: async (uri: { path: string }) => {
         const relative = relativePath(uri);
+        state.mutateBeforeRead?.(relative);
         state.entityReads.push(relative);
         state.entityInFlight += 1;
         state.maxEntityInFlight = Math.max(state.maxEntityInFlight, state.entityInFlight);
@@ -174,6 +179,54 @@ vi.mock('./snlDoc', async (importOriginal) => {
 
 const extensionUri = { path: '/ext' } as never;
 
+function entryKindConfig(): Record<string, unknown> {
+  return {
+    version: '0.0.11',
+    entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: {
+      light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' }
+    } }],
+    macro_kinds: [], active_macro_packages: [],
+    entity_storage: {
+      version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged',
+      receipt: {
+        legacy_backup_present: false, legacy_entries_present: false,
+        entry_count: 0, macro_package_count: 0, macro_count: 0,
+        entries_digest: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+        macro_packages_digest: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
+      }
+    }
+  };
+}
+
+function newEntry(id: string, packageId: string) {
+  return { id, package: packageId, kind: 'definition', title: 'Changed', content: { snl: '' }, pointer: null };
+}
+
+function seedEntryTransactionTopology(): void {
+  jsonByPath.clear(); state.writes.length = 0; state.failOnceAt = null; state.mutateBeforeRead = null;
+  jsonByPath.set('config.json', entryKindConfig());
+  jsonByPath.set(packageManifestPath('_unpackaged'), makePackageManifest('_unpackaged', 'Unpackaged', '', []));
+  jsonByPath.set(packageManifestPath('logic'), makePackageManifest('logic', 'Logic', '', []));
+  jsonByPath.set('entries/.gitkeep', null);
+  jsonByPath.set('macros/.gitkeep', null);
+}
+
+function seedMoveTransactionTopology(id: string) {
+  seedEntryTransactionTopology();
+  const oldEntry = makeEntryEnvelope('source', { ...newEntry(id, 'source'), title: 'Old' });
+  jsonByPath.delete(packageManifestPath('logic'));
+  jsonByPath.set(packageManifestPath('source'), makePackageManifest('source', 'Source', '', [id]));
+  jsonByPath.set(packageManifestPath('destination'), makePackageManifest('destination', 'Destination', '', []));
+  jsonByPath.set(entryEntityPath('source', id), oldEntry);
+  return oldEntry;
+}
+
+function seedDeleteTransactionTopology(id: string): void {
+  seedEntryTransactionTopology();
+  jsonByPath.set(packageManifestPath('logic'), makePackageManifest('logic', 'Logic', '', [id]));
+  jsonByPath.set(entryEntityPath('logic', id), makeEntryEnvelope('logic', { ...newEntry(id, 'logic'), title: 'Delete' }));
+}
+
 describe('PackagePanel read cost', () => {
   beforeEach(() => {
     seedCurrentTopology();
@@ -186,6 +239,7 @@ describe('PackagePanel read cost', () => {
     state.maxEntityInFlight = 0;
     state.writes.length = 0;
     state.failOnceAt = null;
+    state.mutateBeforeRead = null;
   });
 
   it('uses one operation-local snapshot for the selected package and all derived package data', async () => {
@@ -250,7 +304,8 @@ describe('PackagePanel read cost', () => {
         receipt: {
           legacy_backup_present: false, legacy_entries_present: false,
           entry_count: 0, macro_package_count: 0, macro_count: 0,
-          entries_digest: '', macro_packages_digest: ''
+          entries_digest: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+          macro_packages_digest: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
         }
       }
     });
@@ -339,6 +394,126 @@ describe('PackagePanel read cost', () => {
     expect(result).toMatchObject({ status: 'error' });
     expect(jsonByPath.get(manifestPath)).toEqual(makePackageManifest('logic', 'Logic', '', [id]));
     expect(jsonByPath.get(entityPath)).toEqual(entry);
+  });
+
+  it('restores exact create state for every publication fault and stale manifest CAS', async () => {
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const manifestPath = packageManifestPath('logic');
+    const entityPath = entryEntityPath('logic', 'logic.new');
+    for (const failedPath of [entityPath, manifestPath]) {
+      seedEntryTransactionTopology();
+      state.failOnceAt = failedPath;
+      const before = structuredClone([...jsonByPath]);
+      const result = await actual.addEntry(root, newEntry('logic.new', 'logic'));
+      expect(result, failedPath).toMatchObject({ status: 'error' });
+      expect(state.writes, failedPath).toContain(failedPath);
+      expect([...jsonByPath], failedPath).toEqual(before);
+    }
+
+    seedEntryTransactionTopology();
+    let mutated = false;
+    state.mutateBeforeRead = (relative) => {
+      if (!mutated && relative === manifestPath && state.writes.includes(entityPath)) {
+        mutated = true;
+        const manifest = structuredClone(jsonByPath.get(manifestPath)) as Record<string, unknown>;
+        manifest.description = 'external manifest edit';
+        jsonByPath.set(manifestPath, manifest);
+        state.mutateBeforeRead = null;
+      }
+    };
+    const result = await actual.addEntry(root, newEntry('logic.new', 'logic'));
+    expect(mutated).toBe(true);
+    expect(result).toMatchObject({ status: 'error' });
+    expect(jsonByPath.has(entityPath)).toBe(false);
+    expect(jsonByPath.get(manifestPath)).toMatchObject({ description: 'external manifest edit', entry_ids: [] });
+  });
+
+  it('restores exact move state for every publication fault and later manifest/entity CAS', async () => {
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const id = 'logic.move';
+    const sourceManifestPath = packageManifestPath('source');
+    const destinationManifestPath = packageManifestPath('destination');
+    const sourceEntryPath = entryEntityPath('source', id);
+    const destinationEntryPath = entryEntityPath('destination', id);
+    for (const failedPath of [destinationEntryPath, destinationManifestPath, sourceManifestPath, sourceEntryPath]) {
+      const oldEntry = seedMoveTransactionTopology(id);
+      state.failOnceAt = failedPath;
+      const before = structuredClone([...jsonByPath]);
+      const result = await actual.updateEntry(root, id, newEntry(id, 'destination'), actual.entityRevision(oldEntry.entry));
+      expect(result, failedPath).toMatchObject({ status: 'error' });
+      expect(state.writes, failedPath).toContain(
+        failedPath === sourceEntryPath ? `delete:${failedPath}` : failedPath
+      );
+      expect([...jsonByPath], failedPath).toEqual(before);
+    }
+
+    for (const [casPath, completedWrites] of [[sourceManifestPath, 2], [sourceEntryPath, 3]] as const) {
+      const oldEntry = seedMoveTransactionTopology(id);
+      const originalSourceManifest = structuredClone(jsonByPath.get(sourceManifestPath));
+      const originalDestinationManifest = structuredClone(jsonByPath.get(destinationManifestPath));
+      let mutated = false;
+      state.mutateBeforeRead = (relative) => {
+        if (!mutated && relative === casPath && state.writes.length === completedWrites) {
+          mutated = true;
+          const value = structuredClone(jsonByPath.get(casPath)) as Record<string, any>;
+          if (casPath === sourceManifestPath) value.description = 'external manifest edit';
+          else value.entry.title = 'external entity edit';
+          jsonByPath.set(casPath, value);
+          state.mutateBeforeRead = null;
+        }
+      };
+      const result = await actual.updateEntry(root, id, newEntry(id, 'destination'), actual.entityRevision(oldEntry.entry));
+      expect(mutated, casPath).toBe(true);
+      expect(result, casPath).toMatchObject({ status: 'error' });
+      expect(jsonByPath.get(destinationManifestPath), casPath).toEqual(originalDestinationManifest);
+      expect(jsonByPath.has(destinationEntryPath), casPath).toBe(false);
+      if (casPath === sourceManifestPath) {
+        expect(jsonByPath.get(sourceManifestPath)).toMatchObject({ description: 'external manifest edit', entry_ids: [id] });
+        expect(jsonByPath.get(sourceEntryPath)).toEqual(oldEntry);
+      } else {
+        expect(jsonByPath.get(sourceManifestPath)).toEqual(originalSourceManifest);
+        expect(jsonByPath.get(sourceEntryPath)).toMatchObject({ entry: { title: 'external entity edit' } });
+      }
+    }
+  });
+
+  it('restores exact delete state for every publication fault and stale entity CAS', async () => {
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const id = 'logic.delete';
+    const manifestPath = packageManifestPath('logic');
+    const entityPath = entryEntityPath('logic', id);
+    for (const failedPath of [manifestPath, entityPath]) {
+      seedDeleteTransactionTopology(id);
+      state.failOnceAt = failedPath;
+      const before = structuredClone([...jsonByPath]);
+      const result = await actual.deleteEntry(root, id, 'logic');
+      expect(result, failedPath).toMatchObject({ status: 'error' });
+      expect(state.writes, failedPath).toContain(
+        failedPath === entityPath ? `delete:${failedPath}` : failedPath
+      );
+      expect([...jsonByPath], failedPath).toEqual(before);
+    }
+
+    seedDeleteTransactionTopology(id);
+    const originalManifest = structuredClone(jsonByPath.get(manifestPath));
+    let mutated = false;
+    state.mutateBeforeRead = (relative) => {
+      if (!mutated && relative === entityPath && state.writes.length === 1) {
+        mutated = true;
+        const value = structuredClone(jsonByPath.get(entityPath)) as Record<string, any>;
+        value.entry.title = 'external entity edit';
+        jsonByPath.set(entityPath, value);
+        state.mutateBeforeRead = null;
+      }
+    };
+    const result = await actual.deleteEntry(root, id, 'logic');
+    expect(mutated).toBe(true);
+    expect(result).toMatchObject({ status: 'error' });
+    expect(jsonByPath.get(manifestPath)).toEqual(originalManifest);
+    expect(jsonByPath.get(entityPath)).toMatchObject({ entry: { title: 'external entity edit' } });
   });
 
   it('rejects stale Entry revisions and stale listed membership before publish', async () => {

@@ -54,6 +54,16 @@ it('requires current Package membership and validates every indexed Entry by poi
     .rejects.toThrow(/invalid canonical|does not match|package/i);
 });
 
+it.each([
+  ['markerless', withoutSchemaVersion(makePackageManifest('logic', 'Logic', ''))],
+  ['schema v1', { ...makePackageManifest('logic', 'Logic', ''), schema_version: 1 }]
+])('rejects a %s Package manifest on the strict current point-read path', async (_label, manifest) => {
+  await expect(readPackageManifestRecord(
+    mapStorage(new Map([[packageManifestPath('logic'), manifest]])),
+    'logic'
+  )).rejects.toThrow(/schema_version|schema version/i);
+});
+
 const macro = {
   name: 'Eq',
   description: '',
@@ -88,14 +98,13 @@ describe('legacy split-file schema compatibility', () => {
 
     const entryRecord = await readEntryEntityRecord(storage, 'logic', entry.id);
     const macroRecords = await readMacroEntityRecords(storage);
-    const packageRecord = await readPackageManifestRecord(storage, 'logic');
+    await expect(readPackageManifestRecord(storage, 'logic'))
+      .rejects.toThrow(/schema_version|schema version/i);
 
     expect(entryRecord?.envelope.schema_version).toBe(1);
     expect(macroRecords[0].envelope.schema_version).toBe(1);
-    expect(packageRecord?.manifest.schema_version).toBe(2);
     expect(entryRecord?.rawEnvelope).toBe(legacyEntry);
     expect(macroRecords[0].rawEnvelope).toBe(legacyMacro);
-    expect(packageRecord?.rawManifest).toBe(legacyPackage);
     ((entryRecord!.envelope.entry.content as Record<string, unknown>)).snl = 'mutated projection';
     expect((
       ((legacyEntry.entry as Record<string, unknown>).content as Record<string, unknown>).snl
@@ -157,10 +166,10 @@ describe('legacy split-file schema compatibility', () => {
       ...makeMacroEnvelope('logic', macro),
       vendor_extension: { keep: 'macro' }
     });
-    const legacyPackage = withoutSchemaVersion({
+    const legacyPackage = {
       ...makePackageManifest('logic', 'Logic', ''),
       vendor_extension: { keep: 'package' }
-    });
+    };
     const storage = mapStorage(new Map<string, unknown>([
       [entryEntityPath('logic', entry.id), legacyEntry],
       [macroEntityPath('logic', macro.name), legacyMacro],

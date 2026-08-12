@@ -129,7 +129,7 @@ export async function inspectStoredWorkspaceData(
         await readEntityStorageSnapshot(
           storage,
           macroSchemaVersion,
-          inspection.currentVersion === '0.0.10'
+          inspection.status === 'needsMigration'
         );
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));
       if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
@@ -145,6 +145,23 @@ export async function inspectStoredWorkspaceData(
       for (const { envelope } of entries) {
         if (!packageIds.has(envelope.package)) {
           throw new Error(`Entry entity references missing Package ${envelope.package}.`);
+        }
+      }
+      if (inspection.status === 'current') {
+        const entryIdsByOwner = new Map<string, string[]>(
+          packages.map(({ manifest }) => [manifest.id, []])
+        );
+        for (const { envelope, entry } of entries) {
+          entryIdsByOwner.get(envelope.package)!.push(entry.id);
+        }
+        for (const { manifest } of packages) {
+          const expectedEntryIds = entryIdsByOwner.get(manifest.id)!
+            .sort((left, right) => left.localeCompare(right));
+          if (!sameJson(manifest.entry_ids, expectedEntryIds)) {
+            throw new Error(
+              `Package ${JSON.stringify(manifest.id)} entry_ids diverges from the exact owner-derived Entry membership.`
+            );
+          }
         }
       }
       for (const { envelope } of macros) {

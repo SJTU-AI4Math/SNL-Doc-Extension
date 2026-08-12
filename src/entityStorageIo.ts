@@ -15,7 +15,6 @@ import {
   packageManifestPath,
   upgradeEntryEnvelopeSchema,
   upgradeMacroEnvelopeSchema,
-  upgradePackageManifestSchema,
   type EntryEnvelope,
   type MacroEnvelope,
   type PackageManifest
@@ -288,32 +287,50 @@ export async function readEntryEntityRecords(storage: EntityReadStorage): Promis
   return records.sort((left, right) => left.envelope.package.localeCompare(right.envelope.package) || left.entry.id.localeCompare(right.entry.id));
 }
 
-function validatePackageManifest(
+function validatePackageManifestBase(
   path: string,
-  value: unknown,
-  allowPredecessorMembership = false
-): PackageManifestRecord {
+  value: unknown
+): asserts value is Record<string, unknown> {
   if (!isRecord(value) || value.format !== 'snl-package' || value.version !== PACKAGE_STORAGE_VERSION ||
       typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.description !== 'string') {
     throw new Error(`${path} is not a valid SNL Package manifest.`);
   }
-  const predecessor = allowPredecessorMembership &&
-    (!Object.hasOwn(value, 'schema_version') || value.schema_version === 1);
-  const manifest = (predecessor
-    ? { ...structuredClone(value), schema_version: 1 }
-    : upgradePackageManifestSchema(value)) as unknown as PackageManifest;
-  const hasValidMembership = Array.isArray(manifest.entry_ids) &&
-    !manifest.entry_ids.some(
-      (entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()
-    ) && new Set(manifest.entry_ids).size === manifest.entry_ids.length &&
-    !manifest.entry_ids.some(
-      (entryId, index) => index > 0 && manifest.entry_ids[index - 1].localeCompare(entryId) > 0
-    );
-  if ((!predecessor && !Object.hasOwn(manifest, 'entry_ids')) ||
-      (Object.hasOwn(manifest, 'entry_ids') && !hasValidMembership)) {
+  assertExpectedPath(path, packageManifestPath(value.id));
+}
+
+function validateManifestMembership(path: string, manifest: Record<string, unknown>, required: boolean): void {
+  const entryIds = manifest.entry_ids;
+  const valid = Array.isArray(entryIds) &&
+    !entryIds.some((entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()) &&
+    new Set(entryIds).size === entryIds.length &&
+    !entryIds.some((entryId, index) => index > 0 && entryIds[index - 1].localeCompare(entryId) > 0);
+  if ((required && !Object.hasOwn(manifest, 'entry_ids')) ||
+      (Object.hasOwn(manifest, 'entry_ids') && !valid)) {
     throw new Error(`${path}#entry_ids must be a present sorted array of unique, non-empty canonical Entry ids.`);
   }
-  assertExpectedPath(path, packageManifestPath(manifest.id));
+}
+
+function validateCurrentPackageManifest(path: string, value: unknown): PackageManifestRecord {
+  validatePackageManifestBase(path, value);
+  if (value.schema_version !== CURRENT_PACKAGE_SCHEMA_VERSION) {
+    throw new Error(
+      `${path} must carry the current Package manifest schema_version ${CURRENT_PACKAGE_SCHEMA_VERSION}.`
+    );
+  }
+  const manifest = structuredClone(value) as unknown as PackageManifest;
+  validateManifestMembership(path, manifest, true);
+  return { path, rawManifest: value, manifest };
+}
+
+/** Historical Package decoding is migration-only; ordinary reads never call it. */
+function validateHistoricalPackageManifest(path: string, value: unknown): PackageManifestRecord {
+  validatePackageManifestBase(path, value);
+  const marker = Object.hasOwn(value, 'schema_version') ? value.schema_version : 1;
+  if (marker !== 1 && marker !== CURRENT_PACKAGE_SCHEMA_VERSION) {
+    throw new Error(`${path} has unsupported historical Package manifest schema_version ${String(marker)}.`);
+  }
+  const manifest = { ...structuredClone(value), schema_version: marker } as unknown as PackageManifest;
+  validateManifestMembership(path, manifest, marker === CURRENT_PACKAGE_SCHEMA_VERSION);
   return { path, rawManifest: value, manifest };
 }
 
@@ -325,7 +342,7 @@ export async function readPackageManifestRecord(
   const path = packageManifestPath(packageId);
   const value = await storage.readJson(path);
   if (value === null) return null;
-  const record = validatePackageManifest(path, value);
+  const record = validateCurrentPackageManifest(path, value);
   if (record.manifest.id !== packageId) {
     throw new Error(`${path} Package identity does not match the requested identity.`);
   }
@@ -368,20 +385,33 @@ export async function readIndexedPackageEntryRecords(
 }
 
 
-export async function readPackageManifestRecords(
+async function readPackageManifestRecordsWithDecoder(
   storage: EntityReadStorage,
-  allowPredecessorMembership = false
+  decode: (path: string, value: unknown) => PackageManifestRecord
 ): Promise<PackageManifestRecord[]> {
   const records: PackageManifestRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'packages')) {
-    const record = validatePackageManifest(path, value, allowPredecessorMembership);
+    const record = decode(path, value);
     const folded = record.manifest.id.toLowerCase();
     if (ids.has(folded)) throw new Error(`Duplicate Package identity under case-folding: ${record.manifest.id}.`);
     ids.add(folded);
     records.push(record);
   }
   return records.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
+}
+
+export async function readPackageManifestRecords(
+  storage: EntityReadStorage
+): Promise<PackageManifestRecord[]> {
+  return readPackageManifestRecordsWithDecoder(storage, validateCurrentPackageManifest);
+}
+
+/** Migration-only catalog read for markerless/schema-v1 Package manifests. */
+async function readHistoricalPackageManifestRecords(
+  storage: EntityReadStorage
+): Promise<PackageManifestRecord[]> {
+  return readPackageManifestRecordsWithDecoder(storage, validateHistoricalPackageManifest);
 }
 
 function validateMacroEntity(
@@ -428,7 +458,7 @@ export function assertCurrentEntityFile(path: string, value: unknown): void {
   }
   if (path.startsWith('packages/')) {
     assertMarker(CURRENT_PACKAGE_SCHEMA_VERSION);
-    validatePackageManifest(path, value);
+    validateCurrentPackageManifest(path, value);
     return;
   }
   if (path.startsWith('macros/')) {
@@ -461,7 +491,9 @@ export async function readEntityStorageSnapshot(
   allowPredecessorMembership = false
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
-    readPackageManifestRecords(storage, allowPredecessorMembership),
+    allowPredecessorMembership
+      ? readHistoricalPackageManifestRecords(storage)
+      : readPackageManifestRecords(storage),
     readEntryEntityRecords(storage),
     readMacroEntityRecords(storage, macroSchemaVersion)
   ]);

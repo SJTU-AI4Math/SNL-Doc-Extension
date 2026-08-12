@@ -1,10 +1,14 @@
 import type { VsCodeApi } from '../vscodeApi';
 
 interface PendingAsset {
-  image: HTMLImageElement;
   path: string;
   request_id: string;
 }
+
+type AssetResolution =
+  | { status: 'pending'; request_id: string }
+  | { status: 'ready'; url: string }
+  | { status: 'missing' };
 
 let nextRequest = 0;
 
@@ -34,19 +38,61 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
 } {
   const base = document.documentElement.dataset.snlAssetBaseUri?.replace(/\/$/, '') ?? '';
   const current = new WeakMap<HTMLImageElement, PendingAsset>();
+  const resolutions = new Map<string, AssetResolution>();
   let disposed = false;
+
+  const applyResolution = (
+    image: HTMLImageElement,
+    path: string,
+    resolution: Exclude<AssetResolution, { status: 'pending' }>
+  ): void => {
+    current.delete(image);
+    image.dataset.snlAssetPath = path;
+    if (resolution.status === 'ready') {
+      delete image.dataset.snlAssetError;
+      if (image.getAttribute('src') !== resolution.url) image.src = resolution.url;
+    } else {
+      image.removeAttribute('src');
+      image.dataset.snlAssetError = '';
+    }
+  };
+
+  const requestPath = (image: HTMLImageElement, path: string): void => {
+    image.dataset.snlAssetPath = path;
+    const existing = resolutions.get(path);
+    if (existing?.status === 'ready' || existing?.status === 'missing') {
+      applyResolution(image, path, existing);
+      return;
+    }
+
+    const request_id = existing?.request_id ?? `snl-markdown-asset-${++nextRequest}`;
+    current.set(image, { path, request_id });
+    delete image.dataset.snlAssetError;
+    image.removeAttribute('src');
+    if (existing) return;
+    resolutions.set(path, { status: 'pending', request_id });
+    api.postMessage({ type: 'snl.assets/resolve', request_id, path });
+  };
 
   const broker = (image: HTMLImageElement): void => {
     if (disposed || !base) return;
     const src = image.getAttribute('src') ?? '';
     const path = decodeWorkspacePath(src, base);
-    if (!path) return;
-    const request_id = `snl-markdown-asset-${++nextRequest}`;
-    const pending = { image, path, request_id };
-    current.set(image, pending);
-    image.dataset.snlAssetPath = path;
-    image.removeAttribute('src');
-    api.postMessage({ type: 'snl.assets/resolve', request_id, path });
+    if (path) requestPath(image, path);
+  };
+
+  const retryMissing = (): void => {
+    const missingPaths = new Set(
+      [...resolutions.entries()]
+        .filter(([, resolution]) => resolution.status === 'missing')
+        .map(([path]) => path)
+    );
+    if (!missingPaths.size) return;
+    for (const path of missingPaths) resolutions.delete(path);
+    for (const image of document.querySelectorAll<HTMLImageElement>('img[data-snl-asset-path]')) {
+      const path = image.dataset.snlAssetPath;
+      if (path && missingPaths.has(path)) requestPath(image, path);
+    }
   };
 
   const scan = (root: ParentNode): void => {
@@ -78,20 +124,28 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     const message = event.data as {
       type?: unknown; request_id?: unknown; path?: unknown; url?: unknown;
     } | null;
+    // Host context payloads are workspace refresh boundaries. A missing asset is
+    // terminal between boundaries, but must be retried after the workspace may
+    // have changed. The explicit invalidation message supports non-context hosts.
+    if (message?.type === 'context' || message?.type === 'entryDetails' ||
+        message?.type === 'snl.assets/invalidate') {
+      retryMissing();
+      return;
+    }
     if (message?.type !== 'snl.assets/resolved' ||
         typeof message.request_id !== 'string' || typeof message.path !== 'string') return;
+    const pending = resolutions.get(message.path);
+    if (pending?.status !== 'pending' || pending.request_id !== message.request_id) return;
+    const resolution: Exclude<AssetResolution, { status: 'pending' }> =
+      typeof message.url === 'string' && message.url
+        ? { status: 'ready', url: message.url }
+        : { status: 'missing' };
+    resolutions.set(message.path, resolution);
     for (const image of document.querySelectorAll<HTMLImageElement>('img[data-snl-asset-path]')) {
-      const pending = current.get(image);
-      if (!pending || pending.request_id !== message.request_id || pending.path !== message.path) {
-        continue;
+      const imagePending = current.get(image);
+      if (imagePending?.request_id === message.request_id && imagePending.path === message.path) {
+        applyResolution(image, message.path, resolution);
       }
-      current.delete(image);
-      if (typeof message.url === 'string' && message.url) {
-        image.src = message.url;
-      } else {
-        image.dataset.snlAssetError = '';
-      }
-      break;
     }
   };
   window.addEventListener('message', receive);
@@ -101,6 +155,7 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
       disposed = true;
       observer.disconnect();
       window.removeEventListener('message', receive);
+      resolutions.clear();
     }
   };
 }

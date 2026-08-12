@@ -10,6 +10,7 @@ vi.mock('vscode', () => ({
 import { createLibraryHostTranslator } from './createLibraryPanel';
 import { createDashboardHostTranslator } from './dashboardPanel';
 import { createPackageHostTranslator } from './packagePanel';
+import { createEntryPackageEditorHostTranslator } from './createEntryPackagePanel';
 
 describe('Library, Dashboard, and Package host localization', () => {
   it('localizes library panel titles, postMessage prose, and outline deletion UI', () => {
@@ -45,5 +46,14 @@ describe('Library, Dashboard, and Package host localization', () => {
       .toBe('拒绝移动——目标包中已存在：x, y。请先重命名或移除冲突项。');
     expect(t('duplicatePackage', { file: 'new-pack' })).toBe('名为“new-pack”的包已存在。');
     expect(t('noWorkspace')).toBe('未打开工作区文件夹。');
+  });
+
+  it('localizes the required Entry Package name before composing the validation message', () => {
+    const en = createEntryPackageEditorHostTranslator('en');
+    const zh = createEntryPackageEditorHostTranslator('zh-CN');
+    expect(en('invalid', { reason: en('nameRequired') }))
+      .toBe('Could not create Entry Package: Name is required.');
+    expect(zh('invalid', { reason: zh('nameRequired') }))
+      .toBe('无法创建条目包：名称为必填项。');
   });
 });

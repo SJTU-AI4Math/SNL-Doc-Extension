@@ -112,6 +112,12 @@ vi.mock('./snlDoc', () => ({
   readMacroKinds: async () => [],
   readMacroPackage: async () => null,
   readMacroPackages: async () => packageFiles.map((file) => ({ file })),
+  readEntryPackages: async () => packageFiles.map((file) => ({
+    id: file.replace(/\.json$/i, ''),
+    name: file.replace(/\.json$/i, ''),
+    description: '',
+    entryCount: 0
+  })),
   resolveActiveMacroPackages: async () => [],
   readEntries: async () => stored,
   readRelationships: async () => []

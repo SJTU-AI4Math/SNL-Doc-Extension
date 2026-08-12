@@ -11,6 +11,7 @@ const MESSAGES = defineHostMessages({
   noWorkspace: 'SNL Entry Package editor requires an open folder / workspace.',
   created: 'Entry Package “{id}” created.',
   duplicate: 'Entry Package “{id}” already exists.',
+  nameRequired: 'Name is required.',
   invalid: 'Could not create Entry Package: {reason}',
   failed: 'Could not create Entry Package: {error}'
 }, {
@@ -18,6 +19,7 @@ const MESSAGES = defineHostMessages({
   noWorkspace: 'SNL 条目包编辑器需要打开文件夹或工作区。',
   created: '条目包“{id}”已创建。',
   duplicate: '条目包“{id}”已存在。',
+  nameRequired: '名称为必填项。',
   invalid: '无法创建条目包：{reason}',
   failed: '无法创建条目包：{error}'
 });
@@ -38,6 +40,7 @@ export class CreateEntryPackagePanel {
   private static readonly viewType = 'snlCreateEntryPackage';
   private readonly disposables: vscode.Disposable[] = [];
   private disposed = false;
+  private generation = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
     if (this.instance) {
@@ -78,7 +81,9 @@ export class CreateEntryPackagePanel {
   }
 
   private async handleMessage(message: unknown): Promise<void> {
+    const generation = this.generation;
     if (await handlePanelNavMessage(message, undefined)) return;
+    if (this.disposed || generation !== this.generation) return;
     if (!message || typeof message !== 'object' || Array.isArray(message)) return;
     const msg = message as Record<string, unknown>;
     if (msg.type === 'ready') {
@@ -93,6 +98,7 @@ export class CreateEntryPackagePanel {
     try {
       assertPackageId(id);
     } catch (error) {
+      if (this.disposed || generation !== this.generation) return;
       void this.panel.webview.postMessage({
         type: 'invalid',
         message: t()('invalid', {
@@ -104,7 +110,7 @@ export class CreateEntryPackagePanel {
     if (!name) {
       void this.panel.webview.postMessage({
         type: 'invalid',
-        message: t()('invalid', { reason: 'name is required' })
+        message: t()('invalid', { reason: t()('nameRequired') })
       });
       return;
     }
@@ -116,10 +122,13 @@ export class CreateEntryPackagePanel {
 
     try {
       const result = await createEntryPackage(root, id, name, description);
+      if (this.disposed || generation !== this.generation) return;
       if (result.status === 'ok') {
         void vscode.window.showInformationMessage(t()('created', { id }));
         await this.panel.webview.postMessage({ type: 'created', packageId: id });
+        if (this.disposed || generation !== this.generation) return;
         await vscode.commands.executeCommand('snlDoc.openEntryPackage', id);
+        if (this.disposed || generation !== this.generation) return;
         return;
       }
       if (result.status === 'duplicate') {
@@ -144,6 +153,7 @@ export class CreateEntryPackagePanel {
         message: t()('failed', { error: result.message })
       });
     } catch (error) {
+      if (this.disposed || generation !== this.generation) return;
       void this.panel.webview.postMessage({
         type: 'error',
         message: t()('failed', { error: error instanceof Error ? error.message : String(error) })
@@ -154,6 +164,7 @@ export class CreateEntryPackagePanel {
   public dispose(disposePanel = true): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.generation += 1;
     CreateEntryPackagePanel.instance = undefined;
     if (disposePanel) this.panel.dispose();
     while (this.disposables.length) this.disposables.pop()?.dispose();

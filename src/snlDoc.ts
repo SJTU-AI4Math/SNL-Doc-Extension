@@ -3501,6 +3501,34 @@ export interface EntryPackageSummary {
   entryCount: number;
 }
 
+/**
+ * Read Entry Package picker summaries from Package manifests only.
+ *
+ * Package `entry_ids` is the authoritative point index for the count, so this
+ * path never scans Macro entities (or all Entry entities) merely to populate a
+ * package picker.
+ */
+export async function readEntryPackages(
+  workspaceRoot: vscode.Uri
+): Promise<EntryPackageSummary[]> {
+  if (!(await usesEntityStorage(workspaceRoot))) return [];
+  const records = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
+  return records
+    .map(({ manifest }) => {
+      const entryIds = packageManifestEntryIds(manifest);
+      if (entryIds === null) {
+        throw new Error(`Package ${JSON.stringify(manifest.id)} is missing its current Entry membership index.`);
+      }
+      return {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        entryCount: entryIds.length
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
 export interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null; // size of the shared entries.json pool

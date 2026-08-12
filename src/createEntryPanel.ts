@@ -21,6 +21,7 @@ import {
   listEntryKinds,
   readAllMacrosWithOrigin,
   readEntries,
+  readEntryPackages,
   readMacroPackage,
   readMacroPackages,
   readMacroKinds,
@@ -373,7 +374,7 @@ export class CreateEntryPanel {
       Awaited<ReturnType<typeof readMacroKinds>>,
       EntryData[],
       Awaited<ReturnType<typeof readRelationships>>,
-      Awaited<ReturnType<typeof readMacroPackages>>
+      Awaited<ReturnType<typeof readEntryPackages>>
     ];
     try {
       contextReads = await Promise.all([
@@ -382,7 +383,7 @@ export class CreateEntryPanel {
         timed('macroKinds', readMacroKinds(root)),
         timed('entries', readEntries(root)),
         timed('relationships', readRelationships(root)),
-        timed('entryPackages', readMacroPackages(root, true))
+        timed('entryPackages', readEntryPackages(root))
       ]);
     } catch (error) {
       if (generation !== this.contextGeneration) return;
@@ -439,7 +440,7 @@ export class CreateEntryPanel {
       entryRevision: existing ? entityRevision(existing) : undefined,
       entryPackages: Array.from(new Set([
         '_unpackaged',
-        ...entryPackages.map(({ file }) => file.replace(/\.json$/i, ''))
+        ...entryPackages.map(({ id }) => id)
       ])),
       existingIds: allEntries.map(toEntryOption),
       relationships: relationshipRows

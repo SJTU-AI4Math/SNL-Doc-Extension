@@ -25,7 +25,7 @@
         },
         "dark": {
           "stroke": "#94A3B8",
-          "background": "#1E293B"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "package",
@@ -56,7 +56,7 @@
         },
         "dark": {
           "stroke": "#7DD3FC",
-          "background": "#0C4A6E"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "module",
@@ -87,7 +87,7 @@
         },
         "dark": {
           "stroke": "#C084FC",
-          "background": "#3B0764"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "class",
@@ -118,7 +118,7 @@
         },
         "dark": {
           "stroke": "#60A5FA",
-          "background": "#172554"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "function",
@@ -149,7 +149,7 @@
         },
         "dark": {
           "stroke": "#22D3EE",
-          "background": "#164E63"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "async-function",
@@ -180,7 +180,7 @@
         },
         "dark": {
           "stroke": "#A5B4FC",
-          "background": "#312E81"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "method",
@@ -211,7 +211,7 @@
         },
         "dark": {
           "stroke": "#4ADE80",
-          "background": "#14532D"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "property",
@@ -242,7 +242,7 @@
         },
         "dark": {
           "stroke": "#FB923C",
-          "background": "#431407"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "decorator",
@@ -273,7 +273,7 @@
         },
         "dark": {
           "stroke": "#FDE047",
-          "background": "#422006"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "type-alias",
@@ -304,7 +304,7 @@
         },
         "dark": {
           "stroke": "#9CA3AF",
-          "background": "#1F2937"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "variable",
@@ -335,7 +335,7 @@
         },
         "dark": {
           "stroke": "#FB7185",
-          "background": "#4C0519"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "exception",
@@ -366,7 +366,7 @@
         },
         "dark": {
           "stroke": "#CBD5E1",
-          "background": "#0F172A"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "import",

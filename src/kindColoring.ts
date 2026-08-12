@@ -27,7 +27,7 @@ export const DEFAULT_LIGHT_KIND_COLORING: Readonly<KindColoringVariant> = {
 
 export const DEFAULT_DARK_KIND_COLORING: Readonly<KindColoringVariant> = {
   stroke: '#94A3B8',
-  background: '#1E293B'
+  background: '#313131'
 };
 
 function record(value: unknown): Record<string, unknown> | null {

@@ -169,6 +169,32 @@ describe('shipped Kind preset packages', () => {
     }
   });
 
+  it('includes Variable in the Lean 4 default Entry Kind preset', () => {
+    const lean = loadKindPresetPackages(resources, 'entry')
+      .find((preset) => preset.id === 'lean4-document')!;
+
+    expect(lean.kinds.find((kind) => kind.id === 'variable')).toMatchObject({
+      name: { values: { en: 'Variable', 'zh-CN': '变量' } },
+      description: { values: { en: 'Declares or documents a variable.', 'zh-CN': '声明或说明一个变量。' } },
+      coloring: {
+        light: { stroke: '#4B5563', background: '#F3F4F6' },
+        dark: { stroke: '#9CA3AF', background: '#313131' }
+      },
+      defaultCounterName: 'variable',
+      style: ''
+    });
+  });
+
+  it('uses one neutral background for every visible shipped dark Kind while retaining semantic strokes', () => {
+    const entries = loadKindPresetPackages(resources, 'entry');
+    const macros = loadKindPresetPackages(resources, 'macro');
+    const kinds = [...entries.flatMap((preset) => preset.kinds), ...macros.flatMap((preset) => preset.kinds)];
+    const visibleKinds = kinds.filter((kind) => kind.coloring.dark.background !== 'transparent');
+
+    expect(new Set(visibleKinds.map((kind) => kind.coloring.dark.background))).toEqual(new Set(['#313131']));
+    expect(new Set(visibleKinds.map((kind) => kind.coloring.dark.stroke)).size).toBeGreaterThan(1);
+  });
+
   it('is included by VS Code extension packaging rules', () => {
     const vscodeIgnore = readFileSync(resolve(__dirname, '..', '.vscodeignore'), 'utf8');
     expect(vscodeIgnore).not.toMatch(/^resources\/kind-presets/m);

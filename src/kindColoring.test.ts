@@ -185,7 +185,7 @@ describe('Kind themed coloring', () => {
 
   it('uses distinct new-record defaults for light and dark themes', () => {
     expect(DEFAULT_LIGHT_KIND_COLORING).toEqual({ stroke: '#475569', background: '#F1F5F9' });
-    expect(DEFAULT_DARK_KIND_COLORING).toEqual({ stroke: '#94A3B8', background: '#1E293B' });
+    expect(DEFAULT_DARK_KIND_COLORING).toEqual({ stroke: '#94A3B8', background: '#313131' });
     expect(DEFAULT_LIGHT_KIND_COLORING).not.toEqual(DEFAULT_DARK_KIND_COLORING);
   });
 
@@ -195,7 +195,7 @@ describe('Kind themed coloring', () => {
       dark: { stroke: '#dddddd', background: '' }
     })).toEqual({
       light: { stroke: '#475569', background: '#ffffff' },
-      dark: { stroke: '#dddddd', background: '#1E293B' }
+      dark: { stroke: '#dddddd', background: '#313131' }
     });
   });
 });

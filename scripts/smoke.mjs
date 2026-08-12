@@ -473,7 +473,7 @@ async function main() {
       defn.coloring.light.stroke === '#00651B' &&
       defn.coloring.light.background === '#D6FEE0' &&
       defn.coloring.dark.stroke === '#4ADE80' &&
-      defn.coloring.dark.background === '#14532D',
+      defn.coloring.dark.background === '#313131',
     'definition coloring matches Fulcrum preset'
   );
   // 2026-07-16: EntryKind.numbering renamed to defaultCounterName (a plain
@@ -1268,7 +1268,7 @@ async function main() {
     ruleKind.coloring.light.stroke === '#00651B' &&
       ruleKind.coloring.light.background === '#D6FEE0' &&
       ruleKind.coloring.dark.stroke === '#4ADE80' &&
-      ruleKind.coloring.dark.background === '#14532D',
+      ruleKind.coloring.dark.background === '#313131',
     'rule kind colors match the themed green preset'
   );
   const subKind = mkAfterPreset.find((k) => k.id === 'sub');

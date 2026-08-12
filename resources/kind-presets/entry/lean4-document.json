@@ -25,7 +25,7 @@
         },
         "dark": {
           "stroke": "#94A3B8",
-          "background": "#1E293B"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "module",
@@ -56,7 +56,7 @@
         },
         "dark": {
           "stroke": "#7DD3FC",
-          "background": "#0C4A6E"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "namespace",
@@ -87,7 +87,7 @@
         },
         "dark": {
           "stroke": "#5EEAD4",
-          "background": "#134E4A"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "section",
@@ -98,6 +98,37 @@
         "values": {
           "en": "A section that organizes related entries.",
           "zh-CN": "用于组织相关条目的章节。"
+        }
+      }
+    },
+    {
+      "id": "variable",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Variable",
+          "zh-CN": "变量"
+        }
+      },
+      "coloring": {
+        "light": {
+          "stroke": "#4B5563",
+          "background": "#F3F4F6"
+        },
+        "dark": {
+          "stroke": "#9CA3AF",
+          "background": "#313131"
+        }
+      },
+      "defaultCounterName": "variable",
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares or documents a variable.",
+          "zh-CN": "声明或说明一个变量。"
         }
       }
     },
@@ -118,7 +149,7 @@
         },
         "dark": {
           "stroke": "#4ADE80",
-          "background": "#14532D"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "definition",
@@ -149,7 +180,7 @@
         },
         "dark": {
           "stroke": "#60A5FA",
-          "background": "#172554"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "theorem",
@@ -180,7 +211,7 @@
         },
         "dark": {
           "stroke": "#A5B4FC",
-          "background": "#312E81"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "lemma",
@@ -211,7 +242,7 @@
         },
         "dark": {
           "stroke": "#C084FC",
-          "background": "#3B0764"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "structure",
@@ -242,7 +273,7 @@
         },
         "dark": {
           "stroke": "#D8B4FE",
-          "background": "#581C87"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "class",
@@ -273,7 +304,7 @@
         },
         "dark": {
           "stroke": "#FB923C",
-          "background": "#431407"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "instance",
@@ -304,7 +335,7 @@
         },
         "dark": {
           "stroke": "#FB7185",
-          "background": "#4C0519"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "inductive",
@@ -335,7 +366,7 @@
         },
         "dark": {
           "stroke": "#FDE047",
-          "background": "#422006"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "syntax",
@@ -366,7 +397,7 @@
         },
         "dark": {
           "stroke": "#9CA3AF",
-          "background": "#1F2937"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "command",
@@ -397,7 +428,7 @@
         },
         "dark": {
           "stroke": "#5EEAD4",
-          "background": "#134E4A"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "example",
@@ -428,7 +459,7 @@
         },
         "dark": {
           "stroke": "#CBD5E1",
-          "background": "#0F172A"
+          "background": "#313131"
         }
       },
       "defaultCounterName": "documentation",

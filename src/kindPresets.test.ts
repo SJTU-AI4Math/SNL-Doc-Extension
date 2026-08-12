@@ -188,11 +188,20 @@ describe('shipped Kind preset packages', () => {
   it('uses one neutral background for every visible shipped dark Kind while retaining semantic strokes', () => {
     const entries = loadKindPresetPackages(resources, 'entry');
     const macros = loadKindPresetPackages(resources, 'macro');
-    const kinds = [...entries.flatMap((preset) => preset.kinds), ...macros.flatMap((preset) => preset.kinds)];
-    const visibleKinds = kinds.filter((kind) => kind.coloring.dark.background !== 'transparent');
+    const kinds = [...entries, ...macros].flatMap((preset) =>
+      preset.kinds.map((kind) => ({ identity: `${preset.id}/${kind.id}`, kind }))
+    );
+    const transparentKindIdentities = kinds
+      .filter(({ kind }) => kind.coloring.dark.background === 'transparent')
+      .map(({ identity }) => identity);
 
-    expect(new Set(visibleKinds.map((kind) => kind.coloring.dark.background))).toEqual(new Set(['#313131']));
-    expect(new Set(visibleKinds.map((kind) => kind.coloring.dark.stroke)).size).toBeGreaterThan(1);
+    expect(transparentKindIdentities).toEqual(['snl-basics-defaults/sub']);
+    for (const { identity, kind } of kinds) {
+      if (identity !== 'snl-basics-defaults/sub') {
+        expect(kind.coloring.dark.background, identity).toBe('#313131');
+      }
+    }
+    expect(new Set(kinds.map(({ kind }) => kind.coloring.dark.stroke)).size).toBeGreaterThan(1);
   });
 
   it('is included by VS Code extension packaging rules', () => {

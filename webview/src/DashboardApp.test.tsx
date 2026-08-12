@@ -215,7 +215,7 @@ describe('Dashboard library actions', () => {
     });
   });
 
-  it('shows a single SNL Structural Index column for entries', async () => {
+  it('keeps Entry metrics out of the package-first Dashboard surface', async () => {
     render(<DashboardApp />);
 
     window.dispatchEvent(
@@ -233,6 +233,7 @@ describe('Dashboard library actions', () => {
                 content: { snl: 'free' }
               }
             ],
+            entryPackages: [{ id: 'logic', name: 'Logic', description: 'Logical entries', entryCount: 1 }],
             libraries: [],
             macroPackages: [],
             allMacros: [],
@@ -245,12 +246,14 @@ describe('Dashboard library actions', () => {
       })
     );
 
-    await screen.findByText('Entries');
-    const entriesToggle = screen.getByText('Entries').closest('button');
-    if (!entriesToggle) throw new Error('Entries toggle not found');
-    fireEvent.click(entriesToggle);
+    await screen.findByText('Entry Packages');
+    const packagesToggle = screen.getByText('Entry Packages').closest('button');
+    if (!packagesToggle) throw new Error('Entry Packages toggle not found');
+    fireEvent.click(packagesToggle);
 
-    expect(await screen.findByText('SNL Structural Index')).toBeTruthy();
+    expect(await screen.findByText('Logic')).toBeTruthy();
+    expect(screen.queryByText('Entry One')).toBeNull();
+    expect(screen.queryByText('SNL Structural Index')).toBeNull();
     expect(screen.queryByText('Semantic freedom')).toBeNull();
     expect(screen.queryByText('Structured')).toBeNull();
   });
@@ -333,12 +336,41 @@ describe('Dashboard Chinese localization', () => {
 
     expect(await screen.findByText('数据维护')).toBeTruthy();
     expect(screen.getByText('库')).toBeTruthy();
-    expect(screen.getByText('共享条目')).toBeTruthy();
+    expect(screen.getByText('条目包')).toBeTruthy();
     const createLibrary = screen.getByRole('button', { name: '+ 创建库' });
     expect(createLibrary.getAttribute('title')).toBe('打开创建库面板');
     const graphButton = screen.getByRole('button', { name: '查看关系图' });
     expect(graphButton.getAttribute('title')).toBe('打开共享池的完整关系图');
     expect(graphButton.textContent).toContain('查看关系图');
     expect(screen.queryByText('Libraries')).toBeNull();
+  });
+});
+
+
+describe('Dashboard Entry Packages', () => {
+  it('replaces the flat Entries table with package rows and routes create/open actions', async () => {
+    render(<DashboardApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'overview', overview: {
+        hasSnlDoc: true, totalEntryCount: 1,
+        entries: [{ id: 'hidden-entry', kind: 'definition', title: 'Must not render on root', content: {} }],
+        entryPackages: [{ id: 'logic', name: 'Logic', description: 'Logical entries', entryCount: 1 }],
+        libraries: [], macroPackages: [], allMacros: [], metricMacroSources: {},
+        entryKinds: [], macroKinds: [], relationships: []
+      }
+    }}));
+
+    const section = await screen.findByText('Entry Packages');
+    fireEvent.click(section.closest('button') as HTMLButtonElement);
+    expect(screen.getByText('Logic')).toBeTruthy();
+    expect(screen.getByText('Logical entries')).toBeTruthy();
+    expect(screen.queryByText('Must not render on root')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '+ Create Entry Package' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Entry Package logic' }));
+
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith({ type: 'createEntryPackage' });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'openEntryPackage', packageId: 'logic' });
+    });
   });
 });

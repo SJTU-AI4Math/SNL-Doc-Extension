@@ -35,6 +35,8 @@ const MATH_FREE = [
   'createEntryKind',
   'createMacroKind',
   'createMacroPackage',
+  'createEntryPackage',
+  'entryPackagePanel',
   'createRelationship',
   'createLibrary',
   'dashboard',

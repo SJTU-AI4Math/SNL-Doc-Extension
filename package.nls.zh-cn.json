@@ -33,6 +33,7 @@
   "snlDoc.command.createMacroKind": "SNL：创建宏类型",
   "snlDoc.command.createEntry": "SNL：创建条目",
   "snlDoc.command.createEntryPackage": "SNL：创建条目包",
+  "snlDoc.command.openEntryPackage": "SNL：打开条目包",
   "snlDoc.command.createMacroPackage": "SNL：创建宏包",
   "snlDoc.command.openMacroPackage": "SNL：打开宏包…",
   "snlDoc.command.createMacro": "SNL：创建宏",

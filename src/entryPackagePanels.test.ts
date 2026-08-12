@@ -152,7 +152,19 @@ describe('Entry Package host panels', () => {
     const receive = mocks.receivers[0];
     await receive({ type: 'create', id: '../macro', name: 'Wrong', description: '' });
     expect(mocks.createPackage).not.toHaveBeenCalled();
-    expect(mocks.posts.at(-1)).toMatchObject({ type: 'invalid' });
+    expect(mocks.posts.at(-1)).toEqual({ type: 'invalid', code: 'invalid-format' });
+
+    for (const id of ['con', 'PRN', 'LPT1']) {
+      await receive({ type: 'create', id, name: 'Reserved', description: '' });
+      expect(mocks.posts.at(-1)).toEqual({
+        type: 'invalid', code: 'reserved-windows-name'
+      });
+    }
+    expect(mocks.createPackage).not.toHaveBeenCalled();
+
+    await receive({ type: 'create', id: 'logic', name: '   ', description: '' });
+    expect(mocks.posts.at(-1)).toEqual({ type: 'invalid', code: 'name-required' });
+    expect(mocks.createPackage).not.toHaveBeenCalled();
 
     await receive({ type: 'create', id: 'logic', name: 'Logic', description: 'Entries' });
     expect(mocks.createPackage).toHaveBeenCalledWith({ path: '/ws' }, 'logic', 'Logic', 'Entries');

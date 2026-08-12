@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createEntryPackage } from './snlDoc';
-import { assertPackageId } from './entityStorage';
+import { validatePackageId } from './packageIdValidation';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage, webviewLocalResourceRoots } from './panelUtil';
 import { bind_preferences_panel_title } from './preferencesHost';
@@ -11,16 +11,12 @@ const MESSAGES = defineHostMessages({
   noWorkspace: 'SNL Entry Package editor requires an open folder / workspace.',
   created: 'Entry Package “{id}” created.',
   duplicate: 'Entry Package “{id}” already exists.',
-  nameRequired: 'Name is required.',
-  invalid: 'Could not create Entry Package: {reason}',
   failed: 'Could not create Entry Package: {error}'
 }, {
   title: 'SNL 创建条目包',
   noWorkspace: 'SNL 条目包编辑器需要打开文件夹或工作区。',
   created: '条目包“{id}”已创建。',
   duplicate: '条目包“{id}”已存在。',
-  nameRequired: '名称为必填项。',
-  invalid: '无法创建条目包：{reason}',
   failed: '无法创建条目包：{error}'
 });
 
@@ -95,23 +91,14 @@ export class CreateEntryPackagePanel {
     const id = typeof msg.id === 'string' ? msg.id.trim() : '';
     const name = typeof msg.name === 'string' ? msg.name.trim() : '';
     const description = typeof msg.description === 'string' ? msg.description.trim() : '';
-    try {
-      assertPackageId(id);
-    } catch (error) {
+    const idValidationError = validatePackageId(id);
+    if (idValidationError) {
       if (this.disposed || generation !== this.generation) return;
-      void this.panel.webview.postMessage({
-        type: 'invalid',
-        message: t()('invalid', {
-          reason: error instanceof Error ? error.message : String(error)
-        })
-      });
+      void this.panel.webview.postMessage({ type: 'invalid', code: idValidationError });
       return;
     }
     if (!name) {
-      void this.panel.webview.postMessage({
-        type: 'invalid',
-        message: t()('invalid', { reason: t()('nameRequired') })
-      });
+      void this.panel.webview.postMessage({ type: 'invalid', code: 'name-required' });
       return;
     }
     const root = firstWorkspaceFolder();
@@ -138,10 +125,7 @@ export class CreateEntryPackagePanel {
         return;
       }
       if (result.status === 'invalid') {
-        void this.panel.webview.postMessage({
-          type: 'invalid',
-          message: t()('invalid', { reason: result.reason })
-        });
+        void this.panel.webview.postMessage({ type: 'invalid', code: 'invalid-format' });
         return;
       }
       if (result.status === 'noSnlDoc') {

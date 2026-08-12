@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { validatePackageId } from './packageIdValidation';
 
 export const PACKAGE_STORAGE_VERSION = 1 as const;
 export const ENTRY_STORAGE_VERSION = 1 as const;
@@ -40,17 +41,14 @@ export interface MacroEnvelope<T extends Record<string, unknown> = Record<string
   macro: T;
 }
 
-const PACKAGE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
-
 export function assertPackageId(packageId: string): void {
-  if (packageId !== UNPACKAGED_PACKAGE_ID &&
-      (!PACKAGE_ID_RE.test(packageId) || packageId.toLowerCase().endsWith('.json'))) {
+  const validationError = validatePackageId(packageId);
+  if (validationError === 'invalid-format') {
     throw new Error(
       `Package id ${JSON.stringify(packageId)} must be 1-64 ASCII letters, digits, dots, underscores, or hyphens, start with a letter or digit, and not end in .json.`
     );
   }
-  if (WINDOWS_DEVICE_RE.test(packageId)) {
+  if (validationError === 'reserved-windows-name') {
     throw new Error(`Package id ${JSON.stringify(packageId)} is a reserved Windows device name.`);
   }
 }

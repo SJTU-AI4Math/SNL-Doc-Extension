@@ -2,27 +2,29 @@ import React, { useEffect, useState } from 'react';
 import { PanelHeader } from './components/PanelHeader';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { PANEL_STYLE, useVsCodeApiRef } from './vscodeApi';
+import { validatePackageId, type PackageIdValidationCode } from '../../src/packageIdValidation';
 
 const MESSAGES = defineUiMessages('createEntryPackage', {
   title: 'Create Entry Package', dashboard: 'Dashboard', backDashboard: 'Back to Dashboard',
   id: 'Package ID', idHint: 'Stable identity: letters, digits, dots, underscores, or hyphens.',
   name: 'Display name', description: 'Description (optional)', create: 'Create Entry Package',
   creating: 'Creating…', created: 'Entry Package created.', invalidId: 'Enter a valid Package ID.',
-  nameRequired: 'Display name is required.'
+  reservedId: 'This Package ID is reserved by Windows.', nameRequired: 'Display name is required.'
 }, {
   title: '创建条目包', dashboard: '仪表板', backDashboard: '返回仪表板',
   id: '包 ID', idHint: '稳定标识：字母、数字、点、下划线或连字符。',
   name: '显示名称', description: '说明（可选）', create: '创建条目包',
   creating: '正在创建…', created: '条目包已创建。', invalidId: '请输入有效的包 ID。',
-  nameRequired: '显示名称为必填项。'
+  reservedId: '此包 ID 是 Windows 保留名称。', nameRequired: '显示名称为必填项。'
 });
 
-const PACKAGE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+type CreatorValidationCode = PackageIdValidationCode | 'name-required';
 
 type Incoming =
   | { type: 'context' }
   | { type: 'created'; packageId: string }
-  | { type: 'duplicate' | 'invalid' | 'error' | 'noWorkspace'; message: string };
+  | { type: 'invalid'; code: CreatorValidationCode }
+  | { type: 'duplicate' | 'error' | 'noWorkspace'; message: string };
 
 export function CreateEntryPackageApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
@@ -33,8 +35,8 @@ export function CreateEntryPackageApp(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
   const canonicalId = id.trim();
-  const idValid = PACKAGE_ID_RE.test(canonicalId) &&
-    !canonicalId.toLowerCase().endsWith('.json');
+  const idValidationError = validatePackageId(canonicalId);
+  const idValid = idValidationError === null;
   const canCreate = idValid && name.trim().length > 0 && !busy;
 
   useEffect(() => {
@@ -44,8 +46,13 @@ export function CreateEntryPackageApp(): React.ReactElement {
       if (msg.type === 'created') {
         setBusy(false);
         setStatus({ kind: 'ok', message: t('created') });
-      } else if (msg.type === 'duplicate' || msg.type === 'invalid' ||
-                 msg.type === 'error' || msg.type === 'noWorkspace') {
+      } else if (msg.type === 'invalid') {
+        setBusy(false);
+        const message = msg.code === 'reserved-windows-name'
+          ? t('reservedId')
+          : msg.code === 'name-required' ? t('nameRequired') : t('invalidId');
+        setStatus({ kind: 'error', message });
+      } else if (msg.type === 'duplicate' || msg.type === 'error' || msg.type === 'noWorkspace') {
         setBusy(false);
         setStatus({ kind: 'error', message: msg.message });
       }

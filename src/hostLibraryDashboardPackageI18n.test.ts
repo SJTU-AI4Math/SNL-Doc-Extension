@@ -48,12 +48,10 @@ describe('Library, Dashboard, and Package host localization', () => {
     expect(t('noWorkspace')).toBe('未打开工作区文件夹。');
   });
 
-  it('localizes the required Entry Package name before composing the validation message', () => {
+  it('localizes Entry Package host failures', () => {
     const en = createEntryPackageEditorHostTranslator('en');
     const zh = createEntryPackageEditorHostTranslator('zh-CN');
-    expect(en('invalid', { reason: en('nameRequired') }))
-      .toBe('Could not create Entry Package: Name is required.');
-    expect(zh('invalid', { reason: zh('nameRequired') }))
-      .toBe('无法创建条目包：名称为必填项。');
+    expect(en('failed', { error: 'disk' })).toBe('Could not create Entry Package: disk');
+    expect(zh('failed', { error: '磁盘' })).toBe('无法创建条目包：磁盘');
   });
 });

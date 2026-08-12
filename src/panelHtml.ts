@@ -18,7 +18,7 @@ export function panel_content_security_policy(nonce: string, cspSource: string):
     `script-src 'nonce-${nonce}' ${cspSource}`,
     `style-src ${cspSource} 'unsafe-inline'`,
     `img-src ${cspSource} data:`,
-    `font-src ${cspSource}`,
+    `font-src ${cspSource} data:`,
     `worker-src ${cspSource} blob:`
   ].join('; ');
 }

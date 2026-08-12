@@ -13,8 +13,18 @@
       "group": "build"
     },
     {
+      "label": "sync:dependencies",
+      "type": "npm",
+      "script": "sync:dependencies",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
       "label": "build",
       "dependsOn": [
+        "sync:dependencies",
         "compile",
         "build:export-runtime",
         "build:webview"

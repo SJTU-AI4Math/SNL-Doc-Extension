@@ -427,6 +427,7 @@
   },
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
+    "sync:dependencies": "npm install --include=dev --no-audit --no-fund",
     "compile": "node scripts/clean-out.mjs && tsc -p ./ && npm run build:host-basics",
     "build:host-basics": "node scripts/build-snl-basics-host.mjs",
     "build:export-runtime": "node scripts/build-export-runtime.mjs",

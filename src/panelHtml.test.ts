@@ -27,6 +27,7 @@ describe('panel HTML preference bootstrap', () => {
     const policy = panel_content_security_policy('abc123', 'vscode-webview://unit');
     expect(policy).toContain("script-src 'nonce-abc123' vscode-webview://unit");
     expect(policy).toContain('worker-src vscode-webview://unit blob:');
+    expect(policy).toContain('font-src vscode-webview://unit data:');
     expect(policy).not.toContain('unsafe-eval');
   });
 

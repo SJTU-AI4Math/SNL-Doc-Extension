@@ -23,6 +23,7 @@ const popovers = vi.hoisted(() => ({
 
 vi.mock('../runtime/preferencesRuntime', () => ({
   use_preferences_revision: () => 0,
+  use_content_language: () => 'en',
   get_popover_preferences: () => ({ hoverEnabled: state.hoverEnabled }),
   get_content_language: () => 'en',
   webview_language_runtime: {}

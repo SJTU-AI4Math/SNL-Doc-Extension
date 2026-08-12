@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadKindPresetPackages } from './kindPresets';
+import { is_valid_i18n_string } from './localizedContent';
 
 function relativeLuminance(hex: string): number {
   const channels = [1, 3, 5]
@@ -33,7 +34,7 @@ function fixtureRoot(): string {
 function entryPackage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schema: 'snl-doc.kind-preset',
-    version: 2,
+    version: 3,
     domain: 'entry',
     id: 'example-entry',
     copyKeys: { label: 'leanLabel', description: 'leanDescription' },
@@ -63,6 +64,31 @@ describe('loadKindPresetPackages', () => {
 
     expect(presets.map((preset) => preset.id)).toEqual(['a-preset', 'z-preset']);
     expect(presets[0].kinds[0]).toMatchObject({ id: 'module', defaultCounterName: 'module' });
+  });
+
+  it('preserves localized Entry Kind names and descriptions from Init presets', () => {
+    const root = fixtureRoot();
+    const name = {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'Module', 'zh-CN': '模块' }
+    };
+    const description = {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'Groups declarations.', 'zh-CN': '组织声明。' }
+    };
+    writePackage(root, 'entry', 'localized.json', entryPackage({ kinds: [{
+      id: 'module', name, description,
+      coloring: {
+        light: { stroke: '#123456', background: '#abcdef' },
+        dark: { stroke: '#fedcba', background: '#654321' }
+      },
+      defaultCounterName: 'module', style: 'section'
+    }] }));
+
+    const kind = loadKindPresetPackages(root, 'entry')[0].kinds[0];
+    expect(kind.name).toEqual(name);
+    expect(kind.description).toEqual(description);
+    expect(kind.coloring.dark).toEqual({ stroke: '#fedcba', background: '#654321' });
   });
 
   it.each([
@@ -128,6 +154,18 @@ describe('shipped Kind preset packages', () => {
         }
       }
       if (kind.id !== 'sub') expect(kind.coloring.dark).not.toEqual(kind.coloring.light);
+    }
+  });
+
+  it('initializes every shipped Entry Kind with I18n name, I18n description, and dark colors', () => {
+    const entries = loadKindPresetPackages(resources, 'entry');
+    for (const kind of entries.flatMap((preset) => preset.kinds)) {
+      expect(is_valid_i18n_string(kind.name), `${kind.id} name`).toBe(true);
+      expect(is_valid_i18n_string(kind.description), `${kind.id} description`).toBe(true);
+      expect(kind.name).toMatchObject({ values: { en: expect.any(String), 'zh-CN': expect.any(String) } });
+      expect(kind.description).toMatchObject({ values: { en: expect.any(String), 'zh-CN': expect.any(String) } });
+      expect(kind.coloring.dark).toEqual(expect.objectContaining({ stroke: expect.any(String), background: expect.any(String) }));
+      expect(kind.coloring.dark).not.toEqual(kind.coloring.light);
     }
   });
 

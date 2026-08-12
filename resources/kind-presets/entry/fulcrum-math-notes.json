@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 2,
+  "version": 3,
   "domain": "entry",
   "id": "fulcrum-math-notes",
   "copyKeys": {
@@ -10,7 +10,14 @@
   "kinds": [
     {
       "id": "chapter",
-      "name": "Chapter",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Chapter",
+          "zh-CN": "章"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#5F5F5F",
@@ -22,11 +29,26 @@
         }
       },
       "defaultCounterName": "chapter",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "A top-level chapter of the document.",
+          "zh-CN": "文档中的顶层章节。"
+        }
+      }
     },
     {
       "id": "section",
-      "name": "Section",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Section",
+          "zh-CN": "节"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#5F5F5F",
@@ -38,11 +60,26 @@
         }
       },
       "defaultCounterName": "section",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "A section that organizes related entries.",
+          "zh-CN": "用于组织相关条目的章节。"
+        }
+      }
     },
     {
       "id": "subsection",
-      "name": "Subsection",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Subsection",
+          "zh-CN": "小节"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#5F5F5F",
@@ -54,11 +91,26 @@
         }
       },
       "defaultCounterName": "subsection",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "A subsection within a section.",
+          "zh-CN": "章节中的子章节。"
+        }
+      }
     },
     {
       "id": "definition",
-      "name": "Definition",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Definition",
+          "zh-CN": "定义"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#00651B",
@@ -70,11 +122,26 @@
         }
       },
       "defaultCounterName": "definition",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Introduces a term or mathematical object.",
+          "zh-CN": "引入一个术语或数学对象。"
+        }
+      }
     },
     {
       "id": "axiom",
-      "name": "Axiom",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Axiom",
+          "zh-CN": "公理"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#6B6B00",
@@ -86,11 +153,26 @@
         }
       },
       "defaultCounterName": "axiom",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States an assumed foundational proposition.",
+          "zh-CN": "陈述一个作为基础假设的命题。"
+        }
+      }
     },
     {
       "id": "lemma",
-      "name": "Lemma",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Lemma",
+          "zh-CN": "引理"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#005B9C",
@@ -102,11 +184,26 @@
         }
       },
       "defaultCounterName": "lemma",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States an auxiliary proved result.",
+          "zh-CN": "陈述一个辅助性的已证明结果。"
+        }
+      }
     },
     {
       "id": "theorem",
-      "name": "Theorem",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Theorem",
+          "zh-CN": "定理"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#005B9C",
@@ -118,11 +215,26 @@
         }
       },
       "defaultCounterName": "theorem",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States a principal proved result.",
+          "zh-CN": "陈述一个主要的已证明结果。"
+        }
+      }
     },
     {
       "id": "corollary",
-      "name": "Corollary",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Corollary",
+          "zh-CN": "推论"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#005B9C",
@@ -134,11 +246,26 @@
         }
       },
       "defaultCounterName": "corollary",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States a direct consequence of another result.",
+          "zh-CN": "陈述由其他结果直接推出的结论。"
+        }
+      }
     },
     {
       "id": "property",
-      "name": "Property",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Property",
+          "zh-CN": "性质"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#AC00AF",
@@ -150,11 +277,26 @@
         }
       },
       "defaultCounterName": "property",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Records a property of an object or construction.",
+          "zh-CN": "记录对象或构造所具有的性质。"
+        }
+      }
     },
     {
       "id": "remark",
-      "name": "Remark",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Remark",
+          "zh-CN": "备注"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#9A4D00",
@@ -166,11 +308,26 @@
         }
       },
       "defaultCounterName": "remark",
-      "style": "remark"
+      "style": "remark",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Adds explanatory or contextual commentary.",
+          "zh-CN": "补充解释或背景说明。"
+        }
+      }
     },
     {
       "id": "example",
-      "name": "Example",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Example",
+          "zh-CN": "示例"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#7700E4",
@@ -182,11 +339,26 @@
         }
       },
       "defaultCounterName": "example",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Provides an illustrative example.",
+          "zh-CN": "给出一个用于说明的示例。"
+        }
+      }
     },
     {
       "id": "counterexample",
-      "name": "Counterexample",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Counterexample",
+          "zh-CN": "反例"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#B0001C",
@@ -198,11 +370,26 @@
         }
       },
       "defaultCounterName": "counterexample",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Provides an example that refutes a claim.",
+          "zh-CN": "给出一个用于否定某个断言的反例。"
+        }
+      }
     },
     {
       "id": "construction",
-      "name": "Construction",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Construction",
+          "zh-CN": "构造"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#5F5F5F",
@@ -214,11 +401,26 @@
         }
       },
       "defaultCounterName": "construction",
-      "style": "proof"
+      "style": "proof",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Describes how to construct an object.",
+          "zh-CN": "描述如何构造一个对象。"
+        }
+      }
     },
     {
       "id": "proof",
-      "name": "Proof",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Proof",
+          "zh-CN": "证明"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#5F5F5F",
@@ -230,11 +432,26 @@
         }
       },
       "defaultCounterName": "proof",
-      "style": "proof"
+      "style": "proof",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Provides a proof of a stated result.",
+          "zh-CN": "给出某个已陈述结果的证明。"
+        }
+      }
     },
     {
       "id": "problem",
-      "name": "Problem",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Problem",
+          "zh-CN": "问题"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#005B9C",
@@ -246,11 +463,26 @@
         }
       },
       "defaultCounterName": "problem",
-      "style": "problem"
+      "style": "problem",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States a problem or exercise to solve.",
+          "zh-CN": "陈述一个待解决的问题或练习。"
+        }
+      }
     },
     {
       "id": "context",
-      "name": "Context",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Context",
+          "zh-CN": "上下文"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#6D28D9",
@@ -262,7 +494,15 @@
         }
       },
       "defaultCounterName": "context",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares context used by subsequent entries.",
+          "zh-CN": "声明后续条目使用的上下文。"
+        }
+      }
     }
   ]
 }

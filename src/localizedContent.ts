@@ -62,6 +62,32 @@ export function normalize_entry_title(value: unknown): Localized<string, string>
   };
 }
 
+export function normalize_kind_label(
+  value: unknown,
+  field: string,
+  required: boolean
+): Localized<string, string> {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (required && !normalized) throw new Error(`${field} must contain a non-empty label`);
+    return value;
+  }
+  if (!is_valid_i18n_string(value)) {
+    throw new Error(`${field} must be a string or valid partial I18n map`);
+  }
+  const values: Record<string, string> = Object.create(null) as Record<string, string>;
+  let hasNonEmpty = false;
+  for (const language of Object.keys(value.values)) {
+    const projection = value.values[language] ?? '';
+    if (projection.trim()) hasNonEmpty = true;
+    Object.defineProperty(values, language, {
+      value: projection, enumerable: true, configurable: true, writable: true
+    });
+  }
+  if (required && !hasNonEmpty) throw new Error(`${field} must contain a non-empty label`);
+  return { type: 'i18n', default_language: value.default_language, values };
+}
+
 export function resolve_localized_string(
   value: Localized<string, string> | null | undefined,
   language: string

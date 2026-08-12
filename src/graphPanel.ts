@@ -55,7 +55,7 @@ interface GraphNodeOut {
   /** Current-storage Entry package identity; never derived from Library membership. */
   packageId: string;
   title: EntryData['title'];
-  kind: string; // entry kind name (fallback: kind id)
+  kind: EntryKind['name']; // raw localized name (fallback: kind id)
   kindId: string;
   coloring: EntryKind['coloring'] | null;
 }

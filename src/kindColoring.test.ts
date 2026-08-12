@@ -141,6 +141,22 @@ describe('Kind themed coloring', () => {
       } }]
     };
     expect(() => assertThemedKindCatalogs(valid)).not.toThrow();
+    const localized = structuredClone(valid) as unknown as {
+      entry_kinds: Array<Record<string, unknown>>;
+      macro_kinds: Array<Record<string, unknown>>;
+    };
+    const localizedEntry = localized.entry_kinds[0];
+    localizedEntry.name = {
+      type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' }
+    };
+    localizedEntry.description = {
+      type: 'i18n', default_language: 'en', values: { en: 'A result.', 'zh-CN': '一个结果。' }
+    };
+    expect(() => assertThemedKindCatalogs(localized)).not.toThrow();
+    localizedEntry.name = {
+      type: 'i18n', default_language: 'en', values: { en: '', 'zh-CN': ' ' }
+    };
+    expect(() => assertThemedKindCatalogs(localized)).toThrow(/entry_kinds.*name.*non-empty/i);
     expect(() => assertThemedKindCatalogs({
       ...valid,
       macro_kinds: [{ id: 'operator', name: 'Operator', description: '', coloring: {

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HoverPopoverProvider } from './HoverPopoverProvider';
 import { EntryRender, type EntryData, type EntryKind } from './EntryRender';
+import { set_content_language } from '../runtime/preferencesRuntime';
 
 const entry: EntryData = {
   id: 'dark-entry',
@@ -27,6 +28,7 @@ const kind: EntryKind = {
 afterEach(() => {
   cleanup();
   delete document.documentElement.dataset.snlColorScheme;
+  set_content_language('en');
 });
 
 describe('published SNL-Basics Entry dark theme integration', () => {
@@ -52,5 +54,27 @@ describe('published SNL-Basics Entry dark theme integration', () => {
     expect(section.style.background).toBe('rgb(31, 41, 55)');
     fireEvent.keyDown(window, { key: 'Control', ctrlKey: true });
     expect(section.style.background).toBe('rgb(55, 65, 81)');
+  });
+
+  it('passes the raw Entry Kind I18n map to SNL-Basics and switches its label live', () => {
+    const localizedKind: EntryKind = {
+      ...kind,
+      name: {
+        type: 'i18n', default_language: 'en', values: { en: 'Definition', 'zh-CN': '定义' }
+      },
+      description: {
+        type: 'i18n', default_language: 'en', values: { en: 'Introduces a term.', 'zh-CN': '引入一个术语。' }
+      }
+    };
+    const postMessage = () => undefined;
+    const view = render(
+      <HoverPopoverProvider postMessage={postMessage} entries={[]}>
+        <EntryRender entry={entry} kind={localizedKind} entries={[]} postMessage={postMessage} />
+      </HoverPopoverProvider>
+    );
+    expect(view.container.textContent).toContain('Definition');
+    act(() => set_content_language('zh-CN'));
+    expect(view.container.textContent).toContain('定义');
+    expect(view.container.textContent).not.toContain('Definition');
   });
 });

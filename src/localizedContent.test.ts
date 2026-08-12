@@ -5,6 +5,7 @@ import {
   macro_template_variants,
   normalize_entry_content,
   normalize_entry_title,
+  normalize_kind_label,
   normalize_macro_template,
   resolve_localized_string,
   template_placeholder_signature
@@ -41,6 +42,26 @@ describe('localized persistence boundaries', () => {
     expect(resolve_localized_string(title, '__proto__')).toBe('Prototype title');
     expect(resolve_localized_string(title, 'fr')).toBe('群');
     expect(normalize_entry_title(' Plain title ')).toBe('Plain title');
+  });
+
+  it('validates required Entry Kind labels without losing partial or prototype-shaped locales', () => {
+    const name = {
+      type: 'i18n' as const,
+      default_language: 'constructor',
+      values: JSON.parse('{"zh-CN":"定理","__proto__":"Theorem"}') as Record<string, string>
+    };
+    const normalized = normalize_kind_label(name, 'Entry Kind name', true);
+    expect(normalized).toEqual(name);
+    expect(resolve_localized_string(normalized, 'fr')).toBe('定理');
+    expect(() => normalize_kind_label({
+      type: 'i18n', default_language: 'en', values: { en: '', 'zh-CN': '  ' }
+    }, 'Entry Kind name', true)).toThrow(/non-empty label/);
+    expect(normalize_kind_label({
+      type: 'i18n', default_language: 'en', values: { en: '' }
+    }, 'Entry Kind description', false)).toMatchObject({ values: { en: '' } });
+    expect(normalize_kind_label('  Theorem  ', 'Entry Kind name', true)).toBe('  Theorem  ');
+    expect(normalize_kind_label('  legacy description  ', 'Entry Kind description', false))
+      .toBe('  legacy description  ');
   });
 
   it('rejects localized values in invariant fields', () => {

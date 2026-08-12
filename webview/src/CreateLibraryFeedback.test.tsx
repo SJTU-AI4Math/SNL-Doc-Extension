@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateLibraryApp } from './CreateLibraryApp';
 import type { VsCodeApi } from './vscodeApi';
 import { editorDraftKey, loadDraft } from './components/draftState';
+import { set_content_language } from './runtime/preferencesRuntime';
 
 const postMessage = vi.fn();
 let persistedState: unknown = {};
@@ -17,6 +18,7 @@ afterEach(() => {
   cleanup();
   postMessage.mockReset();
   persistedState = {};
+  set_content_language('en');
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
 
@@ -36,6 +38,31 @@ function setupApi(): void {
 }
 
 describe('Create Library feedback', () => {
+  it('projects Entry Kind badges through the live content language', async () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
+    sendGraph({
+      nodes: [{ id: 'n_1', label: 'Entry', props: { entryId: 'entry-one' } }],
+      entries: [{ id: 'entry-one', title: 'Entry One', kind: 'definition', content: { snl: 'foo' } }],
+      kinds: [{
+        id: 'definition',
+        name: { type: 'i18n', default_language: 'en', values: { en: 'Definition', 'zh-CN': '定义' } },
+        description: { type: 'i18n', default_language: 'en', values: { en: 'Term', 'zh-CN': '术语' } },
+        defaultCounterName: 'definition',
+        coloring: {
+          light: { stroke: '#111111', background: '#eeeeee' },
+          dark: { stroke: '#dddddd', background: '#222222' }
+        }
+      }]
+    });
+    const badge = screen.getByText('Definition');
+    expect(badge.getAttribute('title')).toBe('Term');
+    act(() => set_content_language('zh-CN'));
+    await waitFor(() => expect(screen.getByText('定义')).toBeTruthy());
+    expect(screen.getByText('定义').getAttribute('title')).toBe('术语');
+  });
+
   it('routes the shared add-parent action to counter mutation and the outline add form', async () => {
     setupApi();
     render(<CreateLibraryApp />);

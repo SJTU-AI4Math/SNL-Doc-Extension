@@ -109,6 +109,34 @@ describe('EntryInfoview relationship availability', () => {
     expect(edit.classList.contains('snl-panel-header__edit-action')).toBe(true);
   });
 
+  it('accepts and reactively renders localized Entry Kind labels', async () => {
+    const view = render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      kind: {
+        id: 'definition',
+        name: {
+          type: 'i18n', default_language: 'en', values: { en: 'Definition', 'zh-CN': '定义' }
+        },
+        description: {
+          type: 'i18n', default_language: 'en', values: { en: 'Introduces a term.', 'zh-CN': '引入一个术语。' }
+        },
+        coloring: {
+          light: { stroke: '#111111', background: '#eeeeee' },
+          dark: { stroke: '#dddddd', background: '#222222' }
+        },
+        defaultCounterName: 'definition', style: ''
+      },
+      relationshipSections: [], returnRoute: { kind: 'root' }
+    });
+    const readKindHeader = (): string =>
+      view.container.querySelector<HTMLElement>('section[data-entry-id="entry-1"] header strong')?.textContent ?? '';
+    expect(readKindHeader()).toContain('Definition');
+    act(() => set_content_language('zh-CN'));
+    await waitFor(() => expect(readKindHeader()).toContain('定义'));
+    expect(readKindHeader()).not.toContain('Definition');
+  });
+
   it('ignores malformed macro-kind arrays without replacing the last valid Entry', () => {
     render(<EntryInfoviewApp />);
     push({ ...base, relationshipSections: [], returnRoute: { kind: 'root' } });

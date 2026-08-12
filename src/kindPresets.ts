@@ -1,15 +1,18 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireThemedKindColoring, type ThemedKindColoring } from './kindColoring';
+import { normalize_kind_label } from './localizedContent';
+import type { Localized } from './snlBasicsHostCompat';
 
 export const KIND_PRESET_SCHEMA = 'snl-doc.kind-preset' as const;
-export const KIND_PRESET_VERSION = 2 as const;
+export const KIND_PRESET_VERSION = 3 as const;
 
 export type KindPresetDomain = 'entry' | 'macro';
 
 export interface EntryPresetKind {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description: Localized<string, string>;
   coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
@@ -76,7 +79,8 @@ function validateEntryKind(value: unknown, path: string, index: number): EntryPr
   if (!ID_PATTERN.test(id)) fail(path, `${field}.id is not a canonical id`);
   return {
     id,
-    name: nonEmptyString(kind.name, path, `${field}.name`),
+    name: normalize_kind_label(kind.name, `${field}.name`, true),
+    description: normalize_kind_label(kind.description ?? '', `${field}.description`, false),
     coloring: validateColoring(kind.coloring, path, `${field}.coloring`),
     defaultCounterName: nonEmptyString(kind.defaultCounterName, path, `${field}.defaultCounterName`),
     style: typeof kind.style === 'string' ? kind.style : fail(path, `${field}.style must be a string`)

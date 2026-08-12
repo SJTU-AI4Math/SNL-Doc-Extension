@@ -111,7 +111,8 @@ interface AllMacroIndexEntry {
 
 interface EntryKind {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description?: Localized<string, string>;
   coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
@@ -1051,6 +1052,7 @@ function EntryKindsTable({
   onDelete: (id: string) => void;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
+  const contentLanguage = use_content_language();
   return (
     <table
       style={{
@@ -1065,6 +1067,7 @@ function EntryKindsTable({
           <th style={{ ...HEAD, width: '5.5rem' }}>{t('colPreview')}</th>
           <th style={HEAD}>{t('colName')}</th>
           <th style={HEAD}>{t('colId')}</th>
+          <th style={HEAD}>{t('colDescription')}</th>
           <th style={HEAD}>{t('colDefaultCounter')}</th>
           <th style={HEAD}>{t('colStyle')}</th>
           <th style={{ ...HEAD, textAlign: 'right', width: '2.5rem' }} />
@@ -1081,8 +1084,9 @@ function EntryKindsTable({
             <td style={CELL}>
               <ThemedKindPreview coloring={kind.coloring} />
             </td>
-            <td style={CELL}>{kind.name}</td>
+            <td style={CELL}>{resolve_localized_string(kind.name, contentLanguage)}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
+            <td style={CELL}>{kind.description ? resolve_localized_string(kind.description, contentLanguage) : '—'}</td>
             <td style={{ ...CELL, ...MONO }}>
               {kind.defaultCounterName ? kind.defaultCounterName : '—'}
             </td>
@@ -1272,7 +1276,7 @@ function EntriesTable({
               <td style={{ ...CELL, ...MONO }}>{entry.id}</td>
               <td style={CELL}>
                 {kind ? (
-                  kind.name
+                  resolve_localized_string(kind.name, contentLanguage)
                 ) : (
                   <span
                     title={t('unknownKindTitle', { kind: entry.kind })}

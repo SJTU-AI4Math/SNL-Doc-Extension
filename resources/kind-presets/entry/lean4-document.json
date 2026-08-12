@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 2,
+  "version": 3,
   "domain": "entry",
   "id": "lean4-document",
   "copyKeys": {
@@ -10,7 +10,14 @@
   "kinds": [
     {
       "id": "module",
-      "name": "Module",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Module",
+          "zh-CN": "模块"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#475569",
@@ -22,11 +29,26 @@
         }
       },
       "defaultCounterName": "module",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Groups declarations and definitions in one source module.",
+          "zh-CN": "组织一个源代码模块中的声明与定义。"
+        }
+      }
     },
     {
       "id": "namespace",
-      "name": "Namespace",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Namespace",
+          "zh-CN": "命名空间"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#0369A1",
@@ -38,11 +60,26 @@
         }
       },
       "defaultCounterName": "namespace",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Groups names under a shared namespace.",
+          "zh-CN": "在共享命名空间下组织名称。"
+        }
+      }
     },
     {
       "id": "section",
-      "name": "Section",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Section",
+          "zh-CN": "节"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#0F766E",
@@ -54,11 +91,26 @@
         }
       },
       "defaultCounterName": "section",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "A section that organizes related entries.",
+          "zh-CN": "用于组织相关条目的章节。"
+        }
+      }
     },
     {
       "id": "definition",
-      "name": "Definition",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Definition",
+          "zh-CN": "定义"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#15803D",
@@ -70,11 +122,26 @@
         }
       },
       "defaultCounterName": "definition",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Introduces a term or mathematical object.",
+          "zh-CN": "引入一个术语或数学对象。"
+        }
+      }
     },
     {
       "id": "theorem",
-      "name": "Theorem",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Theorem",
+          "zh-CN": "定理"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#1D4ED8",
@@ -86,11 +153,26 @@
         }
       },
       "defaultCounterName": "theorem",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States a principal proved result.",
+          "zh-CN": "陈述一个主要的已证明结果。"
+        }
+      }
     },
     {
       "id": "lemma",
-      "name": "Lemma",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Lemma",
+          "zh-CN": "引理"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#1D4ED8",
@@ -102,11 +184,26 @@
         }
       },
       "defaultCounterName": "lemma",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "States an auxiliary proved result.",
+          "zh-CN": "陈述一个辅助性的已证明结果。"
+        }
+      }
     },
     {
       "id": "structure",
-      "name": "Structure",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Structure",
+          "zh-CN": "结构"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#7E22CE",
@@ -118,11 +215,26 @@
         }
       },
       "defaultCounterName": "structure",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares a Lean structure and its fields.",
+          "zh-CN": "声明 Lean 结构及其字段。"
+        }
+      }
     },
     {
       "id": "class",
-      "name": "Class",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Class",
+          "zh-CN": "类"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#9333EA",
@@ -134,11 +246,26 @@
         }
       },
       "defaultCounterName": "class",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares a class and its members.",
+          "zh-CN": "声明一个类及其成员。"
+        }
+      }
     },
     {
       "id": "instance",
-      "name": "Instance",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Instance",
+          "zh-CN": "实例"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#C2410C",
@@ -150,11 +277,26 @@
         }
       },
       "defaultCounterName": "instance",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Provides an instance of a Lean typeclass.",
+          "zh-CN": "提供一个 Lean 类型类实例。"
+        }
+      }
     },
     {
       "id": "inductive",
-      "name": "Inductive declaration",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Inductive declaration",
+          "zh-CN": "归纳声明"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#BE123C",
@@ -166,11 +308,26 @@
         }
       },
       "defaultCounterName": "inductive",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares an inductive type and its constructors.",
+          "zh-CN": "声明归纳类型及其构造子。"
+        }
+      }
     },
     {
       "id": "syntax",
-      "name": "Syntax declaration",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Syntax declaration",
+          "zh-CN": "语法声明"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#A16207",
@@ -182,11 +339,26 @@
         }
       },
       "defaultCounterName": "syntax",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares syntax or parser notation.",
+          "zh-CN": "声明语法或解析记号。"
+        }
+      }
     },
     {
       "id": "command",
-      "name": "Command",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Command",
+          "zh-CN": "命令"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#4B5563",
@@ -198,11 +370,26 @@
         }
       },
       "defaultCounterName": "command",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Records a source-language command.",
+          "zh-CN": "记录一条源语言命令。"
+        }
+      }
     },
     {
       "id": "example",
-      "name": "Example",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Example",
+          "zh-CN": "示例"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#0F766E",
@@ -214,11 +401,26 @@
         }
       },
       "defaultCounterName": "example",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Provides an illustrative example.",
+          "zh-CN": "给出一个用于说明的示例。"
+        }
+      }
     },
     {
       "id": "documentation",
-      "name": "Documentation",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Documentation",
+          "zh-CN": "文档"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#64748B",
@@ -230,7 +432,15 @@
         }
       },
       "defaultCounterName": "documentation",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Contains explanatory documentation.",
+          "zh-CN": "包含解释性文档。"
+        }
+      }
     }
   ]
 }

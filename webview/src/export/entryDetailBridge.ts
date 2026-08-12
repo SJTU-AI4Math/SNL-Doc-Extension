@@ -15,7 +15,13 @@
 // The one thing missing from the raw channel is a correlation handle, since
 // replies arrive as global window messages. This module adds that.
 
-import type { EntryData, EntryKind, EntryOption } from '../render/EntrySurface';
+import {
+  isEntryDataPayload,
+  isEntryKindPayload,
+  type EntryData,
+  type EntryKind,
+  type EntryOption
+} from '../render/EntrySurface';
 import { entryDetailsRequest } from '../render/HoverPopoverProvider';
 
 export interface EntryDetail {
@@ -65,11 +71,16 @@ export function createEntryDetailLoader(
         resolve(detail);
       };
       function onMessage(event: MessageEvent): void {
-        const msg = event.data as
-          | { type?: string; entryId?: string; entry?: EntryData | null; kind?: EntryKind | null }
-          | undefined;
-        if (!msg || msg.type !== 'popoverEntryDetails' || msg.entryId !== entryId) return;
-        finish({ entry: msg.entry ?? null, kind: msg.kind ?? null });
+        const candidate: unknown = event.data;
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return;
+        const msg = candidate as Record<string, unknown>;
+        if (msg.type !== 'popoverEntryDetails' || msg.entryId !== entryId) return;
+        if (msg.entry !== null && !isEntryDataPayload(msg.entry)) return;
+        if (msg.kind !== undefined && msg.kind !== null && !isEntryKindPayload(msg.kind)) return;
+        finish({
+          entry: (msg.entry as EntryData | null) ?? null,
+          kind: (msg.kind as EntryKind | null | undefined) ?? null
+        });
       }
       // Treat silence as "unknown Entry" rather than an error: a missing
       // popover is a degraded export, a rejected promise is a failed one.

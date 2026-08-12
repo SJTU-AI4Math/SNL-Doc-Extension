@@ -68,6 +68,30 @@ describe('popover terminal responses', () => {
     }, 'broken')).toBeNull();
   });
 
+  it('accepts localized Entry Kind labels and rejects malformed maps', () => {
+    const entry = { id: 'entry-1', kind: 'definition', title: 'Entry', content: { text: 'Body' }, pointer: null };
+    const coloring = {
+      light: { stroke: '#111111', background: '#eeeeee' },
+      dark: { stroke: '#dddddd', background: '#222222' }
+    };
+    const localized = {
+      type: 'popoverEntryDetails', entryId: 'entry-1', entry,
+      kind: {
+        id: 'definition',
+        name: { type: 'i18n', default_language: 'en', values: { en: 'Definition', 'zh-CN': '定义' } },
+        description: { type: 'i18n', default_language: 'en', values: { en: 'Term', 'zh-CN': '术语' } },
+        coloring, style: ''
+      }
+    };
+    expect(popoverTerminalDetail(localized, 'entry-1')).toMatchObject({ kind: localized.kind });
+    expect(popoverTerminalDetail({
+      ...localized,
+      kind: { ...localized.kind, name: {
+        type: 'i18n', default_language: 'en', values: { en: '  ', 'zh-CN': '' }
+      } }
+    }, 'entry-1')).toBeNull();
+  });
+
   it('rejects a terminal response from an older snapshot of the same Entry', () => {
     expect(popoverTerminalDetail({
       type: 'popoverEntryDetails',

@@ -17,6 +17,8 @@ import {
 } from '@sjtu-ai4math/snl-basics';
 import {
   EntrySurface,
+  isEntryDataPayload,
+  isEntryKindPayload,
   type EntryOption,
   type EntryData,
   type EntryKind
@@ -134,9 +136,8 @@ export function popoverTerminalDetail(
       : null;
   }
   if (msg.type !== 'popoverEntryDetails' || !Object.hasOwn(msg, 'entry')) return null;
-  if (msg.entry !== null && (typeof msg.entry !== 'object' || Array.isArray(msg.entry))) return null;
-  if (msg.kind !== undefined && msg.kind !== null &&
-      (typeof msg.kind !== 'object' || Array.isArray(msg.kind))) return null;
+  if (msg.entry !== null && !isEntryDataPayload(msg.entry)) return null;
+  if (msg.kind !== undefined && msg.kind !== null && !isEntryKindPayload(msg.kind)) return null;
   return {
     entry: msg.entry as EntryData | null,
     kind: (msg.kind as EntryKind | null | undefined) ?? null

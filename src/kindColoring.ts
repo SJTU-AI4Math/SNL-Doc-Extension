@@ -1,3 +1,5 @@
+import { normalize_kind_label } from './localizedContent';
+
 export interface KindColoringVariant {
   [key: string]: unknown;
   stroke: string;
@@ -105,12 +107,15 @@ export function assertThemedKindCatalogs(value: unknown): void {
         throw new Error(`config.json#${field} contains duplicate id ${JSON.stringify(kind.id)}.`);
       }
       ids.add(kind.id);
-      const required = field === 'entry_kinds'
-        ? ['name', 'defaultCounterName', 'style']
-        : ['name', 'description'];
-      for (const key of required) {
-        if (typeof kind[key] !== 'string') {
-          throw new Error(`config.json#${field}[${index}].${key} must be a string.`);
+      if (field === 'entry_kinds') {
+        normalize_kind_label(kind.name, `config.json#entry_kinds[${index}].name`, true);
+        if ('description' in kind) normalize_kind_label(kind.description, `config.json#entry_kinds[${index}].description`, false);
+        for (const key of ['defaultCounterName', 'style']) {
+          if (typeof kind[key] !== 'string') throw new Error(`config.json#entry_kinds[${index}].${key} must be a string.`);
+        }
+      } else {
+        for (const key of ['name', 'description']) {
+          if (typeof kind[key] !== 'string') throw new Error(`config.json#macro_kinds[${index}].${key} must be a string.`);
         }
       }
       requireThemedKindColoring(kind.coloring, `config.json#${field}[${index}].coloring`);

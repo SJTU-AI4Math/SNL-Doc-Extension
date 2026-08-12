@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardApp } from './DashboardApp';
 import type { VsCodeApi } from './vscodeApi';
@@ -19,6 +19,34 @@ afterEach(() => {
 });
 
 describe('Dashboard library actions', () => {
+  it('shows localized Entry Kind names and descriptions without flattening the catalog', async () => {
+    render(<DashboardApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'overview', overview: {
+        hasSnlDoc: true, totalEntryCount: 0, entries: [], libraries: [], macroPackages: [],
+        allMacros: [], metricMacroSources: {}, relationships: [], macroKinds: [],
+        entryKinds: [{
+          id: 'theorem',
+          name: { type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' } },
+          description: { type: 'i18n', default_language: 'en', values: { en: 'A proved result.', 'zh-CN': '已经证明的结果。' } },
+          coloring: {
+            light: { stroke: '#111111', background: '#eeeeee' },
+            dark: { stroke: '#dddddd', background: '#222222' }
+          },
+          defaultCounterName: 'theorem', style: ''
+        }]
+      }
+    }}));
+    await screen.findByText('Entry Kinds');
+    fireEvent.click(screen.getByText('Entry Kinds').closest('button') as HTMLButtonElement);
+    expect(screen.getByText('Theorem')).toBeTruthy();
+    expect(screen.getByText('A proved result.')).toBeTruthy();
+
+    act(() => set_content_language('zh-CN'));
+    expect(screen.getByText('定理')).toBeTruthy();
+    expect(screen.getByText('已经证明的结果。')).toBeTruthy();
+  });
+
   it('offers exactly one initialization action before the workspace is initialized', async () => {
     render(<DashboardApp />);
 

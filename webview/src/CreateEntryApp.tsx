@@ -398,11 +398,17 @@ type WirePackageMacro = WireMacro;
 
 interface EntryKind {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description?: Localized<string, string>;
   coloring: ThemedKindColoring;
   numbering: string;
   style: string;
 }
+
+type ResolvedEntryKindOption = Omit<EntryKind, 'name' | 'description'> & {
+  name: string;
+  description?: string;
+};
 
 type ContentFormat = 'snl' | 'typst' | 'latex' | 'markdown' | 'text';
 type LocalizableContentFormat = Exclude<ContentFormat, 'snl'>;
@@ -734,6 +740,16 @@ export function CreateEntryApp(): React.ReactElement {
   const [mode, setMode] = useState<Mode>('create');
   const [targetState, setTargetState] = useState<'found' | 'notFound'>('found');
   const [kinds, setKinds] = useState<EntryKind[]>([]);
+  const kindOptions = useMemo(
+    () => kinds.map((kind) => ({
+      ...kind,
+      name: resolve_localized_string(kind.name, contentLanguage),
+      description: kind.description
+        ? resolve_localized_string(kind.description, contentLanguage)
+        : undefined
+    })),
+    [contentLanguage, kinds, preferencesRevision]
+  );
   const [kindsLoaded, setKindsLoaded] = useState(false);
 
   /**
@@ -1863,15 +1879,18 @@ export function CreateEntryApp(): React.ReactElement {
           <div style={{ flex: '1 1 11rem', minWidth: 0 }}>
             <Label>{t('kind')}</Label>
             <EntryKindPicker
-              kinds={kinds}
+              kinds={kindOptions}
               selectedId={selectedKind}
               label={t('kind')}
               selectionLabel={(item) => t('kindSelection', { name: item.name })}
-              details={(item) => t('kindDetails', {
-                id: item.id,
-                stroke: resolveWebviewKindColoring(item.coloring).stroke,
-                background: resolveWebviewKindColoring(item.coloring).background
-              })}
+              details={(item) => {
+                const technical = t('kindDetails', {
+                  id: item.id,
+                  stroke: resolveWebviewKindColoring(item.coloring).stroke,
+                  background: resolveWebviewKindColoring(item.coloring).background
+                });
+                return item.description ? `${item.description} · ${technical}` : technical;
+              }}
               onSelect={(next) => {
                 markFormDirty(true);
                 setSelectedKind(next);
@@ -2514,11 +2533,11 @@ function EntryKindPicker({
   details,
   onSelect
 }: {
-  kinds: EntryKind[];
+  kinds: ResolvedEntryKindOption[];
   selectedId: string;
   label: string;
-  selectionLabel: (kind: EntryKind) => string;
-  details: (kind: EntryKind) => string;
+  selectionLabel: (kind: ResolvedEntryKindOption) => string;
+  details: (kind: ResolvedEntryKindOption) => string;
   onSelect: (id: string) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);

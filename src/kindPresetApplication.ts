@@ -29,12 +29,6 @@ export function prepareKindPresetApplication<K extends PresetKind>(
   if (existing.length > 0) return { status: 'nonEmpty', existing: existing.length };
   return {
     status: 'applied',
-    kinds: preset.kinds.map((kind) => ({
-      ...kind,
-      coloring: {
-        light: { ...kind.coloring.light },
-        dark: { ...kind.coloring.dark }
-      }
-    }))
+    kinds: preset.kinds.map((kind) => structuredClone(kind))
   };
 }

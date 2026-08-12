@@ -96,3 +96,4 @@ export type {
   EntryOption,
   EntryRenderProps
 } from './EntryRender';
+export { isEntryDataPayload, isEntryKindPayload } from './EntryRender';

@@ -22,7 +22,11 @@ function sendCreateContext(openPackageCreator = false): void {
       openPackageCreator,
       kinds: [{
         id: 'theorem',
-        name: 'Theorem',
+        name: { type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' } },
+        description: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'A mathematical statement.', 'zh-CN': '数学陈述。' }
+        },
         coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } },
         numbering: 'theorem',
         style: 'default'
@@ -92,7 +96,12 @@ describe('CreateEntryApp localization', () => {
     expect(view.getByLabelText('ID').getAttribute('placeholder')).toBe('例如：pythagorean-theorem');
     expect(view.getByLabelText('条目包')).toHaveProperty('readOnly', true);
     expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
-    expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy();
+    const kindPicker = view.getByRole('combobox', { name: '条目类别：定理' });
+    fireEvent.click(kindPicker);
+    expect(view.getByText(/数学陈述。/)).toBeTruthy();
+    act(() => set_content_language('en'));
+    await waitFor(() => expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy());
+    expect(view.getByText(/A mathematical statement\./)).toBeTruthy();
     expect(view.queryByText('宏包')).toBeNull();
     expect(view.queryByText('种类')).toBeNull();
     expect(view.getByRole('button', { name: '创建条目' })).toBeTruthy();

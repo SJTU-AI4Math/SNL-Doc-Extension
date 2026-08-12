@@ -26,7 +26,8 @@ describe('preference plumbing architecture', () => {
   });
 
   it('remounts asynchronous SNL renderers after a preference revision', () => {
-    expect(source('webview/src/render/EntryRender.tsx')).toContain('key={`preferences-${preferencesRevision}`}');
+    expect(source('webview/src/render/EntryRender.tsx')).toContain(
+      'key={`content-language-${contentLanguage}-preferences-${preferencesRevision}`}');
     expect(source('webview/src/PackagePanelApp.tsx')).toContain('key={`preferences-${preferencesRevision}`}');
     expect(source('webview/src/CreateMacroApp.tsx')).toContain('preferencesRevision');
   });

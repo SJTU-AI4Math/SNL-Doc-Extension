@@ -1,8 +1,12 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SnlGraphApp } from './SnlGraphApp';
+import { set_content_language } from './runtime/preferencesRuntime';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  set_content_language('en');
+});
 
 function send(message: unknown): void {
   act(() => window.dispatchEvent(new MessageEvent('message', { data: message })));
@@ -29,5 +33,31 @@ describe('SnlGraphApp strict refresh errors', () => {
     send({ type: 'graphError', scope: { mode: 'pool' }, title: 'Relationship Graph', message: 'new read failed' });
     expect(screen.getByRole('alert').textContent).toContain('showing the last valid graph');
     expect(screen.getByRole('alert').textContent).toContain('new read failed');
+  });
+
+  it('reactively resolves raw localized Entry Kind names in graph filters', async () => {
+    render(<SnlGraphApp />);
+    const kind = {
+      type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' }
+    };
+    const coloring = {
+      light: { stroke: '#111111', background: '#eeeeee' },
+      dark: { stroke: '#dddddd', background: '#222222' }
+    };
+    send({
+      type: 'graph', scope: { mode: 'pool' }, title: 'Relationship Graph',
+      nodes: [
+        { id: 'a', packageId: '_unpackaged', title: 'A', kind, kindId: 'theorem', coloring },
+        { id: 'b', packageId: '_unpackaged', title: 'B', kind, kindId: 'theorem', coloring }
+      ],
+      edges: [{ id: 'r', from: 'a', to: 'b', label: 'depends', isDependency: false, isAtomic: null }],
+      warnings: [], entryOptions: [], macros: {}, macroKinds: []
+    });
+    fireEvent.click(screen.getByTitle('Expand filters'));
+    expect(screen.getAllByText('Theorem').length).toBeGreaterThan(0);
+
+    act(() => set_content_language('zh-CN'));
+    await waitFor(() => expect(screen.getAllByText('定理').length).toBeGreaterThan(0));
+    expect(screen.queryAllByText('Theorem')).toHaveLength(0);
   });
 });

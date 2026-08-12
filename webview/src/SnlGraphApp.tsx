@@ -81,8 +81,9 @@ interface GraphNode {
   background: string;
 }
 
-type GraphNodeWire = Omit<GraphNode, 'title' | 'color' | 'background'> & {
+type GraphNodeWire = Omit<GraphNode, 'title' | 'kind' | 'color' | 'background'> & {
   title: Localized<string, string>;
+  kind: Localized<string, string>;
   coloring: ThemedKindColoring | null;
 };
 
@@ -130,8 +131,9 @@ const isScope = (value: unknown): value is Scope =>
   isRecord(value) && (value.mode === 'pool' ||
     (value.mode === 'library' && typeof value.slug === 'string'));
 const isGraphNode = (value: unknown): value is GraphNodeWire =>
-  isRecord(value) && ['id', 'packageId', 'kind', 'kindId']
+  isRecord(value) && ['id', 'packageId', 'kindId']
     .every((key) => typeof value[key] === 'string') &&
+  (typeof value.kind === 'string' || is_valid_i18n_string(value.kind)) &&
   (value.coloring === null || isThemedKindColoring(value.coloring)) &&
   (typeof value.title === 'string' || is_valid_i18n_string(value.title));
 const isGraphEdge = (value: unknown): value is GraphEdge =>
@@ -829,6 +831,7 @@ function SnlGraphInner({
         return {
           ...base,
           title: resolve_localized_string(node.title, contentLanguage),
+          kind: resolve_localized_string(node.kind, contentLanguage),
           color: colors.stroke,
           background: colors.background
         };
@@ -849,10 +852,14 @@ function SnlGraphInner({
     for (const n of msg.nodes) {
       if (seen.has(n.kindId)) continue;
       const color = n.coloring ? resolveWebviewKindColoring(n.coloring).stroke : '#888888';
-      seen.set(n.kindId, { kindId: n.kindId, label: n.kind, color });
+      seen.set(n.kindId, {
+        kindId: n.kindId,
+        label: resolve_localized_string(n.kind, contentLanguage),
+        color
+      });
     }
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
-  }, [msg, preferencesRevision]);
+  }, [msg, contentLanguage, preferencesRevision]);
 
   // Fit-to-view on first load.
   useEffect(() => {

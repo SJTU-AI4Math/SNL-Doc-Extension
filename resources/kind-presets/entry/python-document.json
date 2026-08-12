@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 2,
+  "version": 3,
   "domain": "entry",
   "id": "python-document",
   "copyKeys": {
@@ -10,7 +10,14 @@
   "kinds": [
     {
       "id": "package",
-      "name": "Package",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Package",
+          "zh-CN": "包"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#475569",
@@ -22,11 +29,26 @@
         }
       },
       "defaultCounterName": "package",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Groups related Python modules.",
+          "zh-CN": "组织相关的 Python 模块。"
+        }
+      }
     },
     {
       "id": "module",
-      "name": "Module",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Module",
+          "zh-CN": "模块"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#0369A1",
@@ -38,11 +60,26 @@
         }
       },
       "defaultCounterName": "module",
-      "style": "section"
+      "style": "section",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Groups declarations and definitions in one source module.",
+          "zh-CN": "组织一个源代码模块中的声明与定义。"
+        }
+      }
     },
     {
       "id": "class",
-      "name": "Class",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Class",
+          "zh-CN": "类"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#7E22CE",
@@ -54,11 +91,26 @@
         }
       },
       "defaultCounterName": "class",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares a class and its members.",
+          "zh-CN": "声明一个类及其成员。"
+        }
+      }
     },
     {
       "id": "function",
-      "name": "Function",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Function",
+          "zh-CN": "函数"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#1D4ED8",
@@ -70,11 +122,26 @@
         }
       },
       "defaultCounterName": "function",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares a callable function.",
+          "zh-CN": "声明一个可调用函数。"
+        }
+      }
     },
     {
       "id": "async-function",
-      "name": "Async function",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Async function",
+          "zh-CN": "异步函数"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#0E7490",
@@ -86,11 +153,26 @@
         }
       },
       "defaultCounterName": "async-function",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares an asynchronous function.",
+          "zh-CN": "声明一个异步函数。"
+        }
+      }
     },
     {
       "id": "method",
-      "name": "Method",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Method",
+          "zh-CN": "方法"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#1D4ED8",
@@ -102,11 +184,26 @@
         }
       },
       "defaultCounterName": "method",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares a method owned by a class or object.",
+          "zh-CN": "声明由类或对象拥有的方法。"
+        }
+      }
     },
     {
       "id": "property",
-      "name": "Property",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Property",
+          "zh-CN": "性质"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#15803D",
@@ -118,11 +215,26 @@
         }
       },
       "defaultCounterName": "property",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Records a property of an object or construction.",
+          "zh-CN": "记录对象或构造所具有的性质。"
+        }
+      }
     },
     {
       "id": "decorator",
-      "name": "Decorator",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Decorator",
+          "zh-CN": "装饰器"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#C2410C",
@@ -134,11 +246,26 @@
         }
       },
       "defaultCounterName": "decorator",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares or documents a Python decorator.",
+          "zh-CN": "声明或说明一个 Python 装饰器。"
+        }
+      }
     },
     {
       "id": "type-alias",
-      "name": "Type alias",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Type alias",
+          "zh-CN": "类型别名"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#A16207",
@@ -150,11 +277,26 @@
         }
       },
       "defaultCounterName": "type-alias",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares an alternate name for a type.",
+          "zh-CN": "声明一个类型的别名。"
+        }
+      }
     },
     {
       "id": "variable",
-      "name": "Variable",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Variable",
+          "zh-CN": "变量"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#4B5563",
@@ -166,11 +308,26 @@
         }
       },
       "defaultCounterName": "variable",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares or documents a variable.",
+          "zh-CN": "声明或说明一个变量。"
+        }
+      }
     },
     {
       "id": "exception",
-      "name": "Exception",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Exception",
+          "zh-CN": "异常"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#BE123C",
@@ -182,11 +339,26 @@
         }
       },
       "defaultCounterName": "exception",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Declares or documents an exception type.",
+          "zh-CN": "声明或说明一个异常类型。"
+        }
+      }
     },
     {
       "id": "import",
-      "name": "Import",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Import",
+          "zh-CN": "导入"
+        }
+      },
       "coloring": {
         "light": {
           "stroke": "#64748B",
@@ -198,7 +370,15 @@
         }
       },
       "defaultCounterName": "import",
-      "style": ""
+      "style": "",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Records an imported module or symbol.",
+          "zh-CN": "记录导入的模块或符号。"
+        }
+      }
     }
   ]
 }

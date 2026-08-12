@@ -4,7 +4,9 @@ import { prepareKindPresetApplication } from './kindPresetApplication';
 const presets = [{
   id: 'lean4-document',
   kinds: [{
-    id: 'module', name: 'Module',
+    id: 'module',
+    name: { type: 'i18n', default_language: 'en', values: { en: 'Module', 'zh-CN': '模块' } },
+    description: { type: 'i18n', default_language: 'en', values: { en: 'Groups declarations.', 'zh-CN': '组织声明。' } },
     coloring: {
       light: { stroke: '#475569', background: '#f1f5f9' },
       dark: { stroke: '#94a3b8', background: '#1e293b' }
@@ -23,6 +25,9 @@ describe('prepareKindPresetApplication', () => {
     expect(result.kinds[0].coloring).not.toBe(presets[0].kinds[0].coloring);
     expect(result.kinds[0].coloring.light).not.toBe(presets[0].kinds[0].coloring.light);
     expect(result.kinds[0].coloring.dark).not.toBe(presets[0].kinds[0].coloring.dark);
+    expect(result.kinds[0].name).toEqual(presets[0].kinds[0].name);
+    expect(result.kinds[0].name).not.toBe(presets[0].kinds[0].name);
+    expect(result.kinds[0].description).not.toBe(presets[0].kinds[0].description);
   });
 
   it('refuses to clobber a non-empty catalog', () => {

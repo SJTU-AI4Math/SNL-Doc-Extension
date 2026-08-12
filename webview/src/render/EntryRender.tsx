@@ -18,16 +18,16 @@ import {
   type SnlRenderHooks
 } from '@sjtu-ai4math/snl-basics/entry';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
-import { resolve_localized_string } from '../../../src/localizedContent';
+import { is_valid_i18n_string, resolve_localized_string } from '../../../src/localizedContent';
 import {
-  get_content_language,
   get_kind_color_scheme,
   get_popover_preferences,
+  use_content_language,
   use_preferences_revision,
   webview_language_runtime
 } from '../runtime/preferencesRuntime';
 import type { MacroRecord } from './macroData';
-import type { ThemedKindColoring } from '../../../src/kindColoring';
+import { isThemedKindColoring, type ThemedKindColoring } from '../../../src/kindColoring';
 import { extensionRenderers } from './blockRenderers';
 import {
   useCurrentPopoverId,
@@ -59,12 +59,39 @@ export interface EntryData {
 
 export interface EntryKind {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description?: Localized<string, string>;
   coloring: ThemedKindColoring;
   /** Legacy reader field; current host data uses defaultCounterName. */
   numbering?: string;
   defaultCounterName?: string;
   style: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isNonEmptyLocalizedLabel = (value: unknown): value is Localized<string, string> =>
+  typeof value === 'string'
+    ? value.trim().length > 0
+    : is_valid_i18n_string(value) &&
+      Object.values(value.values).some((projection) =>
+        typeof projection === 'string' && projection.trim().length > 0);
+
+export function isEntryDataPayload(value: unknown): value is EntryData {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.kind === 'string' &&
+    (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
+    isRecord(value.content);
+}
+
+export function isEntryKindPayload(value: unknown): value is EntryKind {
+  return isRecord(value) && typeof value.id === 'string' &&
+    isNonEmptyLocalizedLabel(value.name) &&
+    (value.description === undefined || typeof value.description === 'string' ||
+      is_valid_i18n_string(value.description)) &&
+    isThemedKindColoring(value.coloring) && typeof value.style === 'string' &&
+    (value.numbering === undefined || typeof value.numbering === 'string') &&
+    (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
 }
 
 export interface EntryRenderProps {
@@ -172,7 +199,7 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
-  const contentLanguage = get_content_language();
+  const contentLanguage = use_content_language();
   const resolvedEntry = useMemo(
     () => ({ ...entry, title: resolve_localized_string(entry.title, contentLanguage) }),
     [contentLanguage, entry]
@@ -339,7 +366,7 @@ export function EntryRender({
 
   return (
     <BasicsEntrySurface
-      key={`preferences-${preferencesRevision}`}
+      key={`content-language-${contentLanguage}-preferences-${preferencesRevision}`}
       entry={resolvedEntry}
       kind={kind}
       entry_data_driver={entryDataDriver}

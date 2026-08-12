@@ -148,14 +148,16 @@ describe('identity-scoped editor draft persistence', () => {
       const key = editorDraftKey(`${domain}-kind`, 'edit', id);
       await waitFor(() => expect(loadDraft<Record<string, unknown>>(api, key)).toMatchObject({
         id,
-        name: 'Draft kind',
+        name: domain === 'entry'
+          ? { type: 'i18n', default_language: 'en', values: { en: 'Draft kind' } }
+          : 'Draft kind',
         lightStroke: '#123456',
         lightBackground: '#abcdef',
         darkStroke: '#fedcba',
         darkBackground: '#654321',
         expectedRevision: `${domain}-rev-original`,
         ...(domain === 'entry'
-          ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
+          ? { description: 'host description', editLanguage: 'en', defaultCounterName: 'draft-counter', style: 'draft-style' }
           : { description: 'draft description' })
       }));
       first.unmount();
@@ -172,14 +174,16 @@ describe('identity-scoped editor draft persistence', () => {
       await waitFor(() => expect(submission()).toMatchObject({
         payload: {
           id,
-          name: 'Draft kind',
+          name: domain === 'entry'
+            ? { type: 'i18n', default_language: 'en', values: { en: 'Draft kind' } }
+            : 'Draft kind',
           coloring: {
             vendor: { keep: true },
             light: { stroke: '#123456', background: '#abcdef', token: 'light-token' },
             dark: { stroke: '#fedcba', background: '#654321', token: 'dark-token' }
           },
           ...(domain === 'entry'
-            ? { defaultCounterName: 'draft-counter', style: 'draft-style' }
+            ? { description: 'host description', defaultCounterName: 'draft-counter', style: 'draft-style' }
             : { description: 'draft description' })
         },
         expectedRevision: `${domain}-rev-original`

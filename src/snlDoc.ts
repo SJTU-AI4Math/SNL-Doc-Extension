@@ -15,6 +15,7 @@ import {
   is_valid_macro_i18n_string,
   normalize_entry_content,
   normalize_entry_title,
+  normalize_kind_label,
   normalize_macro_template
 } from './localizedContent';
 import { slugify } from './slug';
@@ -669,7 +670,8 @@ export function libraryCountersUri(
  */
 export interface EntryKind {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description?: Localized<string, string>;
   coloring: ThemedKindColoring;
   defaultCounterName: string;
   style: string;
@@ -839,8 +841,11 @@ function normalizeConfig(raw: unknown): SnlConfig {
       if (ids.has(id)) throw new Error(`config.json#${field} contains duplicate id ${JSON.stringify(id)}.`);
       ids.add(id);
       const managed = record as unknown as Record<string, unknown>;
-      if ('name' in managed && typeof managed.name !== 'string') {
-        throw new Error(`config.json#${field}[${JSON.stringify(id)}].name must be a string.`);
+      if ('name' in managed) {
+        if (field === 'entry_kinds') normalize_kind_label(managed.name, 'Entry Kind name', true);
+        else if (typeof managed.name !== 'string') {
+          throw new Error(`config.json#${field}[${JSON.stringify(id)}].name must be a string.`);
+        }
       }
       if (cfg.version === CURRENT_DATA_VERSION) {
         requireThemedKindColoring(
@@ -873,6 +878,7 @@ function normalizeConfig(raw: unknown): SnlConfig {
         throw new Error(`config.json#${field}[${JSON.stringify(id)}].color must be a string.`);
       }
       if (field === 'entry_kinds') {
+        if ('description' in managed) normalize_kind_label(managed.description, 'Entry Kind description', false);
         if ('defaultCounterName' in managed && typeof managed.defaultCounterName !== 'string') {
           throw new Error(`config.json#entry_kinds[${JSON.stringify(id)}].defaultCounterName must be a string.`);
         }
@@ -995,7 +1001,10 @@ function normalizeEntryKind(raw: unknown): EntryKind {
   const obj = (raw ?? {}) as Record<string, unknown>;
 
   const id = typeof obj.id === 'string' ? obj.id : '';
-  const name = typeof obj.name === 'string' ? obj.name : id;
+  const name = normalize_kind_label(obj.name ?? id, 'Entry Kind name', true);
+  const description = obj.description === undefined
+    ? undefined
+    : normalize_kind_label(obj.description, 'Entry Kind description', false);
 
   // coloring: accept legacy `{stroke, background}` while old workspaces are
   // waiting for migration; current writes always use explicit theme variants.
@@ -1016,6 +1025,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
   const {
     id: _id,
     name: _name,
+    description: _description,
     coloring: _coloring,
     color: _legacyColor,
     numbering: _legacyNumbering,
@@ -1027,6 +1037,7 @@ function normalizeEntryKind(raw: unknown): EntryKind {
     ...extensions,
     id,
     name,
+    ...(description === undefined ? {} : { description }),
     coloring,
     defaultCounterName,
     style
@@ -3740,7 +3751,8 @@ export async function createEntryKind(
   workspaceRoot: vscode.Uri,
   input: {
     id: string;
-    name: string;
+    name: Localized<string, string>;
+    description: Localized<string, string>;
     coloring: ThemedKindColoring;
     defaultCounterName: string;
     style: string;
@@ -3751,24 +3763,25 @@ export async function createEntryKind(
   }
   return withExtensionWriterLock(workspaceRoot, 'create entry kind', async () => {
     const id = (input.id ?? '').trim();
-  const name = (input.name ?? '').trim();
-  if (!id) {
-    return { status: 'invalid', message: 'id is required' };
-  }
-  if (!name) {
-    return { status: 'invalid', message: 'name is required' };
-  }
-  const existing = await readEntryKinds(workspaceRoot);
-  if (existing.some((k) => k.id === id)) {
-    return { status: 'duplicate', id };
-  }
-  const kind: EntryKind = {
-    id,
-    name,
-    coloring: fillKindColoringDefaults(input.coloring),
-    defaultCounterName: (input.defaultCounterName ?? '').trim(),
-    style: (input.style ?? '').trim()
-  };
+    if (!id) return { status: 'invalid', message: 'id is required' };
+    let name: Localized<string, string>;
+    let description: Localized<string, string>;
+    try {
+      name = normalize_kind_label(input.name, 'Entry Kind name', true);
+      description = normalize_kind_label(input.description ?? '', 'Entry Kind description', false);
+    } catch (error) {
+      return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+    }
+    const existing = await readEntryKinds(workspaceRoot);
+    if (existing.some((kind) => kind.id === id)) return { status: 'duplicate', id };
+    const kind: EntryKind = {
+      id,
+      name,
+      description,
+      coloring: fillKindColoringDefaults(input.coloring),
+      defaultCounterName: (input.defaultCounterName ?? '').trim(),
+      style: (input.style ?? '').trim()
+    };
     await writeEntryKinds(workspaceRoot, [...existing, kind]);
     return { status: 'created', kind };
   });
@@ -4273,7 +4286,8 @@ export async function updateEntryKind(
   workspaceRoot: vscode.Uri,
   id: string,
   input: {
-    name: string;
+    name: Localized<string, string>;
+    description: Localized<string, string>;
     coloring: ThemedKindColoring;
     defaultCounterName: string;
     style: string;
@@ -4285,34 +4299,35 @@ export async function updateEntryKind(
   }
   return withExtensionWriterLock(workspaceRoot, 'update entry kind', async () => {
     const targetId = (id ?? '').trim();
-  if (!targetId) {
-    return { status: 'invalid', message: 'id is required' };
-  }
-  const name = (input.name ?? '').trim();
-  if (!name) {
-    return { status: 'invalid', message: 'name is required' };
-  }
-  const existing = await readEntryKinds(workspaceRoot);
-  const idx = existing.findIndex((k) => k.id === targetId);
-  if (idx < 0) {
-    return { status: 'notFound', id: targetId };
-  }
-  if (typeof expectedRevision !== 'string' || entityRevision(existing[idx]) !== expectedRevision) {
-    return { status: 'conflict', id: targetId };
-  }
-  const next: EntryKind = {
-    ...existing[idx],
-    id: targetId,
-    name,
-    coloring: mergeThemedKindColoring(
-      existing[idx].coloring,
-      fillKindColoringDefaults(input.coloring)
-    ),
-    defaultCounterName: (input.defaultCounterName ?? '').trim(),
-    style: (input.style ?? '').trim()
-  };
-  const kinds = existing.slice();
-  kinds[idx] = next;
+    if (!targetId) return { status: 'invalid', message: 'id is required' };
+    let name: Localized<string, string>;
+    let description: Localized<string, string>;
+    try {
+      name = normalize_kind_label(input.name, 'Entry Kind name', true);
+      description = normalize_kind_label(input.description ?? '', 'Entry Kind description', false);
+    } catch (error) {
+      return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+    }
+    const existing = await readEntryKinds(workspaceRoot);
+    const idx = existing.findIndex((kind) => kind.id === targetId);
+    if (idx < 0) return { status: 'notFound', id: targetId };
+    if (typeof expectedRevision !== 'string' || entityRevision(existing[idx]) !== expectedRevision) {
+      return { status: 'conflict', id: targetId };
+    }
+    const next: EntryKind = {
+      ...existing[idx],
+      id: targetId,
+      name,
+      description,
+      coloring: mergeThemedKindColoring(
+        existing[idx].coloring,
+        fillKindColoringDefaults(input.coloring)
+      ),
+      defaultCounterName: (input.defaultCounterName ?? '').trim(),
+      style: (input.style ?? '').trim()
+    };
+    const kinds = existing.slice();
+    kinds[idx] = next;
     await writeEntryKinds(workspaceRoot, kinds);
     return { status: 'updated', kind: next };
   });

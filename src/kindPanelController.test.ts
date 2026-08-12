@@ -56,12 +56,14 @@ describe('Kind panel themed-color host bridge', () => {
 
   it('passes complete Entry Kind coloring through create and revisioned update', async () => {
     const root = { path: '/workspace' };
+    const name = { type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' } };
+    const description = { type: 'i18n', default_language: 'en', values: { en: 'A result.', 'zh-CN': '一个结果。' } };
     await controller('entry', 'create').saveEntry(root, 'create', {
-      id: ' theorem ', name: 'Theorem', coloring,
+      id: ' theorem ', name, description, coloring,
       defaultCounterName: 'theorem', style: 'boxed'
     });
     expect(mocks.createEntryKind).toHaveBeenCalledWith(root, {
-      id: ' theorem ', name: 'Theorem', coloring,
+      id: ' theorem ', name, description, coloring,
       defaultCounterName: 'theorem', style: 'boxed'
     });
 
@@ -69,7 +71,7 @@ describe('Kind panel themed-color host bridge', () => {
       name: 'Updated', coloring, defaultCounterName: '', style: ''
     }, 'entry-revision');
     expect(mocks.updateEntryKind).toHaveBeenCalledWith(root, 'theorem', {
-      name: 'Updated', coloring, defaultCounterName: '', style: ''
+      name: 'Updated', description: '', coloring, defaultCounterName: '', style: ''
     }, 'entry-revision');
   });
 

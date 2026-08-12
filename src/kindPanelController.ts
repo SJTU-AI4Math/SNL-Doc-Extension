@@ -14,12 +14,15 @@ import {
   entityRevision,
   readEntryKinds,
   readMacroKinds,
+  readWorkspaceSupportedLanguages,
   updateEntryKind,
   updateMacroKind
 } from './snlDoc';
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage, installSnlDocWatcher } from './panelUtil';
 import { kindPanelDescriptor, type KindPanelDomain } from './kindPanelDescriptor';
 import { requireThemedKindColoring } from './kindColoring';
+import { normalize_kind_label, resolve_localized_string } from './localizedContent';
+import type { Localized } from './snlBasicsHostCompat';
 
 type Mode = 'create' | 'edit';
 const instances = new Map<string, KindPanelController>();
@@ -78,13 +81,18 @@ export class KindPanelController {
     const generation = ++this.contextGeneration;
     const root = firstWorkspaceFolder();
     try {
-      const kinds = root
-        ? this.domain === 'entry'
-          ? await readEntryKinds(root)
-          : await readMacroKinds(root)
-        : [];
+      const [kinds, languages] = root
+        ? await Promise.all([
+            this.domain === 'entry' ? readEntryKinds(root) : readMacroKinds(root),
+            readWorkspaceSupportedLanguages(root)
+          ])
+        : [[], []];
       if (generation !== this.contextGeneration) return;
-      const existingIds = kinds.map((kind) => ({ id: kind.id, title: kind.name ?? '', hasContent: true }));
+      const existingIds = kinds.map((kind) => ({
+        id: kind.id,
+        title: kind.name,
+        hasContent: true
+      }));
       const existing = this.mode === 'edit' ? kinds.find((kind) => kind.id === this.id) ?? null : undefined;
       void this.panel.webview.postMessage({
         type: 'context',
@@ -93,7 +101,8 @@ export class KindPanelController {
         id: this.id || undefined,
         existing,
         kindRevision: existing ? entityRevision(existing) : undefined,
-        existingIds
+        existingIds,
+        languages
       });
     } catch (error) {
       if (generation !== this.contextGeneration) return;
@@ -130,7 +139,8 @@ export class KindPanelController {
 
   private async saveEntry(root: vscode.Uri, action: string, payload: Record<string, unknown>, expectedRevision?: string): Promise<void> {
     const input = {
-      name: stringValue(payload.name),
+      name: normalize_kind_label(payload.name, 'Entry Kind name', true),
+      description: normalize_kind_label(payload.description ?? '', 'Entry Kind description', false),
       coloring: requireThemedKindColoring(payload.coloring, 'payload.coloring'),
       defaultCounterName: stringValue(payload.defaultCounterName),
       style: stringValue(payload.style)
@@ -157,9 +167,12 @@ export class KindPanelController {
     const t = hostText();
     const domainText = t(domain);
     if ((result.status === 'created' || result.status === 'updated') && result.kind) {
-      const kind = result.kind as { id: string; name: string };
-      vscode.window.showInformationMessage(t('saved', { domain: domainText, name: kind.name, id: kind.id, status: t(result.status) }));
-      void this.panel.webview.postMessage({ type: result.status, kind })
+      const kind = result.kind as { id: string; name: Localized<string, string> | string };
+      const name = domain === 'entry'
+        ? resolve_localized_string(kind.name as Localized<string, string>, read_extension_preferences().language)
+        : kind.name as string;
+      vscode.window.showInformationMessage(t('saved', { domain: domainText, name, id: kind.id, status: t(result.status) }));
+      void this.panel.webview.postMessage({ type: result.status, kind: { id: kind.id, name } })
         .then(() => this.pushContext());
       return;
     }

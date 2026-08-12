@@ -1,6 +1,6 @@
 {
   "schema": "snl-doc.kind-preset",
-  "version": 2,
+  "version": 3,
   "domain": "macro",
   "id": "snl-basics-defaults",
   "copyKeys": {

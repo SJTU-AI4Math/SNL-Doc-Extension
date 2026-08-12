@@ -122,7 +122,11 @@ describe('editor optimistic concurrency', () => {
     fireEvent.click(view.getByRole('button', { name: 'Update Entry Kind' }));
     await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
       type: 'update', expectedRevision: 'revision-1',
-      payload: expect.objectContaining({ name: 'Unsaved kind' })
+      payload: expect.objectContaining({
+        name: {
+          type: 'i18n', default_language: 'en', values: { en: 'Unsaved kind' }
+        }
+      })
     })));
   });
 });

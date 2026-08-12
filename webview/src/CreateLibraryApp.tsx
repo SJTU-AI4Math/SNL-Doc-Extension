@@ -144,7 +144,8 @@ interface EntryPoolItem {
 
 interface KindItem {
   id: string;
-  name: string;
+  name: Localized<string, string>;
+  description?: Localized<string, string>;
   defaultCounterName: string;
   coloring?: ThemedKindColoring;
 }
@@ -1632,11 +1633,16 @@ function OutlineEntryTargetEditor({
 }
 
 function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
+  const contentLanguage = use_content_language();
   const color = kind.coloring ? resolveWebviewKindColoring(kind.coloring) : null;
+  const name = resolve_localized_string(kind.name, contentLanguage);
+  const description = kind.description
+    ? resolve_localized_string(kind.description, contentLanguage)
+    : '';
   return (
     <span
       className="snl-library-outline-kind"
-      title={kind.name}
+      title={description || name}
       style={{
         display: 'inline-block',
         padding: '0.1rem 0.45rem',
@@ -1653,7 +1659,7 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
         whiteSpace: 'nowrap'
       }}
     >
-      {kind.name}
+      {name}
     </span>
   );
 }

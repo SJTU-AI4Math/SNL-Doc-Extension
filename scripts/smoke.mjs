@@ -455,11 +455,25 @@ async function main() {
   const defn = cfg.entry_kinds.find((k) => k.id === 'definition');
   assert(!!defn, 'definition kind present');
   assert(
+    defn.name?.type === 'i18n' &&
+      defn.name.default_language === 'en' &&
+      defn.name.values?.en === 'Definition' &&
+      defn.name.values?.['zh-CN'] === '定义',
+    'Init persists the Definition name as en/zh-CN I18n'
+  );
+  assert(
+    defn.description?.type === 'i18n' &&
+      defn.description.default_language === 'en' &&
+      defn.description.values?.en === 'Introduces a term or mathematical object.' &&
+      defn.description.values?.['zh-CN'] === '引入一个术语或数学对象。',
+    'Init persists the Definition description as en/zh-CN I18n'
+  );
+  assert(
     defn.coloring &&
       defn.coloring.light.stroke === '#00651B' &&
       defn.coloring.light.background === '#D6FEE0' &&
-      typeof defn.coloring.dark.stroke === 'string' &&
-      typeof defn.coloring.dark.background === 'string',
+      defn.coloring.dark.stroke === '#4ADE80' &&
+      defn.coloring.dark.background === '#14532D',
     'definition coloring matches Fulcrum preset'
   );
   // 2026-07-16: EntryKind.numbering renamed to defaultCounterName (a plain
@@ -486,7 +500,14 @@ async function main() {
   console.log('\n[3] addEntryKind (createEntryKind) fresh id');
   const created = await createEntryKind(root, {
     id: 'scratch-note',
-    name: 'Scratch Note',
+    name: {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'Scratch Note', 'zh-CN': '随手笔记' }
+    },
+    description: {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'A temporary note.', 'zh-CN': '临时笔记。' }
+    },
     coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: 'scratch',
     style: ''
@@ -503,11 +524,27 @@ async function main() {
   const scratchRevisionRecord = (await readEntryKinds(root)).find((kind) => kind.id === 'scratch-note');
   const staleKindRevision = entityRevision(scratchRevisionRecord);
   const newerKind = await updateEntryKind(root, 'scratch-note', {
-    name: 'Scratch Note Newer', coloring: themedColoring('#123456', '#abcdef'),
+    name: {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'Scratch Note', 'zh-CN': '更新后的随手笔记' }
+    },
+    description: {
+      type: 'i18n', default_language: 'en',
+      values: { en: 'A temporary note.', 'zh-CN': '更新后的临时笔记。' }
+    },
+    coloring: themedColoring('#123456', '#abcdef'),
     defaultCounterName: 'scratch', style: ''
   }, staleKindRevision);
   assert(newerKind.status === 'updated', 'concurrent Entry Kind edit fixture succeeds');
   const cfgAfterKindUpdate = await readConfig(tmpRoot);
+  const updatedScratch = cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'scratch-note');
+  assert(
+    updatedScratch.name?.values?.en === 'Scratch Note' &&
+      updatedScratch.name.values['zh-CN'] === '更新后的随手笔记' &&
+      updatedScratch.description?.values?.en === 'A temporary note.' &&
+      updatedScratch.description.values['zh-CN'] === '更新后的临时笔记。',
+    'Entry Kind update round-trips full I18n name and description maps'
+  );
   assert(cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'definition').vendor_kind?.keep === true,
     'Entry Kind update preserves unknown fields on untouched catalog records');
   assert(cfgAfterKindUpdate.entry_kinds.find((kind) => kind.id === 'scratch-note').vendor_kind?.editedRecord === true,

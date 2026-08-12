@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import {
   EntrySurface,
+  isEntryKindPayload,
   type EntryOption,
   type EntryData,
   type EntryKind
@@ -92,11 +93,7 @@ const isEntryOption = (value: unknown): value is EntryOption =>
   typeof value.hasContent === 'boolean' &&
   (value.package === undefined || typeof value.package === 'string') &&
   (value.snl === undefined || typeof value.snl === 'string');
-const isEntryKind = (value: unknown): value is EntryKind =>
-  isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string' &&
-  isThemedKindColoring(value.coloring) && typeof value.style === 'string' &&
-  (value.numbering === undefined || typeof value.numbering === 'string') &&
-  (value.defaultCounterName === undefined || typeof value.defaultCounterName === 'string');
+
 const isMacroKindPaletteSource = (value: unknown): value is MacroKindPaletteSource =>
   isRecord(value) && typeof value.id === 'string' && isThemedKindColoring(value.coloring);
 const isRelationshipSection = (value: unknown): value is EntryRelationshipSection =>
@@ -123,7 +120,7 @@ const isEntryDetails = (value: unknown): value is Exclude<Incoming, undefined | 
   type: 'entryDetailsError'; entryId: string; message: string;
 }> => isRecord(value) && value.type === 'entryDetails' &&
   (value.entry === null || isEntryData(value.entry)) &&
-  (value.kind === null || isEntryKind(value.kind)) && Array.isArray(value.entries) &&
+  (value.kind === null || isEntryKindPayload(value.kind)) && Array.isArray(value.entries) &&
   value.entries.every(isEntryOption) &&
   (value.entryPackages === undefined || isStringRecord(value.entryPackages)) &&
   (value.macros === undefined || isRecord(value.macros)) &&

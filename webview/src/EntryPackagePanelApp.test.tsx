@@ -135,4 +135,18 @@ describe('EntryPackagePanelApp', () => {
     expect(screen.queryByText('Conjunction')).toBeNull();
   });
 
+  it.each([
+    ['noEntryPackage', { type: 'noEntryPackage', packageId: 42 }],
+    ['error', { type: 'error', message: { detail: 'bad envelope' } }]
+  ])('fails closed for a malformed %s envelope after valid package state', async (_type, message) => {
+    render(<EntryPackagePanelApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: packageMessage })));
+    expect(await screen.findByText('Conjunction')).toBeTruthy();
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: message })));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('The Entry Package response is malformed.');
+    expect(screen.queryByText('Conjunction')).toBeNull();
+  });
+
 });

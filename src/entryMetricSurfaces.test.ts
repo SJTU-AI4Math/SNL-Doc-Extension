@@ -6,15 +6,24 @@ const root = resolve(__dirname, '..');
 const source = (path: string): string => readFileSync(resolve(root, path), 'utf8');
 
 describe('SNL Structural Index surfaces', () => {
-  it('uses the single structural index badge on Dashboard and library outlines', () => {
+  it('keeps the single structural index badge on the Entry editor and library outline', () => {
     for (const file of [
-      'webview/src/DashboardApp.tsx',
+      'webview/src/CreateEntryApp.tsx',
       'webview/src/CreateLibraryApp.tsx'
     ]) {
       const text = source(file);
       expect(text).toContain('metric="structuralIndex"');
       expect(text).not.toContain('metric="semanticFreedom"');
       expect(text).not.toContain('metric="structuredRatio"');
+    }
+  });
+
+  it('omits package-management SSI where package-local approximation is forbidden', () => {
+    for (const file of [
+      'webview/src/DashboardApp.tsx',
+      'webview/src/EntryPackagePanelApp.tsx'
+    ]) {
+      expect(source(file)).not.toContain('metric="structuralIndex"');
     }
   });
 

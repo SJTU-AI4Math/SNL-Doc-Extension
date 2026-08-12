@@ -24,6 +24,20 @@ const MESSAGES = defineHostMessages(
   }
 );
 
+
+function workspaceAssetRelativePath(assetRoot: vscode.Uri, uri: vscode.Uri): string | undefined {
+  if (uri.scheme !== assetRoot.scheme || uri.authority !== assetRoot.authority) return undefined;
+  const prefix = `${assetRoot.path.replace(/\/$/, '')}/`;
+  if (!uri.path.startsWith(prefix)) return undefined;
+  const path = uri.path.slice(prefix.length);
+  if (!path || path.includes('\\') || path.startsWith('/') ||
+      path.includes('?') || path.includes('#') ||
+      path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    return undefined;
+  }
+  return path;
+}
+
 export interface PreferencesSnapshotMessage {
   type: 'snl.preferences/snapshot';
   generation: string;
@@ -52,8 +66,9 @@ export class PreferencesHost implements vscode.Disposable {
   private readonly assetServices = new Map<WeakRef<vscode.Webview>, WorkspaceAssetService>();
   private readonly generation = randomUUID();
   private revision = 0;
+  private assetRevision = 0;
 
-  constructor() {
+  constructor(workspaceRoot?: vscode.Uri) {
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('snlDoc.locale') ||
@@ -67,6 +82,20 @@ export class PreferencesHost implements vscode.Disposable {
         void this.broadcast();
       })
     );
+    if (workspaceRoot) {
+      const assetRoot = vscode.Uri.joinPath(workspaceRoot, '.SNL_Doc', 'assets');
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(workspaceRoot, '.SNL_Doc/assets/**')
+      );
+      const invalidate = (uri: vscode.Uri): void => {
+        const path = workspaceAssetRelativePath(assetRoot, uri);
+        if (path) void this.broadcastAssetInvalidation(path);
+      };
+      watcher.onDidCreate(invalidate, null, this.disposables);
+      watcher.onDidChange(invalidate, null, this.disposables);
+      watcher.onDidDelete(invalidate, null, this.disposables);
+      this.disposables.push(watcher);
+    }
   }
 
   register(
@@ -214,6 +243,30 @@ export class PreferencesHost implements vscode.Disposable {
     };
   }
 
+  private async broadcastAssetInvalidation(path: string): Promise<void> {
+    const message = {
+      type: 'snl.assets/invalidate' as const,
+      path,
+      revision: ++this.assetRevision
+    };
+    const deliveries = [...this.webviews].map(async (ref) => {
+      const webview = ref.deref();
+      if (!webview) {
+        this.webviews.delete(ref);
+        this.languageServices.delete(ref);
+        this.assetServices.delete(ref);
+        return;
+      }
+      try {
+        const delivered = await webview.postMessage(message);
+        if (!delivered) this.webviews.delete(ref);
+      } catch {
+        this.webviews.delete(ref);
+      }
+    });
+    await Promise.all(deliveries);
+  }
+
   private async broadcast(): Promise<void> {
     const deliveries = [...this.webviews].map(async (ref) => {
       const webview = ref.deref();
@@ -257,9 +310,12 @@ export class PreferencesHost implements vscode.Disposable {
 let host: PreferencesHost | undefined;
 let assetCacheRoot: vscode.Uri | undefined;
 
-export function initialize_preferences_host(context: vscode.ExtensionContext): void {
+export function initialize_preferences_host(
+  context: vscode.ExtensionContext,
+  workspaceRoot: vscode.Uri | undefined = vscode.workspace.workspaceFolders?.[0]?.uri
+): void {
   host?.dispose();
-  host = new PreferencesHost();
+  host = new PreferencesHost(workspaceRoot);
   assetCacheRoot = context.globalStorageUri;
   context.subscriptions.push(host);
 }

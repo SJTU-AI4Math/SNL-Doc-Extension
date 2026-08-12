@@ -27,14 +27,14 @@ describe('workspace asset broker', () => {
     expect(request).toMatchObject({
       type: 'snl.assets/resolve', path: 'figures/a b.png'
     });
-    expect(image.hasAttribute('src')).toBe(false);
+    expect(image.getAttribute('src')).toMatch(/^data:image\/gif/);
     expect(image.dataset.snlAssetPath).toBe('figures/a b.png');
 
     window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'snl.assets/resolved', request_id: 'wrong', path: request.path,
       url: 'vscode-webview://trusted/wrong.png'
     } }));
-    expect(image.hasAttribute('src')).toBe(false);
+    expect(image.getAttribute('src')).toMatch(/^data:image\/gif/);
 
     window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'snl.assets/resolved', request_id: request.request_id, path: request.path,
@@ -110,7 +110,7 @@ describe('workspace asset broker', () => {
     expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('retries a formerly missing image after a host context refresh', async () => {
+  it('retries a formerly missing image after a scoped host invalidation', async () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
     const authoredSrc = `${base}/created-later.png`;
@@ -129,7 +129,7 @@ describe('workspace asset broker', () => {
     await waitFor(() => expect(image.dataset.snlAssetError).toBe(''));
 
     window.dispatchEvent(new MessageEvent('message', { data: {
-      type: 'context', targetGeneration: 1
+      type: 'snl.assets/invalidate', path: 'created-later.png', revision: 1
     } }));
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
     const retry = postMessage.mock.calls[1][0] as { request_id: string; path: string };
@@ -163,8 +163,8 @@ describe('workspace asset broker', () => {
     document.body.append(second);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(first.hasAttribute('src')).toBe(false);
-    expect(second.hasAttribute('src')).toBe(false);
+    expect(first.getAttribute('src')).toMatch(/^data:image\/gif/);
+    expect(second.getAttribute('src')).toMatch(/^data:image\/gif/);
   });
 
   it('ignores a late response after the image path has been replaced', async () => {
@@ -184,7 +184,7 @@ describe('workspace asset broker', () => {
       type: 'snl.assets/resolved', request_id: oldRequest.request_id,
       path: oldRequest.path, url: 'vscode-webview://trusted/old.png'
     } }));
-    expect(image.hasAttribute('src')).toBe(false);
+    expect(image.getAttribute('src')).toMatch(/^data:image\/gif/);
     window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'snl.assets/resolved', request_id: newRequest.request_id,
       path: newRequest.path, url: 'vscode-webview://trusted/new.png'
@@ -193,4 +193,170 @@ describe('workspace asset broker', () => {
       'vscode-webview://trusted/new.png'
     ));
   });
+
+  it.each(['https://example.com/external.png', ''])(
+    'detaches a pending request when authored src becomes %j',
+    async (replacement) => {
+      const postMessage = vi.fn();
+      const base = 'vscode-webview://panel/workspace/assets';
+      document.documentElement.dataset.snlAssetBaseUri = base;
+      disposables.push(installWorkspaceAssetBroker({ postMessage }));
+      const image = document.createElement('img');
+      image.src = `${base}/pending.png`;
+      document.body.append(image);
+      await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+      const request = postMessage.mock.calls[0][0] as { request_id: string; path: string };
+
+      if (replacement) image.src = replacement;
+      else image.removeAttribute('src');
+      await waitFor(() => expect(image.dataset.snlAssetPath).toBeUndefined());
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/resolved', request_id: request.request_id, path: request.path,
+        url: 'vscode-webview://trusted/late.png'
+      } }));
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      expect(image.getAttribute('src')).toBe(replacement || null);
+    }
+  );
+
+  it('drops an orphaned pending path after unmount and ignores its late reply', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+    const image = document.createElement('img');
+    image.src = `${base}/orphan.png`;
+    document.body.append(image);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    const oldRequest = postMessage.mock.calls[0][0] as { request_id: string; path: string };
+
+    image.remove();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: oldRequest.request_id, path: oldRequest.path,
+      url: 'vscode-webview://trusted/orphan-old.png'
+    } }));
+    const remounted = document.createElement('img');
+    remounted.src = `${base}/orphan.png`;
+    document.body.append(remounted);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    expect(postMessage.mock.calls[1][0]).toMatchObject({ path: 'orphan.png' });
+    expect((postMessage.mock.calls[1][0] as { request_id: string }).request_id)
+      .not.toBe(oldRequest.request_id);
+  });
+
+  it('separates query identities and preserves their semantics on trusted URLs', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+    const first = document.createElement('img');
+    first.src = `${base}/same.png?revision=one`;
+    const second = document.createElement('img');
+    second.src = `${base}/same.png?revision=two`;
+    document.body.append(first, second);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    const requests = postMessage.mock.calls.map(([request]) => request as {
+      request_id: string; path: string;
+    });
+    expect(requests.map(({ path }) => path)).toEqual(['same.png', 'same.png']);
+    for (const request of requests) {
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/resolved', request_id: request.request_id, path: request.path,
+        url: 'vscode-webview://trusted/same.png'
+      } }));
+    }
+    await waitFor(() => expect(first.getAttribute('src')).toBe(
+      'vscode-webview://trusted/same.png?revision=one'
+    ));
+    expect(second.getAttribute('src')).toBe(
+      'vscode-webview://trusted/same.png?revision=two'
+    );
+  });
+
+  it('invalidates only the scoped path and refreshes ready and missing nodes', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+    const ready = document.createElement('img');
+    ready.src = `${base}/changed.png`;
+    const missing = document.createElement('img');
+    missing.src = `${base}/missing.png`;
+    document.body.append(ready, missing);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    const [readyRequest, missingRequest] = postMessage.mock.calls.map(([request]) => request as {
+      request_id: string; path: string;
+    });
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: readyRequest.request_id, path: readyRequest.path,
+      url: 'vscode-webview://trusted/old.png'
+    } }));
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: missingRequest.request_id, path: missingRequest.path
+    } }));
+    await waitFor(() => expect(ready.getAttribute('src')).toBe('vscode-webview://trusted/old.png'));
+
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'popoverEntryDetails', entryId: 'unrelated'
+    } }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(postMessage).toHaveBeenCalledTimes(2);
+
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/invalidate', path: 'changed.png', revision: 7
+    } }));
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(3));
+    const refresh = postMessage.mock.calls[2][0] as { request_id: string; path: string };
+    expect(refresh.path).toBe('changed.png');
+    expect(ready.getAttribute('src')).toMatch(/^data:image\/gif/);
+    expect(missing.dataset.snlAssetError).toBe('');
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: refresh.request_id, path: refresh.path,
+      url: 'vscode-webview://trusted/fresh.png'
+    } }));
+    await waitFor(() => expect(ready.getAttribute('src')).toBe('vscode-webview://trusted/fresh.png'));
+  });
+
+  it('bounds settled resolutions while keeping pending requests correlated', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+    const images = Array.from({ length: 130 }, (_, index) => {
+      const image = document.createElement('img');
+      image.src = `${base}/cache-${index}.png`;
+      return image;
+    });
+    document.body.append(...images);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(130));
+    const requests = postMessage.mock.calls.map(([request]) => request as {
+      request_id: string; path: string;
+    });
+
+    const oldest = requests[0];
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: oldest.request_id, path: oldest.path,
+      url: 'vscode-webview://trusted/cache-0.png'
+    } }));
+    await waitFor(() => expect(images[0].getAttribute('src')).toBe(
+      'vscode-webview://trusted/cache-0.png'
+    ));
+    for (const request of requests.slice(1)) {
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/resolved', request_id: request.request_id, path: request.path,
+        url: `vscode-webview://trusted/${request.path}`
+      } }));
+    }
+    await waitFor(() => expect(images.at(-1)?.getAttribute('src')).toBe(
+      'vscode-webview://trusted/cache-129.png'
+    ));
+
+    const remounted = document.createElement('img');
+    remounted.src = `${base}/cache-0.png`;
+    document.body.append(remounted);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(131));
+    expect(postMessage.mock.calls[130][0]).toMatchObject({ path: 'cache-0.png' });
+  });
+
 });

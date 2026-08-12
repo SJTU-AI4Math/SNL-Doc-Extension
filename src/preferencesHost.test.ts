@@ -6,12 +6,28 @@ const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
   showErrorMessage: vi.fn(),
   configListener: vi.fn(),
-  themeListener: vi.fn()
+  themeListener: vi.fn(),
+  assetCreate: vi.fn(),
+  assetChange: vi.fn(),
+  assetDelete: vi.fn(),
+  watcherDispose: vi.fn()
 }));
 
 vi.mock('vscode', () => ({
   ConfigurationTarget: { Global: 1, Workspace: 2 },
+  RelativePattern: class { constructor(public base: unknown, public pattern: string) {} },
+  Uri: {
+    joinPath: (base: { path: string; scheme?: string; authority?: string }, ...segments: string[]) => ({
+      ...base, path: [base.path.replace(/\/$/, ''), ...segments].join('/')
+    })
+  },
   workspace: {
+    createFileSystemWatcher: () => ({
+      onDidCreate: (listener: unknown) => { mocks.assetCreate(listener); return { dispose: vi.fn() }; },
+      onDidChange: (listener: unknown) => { mocks.assetChange(listener); return { dispose: vi.fn() }; },
+      onDidDelete: (listener: unknown) => { mocks.assetDelete(listener); return { dispose: vi.fn() }; },
+      dispose: mocks.watcherDispose
+    }),
     onDidChangeConfiguration: (listener: unknown) => {
       mocks.configListener(listener);
       return { dispose: vi.fn() };
@@ -46,6 +62,7 @@ import {
   bind_preferences_panel_title,
   get_preferences_asset_cache_root,
   initialize_preferences_host,
+  register_preferences_webview,
   PreferencesHost
 } from './preferencesHost';
 
@@ -91,6 +108,45 @@ describe('PreferencesHost language writes', () => {
     const subscriptions: Array<{ dispose(): void }> = [];
     initialize_preferences_host({ globalStorageUri: root, subscriptions } as never);
     expect(get_preferences_asset_cache_root()).toBe(root);
+    subscriptions.at(-1)?.dispose();
+  });
+
+  it('emits exact scoped asset invalidations from the workspace watcher', async () => {
+    const subscriptions: Array<{ dispose(): void }> = [];
+    const root = { scheme: 'file', authority: '', path: '/workspace' };
+    initialize_preferences_host({
+      globalStorageUri: { path: '/trusted-cache' },
+      subscriptions,
+      extensionUri: root,
+      workspaceState: {}, globalState: {}, secrets: {}, extension: {},
+      storageUri: undefined, storagePath: undefined, globalStoragePath: '',
+      logUri: root, logPath: '', extensionMode: 1,
+      environmentVariableCollection: {}, asAbsolutePath: () => '',
+      languageModelAccessInformation: undefined
+    } as never, root as never);
+    let receive = (_message: unknown): void => undefined;
+    const postMessage = vi.fn().mockResolvedValue(true);
+    const registration = register_preferences_webview({
+      onDidReceiveMessage: (listener: (message: unknown) => void) => {
+        receive = listener;
+        return { dispose: vi.fn() };
+      },
+      postMessage
+    } as never, undefined, { resolve: vi.fn() });
+    void receive;
+    const changed = mocks.assetChange.mock.calls.at(-1)?.[0] as
+      ((uri: { scheme: string; authority: string; path: string }) => void);
+
+    changed({
+      scheme: 'file', authority: '',
+      path: '/workspace/.SNL_Doc/assets/figures/proof.png'
+    });
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({
+      type: 'snl.assets/invalidate',
+      path: 'figures/proof.png',
+      revision: 1
+    }));
+    registration.dispose();
     subscriptions.at(-1)?.dispose();
   });
 

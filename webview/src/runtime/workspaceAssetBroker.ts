@@ -1,30 +1,67 @@
 import type { VsCodeApi } from '../vscodeApi';
 
-interface PendingAsset {
+interface AssetIdentity {
+  key: string;
   path: string;
-  request_id: string;
+  authoredSource: string;
+  suffix: string;
+}
+
+interface AssetAssociation extends AssetIdentity {
+  request_id?: string;
+  renderedSource: string | null;
 }
 
 type AssetResolution =
-  | { status: 'pending'; request_id: string }
-  | { status: 'ready'; url: string }
-  | { status: 'missing' };
+  | { status: 'pending'; identity: AssetIdentity; request_id: string }
+  | { status: 'ready'; identity: AssetIdentity; url: string }
+  | { status: 'missing'; identity: AssetIdentity };
 
+const SETTLED_CACHE_LIMIT = 128;
+const PENDING_SOURCE =
+  'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 let nextRequest = 0;
 
-function decodeWorkspacePath(src: string, base: string): string | undefined {
-  const prefix = `${base.replace(/\/$/, '')}/`;
-  if (!src.startsWith(prefix)) return undefined;
+function decodeWorkspaceSource(
+  src: string,
+  base: string,
+  epoch: number
+): AssetIdentity | undefined {
   try {
-    const path = decodeURIComponent(src.slice(prefix.length).split(/[?#]/)[0]);
+    const normalizedBase = new URL(base).href.replace(/\/$/, '');
+    const normalizedSource = new URL(src).href;
+    const prefix = `${normalizedBase}/`;
+    if (!normalizedSource.startsWith(prefix)) return undefined;
+    const remainder = normalizedSource.slice(prefix.length);
+    const encodedPath = remainder.split(/[?#]/, 1)[0];
+    const path = decodeURIComponent(encodedPath);
     if (!path || path.includes('\\') || path.startsWith('/') ||
         path.includes('?') || path.includes('#') ||
         path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
       return undefined;
     }
-    return path;
+    const parsed = new URL(normalizedSource);
+    return {
+      key: `${normalizedBase}\u0000${normalizedSource}\u0000${epoch}`,
+      path,
+      authoredSource: normalizedSource,
+      suffix: `${parsed.search}${parsed.hash}`
+    };
   } catch {
     return undefined;
+  }
+}
+
+function withAuthoredSuffix(url: string, suffix: string): string {
+  if (!suffix) return url;
+  try {
+    const source = new URL(`snl-authored://asset/${suffix}`);
+    const trusted = new URL(url);
+    trusted.search = source.search;
+    trusted.hash = source.hash;
+    return trusted.href;
+  } catch {
+    return url;
   }
 }
 
@@ -37,61 +74,129 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
   dispose(): void;
 } {
   const base = document.documentElement.dataset.snlAssetBaseUri?.replace(/\/$/, '') ?? '';
-  const current = new WeakMap<HTMLImageElement, PendingAsset>();
+  const associations = new WeakMap<HTMLImageElement, AssetAssociation>();
+  const suppressedMutations = new WeakMap<HTMLImageElement, number>();
   const resolutions = new Map<string, AssetResolution>();
+  const requests = new Map<string, string>();
+  const epochs = new Map<string, number>();
   let disposed = false;
 
-  const applyResolution = (
-    image: HTMLImageElement,
-    path: string,
-    resolution: Exclude<AssetResolution, { status: 'pending' }>
-  ): void => {
-    current.delete(image);
-    image.dataset.snlAssetPath = path;
-    if (resolution.status === 'ready') {
-      delete image.dataset.snlAssetError;
-      if (image.getAttribute('src') !== resolution.url) image.src = resolution.url;
-    } else {
-      image.removeAttribute('src');
-      image.dataset.snlAssetError = '';
+  const mutateSource = (image: HTMLImageElement, source: string | null): void => {
+    if (image.getAttribute('src') === source) return;
+    suppressedMutations.set(image, (suppressedMutations.get(image) ?? 0) + 1);
+    if (source === null) image.removeAttribute('src');
+    else image.setAttribute('src', source);
+  };
+
+  const clearAssociation = (image: HTMLImageElement): void => {
+    associations.delete(image);
+    delete image.dataset.snlAssetPath;
+    delete image.dataset.snlAssetError;
+  };
+
+  const touch = (key: string, resolution: AssetResolution): void => {
+    resolutions.delete(key);
+    resolutions.set(key, resolution);
+  };
+
+  const trimSettled = (): void => {
+    let settled = 0;
+    for (const resolution of resolutions.values()) {
+      if (resolution.status !== 'pending') settled += 1;
+    }
+    if (settled <= SETTLED_CACHE_LIMIT) return;
+    for (const [key, resolution] of resolutions) {
+      if (resolution.status === 'pending') continue;
+      resolutions.delete(key);
+      settled -= 1;
+      if (settled <= SETTLED_CACHE_LIMIT) break;
     }
   };
 
-  const requestPath = (image: HTMLImageElement, path: string): void => {
-    image.dataset.snlAssetPath = path;
-    const existing = resolutions.get(path);
+  const applyResolution = (
+    image: HTMLImageElement,
+    identity: AssetIdentity,
+    resolution: Exclude<AssetResolution, { status: 'pending' }>
+  ): void => {
+    const expected = associations.get(image);
+    if (!expected || expected.key !== identity.key) return;
+    image.dataset.snlAssetPath = identity.path;
+    if (resolution.status === 'ready') {
+      delete image.dataset.snlAssetError;
+      const renderedSource = withAuthoredSuffix(resolution.url, identity.suffix);
+      associations.set(image, { ...identity, renderedSource });
+      mutateSource(image, renderedSource);
+    } else {
+      image.dataset.snlAssetError = '';
+      associations.set(image, { ...identity, renderedSource: null });
+      mutateSource(image, null);
+    }
+  };
+
+  const requestIdentity = (image: HTMLImageElement, identity: AssetIdentity): void => {
+    image.dataset.snlAssetPath = identity.path;
+    const existing = resolutions.get(identity.key);
     if (existing?.status === 'ready' || existing?.status === 'missing') {
-      applyResolution(image, path, existing);
+      touch(identity.key, existing);
+      associations.set(image, { ...identity, renderedSource: image.getAttribute('src') });
+      applyResolution(image, identity, existing);
       return;
     }
 
     const request_id = existing?.request_id ?? `snl-markdown-asset-${++nextRequest}`;
-    current.set(image, { path, request_id });
+    associations.set(image, {
+      ...identity,
+      request_id,
+      renderedSource: PENDING_SOURCE
+    });
     delete image.dataset.snlAssetError;
-    image.removeAttribute('src');
+    mutateSource(image, PENDING_SOURCE);
     if (existing) return;
-    resolutions.set(path, { status: 'pending', request_id });
-    api.postMessage({ type: 'snl.assets/resolve', request_id, path });
+    const pending: AssetResolution = { status: 'pending', identity, request_id };
+    resolutions.set(identity.key, pending);
+    requests.set(request_id, identity.key);
+    api.postMessage({ type: 'snl.assets/resolve', request_id, path: identity.path });
   };
 
   const broker = (image: HTMLImageElement): void => {
     if (disposed || !base) return;
-    const src = image.getAttribute('src') ?? '';
-    const path = decodeWorkspacePath(src, base);
-    if (path) requestPath(image, path);
+    const src = image.getAttribute('src');
+    const associated = associations.get(image);
+    if (associated && src === associated.renderedSource) return;
+    const pathHint = associated?.path;
+    const identity = src === null
+      ? undefined
+      : decodeWorkspaceSource(src, base, epochs.get(pathHint ?? '') ?? 0);
+    if (!identity) {
+      clearAssociation(image);
+      return;
+    }
+    const currentEpoch = epochs.get(identity.path) ?? 0;
+    const currentIdentity = currentEpoch === (epochs.get(pathHint ?? '') ?? 0)
+      ? identity
+      : decodeWorkspaceSource(src!, base, currentEpoch);
+    if (currentIdentity) requestIdentity(image, currentIdentity);
   };
 
-  const retryMissing = (): void => {
-    const missingPaths = new Set(
-      [...resolutions.entries()]
-        .filter(([, resolution]) => resolution.status === 'missing')
-        .map(([path]) => path)
-    );
-    if (!missingPaths.size) return;
-    for (const path of missingPaths) resolutions.delete(path);
+  const invalidate = (path: string): void => {
+    if (!path || path.includes('\\') || path.startsWith('/') ||
+        path.includes('?') || path.includes('#') ||
+        path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) return;
+    epochs.set(path, (epochs.get(path) ?? 0) + 1);
+    for (const [key, resolution] of resolutions) {
+      if (resolution.identity.path !== path) continue;
+      resolutions.delete(key);
+      if (resolution.status === 'pending') requests.delete(resolution.request_id);
+    }
     for (const image of document.querySelectorAll<HTMLImageElement>('img[data-snl-asset-path]')) {
-      const path = image.dataset.snlAssetPath;
-      if (path && missingPaths.has(path)) requestPath(image, path);
+      const associated = associations.get(image);
+      if (!associated || associated.path !== path) continue;
+      const identity = decodeWorkspaceSource(
+        associated.authoredSource,
+        base,
+        epochs.get(path) ?? 0
+      );
+      if (identity) requestIdentity(image, identity);
     }
   };
 
@@ -103,14 +208,45 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
   };
 
   const observer = new MutationObserver((records) => {
+    const removedImages = new Set<HTMLImageElement>();
     for (const record of records) {
       if (record.type === 'attributes' && record.target instanceof HTMLImageElement) {
-        broker(record.target);
+        const suppressed = suppressedMutations.get(record.target) ?? 0;
+        if (suppressed > 0) {
+          if (suppressed === 1) suppressedMutations.delete(record.target);
+          else suppressedMutations.set(record.target, suppressed - 1);
+        } else {
+          broker(record.target);
+        }
       }
       for (const node of record.addedNodes) {
         if (node instanceof Element) scan(node);
       }
+      for (const node of record.removedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node instanceof HTMLImageElement) removedImages.add(node);
+        for (const image of node.querySelectorAll<HTMLImageElement>('img')) {
+          removedImages.add(image);
+        }
+      }
     }
+    if (removedImages.size) queueMicrotask(() => {
+      for (const image of removedImages) {
+        if (document.documentElement.contains(image)) continue;
+        const removed = associations.get(image);
+        associations.delete(image);
+        if (!removed) continue;
+        const pending = resolutions.get(removed.key);
+        if (pending?.status !== 'pending') continue;
+        const stillExpected = [...document.querySelectorAll<HTMLImageElement>(
+          'img[data-snl-asset-path]'
+        )].some((candidate) => associations.get(candidate)?.key === removed.key);
+        if (!stillExpected) {
+          resolutions.delete(removed.key);
+          requests.delete(pending.request_id);
+        }
+      }
+    });
   });
   observer.observe(document.documentElement, {
     subtree: true,
@@ -123,28 +259,33 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
   const receive = (event: MessageEvent): void => {
     const message = event.data as {
       type?: unknown; request_id?: unknown; path?: unknown; url?: unknown;
+      revision?: unknown;
     } | null;
-    // Host context payloads are workspace refresh boundaries. A missing asset is
-    // terminal between boundaries, but must be retried after the workspace may
-    // have changed. The explicit invalidation message supports non-context hosts.
-    if (message?.type === 'context' || message?.type === 'entryDetails' ||
-        message?.type === 'snl.assets/invalidate') {
-      retryMissing();
+    if (message?.type === 'snl.assets/invalidate' &&
+        typeof message.path === 'string' &&
+        typeof message.revision === 'number') {
+      invalidate(message.path);
       return;
     }
     if (message?.type !== 'snl.assets/resolved' ||
         typeof message.request_id !== 'string' || typeof message.path !== 'string') return;
-    const pending = resolutions.get(message.path);
-    if (pending?.status !== 'pending' || pending.request_id !== message.request_id) return;
+    const key = requests.get(message.request_id);
+    if (!key) return;
+    const pending = resolutions.get(key);
+    if (pending?.status !== 'pending' ||
+        pending.request_id !== message.request_id ||
+        pending.identity.path !== message.path) return;
+    requests.delete(message.request_id);
     const resolution: Exclude<AssetResolution, { status: 'pending' }> =
       typeof message.url === 'string' && message.url
-        ? { status: 'ready', url: message.url }
-        : { status: 'missing' };
-    resolutions.set(message.path, resolution);
+        ? { status: 'ready', identity: pending.identity, url: message.url }
+        : { status: 'missing', identity: pending.identity };
+    touch(key, resolution);
+    trimSettled();
     for (const image of document.querySelectorAll<HTMLImageElement>('img[data-snl-asset-path]')) {
-      const imagePending = current.get(image);
-      if (imagePending?.request_id === message.request_id && imagePending.path === message.path) {
-        applyResolution(image, message.path, resolution);
+      const expected = associations.get(image);
+      if (expected?.key === key && expected.request_id === message.request_id) {
+        applyResolution(image, pending.identity, resolution);
       }
     }
   };
@@ -156,6 +297,8 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
       observer.disconnect();
       window.removeEventListener('message', receive);
       resolutions.clear();
+      requests.clear();
+      epochs.clear();
     }
   };
 }

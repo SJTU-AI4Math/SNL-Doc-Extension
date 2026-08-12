@@ -52,6 +52,10 @@ export function groupEntryRelationships(
           ? 'incoming'
           : null;
     if (!direction) continue;
+    // `from` depends on `to`; an incoming `depends` edge therefore means
+    // "another Entry depends on this one". Foundational Entries can have an
+    // enormous reverse fan-in, so the single-Entry reader deliberately omits it.
+    if (relationship.label === 'depends' && direction === 'incoming') continue;
     const counterpartId = direction === 'outgoing' ? relationship.to : relationship.from;
     const counterpart = entriesById.get(counterpartId);
     if (!counterpart) continue;

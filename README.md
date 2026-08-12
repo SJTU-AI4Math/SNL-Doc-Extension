@@ -50,9 +50,11 @@ semantics mapping.
 - Every successful Entry save synchronously reconciles that Entry's
   system-owned `depends` rows. `uses_context`, user-authored relationships,
   foreign generators, and every other label are preserved unchanged.
-- Single-Entry Infoview groups all touching relationships by label and
-  direction, keeps the Entry body usable when relationship storage is corrupt,
-  and records an explicit return route with a containing-Library fallback.
+- Single-Entry Infoview groups visible relationships by label and direction,
+  omits incoming `depends` fan-in, and renders each counterpart through the
+  canonical full Entry surface. It keeps the Entry body usable when relationship
+  storage is corrupt and records an explicit return route with a
+  containing-Library fallback.
 - Relationship Graph layout clusters Entries by Package. Theme-wide color
   refinement remains a separate planned task.
 

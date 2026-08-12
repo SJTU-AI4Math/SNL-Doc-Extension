@@ -128,6 +128,15 @@ import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
 import { resolve_localized_string } from '../../src/localizedContent';
 import { MonacoTextEditor } from './entry-editor/MonacoTextEditor';
+import { extractExportedBinders } from './render/contextSrcLookup';
+import {
+  buildEntryMetricContext,
+  computeEntryMetrics,
+  DEFAULT_ENTRY_METRIC_THRESHOLDS,
+  EntryMetricValue,
+  type EntryMetricThresholds,
+  type SnlMacroSourceLookup
+} from './components/EntryMetrics';
 
 
 export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
@@ -197,6 +206,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   unsupportedFormat: '{format} editing is not supported yet',
   kindColors: 'stroke {stroke} / background {background}',
   livePreview: 'Live Preview',
+  structuralIndex: 'SNL Structural Index (SSI)',
   newEntryId: '(new-entry)',
   content: 'Content',
   textFormat: 'Text',
@@ -350,7 +360,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   semanticIdHint: "建议使用 'pythagorean-theorem' 或 'context-linalg-vars' 等语义化 ID——人类可读的 ID 在跨条目引用（宏源、库图节点、bvar `x@<id>` 上下文引用）中显示效果更好。没有合适名称时才使用 UUID 按钮。ID 创建后不可变。",
   package: '条目包', createPackage: '创建条目包', newPackageId: '新条目包 ID', packageIdPlaceholder: '例如：algebra', addPackage: '添加条目包', cancelPackageCreate: '取消', packageCreating: '正在创建…', missingPackageOption: '{packageId}（已丢失；请选择其他条目包）', unpackaged: '未归入条目包（_unpackaged）',
   missingPackage: '已分配的条目包不存在。请先恢复该条目包再保存。', packageHint: '条目包已在打开编辑器前通过 VS Code 选择，此处只读。',
-  kind: '条目类别', kindSelection: '条目类别：{name}', kindDetails: 'ID {id}；描边 {stroke}；背景 {background}', unsupportedFormat: '暂不支持编辑 {format}', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
+  kind: '条目类别', kindSelection: '条目类别：{name}', kindDetails: 'ID {id}；描边 {stroke}；背景 {background}', unsupportedFormat: '暂不支持编辑 {format}', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', structuralIndex: 'SNL 结构索引（SSI）', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   editorMode: 'SNL 编辑器模式', guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
   sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
@@ -757,6 +767,9 @@ export function CreateEntryApp(): React.ReactElement {
    * Empty until the first `context` message arrives.
    */
   const [wireMacros, setWireMacros] = useState<Record<string, WirePackageMacro>>({});
+  const [metricThresholds, setMetricThresholds] = useState<EntryMetricThresholds>(
+    DEFAULT_ENTRY_METRIC_THRESHOLDS
+  );
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   // Name → owning package (bare filename) for the row-side "open Macro
   // editor" button in the GUI editor. Pushed by the host on `context`.
@@ -936,6 +949,7 @@ export function CreateEntryApp(): React.ReactElement {
             macros?: Record<string, WirePackageMacro>;
             macroKinds?: MacroKindPaletteSource[];
             macroOrigin?: Record<string, string>;
+            metricThresholds?: EntryMetricThresholds;
             existing?: ExistingEntry | null;
             entryRevision?: string;
             entryPackages?: string[];
@@ -1073,6 +1087,7 @@ export function CreateEntryApp(): React.ReactElement {
           setWireMacros((previous) =>
             sameWireCatalogValue(previous, incomingMacros) ? previous : incomingMacros
           );
+          setMetricThresholds(msg.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS);
           setKindPalette(macroKindsToPalette(msg.macroKinds));
           setMacroOrigin(
             msg.macroOrigin && typeof msg.macroOrigin === 'object'
@@ -1396,6 +1411,31 @@ export function CreateEntryApp(): React.ReactElement {
     return projected;
   }, [content, contentI18n, contentLanguage]);
   const trimmedId = id.trim();
+  const metricMacroSources = useMemo<SnlMacroSourceLookup>(
+    () => Object.fromEntries(Object.entries(wireMacros).map(([name, macro]) => [name, {
+      source: macro.source
+    }])),
+    [wireMacros]
+  );
+  const baseMetricContext = useMemo(
+    () => buildEntryMetricContext(existingIds
+      .filter((entry) => entry.id !== trimmedId)
+      .map((entry) => ({ id: entry.id, content: { snl: entry.snl } }))),
+    [existingIds, trimmedId]
+  );
+  const metricContext = useMemo(() => {
+    const accessibleEntryIds = new Set(baseMetricContext.accessibleEntryIds);
+    const contextIndex = new Map(baseMetricContext.contextIndex);
+    if (trimmedId) {
+      accessibleEntryIds.add(trimmedId);
+      contextIndex.set(trimmedId, extractExportedBinders(content.snl));
+    }
+    return { accessibleEntryIds, contextIndex };
+  }, [baseMetricContext, content.snl, trimmedId]);
+  const liveEntryMetrics = useMemo(
+    () => computeEntryMetrics(content.snl, metricMacroSources, metricContext),
+    [content.snl, metricContext, metricMacroSources]
+  );
   function selectContentEditLanguage(
     format: LocalizableContentFormat,
     language: string
@@ -1959,6 +1999,28 @@ export function CreateEntryApp(): React.ReactElement {
             userMacros={userMacros}
             kindPalette={kindPalette}
             postMessage={(message) => apiRef.current?.postMessage(message)}
+          />
+        </section>
+
+        <section
+          data-testid="entry-editor-ssi"
+          aria-label={t('structuralIndex')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+            padding: '0.55rem 0.75rem',
+            border: '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #333))',
+            borderRadius: '3px'
+          }}
+        >
+          <strong>{t('structuralIndex')}</strong>
+          <EntryMetricValue
+            result={liveEntryMetrics}
+            metric="structuralIndex"
+            thresholds={metricThresholds}
           />
         </section>
 

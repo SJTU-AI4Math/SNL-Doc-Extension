@@ -18,6 +18,12 @@ describe('SNL Structural Index surfaces', () => {
     }
   });
 
+  it('refreshes an open Entry editor when SSI threshold settings change', () => {
+    const host = source('src/createEntryPanel.ts');
+    expect(host).toContain("affectsConfiguration('snlDoc.metrics')");
+    expect(host).toMatch(/affectsConfiguration\('snlDoc\.metrics'\)[\s\S]{0,160}pushContext\(\)/);
+  });
+
   it('precomputes the whole library instead of recalculating inside each row', () => {
     const text = source('webview/src/CreateLibraryApp.tsx');
     expect(text).toContain('computeEntryMetricsForIds(');

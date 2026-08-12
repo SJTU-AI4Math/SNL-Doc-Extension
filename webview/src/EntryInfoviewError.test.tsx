@@ -65,6 +65,19 @@ describe('EntryInfoview relationship availability', () => {
     });
   });
 
+  it('accepts the host missing-entry payload when related Entries are null', () => {
+    render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      entry: null,
+      kind: null,
+      relationshipSections: null,
+      relatedEntries: null,
+      returnRoute: { kind: 'root' }
+    });
+    expect(screen.getByText('Entry not found in this workspace.')).toBeTruthy();
+  });
+
   it('keeps the UI fallback heading for an untitled Entry', () => {
     render(<EntryInfoviewApp />);
     push({
@@ -205,6 +218,43 @@ describe('EntryInfoview relationship availability', () => {
     expect(api.postMessage).toHaveBeenCalledWith({
       type: 'navigateEntry', entryId: 'entry-2', entryPackage: 'logic'
     });
+  });
+
+  it('renders each related Entry as a full Entry block instead of a text row', async () => {
+    const view = render(<EntryInfoviewApp />);
+    push({
+      ...base,
+      entries: [
+        ...base.entries,
+        { id: 'entry-2', package: 'logic', title: 'Entry Two', hasContent: true, snl: 'RelatedContent' }
+      ],
+      relationshipSections: [{
+        label: 'uses_context', direction: 'outgoing',
+        rows: [{
+          id: 'entry-2', package: 'logic', title: 'Entry Two', kindId: 'definition',
+          relationshipId: 'r-related', metadata: null
+        }]
+      }],
+      relatedEntries: [{
+        entry: {
+          id: 'entry-2', package: 'logic', title: 'Entry Two', kind: 'definition',
+          content: { snl: 'RelatedContent' }, contribution_info: null, pointer: null
+        },
+        kind: {
+          id: 'definition', name: 'Definition', style: '', defaultCounterName: 'definition',
+          coloring: {
+            light: { stroke: '#111111', background: '#eeeeee' },
+            dark: { stroke: '#dddddd', background: '#222222' }
+          }
+        }
+      }],
+      returnRoute: { kind: 'root' }
+    });
+
+    const relatedBlock = view.container.querySelector('section[data-entry-id="entry-2"]');
+    expect(relatedBlock).toBeTruthy();
+    await waitFor(() => expect(relatedBlock?.textContent).toContain('RelatedContent'));
+    expect(screen.queryByRole('button', { name: /Open Infoview for Entry Two/ })).toBeNull();
   });
 });
 

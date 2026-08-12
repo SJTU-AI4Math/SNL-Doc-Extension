@@ -134,8 +134,8 @@
 | Panel | 单元 label/文字 | 类型 | 作用 | 触发的 command / message | 状态/校验 |
 |---|---|---|---|---|---|
 | EntryInfoview | ✎ Edit | button | 打开 Edit Entry 面板 | `editEntry {entryId}` | 仅 entry 加载后显示 |
-| EntryInfoview | 动态 Relationship section | disclosure | 按关系 label 与 incoming/outgoing 方向分区，展开/收起关联 Entry | local state only | `depends` / `uses_context` 使用本地化友好名；其他 label 原样显示 |
-| EntryInfoview | Related 条目链接 | link/list-item | 在同一 Infoview Panel 内进入关联 Entry | `navigateEntry {entryId,entryPackage}` | 保留并行关系与 package identity |
+| EntryInfoview | 动态 Relationship section | disclosure | 按关系 label 与 incoming/outgoing 方向分区，展开/收起关联 Entry | local state only | `depends` / `uses_context` 使用本地化友好名；incoming `depends`（其他条目依赖当前条目）不显示；其他 label 原样显示 |
+| EntryInfoview | Related 条目块 | canonical Entry surface | 用完整 Kind 样式与正文渲染关联 Entry；Ctrl/Cmd+点击标题在同一 Infoview Panel 内进入该 Entry | `navigateEntry {entryId,entryPackage}` | 保留并行关系、关系元数据标记与 package identity |
 | EntryInfoview | ← Back / Library chooser | button/select | 优先返回协议记录的来源 Entry/Library；无来源时按所属 Library 数量回退 | `back` / `returnToLibrary {slug}` | 多 Library 时显示选择器 |
 | EntryInfoview | Relationships unavailable / Retry | alert/button | 关系文件损坏时只隔离关系区，正文继续可用 | `retryRelationships` | — |
 
@@ -161,6 +161,7 @@
 | CreateEntry | Regenerate UUID / Use UUID instead | button | 用新的 UUID v4 覆盖 ID | local state only | 仅 create 模式 |
 | CreateEntry | Kind | select | 从 config.json#entry_kinds 中选择 kind | local state only | 必填；无 kind 时整表 disabled |
 | CreateEntry | Live Preview | preview | KaTeX + EntryRender 实时预览当前草稿 | 无 | — |
+| CreateEntry | SNL Structural Index (SSI) | live metric | 按当前 SNL 草稿、Workspace Macro source 与跨 Entry Context 实时计算 SSI | local state only | 使用 `snlDoc.metrics` 阈值着色；设置变化时刷新 |
 | CreateEntry | SNL / Typst / LaTeX / Markdown / Text | tab | 切换正文源码格式 | local state only | 单选，activeFormat |
 | CreateEntry | Text Editor / GUI Editor (Inductive) | tab | 切换 SNL 的文本 / 归纳树 编辑模式 | local state only | 仅当 activeFormat=snl |
 | CreateEntry | Monaco Text Editor | code editor | 编辑当前格式源码；按需加载 Monaco | local state only | Ctrl/Cmd+S 保存；SNL 支持 Shift+Alt+F |

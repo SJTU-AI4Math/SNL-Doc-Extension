@@ -1016,6 +1016,7 @@ export class InfoviewPanel {
       const kind: EntryKind | null =
         kinds.find((k) => k.id === entry.kind) ?? null;
       let relationshipSections = null as ReturnType<typeof groupEntryRelationships> | null;
+      let relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }> = [];
       let relationshipsError: string | undefined;
       try {
         const relationships = await readRelationships(root);
@@ -1024,6 +1025,15 @@ export class InfoviewPanel {
           relationships,
           new Map(entries.map((candidate) => [candidate.id, candidate]))
         );
+        const relatedIds = new Set(
+          relationshipSections.flatMap((section) => section.rows.map((row) => row.id))
+        );
+        relatedEntries = entries
+          .filter((candidate) => relatedIds.has(candidate.id))
+          .map((candidate) => ({
+            entry: candidate,
+            kind: kinds.find((candidateKind) => candidateKind.id === candidate.kind) ?? null
+          }));
       } catch (error) {
         relationshipsError = error instanceof Error ? error.message : String(error);
       }
@@ -1044,6 +1054,7 @@ export class InfoviewPanel {
         macroKinds,
         assetBaseUri: this.assetBaseUri(root),
         relationshipSections,
+        relatedEntries,
         relationshipsError,
         returnRoute
       });

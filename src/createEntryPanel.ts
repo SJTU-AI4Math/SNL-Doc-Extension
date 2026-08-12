@@ -36,6 +36,7 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import { readPopoverEntry } from './popoverEntryReader';
 import { resolve_localized_string } from './localizedContent';
+import { readEntryMetricThresholds } from './entryMetricSettings';
 
 function hostEntryTitle(title: EntryData['title']): string {
   return resolve_localized_string(title, read_extension_preferences().language);
@@ -310,6 +311,14 @@ export class CreateEntryPanel {
 
     installSnlDocWatcher(this.disposables, () => this.pushContext());
 
+    this.disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('snlDoc.metrics')) {
+          void this.pushContext();
+        }
+      })
+    );
+
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -424,6 +433,7 @@ export class CreateEntryPanel {
       kinds,
       macros,
       macroKinds,
+      metricThresholds: readEntryMetricThresholds(),
       macroOrigin,
       existing,
       entryRevision: existing ? entityRevision(existing) : undefined,

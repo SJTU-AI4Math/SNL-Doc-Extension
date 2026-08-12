@@ -12,7 +12,7 @@ const entries = new Map([
 ]);
 
 describe('single Entry relationship sections', () => {
-  it('groups every label and direction deterministically', () => {
+  it('groups every visible label and direction deterministically while excluding reverse dependencies', () => {
     const sections = groupEntryRelationships('b', [
       { id: '4', from: 'b', to: 'c', label: 'uses_context', metadata: null },
       { id: '2', from: 'a', to: 'b', label: 'depends', metadata: { rank: 1 } },
@@ -22,12 +22,11 @@ describe('single Entry relationship sections', () => {
 
     expect(sections.map(({ label, direction }) => [label, direction])).toEqual([
       ['cites', 'incoming'],
-      ['depends', 'incoming'],
       ['depends', 'outgoing'],
       ['uses_context', 'outgoing']
     ]);
     expect(sections[0].rows[0]).toMatchObject({ id: 'c', package: 'other', relationshipId: '1' });
-    expect(sections[2].rows[0]).toMatchObject({ id: 'a', relationshipId: '3' });
+    expect(sections[1].rows[0]).toMatchObject({ id: 'a', relationshipId: '3' });
   });
 
   it('keeps parallel relationships and skips only dangling counterparts', () => {

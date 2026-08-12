@@ -72,6 +72,7 @@ type Incoming =
       macros?: Record<string, MacroPackageEntry>;
       macroKinds?: MacroKind[];
       relationshipSections?: EntryRelationshipSection[] | null;
+      relatedEntries?: Array<{ entry: EntryData; kind: EntryKind | null }> | null;
       relationshipsError?: string;
       returnRoute?: EntryReturnRoute;
       assetBaseUri?: string;
@@ -105,6 +106,11 @@ const isRelationshipSection = (value: unknown): value is EntryRelationshipSectio
     typeof row.relationshipId === 'string' &&
     (row.kindId === undefined || typeof row.kindId === 'string') &&
     (row.package === undefined || typeof row.package === 'string'));
+const isRelatedEntryDetails = (value: unknown): value is {
+  entry: EntryData;
+  kind: EntryKind | null;
+} => isRecord(value) && isEntryData(value.entry) &&
+  (value.kind === null || isEntryKindPayload(value.kind));
 const isReturnRoute = (value: unknown): value is EntryReturnRoute => {
   if (!isRecord(value)) return false;
   if (value.kind === 'root') return true;
@@ -129,6 +135,8 @@ const isEntryDetails = (value: unknown): value is Exclude<Incoming, undefined | 
   (value.relationshipSections === undefined || value.relationshipSections === null ||
     (Array.isArray(value.relationshipSections) &&
       value.relationshipSections.every(isRelationshipSection))) &&
+  (value.relatedEntries === undefined || value.relatedEntries === null ||
+    (Array.isArray(value.relatedEntries) && value.relatedEntries.every(isRelatedEntryDetails))) &&
   (value.relationshipsError === undefined || typeof value.relationshipsError === 'string') &&
   (value.returnRoute === undefined || isReturnRoute(value.returnRoute)) &&
   (value.assetBaseUri === undefined || typeof value.assetBaseUri === 'string');
@@ -144,6 +152,7 @@ export function EntryInfoviewApp(): React.ReactElement {
     entries: EntryOption[];
     entryPackages: Record<string, string>;
     relationshipSections: EntryRelationshipSection[] | null;
+    relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }>;
     relationshipsError: string | null;
     returnRoute: EntryReturnRoute;
   } | null>(null);
@@ -188,6 +197,7 @@ export function EntryInfoviewApp(): React.ReactElement {
           relationshipSections: Array.isArray(msg.relationshipSections)
             ? msg.relationshipSections
             : null,
+          relatedEntries: Array.isArray(msg.relatedEntries) ? msg.relatedEntries : [],
           relationshipsError: typeof msg.relationshipsError === 'string'
             ? msg.relationshipsError
             : null,
@@ -275,6 +285,11 @@ export function EntryInfoviewApp(): React.ReactElement {
             />
             <RelationshipsRegion
               sections={state.relationshipSections}
+              relatedEntries={state.relatedEntries}
+              entries={state.entries}
+              userMacros={userMacros}
+              kindPalette={kindPalette}
+              markdownImageUrlTransform={markdownImageUrlTransform}
               error={state.relationshipsError}
               postMessage={postMessage}
             />
@@ -303,17 +318,34 @@ export function EntryInfoviewApp(): React.ReactElement {
 }
 
 /**
- * Collapsible list of related-entry rows (Context or Dependencies).
- * Click the row title → open that entry's own Infoview panel.
- * Ctrl+click same → identical (redundant with plain click here; the
- * graph is where the plain/Ctrl distinction actually diverges).
+ * Collapsible groups of related Entries. Each relationship renders the
+ * counterpart through the canonical Entry surface; Ctrl/Cmd-clicking that
+ * Entry title navigates within the current Infoview stack.
  */
-function RelationshipsRegion({ sections, error, postMessage }: {
+function RelationshipsRegion({
+  sections,
+  relatedEntries,
+  entries,
+  userMacros,
+  kindPalette,
+  markdownImageUrlTransform,
+  error,
+  postMessage
+}: {
   sections: EntryRelationshipSection[] | null;
+  relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }>;
+  entries: EntryOption[];
+  userMacros: MacroRecord | undefined;
+  kindPalette: KindPalette | undefined;
+  markdownImageUrlTransform: ((source: string) => string) | undefined;
   error: string | null;
   postMessage: (m: unknown) => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const relatedById = useMemo(
+    () => new Map(relatedEntries.map((item) => [item.entry.id, item])),
+    [relatedEntries]
+  );
   const sectionLabel = (label: string): string =>
     label === 'depends'
       ? t('dependsLabel')
@@ -347,6 +379,11 @@ function RelationshipsRegion({ sections, error, postMessage }: {
           id={`relationship-section-${index}`}
           title={`${sectionLabel(section.label)} · ${t(section.direction)}`}
           rows={section.rows}
+          relatedById={relatedById}
+          entries={entries}
+          userMacros={userMacros}
+          kindPalette={kindPalette}
+          markdownImageUrlTransform={markdownImageUrlTransform}
           postMessage={postMessage}
         />
       ))}
@@ -364,11 +401,21 @@ function RelatedSection({
   id,
   title,
   rows,
+  relatedById,
+  entries,
+  userMacros,
+  kindPalette,
+  markdownImageUrlTransform,
   postMessage
 }: {
   id: string;
   title: string;
   rows: EntryRelationshipSection['rows'];
+  relatedById: ReadonlyMap<string, { entry: EntryData; kind: EntryKind | null }>;
+  entries: EntryOption[];
+  userMacros: MacroRecord | undefined;
+  kindPalette: KindPalette | undefined;
+  markdownImageUrlTransform: ((source: string) => string) | undefined;
   postMessage: (m: unknown) => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
@@ -431,62 +478,54 @@ function RelatedSection({
                 padding: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '0.15rem'
+                gap: '1rem'
               }}
             >
               {rows.map((r) => {
                 const rowTitle = resolve_localized_string(r.title, contentLanguage);
+                const related = relatedById.get(r.id);
+                const atomic = relationshipAtomicState(r.metadata);
                 return (
-                <li key={r.relationshipId}>
-                  <Button
-                    type="button"
-                    onClick={() =>
-                      postMessage({
-                        type: 'navigateEntry',
-                        entryId: r.id,
-                        entryPackage: r.package
-                      })
-                    }
-                    aria-label={t('openEntry', { title: rowTitle || r.id, id: r.id })}
-                    title={t('openEntry', { title: rowTitle || r.id, id: r.id })}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--vscode-textLink-foreground, #4ea3f5)',
-                      cursor: 'pointer',
-                      padding: '0.1rem 0.2rem',
-                      textAlign: 'left',
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: '0.5rem',
-                      fontFamily: 'inherit',
-                      fontSize: '0.9rem',
-                      textDecoration: 'underline'
-                    }}
-                  >
-                    <span>{rowTitle || <em>{t('untitled')}</em>}</span>
-                    {r.kindId ? (
-                      <span
-                        style={{
-                          opacity: 0.55,
-                          fontSize: '0.75rem',
-                          fontFamily: 'monospace',
-                          textDecoration: 'none'
-                        }}
+                  <li key={r.relationshipId} data-relationship-id={r.relationshipId}>
+                    {atomic !== null ? (
+                      <div
+                        title={atomic ? t('atomicTitle') : t('compositeTitle')}
+                        style={{ marginBottom: '0.3rem', opacity: 0.7, fontSize: '0.78rem' }}
                       >
-                        [{r.kindId}]
-                      </span>
+                        {atomic ? t('atomic') : t('composite')}
+                      </div>
                     ) : null}
-                    {relationshipAtomicState(r.metadata) !== null ? (
-                      <span title={relationshipAtomicState(r.metadata)
-                        ? t('atomicTitle')
-                        : t('compositeTitle')}>
-                        {relationshipAtomicState(r.metadata) ? t('atomic') : t('composite')}
-                      </span>
-                    ) : null}
-
-                  </Button>
-                </li>
+                    {related ? (
+                      <EntrySurface
+                        entry={related.entry}
+                        kind={related.kind}
+                        entries={entries}
+                        postMessage={postMessage}
+                        userMacros={userMacros}
+                        kindPalette={kindPalette}
+                        markdownImageUrlTransform={markdownImageUrlTransform}
+                        counterLabel={undefined}
+                        onTitleCtrlClick={() => postMessage({
+                          type: 'navigateEntry',
+                          entryId: r.id,
+                          entryPackage: r.package
+                        })}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        onClick={() => postMessage({
+                          type: 'navigateEntry',
+                          entryId: r.id,
+                          entryPackage: r.package
+                        })}
+                        aria-label={t('openEntry', { title: rowTitle || r.id, id: r.id })}
+                        title={t('openEntry', { title: rowTitle || r.id, id: r.id })}
+                      >
+                        {rowTitle || <em>{t('untitled')}</em>}
+                      </Button>
+                    )}
+                  </li>
                 );
               })}
             </ul>

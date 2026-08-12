@@ -338,6 +338,22 @@ describe('infoview panel read cost', () => {
     }));
   });
 
+  it('ships full related Entry records and kinds for relationship block rendering', async () => {
+    const { InfoviewPanel } = await loadPanel();
+    InfoviewPanel.panels.clear();
+    InfoviewPanel.createOrShowForEntry(extensionUri, 'e1');
+    if (!onMessage) throw new Error('entry panel did not register a message handler');
+    await onMessage({ type: 'ready' });
+
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'entryDetails',
+      relatedEntries: [{
+        entry: expect.objectContaining({ id: 'e2', content: { snl: 'y' } }),
+        kind: expect.objectContaining({ id: 'k1', name: 'Definition' })
+      }]
+    }));
+  });
+
   it('keeps Entry details available when relationships are malformed', async () => {
     const { InfoviewPanel } = await loadPanel();
     InfoviewPanel.panels.clear();

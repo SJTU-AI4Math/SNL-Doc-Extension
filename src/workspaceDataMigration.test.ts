@@ -187,7 +187,7 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize))
       .rejects.toThrow(/rolled back/i);
-    expect(entryListings).toBe(1);
+    expect(entryListings).toBe(2);
     expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
     for (const [path, value] of predecessorPackages) expect(storage.values.get(path)).toEqual(value);
 
@@ -196,7 +196,7 @@ describe('stored workspace data migration', () => {
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: '0.0.10', to: '0.0.11'
     });
-    expect(entryListings).toBe(1);
+    expect(entryListings).toBe(3);
     expect(storage.writes.at(-1)).toBe('config.json');
     const unpackaged = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
     expect(unpackaged).toMatchObject({ schema_version: 2, entry_ids: ['Set.mem'] });
@@ -206,6 +206,49 @@ describe('stored workspace data migration', () => {
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({ applied: [] });
     expect(storage.writes).toEqual([]);
     expect(entryListings).toBe(0);
+  });
+
+  it('rejects an Entry created at the final config seam and retries with exact membership', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.10';
+    for (const [path, value] of storage.values) {
+      if (!path.startsWith('packages/')) continue;
+      (value as Record<string, unknown>).schema_version = 1;
+      (value as Record<string, unknown>).entry_ids = [];
+    }
+    const concurrentId = 'Set.concurrent';
+    const concurrentPath = entryEntityPath('_unpackaged', concurrentId);
+    let injected = false;
+    storage.beforeWrite = (path) => {
+      if (!injected && path === 'config.json') {
+        injected = true;
+        storage.values.set(concurrentPath, {
+          format: 'snl-entry', version: 1, schema_version: 1, package: '_unpackaged',
+          entry: {
+            id: concurrentId, package: '_unpackaged', kind: 'theorem', title: 'Concurrent',
+            content: { snl: '' }, pointer: null
+          }
+        });
+      }
+    };
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/exact path\/value set|rolled back/i);
+    expect(injected).toBe(true);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
+    expect(storage.values.get(concurrentPath)).toMatchObject({ entry: { id: concurrentId } });
+
+    storage.beforeWrite = null;
+    storage.writes.length = 0;
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: '0.0.10', to: '0.0.11'
+    });
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.11');
+    expect(storage.values.get(packageManifestPath('_unpackaged'))).toMatchObject({
+      schema_version: 2, entry_ids: ['Set.concurrent', 'Set.mem']
+    });
+    expect((await inspectStoredWorkspaceData(storage)).status).toBe('current');
   });
 
   it('upgrades 0.0.9 entities lazily while publishing Package membership', async () => {

@@ -449,7 +449,9 @@ describe('PackagePanel read cost', () => {
       expect([...jsonByPath], failedPath).toEqual(before);
     }
 
-    for (const [casPath, completedWrites] of [[sourceManifestPath, 2], [sourceEntryPath, 3]] as const) {
+    for (const [casPath, completedWrites] of [
+      [destinationManifestPath, 1], [sourceManifestPath, 2], [sourceEntryPath, 3]
+    ] as const) {
       const oldEntry = seedMoveTransactionTopology(id);
       const originalSourceManifest = structuredClone(jsonByPath.get(sourceManifestPath));
       const originalDestinationManifest = structuredClone(jsonByPath.get(destinationManifestPath));
@@ -458,8 +460,8 @@ describe('PackagePanel read cost', () => {
         if (!mutated && relative === casPath && state.writes.length === completedWrites) {
           mutated = true;
           const value = structuredClone(jsonByPath.get(casPath)) as Record<string, any>;
-          if (casPath === sourceManifestPath) value.description = 'external manifest edit';
-          else value.entry.title = 'external entity edit';
+          if (casPath === sourceEntryPath) value.entry.title = 'external entity edit';
+          else value.description = 'external manifest edit';
           jsonByPath.set(casPath, value);
           state.mutateBeforeRead = null;
         }
@@ -467,12 +469,19 @@ describe('PackagePanel read cost', () => {
       const result = await actual.updateEntry(root, id, newEntry(id, 'destination'), actual.entityRevision(oldEntry.entry));
       expect(mutated, casPath).toBe(true);
       expect(result, casPath).toMatchObject({ status: 'error' });
-      expect(jsonByPath.get(destinationManifestPath), casPath).toEqual(originalDestinationManifest);
       expect(jsonByPath.has(destinationEntryPath), casPath).toBe(false);
-      if (casPath === sourceManifestPath) {
+      if (casPath === destinationManifestPath) {
+        expect(jsonByPath.get(destinationManifestPath)).toMatchObject({
+          description: 'external manifest edit', entry_ids: []
+        });
+        expect(jsonByPath.get(sourceManifestPath)).toEqual(originalSourceManifest);
+        expect(jsonByPath.get(sourceEntryPath)).toEqual(oldEntry);
+      } else if (casPath === sourceManifestPath) {
+        expect(jsonByPath.get(destinationManifestPath), casPath).toEqual(originalDestinationManifest);
         expect(jsonByPath.get(sourceManifestPath)).toMatchObject({ description: 'external manifest edit', entry_ids: [id] });
         expect(jsonByPath.get(sourceEntryPath)).toEqual(oldEntry);
       } else {
+        expect(jsonByPath.get(destinationManifestPath), casPath).toEqual(originalDestinationManifest);
         expect(jsonByPath.get(sourceManifestPath)).toEqual(originalSourceManifest);
         expect(jsonByPath.get(sourceEntryPath)).toMatchObject({ entry: { title: 'external entity edit' } });
       }

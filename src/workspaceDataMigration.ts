@@ -271,18 +271,14 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 async function verifyEntityStorageCommit(
   storage: DataMigrationStorage,
-  source: WorkspaceDataSnapshot,
-  preserveEntryPathSet = false
+  source: WorkspaceDataSnapshot
 ): Promise<void> {
+  // Every final verification starts from fresh directory listings. Comparing
+  // the complete path/value maps binds Package membership publication to the
+  // exact Entry population and entity bytes that exist at this commit seam.
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),
-    preserveEntryPathSet
-      ? Promise.all([...source.entryEntities.keys()].map(async (path) => {
-          const value = await storage.readJson(path);
-          if (value === null) throw new Error(`Entity migration verification found missing ${path}.`);
-          return { path, rawEnvelope: value };
-        }))
-      : readEntryEntityRecords(storage),
+    readEntryEntityRecords(storage),
     readMacroEntityRecords(storage)
   ]);
   const actualMaps = [
@@ -344,7 +340,6 @@ export async function migrateStoredWorkspaceData(
 
   const source = await loadSnapshot(storage);
   await assertSnapshotTopology(source, inspection.currentVersion!, 'needsMigration');
-  const membershipOnlyEdge = inspection.currentVersion === '0.0.10';
   const originals = cloneWorkspaceDataSnapshot(source);
   const report = await migrateWorkspaceSnapshot(source, canonicalizeMacroPackage);
   await assertSnapshotTopology(source, CURRENT_DATA_VERSION, 'current');
@@ -386,15 +381,15 @@ export async function migrateStoredWorkspaceData(
     for (const write of writes) {
       if (write.path === 'config.json' && source.config.version === CURRENT_DATA_VERSION) {
         await verifyLegacySourcesUnchanged(storage, source);
-        await verifyEntityStorageCommit(storage, source, membershipOnlyEdge);
+        await verifyEntityStorageCommit(storage, source);
       }
       await storage.writeJsonAtomic(write.path, write.value, write.original);
       completed.push(write);
       if (write.path === 'config.json' && source.config.version === CURRENT_DATA_VERSION) {
         await verifyLegacySourcesUnchanged(storage, source);
-        // Config is published last. Re-read every migrated value through exact
-        // source paths; the 0.0.10 membership edge never re-enumerates Entries.
-        await verifyEntityStorageCommit(storage, source, membershipOnlyEdge);
+        // Config is published last. Re-enumerate and exact-validate the entire
+        // entity tree so a final-seam add/delete/move cannot escape membership.
+        await verifyEntityStorageCommit(storage, source);
       }
     }
   } catch (error) {

@@ -100,6 +100,7 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
+import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { extensionRenderers } from './render/blockRenderers';
 import {
   attachCanvasRoot,
@@ -2361,6 +2362,12 @@ function LivePreview({
     () => ({ [entryId]: { entry, kind: renderKind } }),
     [entryId, entry, renderKind]
   );
+  const markdownImageUrlTransform = useMemo(() => {
+    const assetBaseUri = document.documentElement.dataset.snlAssetBaseUri ?? '';
+    return assetBaseUri
+      ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
+      : undefined;
+  }, []);
 
   return (
     <HoverPopoverProvider
@@ -2368,6 +2375,7 @@ function LivePreview({
       entries={previewEntries}
       userMacros={userMacros}
       kindPalette={kindPalette}
+      markdownImageUrlTransform={markdownImageUrlTransform}
       localDetails={localDetails}
     >
       <div className="snl-entry-live-preview">
@@ -2378,6 +2386,7 @@ function LivePreview({
           postMessage={postMessage}
           userMacros={userMacros}
           kindPalette={kindPalette}
+          markdownImageUrlTransform={markdownImageUrlTransform}
           counterLabel={undefined}
           disableTitleJump={true}
         />

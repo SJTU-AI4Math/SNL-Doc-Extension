@@ -52,7 +52,6 @@ import {
   readEntryEntityRecordWithOwner,
   readEntryEntityRecords,
   readIndexedPackageEntryRecords,
-  readUnindexedPackageEntryRecords,
   readMacroEntityRecords,
   readPackageManifestRecord,
   readPackageManifestRecords,
@@ -4170,10 +4169,12 @@ export async function addEntry(
       entityPath = entryEntityPath(packageId, id);
       // Canonical point reader validates format/version/schema/id/path before
       // any Entry or membership write is attempted.
-      ownerManifest = await readPackageManifestRecord(entityReadStorage(workspaceRoot), packageId);
+      const storage = entityReadStorage(workspaceRoot);
+      ownerManifest = await readPackageManifestRecord(storage, packageId);
       if (!ownerManifest) {
         return { status: 'invalid', reason: `Unknown Entry package: ${packageId}` };
       }
+      await readIndexedPackageEntryRecords(storage, packageId, ownerManifest.manifest.entry_ids);
     } catch (error) {
       return { status: 'invalid', reason: error instanceof Error ? error.message : String(error) };
     }
@@ -4199,9 +4200,8 @@ export async function addEntry(
   try {
     if (entityMode && entityPath && ownerManifest) {
       await vscode.workspace.fs.createDirectory(entryEntitiesDirUri(workspaceRoot));
-      const indexedIds = packageManifestEntryIds(ownerManifest.manifest) ?? entityRecords
-        .filter(({ envelope }) => envelope.package === packageId)
-        .map(({ entry: current }) => current.id);
+      const indexedIds = packageManifestEntryIds(ownerManifest.manifest);
+      if (indexedIds === null) throw new Error(`Package ${JSON.stringify(packageId)} is missing entry_ids.`);
       const membershipRewrite = rewritePackageEntryMembership(ownerManifest, [...indexedIds, id]);
       await applyJsonFileOperations(workspaceRoot, `add Entry ${id}`, [
         {
@@ -4280,33 +4280,12 @@ async function readPackageEntryMembership(
     const manifestRecord = await readPackageManifestRecord(storage, packageId);
     if (!manifestRecord) return { manifestRecord: null, entryRecords: [] };
     const indexedIds = packageManifestEntryIds(manifestRecord.manifest);
-    if (indexedIds !== null) {
-      return {
-        manifestRecord,
-        entryRecords: await readIndexedPackageEntryRecords(storage, packageId, indexedIds)
-      };
+    if (indexedIds === null) {
+      throw new Error(`Package ${JSON.stringify(packageId)} is missing its current Entry membership index.`);
     }
-
-    // Explicit lazy compatibility upgrade for manifests produced before the
-    // membership index existed. Only exact Package-owned filenames are read.
-    const entryRecords = await readUnindexedPackageEntryRecords(storage, packageId);
-    const rewrite = rewritePackageEntryMembership(
-      manifestRecord,
-      entryRecords.map(({ entry }) => entry.id)
-    );
-    await applyJsonFileOperations(workspaceRoot, `upgrade Entry Package index ${packageId}`, [{
-      kind: 'write',
-      uri: snlRelativeUri(workspaceRoot, manifestRecord.path),
-      value: rewrite.value,
-      expected: rewrite.expected
-    }]);
     return {
-      manifestRecord: {
-        path: manifestRecord.path,
-        rawManifest: rewrite.value,
-        manifest: rewrite.value
-      },
-      entryRecords
+      manifestRecord,
+      entryRecords: await readIndexedPackageEntryRecords(storage, packageId, indexedIds)
     };
   });
 }
@@ -4743,6 +4722,14 @@ export async function updateEntry(
       if (!currentManifest) {
         return { status: 'invalid', message: `Package ${JSON.stringify(currentPackageId)} does not exist` };
       }
+      await readIndexedPackageEntryRecords(
+        storage, currentPackageId, currentManifest.manifest.entry_ids
+      );
+      if (destinationManifest !== currentManifest) {
+        await readIndexedPackageEntryRecords(
+          storage, packageId, destinationManifest.manifest.entry_ids
+        );
+      }
     } catch (error) {
       return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
     }
@@ -4789,12 +4776,11 @@ export async function updateEntry(
           rewrite.expected
         );
       } else if (currentManifest && destinationManifest) {
-        const currentIds = packageManifestEntryIds(currentManifest.manifest) ?? entityRecords
-          .filter(({ envelope }) => envelope.package === currentPackageId)
-          .map(({ entry: current }) => current.id);
-        const destinationIds = packageManifestEntryIds(destinationManifest.manifest) ?? entityRecords
-          .filter(({ envelope }) => envelope.package === packageId)
-          .map(({ entry: current }) => current.id);
+        const currentIds = packageManifestEntryIds(currentManifest.manifest);
+        const destinationIds = packageManifestEntryIds(destinationManifest.manifest);
+        if (currentIds === null || destinationIds === null) {
+          throw new Error('Current Package membership index is missing.');
+        }
         const currentMembership = rewritePackageEntryMembership(
           currentManifest,
           currentIds.filter((entryId) => entryId !== targetId)
@@ -6442,6 +6428,11 @@ export async function deleteEntry(
         if (!ownerManifest) {
           return { status: 'invalid', message: `Package ${JSON.stringify(entityRecord.envelope.package)} does not exist` };
         }
+        await readIndexedPackageEntryRecords(
+          entityReadStorage(workspaceRoot),
+          entityRecord.envelope.package,
+          ownerManifest.manifest.entry_ids
+        );
       } catch (error) {
         return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
       }
@@ -6522,9 +6513,8 @@ export async function deleteEntry(
   pool.splice(idx, 1);
   try {
     if (entityMode && entityRecord && ownerManifest) {
-      const indexedIds = packageManifestEntryIds(ownerManifest.manifest) ?? entityRecords
-        .filter(({ envelope }) => envelope.package === entityRecord!.envelope.package)
-        .map(({ entry }) => entry.id);
+      const indexedIds = packageManifestEntryIds(ownerManifest.manifest);
+      if (indexedIds === null) throw new Error('Current Package membership index is missing.');
       const membershipRewrite = rewritePackageEntryMembership(
         ownerManifest,
         indexedIds.filter((entryId) => entryId !== targetId)

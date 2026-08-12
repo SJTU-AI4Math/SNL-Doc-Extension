@@ -26,7 +26,7 @@ function seedCurrentTopology(): void {
     }));
   }
   jsonByPath.set('config.json', {
-    version: '0.0.10',
+    version: '0.0.11',
     entry_kinds: [],    macro_kinds: [],
     active_macro_packages: packageIds
   });
@@ -41,7 +41,8 @@ const state = vi.hoisted(() => ({
   entityReads: [] as string[],
   entityInFlight: 0,
   maxEntityInFlight: 0,
-  writes: [] as string[]
+  writes: [] as string[],
+  failOnceAt: null as string | null
 }));
 
 function relativePath(uri: { path: string }): string {
@@ -100,9 +101,25 @@ vi.mock('vscode', () => ({
         state.entityInFlight -= 1;
         return new TextEncoder().encode(JSON.stringify(jsonByPath.get(relative)));
       },
-      writeFile: async (uri: { path: string }) => { state.writes.push(relativePath(uri)); },
+      writeFile: async (uri: { path: string }, bytes: Uint8Array) => {
+        const relative = relativePath(uri);
+        state.writes.push(relative);
+        if (state.failOnceAt === relative) {
+          state.failOnceAt = null;
+          throw new Error(`injected write failure: ${relative}`);
+        }
+        jsonByPath.set(relative, JSON.parse(new TextDecoder().decode(bytes)));
+      },
       createDirectory: async () => undefined,
-      delete: async () => undefined
+      delete: async (uri: { path: string }) => {
+        const relative = relativePath(uri);
+        state.writes.push(`delete:${relative}`);
+        if (state.failOnceAt === relative) {
+          state.failOnceAt = null;
+          throw new Error(`injected delete failure: ${relative}`);
+        }
+        jsonByPath.delete(relative);
+      }
     },
     getConfiguration: () => ({ get: () => undefined, inspect: () => undefined }),
     onDidChangeConfiguration: () => ({ dispose: () => undefined }),
@@ -168,6 +185,7 @@ describe('PackagePanel read cost', () => {
     state.entityInFlight = 0;
     state.maxEntityInFlight = 0;
     state.writes.length = 0;
+    state.failOnceAt = null;
   });
 
   it('uses one operation-local snapshot for the selected package and all derived package data', async () => {
@@ -188,7 +206,7 @@ describe('PackagePanel read cost', () => {
   it('enumerates exactly the selected Package Entry ids without catalog or Macro reads', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.10', entry_kinds: [], macro_kinds: [],
+      version: '0.0.11', entry_kinds: [], macro_kinds: [],
       active_macro_packages: []
     });
     const selectedIds = ['logic.first', 'logic.second'];
@@ -226,7 +244,7 @@ describe('PackagePanel read cost', () => {
   it('rejects Entry creation from a malformed Package manifest before any write', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.10', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
+      version: '0.0.11', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged',
         receipt: {
@@ -259,6 +277,93 @@ describe('PackagePanel read cost', () => {
     );
     expect(implementation).toContain('readPackageManifestRecord(');
     expect(implementation).not.toContain('exists(snlRelativeUri(workspaceRoot, packageManifestPath(packageId)))');
+  });
+
+  it('rolls back create membership when the manifest CAS write fails', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', { version: '0.0.11', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    const manifestPath = packageManifestPath('logic');
+    jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', []));
+    state.failOnceAt = manifestPath;
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+      id: 'logic.new', package: 'logic', kind: 'definition', title: 'New',
+      content: { snl: '' }, pointer: null
+    });
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(jsonByPath.get(manifestPath)).toEqual(makePackageManifest('logic', 'Logic', '', []));
+    expect(jsonByPath.has(entryEntityPath('logic', 'logic.new'))).toBe(false);
+  });
+
+  it('rolls back a cross-Package move after an injected membership failure', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', { version: '0.0.11', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    const id = 'logic.move';
+    const sourcePath = packageManifestPath('source');
+    const destinationPath = packageManifestPath('destination');
+    const oldEntryPath = entryEntityPath('source', id);
+    const oldEntry = makeEntryEnvelope('source', { id, package: 'source', kind: 'definition', title: 'Old', content: { snl: '' }, pointer: null });
+    jsonByPath.set(sourcePath, makePackageManifest('source', 'Source', '', [id]));
+    jsonByPath.set(destinationPath, makePackageManifest('destination', 'Destination', '', []));
+    jsonByPath.set(oldEntryPath, oldEntry);
+    state.failOnceAt = sourcePath;
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const result = await actual.updateEntry({ path: '/ws', toString: () => 'file:///ws' } as never, id, {
+      package: 'destination', kind: 'definition', title: 'Moved', content: { snl: '' }, pointer: null
+    }, actual.entityRevision(oldEntry.entry));
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(jsonByPath.get(sourcePath)).toEqual(makePackageManifest('source', 'Source', '', [id]));
+    expect(jsonByPath.get(destinationPath)).toEqual(makePackageManifest('destination', 'Destination', '', []));
+    expect(jsonByPath.get(oldEntryPath)).toEqual(oldEntry);
+    expect(jsonByPath.has(entryEntityPath('destination', id))).toBe(false);
+  });
+
+  it('rolls back delete membership when Entry deletion fails', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', { version: '0.0.11', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    const id = 'logic.delete';
+    const manifestPath = packageManifestPath('logic');
+    const entityPath = entryEntityPath('logic', id);
+    const entry = makeEntryEnvelope('logic', { id, package: 'logic', kind: 'definition', title: 'Delete', content: { snl: '' }, pointer: null });
+    jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', [id]));
+    jsonByPath.set(entityPath, entry);
+    state.failOnceAt = entityPath;
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const result = await actual.deleteEntry({ path: '/ws', toString: () => 'file:///ws' } as never, id, 'logic');
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(jsonByPath.get(manifestPath)).toEqual(makePackageManifest('logic', 'Logic', '', [id]));
+    expect(jsonByPath.get(entityPath)).toEqual(entry);
+  });
+
+  it('rejects stale Entry revisions and stale listed membership before publish', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', { version: '0.0.11', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    const manifestPath = packageManifestPath('logic');
+    jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', ['missing.entry']));
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const create = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+      id: 'logic.new', package: 'logic', kind: 'definition', title: 'New', content: { snl: '' }, pointer: null
+    });
+    expect(create).toMatchObject({ status: 'error' });
+    expect(state.writes).toEqual([]);
+
+    jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', ['logic.old']));
+    const entityPath = entryEntityPath('logic', 'logic.old');
+    const entry = makeEntryEnvelope('logic', { id: 'logic.old', package: 'logic', kind: 'definition', title: 'Old', content: { snl: '' }, pointer: null });
+    jsonByPath.set(entityPath, entry);
+    const update = await actual.updateEntry({ path: '/ws', toString: () => 'file:///ws' } as never, 'logic.old', {
+      package: 'logic', kind: 'definition', title: 'Changed', content: { snl: '' }, pointer: null
+    }, 'stale-revision');
+    expect(update).toMatchObject({ status: 'error' });
+    expect(state.writes).toEqual([]);
+    expect(jsonByPath.get(entityPath)).toEqual(entry);
   });
 
   it('uses one current-storage Package/Macro snapshot per SNoogL query', async () => {
@@ -307,7 +412,7 @@ describe('PackagePanel read cost', () => {
   it('folds collisions deterministically in file order and exposes the winning origin', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.0.10', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']    });
+      version: '0.0.11', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']    });
     for (const id of ['core', 'core-extra']) {
       jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
       jsonByPath.set(`macros/${macroEntityPath(id, 'Shared.name').slice('macros/'.length)}`, makeMacroEnvelope(id, {
@@ -391,7 +496,7 @@ describe('PackagePanel read cost', () => {
 
   it('fails closed when a configured active package has no manifest', async () => {
     jsonByPath.set('config.json', {
-      version: '0.0.10',
+      version: '0.0.11',
       entry_kinds: [],      macro_kinds: [],
       active_macro_packages: [...packageIds, 'missing-active']
     });

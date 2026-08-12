@@ -66,7 +66,8 @@ export async function inspectStoredWorkspaceData(
     const hasEntityTopology = inspection.status === 'current' ||
       (inspection.status === 'needsMigration' &&
         (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7' ||
-          inspection.currentVersion === '0.0.8' || inspection.currentVersion === '0.0.9'));
+          inspection.currentVersion === '0.0.8' || inspection.currentVersion === '0.0.9' ||
+          inspection.currentVersion === '0.0.10'));
     if (hasEntityTopology) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
@@ -125,7 +126,11 @@ export async function inspectStoredWorkspaceData(
           ? '9'
           : inspection.currentVersion === '0.0.8' ? '10' : '11';
       const { packages, entries, macros } = snapshot?.entities ??
-        await readEntityStorageSnapshot(storage, macroSchemaVersion);
+        await readEntityStorageSnapshot(
+          storage,
+          macroSchemaVersion,
+          inspection.currentVersion === '0.0.10'
+        );
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));
       if (!packageIds.has(UNPACKAGED_PACKAGE_ID)) {
         throw new Error('Current entity topology is missing the _unpackaged Package manifest.');
@@ -249,11 +254,18 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 async function verifyEntityStorageCommit(
   storage: DataMigrationStorage,
-  source: WorkspaceDataSnapshot
+  source: WorkspaceDataSnapshot,
+  preserveEntryPathSet = false
 ): Promise<void> {
   const [packages, entries, macros] = await Promise.all([
     readPackageManifestRecords(storage),
-    readEntryEntityRecords(storage),
+    preserveEntryPathSet
+      ? Promise.all([...source.entryEntities.keys()].map(async (path) => {
+          const value = await storage.readJson(path);
+          if (value === null) throw new Error(`Entity migration verification found missing ${path}.`);
+          return { path, rawEnvelope: value };
+        }))
+      : readEntryEntityRecords(storage),
     readMacroEntityRecords(storage)
   ]);
   const actualMaps = [
@@ -300,7 +312,8 @@ export async function migrateStoredWorkspaceData(
   storage: DataMigrationStorage,
   canonicalizeMacroPackage: CanonicalizeMacroPackage
 ): Promise<DataMigrationReport<WorkspaceMigrationContext>> {
-  const inspection = await inspectStoredWorkspaceData(storage);
+  const initialConfig = await storage.readJson('config.json');
+  const inspection = inspectWorkspaceData(initialConfig);
   if (inspection.status === 'current') {
     return {
       from: inspection.targetVersion,
@@ -314,6 +327,7 @@ export async function migrateStoredWorkspaceData(
 
   const source = await loadSnapshot(storage);
   await assertSnapshotTopology(source, inspection.currentVersion!, 'needsMigration');
+  const membershipOnlyEdge = inspection.currentVersion === '0.0.10';
   const originals = cloneWorkspaceDataSnapshot(source);
   const report = await migrateWorkspaceSnapshot(source, canonicalizeMacroPackage);
   await assertSnapshotTopology(source, CURRENT_DATA_VERSION, 'current');
@@ -355,20 +369,15 @@ export async function migrateStoredWorkspaceData(
     for (const write of writes) {
       if (write.path === 'config.json' && source.config.version === CURRENT_DATA_VERSION) {
         await verifyLegacySourcesUnchanged(storage, source);
-        await verifyEntityStorageCommit(storage, source);
+        await verifyEntityStorageCommit(storage, source, membershipOnlyEdge);
       }
       await storage.writeJsonAtomic(write.path, write.value, write.original);
       completed.push(write);
       if (write.path === 'config.json' && source.config.version === CURRENT_DATA_VERSION) {
-        const postCommit = await inspectStoredWorkspaceData(storage);
-        if (postCommit.status !== 'current') {
-          throw new Error(`Post-commit topology validation failed: ${postCommit.message}`);
-        }
         await verifyLegacySourcesUnchanged(storage, source);
-        // This exact path/value/count comparison is deliberately the final
-        // awaited operation before success, so no weaker self-consistency
-        // inspection can open a deterministic seam after it.
-        await verifyEntityStorageCommit(storage, source);
+        // Config is published last. Re-read every migrated value through exact
+        // source paths; the 0.0.10 membership edge never re-enumerates Entries.
+        await verifyEntityStorageCommit(storage, source, membershipOnlyEdge);
       }
     }
   } catch (error) {

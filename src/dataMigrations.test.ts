@@ -10,7 +10,14 @@ import {
   migrateWorkspaceSnapshot,
   type WorkspaceDataSnapshot
 } from './dataMigrations';
-import { macroEntityPath, makeMacroEnvelope } from './entityStorage';
+import {
+  entryEntityPath,
+  macroEntityPath,
+  makeEntryEnvelope,
+  makeMacroEnvelope,
+  makePackageManifest,
+  packageManifestPath
+} from './entityStorage';
 
 const canonicalEntry = (
   version: '7' | '8' | '9' | '10' | '11'
@@ -165,16 +172,69 @@ const snapshot = (version: string): WorkspaceDataSnapshot => {
 };
 
 describe('workspace data migrations', () => {
-  it('introduces per-file schema capability without rewriting legacy split files that lack markers', async () => {
+  it('builds exact sorted Package membership in the explicit 0.0.10 to 0.0.11 edge', async () => {
+    const data = snapshot('0.0.10');
+    data.packageManifests.set(packageManifestPath('logic'), {
+      ...makePackageManifest('logic', 'Logic', '', []),
+      schema_version: 1,
+      vendor_extension: { keep: true }
+    } as never);
+    data.packageManifests.set(packageManifestPath('other'), {
+      ...makePackageManifest('other', 'Other', '', ['stale.missing']),
+      schema_version: 1
+    } as never);
+    for (const [packageId, entryId] of [
+      ['logic', 'logic.zed'],
+      ['logic', 'logic.alpha'],
+      ['other', 'other.only']
+    ] as const) {
+      data.entryEntities.set(
+        entryEntityPath(packageId, entryId),
+        makeEntryEnvelope(packageId, { id: entryId, package: packageId })
+      );
+    }
+
+    const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.10->0.0.11']);
+    expect(data.config.version).toBe('0.0.11');
+    expect(data.packageManifests.get(packageManifestPath('logic'))).toMatchObject({
+      schema_version: 2,
+      entry_ids: ['logic.alpha', 'logic.zed'],
+      vendor_extension: { keep: true }
+    });
+    expect(data.packageManifests.get(packageManifestPath('other'))).toMatchObject({
+      schema_version: 2,
+      entry_ids: ['other.only']
+    });
+  });
+
+  it('rejects an Entry whose owner Package is absent before publishing membership', async () => {
+    const data = snapshot('0.0.10');
+    data.packageManifests.set(packageManifestPath('logic'), {
+      ...makePackageManifest('logic', 'Logic', ''), schema_version: 1
+    } as never);
+    data.entryEntities.set(
+      entryEntityPath('missing', 'orphan'),
+      makeEntryEnvelope('missing', { id: 'orphan', package: 'missing' })
+    );
+    const before = cloneWorkspaceDataSnapshot(data);
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/missing Package/i);
+    expect(data).toEqual(before);
+  });
+
+  it('chains lazy file capability into authoritative Package membership', async () => {
     const data = snapshot('0.0.9');
-    data.packageManifests.set('packages/logic.json', {
+    data.packageManifests.set(packageManifestPath('logic'), {
       format: 'snl-package', version: 1, id: 'logic', name: 'Logic', description: '', vendor: 'keep'
     } as never);
-    data.entryEntities.set('entries/entry.json', {
+    data.entryEntities.set(entryEntityPath('logic', 'entry-1'), {
       format: 'snl-entry', version: 1, package: 'logic', vendor: 'keep',
       entry: { id: 'entry-1', package: 'logic' }
     } as never);
-    data.macroEntities.set('macros/macro.json', {
+    data.macroEntities.set(macroEntityPath('logic', 'Eq'), {
       format: 'snl-macro', version: 1, package: 'logic', vendor: 'keep',
       macro: { name: 'Eq' }
     } as never);
@@ -186,9 +246,13 @@ describe('workspace data migrations', () => {
 
     const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
 
-    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.9->0.0.10']);
-    expect(data.config.version).toBe('0.0.10');
-    expect([...data.packageManifests]).toEqual(beforeFiles.packages);
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
+      '0.0.9->0.0.10', '0.0.10->0.0.11'
+    ]);
+    expect(data.config.version).toBe('0.0.11');
+    expect([...data.packageManifests]).toEqual([[packageManifestPath('logic'), expect.objectContaining({
+      schema_version: 2, entry_ids: ['entry-1'], vendor: 'keep'
+    })]]);
     expect([...data.entryEntities]).toEqual(beforeFiles.entries);
     expect([...data.macroEntities]).toEqual(beforeFiles.macros);
   });
@@ -223,7 +287,8 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData({ version: '0.0.7' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.8' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.9' }).status).toBe('needsMigration');
-    expect(inspectWorkspaceData({ version: '0.0.10' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.10' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.0.11' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
@@ -233,7 +298,7 @@ describe('workspace data migrations', () => {
       '0.0.4->0.0.5',
       '0.0.5->0.0.6',
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10'
+      '0.0.9->0.0.10', '0.0.10->0.0.11'
     ]);
   });
 
@@ -249,7 +314,8 @@ describe('workspace data migrations', () => {
     expect(() => assertWorkspaceDataWritable({ version: '0.0.7' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.8' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.9' })).toThrow(/migration/i);
-    expect(() => assertWorkspaceDataWritable({ version: '0.0.10' })).not.toThrow();
+    expect(() => assertWorkspaceDataWritable({ version: '0.0.10' })).toThrow(/migration/i);
+    expect(() => assertWorkspaceDataWritable({ version: '0.0.11' })).not.toThrow();
   });
 
   it('migrates legacy Kind color pairs into lossless light and dark variants', async () => {
@@ -268,9 +334,9 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.8->0.0.9',
-      '0.0.9->0.0.10'
+      '0.0.9->0.0.10', '0.0.10->0.0.11'
     ]);
-    expect(data.config.version).toBe('0.0.10');
+    expect(data.config.version).toBe('0.0.11');
     expect(data.config.entry_kinds).toEqual([{
       id: 'theorem', name: 'Theorem',
       coloring: {
@@ -416,9 +482,9 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10'
+      '0.0.9->0.0.10', '0.0.10->0.0.11'
     ]);
-    expect(data.config.version).toBe('0.0.10');
+    expect(data.config.version).toBe('0.0.11');
     expect(data.macroEntities.get('macros/logic-x.json')!.schema_version).toBe(1);
     expect(canonicalizeV11).toHaveBeenCalledTimes(1);    const migrated = data.macroEntities.get('macros/logic-x.json')!.macro as any;
     expect(migrated).not.toHaveProperty('default_style');
@@ -670,10 +736,10 @@ describe('workspace data migrations', () => {
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.5->0.0.6',
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10'
+      '0.0.9->0.0.10', '0.0.10->0.0.11'
     ]);
     expect(data.config).toMatchObject({
-      version: '0.0.10',
+      version: '0.0.11',
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',
@@ -682,12 +748,12 @@ describe('workspace data migrations', () => {
     });
     expect([...data.packageManifests]).toEqual([
       ['packages/Logic-277a664e3d2332d369d7.json', {
-        format: 'snl-package', version: 1, schema_version: 1,
+        format: 'snl-package', version: 1, schema_version: 2,
         id: 'Logic', name: 'Logic', description: 'Logic macros', entry_ids: [],
         custom: 'package'
       }],
       ['packages/_unpackaged-60979c6e210d0e2a20cb.json', {
-        format: 'snl-package', version: 1, schema_version: 1,
+        format: 'snl-package', version: 1, schema_version: 2,
         id: '_unpackaged', name: 'Unpackaged',
         description: 'Legacy Entries without an assigned package.', entry_ids: ['Set.mem']
       }]
@@ -778,7 +844,7 @@ describe('workspace data migrations', () => {
       description: 'Legacy Entries without an assigned package.'
     });
     await expect(migrateWorkspaceSnapshot(data, canonicalize)).resolves.toMatchObject({
-      to: '0.0.10'
+      to: '0.0.11'
     });
 
     const conflict = snapshot('0.0.5');
@@ -818,7 +884,7 @@ describe('workspace data migrations', () => {
       structuredClone(reference.macroEntities.get(macroEntityPath('Logic', 'old'))!)
     );
     await expect(migrateWorkspaceSnapshot(alreadyMigrated, canonicalize))
-      .resolves.toMatchObject({ to: '0.0.10' });
+      .resolves.toMatchObject({ to: '0.0.11' });
   });
 
   it('chains every historical migration and preserves unknown config fields', async () => {
@@ -828,7 +894,7 @@ describe('workspace data migrations', () => {
 
     expect(report.applied).toEqual(
       WORKSPACE_DATA_MIGRATIONS.filter((step) => step.from !== '0.0.7' && step.from !== '0.0.8')
-    );    expect(data.config.version).toBe('0.0.10');
+    );    expect(data.config.version).toBe('0.0.11');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -991,8 +1057,8 @@ describe('workspace data migrations', () => {
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
     expect(report.applied.map((step) => step.from)).toEqual([
-      '0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.9'
-    ]);    expect(data.config.version).toBe('0.0.10');
+      '0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10'
+    ]);    expect(data.config.version).toBe('0.0.11');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

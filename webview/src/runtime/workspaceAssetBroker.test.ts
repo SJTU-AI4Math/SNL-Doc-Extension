@@ -1,22 +1,54 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/dom';
-import {
-  installWorkspaceAssetBroker,
-  type WorkspaceAssetBrokerStateSnapshot
-} from './workspaceAssetBroker';
+import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
 
 const disposables: Array<{ dispose(): void }> = [];
 
-function installWithSnapshot(postMessage: ReturnType<typeof vi.fn>):
-  () => WorkspaceAssetBrokerStateSnapshot {
-  let read = (): WorkspaceAssetBrokerStateSnapshot => {
-    throw new Error('workspace asset broker snapshot was not exposed');
+interface WorkspaceAssetBrokerRuntimeMaps {
+  resolutions: Map<unknown, unknown>;
+  requests: Map<unknown, unknown>;
+  epochs: Map<unknown, unknown>;
+  consumers: Map<unknown, Set<HTMLImageElement>>;
+  consumerPaths: Map<unknown, unknown>;
+}
+
+function installWithRuntimeMaps(
+  postMessage: ReturnType<typeof vi.fn>
+): WorkspaceAssetBrokerRuntimeMaps {
+  const NativeMap = globalThis.Map;
+  const captured: object[] = [];
+  class InstrumentedMap<K, V> extends NativeMap<K, V> {
+    constructor(entries?: readonly (readonly [K, V])[] | null) {
+      super(entries);
+      captured.push(this);
+    }
+  }
+  Object.defineProperty(globalThis, 'Map', {
+    configurable: true,
+    writable: true,
+    value: InstrumentedMap
+  });
+  try {
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+  } finally {
+    Object.defineProperty(globalThis, 'Map', {
+      configurable: true,
+      writable: true,
+      value: NativeMap
+    });
+  }
+  if (captured.length !== 5) {
+    throw new Error(`expected five broker Maps, captured ${captured.length}`);
+  }
+  const [resolutions, requests, epochs, consumers, consumerPaths] = captured;
+  return {
+    resolutions: resolutions as Map<unknown, unknown>,
+    requests: requests as Map<unknown, unknown>,
+    epochs: epochs as Map<unknown, unknown>,
+    consumers: consumers as Map<unknown, Set<HTMLImageElement>>,
+    consumerPaths: consumerPaths as Map<unknown, unknown>
   };
-  disposables.push(installWorkspaceAssetBroker({ postMessage }, {
-    exposeSnapshot: (snapshot) => { read = snapshot; }
-  }));
-  return () => read();
 }
 afterEach(() => {
   while (disposables.length) disposables.pop()?.dispose();
@@ -237,7 +269,7 @@ describe('workspace asset broker', () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
     document.documentElement.dataset.snlAssetBaseUri = base;
-    const snapshot = installWithSnapshot(postMessage);
+    const maps = installWithRuntimeMaps(postMessage);
     const images = Array.from({ length: 1000 }, (_, index) => {
       const image = document.createElement('img');
       image.src = `${base}/pending-${index}.png`;
@@ -251,25 +283,30 @@ describe('workspace asset broker', () => {
       } }));
     });
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2000));
-    expect(snapshot()).toMatchObject({
-      resolutions: 1000, pendingResolutions: 1000, requests: 1000, epochs: 1000,
-      consumers: 1000, pendingConsumers: 1000
-    });
+    expect(maps.resolutions.size).toBe(1000);
+    expect(maps.requests.size).toBe(1000);
+    expect(maps.epochs.size).toBe(1000);
+    expect(maps.consumers.size).toBe(1000);
+    expect(maps.consumerPaths.size).toBe(1000);
+    expect([...maps.consumers.values()].every((images) => images.size === 1)).toBe(true);
 
     images.forEach((image, index) => {
       image.src = `https://example.com/external-${index}.png`;
     });
-    await waitFor(() => expect(snapshot()).toEqual({
-      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
-      consumers: 0, pendingConsumers: 0
-    }));
+    await waitFor(() => expect([
+      maps.resolutions.size,
+      maps.requests.size,
+      maps.epochs.size,
+      maps.consumers.size,
+      maps.consumerPaths.size
+    ]).toEqual([0, 0, 0, 0, 0]));
   });
 
   it('keeps a shared pending request until its final consumer leaves', async () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
     document.documentElement.dataset.snlAssetBaseUri = base;
-    const snapshot = installWithSnapshot(postMessage);
+    const maps = installWithRuntimeMaps(postMessage);
     const first = document.createElement('img');
     const second = document.createElement('img');
     first.src = `${base}/shared-pending.png`;
@@ -279,16 +316,19 @@ describe('workspace asset broker', () => {
 
     first.src = 'https://example.com/first.png';
     await waitFor(() => expect(first.dataset.snlAssetPath).toBeUndefined());
-    expect(snapshot()).toMatchObject({
-      resolutions: 1, pendingResolutions: 1, requests: 1,
-      consumers: 1, pendingConsumers: 1
-    });
+    expect(maps.resolutions.size).toBe(1);
+    expect(maps.requests.size).toBe(1);
+    expect(maps.consumers.size).toBe(1);
+    expect([...maps.consumers.values()][0]?.size).toBe(1);
 
     second.removeAttribute('src');
-    await waitFor(() => expect(snapshot()).toEqual({
-      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
-      consumers: 0, pendingConsumers: 0
-    }));
+    await waitFor(() => expect([
+      maps.resolutions.size,
+      maps.requests.size,
+      maps.epochs.size,
+      maps.consumers.size,
+      maps.consumerPaths.size
+    ]).toEqual([0, 0, 0, 0, 0]));
   });
 
   it('drops an orphaned pending path after unmount and ignores its late reply', async () => {
@@ -350,7 +390,7 @@ describe('workspace asset broker', () => {
     const postMessage = vi.fn();
     document.documentElement.dataset.snlAssetBaseUri =
       'vscode-webview://panel/workspace/assets';
-    const snapshot = installWithSnapshot(postMessage);
+    const maps = installWithRuntimeMaps(postMessage);
 
     for (let index = 0; index < 1000; index += 1) {
       window.dispatchEvent(new MessageEvent('message', { data: {
@@ -358,10 +398,11 @@ describe('workspace asset broker', () => {
       } }));
     }
 
-    expect(snapshot()).toEqual({
-      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
-      consumers: 0, pendingConsumers: 0
-    });
+    expect(maps.resolutions.size).toBe(0);
+    expect(maps.requests.size).toBe(0);
+    expect(maps.epochs.size).toBe(0);
+    expect(maps.consumers.size).toBe(0);
+    expect(maps.consumerPaths.size).toBe(0);
     expect(postMessage).not.toHaveBeenCalled();
   });
 
@@ -369,7 +410,7 @@ describe('workspace asset broker', () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
     document.documentElement.dataset.snlAssetBaseUri = base;
-    const snapshot = installWithSnapshot(postMessage);
+    const maps = installWithRuntimeMaps(postMessage);
     const image = document.createElement('img');
     image.src = `${base}/racing.png`;
     document.body.append(image);
@@ -382,7 +423,11 @@ describe('workspace asset broker', () => {
     await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
     const refresh = postMessage.mock.calls[1][0] as { request_id: string; path: string };
     expect(refresh.request_id).not.toBe(oldRequest.request_id);
-    expect(snapshot()).toMatchObject({ pendingResolutions: 1, requests: 1, epochs: 1, pendingConsumers: 1 });
+    expect(maps.resolutions.size).toBe(1);
+    expect(maps.requests.size).toBe(1);
+    expect(maps.epochs.size).toBe(1);
+    expect(maps.consumers.size).toBe(1);
+    expect([...maps.consumers.values()][0]?.size).toBe(1);
 
     window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'snl.assets/resolved', request_id: oldRequest.request_id, path: oldRequest.path,

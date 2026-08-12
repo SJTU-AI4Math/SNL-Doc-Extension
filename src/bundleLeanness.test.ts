@@ -43,6 +43,23 @@ const MATH_FREE = [
   'snoogl'
 ];
 
+const WORKSPACE_ASSET_BROKER_ENTRIES = [
+  'createEntry',
+  'entryInfoview',
+  'main'
+];
+
+const WORKSPACE_ASSET_BROKER_DEBUG_LABELS = [
+  'WorkspaceAssetBrokerTestHooks',
+  'exposeSnapshot',
+  'pendingConsumers',
+  'pendingResolutions:',
+  'resolutions:',
+  'requests:',
+  'epochs:',
+  'consumers:'
+];
+
 function bundle(name: string): string | null {
   const file = resolve(MEDIA, `${name}.js`);
   return existsSync(file) ? readFileSync(file, 'utf8') : null;
@@ -81,5 +98,16 @@ describe('webview bundle leanness', () => {
     if (mathBuilt.length === 0) return;
     const missing = mathBuilt.filter((name) => !bundle(name)!.includes('fontMetrics'));
     expect(missing).toEqual([]);
+  });
+
+  it('keeps workspace asset broker introspection out of production bundles', () => {
+    const missing = WORKSPACE_ASSET_BROKER_ENTRIES.filter((name) => bundle(name) === null);
+    expect(missing).toEqual([]);
+    const offenders = WORKSPACE_ASSET_BROKER_ENTRIES.flatMap((name) =>
+      WORKSPACE_ASSET_BROKER_DEBUG_LABELS
+        .filter((label) => bundle(name)!.includes(label))
+        .map((label) => `${name}:${label}`)
+    );
+    expect(offenders).toEqual([]);
   });
 });

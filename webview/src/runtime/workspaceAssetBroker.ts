@@ -17,19 +17,6 @@ type AssetResolution =
   | { status: 'ready'; identity: AssetIdentity; url: string }
   | { status: 'missing'; identity: AssetIdentity };
 
-export interface WorkspaceAssetBrokerStateSnapshot {
-  resolutions: number;
-  pendingResolutions: number;
-  requests: number;
-  epochs: number;
-  consumers: number;
-  pendingConsumers: number;
-}
-
-export interface WorkspaceAssetBrokerTestHooks {
-  exposeSnapshot(read: () => WorkspaceAssetBrokerStateSnapshot): void;
-}
-
 const SETTLED_CACHE_LIMIT = 128;
 const PENDING_SOURCE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -84,8 +71,7 @@ function withAuthoredSuffix(url: string, suffix: string): string {
  * localResourceRoot.
  */
 export function installWorkspaceAssetBroker(
-  api: Pick<VsCodeApi, 'postMessage'>,
-  testHooks?: WorkspaceAssetBrokerTestHooks
+  api: Pick<VsCodeApi, 'postMessage'>
 ): {
   dispose(): void;
 } {
@@ -98,18 +84,6 @@ export function installWorkspaceAssetBroker(
   const consumers = new Map<string, Set<HTMLImageElement>>();
   const consumerPaths = new Map<string, string>();
   let disposed = false;
-
-  testHooks?.exposeSnapshot(() => ({
-    resolutions: resolutions.size,
-    pendingResolutions: [...resolutions.values()].filter(
-      (resolution) => resolution.status === 'pending'
-    ).length,
-    requests: requests.size,
-    epochs: epochs.size,
-    consumers: [...consumers.values()].reduce((total, images) => total + images.size, 0),
-    pendingConsumers: [...consumers].reduce((total, [key, images]) =>
-      total + (resolutions.get(key)?.status === 'pending' ? images.size : 0), 0)
-  }));
 
   const mutateSource = (image: HTMLImageElement, source: string | null): void => {
     if (image.getAttribute('src') === source) return;

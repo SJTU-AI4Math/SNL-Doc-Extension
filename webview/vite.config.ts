@@ -31,6 +31,8 @@ type Entry =
   | 'initMacroKinds'
   | 'createMacroKind'
   | 'createEntry'
+  | 'createEntryPackage'
+  | 'entryPackagePanel'
   | 'createMacroPackage'
   | 'packagePanel'
   | 'createMacro'
@@ -49,6 +51,8 @@ const ENTRY_TO_INPUT: Record<Entry, string> = {
   initMacroKinds: 'src/initMacroKinds.tsx',
   createMacroKind: 'src/createMacroKind.tsx',
   createEntry: 'src/createEntry.tsx',
+  createEntryPackage: 'src/createEntryPackage.tsx',
+  entryPackagePanel: 'src/entryPackagePanel.tsx',
   createMacroPackage: 'src/createMacroPackage.tsx',
   packagePanel: 'src/packagePanel.tsx',
   createMacro: 'src/createMacro.tsx',

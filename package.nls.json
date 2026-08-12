@@ -33,6 +33,7 @@
   "snlDoc.command.createMacroKind": "SNL: Create Macro Kind",
   "snlDoc.command.createEntry": "SNL: Create Entry",
   "snlDoc.command.createEntryPackage": "SNL: Create Entry Package",
+  "snlDoc.command.openEntryPackage": "SNL: Open Entry Package",
   "snlDoc.command.createMacroPackage": "SNL: Create Macro Package",
   "snlDoc.command.openMacroPackage": "SNL: Open Macro Package…",
   "snlDoc.command.createMacro": "SNL: Create Macro",

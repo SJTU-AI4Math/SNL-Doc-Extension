@@ -59,13 +59,13 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
     dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
     libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
-    entries: 'Entries', entriesInPool: '{count} entries in shared pool', createEntry: 'Create Entry', createEntryHeader: '+ Create Entry', createEntryTitle: 'Open the Create Entry panel', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
+    entries: 'Entry Packages', entriesInPool: '{count} entries in shared pool', entryPackageCount: { arg: 'count', one: '{count} Entry Package', other: '{count} Entry Packages' }, createEntry: 'Create Entry Package', createEntryHeader: '+ Create Entry Package', createEntryTitle: 'Open the Create Entry Package flow', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
     relationships: 'Relationships', edgeCount: { arg: 'count', one: '{count} edge', other: '{count} edges' }, createRelationship: 'Create Relationship', regenerateDependencies: '⚙ Regenerate Dependencies from Macro Sources',
     macros: 'SNL Macros', packageCount: { arg: 'count', one: '{count} package', other: '{count} packages' }, createMacroHeader: '+ Create Macro', createMacroTitle: 'Pick a package and open the Create Macro editor', macroSearch: '⌕ SNoogL: Macro Search', macroSearchTitle: 'Open SNoogL panel focused on macro search', addPackage: 'Add Package',
     entryKinds: 'Entry Kinds', kindCount: { arg: 'count', one: '{count} kind', other: '{count} kinds' }, createEntryKind: 'Create Entry Kind', macroKinds: 'SNL Macro Kinds', createMacroKind: 'Create Macro Kind',
     colTitle: 'Title', colSlug: 'Slug', colEntries: 'Entries', colRelationships: 'Relationships', colActive: 'Active', colFile: 'File', colMacros: 'Macros', colPreview: 'Preview', colName: 'Name', colId: 'ID', colDefaultCounter: 'Default Counter', colStyle: 'Style', colDescription: 'Description', colKind: 'Kind', colFormats: 'Formats', colStructuralIndex: 'SNL Structural Index', colFrom: 'From', colTo: '→ To', colLabel: 'Label', colMetadata: 'Metadata',
     editLibrary: 'Edit library {id}', deleteLibrary: 'Delete library {id}', openPackage: 'Open macro package {id}', togglePackage: 'Toggle active state for {id}', activePackageTitle: 'Active — contributes macros to the workspace', inactivePackageTitle: 'Inactive — excluded from readAllMacros', deletePackage: 'Delete macro package {id}',
-    editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
+    editEntryKind: 'Edit entry kind {id}', deleteEntryKind: 'Delete entry kind {id}', editMacroKind: 'Edit macro kind {id}', deleteMacroKind: 'Delete macro kind {id}', colorTitle: 'stroke {stroke} / background {background}', openEntryPackage: 'Open Entry Package {id}', editEntry: 'Edit entry {title}', deleteEntry: 'Delete entry {id}', unknownKindTitle: 'Unknown kind “{kind}” — no matching entry kind in config.json', unknownKind: '⚠ unknown', editRelationship: 'Edit relationship {id}', deleteRelationship: 'Delete relationship {id}', missingEndpoint: 'No entry with id “{id}” in the shared pool. The endpoint was likely deleted.', untitled: '(untitled)', unserializable: '(unserializable)'
   },
   {
     title: 'SNL 仪表板', loading: '正在加载项目概览…', overviewLoadError: '无法加载项目概览：{message}', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
@@ -73,13 +73,13 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
     dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
     libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
-    entries: '共享条目', entriesInPool: '共享池中有 {count} 个条目', createEntry: '创建条目', createEntryHeader: '+ 创建条目', createEntryTitle: '打开创建条目面板', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
+    entries: '条目包', entriesInPool: '共享池中有 {count} 个条目', entryPackageCount: { arg: 'count', other: '{count} 个条目包' }, createEntry: '创建条目包', createEntryHeader: '+ 创建条目包', createEntryTitle: '打开创建条目包流程', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
     relationships: '关系', edgeCount: { arg: 'count', other: '{count} 条边' }, createRelationship: '创建关系', regenerateDependencies: '⚙ 根据宏来源重新生成依赖关系',
     macros: 'SNL 宏', packageCount: { arg: 'count', other: '{count} 个宏包' }, createMacroHeader: '+ 创建宏', createMacroTitle: '选择宏包并打开创建宏编辑器', macroSearch: '⌕ SNoogL：搜索宏', macroSearchTitle: '打开 SNoogL 面板并搜索宏', addPackage: '添加宏包',
     entryKinds: '条目类别', kindCount: { arg: 'count', other: '{count} 个类别' }, createEntryKind: '创建条目类别', macroKinds: 'SNL 宏类别', createMacroKind: '创建宏类别',
     colTitle: '标题', colSlug: '标识名', colEntries: '条目数', colRelationships: '关系数', colActive: '启用', colFile: '文件', colMacros: '宏数', colPreview: '预览', colName: '名称', colId: 'ID', colDefaultCounter: '默认计数器', colStyle: '样式', colDescription: '说明', colKind: '类别', colFormats: '格式', colStructuralIndex: 'SNL 结构指数', colFrom: '起点', colTo: '→ 终点', colLabel: '标签', colMetadata: '元数据',
     editLibrary: '编辑库 {id}', deleteLibrary: '删除库 {id}', openPackage: '打开宏包 {id}', togglePackage: '切换 {id} 的启用状态', activePackageTitle: '已启用——向工作区提供宏', inactivePackageTitle: '未启用——不包含在 readAllMacros 中', deletePackage: '删除宏包 {id}',
-    editEntryKind: '编辑条目类别 {id}', deleteEntryKind: '删除条目类别 {id}', editMacroKind: '编辑宏类别 {id}', deleteMacroKind: '删除宏类别 {id}', colorTitle: '描边 {stroke} / 背景 {background}', editEntry: '编辑条目 {title}', deleteEntry: '删除条目 {id}', unknownKindTitle: '未知类别“{kind}”——config.json 中没有匹配的条目类别', unknownKind: '⚠ 未知', editRelationship: '编辑关系 {id}', deleteRelationship: '删除关系 {id}', missingEndpoint: '共享池中没有 ID 为“{id}”的条目；该端点可能已被删除。', untitled: '（无标题）', unserializable: '（无法序列化）'
+    editEntryKind: '编辑条目类别 {id}', deleteEntryKind: '删除条目类别 {id}', editMacroKind: '编辑宏类别 {id}', deleteMacroKind: '删除宏类别 {id}', colorTitle: '描边 {stroke} / 背景 {background}', openEntryPackage: '打开条目包 {id}', editEntry: '编辑条目 {title}', deleteEntry: '删除条目 {id}', unknownKindTitle: '未知类别“{kind}”——config.json 中没有匹配的条目类别', unknownKind: '⚠ 未知', editRelationship: '编辑关系 {id}', deleteRelationship: '删除关系 {id}', missingEndpoint: '共享池中没有 ID 为“{id}”的条目；该端点可能已被删除。', untitled: '（无标题）', unserializable: '（无法序列化）'
   }
 );
 
@@ -88,6 +88,13 @@ interface LibrarySummary {
   title: string;
   entryCount: number | null;
   relationshipCount: number | null;
+}
+
+interface EntryPackageSummary {
+  id: string;
+  name: string;
+  description: string;
+  entryCount: number;
 }
 
 interface MacroPackageSummary {
@@ -169,6 +176,7 @@ interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null;
   entries: EntryData[];
+  entryPackages: EntryPackageSummary[];
   libraries: LibrarySummary[];
   macroPackages: MacroPackageSummary[];
   /** SNoogL search index — see AllMacroIndexEntry. */
@@ -185,6 +193,7 @@ const EMPTY: SnlOverview = {
   hasSnlDoc: false,
   totalEntryCount: null,
   entries: [],
+  entryPackages: [],
   libraries: [],
   macroPackages: [],
   allMacros: [],
@@ -244,6 +253,7 @@ export function DashboardApp(): React.ReactElement {
       setOverview({
         ...EMPTY,
         ...msg.overview,
+        entryPackages: Array.isArray(msg.overview.entryPackages) ? msg.overview.entryPackages : [],
         metricMacroSources: msg.overview.metricMacroSources ?? {},
         metricThresholds:
           msg.overview.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS
@@ -465,45 +475,25 @@ function Initialized({
         />
       </CollapsibleSection>
 
-      {/* === 2. Entries =================================================== */}
+      {/* === 2. Entry Packages =========================================== */}
       <CollapsibleSection
         title={t('entries')}
-        subtitle={t('entriesInPool', { count: totalEntries })}
+        subtitle={t('entryPackageCount', { count: overview.entryPackages.length })}
         expanded={openEntries}
         onToggle={() => setOpenEntries((v) => !v)}
-        headerActions={
-          <>
-            <HeaderActionButton
-              label={t('createEntryHeader')}
-              title={t('createEntryTitle')}
-              onClick={() => api?.postMessage({ type: 'createEntry' })}
-            />
-            <HeaderActionButton
-              label={t('entrySearch')}
-              title={t('entrySearchTitle')}
-              onClick={() =>
-                api?.postMessage({ type: 'openSnoogL', mode: 'entry' })
-              }
-            />
-          </>
-        }
+        headerActions={<>
+          <HeaderActionButton label={t('createEntryHeader')} title={t('createEntryTitle')}
+            onClick={() => api?.postMessage({ type: 'createEntryPackage' })} />
+          <HeaderActionButton label={t('entrySearch')} title={t('entrySearchTitle')}
+            onClick={() => api?.postMessage({ type: 'openSnoogL', mode: 'entry' })} />
+        </>}
       >
-        {overview.entries.length > 0 ? (
-          <EntriesTable
-            entries={overview.entries}
-            kinds={overview.entryKinds}
-            macroSources={overview.metricMacroSources}
-            metricThresholds={overview.metricThresholds}
-            onOpen={(id) => api?.postMessage({ type: 'editEntry', id })}
-            onDelete={(id) =>
-              api?.postMessage({ type: 'deleteEntry', id })
-            }
-          />
-        ) : null}
-        <EmptyAction size="lg" className="snl-empty-action--large"
-          label={t('createEntry')}
-          onClick={() => api?.postMessage({ type: 'createEntry' })}
-        />
+        {overview.entryPackages.length > 0 ? (
+          <EntryPackagesTable packages={overview.entryPackages}
+            onOpen={(packageId) => api?.postMessage({ type: 'openEntryPackage', packageId })} />
+        ) : <p style={{ opacity: 0.72 }}>{t('entriesInPool', { count: totalEntries })}</p>}
+        <EmptyAction size="lg" className="snl-empty-action--large" label={t('createEntry')}
+          onClick={() => api?.postMessage({ type: 'createEntryPackage' })} />
       </CollapsibleSection>
 
       {/* === 3. Relationships ============================================ */}
@@ -1208,6 +1198,16 @@ function populatedFormats(entry: EntryData): string {
         );
   });
   return present.length > 0 ? present.join(', ') : '—';
+}
+
+function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummary[]; onOpen: (packageId: string) => void }): React.ReactElement {
+  const t = useUiMessages(DASHBOARD_MESSAGES);
+  return <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.5rem' }}>
+    <thead><tr><th style={HEAD}>{t('colName')}</th><th style={HEAD}>{t('colId')}</th><th style={HEAD}>{t('colDescription')}</th><th style={HEAD}>{t('colEntries')}</th></tr></thead>
+    <tbody>{packages.map((pkg) => <ClickableRow key={pkg.id} label={t('openEntryPackage', { id: pkg.id })} onActivate={() => onOpen(pkg.id)} primaryCellIndex={0}>
+      <td style={CELL}>{pkg.name || pkg.id}</td><td style={{ ...CELL, ...MONO }}>{pkg.id}</td><td style={CELL}>{pkg.description || '—'}</td><td style={CELL}>{pkg.entryCount}</td>
+    </ClickableRow>)}</tbody>
+  </table>;
 }
 
 function EntriesTable({

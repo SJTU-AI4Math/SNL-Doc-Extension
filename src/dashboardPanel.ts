@@ -306,6 +306,16 @@ export class DashboardPanel {
       case 'createEntry':
         await vscode.commands.executeCommand('snlDoc.createEntry');
         return;
+      case 'createEntryPackage':
+        await vscode.commands.executeCommand('snlDoc.createEntryPackage');
+        return;
+      case 'openEntryPackage': {
+        const packageId = (msg as { packageId?: unknown }).packageId;
+        if (typeof packageId === 'string' && packageId) {
+          await vscode.commands.executeCommand('snlDoc.openEntryPackage', packageId);
+        }
+        return;
+      }
       case 'editEntry': {
         const id = (msg as { id?: unknown }).id;
         if (typeof id === 'string' && id) {

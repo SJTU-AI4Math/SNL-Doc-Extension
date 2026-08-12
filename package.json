@@ -123,6 +123,10 @@
         "title": "%snlDoc.command.createEntryPackage%"
       },
       {
+        "command": "snlDoc.openEntryPackage",
+        "title": "%snlDoc.command.openEntryPackage%"
+      },
+      {
         "command": "snlDoc.createMacroPackage",
         "title": "%snlDoc.command.createMacroPackage%"
       },
@@ -239,6 +243,10 @@
       "commandPalette": [
         {
           "command": "snlDoc.openEntryInfoview",
+          "when": "false"
+        },
+        {
+          "command": "snlDoc.openEntryPackage",
           "when": "false"
         },
         {
@@ -432,7 +440,7 @@
     "build:host-basics": "node scripts/build-snl-basics-host.mjs",
     "build:export-runtime": "node scripts/build-export-runtime.mjs",
     "watch": "npm run build:host-basics && tsc -watch -p ./",
-    "build:webview": "npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl && npm run build:webview:exportOptions",
+    "build:webview": "npm run build:webview:main && npm run build:webview:entryInfoview && npm run build:webview:createLibrary && npm run build:webview:dashboard && npm run build:webview:initEntryKinds && npm run build:webview:createEntryKind && npm run build:webview:initMacroKinds && npm run build:webview:createMacroKind && npm run build:webview:createEntry && npm run build:webview:createEntryPackage && npm run build:webview:entryPackagePanel && npm run build:webview:createMacroPackage && npm run build:webview:packagePanel && npm run build:webview:createMacro && npm run build:webview:createRelationship && npm run build:webview:snlGraph && npm run build:webview:snoogl && npm run build:webview:exportOptions",
     "build:webview:main": "cross-env SNL_WEBVIEW_ENTRY=main vite build --config webview/vite.config.ts",
     "build:webview:entryInfoview": "cross-env SNL_WEBVIEW_ENTRY=entryInfoview vite build --config webview/vite.config.ts",
     "build:webview:createLibrary": "cross-env SNL_WEBVIEW_ENTRY=createLibrary vite build --config webview/vite.config.ts",
@@ -442,6 +450,8 @@
     "build:webview:initMacroKinds": "cross-env SNL_WEBVIEW_ENTRY=initMacroKinds vite build --config webview/vite.config.ts",
     "build:webview:createMacroKind": "cross-env SNL_WEBVIEW_ENTRY=createMacroKind vite build --config webview/vite.config.ts",
     "build:webview:createEntry": "cross-env SNL_WEBVIEW_ENTRY=createEntry vite build --config webview/vite.config.ts",
+    "build:webview:createEntryPackage": "cross-env SNL_WEBVIEW_ENTRY=createEntryPackage vite build --config webview/vite.config.ts",
+    "build:webview:entryPackagePanel": "cross-env SNL_WEBVIEW_ENTRY=entryPackagePanel vite build --config webview/vite.config.ts",
     "build:webview:createMacroPackage": "cross-env SNL_WEBVIEW_ENTRY=createMacroPackage vite build --config webview/vite.config.ts",
     "build:webview:packagePanel": "cross-env SNL_WEBVIEW_ENTRY=packagePanel vite build --config webview/vite.config.ts",
     "build:webview:createMacro": "cross-env SNL_WEBVIEW_ENTRY=createMacro vite build --config webview/vite.config.ts",

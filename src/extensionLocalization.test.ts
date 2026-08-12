@@ -48,10 +48,10 @@ vi.mock('./createEntryKindPanel', () => ({ CreateEntryKindPanel: {} }));
 vi.mock('./initMacroKindsPanel', () => ({ InitMacroKindsPanel: {} }));
 vi.mock('./createMacroKindPanel', () => ({ CreateMacroKindPanel: {} }));
 vi.mock('./createEntryPanel', () => ({
-  CreateEntryPanel: {
-    createOrShow: mocks.createEntryOrShow,
-    createPackageOrShow: mocks.createEntryPackageOrShow
-  }
+  CreateEntryPanel: { createOrShow: mocks.createEntryOrShow }
+}));
+vi.mock('./createEntryPackagePanel', () => ({
+  CreateEntryPackagePanel: { createOrShow: mocks.createEntryPackageOrShow }
 }));
 vi.mock('./createMacroPackagePanel', () => ({ CreateMacroPackagePanel: {} }));
 vi.mock('./packagePanel', () => ({ PackagePanel: {} }));

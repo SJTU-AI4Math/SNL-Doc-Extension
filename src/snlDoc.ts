@@ -49,6 +49,7 @@ import {
 } from './entryContributor';
 import {
   assertCurrentEntityFile,
+  readEntryEntityRecordWithOwner,
   readEntryEntityRecords,
   readMacroEntityRecords,
   readPackageManifestRecord,
@@ -2331,6 +2332,47 @@ export async function createMacroPackage(
   });
 }
 
+/** Create the shared Package manifest from the Entry Package workflow. */
+export async function createEntryPackage(
+  workspaceRoot: vscode.Uri,
+  packageId: string,
+  displayName: string,
+  description?: string
+): ReturnType<typeof createMacroPackage> {
+  return createMacroPackage(workspaceRoot, packageId, displayName, description);
+}
+
+/** Point-read whether one shared Package manifest exists. */
+export async function entryPackageExists(
+  workspaceRoot: vscode.Uri,
+  packageId: string
+): Promise<boolean> {
+  if (packageId === UNPACKAGED_PACKAGE_ID) return true;
+  if (!(await usesEntityStorage(workspaceRoot))) {
+    return (await readMacroPackage(workspaceRoot, packageId)).status === 'ok';
+  }
+  return (await readPackageManifestRecord(entityReadStorage(workspaceRoot), packageId)) !== null;
+}
+
+/**
+ * Point-read an Entry under its expected Package owner. This is used at
+ * package-bound UI command boundaries so crafted messages cannot target an
+ * Entry displayed by a different Package panel.
+ */
+export async function entryBelongsToPackage(
+  workspaceRoot: vscode.Uri,
+  packageId: string,
+  entryId: string
+): Promise<boolean> {
+  if (!(await usesEntityStorage(workspaceRoot))) {
+    const entry = (await readEntries(workspaceRoot, false)).find(({ id }) => id === entryId);
+    return Boolean(entry && (entry.package ?? UNPACKAGED_PACKAGE_ID) === packageId);
+  }
+  return (await readEntryEntityRecordWithOwner(
+    entityReadStorage(workspaceRoot), packageId, entryId
+  )) !== null;
+}
+
 /**
  * Read a macro package file, normalizing any legacy shape to a canonical
  * `MacroPackageEntry[]`. Missing file → `noFile`. Corrupt JSON → `error`.
@@ -3377,11 +3419,21 @@ export interface LibrarySummary {
   relationshipCount: number | null; // number of edges
 }
 
+export interface EntryPackageSummary {
+  /** Stable Package manifest identity. */
+  id: string;
+  /** Human-facing manifest name. */
+  name: string;
+  description: string;
+  entryCount: number;
+}
+
 export interface SnlOverview {
   hasSnlDoc: boolean;
   totalEntryCount: number | null; // size of the shared entries.json pool
   /** The shared entry pool from `entries.json` (empty when missing/corrupt). */
   entries: EntryData[];
+  entryPackages: EntryPackageSummary[];
   libraries: LibrarySummary[];
   /** Term macro packages enumerated under `term_macros/`. */
   macroPackages: MacroPackageSummary[];
@@ -3443,6 +3495,7 @@ export async function readOverview(
       hasSnlDoc: false,
       totalEntryCount: null,
       entries: [],
+      entryPackages: [],
       libraries: [],
       macroPackages: [],
       allMacros: [],
@@ -3644,10 +3697,30 @@ export async function readOverview(
       : a.packageFile.localeCompare(b.packageFile),
   );
 
+  const entryCounts = new Map<string, number>();
+  for (const entry of entries) {
+    const packageId = typeof entry.package === 'string' && entry.package
+      ? entry.package
+      : UNPACKAGED_PACKAGE_ID;
+    entryCounts.set(packageId, (entryCounts.get(packageId) ?? 0) + 1);
+  }
+  const entryPackages: EntryPackageSummary[] = entitySnapshot
+    ? entitySnapshot.packages.map(({ manifest }) => ({
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+        entryCount: entryCounts.get(manifest.id) ?? 0
+      }))
+    : entries.length > 0
+      ? [{ id: UNPACKAGED_PACKAGE_ID, name: UNPACKAGED_PACKAGE_ID, description: '', entryCount: entries.length }]
+      : [];
+  entryPackages.sort((left, right) => left.id.localeCompare(right.id));
+
   return {
     hasSnlDoc: true,
     totalEntryCount,
     entries,
+    entryPackages,
     libraries,
     macroPackages,
     allMacros,
@@ -4173,6 +4246,66 @@ export async function readEntries(
   } catch {
     return [];
   }
+}
+
+export interface EntryPackagePanelSnapshot {
+  readonly selected:
+    | { readonly status: 'ok'; readonly package: { readonly id: string; readonly name: string; readonly description: string }; readonly entries: readonly EntryData[] }
+    | { readonly status: 'noPackage' };
+  readonly entryKinds: readonly EntryKind[];
+  readonly metricMacroSources: Readonly<Record<string, { source: { entries: string[]; urls: string[] } }>>;
+}
+
+/** Read one Entry Package for its management panel. The manifest is a point
+ * read at its deterministic identity; Entry storage is validated fail-closed
+ * before rows are filtered to the requested owner. No snapshot is retained. */
+export async function readEntryPackagePanelSnapshot(
+  workspaceRoot: vscode.Uri,
+  packageId: string
+): Promise<EntryPackagePanelSnapshot> {
+  if (!(await usesEntityStorage(workspaceRoot))) {
+    return {
+      selected: packageId === UNPACKAGED_PACKAGE_ID
+        ? { status: 'ok', package: { id: UNPACKAGED_PACKAGE_ID, name: UNPACKAGED_PACKAGE_ID, description: '' }, entries: await readEntries(workspaceRoot, false) }
+        : { status: 'noPackage' },
+      entryKinds: await readEntryKinds(workspaceRoot),
+      metricMacroSources: {}
+    };
+  }
+  const storage = entityReadStorage(workspaceRoot);
+  const [manifestRecord, entryRecords, entryKinds, macroSnapshot] = await Promise.all([
+    readPackageManifestRecord(storage, packageId),
+    readEntryEntityRecords(storage),
+    readEntryKinds(workspaceRoot),
+    readPackageMacroSnapshot(workspaceRoot)
+  ]);
+  if (!manifestRecord) {
+    return { selected: { status: 'noPackage' }, entryKinds, metricMacroSources: {} };
+  }
+  const metricMacroSources: Record<string, { source: { entries: string[]; urls: string[] } }> = {};
+  for (const [name, macro] of Object.entries(macroSnapshot.workspaceMacros)) {
+    setOwnRecordValue(metricMacroSources, name, {
+      source: {
+        entries: Array.isArray(macro.source?.entries) ? [...macro.source.entries] : [],
+        urls: Array.isArray(macro.source?.urls) ? [...macro.source.urls] : []
+      }
+    });
+  }
+  return Object.freeze({
+    selected: Object.freeze({
+      status: 'ok' as const,
+      package: Object.freeze({
+        id: manifestRecord.manifest.id,
+        name: manifestRecord.manifest.name,
+        description: manifestRecord.manifest.description
+      }),
+      entries: Object.freeze(entryRecords
+        .filter(({ envelope }) => envelope.package === packageId)
+        .map(({ entry }) => entry as unknown as EntryData))
+    }),
+    entryKinds: Object.freeze([...entryKinds]),
+    metricMacroSources: Object.freeze(metricMacroSources)
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -6179,7 +6312,8 @@ export async function rollbackCreatedEntry(
  */
 export async function deleteEntry(
   workspaceRoot: vscode.Uri,
-  id: string
+  id: string,
+  expectedPackageId?: string
 ): Promise<
   | {
       status: 'ok';
@@ -6209,6 +6343,10 @@ export async function deleteEntry(
   if (entityMode) {
     const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
     entityRecord = records.find(({ entry }) => entry.id === targetId);
+    if (entityRecord && expectedPackageId !== undefined &&
+        entityRecord.envelope.package !== expectedPackageId) {
+      return { status: 'notFound', id: targetId };
+    }
     pool = records.map(({ entry }) => entry as unknown as EntryData);
   } else {
     try {

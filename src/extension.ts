@@ -11,7 +11,10 @@ import { InitMacroKindsPanel } from './initMacroKindsPanel';
 import { CreateMacroKindPanel } from './createMacroKindPanel';
 import { CreateEntryPanel } from './createEntryPanel';
 import { CreateMacroPackagePanel } from './createMacroPackagePanel';
+import { CreateEntryPackagePanel } from './createEntryPackagePanel';
 import { PackagePanel } from './packagePanel';
+import { EntryPackagePanel } from './entryPackagePanel';
+import { assertPackageId } from './entityStorage';
 import { CreateMacroPanel } from './createMacroPanel';
 import { CreateRelationshipPanel } from './createRelationshipPanel';
 import { GraphPanel } from './graphPanel';
@@ -395,11 +398,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // so the different entity types can have different policies.
   const deleteEntry = vscode.commands.registerCommand(
     'snlDoc.deleteEntry',
-    async (entryId?: unknown) => {
+    async (entryId?: unknown, packageValue?: unknown) => {
       const id = typeof entryId === 'string' ? entryId.trim() : '';
       if (!id) return;
+      const expectedPackage = typeof packageValue === 'string' && packageValue.trim()
+        ? packageValue.trim()
+        : undefined;
+      if (expectedPackage) {
+        try { assertPackageId(expectedPackage); } catch { return; }
+      }
       const root = firstWorkspaceFolder();
       if (!root) return;
+      if (expectedPackage && !(await snlDoc.entryBelongsToPackage(root, expectedPackage, id))) return;
       const deleteAction = t('deleteAction');
       const confirmed = await vscode.window.showWarningMessage(
         t('deleteEntryPrompt', { id }),
@@ -407,7 +417,9 @@ export function activate(context: vscode.ExtensionContext): void {
         deleteAction
       );
       if (confirmed !== deleteAction) return;
-      const res = await snlDoc.deleteEntry(root, id);
+      const res = expectedPackage
+        ? await snlDoc.deleteEntry(root, id, expectedPackage)
+        : await snlDoc.deleteEntry(root, id);
       if (res.status !== 'ok') {
         void vscode.window.showErrorMessage(t('deleteEntryFailed', {
           error: 'message' in res ? res.message : res.status
@@ -703,12 +715,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const createEntry = vscode.commands.registerCommand(
     'snlDoc.createEntry',
-    async (seedId?: unknown) => {
+    async (seedId?: unknown, requestedPackage?: unknown) => {
       const seed =
         typeof seedId === 'string' && seedId.trim() ? seedId.trim() : undefined;
       const root = firstWorkspaceFolder();
       if (!root) {
         void vscode.window.showErrorMessage(t('createEntryNoWorkspace'));
+        return;
+      }
+      if (typeof requestedPackage === 'string' && requestedPackage.trim()) {
+        const packageId = requestedPackage.trim();
+        try { assertPackageId(packageId); } catch { return; }
+        try {
+          if (!(await snlDoc.entryPackageExists(root, packageId))) return;
+        } catch (error) {
+          void vscode.window.showErrorMessage(t('listEntryPackagesFailed', {
+            error: error instanceof Error ? error.message : String(error)
+          }));
+          return;
+        }
+        CreateEntryPanel.createOrShow(context.extensionUri, seed, packageId);
         return;
       }
       let packageFiles: { file: string }[];
@@ -745,17 +771,32 @@ export function activate(context: vscode.ExtensionContext): void {
   const createEntryPackage = vscode.commands.registerCommand(
     'snlDoc.createEntryPackage',
     () => {
-      CreateEntryPanel.createPackageOrShow(context.extensionUri);
+      CreateEntryPackagePanel.createOrShow(context.extensionUri);
+    }
+  );
+
+  const openEntryPackage = vscode.commands.registerCommand(
+    'snlDoc.openEntryPackage',
+    (packageId?: unknown) => {
+      if (typeof packageId !== 'string' || !packageId.trim()) return;
+      const id = packageId.trim();
+      try { assertPackageId(id); } catch { return; }
+      EntryPackagePanel.createOrShow(context.extensionUri, id);
     }
   );
 
   const editEntry = vscode.commands.registerCommand(
     'snlDoc.editEntry',
-    (id?: unknown) => {
-      if (typeof id !== 'string' || !id.trim()) {
-        return;
+    async (id?: unknown, packageValue?: unknown) => {
+      if (typeof id !== 'string' || !id.trim()) return;
+      const entryId = id.trim();
+      if (typeof packageValue === 'string' && packageValue.trim()) {
+        const packageId = packageValue.trim();
+        try { assertPackageId(packageId); } catch { return; }
+        const root = firstWorkspaceFolder();
+        if (!root || !(await snlDoc.entryBelongsToPackage(root, packageId, entryId))) return;
       }
-      CreateEntryPanel.editOrShow(context.extensionUri, id.trim());
+      CreateEntryPanel.editOrShow(context.extensionUri, entryId);
     }
   );
 
@@ -1064,6 +1105,7 @@ export function activate(context: vscode.ExtensionContext): void {
     editMacroKind,
     createEntry,
     createEntryPackage,
+    openEntryPackage,
     editEntry,
     createMacroPackage,
     editMacroPackage,

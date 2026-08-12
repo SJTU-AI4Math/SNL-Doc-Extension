@@ -737,9 +737,9 @@ export function activate(context: vscode.ExtensionContext): void {
         CreateEntryPanel.createOrShow(context.extensionUri, seed, packageId);
         return;
       }
-      let packageFiles: { file: string }[];
+      let entryPackages: snlDoc.EntryPackageSummary[];
       try {
-        packageFiles = await snlDoc.readMacroPackages(root, true);
+        entryPackages = await snlDoc.readEntryPackages(root);
       } catch (error) {
         void vscode.window.showErrorMessage(t('listEntryPackagesFailed', {
           error: error instanceof Error ? error.message : String(error)
@@ -753,11 +753,13 @@ export function activate(context: vscode.ExtensionContext): void {
           description: '_unpackaged',
           packageId: '_unpackaged'
         },
-        ...packageFiles
-          .map(({ file }) => file.replace(/\.json$/i, ''))
-          .filter((packageId) => packageId !== '_unpackaged')
-          .sort((a, b) => a.localeCompare(b))
-          .map((packageId) => ({ label: packageId, packageId }))
+        ...entryPackages
+          .filter(({ id }) => id !== '_unpackaged')
+          .map(({ id, name, entryCount }) => ({
+            label: name || id,
+            description: `${id} · ${entryCount}`,
+            packageId: id
+          }))
       ];
       const chosen = await vscode.window.showQuickPick(items, {
         title: t('selectEntryPackageTitle'),

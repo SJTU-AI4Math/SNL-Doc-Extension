@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   deleteEntry: vi.fn(),
   regenerateDependencyRelationships: vi.fn(),
   readMacroPackages: vi.fn(),
+  readEntryPackages: vi.fn(),
   resolveActiveMacroPackages: vi.fn()
 }));
 
@@ -76,6 +77,7 @@ vi.mock('./snlDoc', () => ({
   deleteEntry: mocks.deleteEntry,
   regenerateDependencyRelationships: mocks.regenerateDependencyRelationships,
   readMacroPackages: mocks.readMacroPackages,
+  readEntryPackages: mocks.readEntryPackages,
   resolveActiveMacroPackages: mocks.resolveActiveMacroPackages
 }));
 
@@ -166,8 +168,9 @@ describe('extension host UI localization', () => {
   });
 
   it('chooses an Entry Package in a native QuickPick before opening Create Entry', async () => {
-    mocks.readMacroPackages.mockResolvedValue([
-      { file: 'core.json' }, { file: 'notes.json' }
+    mocks.readEntryPackages.mockResolvedValue([
+      { id: 'core', name: 'Core', description: '', entryCount: 2 },
+      { id: 'notes', name: 'Notes', description: '', entryCount: 1 }
     ]);
     mocks.showQuickPick.mockResolvedValue({ label: 'notes', packageId: 'notes' });
 
@@ -181,6 +184,8 @@ describe('extension host UI localization', () => {
       ]),
       expect.objectContaining({ placeHolder: '选择新条目所属的条目包' })
     );
+    expect(mocks.readEntryPackages).toHaveBeenCalledWith(mocks.workspaceRoot);
+    expect(mocks.readMacroPackages).not.toHaveBeenCalled();
     expect(mocks.createEntryOrShow).toHaveBeenCalledWith(
       (context as unknown as { extensionUri: unknown }).extensionUri,
       'seed-entry',

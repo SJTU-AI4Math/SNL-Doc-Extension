@@ -295,6 +295,27 @@ describe('PackagePanel read cost', () => {
     expect(implementation).not.toContain('readPackageMacroSnapshot(');
   });
 
+  it('reads Entry Package picker metadata and counts without scanning Macro entities', async () => {
+    seedCurrentTopology();
+    jsonByPath.set(
+      packageManifestPath('pkg-00'),
+      makePackageManifest('pkg-00', 'Package Zero', 'Picker metadata', ['entry.a', 'entry.b'])
+    );
+    state.directoryReads.length = 0;
+    state.entityReads.length = 0;
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const summaries = await actual.readEntryPackages({ path: '/ws' } as never);
+
+    expect(summaries.find(({ id }) => id === 'pkg-00')).toEqual({
+      id: 'pkg-00', name: 'Package Zero', description: 'Picker metadata', entryCount: 2
+    });
+    expect(state.directoryReads).toContain('packages');
+    expect(state.directoryReads).not.toContain('macros');
+    expect(state.entityReads.some((entityPath) => entityPath.startsWith('macros/'))).toBe(false);
+    expect(state.entityReads.some((entityPath) => entityPath.startsWith('entries/'))).toBe(false);
+  });
+
   it('rejects Entry creation from a malformed Package manifest before any write', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {

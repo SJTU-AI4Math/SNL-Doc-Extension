@@ -154,4 +154,22 @@ describe('Entry Package host panels', () => {
     expect(mocks.createPackage).toHaveBeenCalledWith({ path: '/ws' }, 'logic', 'Logic', 'Entries');
     expect(mocks.commands).toContainEqual(['snlDoc.openEntryPackage', 'logic']);
   });
+
+  it('does not post or open an Entry Package when creation resolves after disposal', async () => {
+    let resolveCreate!: (value: { status: 'ok'; file: string }) => void;
+    mocks.createPackage.mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve; }));
+    const { CreateEntryPackagePanel } = await import('./createEntryPackagePanel');
+    CreateEntryPackagePanel.createOrShow(extensionUri);
+
+    const pending = mocks.receivers[0]({
+      type: 'create', id: 'logic', name: 'Logic', description: 'Entries'
+    });
+    await Promise.resolve();
+    mocks.panelDisposals[0]();
+    resolveCreate({ status: 'ok', file: 'logic.json' });
+    await pending;
+
+    expect(mocks.posts).toEqual([]);
+    expect(mocks.commands).not.toContainEqual(['snlDoc.openEntryPackage', 'logic']);
+  });
 });

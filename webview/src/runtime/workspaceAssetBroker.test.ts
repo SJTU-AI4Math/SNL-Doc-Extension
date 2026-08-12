@@ -1,9 +1,23 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/dom';
-import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
+import {
+  installWorkspaceAssetBroker,
+  type WorkspaceAssetBrokerStateSnapshot
+} from './workspaceAssetBroker';
 
 const disposables: Array<{ dispose(): void }> = [];
+
+function installWithSnapshot(postMessage: ReturnType<typeof vi.fn>):
+  () => WorkspaceAssetBrokerStateSnapshot {
+  let read = (): WorkspaceAssetBrokerStateSnapshot => {
+    throw new Error('workspace asset broker snapshot was not exposed');
+  };
+  disposables.push(installWorkspaceAssetBroker({ postMessage }, {
+    exposeSnapshot: (snapshot) => { read = snapshot; }
+  }));
+  return () => read();
+}
 afterEach(() => {
   while (disposables.length) disposables.pop()?.dispose();
   document.body.replaceChildren();
@@ -219,6 +233,64 @@ describe('workspace asset broker', () => {
     }
   );
 
+  it('releases 1000 pending requests when their only consumers become external', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    const snapshot = installWithSnapshot(postMessage);
+    const images = Array.from({ length: 1000 }, (_, index) => {
+      const image = document.createElement('img');
+      image.src = `${base}/pending-${index}.png`;
+      return image;
+    });
+    document.body.append(...images);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1000));
+    images.forEach((_image, index) => {
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/invalidate', path: `pending-${index}.png`, revision: index + 1
+      } }));
+    });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2000));
+    expect(snapshot()).toMatchObject({
+      resolutions: 1000, pendingResolutions: 1000, requests: 1000, epochs: 1000,
+      consumers: 1000, pendingConsumers: 1000
+    });
+
+    images.forEach((image, index) => {
+      image.src = `https://example.com/external-${index}.png`;
+    });
+    await waitFor(() => expect(snapshot()).toEqual({
+      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
+      consumers: 0, pendingConsumers: 0
+    }));
+  });
+
+  it('keeps a shared pending request until its final consumer leaves', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    const snapshot = installWithSnapshot(postMessage);
+    const first = document.createElement('img');
+    const second = document.createElement('img');
+    first.src = `${base}/shared-pending.png`;
+    second.src = `${base}/shared-pending.png`;
+    document.body.append(first, second);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+
+    first.src = 'https://example.com/first.png';
+    await waitFor(() => expect(first.dataset.snlAssetPath).toBeUndefined());
+    expect(snapshot()).toMatchObject({
+      resolutions: 1, pendingResolutions: 1, requests: 1,
+      consumers: 1, pendingConsumers: 1
+    });
+
+    second.removeAttribute('src');
+    await waitFor(() => expect(snapshot()).toEqual({
+      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
+      consumers: 0, pendingConsumers: 0
+    }));
+  });
+
   it('drops an orphaned pending path after unmount and ignores its late reply', async () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
@@ -272,6 +344,58 @@ describe('workspace asset broker', () => {
     expect(second.getAttribute('src')).toBe(
       'vscode-webview://trusted/same.png?revision=two'
     );
+  });
+
+  it('ignores 1000 invalidations for unknown paths without retaining epochs', () => {
+    const postMessage = vi.fn();
+    document.documentElement.dataset.snlAssetBaseUri =
+      'vscode-webview://panel/workspace/assets';
+    const snapshot = installWithSnapshot(postMessage);
+
+    for (let index = 0; index < 1000; index += 1) {
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/invalidate', path: `unknown-${index}.png`, revision: index + 1
+      } }));
+    }
+
+    expect(snapshot()).toEqual({
+      resolutions: 0, pendingResolutions: 0, requests: 0, epochs: 0,
+      consumers: 0, pendingConsumers: 0
+    });
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('ignores an old pending reply after invalidation and applies the refresh', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    const snapshot = installWithSnapshot(postMessage);
+    const image = document.createElement('img');
+    image.src = `${base}/racing.png`;
+    document.body.append(image);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledOnce());
+    const oldRequest = postMessage.mock.calls[0][0] as { request_id: string; path: string };
+
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/invalidate', path: oldRequest.path, revision: 1
+    } }));
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    const refresh = postMessage.mock.calls[1][0] as { request_id: string; path: string };
+    expect(refresh.request_id).not.toBe(oldRequest.request_id);
+    expect(snapshot()).toMatchObject({ pendingResolutions: 1, requests: 1, epochs: 1, pendingConsumers: 1 });
+
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: oldRequest.request_id, path: oldRequest.path,
+      url: 'vscode-webview://trusted/stale.png'
+    } }));
+    expect(image.getAttribute('src')).toMatch(/^data:image\/gif/);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/resolved', request_id: refresh.request_id, path: refresh.path,
+      url: 'vscode-webview://trusted/fresh-racing.png'
+    } }));
+    await waitFor(() => expect(image.getAttribute('src')).toBe(
+      'vscode-webview://trusted/fresh-racing.png'
+    ));
   });
 
   it('invalidates only the scoped path and refreshes ready and missing nodes', async () => {

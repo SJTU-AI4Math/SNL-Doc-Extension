@@ -17,6 +17,19 @@ type AssetResolution =
   | { status: 'ready'; identity: AssetIdentity; url: string }
   | { status: 'missing'; identity: AssetIdentity };
 
+export interface WorkspaceAssetBrokerStateSnapshot {
+  resolutions: number;
+  pendingResolutions: number;
+  requests: number;
+  epochs: number;
+  consumers: number;
+  pendingConsumers: number;
+}
+
+export interface WorkspaceAssetBrokerTestHooks {
+  exposeSnapshot(read: () => WorkspaceAssetBrokerStateSnapshot): void;
+}
+
 const SETTLED_CACHE_LIMIT = 128;
 const PENDING_SOURCE =
   'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -70,7 +83,10 @@ function withAuthoredSuffix(url: string, suffix: string): string {
  * URLs. The workspace assets directory itself is deliberately not a Webview
  * localResourceRoot.
  */
-export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>): {
+export function installWorkspaceAssetBroker(
+  api: Pick<VsCodeApi, 'postMessage'>,
+  testHooks?: WorkspaceAssetBrokerTestHooks
+): {
   dispose(): void;
 } {
   const base = document.documentElement.dataset.snlAssetBaseUri?.replace(/\/$/, '') ?? '';
@@ -79,7 +95,21 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
   const resolutions = new Map<string, AssetResolution>();
   const requests = new Map<string, string>();
   const epochs = new Map<string, number>();
+  const consumers = new Map<string, Set<HTMLImageElement>>();
+  const consumerPaths = new Map<string, string>();
   let disposed = false;
+
+  testHooks?.exposeSnapshot(() => ({
+    resolutions: resolutions.size,
+    pendingResolutions: [...resolutions.values()].filter(
+      (resolution) => resolution.status === 'pending'
+    ).length,
+    requests: requests.size,
+    epochs: epochs.size,
+    consumers: [...consumers.values()].reduce((total, images) => total + images.size, 0),
+    pendingConsumers: [...consumers].reduce((total, [key, images]) =>
+      total + (resolutions.get(key)?.status === 'pending' ? images.size : 0), 0)
+  }));
 
   const mutateSource = (image: HTMLImageElement, source: string | null): void => {
     if (image.getAttribute('src') === source) return;
@@ -88,8 +118,54 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     else image.setAttribute('src', source);
   };
 
-  const clearAssociation = (image: HTMLImageElement): void => {
+  const hasPathState = (path: string): boolean => {
+    for (const resolution of resolutions.values()) {
+      if (resolution.identity.path === path) return true;
+    }
+    for (const [key, consumerPath] of consumerPaths) {
+      if (consumerPath === path && consumers.get(key)?.size) return true;
+    }
+    return false;
+  };
+
+  const cleanupEpoch = (path: string): void => {
+    if (!hasPathState(path)) epochs.delete(path);
+  };
+
+  const releaseAssociation = (
+    image: HTMLImageElement,
+    cleanEpoch = true
+  ): AssetAssociation | undefined => {
+    const associated = associations.get(image);
+    if (!associated) return undefined;
     associations.delete(image);
+    const expected = consumers.get(associated.key);
+    expected?.delete(image);
+    if (expected?.size) return associated;
+    consumers.delete(associated.key);
+    consumerPaths.delete(associated.key);
+    const pending = resolutions.get(associated.key);
+    if (pending?.status === 'pending') {
+      resolutions.delete(associated.key);
+      requests.delete(pending.request_id);
+    }
+    if (cleanEpoch) cleanupEpoch(associated.path);
+    return associated;
+  };
+
+  const associate = (image: HTMLImageElement, association: AssetAssociation): void => {
+    const previous = associations.get(image);
+    if (previous && previous.key !== association.key) releaseAssociation(image, false);
+    associations.set(image, association);
+    const expected = consumers.get(association.key) ?? new Set<HTMLImageElement>();
+    expected.add(image);
+    consumers.set(association.key, expected);
+    consumerPaths.set(association.key, association.path);
+    if (previous && previous.key !== association.key) cleanupEpoch(previous.path);
+  };
+
+  const clearAssociation = (image: HTMLImageElement): void => {
+    releaseAssociation(image);
     delete image.dataset.snlAssetPath;
     delete image.dataset.snlAssetError;
   };
@@ -108,6 +184,7 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     for (const [key, resolution] of resolutions) {
       if (resolution.status === 'pending') continue;
       resolutions.delete(key);
+      cleanupEpoch(resolution.identity.path);
       settled -= 1;
       if (settled <= SETTLED_CACHE_LIMIT) break;
     }
@@ -124,11 +201,11 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     if (resolution.status === 'ready') {
       delete image.dataset.snlAssetError;
       const renderedSource = withAuthoredSuffix(resolution.url, identity.suffix);
-      associations.set(image, { ...identity, renderedSource });
+      associate(image, { ...identity, renderedSource });
       mutateSource(image, renderedSource);
     } else {
       image.dataset.snlAssetError = '';
-      associations.set(image, { ...identity, renderedSource: null });
+      associate(image, { ...identity, renderedSource: null });
       mutateSource(image, null);
     }
   };
@@ -138,13 +215,13 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     const existing = resolutions.get(identity.key);
     if (existing?.status === 'ready' || existing?.status === 'missing') {
       touch(identity.key, existing);
-      associations.set(image, { ...identity, renderedSource: image.getAttribute('src') });
+      associate(image, { ...identity, renderedSource: image.getAttribute('src') });
       applyResolution(image, identity, existing);
       return;
     }
 
     const request_id = existing?.request_id ?? `snl-markdown-asset-${++nextRequest}`;
-    associations.set(image, {
+    associate(image, {
       ...identity,
       request_id,
       renderedSource: PENDING_SOURCE
@@ -182,6 +259,7 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     if (!path || path.includes('\\') || path.startsWith('/') ||
         path.includes('?') || path.includes('#') ||
         path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) return;
+    if (!hasPathState(path)) return;
     epochs.set(path, (epochs.get(path) ?? 0) + 1);
     for (const [key, resolution] of resolutions) {
       if (resolution.identity.path !== path) continue;
@@ -198,6 +276,7 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
       );
       if (identity) requestIdentity(image, identity);
     }
+    cleanupEpoch(path);
   };
 
   const scan = (root: ParentNode): void => {
@@ -233,18 +312,7 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
     if (removedImages.size) queueMicrotask(() => {
       for (const image of removedImages) {
         if (document.documentElement.contains(image)) continue;
-        const removed = associations.get(image);
-        associations.delete(image);
-        if (!removed) continue;
-        const pending = resolutions.get(removed.key);
-        if (pending?.status !== 'pending') continue;
-        const stillExpected = [...document.querySelectorAll<HTMLImageElement>(
-          'img[data-snl-asset-path]'
-        )].some((candidate) => associations.get(candidate)?.key === removed.key);
-        if (!stillExpected) {
-          resolutions.delete(removed.key);
-          requests.delete(pending.request_id);
-        }
+        clearAssociation(image);
       }
     });
   });
@@ -299,6 +367,8 @@ export function installWorkspaceAssetBroker(api: Pick<VsCodeApi, 'postMessage'>)
       resolutions.clear();
       requests.clear();
       epochs.clear();
+      consumers.clear();
+      consumerPaths.clear();
     }
   };
 }

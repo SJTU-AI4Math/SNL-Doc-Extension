@@ -2,11 +2,13 @@
   --snl-tree-board-opaque-background: #313131;
 }
 
-html[data-snl-color-scheme='light'] {
+html[data-snl-color-scheme='light'],
+html[data-snl-color-scheme='high-contrast-light'] {
   --snl-tree-board-opaque-background: #ffffff;
 }
 
-html[data-snl-color-scheme='dark'] {
+html[data-snl-color-scheme='dark'],
+html[data-snl-color-scheme='high-contrast'] {
   --snl-tree-board-opaque-background: #313131;
 }
 

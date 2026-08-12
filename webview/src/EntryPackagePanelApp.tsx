@@ -47,8 +47,8 @@ type Model =
 
 type Incoming =
   | { type: 'entryPackage'; package: unknown; entries?: unknown; entryKinds?: unknown; metricMacroSources?: unknown; metricThresholds?: unknown }
-  | { type: 'noEntryPackage'; packageId: string }
-  | { type: 'error'; message: string };
+  | { type: 'noEntryPackage'; packageId: unknown }
+  | { type: 'error'; message: unknown };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -97,10 +97,14 @@ export function EntryPackagePanelApp(): React.ReactElement {
         // transitioning away from package-local SSI calculation.
         setModel({ kind: 'package', package: pkg,
           entries: msg.entries, entryKinds: msg.entryKinds });
-      } else if (msg.type === 'noEntryPackage' && typeof msg.packageId === 'string') {
-        setModel({ kind: 'missing', packageId: msg.packageId });
-      } else if (msg.type === 'error' && typeof msg.message === 'string') {
-        setModel({ kind: 'error', message: msg.message });
+      } else if (msg.type === 'noEntryPackage') {
+        setModel(typeof msg.packageId === 'string'
+          ? { kind: 'missing', packageId: msg.packageId }
+          : { kind: 'error', message: t('malformed') });
+      } else if (msg.type === 'error') {
+        setModel(typeof msg.message === 'string'
+          ? { kind: 'error', message: msg.message }
+          : { kind: 'error', message: t('malformed') });
       }
     };
     window.addEventListener('message', onMessage);

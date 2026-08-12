@@ -501,6 +501,15 @@ function addUnique<T>(map: Map<string, T>, path: string, value: T): void {
   map.set(path, value);
 }
 
+function upgradePackageManifestForMigration(value: Record<string, unknown>): Record<string, unknown> {
+  if (value.schema_version === 1) {
+    const predecessor = { ...value };
+    delete predecessor.schema_version;
+    return upgradePackageManifestSchema(predecessor);
+  }
+  return upgradePackageManifestSchema(value);
+}
+
 function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void {
   const data = context.data;
   if (Object.prototype.hasOwnProperty.call(data.config, 'entity_storage')) {
@@ -620,7 +629,7 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
       }
       const normalized = isRecord(value)
         ? label === 'packages'
-          ? upgradePackageManifestSchema(value)
+          ? upgradePackageManifestForMigration(value)
           : label === 'entries'
             ? upgradeEntryEnvelopeSchema(value)
             : upgradeMacroEnvelopeSchema(value)
@@ -637,7 +646,7 @@ function migrate005To006EntityStorage(context: WorkspaceMigrationContext): void 
           )
         : isRecord(expectedValue)
           ? label === 'packages'
-            ? upgradePackageManifestSchema(expectedValue)
+            ? upgradePackageManifestForMigration(expectedValue)
             : label === 'entries'
               ? upgradeEntryEnvelopeSchema(expectedValue)
               : upgradeMacroEnvelopeSchema(expectedValue)
@@ -760,6 +769,65 @@ function migrateMacroEntitiesToV11(
   }
 }
 
+function migrate0010To0011PackageMembership(context: WorkspaceMigrationContext): void {
+  const membership = new Map<string, string[]>();
+  const manifests = new Map<string, PackageManifest>();
+  for (const [path, raw] of context.data.packageManifests) {
+    if (!isRecord(raw) || raw.format !== 'snl-package' || raw.version !== 1 ||
+        typeof raw.id !== 'string' || typeof raw.name !== 'string' ||
+        typeof raw.description !== 'string') {
+      throw new Error(`${path} is not a valid predecessor Package manifest.`);
+    }
+    assertPackageId(raw.id);
+    if (path !== packageManifestPath(raw.id)) {
+      throw new Error(`${path} does not match Package identity ${JSON.stringify(raw.id)}.`);
+    }
+    const schemaVersion = (raw as unknown as { schema_version?: unknown }).schema_version;
+    if (schemaVersion !== undefined && schemaVersion !== 1 && schemaVersion !== 2) {
+      throw new Error(`${path} has unsupported Package schema_version ${String(schemaVersion)}.`);
+    }
+    if (manifests.has(raw.id)) {
+      throw new Error(`Duplicate Package identity ${JSON.stringify(raw.id)}.`);
+    }
+    membership.set(raw.id, []);
+    manifests.set(raw.id, raw as unknown as PackageManifest);
+  }
+
+  const entryIds = new Set<string>();
+  for (const [path, raw] of context.data.entryEntities) {
+    const upgraded = isRecord(raw) ? upgradeEntryEnvelopeSchema(raw) : raw;
+    if (!isRecord(upgraded) || upgraded.format !== 'snl-entry' || upgraded.version !== 1 ||
+        typeof upgraded.package !== 'string' || !isRecord(upgraded.entry) ||
+        typeof upgraded.entry.id !== 'string' || !upgraded.entry.id ||
+        upgraded.entry.package !== upgraded.package) {
+      throw new Error(`${path} is not a valid Entry envelope for Package membership migration.`);
+    }
+    if (path !== entryEntityPath(upgraded.package, upgraded.entry.id)) {
+      throw new Error(`${path} does not match Entry identity ${JSON.stringify(upgraded.entry.id)}.`);
+    }
+    if (entryIds.has(upgraded.entry.id)) {
+      throw new Error(`Duplicate Entry identity ${JSON.stringify(upgraded.entry.id)}.`);
+    }
+    entryIds.add(upgraded.entry.id);
+    const ownerMembership = membership.get(upgraded.package);
+    if (!ownerMembership) {
+      throw new Error(
+        `Entry ${JSON.stringify(upgraded.entry.id)} references missing Package ${JSON.stringify(upgraded.package)}.`
+      );
+    }
+    ownerMembership.push(upgraded.entry.id);
+  }
+
+  for (const [packageId, raw] of manifests) {
+    const entryIdsForPackage = membership.get(packageId)!;
+    entryIdsForPackage.sort((left, right) => left.localeCompare(right));
+    context.data.packageManifests.set(packageManifestPath(packageId), {
+      ...raw,
+      ...makePackageManifest(packageId, raw.name, raw.description, entryIdsForPackage)
+    });
+  }
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -827,6 +895,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
       // treat an absent per-file marker as the unique legacy generation and
       // ordinary writes replace the complete file with the current marker.
     }
+  },
+  {
+    from: '0.0.10',
+    to: '0.0.11',
+    description: 'Publish authoritative exact Entry membership in every Package manifest.',
+    migrate: async (context) => { migrate0010To0011PackageMembership(context); }
   }
 ];
 

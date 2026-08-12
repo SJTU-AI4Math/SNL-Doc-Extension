@@ -1,4 +1,4 @@
-export const CURRENT_DATA_VERSION = '0.0.10' as const;
+export const CURRENT_DATA_VERSION = '0.0.11' as const;
 
 export interface DataMigration<Context> {
   readonly from: string;

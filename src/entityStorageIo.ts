@@ -288,19 +288,30 @@ export async function readEntryEntityRecords(storage: EntityReadStorage): Promis
   return records.sort((left, right) => left.envelope.package.localeCompare(right.envelope.package) || left.entry.id.localeCompare(right.entry.id));
 }
 
-function validatePackageManifest(path: string, value: unknown): PackageManifestRecord {
+function validatePackageManifest(
+  path: string,
+  value: unknown,
+  allowPredecessorMembership = false
+): PackageManifestRecord {
   if (!isRecord(value) || value.format !== 'snl-package' || value.version !== PACKAGE_STORAGE_VERSION ||
       typeof value.id !== 'string' || typeof value.name !== 'string' || typeof value.description !== 'string') {
     throw new Error(`${path} is not a valid SNL Package manifest.`);
   }
-  const manifest = upgradePackageManifestSchema(value) as unknown as PackageManifest;
-  if (Object.hasOwn(manifest, 'entry_ids')) {
-    if (!Array.isArray(manifest.entry_ids) || manifest.entry_ids.some(
+  const predecessor = allowPredecessorMembership &&
+    (!Object.hasOwn(value, 'schema_version') || value.schema_version === 1);
+  const manifest = (predecessor
+    ? { ...structuredClone(value), schema_version: 1 }
+    : upgradePackageManifestSchema(value)) as unknown as PackageManifest;
+  const hasValidMembership = Array.isArray(manifest.entry_ids) &&
+    !manifest.entry_ids.some(
       (entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()
-    ) || new Set(manifest.entry_ids).size !== manifest.entry_ids.length ||
-        manifest.entry_ids.some((entryId, index) => index > 0 && manifest.entry_ids[index - 1].localeCompare(entryId) > 0)) {
-      throw new Error(`${path}#entry_ids must be a sorted array of unique, non-empty canonical Entry ids.`);
-    }
+    ) && new Set(manifest.entry_ids).size === manifest.entry_ids.length &&
+    !manifest.entry_ids.some(
+      (entryId, index) => index > 0 && manifest.entry_ids[index - 1].localeCompare(entryId) > 0
+    );
+  if ((!predecessor && !Object.hasOwn(manifest, 'entry_ids')) ||
+      (Object.hasOwn(manifest, 'entry_ids') && !hasValidMembership)) {
+    throw new Error(`${path}#entry_ids must be a present sorted array of unique, non-empty canonical Entry ids.`);
   }
   assertExpectedPath(path, packageManifestPath(manifest.id));
   return { path, rawManifest: value, manifest };
@@ -356,38 +367,15 @@ export async function readIndexedPackageEntryRecords(
   return records;
 }
 
-/**
- * One-time compatibility read for a pre-index manifest. Directory metadata is
- * filtered by the Package's exact deterministic filename shape before any
- * entity is read, so unrelated Entry contents are never scanned.
- */
-export async function readUnindexedPackageEntryRecords(
-  storage: EntityReadStorage,
-  packageId: string
-): Promise<EntryEntityRecord[]> {
-  const prefix = `${packageId}-`;
-  const files = (await storage.listJsonFiles('entries')).filter((file) =>
-    file.startsWith(prefix) && /^[0-9a-f]{20}\.json$/.test(file.slice(prefix.length))
-  );
-  const records: EntryEntityRecord[] = [];
-  for (const file of files) {
-    const path = `entries/${file}`;
-    const value = await storage.readJson(path);
-    if (value === null) throw new Error(`Entity file disappeared while reading: ${path}.`);
-    const record = validateEntryEntity(path, value);
-    if (record.envelope.package !== packageId) {
-      throw new Error(`${path} does not belong to Package ${JSON.stringify(packageId)}.`);
-    }
-    records.push(record);
-  }
-  return records.sort((left, right) => left.entry.id.localeCompare(right.entry.id));
-}
 
-export async function readPackageManifestRecords(storage: EntityReadStorage): Promise<PackageManifestRecord[]> {
+export async function readPackageManifestRecords(
+  storage: EntityReadStorage,
+  allowPredecessorMembership = false
+): Promise<PackageManifestRecord[]> {
   const records: PackageManifestRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'packages')) {
-    const record = validatePackageManifest(path, value);
+    const record = validatePackageManifest(path, value, allowPredecessorMembership);
     const folded = record.manifest.id.toLowerCase();
     if (ids.has(folded)) throw new Error(`Duplicate Package identity under case-folding: ${record.manifest.id}.`);
     ids.add(folded);
@@ -469,10 +457,11 @@ export async function readMacroEntityRecords(
 
 export async function readEntityStorageSnapshot(
   storage: EntityReadStorage,
-  macroSchemaVersion: '8' | '9' | '10' | '11' = '11'
+  macroSchemaVersion: '8' | '9' | '10' | '11' = '11',
+  allowPredecessorMembership = false
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
-    readPackageManifestRecords(storage),
+    readPackageManifestRecords(storage, allowPredecessorMembership),
     readEntryEntityRecords(storage),
     readMacroEntityRecords(storage, macroSchemaVersion)
   ]);

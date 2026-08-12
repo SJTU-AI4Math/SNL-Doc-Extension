@@ -183,8 +183,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.0.10');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.10' });
+    expect(report.to).toBe('0.0.11');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.11' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 
@@ -193,7 +193,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.10',
+      version: '0.0.11',
       entry_kinds: [],
       macro_kinds: [],
       active_macro_packages: ['Logic'],
@@ -207,7 +207,7 @@ describe('VS Code workspace data migration adapter', () => {
     const entities = new Map<string, unknown>([
       [packageManifestPath(UNPACKAGED_PACKAGE_ID),
         makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')],
-      [packageManifestPath('Logic'), makePackageManifest('Logic', 'Logic', '')],
+      [packageManifestPath('Logic'), makePackageManifest('Logic', 'Logic', '', ['entry.one'])],
       [entryEntityPath('Logic', 'entry.one'),
         makeEntryEnvelope('Logic', {
           id: 'entry.one', package: 'Logic', kind: 'definition', title: 'One', content: { snl: '' }, pointer: null
@@ -242,7 +242,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.10', entry_kinds: [], macro_kinds: [],
+      version: '0.0.11', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,
@@ -265,7 +265,7 @@ describe('VS Code workspace data migration adapter', () => {
       mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
     }
     put('/ws/.SNL_Doc/config.json', {
-      version: '0.0.10', entry_kinds: [], macro_kinds: [],
+      version: '0.0.11', entry_kinds: [], macro_kinds: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5',
         entry_default_package: UNPACKAGED_PACKAGE_ID,

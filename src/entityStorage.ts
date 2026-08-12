@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export const PACKAGE_STORAGE_VERSION = 1 as const;
 export const ENTRY_STORAGE_VERSION = 1 as const;
 export const MACRO_STORAGE_VERSION = 1 as const;
-export const CURRENT_PACKAGE_SCHEMA_VERSION = 1 as const;
+export const CURRENT_PACKAGE_SCHEMA_VERSION = 2 as const;
 export const CURRENT_ENTRY_SCHEMA_VERSION = 1 as const;
 export const CURRENT_MACRO_SCHEMA_VERSION = 1 as const;
 export const UNPACKAGED_PACKAGE_ID = '_unpackaged' as const;

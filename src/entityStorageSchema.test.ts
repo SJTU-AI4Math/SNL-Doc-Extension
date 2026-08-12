@@ -15,10 +15,10 @@ describe('per-file entity schema versions', () => {
   it('stamps every newly-created split-storage file with its current payload schema version', () => {
     expect(CURRENT_ENTRY_SCHEMA_VERSION).toBe(1);
     expect(CURRENT_MACRO_SCHEMA_VERSION).toBe(1);
-    expect(CURRENT_PACKAGE_SCHEMA_VERSION).toBe(1);
+    expect(CURRENT_PACKAGE_SCHEMA_VERSION).toBe(2);
     expect(makeEntryEnvelope('logic', { id: 'entry-1' }).schema_version).toBe(1);
     expect(makeMacroEnvelope('logic', { name: 'Eq' }).schema_version).toBe(1);
-    expect(makePackageManifest('logic', 'Logic', '').schema_version).toBe(1);
+    expect(makePackageManifest('logic', 'Logic', '').schema_version).toBe(2);
   });
 
   it('upgrades legacy files that predate per-file schema versions without mutating their read snapshot', () => {
@@ -69,6 +69,7 @@ describe('per-file entity schema versions', () => {
   ] as const)('rejects malformed and future %s schema markers instead of guessing', (_label, upgrade, base) => {
     expect(() => upgrade({ ...base, schema_version: 0 })).toThrow(/schema_version.*positive integer/i);
     expect(() => upgrade({ ...base, schema_version: '1' })).toThrow(/schema_version.*positive integer/i);
-    expect(() => upgrade({ ...base, schema_version: 2 })).toThrow(/newer.*supports/i);
+    const future = _label === 'Package' ? 3 : 2;
+    expect(() => upgrade({ ...base, schema_version: future })).toThrow(/newer.*supports/i);
   });
 });

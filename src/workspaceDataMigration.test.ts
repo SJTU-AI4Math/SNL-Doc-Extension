@@ -143,7 +143,7 @@ describe('stored workspace data migration', () => {
     expect(inspection.status).toBe('needsMigration');
     expect(inspection.currentVersion).toBe('0.0.3');
     expect(inspection.pending?.map((step) => step.to)).toEqual([
-      '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10'
+      '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10', '0.0.11'
     ]);    expect(storage.writes).toEqual([]);
   });
 
@@ -154,7 +154,7 @@ describe('stored workspace data migration', () => {
       canonicalize
     );
     expect(report.from).toBe('0.0.3');
-    expect(report.to).toBe('0.0.10');
+    expect(report.to).toBe('0.0.11');
     expect(storage.writes).toEqual([
       'term_macros/Logic.json',
       'packages/_unpackaged-60979c6e210d0e2a20cb.json',
@@ -163,11 +163,52 @@ describe('stored workspace data migration', () => {
       'macros/Logic-dd2136b29efc47b38142.json',
       'config.json'
     ]);
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.11');
     expect((storage.values.get('term_macros/Logic.json') as Record<string, unknown>).version).toBe('8');
   });
 
-  it('upgrades a 0.0.9 split workspace without rewriting unversioned entity files', async () => {
+  it('publishes 0.0.10 Package membership config-last, rolls back on failure, and retries to a fixed point', async () => {
+    const storage = legacyStorage();
+    await migrateStoredWorkspaceData(storage, canonicalize);
+    (storage.values.get('config.json') as Record<string, unknown>).version = '0.0.10';
+    for (const [path, value] of storage.values) {
+      if (!path.startsWith('packages/')) continue;
+      (value as Record<string, unknown>).schema_version = 1;
+      (value as Record<string, unknown>).entry_ids = [];
+    }
+    const predecessorPackages = new Map(
+      [...storage.values].filter(([path]) => path.startsWith('packages/'))
+        .map(([path, value]) => [path, structuredClone(value)])
+    );
+    storage.writes.length = 0;
+    let entryListings = 0;
+    storage.beforeList = (directory) => { if (directory === 'entries') entryListings += 1; };
+    storage.failOnceAt = 'config.json';
+
+    await expect(migrateStoredWorkspaceData(storage, canonicalize))
+      .rejects.toThrow(/rolled back/i);
+    expect(entryListings).toBe(1);
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
+    for (const [path, value] of predecessorPackages) expect(storage.values.get(path)).toEqual(value);
+
+    entryListings = 0;
+    storage.writes.length = 0;
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
+      from: '0.0.10', to: '0.0.11'
+    });
+    expect(entryListings).toBe(1);
+    expect(storage.writes.at(-1)).toBe('config.json');
+    const unpackaged = storage.values.get(packageManifestPath('_unpackaged')) as Record<string, unknown>;
+    expect(unpackaged).toMatchObject({ schema_version: 2, entry_ids: ['Set.mem'] });
+
+    storage.writes.length = 0;
+    entryListings = 0;
+    await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({ applied: [] });
+    expect(storage.writes).toEqual([]);
+    expect(entryListings).toBe(0);
+  });
+
+  it('upgrades 0.0.9 entities lazily while publishing Package membership', async () => {
     const storage = legacyStorage();
     await migrateStoredWorkspaceData(storage, canonicalize);
     for (const [path, value] of storage.values) {
@@ -184,18 +225,21 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: '0.0.9',
-      to: '0.0.10'
+      to: '0.0.11'
     });
-    expect(storage.writes).toEqual(['config.json']);
+    expect(storage.writes).toEqual([
+      packageManifestPath('_unpackaged'), packageManifestPath('Logic'), 'config.json'
+    ]);
     for (const [path, bytes] of entityBytes) {
+      if (path.startsWith('packages/')) continue;
       expect(JSON.stringify(storage.values.get(path)), path).toBe(bytes);
     }
     expect((await inspectStoredWorkspaceData(storage)).status).toBe('current');
 
     storage.writes.length = 0;
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
-      from: '0.0.10',
-      to: '0.0.10',
+      from: '0.0.11',
+      to: '0.0.11',
       applied: []
     });
     expect(storage.writes).toEqual([]);
@@ -314,7 +358,7 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: version,
-      to: '0.0.10'
+      to: '0.0.11'
     });
   });
 
@@ -327,9 +371,9 @@ describe('stored workspace data migration', () => {
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize)).resolves.toMatchObject({
       from: '0.0.6',
-      to: '0.0.10'
+      to: '0.0.11'
     });
-    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.10');
+    expect((storage.values.get('config.json') as Record<string, unknown>).version).toBe('0.0.11');
   });
 
   it('rejects a 0.0.7 orphan Macro before migrating or writing', async () => {
@@ -342,7 +386,7 @@ describe('stored workspace data migration', () => {
     storage.writes.length = 0;
 
     await expect(migrateStoredWorkspaceData(storage, canonicalize))
-      .rejects.toThrow(/Package.*manifest|entity topology/i);
+      .rejects.toThrow(/Package.*manifest|entity topology|exact path\/value set/i);
     expect(config.version).toBe('0.0.7');
     expect(storage.writes).toEqual([]);
   });
@@ -363,10 +407,11 @@ describe('stored workspace data migration', () => {
     const canonicalizeSpy = vi.fn(canonicalize);
 
     await expect(migrateStoredWorkspaceData(storage, canonicalizeSpy))
-      .rejects.toThrow(/Package.*manifest|entity topology/i);
-    expect(canonicalizeSpy).not.toHaveBeenCalled();
+      .rejects.toThrow(/Package.*manifest|entity topology|exact path\/value set/i);
+    expect(canonicalizeSpy).toHaveBeenCalledTimes(1);
     expect(config.version).toBe('0.0.7');
-    expect(storage.writes).toEqual([]);
+    const macroPath = 'macros/Logic-dd2136b29efc47b38142.json';
+    expect(storage.writes).toEqual([macroPath, macroPath]);
   });
 
   it('rejects a current workspace with a non-canonical v11 Macro payload', async () => {

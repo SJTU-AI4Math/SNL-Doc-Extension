@@ -11,6 +11,7 @@ import {
   assertCurrentEntityFile,
   readEntryEntityRecord,
   readMacroEntityRecords,
+  readIndexedPackageEntryRecords,
   readPackageManifestRecord,
   entityFileRewriteChanges,
   rewriteEntryEntityRecord,
@@ -32,6 +33,26 @@ function mapStorage(values: ReadonlyMap<string, unknown>): EntityReadStorage {
     readJson: async (path) => values.get(path) ?? null
   };
 }
+
+it('requires current Package membership and validates every indexed Entry by point read', async () => {
+  const packageId = 'logic';
+  const entryId = 'logic.one';
+  const manifestPath = packageManifestPath(packageId);
+  const entryPath = entryEntityPath(packageId, entryId);
+  const missingIndex = { ...makePackageManifest(packageId, 'Logic', '') } as Record<string, unknown>;
+  delete missingIndex.entry_ids;
+
+  await expect(readPackageManifestRecord(mapStorage(new Map([[manifestPath, missingIndex]])), packageId))
+    .rejects.toThrow(/entry_ids/i);
+
+  const manifest = makePackageManifest(packageId, 'Logic', '', [entryId]);
+  const wrongOwner = makeEntryEnvelope('other', { id: entryId, package: 'other' });
+  const storage = mapStorage(new Map([[manifestPath, manifest], [entryPath, wrongOwner]]));
+  const record = await readPackageManifestRecord(storage, packageId);
+  expect(record).not.toBeNull();
+  await expect(readIndexedPackageEntryRecords(storage, packageId, record!.manifest.entry_ids))
+    .rejects.toThrow(/invalid canonical|does not match|package/i);
+});
 
 const macro = {
   name: 'Eq',
@@ -71,7 +92,7 @@ describe('legacy split-file schema compatibility', () => {
 
     expect(entryRecord?.envelope.schema_version).toBe(1);
     expect(macroRecords[0].envelope.schema_version).toBe(1);
-    expect(packageRecord?.manifest.schema_version).toBe(1);
+    expect(packageRecord?.manifest.schema_version).toBe(2);
     expect(entryRecord?.rawEnvelope).toBe(legacyEntry);
     expect(macroRecords[0].rawEnvelope).toBe(legacyMacro);
     expect(packageRecord?.rawManifest).toBe(legacyPackage);
@@ -173,7 +194,7 @@ describe('legacy split-file schema compatibility', () => {
     expect(entryRewrite.value).toMatchObject({ schema_version: 1, vendor_extension: { keep: 'entry' } });
     expect(macroRewrite.value).toMatchObject({ schema_version: 1, vendor_extension: { keep: 'macro' } });
     expect(packageRewrite.value).toMatchObject({
-      schema_version: 1,
+      schema_version: 2,
       name: 'Changed',
       description: 'Changed',
       vendor_extension: { keep: 'package' }

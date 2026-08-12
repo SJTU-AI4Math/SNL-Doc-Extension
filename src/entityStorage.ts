@@ -18,6 +18,8 @@ export interface PackageManifest {
   id: string;
   name: string;
   description: string;
+  /** Stable, sorted membership index for Package-scoped Entry point reads. */
+  entry_ids: string[];
 }
 
 export interface EntryEnvelope<T extends Record<string, unknown> = Record<string, unknown>> {
@@ -84,16 +86,23 @@ export function macroEntityPath(packageId: string, macroName: string): string {
 export function makePackageManifest(
   id: string,
   name: string,
-  description: string
+  description: string,
+  entryIds: readonly string[] = []
 ): PackageManifest {
   assertPackageId(id);
+  const normalizedEntryIds = [...entryIds].sort((left, right) => left.localeCompare(right));
+  if (normalizedEntryIds.some((entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()) ||
+      new Set(normalizedEntryIds).size !== normalizedEntryIds.length) {
+    throw new Error('Package entry_ids must contain unique, non-empty canonical Entry ids.');
+  }
   return {
     format: 'snl-package',
     version: PACKAGE_STORAGE_VERSION,
     schema_version: CURRENT_PACKAGE_SCHEMA_VERSION,
     id,
     name,
-    description
+    description,
+    entry_ids: normalizedEntryIds
   };
 }
 

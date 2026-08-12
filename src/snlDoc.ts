@@ -51,6 +51,8 @@ import {
   assertCurrentEntityFile,
   readEntryEntityRecordWithOwner,
   readEntryEntityRecords,
+  readIndexedPackageEntryRecords,
+  readUnindexedPackageEntryRecords,
   readMacroEntityRecords,
   readPackageManifestRecord,
   readPackageManifestRecords,
@@ -58,6 +60,10 @@ import {
   rewriteEntryEntityRecord,
   rewriteMacroEntityRecord,
   rewritePackageManifestRecord,
+  rewritePackageEntryMembership,
+  packageManifestEntryIds,
+  type PackageManifestRecord,
+  type EntryEntityRecord,
   type EntityStorageSnapshot,
   type EntityReadStorage
 } from './entityStorageIo';
@@ -4103,12 +4109,13 @@ export async function addEntry(
   // Refuse to write over a malformed existing pool. Missing is a valid empty
   // workspace state; corrupt/non-array JSON is not.
   let pool: EntryData[] = [];
+  let entityRecords: EntryEntityRecord[] = [];
   const entityMode = await usesEntityStorage(workspaceRoot);
   const poolUri = entriesUri(workspaceRoot);
   if (entityMode) {
     try {
-      const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
-      pool = records.map(({ entry: current }) => current as unknown as EntryData);
+      entityRecords = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+      pool = entityRecords.map(({ entry: current }) => current as unknown as EntryData);
     } catch (error) {
       return {
         status: 'invalid',
@@ -4157,10 +4164,14 @@ export async function addEntry(
     ? entry.package.trim()
     : UNPACKAGED_PACKAGE_ID;
   let entityPath: string | null = null;
+  let ownerManifest: PackageManifestRecord | null = null;
   if (entityMode) {
     try {
       entityPath = entryEntityPath(packageId, id);
-      if (!(await exists(snlRelativeUri(workspaceRoot, packageManifestPath(packageId))))) {
+      // Canonical point reader validates format/version/schema/id/path before
+      // any Entry or membership write is attempted.
+      ownerManifest = await readPackageManifestRecord(entityReadStorage(workspaceRoot), packageId);
+      if (!ownerManifest) {
         return { status: 'invalid', reason: `Unknown Entry package: ${packageId}` };
       }
     } catch (error) {
@@ -4186,14 +4197,26 @@ export async function addEntry(
   }
 
   try {
-    if (entityMode && entityPath) {
+    if (entityMode && entityPath && ownerManifest) {
       await vscode.workspace.fs.createDirectory(entryEntitiesDirUri(workspaceRoot));
-      await writeWorkspaceFile(
-        workspaceRoot,
-        snlRelativeUri(workspaceRoot, entityPath),
-        jsonBytes(makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>)),
-        null
-      );
+      const indexedIds = packageManifestEntryIds(ownerManifest.manifest) ?? entityRecords
+        .filter(({ envelope }) => envelope.package === packageId)
+        .map(({ entry: current }) => current.id);
+      const membershipRewrite = rewritePackageEntryMembership(ownerManifest, [...indexedIds, id]);
+      await applyJsonFileOperations(workspaceRoot, `add Entry ${id}`, [
+        {
+          kind: 'write',
+          uri: snlRelativeUri(workspaceRoot, entityPath),
+          value: makeEntryEnvelope(packageId, record as unknown as Record<string, unknown>),
+          expected: null
+        },
+        {
+          kind: 'write',
+          uri: snlRelativeUri(workspaceRoot, ownerManifest.path),
+          value: membershipRewrite.value,
+          expected: membershipRewrite.expected
+        }
+      ]);
     } else {
       await writeWorkspaceFile(
         workspaceRoot,
@@ -4248,6 +4271,46 @@ export async function readEntries(
   }
 }
 
+async function readPackageEntryMembership(
+  workspaceRoot: vscode.Uri,
+  packageId: string
+): Promise<{ manifestRecord: PackageManifestRecord | null; entryRecords: EntryEntityRecord[] }> {
+  return withExtensionWriterLock(workspaceRoot, `read Entry Package ${packageId}`, async () => {
+    const storage = entityReadStorage(workspaceRoot);
+    const manifestRecord = await readPackageManifestRecord(storage, packageId);
+    if (!manifestRecord) return { manifestRecord: null, entryRecords: [] };
+    const indexedIds = packageManifestEntryIds(manifestRecord.manifest);
+    if (indexedIds !== null) {
+      return {
+        manifestRecord,
+        entryRecords: await readIndexedPackageEntryRecords(storage, packageId, indexedIds)
+      };
+    }
+
+    // Explicit lazy compatibility upgrade for manifests produced before the
+    // membership index existed. Only exact Package-owned filenames are read.
+    const entryRecords = await readUnindexedPackageEntryRecords(storage, packageId);
+    const rewrite = rewritePackageEntryMembership(
+      manifestRecord,
+      entryRecords.map(({ entry }) => entry.id)
+    );
+    await applyJsonFileOperations(workspaceRoot, `upgrade Entry Package index ${packageId}`, [{
+      kind: 'write',
+      uri: snlRelativeUri(workspaceRoot, manifestRecord.path),
+      value: rewrite.value,
+      expected: rewrite.expected
+    }]);
+    return {
+      manifestRecord: {
+        path: manifestRecord.path,
+        rawManifest: rewrite.value,
+        manifest: rewrite.value
+      },
+      entryRecords
+    };
+  });
+}
+
 export interface EntryPackagePanelSnapshot {
   readonly selected:
     | { readonly status: 'ok'; readonly package: { readonly id: string; readonly name: string; readonly description: string }; readonly entries: readonly EntryData[] }
@@ -4272,24 +4335,12 @@ export async function readEntryPackagePanelSnapshot(
       metricMacroSources: {}
     };
   }
-  const storage = entityReadStorage(workspaceRoot);
-  const [manifestRecord, entryRecords, entryKinds, macroSnapshot] = await Promise.all([
-    readPackageManifestRecord(storage, packageId),
-    readEntryEntityRecords(storage),
-    readEntryKinds(workspaceRoot),
-    readPackageMacroSnapshot(workspaceRoot)
+  const [{ manifestRecord, entryRecords }, entryKinds] = await Promise.all([
+    readPackageEntryMembership(workspaceRoot, packageId),
+    readEntryKinds(workspaceRoot)
   ]);
   if (!manifestRecord) {
     return { selected: { status: 'noPackage' }, entryKinds, metricMacroSources: {} };
-  }
-  const metricMacroSources: Record<string, { source: { entries: string[]; urls: string[] } }> = {};
-  for (const [name, macro] of Object.entries(macroSnapshot.workspaceMacros)) {
-    setOwnRecordValue(metricMacroSources, name, {
-      source: {
-        entries: Array.isArray(macro.source?.entries) ? [...macro.source.entries] : [],
-        urls: Array.isArray(macro.source?.urls) ? [...macro.source.urls] : []
-      }
-    });
   }
   return Object.freeze({
     selected: Object.freeze({
@@ -4299,12 +4350,10 @@ export async function readEntryPackagePanelSnapshot(
         name: manifestRecord.manifest.name,
         description: manifestRecord.manifest.description
       }),
-      entries: Object.freeze(entryRecords
-        .filter(({ envelope }) => envelope.package === packageId)
-        .map(({ entry }) => entry as unknown as EntryData))
+      entries: Object.freeze(entryRecords.map(({ entry }) => entry as unknown as EntryData))
     }),
     entryKinds: Object.freeze([...entryKinds]),
-    metricMacroSources: Object.freeze(metricMacroSources)
+    metricMacroSources: Object.freeze({})
   });
 }
 
@@ -4628,11 +4677,12 @@ export async function updateEntry(
 
   const entityMode = await usesEntityStorage(workspaceRoot);
   let entityRecord: Awaited<ReturnType<typeof readEntryEntityRecords>>[number] | undefined;
+  let entityRecords: EntryEntityRecord[] = [];
   let pool: EntryData[] = [];
   if (entityMode) {
-    const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
-    entityRecord = records.find(({ entry: current }) => current.id === targetId);
-    pool = records.map(({ entry: current }) => current as unknown as EntryData);
+    entityRecords = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+    entityRecord = entityRecords.find(({ entry: current }) => current.id === targetId);
+    pool = entityRecords.map(({ entry: current }) => current as unknown as EntryData);
   } else {
     try {
       const raw = await readJson<unknown>(entriesUri(workspaceRoot));
@@ -4677,12 +4727,21 @@ export async function updateEntry(
   const packageId = entityMode && typeof entry.package === 'string' && entry.package.trim()
     ? entry.package.trim()
     : currentPackageId;
+  let destinationManifest: PackageManifestRecord | null = null;
+  let currentManifest: PackageManifestRecord | null = null;
   if (entityMode) {
     try {
       packageManifestPath(packageId);
-      const manifests = await readPackageManifestRecords(entityReadStorage(workspaceRoot));
-      if (!manifests.some(({ manifest }) => manifest.id === packageId)) {
+      const storage = entityReadStorage(workspaceRoot);
+      destinationManifest = await readPackageManifestRecord(storage, packageId);
+      if (!destinationManifest) {
         return { status: 'invalid', message: `Package ${JSON.stringify(packageId)} does not exist` };
+      }
+      currentManifest = packageId === currentPackageId
+        ? destinationManifest
+        : await readPackageManifestRecord(storage, currentPackageId);
+      if (!currentManifest) {
+        return { status: 'invalid', message: `Package ${JSON.stringify(currentPackageId)} does not exist` };
       }
     } catch (error) {
       return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
@@ -4729,13 +4788,39 @@ export async function updateEntry(
           jsonBytes(rewrite.value),
           rewrite.expected
         );
-      } else {
+      } else if (currentManifest && destinationManifest) {
+        const currentIds = packageManifestEntryIds(currentManifest.manifest) ?? entityRecords
+          .filter(({ envelope }) => envelope.package === currentPackageId)
+          .map(({ entry: current }) => current.id);
+        const destinationIds = packageManifestEntryIds(destinationManifest.manifest) ?? entityRecords
+          .filter(({ envelope }) => envelope.package === packageId)
+          .map(({ entry: current }) => current.id);
+        const currentMembership = rewritePackageEntryMembership(
+          currentManifest,
+          currentIds.filter((entryId) => entryId !== targetId)
+        );
+        const destinationMembership = rewritePackageEntryMembership(
+          destinationManifest,
+          [...destinationIds, targetId]
+        );
         await applyJsonFileOperations(workspaceRoot, `move Entry ${targetId}`, [
           {
             kind: 'write',
             uri: snlRelativeUri(workspaceRoot, entryEntityPath(packageId, targetId)),
             value: rewrite.value,
             expected: null
+          },
+          {
+            kind: 'write',
+            uri: snlRelativeUri(workspaceRoot, destinationManifest.path),
+            value: destinationMembership.value,
+            expected: destinationMembership.expected
+          },
+          {
+            kind: 'write',
+            uri: snlRelativeUri(workspaceRoot, currentManifest.path),
+            value: currentMembership.value,
+            expected: currentMembership.expected
           },
           {
             kind: 'delete',
@@ -6339,15 +6424,29 @@ export async function deleteEntry(
   }
   const entityMode = await usesEntityStorage(workspaceRoot);
   let entityRecord: Awaited<ReturnType<typeof readEntryEntityRecords>>[number] | undefined;
+  let entityRecords: EntryEntityRecord[] = [];
+  let ownerManifest: PackageManifestRecord | null = null;
   let pool: EntryData[] = [];
   if (entityMode) {
-    const records = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
-    entityRecord = records.find(({ entry }) => entry.id === targetId);
+    entityRecords = await readEntryEntityRecords(entityReadStorage(workspaceRoot));
+    entityRecord = entityRecords.find(({ entry }) => entry.id === targetId);
     if (entityRecord && expectedPackageId !== undefined &&
         entityRecord.envelope.package !== expectedPackageId) {
       return { status: 'notFound', id: targetId };
     }
-    pool = records.map(({ entry }) => entry as unknown as EntryData);
+    if (entityRecord) {
+      try {
+        ownerManifest = await readPackageManifestRecord(
+          entityReadStorage(workspaceRoot), entityRecord.envelope.package
+        );
+        if (!ownerManifest) {
+          return { status: 'invalid', message: `Package ${JSON.stringify(entityRecord.envelope.package)} does not exist` };
+        }
+      } catch (error) {
+        return { status: 'invalid', message: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    pool = entityRecords.map(({ entry }) => entry as unknown as EntryData);
   } else {
     try {
       const raw = await readJson<unknown>(entriesUri(workspaceRoot));
@@ -6422,12 +6521,27 @@ export async function deleteEntry(
   const original = structuredClone(pool);
   pool.splice(idx, 1);
   try {
-    if (entityMode && entityRecord) {
-      await deleteWorkspaceJsonFile(
-        workspaceRoot,
-        snlRelativeUri(workspaceRoot, entityRecord.path),
-        entityRecord.rawEnvelope
+    if (entityMode && entityRecord && ownerManifest) {
+      const indexedIds = packageManifestEntryIds(ownerManifest.manifest) ?? entityRecords
+        .filter(({ envelope }) => envelope.package === entityRecord!.envelope.package)
+        .map(({ entry }) => entry.id);
+      const membershipRewrite = rewritePackageEntryMembership(
+        ownerManifest,
+        indexedIds.filter((entryId) => entryId !== targetId)
       );
+      await applyJsonFileOperations(workspaceRoot, `delete Entry ${targetId}`, [
+        {
+          kind: 'write',
+          uri: snlRelativeUri(workspaceRoot, ownerManifest.path),
+          value: membershipRewrite.value,
+          expected: membershipRewrite.expected
+        },
+        {
+          kind: 'delete',
+          uri: snlRelativeUri(workspaceRoot, entityRecord.path),
+          expected: entityRecord.rawEnvelope
+        }
+      ]);
     } else {
       await writeWorkspaceFile(workspaceRoot, entriesUri(workspaceRoot), jsonBytes(pool), original);
     }

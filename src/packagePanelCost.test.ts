@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeMacroEnvelope, makePackageManifest, macroEntityPath, packageManifestPath } from './entityStorage';
+import fs from 'node:fs';
+import path from 'node:path';
+import { entryEntityPath, makeEntryEnvelope, makeMacroEnvelope, makePackageManifest, macroEntityPath, packageManifestPath } from './entityStorage';
 
 const PACKAGE_COUNT = 24;
 const packageIds = Array.from({ length: PACKAGE_COUNT }, (_, index) => `pkg-${String(index).padStart(2, '0')}`);
@@ -38,7 +40,8 @@ const state = vi.hoisted(() => ({
   directoryReads: [] as string[],
   entityReads: [] as string[],
   entityInFlight: 0,
-  maxEntityInFlight: 0
+  maxEntityInFlight: 0,
+  writes: [] as string[]
 }));
 
 function relativePath(uri: { path: string }): string {
@@ -76,7 +79,7 @@ vi.mock('vscode', () => ({
       stat: async (uri: { path: string }) => {
         const relative = relativePath(uri);
         if (
-          relative === 'config.json' || jsonByPath.has(relative) ||
+          uri.path === '/ws/.SNL_Doc' || relative === 'config.json' || jsonByPath.has(relative) ||
           [...jsonByPath.keys()].some((path) => path.startsWith(`${relative}/`))
         ) return {};
         throw new Error(`ENOENT: ${relative}`);
@@ -96,7 +99,10 @@ vi.mock('vscode', () => ({
         await new Promise((resolve) => setTimeout(resolve, relative.includes('pkg-00') ? 3 : 1));
         state.entityInFlight -= 1;
         return new TextEncoder().encode(JSON.stringify(jsonByPath.get(relative)));
-      }
+      },
+      writeFile: async (uri: { path: string }) => { state.writes.push(relativePath(uri)); },
+      createDirectory: async () => undefined,
+      delete: async () => undefined
     },
     getConfiguration: () => ({ get: () => undefined, inspect: () => undefined }),
     onDidChangeConfiguration: () => ({ dispose: () => undefined }),
@@ -161,6 +167,7 @@ describe('PackagePanel read cost', () => {
     state.entityReads.length = 0;
     state.entityInFlight = 0;
     state.maxEntityInFlight = 0;
+    state.writes.length = 0;
   });
 
   it('uses one operation-local snapshot for the selected package and all derived package data', async () => {
@@ -176,6 +183,82 @@ describe('PackagePanel read cost', () => {
       { file: 'alpha', name: 'ALPHA' },
       { file: 'beta', name: 'BETA' }
     ]);
+  });
+
+  it('enumerates exactly the selected Package Entry ids without catalog or Macro reads', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', {
+      version: '0.0.10', entry_kinds: [], macro_kinds: [],
+      active_macro_packages: []
+    });
+    const selectedIds = ['logic.first', 'logic.second'];
+    jsonByPath.set(packageManifestPath('logic'), makePackageManifest('logic', 'Logic', '', selectedIds));
+    jsonByPath.set(packageManifestPath('other'), makePackageManifest('other', 'Other', '', ['other.only']));
+    for (const [packageId, ids] of [['logic', selectedIds], ['other', ['other.only']]] as const) {
+      for (const id of ids) {
+        jsonByPath.set(entryEntityPath(packageId, id), makeEntryEnvelope(packageId, {
+          id, package: packageId, kind: 'definition', title: id, content: { snl: '' }, pointer: null
+        }));
+      }
+    }
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const snapshot = await actual.readEntryPackagePanelSnapshot({ path: '/ws' } as never, 'logic');
+
+    expect(snapshot.selected).toMatchObject({
+      status: 'ok', entries: selectedIds.map((id) => expect.objectContaining({ id, package: 'logic' }))
+    });
+    expect(state.directoryReads).not.toContain('entries');
+    expect(state.entityReads.filter((entryPath) => entryPath.startsWith('entries/')).sort()).toEqual(
+      selectedIds.map((id) => entryEntityPath('logic', id)).sort()
+    );
+    expect(state.entityReads.some((entryPath) => entryPath.startsWith('macros/'))).toBe(false);
+
+    const source = fs.readFileSync(path.resolve(__dirname, 'snlDoc.ts'), 'utf8');
+    const implementation = source.slice(
+      source.indexOf('export async function readEntryPackagePanelSnapshot'),
+      source.indexOf('// ---------------------------------------------------------------------------', source.indexOf('export async function readEntryPackagePanelSnapshot'))
+    );
+    expect(implementation).not.toContain('readEntryEntityRecords(');
+    expect(implementation).not.toContain('readPackageMacroSnapshot(');
+  });
+
+  it('rejects Entry creation from a malformed Package manifest before any write', async () => {
+    jsonByPath.clear();
+    jsonByPath.set('config.json', {
+      version: '0.0.10', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
+      entity_storage: {
+        version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged',
+        receipt: {
+          legacy_backup_present: false, legacy_entries_present: false,
+          entry_count: 0, macro_package_count: 0, macro_count: 0,
+          entries_digest: '', macro_packages_digest: ''
+        }
+      }
+    });
+    jsonByPath.set(packageManifestPath('logic'), {
+      format: 'snl-package', version: 1, schema_version: 1,
+      id: 'logic', name: 42, description: '', entry_ids: []
+    });
+    // Ensure every current-topology directory exists in the in-memory provider.
+    jsonByPath.set('entries/.gitkeep', null);
+    jsonByPath.set('macros/.gitkeep', null);
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+
+    const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+      id: 'new.entry', package: 'logic', kind: 'definition', title: 'New',
+      content: { snl: '' }, pointer: null
+    });
+
+    expect(result).toMatchObject({ status: 'error' });
+    expect(state.writes).toEqual([]);
+    const source = fs.readFileSync(path.resolve(__dirname, 'snlDoc.ts'), 'utf8');
+    const implementation = source.slice(
+      source.indexOf('export async function addEntry'),
+      source.indexOf('/**', source.indexOf('export async function addEntry') + 1)
+    );
+    expect(implementation).toContain('readPackageManifestRecord(');
+    expect(implementation).not.toContain('exists(snlRelativeUri(workspaceRoot, packageManifestPath(packageId)))');
   });
 
   it('uses one current-storage Package/Macro snapshot per SNoogL query', async () => {

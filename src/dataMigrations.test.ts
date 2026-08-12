@@ -683,13 +683,13 @@ describe('workspace data migrations', () => {
     expect([...data.packageManifests]).toEqual([
       ['packages/Logic-277a664e3d2332d369d7.json', {
         format: 'snl-package', version: 1, schema_version: 1,
-        id: 'Logic', name: 'Logic', description: 'Logic macros',
+        id: 'Logic', name: 'Logic', description: 'Logic macros', entry_ids: [],
         custom: 'package'
       }],
       ['packages/_unpackaged-60979c6e210d0e2a20cb.json', {
         format: 'snl-package', version: 1, schema_version: 1,
         id: '_unpackaged', name: 'Unpackaged',
-        description: 'Legacy Entries without an assigned package.'
+        description: 'Legacy Entries without an assigned package.', entry_ids: ['Set.mem']
       }]
     ]);
     expect([...data.entryEntities]).toEqual([

@@ -49,6 +49,7 @@ import {
 } from './entryContributor';
 import {
   assertCurrentEntityFile,
+  EntityStorageValidationError,
   readEntryEntityRecordWithOwner,
   readEntryEntityRecords,
   readIndexedPackageEntryRecords,
@@ -1180,6 +1181,26 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
       if (!(await exists(placeholder))) await fsApi.writeFile(placeholder, gitkeep);
     }
 
+    const assertEmptyInitializationTopology = async (): Promise<void> => {
+      for (const [directory, expectedNames] of [
+        [packageDir, new Set([unpackagedPath.split('/').at(-1)!])],
+        [entryDir, new Set<string>()],
+        [macroDir, new Set<string>()]
+      ] as const) {
+        const actualNames = (await fsApi.readDirectory(directory))
+          .filter(([name, type]) => type === vscode.FileType.File && name.toLowerCase().endsWith('.json'))
+          .map(([name]) => name)
+          .sort((left, right) => left.localeCompare(right));
+        const expected = [...expectedNames].sort((left, right) => left.localeCompare(right));
+        if (JSON.stringify(actualNames) !== JSON.stringify(expected)) {
+          throw new Error('Cannot initialize: Package/Entry/Macro topology changed during initialization.');
+        }
+      }
+      if (!(await unpackagedMatchesCurrent())) {
+        throw new Error('Cannot initialize: the _unpackaged manifest changed during initialization.');
+      }
+    };
+
     const config: SnlConfig = {
       version: CURRENT_DATA_VERSION,
       entry_kinds: [],
@@ -1191,10 +1212,20 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
         receipt: makeEntityStorageReceipt([], new Map(), false)
       }
     };
+    const configBytes = jsonBytes(config);
     const configTemporary = vscode.Uri.joinPath(root, `.config.init-${process.pid}-${Date.now()}.tmp`);
+    let configPublished = false;
     try {
-      await fsApi.writeFile(configTemporary, jsonBytes(config));
+      await fsApi.writeFile(configTemporary, configBytes);
+      // Rebind publication to the exact empty entity topology after every
+      // initializer-owned repair/write and immediately before the rename.
+      await assertEmptyInitializationTopology();
       await fsApi.rename(configTemporary, configTarget, { overwrite: false });
+      configPublished = true;
+      // The rename itself is an external race seam. Validate again before
+      // reporting success so a concurrently published entity cannot become
+      // hidden behind an empty authoritative Package membership list.
+      await assertEmptyInitializationTopology();
     } catch (error) {
       try {
         if (await exists(configTemporary)) {
@@ -1202,6 +1233,20 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
         }
       } catch {
         // Preserve the original initialization failure; retry residue is safe.
+      }
+      if (configPublished) {
+        try {
+          const current = await fsApi.readFile(configTarget);
+          const stillInitializerBytes = current.length === configBytes.length &&
+            current.every((byte, index) => byte === configBytes[index]);
+          if (stillInitializerBytes) {
+            // Expected-byte deletion is the filesystem API's CAS boundary:
+            // never remove config content written by another participant.
+            await fsApi.delete(configTarget, { recursive: false, useTrash: false });
+          }
+        } catch {
+          // Preserve foreign replacement/deletion and the original failure.
+        }
       }
       throw error;
     }
@@ -2391,9 +2436,14 @@ export async function entryBelongsToPackage(
     const entry = (await readEntries(workspaceRoot, false)).find(({ id }) => id === entryId);
     return Boolean(entry && (entry.package ?? UNPACKAGED_PACKAGE_ID) === packageId);
   }
-  return (await readEntryEntityRecordWithOwner(
-    entityReadStorage(workspaceRoot), packageId, entryId
-  )) !== null;
+  try {
+    return (await readEntryEntityRecordWithOwner(
+      entityReadStorage(workspaceRoot), packageId, entryId
+    )) !== null;
+  } catch (error) {
+    if (error instanceof EntityStorageValidationError) return false;
+    throw error;
+  }
 }
 
 /**

@@ -209,6 +209,43 @@ describe('workspace data migrations', () => {
     });
   });
 
+  it('rejects divergent explicit schema-v2 Package membership atomically', async () => {
+    const data = snapshot('0.0.10');
+    data.packageManifests.set(packageManifestPath('logic'), {
+      ...makePackageManifest('logic', 'Logic', '', ['hidden']),
+      vendor_extension: { keep: true }
+    });
+    data.entryEntities.set(
+      entryEntityPath('logic', 'visible'),
+      makeEntryEnvelope('logic', { id: 'visible', package: 'logic' })
+    );
+    const before = cloneWorkspaceDataSnapshot(data);
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/schema|membership|entry_ids|residue/i);
+    expect(data).toEqual(before);
+  });
+
+  it('accepts exact explicit schema-v2 residue and preserves extensions', async () => {
+    const data = snapshot('0.0.10');
+    data.packageManifests.set(packageManifestPath('logic'), {
+      ...makePackageManifest('logic', 'Logic', '', ['visible']),
+      vendor_extension: { keep: true }
+    });
+    data.entryEntities.set(
+      entryEntityPath('logic', 'visible'),
+      makeEntryEnvelope('logic', { id: 'visible', package: 'logic' })
+    );
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw)).resolves.toMatchObject({
+      from: '0.0.10', to: '0.0.11'
+    });
+    expect(data.packageManifests.get(packageManifestPath('logic'))).toEqual({
+      ...makePackageManifest('logic', 'Logic', '', ['visible']),
+      vendor_extension: { keep: true }
+    });
+  });
+
   it('rejects an Entry whose owner Package is absent before publishing membership', async () => {
     const data = snapshot('0.0.10');
     data.packageManifests.set(packageManifestPath('logic'), {

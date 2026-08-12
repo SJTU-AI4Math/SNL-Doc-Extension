@@ -26,6 +26,9 @@ export interface EntityReadStorage {
   directoryExists?(directory: string): Promise<boolean>;
 }
 
+/** Invalid entity contents/topology, distinct from storage I/O failures. */
+export class EntityStorageValidationError extends Error {}
+
 export interface EntryEntityRecord {
   path: string;
   /** Exact parsed disk value used for stale-write compare-and-swap. */
@@ -272,7 +275,11 @@ export async function readEntryEntityRecord(
   const path = entryEntityPath(packageId, entryId);
   const value = await storage.readJson(path);
   if (value === null) return null;
-  return validateEntryEntity(path, value, { package: packageId, id: entryId });
+  try {
+    return validateEntryEntity(path, value, { package: packageId, id: entryId });
+  } catch (error) {
+    throw new EntityStorageValidationError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function readEntryEntityRecords(storage: EntityReadStorage): Promise<EntryEntityRecord[]> {
@@ -342,11 +349,15 @@ export async function readPackageManifestRecord(
   const path = packageManifestPath(packageId);
   const value = await storage.readJson(path);
   if (value === null) return null;
-  const record = validateCurrentPackageManifest(path, value);
-  if (record.manifest.id !== packageId) {
-    throw new Error(`${path} Package identity does not match the requested identity.`);
+  try {
+    const record = validateCurrentPackageManifest(path, value);
+    if (record.manifest.id !== packageId) {
+      throw new Error(`${path} Package identity does not match the requested identity.`);
+    }
+    return record;
+  } catch (error) {
+    throw new EntityStorageValidationError(error instanceof Error ? error.message : String(error));
   }
-  return record;
 }
 
 /**
@@ -363,7 +374,15 @@ export async function readEntryEntityRecordWithOwner(
   if (!entry) return null;
   const owner = await readPackageManifestRecord(storage, packageId);
   if (!owner) {
-    throw new Error(`Entry ${JSON.stringify(entryId)} references missing Package manifest ${JSON.stringify(packageId)}.`);
+    throw new EntityStorageValidationError(
+      `Entry ${JSON.stringify(entryId)} references missing Package manifest ${JSON.stringify(packageId)}.`
+    );
+  }
+  const membership = packageManifestEntryIds(owner.manifest);
+  if (!membership?.includes(entryId)) {
+    throw new EntityStorageValidationError(
+      `Entry ${JSON.stringify(entryId)} is not indexed by Package ${JSON.stringify(packageId)} entry_ids membership.`
+    );
   }
   return entry;
 }

@@ -772,6 +772,7 @@ function migrateMacroEntitiesToV11(
 function migrate0010To0011PackageMembership(context: WorkspaceMigrationContext): void {
   const membership = new Map<string, string[]>();
   const manifests = new Map<string, PackageManifest>();
+  const explicitSuccessors = new Set<string>();
   for (const [path, raw] of context.data.packageManifests) {
     if (!isRecord(raw) || raw.format !== 'snl-package' || raw.version !== 1 ||
         typeof raw.id !== 'string' || typeof raw.name !== 'string' ||
@@ -785,6 +786,16 @@ function migrate0010To0011PackageMembership(context: WorkspaceMigrationContext):
     const schemaVersion = (raw as unknown as { schema_version?: unknown }).schema_version;
     if (schemaVersion !== undefined && schemaVersion !== 1 && schemaVersion !== 2) {
       throw new Error(`${path} has unsupported Package schema_version ${String(schemaVersion)}.`);
+    }
+    if (schemaVersion === 2) {
+      if (!Array.isArray(raw.entry_ids)) {
+        throw new Error(`${path} explicit successor is missing Package entry_ids.`);
+      }
+      const validated = makePackageManifest(raw.id, raw.name, raw.description, raw.entry_ids as string[]);
+      if (JSON.stringify(validated.entry_ids) !== JSON.stringify(raw.entry_ids)) {
+        throw new Error(`${path} explicit successor has invalid Package entry_ids.`);
+      }
+      explicitSuccessors.add(raw.id);
     }
     if (manifests.has(raw.id)) {
       throw new Error(`Duplicate Package identity ${JSON.stringify(raw.id)}.`);
@@ -821,6 +832,12 @@ function migrate0010To0011PackageMembership(context: WorkspaceMigrationContext):
   for (const [packageId, raw] of manifests) {
     const entryIdsForPackage = membership.get(packageId)!;
     entryIdsForPackage.sort((left, right) => left.localeCompare(right));
+    if (explicitSuccessors.has(packageId) &&
+        JSON.stringify(raw.entry_ids) !== JSON.stringify(entryIdsForPackage)) {
+      throw new Error(
+        `${packageManifestPath(packageId)} explicit successor entry_ids conflict with owner-derived membership.`
+      );
+    }
     context.data.packageManifests.set(packageManifestPath(packageId), {
       ...raw,
       ...makePackageManifest(packageId, raw.name, raw.description, entryIdsForPackage)

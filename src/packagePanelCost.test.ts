@@ -377,6 +377,29 @@ describe('PackagePanel read cost', () => {
     expect(jsonByPath.has(entryEntityPath('destination', id))).toBe(false);
   });
 
+  it('rejects package-bound deletion of owner-matching but unindexed hidden data', async () => {
+    jsonByPath.clear();
+    state.writes.length = 0;
+    jsonByPath.set('config.json', entryKindConfig());
+    const id = 'logic.hidden';
+    const manifestPath = packageManifestPath('logic');
+    const entityPath = entryEntityPath('logic', id);
+    const hidden = makeEntryEnvelope('logic', {
+      id, package: 'logic', kind: 'definition', title: 'Hidden', content: { snl: '' }, pointer: null
+    });
+    jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', []));
+    jsonByPath.set(entityPath, hidden);
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'mem:/ws' } as never;
+
+    await expect(actual.entryBelongsToPackage(root, 'logic', id)).resolves.toBe(false);
+    const result = await actual.deleteEntry(root, id, 'logic');
+
+    expect(result).toMatchObject({ status: expect.stringMatching(/invalid|notFound|error/) });
+    expect(jsonByPath.get(entityPath)).toEqual(hidden);
+    expect(state.writes).toEqual([]);
+  });
+
   it('rolls back delete membership when Entry deletion fails', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', { version: '0.0.11', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });

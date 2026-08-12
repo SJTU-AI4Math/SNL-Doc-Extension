@@ -139,7 +139,7 @@ describe('entity storage reads', () => {
       readJson: async (path) => {
         reads.push(path);
         if (path === entryPath) return makeEntryEnvelope(entry.package, entry);
-        if (path === manifestPath) return makePackageManifest('logic', 'Logic', '');
+        if (path === manifestPath) return makePackageManifest('logic', 'Logic', '', [entry.id]);
         return null;
       }
     };
@@ -147,6 +147,27 @@ describe('entity storage reads', () => {
     await expect(readEntryEntityRecordWithOwner(storage, 'logic', 'entry-1'))
       .resolves.toMatchObject({ entry });
     expect(reads).toEqual([entryPath, manifestPath]);
+  });
+
+  it('rejects an owner-matching Entry omitted from authoritative Package membership without scans', async () => {
+    const entry = {
+      id: 'hidden', package: 'logic', kind: 'definition', title: 'Hidden', content: { snl: '' }, pointer: null
+    };
+    const entryPath = entryEntityPath(entry.package, entry.id);
+    const manifestPath = packageManifestPath(entry.package);
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => {
+        throw new Error('membership authorization must not list entity directories');
+      },
+      readJson: async (path) => {
+        if (path === entryPath) return makeEntryEnvelope(entry.package, entry);
+        if (path === manifestPath) return makePackageManifest('logic', 'Logic', '', []);
+        return null;
+      }
+    };
+
+    await expect(readEntryEntityRecordWithOwner(storage, 'logic', entry.id))
+      .rejects.toThrow(/membership|index|entry_ids/i);
   });
 
   it('rejects an orphan Entry whose requested owner manifest is missing', async () => {

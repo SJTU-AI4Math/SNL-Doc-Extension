@@ -53,8 +53,8 @@ export function Icon({
 
 const paths: Record<IconName, React.ReactNode> = {
   add: <><path d="M8 3v10M3 8h10" /></>,
-  'add-parent': <><path d="M8 1.5v5M5.5 4h5" /><path d="M4 8v4h7" /></>,
-  'add-child': <><path d="M3 3v7h4" /><path d="M11 7v6M8 10h6" /></>,
+  'add-parent': <><path d="M8 2v8h5M5 5h6" /></>,
+  'add-child': <><path d="M4 4v6h10M11 7v6" /></>,
   'add-sibling': <><path d="M3 4h10" /><path d="M8 7v6M5 10h6" /></>,
   remove: <><path d="M3 8h10" /></>,
   delete: <><path d="M3.5 5h9M6 5V3.5h4V5m1 0-.5 8h-5L5 5M7 7v4M9 7v4" /></>,

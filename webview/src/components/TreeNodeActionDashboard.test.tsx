@@ -134,4 +134,56 @@ describe('TreeNodeActionDashboard', () => {
       macro: '3 / 1', down: '3 / 2', child: '3 / 3'
     });
   });
+
+  it('paints an opaque backing surface behind the complete grid', () => {
+    const css = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
+    const dialRules = [...css.matchAll(/(?:^|})\s*\.snl-tree-operation-dial\s*\{([^}]*)\}/g)]
+      .map((match) => match[1]);
+    const effective = new Map<string, string>();
+    for (const rule of dialRules) {
+      for (const declaration of rule.split(';')) {
+        const separator = declaration.indexOf(':');
+        if (separator < 0) continue;
+        const property = declaration.slice(0, separator).trim();
+        const value = declaration.slice(separator + 1).trim()
+          .replace(/\s+/g, ' ')
+          .replace(/\(\s+/g, '(')
+          .replace(/\s+\)/g, ')');
+        if (property === 'background') {
+          effective.delete('background-color');
+          effective.delete('background-image');
+        }
+        effective.set(property, value);
+      }
+    }
+    expect(effective.get('background')).toBeUndefined();
+    expect(effective.get('background-color')).toBe('#1e1e1e');
+    expect(effective.get('background-image')).toBe(
+      'linear-gradient(var(--vscode-editorWidget-background, transparent), var(--vscode-editorWidget-background, transparent)), linear-gradient(var(--vscode-editor-background, transparent), var(--vscode-editor-background, transparent))'
+    );
+  });
+
+  it('joins the parent and child plus signs to their dual elbow strokes', () => {
+    const view = render(
+      <TreeNodeActionDashboard
+        capabilities={{
+          canMoveUp: true,
+          canMoveDown: true,
+          canIndent: true,
+          canOutdent: true,
+          canAddParent: true,
+          canAddChild: true,
+          canAddSibling: true,
+          canDelete: true
+        }}
+        onAction={vi.fn()}
+      />
+    );
+    const parentIcon = view.getByRole('button', { name: 'Add parent node' }).querySelector('svg');
+    const childIcon = view.getByRole('button', { name: 'Add child node' }).querySelector('svg');
+    expect(parentIcon?.querySelectorAll('path')).toHaveLength(1);
+    expect(childIcon?.querySelectorAll('path')).toHaveLength(1);
+    expect(parentIcon?.querySelector('path')?.getAttribute('d')).toBe('M8 2v8h5M5 5h6');
+    expect(childIcon?.querySelector('path')?.getAttribute('d')).toBe('M4 4v6h10M11 7v6');
+  });
 });

@@ -78,4 +78,61 @@ describe('EntryPackagePanelApp', () => {
     expect(screen.getByText('logic · 0 个条目')).toBeTruthy();
     expect(screen.getByText('暂无条目——请在此包中创建第一个条目。')).toBeTruthy();
   });
+
+  it('omits package-local SSI even when an entry references a cross-package source', async () => {
+    render(<EntryPackagePanelApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      ...packageMessage,
+      entries: [{
+        ...packageMessage.entries[0],
+        content: { snl: 'x@outside' }
+      }],
+      metricMacroSources: { outside: { source: 'external-package' } },
+      metricThresholds: { structuralIndexRedBelow: 'invalid' }
+    } })));
+
+    expect(await screen.findByText('Conjunction')).toBeTruthy();
+    expect(screen.queryByText('SNL Structural Index')).toBeNull();
+    expect(screen.queryByText(/^SSI(?:\s|$)/)).toBeNull();
+  });
+
+  it('lists only content formats with meaningful scalar or localized content', async () => {
+    render(<EntryPackagePanelApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      ...packageMessage,
+      entries: [{
+        ...packageMessage.entries[0],
+        content: {
+          snl: '   ',
+          typst: { type: 'i18n', default_language: 'en', values: { en: '', 'zh-CN': '  ' } },
+          markdown: { type: 'i18n', default_language: 'en', values: { en: '' } },
+          latex: { type: 'i18n', default_language: 'en', values: { en: 'x + y' } },
+          text: ''
+        }
+      }]
+    } })));
+
+    expect(await screen.findByText('latex')).toBeTruthy();
+    expect(screen.queryByText('snl, typst, latex, markdown, text')).toBeNull();
+  });
+
+  it.each([
+    ['null entry', { entries: [null] }],
+    ['malformed entry content', { entries: [{ ...packageMessage.entries[0], content: { typst: {} } }] }],
+    ['null Entry Kind', { entryKinds: [null] }],
+    ['empty localized Entry Kind name', { entryKinds: [{
+      ...packageMessage.entryKinds[0],
+      name: { type: 'i18n', default_language: 'en', values: { en: '  ' } }
+    }] }],
+    ['malformed package name', { package: { ...packageMessage.package, name: 42 } }]
+  ])('renders the malformed-response state for %s', async (_label, override) => {
+    render(<EntryPackagePanelApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      ...packageMessage,
+      ...override
+    } })));
+    expect((await screen.findByRole('alert')).textContent).toContain('The Entry Package response is malformed.');
+    expect(screen.queryByText('Conjunction')).toBeNull();
+  });
+
 });

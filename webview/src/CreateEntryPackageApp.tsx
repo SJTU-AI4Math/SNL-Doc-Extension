@@ -68,7 +68,7 @@ export function CreateEntryPackageApp(): React.ReactElement {
   };
 
   return <main style={PANEL_STYLE}>
-    <PanelHeader vsApi={apiRef.current} title={t('title')}
+    <PanelHeader vsApi={apiRef.current} title={t('title')} showRefresh={false}
       back={{ label: t('dashboard'), title: t('backDashboard'), message: { type: 'nav.openDashboard' } }} />
     <form onSubmit={(event) => { event.preventDefault(); submit(); }} style={{ display: 'grid', gap: '0.75rem', maxWidth: '42rem' }}>
       <label>{t('id')}<input aria-label={t('id')} value={id} disabled={busy}

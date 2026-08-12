@@ -97,8 +97,12 @@ describe('Entry Package host panels', () => {
     expect(mocks.commands).toContainEqual(['snlDoc.deleteEntry', 'def-and', 'logic']);
 
     mocks.belongs.mockResolvedValue(false);
-    await receive({ type: 'deleteEntry', id: 'other-package-entry' });
-    expect(mocks.commands).not.toContainEqual(['snlDoc.deleteEntry', 'other-package-entry', 'logic']);
+    await receive({ type: 'openEntry', id: 'hidden-entry' });
+    await receive({ type: 'editEntry', id: 'hidden-entry' });
+    await receive({ type: 'deleteEntry', id: 'hidden-entry' });
+    expect(mocks.commands).not.toContainEqual(['snlDoc.openEntry', 'hidden-entry', 'logic']);
+    expect(mocks.commands).not.toContainEqual(['snlDoc.editEntry', 'hidden-entry', 'logic']);
+    expect(mocks.commands).not.toContainEqual(['snlDoc.deleteEntry', 'hidden-entry', 'logic']);
   });
 
   it('watches only selected-Package metadata and entries, never unrelated entities or Macros', async () => {

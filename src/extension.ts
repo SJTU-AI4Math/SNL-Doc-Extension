@@ -27,6 +27,7 @@ import { installSnlDocContextKey } from './snlDocContext';
 import { checkDataVersion, repairData } from './dataMigrationCommands';
 import { createHostTranslator, defineHostMessages, type HostTranslatorArgs } from './hostI18n';
 import { read_extension_preferences } from './preferences';
+import { isSafeMacroPackageCommandArg } from './macroPackageName';
 
 const UI_MESSAGES = defineHostMessages(
   {
@@ -195,9 +196,6 @@ function hostMessage<Key extends keyof typeof UI_MESSAGES.en & string>(
 ): string {
   return hostTranslator()(key, ...args);
 }
-
-/** Regex for safe bare package filenames (path-traversal guard). */
-const MACRO_FILE_RE = /^[a-zA-Z0-9_-]+(\.json)?$/;
 
 /**
  * Sanitize a command-arg prefill payload for the Create Macro panel.
@@ -812,7 +810,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const editMacroPackage = vscode.commands.registerCommand(
     'snlDoc.editMacroPackage',
     (file?: unknown) => {
-      if (typeof file !== 'string' || !MACRO_FILE_RE.test(file)) {
+      if (!isSafeMacroPackageCommandArg(file)) {
         return;
       }
       CreateMacroPackagePanel.editOrShow(context.extensionUri, file);
@@ -828,7 +826,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof file !== 'string') {
         return;
       }
-      if (!MACRO_FILE_RE.test(file)) {
+      if (!isSafeMacroPackageCommandArg(file)) {
         vscode.window.showErrorMessage(t('unsafeOpenPackage', { file }));
         return;
       }
@@ -846,7 +844,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof file !== 'string') {
         return;
       }
-      if (!MACRO_FILE_RE.test(file)) {
+      if (!isSafeMacroPackageCommandArg(file)) {
         vscode.window.showErrorMessage(t('unsafeCreateMacro', { file }));
         return;
       }
@@ -866,7 +864,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (typeof file !== 'string' || typeof macroName !== 'string') {
         return;
       }
-      if (!MACRO_FILE_RE.test(file)) {
+      if (!isSafeMacroPackageCommandArg(file)) {
         vscode.window.showErrorMessage(t('unsafeEditMacro', { file }));
         return;
       }

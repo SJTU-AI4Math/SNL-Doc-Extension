@@ -103,6 +103,28 @@
   pointer-events: none;
 }
 
+/* Library alone hides its desktop-idle board so the absolute dashboard cannot
+   paint over adjacent rows. Every state that reveals controls restores the
+   shared opaque, theme-aware backing on the tight dial only. */
+.snl-library-outline-row > .snl-outline-row-toolbar .snl-tree-operation-dial {
+  --snl-tree-operation-dial-background-color: transparent;
+  --snl-tree-operation-dial-background-image: none;
+}
+
+.snl-library-outline-row:hover > .snl-outline-row-toolbar .snl-tree-operation-dial,
+.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar .snl-tree-operation-dial {
+  --snl-tree-operation-dial-background-color: var(--snl-tree-board-opaque-background);
+  --snl-tree-operation-dial-background-image:
+    linear-gradient(
+      var(--vscode-editorWidget-background, transparent),
+      var(--vscode-editorWidget-background, transparent)
+    ),
+    linear-gradient(
+      var(--vscode-editor-background, transparent),
+      var(--vscode-editor-background, transparent)
+    );
+}
+
 .snl-library-outline-row:hover > .snl-outline-row-toolbar button,
 .snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar button {
   opacity: 1;

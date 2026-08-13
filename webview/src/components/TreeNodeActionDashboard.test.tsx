@@ -135,6 +135,58 @@ describe('TreeNodeActionDashboard', () => {
     });
   });
 
+  it('keeps the shared CreateEntry dashboard opaque whenever its controls become visible', () => {
+    const dashboardCss = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
+    const createEntrySource = readFileSync('webview/src/CreateEntryApp.tsx', 'utf8');
+    const style = document.createElement('style');
+    style.textContent = dashboardCss;
+    document.head.appendChild(style);
+    document.documentElement.style.setProperty('--vscode-editorWidget-background', 'transparent');
+    document.documentElement.style.setProperty('--vscode-editor-background', 'transparent');
+
+    try {
+      for (const [scheme, expectedBase] of [
+        ['light', '#ffffff'],
+        ['dark', '#313131'],
+        ['high-contrast-light', '#ffffff'],
+        ['high-contrast', '#313131']
+      ] as const) {
+        document.documentElement.dataset.snlColorScheme = scheme;
+        const view = render(
+          <div className="snl-tree-row">
+            <div className="snl-tree-row-toolbar">
+              <TreeNodeActionDashboard
+                capabilities={ALL_CAPABILITIES}
+                onAction={() => undefined}
+              />
+            </div>
+          </div>
+        );
+        const dial = view.container.querySelector<HTMLElement>('.snl-tree-operation-dial')!;
+        const dialStyle = getComputedStyle(dial);
+        expect(dialStyle.getPropertyValue('--snl-tree-board-opaque-background').trim(), scheme)
+          .toBe(expectedBase);
+        expect(dialStyle.getPropertyValue('--snl-tree-operation-dial-background-color').trim(), scheme)
+          .toBe('var(--snl-tree-board-opaque-background)');
+        expect(dialStyle.getPropertyValue('--snl-tree-operation-dial-background-image').trim(), scheme)
+          .toContain('var(--vscode-editorWidget-background');
+        view.unmount();
+      }
+
+      expect(createEntrySource).toContain('.snl-tree-row:hover > .snl-tree-row-toolbar');
+      expect(createEntrySource).toContain(
+        '.snl-tree-row:has(> .snl-tree-row-toolbar:focus-within) > .snl-tree-row-toolbar'
+      );
+      expect(createEntrySource).toContain('@container snl-inductive (max-width: 30rem)');
+      expect(createEntrySource).toContain('@media (hover: none), (pointer: coarse)');
+    } finally {
+      style.remove();
+      document.documentElement.removeAttribute('data-snl-color-scheme');
+      document.documentElement.style.removeProperty('--vscode-editorWidget-background');
+      document.documentElement.style.removeProperty('--vscode-editor-background');
+    }
+  });
+
   it('keeps the real Library dashboard paint-free while its desktop buttons are idle', () => {
     const dashboardCss = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
     const libraryCss = readFileSync('webview/src/CreateLibraryApp.css', 'utf8');

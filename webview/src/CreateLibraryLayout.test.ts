@@ -133,9 +133,19 @@ describe('Library outline responsive grid contract', () => {
     expect(hoverToolbarButtons.get('pointer-events')).toBe('auto');
     expect(css).not.toContain('.snl-library-outline-row:focus-within > .snl-outline-row-toolbar button');
     expect(css).toContain('.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within)');
+    const sharedDial = declarations(dashboardCss, '.snl-tree-operation-dial');
+    expect(sharedDial.get('--snl-tree-operation-dial-background-color')).toBe(
+      'var(--snl-tree-board-opaque-background)'
+    );
+    const idleLibraryDial = declarations(
+      desktop,
+      '.snl-library-outline-row > .snl-outline-row-toolbar .snl-tree-operation-dial'
+    );
+    expect(idleLibraryDial.get('--snl-tree-operation-dial-background-color')).toBe('transparent');
+    expect(idleLibraryDial.get('--snl-tree-operation-dial-background-image')).toBe('none');
     const revealedDial = declarations(
-      dashboardCss,
-      '.snl-outline-row:hover > .snl-outline-row-toolbar .snl-tree-operation-dial,\n.snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar .snl-tree-operation-dial'
+      desktop,
+      '.snl-library-outline-row:hover > .snl-outline-row-toolbar .snl-tree-operation-dial,\n.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar .snl-tree-operation-dial'
     );
     expect(revealedDial.get('--snl-tree-operation-dial-background-color')).toBe(
       'var(--snl-tree-board-opaque-background)'

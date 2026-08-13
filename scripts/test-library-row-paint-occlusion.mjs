@@ -1,19 +1,48 @@
 #!/usr/bin/env node
 
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, extname, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const bundleDir = resolve(root, 'media/webview');
-for (const file of ['createLibrary.js', 'createLibrary.css']) {
-  if (!existsSync(resolve(bundleDir, file))) {
-    throw new Error(`Missing production bundle ${file}; build createLibrary before this probe.`);
-  }
+const bundleFiles = ['createLibrary.js', 'createLibrary.css'];
+const bundlePaths = bundleFiles.map((file) => resolve(bundleDir, file));
+const viteBin = resolve(root, 'node_modules/vite/bin/vite.js');
+const previousHashes = Object.fromEntries(bundlePaths
+  .filter((file) => existsSync(file))
+  .map((file) => [file, createHash('sha256').update(readFileSync(file)).digest('hex')]));
+for (const file of bundlePaths) rmSync(file, { force: true });
+if (bundlePaths.some((file) => existsSync(file))) {
+  throw new Error('Could not remove stale createLibrary production artifacts before the probe.');
 }
+const buildStartedAt = Date.now();
+const build = spawnSync(
+  process.execPath,
+  [viteBin, 'build', '--config', resolve(root, 'webview/vite.config.ts')],
+  {
+    cwd: root,
+    env: { ...process.env, SNL_WEBVIEW_ENTRY: 'createLibrary' },
+    stdio: 'inherit'
+  }
+);
+if (build.status !== 0) process.exit(build.status ?? 1);
+const artifactBuild = Object.fromEntries(bundlePaths.map((file) => {
+  if (!existsSync(file)) throw new Error(`Canonical createLibrary build did not emit ${file}.`);
+  const mtimeMs = statSync(file).mtimeMs;
+  if (mtimeMs < buildStartedAt - 1000) {
+    throw new Error(`createLibrary artifact is stale after canonical build: ${file}`);
+  }
+  return [file, {
+    mtimeMs,
+    sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
+    previousSha256: previousHashes[file] ?? null
+  }];
+}));
 
 const chromeCandidates = [
   process.env.SNL_CHROMIUM_PATH,
@@ -69,6 +98,15 @@ const fixture = {
   }
 };
 
+const visiblePaintMutation = process.env.SNL_LIBRARY_PAINT_MUTATION === 'transparent-visible'
+  ? `<style>
+      .snl-library-outline-row.snl-library-outline-row > .snl-outline-row-toolbar .snl-tree-operation-dial {
+        background-color: transparent;
+        background-image: none;
+      }
+    </style>`
+  : '';
+
 const html = `<!doctype html>
 <html data-snl-color-scheme="dark">
 <head>
@@ -79,6 +117,7 @@ const html = `<!doctype html>
   html { font-size: 16px; }
   body { margin: 0; color: var(--vscode-foreground, #ddd); background: var(--vscode-editor-background, #1e1e1e); font-family: Arial, sans-serif; }
 </style>
+${visiblePaintMutation}
 <script>
   window.__snlFixture = ${JSON.stringify(fixture)};
   window.__snlPosted = [];
@@ -210,36 +249,116 @@ async function setViewport(width, coarse = false) {
   await page.call('Emulation.setEmulatedMedia', { media: 'screen' });
   await new Promise((resolveWait) => setTimeout(resolveWait, 140));
 }
+async function setOutlineContentWidth(width) {
+  const measured = await evaluate(`(() => {
+    const row = document.querySelectorAll('.snl-library-outline-row')[1];
+    let container = row?.parentElement ?? null;
+    while (container && !getComputedStyle(container).containerName.split(/\\s+/).includes('snl-outline')) {
+      container = container.parentElement;
+    }
+    if (!container) return null;
+    Object.assign(container.style, {
+      boxSizing: 'content-box',
+      width: '${width}px',
+      minWidth: '${width}px',
+      maxWidth: '${width}px'
+    });
+    return {
+      name: getComputedStyle(container).containerName,
+      contentWidth: Number.parseFloat(getComputedStyle(container).width),
+      rectWidth: container.getBoundingClientRect().width
+    };
+  })()`);
+  assert(measured !== null, 'named snl-outline container must exist', measured);
+  assert(Math.abs(measured.contentWidth - width) < 0.01, 'named container content width must match boundary target', { width, measured });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 140));
+}
 const inspectExpression = `(() => {
   const rows = [...document.querySelectorAll('.snl-library-outline-row')];
   const row = rows[1], previous = rows[0], next = rows[2];
+  let outline = row?.parentElement ?? null;
+  while (outline && !getComputedStyle(outline).containerName.split(/\\s+/).includes('snl-outline')) {
+    outline = outline.parentElement;
+  }
   const toolbar = row.querySelector(':scope > .snl-outline-row-toolbar');
   const cluster = toolbar.querySelector('.snl-tree-operation-cluster');
   const dial = toolbar.querySelector('.snl-tree-operation-dial');
   const button = dial.querySelector('button');
   const rect = (element) => { const r = element.getBoundingClientRect(); return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height }; };
   const intersection = (a, b) => Math.max(0, Math.min(a.right,b.right)-Math.max(a.left,b.left)) * Math.max(0, Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+  const colorAlpha = (value) => {
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized || normalized === 'transparent') return 0;
+    const hex = normalized.match(/^#([0-9a-f]{3,8})$/i)?.[1];
+    if (hex) {
+      if (hex.length === 4) return parseInt(hex[3] + hex[3], 16) / 255;
+      if (hex.length === 8) return parseInt(hex.slice(6), 16) / 255;
+      return 1;
+    }
+    const rgb = normalized.match(/^rgba?\\((.*)\\)$/)?.[1];
+    if (rgb) {
+      const slash = rgb.lastIndexOf('/');
+      if (slash >= 0) {
+        const alpha = rgb.slice(slash + 1).trim();
+        return alpha.endsWith('%') ? parseFloat(alpha) / 100 : parseFloat(alpha);
+      }
+      const commaParts = rgb.split(',').map((part) => part.trim());
+      if (commaParts.length === 4) return parseFloat(commaParts[3]);
+      return 1;
+    }
+    return null;
+  };
+  const paint = (style) => {
+    const backgroundColorAlpha = colorAlpha(style.backgroundColor);
+    const gradientColors = style.backgroundImage === 'none'
+      ? []
+      : style.backgroundImage.match(/rgba?\\([^)]*\\)|#[0-9a-f]{3,8}\\b|transparent\\b/gi) ?? [];
+    const gradientStopAlphas = gradientColors.map(colorAlpha);
+    const hasPaint = (backgroundColorAlpha ?? 0) > 0 || gradientStopAlphas.some((alpha) => (alpha ?? 0) > 0);
+    return {
+      backgroundColorAlpha,
+      gradientStopAlphas,
+      hasPaint,
+      opaqueBacking: backgroundColorAlpha !== null && Math.abs(backgroundColorAlpha - 1) < 0.0001
+    };
+  };
+  const transparentGradientControl = document.createElement('div');
+  transparentGradientControl.style.backgroundColor = 'transparent';
+  transparentGradientControl.style.backgroundImage = 'linear-gradient(rgba(1, 2, 3, 0), transparent)';
+  document.body.appendChild(transparentGradientControl);
+  const transparentGradientPaint = paint(getComputedStyle(transparentGradientControl));
+  transparentGradientControl.remove();
   const rr=rect(row), pr=rect(previous), nr=rect(next), dr=rect(dial), cr=rect(cluster);
   const ds=getComputedStyle(dial), cs=getComputedStyle(cluster), ts=getComputedStyle(toolbar), bs=getComputedStyle(button);
-  const opaque = ds.backgroundColor !== 'rgba(0, 0, 0, 0)' || ds.backgroundImage !== 'none';
+  const dialPaint = paint(ds), clusterPaint = paint(cs), toolbarPaint = paint(ts);
   const pointOwner = (x,y) => { const e=document.elementFromPoint(x,y); return e ? { tag:e.tagName, cls:e.className, label:e.getAttribute('aria-label') } : null; };
   return {
     media:{ hover:matchMedia('(hover: hover)').matches, fine:matchMedia('(pointer: fine)').matches, coarse:matchMedia('(pointer: coarse)').matches },
-    container:{ width:row.closest('[data-snl-tree-outline]')?.getBoundingClientRect().width ?? row.parentElement.getBoundingClientRect().width },
+    container: outline ? {
+      exists: true,
+      name: getComputedStyle(outline).containerName,
+      contentWidth: Number.parseFloat(getComputedStyle(outline).width),
+      rectWidth: outline.getBoundingClientRect().width
+    } : { exists: false },
+    viewportWidth: innerWidth,
+    transparentGradientPaint,
     rects:{row:rr,previous:pr,next:nr,dial:dr,cluster:cr},
     overlap:{previous:intersection(dr,pr),next:intersection(dr,nr)},
-    paintedOverlap:opaque ? intersection(dr,pr)+intersection(dr,nr) : 0,
+    paintedOverlap:dialPaint.hasPaint ? intersection(dr,pr)+intersection(dr,nr) : 0,
     styles:{
-      dial:{backgroundColor:ds.backgroundColor,backgroundImage:ds.backgroundImage,boxShadow:ds.boxShadow,pointerEvents:ds.pointerEvents},
-      cluster:{backgroundColor:cs.backgroundColor,backgroundImage:cs.backgroundImage,boxShadow:cs.boxShadow},
-      toolbar:{backgroundColor:ts.backgroundColor,backgroundImage:ts.backgroundImage,boxShadow:ts.boxShadow},
+      dial:{backgroundColor:ds.backgroundColor,backgroundImage:ds.backgroundImage,boxShadow:ds.boxShadow,pointerEvents:ds.pointerEvents,paint:dialPaint},
+      cluster:{backgroundColor:cs.backgroundColor,backgroundImage:cs.backgroundImage,boxShadow:cs.boxShadow,paint:clusterPaint},
+      toolbar:{backgroundColor:ts.backgroundColor,backgroundImage:ts.backgroundImage,boxShadow:ts.boxShadow,paint:toolbarPaint},
       button:{opacity:bs.opacity,pointerEvents:bs.pointerEvents}
     },
     hits:{dialCenter:pointOwner((dr.left+dr.right)/2,(dr.top+dr.bottom)/2),outsideCluster:pointOwner(cr.left-2,(cr.top+cr.bottom)/2)}
   };
 })()`;
 function transparent(style) {
-  return style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.backgroundImage === 'none';
+  return style.paint.hasPaint === false;
+}
+function opaqueBacking(style) {
+  return style.paint.opaqueBacking === true;
 }
 function assert(condition, message, value) {
   if (!condition) throw new Error(`${message}: ${JSON.stringify(value)}`);
@@ -251,15 +370,25 @@ try {
   const matrix = [];
   for (const scheme of schemes) {
     await evaluate(`document.documentElement.dataset.snlColorScheme=${JSON.stringify(scheme)}`);
-    for (const viewport of [1007, 1008, 1009]) {
-      await setViewport(viewport, false);
+    for (const containerWidth of [959, 960, 961]) {
+      await setViewport(1280, false);
+      await setOutlineContentWidth(containerWidth);
       await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
       await evaluate(`document.activeElement?.blur(); window.scrollTo(0, 300)`);
       await new Promise((resolveWait) => setTimeout(resolveWait, 140));
       const result = await evaluate(inspectExpression);
-      matrix.push({ scheme, viewport, state: 'idle', result });
-      const desktop = viewport === 1009;
+      matrix.push({ scheme, containerWidth, state: 'idle', result });
+      const desktop = result.container.contentWidth > 960;
+      assert(result.container.exists && result.container.name.split(/\s+/).includes('snl-outline'), 'actual named container must be measured', result.container);
+      assert(Math.abs(result.container.contentWidth - containerWidth) < 0.01, 'measured container width must classify the query boundary', { containerWidth, measured: result.container });
       assert(result.media.hover && result.media.fine, 'fine-pointer branch was not emulated', result.media);
+      assert(
+        result.transparentGradientPaint.hasPaint === false &&
+        result.transparentGradientPaint.gradientStopAlphas.length >= 2 &&
+        result.transparentGradientPaint.gradientStopAlphas.every((alpha) => alpha === 0),
+        'fully transparent resolved gradient stops must not count as paint',
+        result.transparentGradientPaint
+      );
       assert(result.styles.button.opacity === '0' && result.styles.button.pointerEvents === 'none', 'idle buttons must be hidden', result.styles.button);
       assert(transparent(result.styles.cluster) && result.styles.cluster.boxShadow === 'none', 'cluster must stay paint-free', result.styles.cluster);
       assert(transparent(result.styles.toolbar) && result.styles.toolbar.boxShadow === 'none', 'toolbar host must stay paint-free', result.styles.toolbar);
@@ -269,19 +398,20 @@ try {
         assert(result.paintedOverlap === 0, 'desktop idle painted overlap must be zero', result);
         assert(!String(result.hits.dialCenter?.cls).includes('snl-tree-operation'), 'idle dial must not win hit testing', result.hits);
       } else {
-        assert(!transparent(result.styles.dial), 'reserved-flow narrow dial must be opaque', result.styles.dial);
+        assert(opaqueBacking(result.styles.dial), 'reserved-flow narrow dial must have an opaque backing', result.styles.dial);
         assert(result.overlap.previous === 0 && result.overlap.next === 0, 'reserved-flow narrow dial must not overlap rows', result.overlap);
       }
     }
 
-    await setViewport(1009, false);
+    await setViewport(1280, false);
+    await setOutlineContentWidth(961);
     const dialCenter = await evaluate(`(() => { const d=document.querySelectorAll('.snl-library-outline-row')[1].querySelector('.snl-tree-operation-dial').getBoundingClientRect(); return {x:(d.left+d.right)/2,y:(d.top+d.bottom)/2}; })()`);
     await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dialCenter.x, y: dialCenter.y });
     await new Promise((resolveWait) => setTimeout(resolveWait, 140));
     const hover = await evaluate(inspectExpression);
-    matrix.push({ scheme, viewport: 1009, state: 'hover', result: hover });
+    matrix.push({ scheme, containerWidth: 961, state: 'hover', result: hover });
     assert(hover.styles.button.opacity === '1' && hover.styles.button.pointerEvents === 'auto', 'hover buttons must be visible', hover.styles.button);
-    assert(!transparent(hover.styles.dial), 'hover dial must be opaque', hover.styles.dial);
+    assert(opaqueBacking(hover.styles.dial), 'hover dial must have an opaque backing', hover.styles.dial);
     assert(transparent(hover.styles.cluster) && transparent(hover.styles.toolbar), 'only the hover dial may be opaque', hover.styles);
     assert(String(hover.hits.dialCenter?.tag) === 'BUTTON', 'hover dial control must win hit testing', hover.hits);
 
@@ -289,17 +419,18 @@ try {
     await evaluate(`document.querySelectorAll('.snl-library-outline-row')[1].querySelector('.snl-tree-operation-dial button').focus()`);
     await new Promise((resolveWait) => setTimeout(resolveWait, 140));
     const focus = await evaluate(inspectExpression);
-    matrix.push({ scheme, viewport: 1009, state: 'focus', result: focus });
-    assert(focus.styles.button.opacity === '1' && !transparent(focus.styles.dial), 'focus must reveal an opaque dial', focus.styles);
+    matrix.push({ scheme, containerWidth: 961, state: 'focus', result: focus });
+    assert(focus.styles.button.opacity === '1' && opaqueBacking(focus.styles.dial), 'focus must reveal a dial with an opaque backing', focus.styles);
     assert(transparent(focus.styles.cluster) && transparent(focus.styles.toolbar), 'focus must not paint outside the dial', focus.styles);
   }
 
   await evaluate(`document.documentElement.dataset.snlColorScheme='dark'; document.activeElement?.blur()`);
-  await setViewport(1009, true);
+  await setViewport(1280, true);
+  await setOutlineContentWidth(961);
   const coarse = await evaluate(inspectExpression);
-  matrix.push({ scheme: 'dark', viewport: 1009, state: 'coarse', result: coarse });
+  matrix.push({ scheme: 'dark', containerWidth: 961, state: 'coarse', result: coarse });
   assert(coarse.media.coarse, 'coarse-pointer branch was not emulated', coarse.media);
-  assert(coarse.styles.button.opacity === '1' && !transparent(coarse.styles.dial), 'coarse board must remain visible and opaque', coarse.styles);
+  assert(coarse.styles.button.opacity === '1' && opaqueBacking(coarse.styles.dial), 'coarse board must remain visible with an opaque backing', coarse.styles);
   assert(coarse.overlap.previous === 0 && coarse.overlap.next === 0, 'coarse board must reserve flow without row overlap', coarse.overlap);
 
   const browserErrors = page.events.filter((event) =>
@@ -307,7 +438,8 @@ try {
     event.method === 'Log.entryAdded' && ['error', 'warning'].includes(event.params?.entry?.level)
   );
   assert(browserErrors.length === 0, 'production browser emitted errors', browserErrors);
-  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryViewports: [1007,1008,1009], coarse: true }, null, 2));
+  assert(matrix.length >= 21, 'realistic production matrix must retain at least 21 cases', matrix.length);
+  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryContentWidths: [959, 960, 961], coarse: true, artifactBuild }, null, 2));
 } finally {
   pageSocket.close();
   browserSocket.close();

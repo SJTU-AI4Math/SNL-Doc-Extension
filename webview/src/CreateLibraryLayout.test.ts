@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(path.resolve(__dirname, 'CreateLibraryApp.css'), 'utf8');
+const dashboardCss = readFileSync(path.resolve(__dirname, 'components/TreeNodeActionDashboard.css'), 'utf8');
 
 function blockBetween(start: string, end?: string): string {
   const from = css.indexOf(start);
@@ -132,6 +133,16 @@ describe('Library outline responsive grid contract', () => {
     expect(hoverToolbarButtons.get('pointer-events')).toBe('auto');
     expect(css).not.toContain('.snl-library-outline-row:focus-within > .snl-outline-row-toolbar button');
     expect(css).toContain('.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within)');
+    const revealedDial = declarations(
+      dashboardCss,
+      '.snl-outline-row:hover > .snl-outline-row-toolbar .snl-tree-operation-dial,\n.snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar .snl-tree-operation-dial'
+    );
+    expect(revealedDial.get('--snl-tree-operation-dial-background-color')).toBe(
+      'var(--snl-tree-board-opaque-background)'
+    );
+    expect(revealedDial.get('--snl-tree-operation-dial-background-image')).toContain(
+      'var(--vscode-editorWidget-background, transparent)'
+    );
     const medium = blockBetween(
       '@container snl-outline (max-width: 60rem)',
       '@container snl-outline (max-width: 26rem)'
@@ -158,6 +169,25 @@ describe('Library outline responsive grid contract', () => {
     expect(toolbar.get('right')).toBe('0.3rem');
     expect(toolbar.get('bottom')).toBe('0.2rem');
     expect(toolbar.get('transform')).toBe('none');
+    const reservedDial = declarations(
+      medium,
+      '.snl-library-outline-row > .snl-outline-row-toolbar .snl-tree-operation-dial'
+    );
+    expect(reservedDial.get('--snl-tree-operation-dial-background-color')).toBe(
+      'var(--snl-tree-board-opaque-background)'
+    );
+    expect(reservedDial.get('--snl-tree-operation-dial-background-image')).toContain(
+      'var(--vscode-editorWidget-background, transparent)'
+    );
+
+    const coarse = blockBetween('@media (hover: none), (pointer: coarse)');
+    const coarseDial = declarations(
+      coarse,
+      '.snl-library-outline-row > .snl-outline-row-toolbar .snl-tree-operation-dial'
+    );
+    expect(coarseDial.get('--snl-tree-operation-dial-background-color')).toBe(
+      'var(--snl-tree-board-opaque-background)'
+    );
 
     const gridRules = [...css.matchAll(/([^{}]+)\{([^{}]*grid-template-columns:[^{}]*)\}/g)]
       .filter((match) => match[1].includes(rowMain));

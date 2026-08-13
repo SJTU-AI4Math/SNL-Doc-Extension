@@ -1,6 +1,15 @@
-import { readFileSync, existsSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import packageJson from '../package.json';
+import productionEntries from '../webview/productionEntries.json';
 
 /**
  * KaTeX is ~250KB of minified JS. It reached panels that render no math at
@@ -43,12 +52,6 @@ const MATH_FREE = [
   'snoogl'
 ];
 
-const WORKSPACE_ASSET_BROKER_ENTRIES = [
-  'createEntry',
-  'entryInfoview',
-  'main'
-];
-
 const WORKSPACE_ASSET_BROKER_DEBUG_LABELS = [
   'WorkspaceAssetBrokerTestHooks',
   'exposeSnapshot',
@@ -60,9 +63,49 @@ const WORKSPACE_ASSET_BROKER_DEBUG_LABELS = [
   'consumers:'
 ];
 
-function bundle(name: string): string | null {
-  const file = resolve(MEDIA, `${name}.js`);
+const EXPECTED_PRODUCTION_OUTPUTS = [
+  'main:main.js',
+  'entryInfoview:entryInfoview.js',
+  'createLibrary:createLibrary.js',
+  'dashboard:dashboard.js',
+  'initEntryKinds:initEntryKinds.js',
+  'createEntryKind:createEntryKind.js',
+  'initMacroKinds:initMacroKinds.js',
+  'createMacroKind:createMacroKind.js',
+  'createEntry:createEntry.js',
+  'createEntryPackage:createEntryPackage.js',
+  'entryPackagePanel:entryPackagePanel.js',
+  'createMacroPackage:createMacroPackage.js',
+  'packagePanel:packagePanel.js',
+  'createMacro:createMacro.js',
+  'createRelationship:createRelationship.js',
+  'snlGraph:snlGraph.js',
+  'snoogl:snoogl.js',
+  'exportOptions:exportOptions.js'
+];
+
+function bundle(name: string, media = MEDIA): string | null {
+  const output = productionEntries.entries.find(
+    (entry) => entry.name === name
+  )?.output;
+  if (!output) return null;
+  const file = resolve(media, output);
   return existsSync(file) ? readFileSync(file, 'utf8') : null;
+}
+
+function inspectWorkspaceAssetBrokerBundles(media: string): {
+  missing: string[];
+  offenders: string[];
+} {
+  const missing = productionEntries.entries
+    .filter((entry) => bundle(entry.name, media) === null)
+    .map((entry) => entry.name);
+  const offenders = productionEntries.entries.flatMap((entry) =>
+    WORKSPACE_ASSET_BROKER_DEBUG_LABELS
+      .filter((label) => bundle(entry.name, media)?.includes(label))
+      .map((label) => `${entry.name}:${label}`)
+  );
+  return { missing, offenders };
 }
 
 describe('webview bundle leanness', () => {
@@ -101,13 +144,54 @@ describe('webview bundle leanness', () => {
   });
 
   it('keeps workspace asset broker introspection out of production bundles', () => {
-    const missing = WORKSPACE_ASSET_BROKER_ENTRIES.filter((name) => bundle(name) === null);
+    const { missing, offenders } = inspectWorkspaceAssetBrokerBundles(MEDIA);
     expect(missing).toEqual([]);
-    const offenders = WORKSPACE_ASSET_BROKER_ENTRIES.flatMap((name) =>
-      WORKSPACE_ASSET_BROKER_DEBUG_LABELS
-        .filter((label) => bundle(name)!.includes(label))
-        .map((label) => `${name}:${label}`)
-    );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('workspace asset broker bundle gate coverage', () => {
+  const fixtureDirs: string[] = [];
+
+  afterEach(() => {
+    fixtureDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true }));
+  });
+
+  function completeFixture(): string {
+    const dir = mkdtempSync(resolve(tmpdir(), 'snl-bundle-gate-'));
+    fixtureDirs.push(dir);
+    productionEntries.entries.forEach((entry) => {
+      writeFileSync(resolve(dir, entry.output), 'production bundle');
+    });
+    return dir;
+  }
+
+  it('locks the complete production entry and output set', () => {
+    expect(
+      productionEntries.entries.map((entry) => `${entry.name}:${entry.output}`)
+    ).toEqual(EXPECTED_PRODUCTION_OUTPUTS);
+  });
+
+  it('uses nonrecursive clean generated-artifact package scripts', () => {
+    expect(packageJson.scripts['build:webview']).toBe(
+      'node scripts/build-webviews.mjs'
+    );
+    expect(packageJson.scripts.test).toBe(
+      'node scripts/prepare-test-artifacts.mjs && vitest run'
+    );
+  });
+
+  it('fails when any affected production bundle is missing', () => {
+    const dir = completeFixture();
+    rmSync(resolve(dir, 'dashboard.js'));
+    expect(inspectWorkspaceAssetBrokerBundles(dir).missing).toEqual(['dashboard']);
+  });
+
+  it('fails on a forbidden label in a non-main affected bundle', () => {
+    const dir = completeFixture();
+    writeFileSync(resolve(dir, 'dashboard.js'), 'pendingConsumers');
+    expect(inspectWorkspaceAssetBrokerBundles(dir).offenders).toEqual([
+      'dashboard:pendingConsumers'
+    ]);
   });
 });

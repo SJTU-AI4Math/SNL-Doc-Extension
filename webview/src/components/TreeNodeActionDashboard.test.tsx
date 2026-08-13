@@ -135,10 +135,11 @@ describe('TreeNodeActionDashboard', () => {
     });
   });
 
-  it('computes an opaque theme-correct board without a cluster plate or shadow', () => {
-    const css = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
+  it('keeps the real Library dashboard paint-free while its desktop buttons are idle', () => {
+    const dashboardCss = readFileSync('webview/src/components/TreeNodeActionDashboard.css', 'utf8');
+    const libraryCss = readFileSync('webview/src/CreateLibraryApp.css', 'utf8');
     const style = document.createElement('style');
-    style.textContent = css;
+    style.textContent = `${dashboardCss}\n${libraryCss}`;
     document.head.append(style);
     document.documentElement.style.setProperty('--vscode-editorWidget-background', 'transparent');
     document.documentElement.style.setProperty('--vscode-editor-background', 'transparent');
@@ -152,22 +153,30 @@ describe('TreeNodeActionDashboard', () => {
       ] as const) {
         document.documentElement.dataset.snlColorScheme = scheme;
         const view = render(
-          <TreeNodeActionDashboard
-            capabilities={ALL_CAPABILITIES}
-            onAction={() => undefined}
-          />
+          <div className="snl-outline-row snl-library-outline-row">
+            <div className="snl-outline-row-toolbar">
+              <TreeNodeActionDashboard
+                capabilities={ALL_CAPABILITIES}
+                onAction={() => undefined}
+              />
+            </div>
+          </div>
         );
         const dial = view.container.querySelector<HTMLElement>('.snl-tree-operation-dial')!;
         const cluster = view.container.querySelector<HTMLElement>('.snl-tree-operation-cluster')!;
+        const firstButton = view.getByRole('button', { name: 'Add parent node' });
         const dialStyle = getComputedStyle(dial);
         const clusterStyle = getComputedStyle(cluster);
 
         expect(dialStyle.getPropertyValue('--snl-tree-board-opaque-background').trim(), scheme)
           .toBe(expectedBase);
-        expect(dialStyle.backgroundColor, scheme)
-          .toBe('var(--snl-tree-board-opaque-background)');
-        expect(dialStyle.backgroundImage, scheme)
-          .toContain('var(--vscode-editorWidget-background, transparent)');
+        expect(dialStyle.getPropertyValue('--snl-tree-operation-dial-background-color').trim(), scheme)
+          .toBe('transparent');
+        expect(dialStyle.getPropertyValue('--snl-tree-operation-dial-background-image').trim(), scheme)
+          .toBe('none');
+        expect(dialStyle.boxShadow, scheme).toBe('none');
+        expect(getComputedStyle(firstButton).opacity, scheme).toBe('0');
+        expect(getComputedStyle(firstButton).pointerEvents, scheme).toBe('none');
         expect(dialStyle.gridTemplateColumns, scheme).toBe('repeat(3, 1.5rem)');
         expect(dialStyle.gridTemplateRows, scheme).toBe('repeat(3, 1.5rem)');
         expect(clusterStyle.backgroundColor, scheme).toBe('rgba(0, 0, 0, 0)');

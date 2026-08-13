@@ -445,6 +445,7 @@
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "node scripts/prepare-test-artifacts.mjs && vitest run",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
+    "test:library-paint": "node scripts/test-library-row-paint-occlusion.mjs",
     "vscode:prepublish": "npm test && npm run compile && npm run build:export-runtime && npm run build:webview",
     "smoke:vsix-host": "node scripts/smoke-vsix-host.mjs"
   },

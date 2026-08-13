@@ -24,8 +24,17 @@ html[data-snl-color-scheme='high-contrast'] {
   display: grid;
   grid-template-columns: repeat(3, 1.5rem);
   grid-template-rows: repeat(3, 1.5rem);
-  background-color: var(--snl-tree-board-opaque-background);
-  background-image:
+  --snl-tree-operation-dial-background-color: transparent;
+  --snl-tree-operation-dial-background-image: none;
+  background-color: var(--snl-tree-operation-dial-background-color);
+  background-image: var(--snl-tree-operation-dial-background-image);
+  box-shadow: none;
+}
+
+.snl-outline-row:hover > .snl-outline-row-toolbar .snl-tree-operation-dial,
+.snl-outline-row:has(> .snl-outline-row-toolbar:focus-within) > .snl-outline-row-toolbar .snl-tree-operation-dial {
+  --snl-tree-operation-dial-background-color: var(--snl-tree-board-opaque-background);
+  --snl-tree-operation-dial-background-image:
     linear-gradient(
       var(--vscode-editorWidget-background, transparent),
       var(--vscode-editorWidget-background, transparent)

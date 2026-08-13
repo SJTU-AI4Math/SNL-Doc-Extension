@@ -100,7 +100,7 @@ describe('GuiCanvasEditor', () => {
     expect(canvasVisualDeltaToLogical(80, 0.5)).toBe(160);
   });
 
-  it('uses a cancelable native wheel listener to zoom the Canvas', async () => {
+  it('anchors zoom to the bordered viewport content box', async () => {
     const view = render(
       <GuiCanvasEditor
         forest={[node('root')]}
@@ -115,7 +115,9 @@ describe('GuiCanvasEditor', () => {
     )!;
     Object.defineProperties(viewport, {
       clientWidth: { configurable: true, value: 800 },
-      clientHeight: { configurable: true, value: 500 }
+      clientHeight: { configurable: true, value: 500 },
+      clientLeft: { configurable: true, value: 6 },
+      clientTop: { configurable: true, value: 4 }
     });
     viewport.getBoundingClientRect = () => ({
       x: 10, y: 20, left: 10, top: 20, right: 810, bottom: 520,
@@ -142,8 +144,10 @@ describe('GuiCanvasEditor', () => {
     const expectedZoom = canvasZoomFromWheel(1, -120);
     await waitFor(() => expect(Number(canvas.style.zoom)).toBe(expectedZoom));
     expect(canvas.style.width).toBe('800px');
-    expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * expectedZoom - 150);
-    expect(viewport.scrollTop).toBeCloseTo((60 + 100) * expectedZoom - 100);
+    const pointerX = 160 - 10 - 6;
+    const pointerY = 120 - 20 - 4;
+    expect(viewport.scrollLeft).toBeCloseTo((100 + pointerX) * expectedZoom - pointerX);
+    expect(viewport.scrollTop).toBeCloseTo((60 + pointerY) * expectedZoom - pointerY);
     expect(scrollBy).not.toHaveBeenCalled();
   });
 
@@ -352,6 +356,167 @@ describe('GuiCanvasEditor', () => {
     expect(menu.style.top).toBe('100px');
   });
 
+  it('centres the first root in the visible viewport using logical coordinates after zoom', async () => {
+    const mutationObservers: Array<{
+      callback: MutationCallback;
+      observed: Set<Node>;
+      disconnected: boolean;
+      observer: MutationObserver;
+    }> = [];
+    class TrackingMutationObserver implements MutationObserver {
+      private readonly record: (typeof mutationObservers)[number];
+      constructor(callback: MutationCallback) {
+        this.record = { callback, observed: new Set(), disconnected: false, observer: this };
+        mutationObservers.push(this.record);
+      }
+      observe(target: Node): void { this.record.observed.add(target); }
+      disconnect(): void { this.record.disconnected = true; }
+      takeRecords(): MutationRecord[] { return []; }
+    }
+    vi.stubGlobal('MutationObserver', TrackingMutationObserver);
+    const centringResizeObservers: Array<{
+      observed: Set<Element>;
+      disconnected: boolean;
+    }> = [];
+    class TrackingResizeObserver implements ResizeObserver {
+      private readonly record = { observed: new Set<Element>(), disconnected: false };
+      constructor(_callback: ResizeObserverCallback) {
+        centringResizeObservers.push(this.record);
+      }
+      observe(target: Element): void { this.record.observed.add(target); }
+      unobserve(target: Element): void { this.record.observed.delete(target); }
+      disconnect(): void { this.record.disconnected = true; }
+    }
+    vi.stubGlobal('ResizeObserver', TrackingResizeObserver);
+    const emptyProps = {
+      forest: [] as SnlSyntaxTree[],
+      macroDataDriver: driver,
+      kindPalette: undefined,
+      onForestChange: () => undefined,
+      onResetFromSnl: () => undefined
+    };
+    const view = render(<GuiCanvasEditor {...emptyProps} />);
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 }
+    });
+    viewport.getBoundingClientRect = () => new DOMRect(10, 20, 802, 502);
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    canvas.getBoundingClientRect = () => new DOMRect(-190, -80, 1600, 1000);
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 300, clientY: 200, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    viewport.scrollLeft = 200;
+    viewport.scrollTop = 100;
+
+    const first = node('root');
+    view.rerender(<GuiCanvasEditor {...emptyProps} forest={[first]} />);
+    const block = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!
+    );
+    const notifyBlockMutation = (): void => {
+      mutationObservers
+        .filter(({ observed, disconnected }) => observed.has(block) && !disconnected)
+        .forEach(({ callback, observer }) => callback([], observer));
+    };
+    let blockRect = new DOMRect(0, 0, 200, 100);
+    block.getBoundingClientRect = () => blockRect;
+    view.rerender(<GuiCanvasEditor {...emptyProps} forest={[first]} />);
+
+    await waitFor(() => expect(block.style.left).toBe('250px'));
+    expect(block.style.top).toBe('150px');
+
+    // A click-like pointer gesture does not transfer position ownership. Even
+    // if the parent rerenders, renderer-owned geometry must still settle.
+    fireEvent.pointerDown(block, { pointerId: 201, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(block, { pointerId: 201, clientX: 10, clientY: 10 });
+    view.rerender(<GuiCanvasEditor {...emptyProps} forest={[first]} />);
+
+    // The production renderer resolves asynchronously; recenter until this
+    // initial root's own DOM settles, without treating visual pixels as logical.
+    blockRect = new DOMRect(0, 0, 100, 50);
+    block.appendChild(document.createElement('span'));
+    notifyBlockMutation();
+    await waitFor(() => expect(block.style.left).toBe('275px'));
+    expect(block.style.top).toBe('163px');
+
+    // Crossing the drag threshold transfers ownership. Later renderer changes
+    // must not yank the block back to a newly calculated centre, and the
+    // now-useless initial-centering observers must be disconnected immediately.
+    fireEvent.pointerDown(block, { pointerId: 202, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(block, { pointerId: 202, clientX: 30, clientY: 30 });
+    fireEvent.pointerUp(block, { pointerId: 202, clientX: 30, clientY: 30 });
+    await waitFor(() => expect(block.style.left).toBe('285px'));
+    expect(block.style.top).toBe('173px');
+    const centringObservers = mutationObservers.filter(({ observed }) => observed.has(block));
+    expect(centringObservers.length).toBeGreaterThan(0);
+    expect(centringObservers.every(({ disconnected }) => disconnected)).toBe(true);
+    const centringResize = centringResizeObservers.filter(({ observed }) =>
+      observed.has(block) && !observed.has(viewport)
+    );
+    expect(centringResize.length).toBeGreaterThan(0);
+    expect(centringResize.every(({ disconnected }) => disconnected)).toBe(true);
+
+    blockRect = new DOMRect(0, 0, 50, 25);
+    block.appendChild(document.createElement('span'));
+    notifyBlockMutation();
+    // A callback already queued before disconnect must also fail closed against
+    // the transferred ownership ref.
+    centringObservers.forEach(({ callback, observer }) => callback([], observer));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(block.style.left).toBe('285px');
+    expect(block.style.top).toBe('173px');
+  });
+
+  it('keeps blank-space root insertion at its logical invocation point', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState<SnlSyntaxTree[]>([]);
+      return (
+        <>
+          <output data-testid="anchored-root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            macroCandidates={[{ id: 'Add.add', labels: [] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    canvas.getBoundingClientRect = () => new DOMRect(100, 200, 1600, 1024);
+
+    fireEvent.contextMenu(canvas, { clientX: 300, clientY: 400 });
+    const menu = await view.findByRole('menu', { name: 'Canvas block actions' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Add root Macro/ }));
+    const search = await waitFor(() => view.getByRole('textbox', { name: 'Search macros in SNoogL' }));
+    expect(document.activeElement).toBe(search);
+    const inputHost = search.closest<HTMLElement>('[data-macro-id-control]')!;
+    expect(inputHost.style.left).toBe('100px');
+    expect(inputHost.style.top).toBe('100px');
+
+    fireEvent.change(search, { target: { value: 'Add' } });
+    fireEvent.keyDown(search, { key: 'Tab' });
+    await waitFor(() => expect(view.getByTestId('anchored-root-count').textContent).toBe('1'));
+    const block = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    expect(block.style.left).toBe('100px');
+    expect(block.style.top).toBe('100px');
+  });
+
   it('keeps wheel events inside the Canvas at the zoom bounds', async () => {
     vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
     const view = render(
@@ -410,8 +575,83 @@ describe('GuiCanvasEditor', () => {
     expect(Number.parseFloat(block.style.top)).toBe(topBefore + 20);
   });
 
+  it('keeps a subtree from a wrapperless root under the pointer across zoom and card inset', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('matrix', [node('cell')])]);
+      return (
+        <>
+          <output data-testid="coordinate-root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+
+    const sourceBlock = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    const rootContent = sourceBlock.firstElementChild as HTMLElement;
+    const child = sourceBlock.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(100, 200, 1600, 1024);
+    sourceBlock.getBoundingClientRect = () => new DOMRect(300, 400, 300, 100);
+    rootContent.getBoundingClientRect = () => new DOMRect(312, 412, 276, 76);
+    child.getBoundingClientRect = () => new DOMRect(500, 450, 80, 40);
+
+    fireEvent.pointerDown(child, {
+      pointerId: 102,
+      button: 0,
+      clientX: 510,
+      clientY: 460
+    });
+    fireEvent.pointerMove(child, {
+      pointerId: 102,
+      clientX: 590,
+      clientY: 500
+    });
+    fireEvent.pointerUp(child, {
+      pointerId: 102,
+      clientX: 590,
+      clientY: 500
+    });
+
+    await waitFor(() => expect(view.getByTestId('coordinate-root-count').textContent).toBe('2'));
+    const detachedBlock = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]')[1];
+    // The nested node started at logical (200, 125). A root card contributes a
+    // logical (6, 6) inset, and the visual drag delta (80, 40) is logical (40, 20).
+    expect(detachedBlock.style.left).toBe('234px');
+    expect(detachedBlock.style.top).toBe('139px');
+  });
+
   it('positions the focused Macro controls in logical coordinates while zoomed', async () => {
     vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback;
+      observed: Set<Element>;
+    }> = [];
+    class FocusResizeObserver implements ResizeObserver {
+      private readonly record: { callback: ResizeObserverCallback; observed: Set<Element> };
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, observed: new Set() };
+        resizeObservers.push(this.record);
+      }
+      observe(target: Element): void { this.record.observed.add(target); }
+      unobserve(target: Element): void { this.record.observed.delete(target); }
+      disconnect(): void { this.record.observed.clear(); }
+    }
+    vi.stubGlobal('ResizeObserver', FocusResizeObserver);
     const view = render(
       <GuiCanvasEditor
         forest={[node('root')]}
@@ -434,16 +674,41 @@ describe('GuiCanvasEditor', () => {
       x: 10, y: 20, left: 10, top: 20, right: 810, bottom: 1044,
       width: 800, height: 1024, toJSON: () => undefined
     });
-    target.getBoundingClientRect = () => ({
-      x: 210, y: 120, left: 210, top: 120, right: 410, bottom: 160,
-      width: 200, height: 40, toJSON: () => undefined
-    });
+    let targetRect = new DOMRect(210, 120, 200, 40);
+    target.getBoundingClientRect = () => targetRect;
     fireEvent.click(target, { clientX: 220, clientY: 130 });
     const control = await waitFor(() =>
       view.container.querySelector<HTMLElement>('[data-canvas-macro-control]')!
     );
     expect(Number.parseFloat(control.style.left)).toBe(100);
     expect(Number.parseFloat(control.style.top)).toBe(74);
+
+    // Renderer-owned DOM can reflow without changing forest/positions. The
+    // control must follow that committed geometry too.
+    targetRect = new DOMRect(250, 160, 200, 40);
+    target.appendChild(document.createElement('span'));
+    await waitFor(() => expect(Number.parseFloat(control.style.left)).toBe(120));
+    expect(Number.parseFloat(control.style.top)).toBe(94);
+
+    // A renderer can replace the semantic target. Mutation re-resolves it;
+    // subsequent ResizeObserver notifications must follow the replacement,
+    // not remain attached to the detached old element.
+    const replacement = target.cloneNode(true) as HTMLElement;
+    let replacementRect = new DOMRect(290, 200, 200, 40);
+    replacement.getBoundingClientRect = () => replacementRect;
+    target.replaceWith(replacement);
+    await waitFor(() => expect(Number.parseFloat(control.style.left)).toBe(140));
+    expect(Number.parseFloat(control.style.top)).toBe(114);
+    const replacementObserver = resizeObservers.find(({ observed }) => observed.has(replacement));
+    expect(replacementObserver).toBeDefined();
+    expect(replacementObserver?.observed.has(target)).toBe(false);
+
+    replacementRect = new DOMRect(330, 240, 200, 40);
+    resizeObservers
+      .filter(({ observed }) => observed.has(replacement))
+      .forEach(({ callback }) => callback([], {} as ResizeObserver));
+    await waitFor(() => expect(Number.parseFloat(control.style.left)).toBe(160));
+    expect(Number.parseFloat(control.style.top)).toBe(134);
   });
 
   it('keeps the focused Macro controls attached while the selected block moves', async () => {
@@ -1589,11 +1854,12 @@ describe('GuiCanvasEditor', () => {
 
     fireEvent.contextMenu(branch);
     menu = await view.findByRole('menu', { name: 'Canvas block actions' });
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    const focusCanvas = vi.spyOn(canvas, 'focus');
     fireEvent.keyDown(menu, { key: 'Tab', shiftKey: true });
     expect(view.queryByRole('menu', { name: 'Canvas block actions' })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(
-      view.container.querySelector('[data-entry-gui-canvas]')
-    ));
+    await waitFor(() => expect(document.activeElement).toBe(canvas));
+    expect(focusCanvas).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it('Ctrl+F2 SNoogL Tab inserts the Macro id instead of replacing the expression', async () => {

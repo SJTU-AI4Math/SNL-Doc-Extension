@@ -3186,7 +3186,7 @@ export function GuiCanvasEditor({
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
   const [focused, setFocused] = React.useState<CanvasFocus | null>(null);
   const [editingNode, setEditingNode] = React.useState<CanvasNodeEditor | null>(null);
-  const [addingRootFromMacro, setAddingRootFromMacro] = React.useState(false);
+  const [addingRootFromMacro, setAddingRootFromMacro] = React.useState<CanvasBlockPosition | null>(null);
   const [dropTarget, setDropTarget] = React.useState<CanvasFocus | null>(null);
   const [contextMenu, setContextMenu] = React.useState<CanvasContextMenu | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
@@ -3256,8 +3256,11 @@ export function GuiCanvasEditor({
       const next = batch.nextZoom;
       if (next === current) return;
       const rect = viewport.getBoundingClientRect();
-      const pointerX = batch.clientX - rect.left;
-      const pointerY = batch.clientY - rect.top;
+      // scrollLeft/scrollTop start at the viewport's padding edge. DOMRect,
+      // however, starts at its border edge, so border widths must not enter the
+      // logical pointer anchor.
+      const pointerX = batch.clientX - rect.left - viewport.clientLeft;
+      const pointerY = batch.clientY - rect.top - viewport.clientTop;
       pendingZoomAnchorRef.current = {
         logicalX: (viewport.scrollLeft + pointerX) / current,
         logicalY: (viewport.scrollTop + pointerY) / current,
@@ -3363,29 +3366,60 @@ export function GuiCanvasEditor({
     });
   }, [forest]);
 
-  // The first root starts centred on the canvas. Only ever done once per
-  // mount: later identity changes (edits, Clear) must not yank a block the
-  // user has already dragged somewhere.
+  // The first root starts centred in the visible viewport. Keep centring only
+  // while that exact initial tree object is resolving its renderer-owned DOM;
+  // a structural edit or drag permanently hands position ownership to the user.
   const centredRootRef = React.useRef(false);
+  const autoCenterRootRef = React.useRef<SnlSyntaxTree | null>(null);
   React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
     const canvas = canvasRef.current;
     const first = forest[0];
-    if (!canvas || !first || centredRootRef.current) return;
+    if (!viewport || !canvas || !first) return;
+    if (!centredRootRef.current) {
+      centredRootRef.current = true;
+      autoCenterRootRef.current = first;
+    }
+    if (autoCenterRootRef.current !== first) {
+      autoCenterRootRef.current = null;
+      return;
+    }
     const id = treeIdentity(first);
     const block = canvas.querySelector<HTMLElement>('[data-canvas-root-index="0"]');
     if (!block) return;
-    const canvasRect = canvas.getBoundingClientRect();
-    const blockRect = block.getBoundingClientRect();
-    if (canvasRect.width === 0 || blockRect.width === 0) return;
-    centredRootRef.current = true;
-    setPositions((previous) => ({
-      ...previous,
-      [id]: {
-        x: Math.max(8, Math.round((canvasRect.width - blockRect.width) / 2)),
-        y: Math.max(8, Math.round((canvasRect.height - blockRect.height) / 2))
-      }
-    }));
-  }, [forest]);
+    const centre = (): void => {
+      if (autoCenterRootRef.current !== first) return;
+      const blockRect = block.getBoundingClientRect();
+      if (viewport.clientWidth === 0 || viewport.clientHeight === 0 || blockRect.width === 0) return;
+      const zoom = canvasZoomRef.current;
+      const next = {
+        x: Math.max(8, Math.round(canvasVisualDeltaToLogical(
+          viewport.scrollLeft + viewport.clientWidth / 2 - blockRect.width / 2,
+          zoom
+        ))),
+        y: Math.max(8, Math.round(canvasVisualDeltaToLogical(
+          viewport.scrollTop + viewport.clientHeight / 2 - blockRect.height / 2,
+          zoom
+        )))
+      };
+      setPositions((previous) =>
+        previous[id]?.x === next.x && previous[id]?.y === next.y
+          ? previous
+          : { ...previous, [id]: next }
+      );
+    };
+    centre();
+    const mutationObserver = new MutationObserver(centre);
+    mutationObserver.observe(block, { childList: true, subtree: true });
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(centre);
+    resizeObserver?.observe(block);
+    return () => {
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+    };
+  }, [forest, draggingBlockId]);
 
   const measureCanvasExtent = React.useCallback((): void => {
     const viewport = viewportRef.current;
@@ -3448,7 +3482,7 @@ export function GuiCanvasEditor({
     // The add-root input is anchored to nothing in the tree, but a forest
     // replacement (Reset, external push, undo) still means its draft is
     // orphaned — destroy it rather than leave it floating (Cat 2026-07-26).
-    setAddingRootFromMacro(false);
+    setAddingRootFromMacro(null);
   }, [forest]);
 
   // Resolve dynamic_arity for every Macro currently on the Canvas so the
@@ -3555,11 +3589,29 @@ export function GuiCanvasEditor({
     }
     const canvas = event.currentTarget.closest<HTMLElement>('[data-entry-gui-canvas]');
     const canvasRect = canvas?.getBoundingClientRect();
+    const rootContent = resolved.path.length > 0
+      ? event.currentTarget.firstElementChild as HTMLElement | null
+      : null;
+    const blockRect = rootContent ? event.currentTarget.getBoundingClientRect() : null;
+    const contentRect = rootContent?.getBoundingClientRect();
+    // A nested node is positioned by its content box. Once detached it gains a
+    // root card around that content. Subtract the measured card-to-content
+    // inset, otherwise the newly wrapped content jumps down/right on the first
+    // move. The first content wrapper exists even when the renderer omits the
+    // root Macro's own data-tree-path element.
+    const rootInsetX = blockRect && contentRect ? contentRect.left - blockRect.left : 0;
+    const rootInsetY = blockRect && contentRect ? contentRect.top - blockRect.top : 0;
     const startPosition =
       resolved.path.length > 0 && canvas && canvasRect
         ? {
-            x: canvasVisualDeltaToLogical(resolved.rect.left - canvasRect.left, canvasZoomRef.current),
-            y: canvasVisualDeltaToLogical(resolved.rect.top - canvasRect.top, canvasZoomRef.current)
+            x: canvasVisualDeltaToLogical(
+              resolved.rect.left - canvasRect.left - rootInsetX,
+              canvasZoomRef.current
+            ),
+            y: canvasVisualDeltaToLogical(
+              resolved.rect.top - canvasRect.top - rootInsetY,
+              canvasZoomRef.current
+            )
           }
         : positions[blockId] ?? { x: 24, y: 24 };
     // Pointer-down must suppress the browser's native text-selection gesture;
@@ -3594,6 +3646,7 @@ export function GuiCanvasEditor({
 
     if (!drag.active) {
       drag.active = true;
+      autoCenterRootRef.current = null;
       if (drag.path.length > 0) {
         const sourceRootIndex = drag.rootIndex;
         const sourcePath = [...drag.path];
@@ -3761,7 +3814,7 @@ export function GuiCanvasEditor({
     setFocused(target);
     setContextMenu(null);
     // The two floating inputs are mutually exclusive by construction.
-    setAddingRootFromMacro(false);
+    setAddingRootFromMacro(null);
     setEditingNode({
       ...target,
       scope: effectiveScope,
@@ -3826,7 +3879,7 @@ export function GuiCanvasEditor({
     addRootRequestRef.current += 1;
     nodeEditRequestRef.current += 1;
     setEditingNode(null);
-    setAddingRootFromMacro(false);
+    setAddingRootFromMacro(null);
   };
 
   /** Return keyboard focus without letting the browser scroll the Entry form. */
@@ -3870,7 +3923,7 @@ export function GuiCanvasEditor({
     }
     setContextMenu(null);
     // A stray click anywhere on the Canvas dismisses a pending root insert.
-    setAddingRootFromMacro(false);
+    setAddingRootFromMacro(null);
     const target = targetForMouseEvent(event);
     if (!target) {
       setFocused(null);
@@ -3891,7 +3944,7 @@ export function GuiCanvasEditor({
     const target = targetForMouseEvent(event);
     if (!target) return;
     event.preventDefault();
-    setAddingRootFromMacro(false);
+    setAddingRootFromMacro(null);
     setFocused(target);
     startEditingTarget(target, 'macro');
   };
@@ -3934,7 +3987,7 @@ export function GuiCanvasEditor({
       event.key.toLowerCase() === 'f'
     ) {
       event.preventDefault();
-      setAddingRootFromMacro(true);
+      setAddingRootFromMacro({ x: 24, y: 24 });
       return;
     }
     if (event.key === 'Escape') {
@@ -4096,27 +4149,55 @@ export function GuiCanvasEditor({
       setFocusedControlAnchor(null);
       return;
     }
-    const element = elementForTarget(focused);
-    const canvas = canvasRef.current;
-    if (!element || !canvas) {
+    const initialElement = elementForTarget(focused);
+    const block = initialElement?.closest<HTMLElement>('[data-canvas-root-index]');
+    if (!block) {
       setFocusedControlAnchor(null);
       return;
     }
-    const rect = element.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    const next = {
-      key: `${focused.rootIndex}:${focused.path.join('.')}`,
-      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
-      top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
+    let observedElement: HTMLElement | null = null;
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => measureAnchor());
+    resizeObserver?.observe(block);
+    const retargetResizeObserver = (element: HTMLElement): void => {
+      if (!resizeObserver || observedElement === element) return;
+      if (observedElement && observedElement !== block) {
+        resizeObserver.unobserve(observedElement);
+      }
+      if (element !== block) resizeObserver.observe(element);
+      observedElement = element;
     };
-    setFocusedControlAnchor((previous) =>
-      previous?.key === next.key && previous.left === next.left && previous.top === next.top
-        ? previous
-        : next
-    );
-    // Geometry is committed only after render. Re-measure whenever a block
-    // moves or the Canvas scale/tree changes instead of caching stale DOMRect
-    // values in the render phase.
+    function measureAnchor(): void {
+      const element = elementForTarget(focused);
+      const canvas = canvasRef.current;
+      if (!element || !canvas) {
+        setFocusedControlAnchor(null);
+        return;
+      }
+      retargetResizeObserver(element);
+      const rect = element.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      const next = {
+        key: `${focused.rootIndex}:${focused.path.join('.')}`,
+        left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
+        top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
+      };
+      setFocusedControlAnchor((previous) =>
+        previous?.key === next.key && previous.left === next.left && previous.top === next.top
+          ? previous
+          : next
+      );
+    }
+    measureAnchor();
+    const mutationObserver = new MutationObserver(measureAnchor);
+    mutationObserver.observe(block, { childList: true, subtree: true });
+    return () => {
+      mutationObserver.disconnect();
+      resizeObserver?.disconnect();
+    };
+    // Geometry is committed only after render. Re-measure for React state axes
+    // and renderer-owned DOM/size changes alike.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused, editingNode, contextMenu, forest, positions, canvasZoom, dynamicArityVersion]);
 
@@ -4532,7 +4613,13 @@ export function GuiCanvasEditor({
                       targetArity,
                       ensureTreeIdentity
                     );
-                setAddingRootFromMacro(false);
+                const insertedId = treeIdentity(parsed.tree);
+                setPositions((previous) => ({
+                  ...previous,
+                  [insertedId]: addingRootFromMacro
+                }));
+                if (sourceForest.length === 0) centredRootRef.current = true;
+                setAddingRootFromMacro(null);
                 applyForestChange(reconciled, { rootIndex, path: [] });
                 restoreCanvasFocus();
               })();
@@ -4547,8 +4634,8 @@ export function GuiCanvasEditor({
             }}
             style={{
               position: 'absolute',
-              left: 24,
-              top: 24,
+              left: addingRootFromMacro.x,
+              top: addingRootFromMacro.y,
               width: '18rem',
               zIndex: 20
             }}
@@ -4672,7 +4759,7 @@ export function GuiCanvasEditor({
             )}
             onAddRoot={() => {
               setEditingNode(null);
-              setAddingRootFromMacro(true);
+              setAddingRootFromMacro({ x: contextMenu.left, y: contextMenu.top });
             }}
             onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
             onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}
@@ -4728,8 +4815,8 @@ export function GuiCanvasEditor({
                 focusable.slice(lastCanvasIndex + 1).find(
                   (element) => !element.closest('[role="menu"]')
                 )?.focus();
-              } else {
-                window.setTimeout(() => canvasRef.current?.focus(), 0);
+              } else if (direction === 'restore') {
+                restoreCanvasFocus();
               }
             }}
           />
@@ -4788,7 +4875,7 @@ function CanvasContextMenuView({
   onRemoveArgument: () => void;
   onDetach: () => void;
   onDelete: () => void;
-  onClose: (direction: 'restore' | 'next') => void;
+  onClose: (direction: 'restore' | 'next' | 'none') => void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const onBlankSpace = menu.rootIndex < 0;
@@ -4801,12 +4888,13 @@ function CanvasContextMenuView({
     disabled?: boolean;
     danger?: boolean;
     run: () => void;
+    restoreFocus?: boolean;
   }> =
     onBlankSpace
-      ? [{ label: t('addRootMacro'), hint: 'Ctrl+F', run: onAddRoot }]
+      ? [{ label: t('addRootMacro'), hint: 'Ctrl+F', run: onAddRoot, restoreFocus: false }]
       : [
-          { label: t('editMacroMenu'), hint: 'F2', disabled: isHole, run: onEditMacro },
-          { label: t('editSubtreeSnl'), hint: 'Ctrl+F2', run: onEditSubtree },
+          { label: t('editMacroMenu'), hint: 'F2', disabled: isHole, run: onEditMacro, restoreFocus: false },
+          { label: t('editSubtreeSnl'), hint: 'Ctrl+F2', run: onEditSubtree, restoreFocus: false },
           // Only a variadic Macro owns its argument count; a fixed-arity one
           // gets it from the template and must not be edited by hand.
           ...(isDynamic
@@ -4888,7 +4976,7 @@ function CanvasContextMenuView({
           onClick={() => {
             if (item.disabled) return;
             item.run();
-            onClose('restore');
+            onClose(item.restoreFocus === false ? 'none' : 'restore');
           }}
           style={{
             justifyContent: 'space-between',

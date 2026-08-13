@@ -1,0 +1,86 @@
+{
+  "entries": [
+    { "name": "main", "input": "src/main.tsx", "output": "main.js" },
+    {
+      "name": "entryInfoview",
+      "input": "src/entryInfoview.tsx",
+      "output": "entryInfoview.js"
+    },
+    {
+      "name": "createLibrary",
+      "input": "src/createLibrary.tsx",
+      "output": "createLibrary.js"
+    },
+    {
+      "name": "dashboard",
+      "input": "src/dashboard.tsx",
+      "output": "dashboard.js"
+    },
+    {
+      "name": "initEntryKinds",
+      "input": "src/initEntryKinds.tsx",
+      "output": "initEntryKinds.js"
+    },
+    {
+      "name": "createEntryKind",
+      "input": "src/createEntryKind.tsx",
+      "output": "createEntryKind.js"
+    },
+    {
+      "name": "initMacroKinds",
+      "input": "src/initMacroKinds.tsx",
+      "output": "initMacroKinds.js"
+    },
+    {
+      "name": "createMacroKind",
+      "input": "src/createMacroKind.tsx",
+      "output": "createMacroKind.js"
+    },
+    {
+      "name": "createEntry",
+      "input": "src/createEntry.tsx",
+      "output": "createEntry.js"
+    },
+    {
+      "name": "createEntryPackage",
+      "input": "src/createEntryPackage.tsx",
+      "output": "createEntryPackage.js"
+    },
+    {
+      "name": "entryPackagePanel",
+      "input": "src/entryPackagePanel.tsx",
+      "output": "entryPackagePanel.js"
+    },
+    {
+      "name": "createMacroPackage",
+      "input": "src/createMacroPackage.tsx",
+      "output": "createMacroPackage.js"
+    },
+    {
+      "name": "packagePanel",
+      "input": "src/packagePanel.tsx",
+      "output": "packagePanel.js"
+    },
+    {
+      "name": "createMacro",
+      "input": "src/createMacro.tsx",
+      "output": "createMacro.js"
+    },
+    {
+      "name": "createRelationship",
+      "input": "src/createRelationship.tsx",
+      "output": "createRelationship.js"
+    },
+    {
+      "name": "snlGraph",
+      "input": "src/snlGraph.tsx",
+      "output": "snlGraph.js"
+    },
+    { "name": "snoogl", "input": "src/snoogl.tsx", "output": "snoogl.js" },
+    {
+      "name": "exportOptions",
+      "input": "src/exportOptions.tsx",
+      "output": "exportOptions.js"
+    }
+  ]
+}

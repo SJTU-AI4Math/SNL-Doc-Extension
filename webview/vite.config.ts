@@ -1,69 +1,24 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
+import productionEntries from './productionEntries.json';
 
 // Build the React webview into ../media/webview/.
 //
 // The extension host loads each bundle via a classic (non-module)
 // `<script nonce=... src=...>` tag, so every entry must be a SELF-CONTAINED
 // bundle with no top-level `import` (no shared/vendor chunk). We therefore
-// build one entry per invocation (selected by SNL_WEBVIEW_ENTRY) and append
-// to the same outDir:
-//   - main.js            -> Infoview                (src/main.tsx)
-//   - createLibrary.js   -> Create Library          (src/createLibrary.tsx)
-//   - dashboard.js       -> Dashboard               (src/dashboard.tsx)
-//   - initEntryKinds.js  -> Initialize Entry Kinds  (src/initEntryKinds.tsx)
-//   - createEntryKind.js -> Create Entry Kind       (src/createEntryKind.tsx)
-//   - createEntry.js     -> Create Entry            (src/createEntry.tsx)
-//   - createMacroPackage.js -> Create Macro Package (src/createMacroPackage.tsx)
-//   - packagePanel.js    -> Macro Package Panel     (src/packagePanel.tsx)
-//   - createMacro.js     -> Create Macro editor     (src/createMacro.tsx)
-//
-// `npm run build:webview` runs all passes in sequence (see package.json).
+// build one entry per invocation (selected by SNL_WEBVIEW_ENTRY) and append to
+// the same outDir. productionEntries.json locks every input and output, and
+// `npm run build:webview` runs every manifest entry in sequence.
 // Only the first pass (main) clears the output directory.
-type Entry =
-  | 'main'
-  | 'entryInfoview'
-  | 'createLibrary'
-  | 'dashboard'
-  | 'initEntryKinds'
-  | 'createEntryKind'
-  | 'initMacroKinds'
-  | 'createMacroKind'
-  | 'createEntry'
-  | 'createEntryPackage'
-  | 'entryPackagePanel'
-  | 'createMacroPackage'
-  | 'packagePanel'
-  | 'createMacro'
-  | 'createRelationship'
-  | 'snlGraph'
-  | 'snoogl'
-  | 'exportOptions';
-
-const ENTRY_TO_INPUT: Record<Entry, string> = {
-  main: 'src/main.tsx',
-  entryInfoview: 'src/entryInfoview.tsx',
-  createLibrary: 'src/createLibrary.tsx',
-  dashboard: 'src/dashboard.tsx',
-  initEntryKinds: 'src/initEntryKinds.tsx',
-  createEntryKind: 'src/createEntryKind.tsx',
-  initMacroKinds: 'src/initMacroKinds.tsx',
-  createMacroKind: 'src/createMacroKind.tsx',
-  createEntry: 'src/createEntry.tsx',
-  createEntryPackage: 'src/createEntryPackage.tsx',
-  entryPackagePanel: 'src/entryPackagePanel.tsx',
-  createMacroPackage: 'src/createMacroPackage.tsx',
-  packagePanel: 'src/packagePanel.tsx',
-  createMacro: 'src/createMacro.tsx',
-  createRelationship: 'src/createRelationship.tsx',
-  snlGraph: 'src/snlGraph.tsx',
-  snoogl: 'src/snoogl.tsx',
-  exportOptions: 'src/exportOptions.tsx'
-};
-
-const entry = (process.env.SNL_WEBVIEW_ENTRY as Entry) || 'main';
-const inputFile = ENTRY_TO_INPUT[entry] ?? ENTRY_TO_INPUT.main;
+const requestedEntry = process.env.SNL_WEBVIEW_ENTRY ?? 'main';
+const entry = productionEntries.entries.find(
+  (candidate) => candidate.name === requestedEntry
+);
+if (!entry) {
+  throw new Error(`Unknown production webview entry: ${requestedEntry}`);
+}
 
 export default defineConfig({
   plugins: [react()],
@@ -96,16 +51,16 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, '../media/webview'),
     // Only the first pass clears the dir; subsequent passes append.
-    emptyOutDir: entry === 'main',
+    emptyOutDir: entry.name === 'main',
     // Emit a single self-contained file per entry (no shared/vendor chunk),
     // so the classic <script> tag in the panels can execute it as-is. The
     // single-file shape is enforced by the rollup output config below, not
     // by any top-level Vite flag.
     rollupOptions: {
-      input: resolve(__dirname, inputFile),
+      input: resolve(__dirname, entry.input),
       output: {
-        entryFileNames: `${entry}.js`,
-        chunkFileNames: `${entry}-[name]-[hash].js`,
+        entryFileNames: entry.output,
+        chunkFileNames: `${entry.name}-[name]-[hash].js`,
         // CSS must be a predictable sibling (`<entry>.css`) so buildPanelHtml
         // can <link> it. Every other asset (KaTeX web-fonts pulled in via the
         // `katex.min.css` import) keeps a hashed name so the many font files
@@ -116,9 +71,9 @@ export default defineConfig({
           const info = asset as { name?: string; names?: string[] };
           const name = info.names?.[0] ?? info.name ?? '';
           if (name.endsWith('.css')) {
-            return `${entry}.css`;
+            return `${entry.name}.css`;
           }
-          return `${entry}-[name]-[hash][extname]`;
+          return `${entry.name}-[name]-[hash][extname]`;
         }
       }
     }

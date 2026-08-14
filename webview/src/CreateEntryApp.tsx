@@ -2791,20 +2791,72 @@ interface CanvasExtent {
   height: number;
 }
 
+interface CanvasBounds extends CanvasExtent {
+  left: number;
+  top: number;
+}
+
+interface CanvasViewportExtent extends CanvasExtent {
+  visibleLeft?: number;
+  visibleTop?: number;
+  visibleWidth?: number;
+  visibleHeight?: number;
+}
+
+/** World-space tile bounds covering the visible viewport and every root card. */
+export function canvasBoundsForBlocks(
+  viewport: CanvasViewportExtent,
+  blocks: readonly CanvasBlockBounds[],
+  padding: number
+): CanvasBounds {
+  const baselineRight = Math.max(0, viewport.width);
+  const baselineBottom = Math.max(0, viewport.height);
+  const visibleLeft = Number.isFinite(viewport.visibleLeft) ? viewport.visibleLeft! : 0;
+  const visibleTop = Number.isFinite(viewport.visibleTop) ? viewport.visibleTop! : 0;
+  const visibleRight = visibleLeft + Math.max(0, viewport.visibleWidth ?? viewport.width);
+  const visibleBottom = visibleTop + Math.max(0, viewport.visibleHeight ?? viewport.height);
+  let left = Math.min(0, visibleLeft);
+  let top = Math.min(0, visibleTop);
+  let right = Math.max(baselineRight, visibleRight);
+  let bottom = Math.max(baselineBottom, visibleBottom);
+  for (const block of blocks) {
+    const blockWidth = Math.max(0, block.width);
+    const blockHeight = Math.max(0, block.height);
+    if (blockWidth === 0 && blockHeight === 0) continue;
+    const blockLeft = block.x - padding;
+    const blockTop = block.y - padding;
+    const blockRight = block.x + blockWidth + padding;
+    const blockBottom = block.y + blockHeight + padding;
+    if (Number.isFinite(blockLeft)) left = Math.min(left, blockLeft);
+    if (Number.isFinite(blockTop)) top = Math.min(top, blockTop);
+    if (Number.isFinite(blockRight)) right = Math.max(right, blockRight);
+    if (Number.isFinite(blockBottom)) bottom = Math.max(bottom, blockBottom);
+  }
+  const tileSize = 20;
+  const roundedLeft = left < 0 ? Math.floor(left / tileSize) * tileSize : 0;
+  const roundedTop = top < 0 ? Math.floor(top / tileSize) * tileSize : 0;
+  const roundedRight = right > baselineRight
+    ? Math.ceil(right / tileSize) * tileSize
+    : baselineRight;
+  const roundedBottom = bottom > baselineBottom
+    ? Math.ceil(bottom / tileSize) * tileSize
+    : baselineBottom;
+  return {
+    left: roundedLeft,
+    top: roundedTop,
+    width: roundedRight - roundedLeft,
+    height: roundedBottom - roundedTop
+  };
+}
+
+/** Backward-compatible size-only view used by non-DOM formula tests. */
 export function canvasExtentForBlocks(
   viewport: CanvasExtent,
   blocks: readonly CanvasBlockBounds[],
   padding: number
 ): CanvasExtent {
-  let width = Math.max(0, viewport.width);
-  let height = Math.max(0, viewport.height);
-  for (const block of blocks) {
-    const right = block.x + Math.max(0, block.width) + padding;
-    const bottom = block.y + Math.max(0, block.height) + padding;
-    if (Number.isFinite(right)) width = Math.max(width, right);
-    if (Number.isFinite(bottom)) height = Math.max(height, bottom);
-  }
-  return { width: Math.ceil(width), height: Math.ceil(height) };
+  const { width, height } = canvasBoundsForBlocks(viewport, blocks, padding);
+  return { width, height };
 }
 
 interface CanvasPointerTarget {
@@ -2909,6 +2961,7 @@ interface CanvasPendingDrag {
   startClientX: number;
   startClientY: number;
   startPosition: CanvasBlockPosition;
+  grabOffset: CanvasBlockPosition;
   active: boolean;
 }
 
@@ -3180,7 +3233,7 @@ export function GuiCanvasEditor({
 }): React.ReactElement {
   const t = useUiMessages(CREATE_ENTRY_MESSAGES);
   const [positions, setPositions] = React.useState<Record<string, CanvasBlockPosition>>({});
-  const [canvasExtent, setCanvasExtent] = React.useState<CanvasExtent>({ width: 0, height: 0 });
+  const [canvasBounds, setCanvasBounds] = React.useState<CanvasBounds>({ left: 0, top: 0, width: 0, height: 0 });
   const [canvasZoom, setCanvasZoom] = React.useState(1);
   const [draggingBlockId, setDraggingBlockId] = React.useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);
@@ -3192,6 +3245,7 @@ export function GuiCanvasEditor({
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const canvasZoomRef = React.useRef(1);
+  const canvasBoundsRef = React.useRef<CanvasBounds>(canvasBounds);
   const pendingZoomAnchorRef = React.useRef<{
     logicalX: number;
     logicalY: number;
@@ -3201,8 +3255,10 @@ export function GuiCanvasEditor({
   const wheelFrameRef = React.useRef<number | null>(null);
   const wheelBatchRef = React.useRef<{
     nextZoom: number;
-    clientX: number;
-    clientY: number;
+    logicalX: number;
+    logicalY: number;
+    pointerX: number;
+    pointerY: number;
   } | null>(null);
   const editorRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const addRootRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -3243,6 +3299,7 @@ export function GuiCanvasEditor({
   );
   forestRef.current = forest;
   canvasZoomRef.current = canvasZoom;
+  canvasBoundsRef.current = canvasBounds;
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
@@ -3254,18 +3311,18 @@ export function GuiCanvasEditor({
       if (!batch) return;
       const current = canvasZoomRef.current;
       const next = batch.nextZoom;
-      if (next === current) return;
-      const rect = viewport.getBoundingClientRect();
-      // scrollLeft/scrollTop start at the viewport's padding edge. DOMRect,
-      // however, starts at its border edge, so border widths must not enter the
-      // logical pointer anchor.
-      const pointerX = batch.clientX - rect.left - viewport.clientLeft;
-      const pointerY = batch.clientY - rect.top - viewport.clientTop;
+      if (next === current) {
+        // Equal final scale does not imply a no-op: inverse wheel steps at
+        // different centres compose to a translation.
+        viewport.scrollLeft = (batch.logicalX - canvasBoundsRef.current.left) * current - batch.pointerX;
+        viewport.scrollTop = (batch.logicalY - canvasBoundsRef.current.top) * current - batch.pointerY;
+        return;
+      }
       pendingZoomAnchorRef.current = {
-        logicalX: (viewport.scrollLeft + pointerX) / current,
-        logicalY: (viewport.scrollTop + pointerY) / current,
-        pointerX,
-        pointerY
+        logicalX: batch.logicalX,
+        logicalY: batch.logicalY,
+        pointerX: batch.pointerX,
+        pointerY: batch.pointerY
       };
       // One synchronous commit per animation frame keeps the DOM geometry and
       // zoom ref coherent before the next wheel batch, without forcing layout
@@ -3286,13 +3343,28 @@ export function GuiCanvasEditor({
       if (normalizedDeltaY === 0) return;
       event.preventDefault();
       const pending = wheelBatchRef.current;
+      const current = pending?.nextZoom ?? canvasZoomRef.current;
+      const rect = viewport.getBoundingClientRect();
+      // scrollLeft/scrollTop start at the viewport's padding edge. DOMRect,
+      // however, starts at its border edge, so border widths must not enter the
+      // logical pointer anchor.
+      const pointerX = event.clientX - rect.left - viewport.clientLeft;
+      const pointerY = event.clientY - rect.top - viewport.clientTop;
+      // Compose every wheel event against a virtual camera. Merely retaining
+      // the last pointer and total zoom is wrong when a trackpad batch moves
+      // its centre before the animation-frame commit.
+      const virtualScrollLeft = pending
+        ? (pending.logicalX - canvasBoundsRef.current.left) * current - pending.pointerX
+        : viewport.scrollLeft;
+      const virtualScrollTop = pending
+        ? (pending.logicalY - canvasBoundsRef.current.top) * current - pending.pointerY
+        : viewport.scrollTop;
       wheelBatchRef.current = {
-        nextZoom: canvasZoomFromWheel(
-          pending?.nextZoom ?? canvasZoomRef.current,
-          normalizedDeltaY
-        ),
-        clientX: event.clientX,
-        clientY: event.clientY
+        nextZoom: canvasZoomFromWheel(current, normalizedDeltaY),
+        logicalX: canvasBoundsRef.current.left + (virtualScrollLeft + pointerX) / current,
+        logicalY: canvasBoundsRef.current.top + (virtualScrollTop + pointerY) / current,
+        pointerX,
+        pointerY
       };
       if (wheelFrameRef.current === null) {
         wheelFrameRef.current = window.requestAnimationFrame(commitWheelBatch);
@@ -3309,14 +3381,28 @@ export function GuiCanvasEditor({
     };
   }, []);
 
+  const previousCanvasOriginRef = React.useRef({ left: 0, top: 0 });
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
+    if (!viewport) return;
     const anchor = pendingZoomAnchorRef.current;
-    if (!viewport || !anchor) return;
-    viewport.scrollLeft = anchor.logicalX * canvasZoom - anchor.pointerX;
-    viewport.scrollTop = anchor.logicalY * canvasZoom - anchor.pointerY;
-    pendingZoomAnchorRef.current = null;
-  }, [canvasZoom]);
+    if (anchor) {
+      viewport.scrollLeft = (anchor.logicalX - canvasBounds.left) * canvasZoom - anchor.pointerX;
+      viewport.scrollTop = (anchor.logicalY - canvasBounds.top) * canvasZoom - anchor.pointerY;
+      pendingZoomAnchorRef.current = null;
+    } else {
+      const previous = previousCanvasOriginRef.current;
+      viewport.scrollLeft = Math.max(
+        0,
+        viewport.scrollLeft + (previous.left - canvasBounds.left) * canvasZoom
+      );
+      viewport.scrollTop = Math.max(
+        0,
+        viewport.scrollTop + (previous.top - canvasBounds.top) * canvasZoom
+      );
+    }
+    previousCanvasOriginRef.current = { left: canvasBounds.left, top: canvasBounds.top };
+  }, [canvasZoom, canvasBounds.left, canvasBounds.top]);
 
   React.useEffect(() => () => {
     // A MacroDataDriver request may outlive the Canvas. Never publish into the
@@ -3388,7 +3474,7 @@ export function GuiCanvasEditor({
     const block = canvas.querySelector<HTMLElement>('[data-canvas-root-index="0"]');
     if (!block) return;
     const centre = (): void => {
-      if (autoCenterRootRef.current !== first) return;
+      if (autoCenterRootRef.current !== first || dragRef.current !== null) return;
       const blockRect = block.getBoundingClientRect();
       if (viewport.clientWidth === 0 || viewport.clientHeight === 0 || blockRect.width === 0) return;
       const zoom = canvasZoomRef.current;
@@ -3430,28 +3516,48 @@ export function GuiCanvasEditor({
       ? computedMinHeight
       : 512;
     const minimumHeight = viewport.clientHeight > 0
-      ? canvasLogicalViewportWidth(viewport.clientHeight, canvasZoom)
+      ? canvasLogicalViewportWidth(viewport.clientHeight, canvasZoomRef.current)
       : fallbackHeight;
     const blocks = [...canvas.querySelectorAll<HTMLElement>('[data-canvas-root-index]')]
       .map((block): CanvasBlockBounds => ({
-        x: block.offsetLeft,
-        y: block.offsetTop,
+        x: canvasBoundsRef.current.left + block.offsetLeft,
+        y: canvasBoundsRef.current.top + block.offsetTop,
         width: Math.max(block.offsetWidth, block.scrollWidth),
         height: Math.max(block.offsetHeight, block.scrollHeight)
       }));
-    const next = canvasExtentForBlocks(
-      { width: canvasLogicalViewportWidth(viewport.clientWidth, canvasZoom), height: minimumHeight },
+    const zoom = canvasZoomRef.current;
+    const next = canvasBoundsForBlocks(
+      {
+        width: canvasLogicalViewportWidth(viewport.clientWidth, zoom),
+        height: minimumHeight,
+        visibleLeft: canvasBoundsRef.current.left + viewport.scrollLeft / zoom,
+        visibleTop: canvasBoundsRef.current.top + viewport.scrollTop / zoom,
+        visibleWidth: viewport.clientWidth / zoom,
+        visibleHeight: viewport.clientHeight > 0 ? viewport.clientHeight / zoom : minimumHeight
+      },
       blocks,
       24
     );
-    setCanvasExtent((previous) =>
-      previous.width === next.width && previous.height === next.height ? previous : next
-    );
-  }, [canvasZoom]);
+    setCanvasBounds((previous) => {
+      const stable = draggingBlockId
+        ? (() => {
+            const left = Math.min(previous.left, next.left);
+            const top = Math.min(previous.top, next.top);
+            const right = Math.max(previous.left + previous.width, next.left + next.width);
+            const bottom = Math.max(previous.top + previous.height, next.top + next.height);
+            return { left, top, width: right - left, height: bottom - top };
+          })()
+        : next;
+      return previous.left === stable.left && previous.top === stable.top &&
+        previous.width === stable.width && previous.height === stable.height
+        ? previous
+        : stable;
+    });
+  }, [draggingBlockId]);
 
   React.useLayoutEffect(() => {
     measureCanvasExtent();
-  }, [forest, positions, canvasZoom, measureCanvasExtent]);
+  }, [forest, positions, canvasZoom, canvasBounds.left, canvasBounds.top, measureCanvasExtent]);
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
@@ -3464,6 +3570,13 @@ export function GuiCanvasEditor({
     );
     return () => observer.disconnect();
   }, [forest, measureCanvasExtent]);
+
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.addEventListener('scroll', measureCanvasExtent, { passive: true });
+    return () => viewport.removeEventListener('scroll', measureCanvasExtent);
+  }, [measureCanvasExtent]);
 
   React.useEffect(() => {
     if (focused) {
@@ -3589,31 +3702,81 @@ export function GuiCanvasEditor({
     }
     const canvas = event.currentTarget.closest<HTMLElement>('[data-entry-gui-canvas]');
     const canvasRect = canvas?.getBoundingClientRect();
+    const blockRect = event.currentTarget.getBoundingClientRect();
     const rootContent = resolved.path.length > 0
       ? event.currentTarget.firstElementChild as HTMLElement | null
       : null;
-    const blockRect = rootContent ? event.currentTarget.getBoundingClientRect() : null;
     const contentRect = rootContent?.getBoundingClientRect();
+    // Renderer transitions can temporarily leave the host wrapper at the
+    // viewport origin with a zero rect. Treat only a non-empty rect whose
+    // origin belongs to the source card as measured card geometry; otherwise
+    // derive the generic card inset from its resolved border/padding.
+    const contentRectUsable = Boolean(
+      contentRect &&
+      (contentRect.width > 0 || contentRect.height > 0) &&
+      contentRect.left >= blockRect.left &&
+      contentRect.top >= blockRect.top &&
+      contentRect.left <= blockRect.right &&
+      contentRect.top <= blockRect.bottom
+    );
+    const computedBlock = window.getComputedStyle(event.currentTarget);
+    const paddingLeft = computedBlock.paddingLeft.endsWith('px')
+      ? Number.parseFloat(computedBlock.paddingLeft)
+      : 0;
+    const paddingTop = computedBlock.paddingTop.endsWith('px')
+      ? Number.parseFloat(computedBlock.paddingTop)
+      : 0;
+    const fallbackInsetX = (event.currentTarget.clientLeft + paddingLeft) * canvasZoomRef.current;
+    const fallbackInsetY = (event.currentTarget.clientTop + paddingTop) * canvasZoomRef.current;
     // A nested node is positioned by its content box. Once detached it gains a
     // root card around that content. Subtract the measured card-to-content
     // inset, otherwise the newly wrapped content jumps down/right on the first
-    // move. The first content wrapper exists even when the renderer omits the
-    // root Macro's own data-tree-path element.
-    const rootInsetX = blockRect && contentRect ? contentRect.left - blockRect.left : 0;
-    const rootInsetY = blockRect && contentRect ? contentRect.top - blockRect.top : 0;
-    const startPosition =
-      resolved.path.length > 0 && canvas && canvasRect
-        ? {
-            x: canvasVisualDeltaToLogical(
-              resolved.rect.left - canvasRect.left - rootInsetX,
-              canvasZoomRef.current
-            ),
-            y: canvasVisualDeltaToLogical(
-              resolved.rect.top - canvasRect.top - rootInsetY,
-              canvasZoomRef.current
-            )
-          }
-        : positions[blockId] ?? { x: 24, y: 24 };
+    // move. Whole-root dragging also starts from committed DOM geometry rather
+    // than potentially stale position state.
+    const rootInsetX = contentRectUsable && contentRect
+      ? contentRect.left - blockRect.left
+      : fallbackInsetX;
+    const rootInsetY = contentRectUsable && contentRect
+      ? contentRect.top - blockRect.top
+      : fallbackInsetY;
+    const resolvedRectUsable = Number.isFinite(resolved.rect.left) &&
+      Number.isFinite(resolved.rect.top) && resolved.rect.width > 0 && resolved.rect.height > 0;
+    const cardVisualLeft = resolved.path.length > 0 && resolvedRectUsable
+      ? resolved.rect.left - rootInsetX
+      : blockRect.left;
+    const cardVisualTop = resolved.path.length > 0 && resolvedRectUsable
+      ? resolved.rect.top - rootInsetY
+      : blockRect.top;
+    const bounds = canvasBoundsRef.current;
+    const blockRectUsable = blockRect.width > 0 || blockRect.height > 0;
+    const canMeasureCard = Boolean(
+      canvas && canvasRect &&
+      (resolved.path.length > 0 ? resolvedRectUsable || blockRectUsable : blockRectUsable)
+    );
+    const startPosition = canMeasureCard && canvasRect
+      ? {
+          x: bounds.left + canvasVisualDeltaToLogical(
+            cardVisualLeft - canvasRect.left,
+            canvasZoomRef.current
+          ),
+          y: bounds.top + canvasVisualDeltaToLogical(
+            cardVisualTop - canvasRect.top,
+            canvasZoomRef.current
+          )
+        }
+      : positions[blockId] ?? { x: 24, y: 24 };
+    const pointerWorld = canvas && canvasRect
+      ? {
+          x: bounds.left + canvasVisualDeltaToLogical(
+            event.clientX - canvasRect.left,
+            canvasZoomRef.current
+          ),
+          y: bounds.top + canvasVisualDeltaToLogical(
+            event.clientY - canvasRect.top,
+            canvasZoomRef.current
+          )
+        }
+      : { x: startPosition.x, y: startPosition.y };
     // Pointer-down must suppress the browser's native text-selection gesture;
     // the Canvas owns this drag surface, while editing uses a separate input.
     event.preventDefault();
@@ -3625,6 +3788,10 @@ export function GuiCanvasEditor({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition,
+      grabOffset: {
+        x: pointerWorld.x - startPosition.x,
+        y: pointerWorld.y - startPosition.y
+      },
       active: false
     };
     // Cat 2026-07-25: a plain click must focus exactly the subtree that a
@@ -3632,6 +3799,10 @@ export function GuiCanvasEditor({
     // target here so the click handler can reuse it verbatim instead of
     // re-resolving (and possibly landing on a shallower ancestor).
     lastPointerTargetRef.current = { rootIndex, path: resolved.path };
+    // Selection belongs to pointer-down, not the later synthetic click. This
+    // keeps exact subtree focus even when pointer capture, a renderer wrapper,
+    // or drag activation suppresses the click phase.
+    setFocused({ rootIndex, path: resolved.path });
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -3695,20 +3866,39 @@ export function GuiCanvasEditor({
     const canvas = canvasRef.current;
     const targetElement = nextDropTarget ? elementForTarget(nextDropTarget) : null;
     const canvasRect = canvas?.getBoundingClientRect();
+    const bounds = canvasBoundsRef.current;
     const snappedPosition = targetElement && canvas && canvasRect
       ? (() => {
           const targetRect = targetElement.getBoundingClientRect();
           return {
-            x: canvasVisualDeltaToLogical(targetRect.left - canvasRect.left, canvasZoomRef.current),
-            y: canvasVisualDeltaToLogical(targetRect.top - canvasRect.top, canvasZoomRef.current)
+            x: bounds.left + canvasVisualDeltaToLogical(
+              targetRect.left - canvasRect.left,
+              canvasZoomRef.current
+            ),
+            y: bounds.top + canvasVisualDeltaToLogical(
+              targetRect.top - canvasRect.top,
+              canvasZoomRef.current
+            )
           };
         })()
       : null;
+    const pointerWorld = canvas && canvasRect
+      ? {
+          x: bounds.left + canvasVisualDeltaToLogical(
+            event.clientX - canvasRect.left,
+            canvasZoomRef.current
+          ),
+          y: bounds.top + canvasVisualDeltaToLogical(
+            event.clientY - canvasRect.top,
+            canvasZoomRef.current
+          )
+        }
+      : { x: drag.startPosition.x + dx, y: drag.startPosition.y + dy };
     setPositions((previous) => ({
       ...previous,
       [drag.blockId]: snappedPosition ?? {
-        x: drag.startPosition.x + dx,
-        y: drag.startPosition.y + dy
+        x: pointerWorld.x - drag.grabOffset.x,
+        y: pointerWorld.y - drag.grabOffset.y
       }
     }));
     updateDropTarget(nextDropTarget);
@@ -3818,8 +4008,14 @@ export function GuiCanvasEditor({
     setEditingNode({
       ...target,
       scope: effectiveScope,
-      left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
-      top: canvasVisualDeltaToLogical(rect.top - canvasRect.top, canvasZoomRef.current),
+      left: canvasBoundsRef.current.left + canvasVisualDeltaToLogical(
+        rect.left - canvasRect.left,
+        canvasZoomRef.current
+      ),
+      top: canvasBoundsRef.current.top + canvasVisualDeltaToLogical(
+        rect.top - canvasRect.top,
+        canvasZoomRef.current
+      ),
       value: isCanvasHole(node)
         ? ''
         : effectiveScope === 'macro'
@@ -3848,7 +4044,14 @@ export function GuiCanvasEditor({
     // same block; otherwise re-resolve from the DOM.
     if (remembered && remembered.rootIndex === rootIndex) {
       const element = elementForTarget(remembered);
-      if (element && (element === event.target || element.contains(event.target as Node))) {
+      if (
+        element &&
+        (
+          element === event.target ||
+          element.contains(event.target as Node) ||
+          event.target === block
+        )
+      ) {
         return remembered;
       }
     }
@@ -3962,10 +4165,16 @@ export function GuiCanvasEditor({
     const canvas = canvasRef.current;
     const canvasRect = canvas?.getBoundingClientRect();
     const left = canvas && canvasRect
-      ? canvasVisualDeltaToLogical(event.clientX - canvasRect.left, canvasZoomRef.current)
+      ? canvasBoundsRef.current.left + canvasVisualDeltaToLogical(
+          event.clientX - canvasRect.left,
+          canvasZoomRef.current
+        )
       : event.clientX;
     const top = canvas && canvasRect
-      ? canvasVisualDeltaToLogical(event.clientY - canvasRect.top, canvasZoomRef.current)
+      ? canvasBoundsRef.current.top + canvasVisualDeltaToLogical(
+          event.clientY - canvasRect.top,
+          canvasZoomRef.current
+        )
       : event.clientY;
     closeCanvasInputs();
     // Blank canvas space gets its own menu whose only action adds a root.
@@ -3987,7 +4196,12 @@ export function GuiCanvasEditor({
       event.key.toLowerCase() === 'f'
     ) {
       event.preventDefault();
-      setAddingRootFromMacro({ x: 24, y: 24 });
+      setAddingRootFromMacro({
+        x: canvasBoundsRef.current.left +
+          ((viewportRef.current?.scrollLeft ?? 0) + 24) / canvasZoomRef.current,
+        y: canvasBoundsRef.current.top +
+          ((viewportRef.current?.scrollTop ?? 0) + 24) / canvasZoomRef.current
+      });
       return;
     }
     if (event.key === 'Escape') {
@@ -4138,6 +4352,8 @@ export function GuiCanvasEditor({
    * Position and metadata for the floating focused-Macro control. Every real
    * Macro gets ↗; variadic ones share the same panel with [- n +].
    */
+  // Persist the anchor in world coordinates. Canvas-local coordinates change
+  // whenever the finite backing extent reclaims or adds left/top tiles.
   const [focusedControlAnchor, setFocusedControlAnchor] = React.useState<{
     key: string;
     left: number;
@@ -4178,10 +4394,28 @@ export function GuiCanvasEditor({
       retargetResizeObserver(element);
       const rect = element.getBoundingClientRect();
       const canvasRect = canvas.getBoundingClientRect();
+      const root = forest[focused.rootIndex];
+      const rootPosition = root ? positions[treeIdentity(root)] ?? { x: 24, y: 24 } : null;
+      const renderedBlockLeft = Number.parseFloat(block.style.left);
+      const renderedBlockTop = Number.parseFloat(block.style.top);
+      // Infer the origin used by the committed DOM rather than reading a ref
+      // that may already describe the next layout-effect render.
+      const renderedOriginLeft = rootPosition && Number.isFinite(renderedBlockLeft)
+        ? rootPosition.x - renderedBlockLeft
+        : canvasBounds.left;
+      const renderedOriginTop = rootPosition && Number.isFinite(renderedBlockTop)
+        ? rootPosition.y - renderedBlockTop
+        : canvasBounds.top;
       const next = {
         key: `${focused.rootIndex}:${focused.path.join('.')}`,
-        left: canvasVisualDeltaToLogical(rect.left - canvasRect.left, canvasZoomRef.current),
-        top: canvasVisualDeltaToLogical(rect.bottom - canvasRect.top, canvasZoomRef.current) + 4
+        left: renderedOriginLeft + canvasVisualDeltaToLogical(
+          rect.left - canvasRect.left,
+          canvasZoomRef.current
+        ),
+        top: renderedOriginTop + canvasVisualDeltaToLogical(
+          rect.bottom - canvasRect.top,
+          canvasZoomRef.current
+        ) + 4
       };
       setFocusedControlAnchor((previous) =>
         previous?.key === next.key && previous.left === next.left && previous.top === next.top
@@ -4199,7 +4433,17 @@ export function GuiCanvasEditor({
     // Geometry is committed only after render. Re-measure for React state axes
     // and renderer-owned DOM/size changes alike.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused, editingNode, contextMenu, forest, positions, canvasZoom, dynamicArityVersion]);
+  }, [
+    focused,
+    editingNode,
+    contextMenu,
+    forest,
+    positions,
+    canvasZoom,
+    canvasBounds.left,
+    canvasBounds.top,
+    dynamicArityVersion
+  ]);
 
   const focusedMacroControl = React.useMemo(() => {
     if (!focused || editingNode || contextMenu) return null;
@@ -4212,11 +4456,20 @@ export function GuiCanvasEditor({
       node,
       dynamic: isDynamicMacro(node.macro_name),
       count: node.children.length,
-      left: focusedControlAnchor.left,
-      top: focusedControlAnchor.top
+      left: focusedControlAnchor.left - canvasBounds.left,
+      top: focusedControlAnchor.top - canvasBounds.top
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused, editingNode, contextMenu, forest, dynamicArityVersion, focusedControlAnchor]);
+  }, [
+    focused,
+    editingNode,
+    contextMenu,
+    forest,
+    dynamicArityVersion,
+    focusedControlAnchor,
+    canvasBounds.left,
+    canvasBounds.top
+  ]);
 
   const commitNodeEdit = async (): Promise<void> => {
     if (!editingNode) return;
@@ -4445,6 +4698,7 @@ export function GuiCanvasEditor({
           height: '32rem',
           overflowX: 'auto',
           overflowY: 'auto',
+          overflowAnchor: 'none',
           overscrollBehavior: 'contain',
           border: '1px solid var(--vscode-panel-border, #444)',
           borderRadius: '6px',
@@ -4469,14 +4723,17 @@ export function GuiCanvasEditor({
           position: 'relative',
           zoom: canvasZoom,
           minWidth: '100%',
-          width: canvasExtent.width > 0 ? canvasExtent.width : '100%',
-          height: canvasExtent.height > 0 ? canvasExtent.height : '32rem',
+          width: canvasBounds.width > 0 ? canvasBounds.width : '100%',
+          height: canvasBounds.height > 0 ? canvasBounds.height : '32rem',
           boxSizing: 'border-box',
           overflow: 'visible',
           fontSize: '1.05rem',
           backgroundImage:
             'radial-gradient(circle, var(--vscode-editorWidget-border, #555) 1px, transparent 1px)',
-          backgroundSize: '20px 20px'
+          backgroundSize: '20px 20px',
+          backgroundPosition: `${((-canvasBounds.left % 20) + 20) % 20}px ${
+            ((-canvasBounds.top % 20) + 20) % 20
+          }px`
         }}
       >
         {forest.map((root, rootIndex) => {
@@ -4495,8 +4752,8 @@ export function GuiCanvasEditor({
               onPointerCancelCapture={cancelPointer}
               style={{
                 position: 'absolute',
-                left: position.x,
-                top: position.y,
+                left: position.x - canvasBounds.left,
+                top: position.y - canvasBounds.top,
                 display: 'inline-block',
                 width: 'max-content',
                 maxWidth: 'none',
@@ -4563,9 +4820,11 @@ export function GuiCanvasEditor({
             }
             style={{
               position: 'absolute',
-              left: editingNode.left,
-              top: editingNode.top,
-              maxWidth: `calc(100% - ${Math.max(0, editingNode.left) + 8}px)`,
+              left: editingNode.left - canvasBounds.left,
+              top: editingNode.top - canvasBounds.top,
+              maxWidth: `calc(100% - ${
+                Math.max(0, editingNode.left - canvasBounds.left) + 8
+              }px)`,
               zIndex: 20,
               borderColor: editingNode.error
                 ? 'var(--vscode-errorForeground, #f48771)'
@@ -4634,8 +4893,8 @@ export function GuiCanvasEditor({
             }}
             style={{
               position: 'absolute',
-              left: addingRootFromMacro.x,
-              top: addingRootFromMacro.y,
+              left: addingRootFromMacro.x - canvasBounds.left,
+              top: addingRootFromMacro.y - canvasBounds.top,
               width: '18rem',
               zIndex: 20
             }}
@@ -4752,14 +5011,21 @@ export function GuiCanvasEditor({
         ) : null}
         {contextMenu ? (
           <CanvasContextMenuView
-            menu={contextMenu}
+            menu={{
+              ...contextMenu,
+              left: contextMenu.left - canvasBounds.left,
+              top: contextMenu.top - canvasBounds.top
+            }}
             node={contextMenu.rootIndex < 0 ? undefined : getNodeAtPath(
               forestRef.current[contextMenu.rootIndex],
               contextMenu.path.join('.')
             )}
             onAddRoot={() => {
               setEditingNode(null);
-              setAddingRootFromMacro({ x: contextMenu.left, y: contextMenu.top });
+              setAddingRootFromMacro({
+                x: contextMenu.left,
+                y: contextMenu.top
+              });
             }}
             onEditMacro={() => startEditingTarget(contextMenu, 'macro')}
             onEditSubtree={() => startEditingTarget(contextMenu, 'subtree')}

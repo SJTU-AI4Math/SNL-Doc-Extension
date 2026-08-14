@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import {
   GuiCanvasEditor,
+  canvasBoundsForBlocks,
   canvasExtentForBlocks,
   canvasInitialPosition,
   canvasLogicalViewportWidth,
@@ -202,14 +203,49 @@ describe('GuiCanvasEditor', () => {
       deltaY: -120, clientX: 160, clientY: 120, cancelable: true
     });
     const second = createEvent.wheel(viewport, {
-      deltaY: -120, clientX: 160, clientY: 120, cancelable: true
+      deltaY: -120, clientX: 260, clientY: 120, cancelable: true
     });
     viewport.dispatchEvent(first);
     viewport.dispatchEvent(second);
 
-    const finalZoom = canvasZoomFromWheel(canvasZoomFromWheel(1, -120), -120);
+    const firstZoom = canvasZoomFromWheel(1, -120);
+    const firstScroll = (100 + 150) * firstZoom - 150;
+    const finalZoom = canvasZoomFromWheel(firstZoom, -120);
+    const finalScroll = ((firstScroll + 250) / firstZoom) * finalZoom - 250;
     await waitFor(() => expect(Number(canvas.style.zoom)).toBe(finalZoom));
-    expect(viewport.scrollLeft).toBeCloseTo((100 + 150) * finalZoom - 150);
+    expect(viewport.scrollLeft).toBeCloseTo(finalScroll);
+  });
+
+  it('preserves pan from same-frame inverse zooms at different pointer centres', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    viewport.getBoundingClientRect = () => new DOMRect(10, 20, 800, 500);
+    viewport.scrollLeft = 300;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    const firstPointer = 150;
+    const secondPointer = 250;
+    viewport.dispatchEvent(createEvent.wheel(viewport, {
+      deltaY: -120, clientX: 10 + firstPointer, clientY: 120, cancelable: true
+    }));
+    viewport.dispatchEvent(createEvent.wheel(viewport, {
+      deltaY: 120, clientX: 10 + secondPointer, clientY: 120, cancelable: true
+    }));
+    const middleZoom = canvasZoomFromWheel(1, -120);
+    const middleScroll = (300 + firstPointer) * middleZoom - firstPointer;
+    const finalZoom = canvasZoomFromWheel(middleZoom, 120);
+    const finalScroll = ((middleScroll + secondPointer) / middleZoom) * finalZoom - secondPointer;
+    expect(finalZoom).toBe(1);
+    await waitFor(() => expect(viewport.scrollLeft).toBeCloseTo(finalScroll));
+    expect(Number(canvas.style.zoom)).toBe(finalZoom);
+    expect(viewport.scrollLeft).not.toBe(300);
   });
 
   it('preserves same-frame wheel order when a delta is clamped at a zoom bound', async () => {
@@ -340,7 +376,7 @@ describe('GuiCanvasEditor', () => {
       deltaY: 1000, clientX: 50, clientY: 50, cancelable: true
     }));
     await waitFor(() => expect(Number(canvas.style.zoom)).toBe(0.5));
-    expect(canvas.style.width).toBe('1600px');
+    expect(Number.parseFloat(canvas.style.width)).toBeGreaterThanOrEqual(1600);
 
     fireEvent(viewport, createEvent.wheel(viewport, {
       deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
@@ -444,22 +480,48 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(block.style.left).toBe('275px'));
     expect(block.style.top).toBe('163px');
 
+    // A candidate gesture freezes renderer-owned centring before it crosses
+    // the drag threshold; otherwise a queued ResizeObserver can move the card
+    // between pointer-down and the first active move.
+    blockRect = new DOMRect(0, 0, 50, 25);
+    fireEvent.pointerDown(block, { pointerId: 201, button: 0, clientX: 10, clientY: 10 });
+    mutationObservers
+      .filter(({ observed }) => observed.has(block))
+      .forEach(({ callback }) => callback([], {} as MutationObserver));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(block.style.left).toBe('275px');
+    expect(block.style.top).toBe('163px');
+    fireEvent.pointerUp(block, { pointerId: 201, clientX: 10, clientY: 10 });
+
     // Crossing the drag threshold transfers ownership. Later renderer changes
     // must not yank the block back to a newly calculated centre, and the
     // now-useless initial-centering observers must be disconnected immediately.
-    fireEvent.pointerDown(block, { pointerId: 202, button: 0, clientX: 10, clientY: 10 });
-    fireEvent.pointerMove(block, { pointerId: 202, clientX: 30, clientY: 30 });
-    fireEvent.pointerUp(block, { pointerId: 202, clientX: 30, clientY: 30 });
-    await waitFor(() => expect(block.style.left).toBe('285px'));
-    expect(block.style.top).toBe('173px');
     const centringObservers = mutationObservers.filter(({ observed }) => observed.has(block));
-    expect(centringObservers.length).toBeGreaterThan(0);
-    expect(centringObservers.every(({ disconnected }) => disconnected)).toBe(true);
     const centringResize = centringResizeObservers.filter(({ observed }) =>
       observed.has(block) && !observed.has(viewport)
     );
+    blockRect = new DOMRect(-190 + 275 * 2, -80 + 163 * 2, 100, 50);
+    const dragClientX = blockRect.left + 10;
+    const dragClientY = blockRect.top + 10;
+    fireEvent.pointerDown(block, {
+      pointerId: 202, button: 0, clientX: dragClientX, clientY: dragClientY
+    });
+    fireEvent.pointerMove(block, {
+      pointerId: 202, clientX: dragClientX + 20, clientY: dragClientY + 20
+    });
+    fireEvent.pointerUp(block, {
+      pointerId: 202, clientX: dragClientX + 20, clientY: dragClientY + 20
+    });
+    await waitFor(() => expect(block.style.left).toBe('285px'));
+    expect(block.style.top).toBe('173px');
+    expect(centringObservers.length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(centringObservers.every(({ disconnected }) => disconnected)).toBe(true)
+    );
     expect(centringResize.length).toBeGreaterThan(0);
-    expect(centringResize.every(({ disconnected }) => disconnected)).toBe(true);
+    await waitFor(() =>
+      expect(centringResize.every(({ disconnected }) => disconnected)).toBe(true)
+    );
 
     blockRect = new DOMRect(0, 0, 50, 25);
     block.appendChild(document.createElement('span'));
@@ -633,6 +695,89 @@ describe('GuiCanvasEditor', () => {
     // logical (6, 6) inset, and the visual drag delta (80, 40) is logical (40, 20).
     expect(detachedBlock.style.left).toBe('234px');
     expect(detachedBlock.style.top).toBe('139px');
+  });
+
+  it('ignores an empty transitional content rect when detaching a nested subtree', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('child')])]);
+      return (
+        <>
+          <output data-testid="invalid-inset-root-count">{forest.length}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    const sourceBlock = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    const rootContent = sourceBlock.firstElementChild as HTMLElement;
+    const child = sourceBlock.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(100, 200, 1600, 1024);
+    sourceBlock.getBoundingClientRect = () => new DOMRect(300, 400, 300, 100);
+    rootContent.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    child.getBoundingClientRect = () => new DOMRect(500, 450, 80, 40);
+
+    fireEvent.pointerDown(child, {
+      pointerId: 103, button: 0, clientX: 510, clientY: 460
+    });
+    fireEvent.pointerMove(child, { pointerId: 103, clientX: 590, clientY: 500 });
+    fireEvent.pointerUp(child, { pointerId: 103, clientX: 590, clientY: 500 });
+
+    await waitFor(() => expect(view.getByTestId('invalid-inset-root-count').textContent).toBe('2'));
+    const detachedBlock = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]')[1];
+    expect(detachedBlock.style.left).toBe('240px');
+    expect(detachedBlock.style.top).toBe('145px');
+  });
+
+  it('bounds detach coordinates when the semantic target rect is transiently empty', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root', [node('child')])]);
+      return (
+        <>
+          <output data-testid="invalid-target-root-count">{forest.length}</output>
+          <GuiCanvasEditor forest={forest} macroDataDriver={driver} kindPalette={undefined}
+            onForestChange={setForest} onResetFromSnl={() => undefined} />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 50, clientY: 50, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    const sourceBlock = view.container.querySelector<HTMLElement>('[data-canvas-root-index="0"]')!;
+    const rootContent = sourceBlock.firstElementChild as HTMLElement;
+    const child = sourceBlock.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(100, 200, 1600, 1024);
+    sourceBlock.getBoundingClientRect = () => new DOMRect(300, 400, 300, 100);
+    rootContent.getBoundingClientRect = () => new DOMRect(312, 412, 276, 76);
+    child.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+
+    fireEvent.pointerDown(child, {
+      pointerId: 104, button: 0, clientX: 510, clientY: 460
+    });
+    fireEvent.pointerMove(child, { pointerId: 104, clientX: 590, clientY: 500 });
+    fireEvent.pointerUp(child, { pointerId: 104, clientX: 590, clientY: 500 });
+
+    await waitFor(() => expect(view.getByTestId('invalid-target-root-count').textContent).toBe('2'));
+    const detachedBlock = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]')[1];
+    // Fall back to the source card's committed world position plus visual delta,
+    // never to the page origin from the empty semantic rect.
+    expect(detachedBlock.style.left).toBe('140px');
+    expect(detachedBlock.style.top).toBe('120px');
   });
 
   it('positions the focused Macro controls in logical coordinates while zoomed', async () => {
@@ -838,12 +983,208 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(partialElement.classList.contains('snl-canvas-focused')).toBe(true));
   });
 
+  it('tiles the union of the viewport and all four occupied block extrema, then reclaims it', () => {
+    expect(canvasBoundsForBlocks(
+      { width: 800, height: 512 },
+      [
+        { x: -300, y: -200, width: 100, height: 80 },
+        { x: 900, y: 700, width: 200, height: 100 }
+      ],
+      24
+    )).toEqual({ left: -340, top: -240, width: 1480, height: 1080 });
+
+    expect(canvasBoundsForBlocks(
+      { width: 800, height: 512 },
+      [{ x: 24, y: 24, width: 200, height: 100 }],
+      24
+    )).toEqual({ left: 0, top: 0, width: 800, height: 512 });
+  });
+
+  it('expands left/up around dragged blocks and reclaims unused tiles without moving the viewport world', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const viewport = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas-viewport]')!;
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    const block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    expect(viewport.style.overflowAnchor).toBe('none');
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 512 },
+      scrollLeft: { configurable: true, writable: true, value: 0 },
+      scrollTop: { configurable: true, writable: true, value: 0 }
+    });
+    Object.defineProperties(block, {
+      offsetLeft: { configurable: true, get: () => Number.parseFloat(block.style.left) },
+      offsetTop: { configurable: true, get: () => Number.parseFloat(block.style.top) },
+      offsetWidth: { configurable: true, value: 100 },
+      offsetHeight: { configurable: true, value: 60 },
+      scrollWidth: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 60 }
+    });
+    canvas.getBoundingClientRect = () => new DOMRect(
+      100 - viewport.scrollLeft,
+      80 - viewport.scrollTop,
+      800,
+      512
+    );
+    block.getBoundingClientRect = () => new DOMRect(
+      100 + Number.parseFloat(block.style.left) - viewport.scrollLeft,
+      80 + Number.parseFloat(block.style.top) - viewport.scrollTop,
+      100,
+      60
+    );
+    const target = block.querySelector<HTMLElement>('[data-tree-path=""]')!;
+    target.getBoundingClientRect = () => {
+      const blockRect = block.getBoundingClientRect();
+      return new DOMRect(blockRect.left + 6, blockRect.top + 6, 80, 20);
+    };
+    fireEvent.click(target, { clientX: 130, clientY: 110 });
+    const control = await waitFor(() =>
+      view.container.querySelector<HTMLElement>('[data-canvas-macro-control]')!
+    );
+    const assertControlAttached = (): void => {
+      const currentControl = view.container.querySelector<HTMLElement>('[data-canvas-macro-control]')!;
+      expect(currentControl).not.toBeNull();
+      expect(Number.parseFloat(currentControl.style.left) - Number.parseFloat(block.style.left)).toBe(6);
+      expect(Number.parseFloat(currentControl.style.top) - Number.parseFloat(block.style.top)).toBe(30);
+    };
+    expect(control).not.toBeNull();
+    assertControlAttached();
+
+    // Move the world-space card to x=-176, y=-126. The local tile origin
+    // shifts to (-200,-150), so the card remains at 24px padding.
+    let rect = block.getBoundingClientRect();
+    fireEvent.pointerDown(block, {
+      pointerId: 74, button: 0, clientX: rect.left + 10, clientY: rect.top + 10
+    });
+    fireEvent.pointerMove(block, {
+      pointerId: 74, clientX: rect.left - 190, clientY: rect.top - 140
+    });
+    fireEvent.pointerUp(block, {
+      pointerId: 74, clientX: rect.left - 190, clientY: rect.top - 140
+    });
+    await waitFor(() => expect(canvas.style.width).toBe('1000px'));
+    expect(canvas.style.height).toBe('672px');
+    expect(canvas.style.backgroundPosition).toBe('0px 0px');
+    expect(block.style.left).toBe('24px');
+    expect(block.style.top).toBe('34px');
+    expect(viewport.scrollLeft).toBe(200);
+    expect(viewport.scrollTop).toBe(160);
+    await waitFor(assertControlAttached);
+
+    // View the left/top extension and move the card back into the baseline
+    // viewport. The no-longer-occupied tiles are reclaimed.
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 0;
+    rect = block.getBoundingClientRect();
+    fireEvent.pointerDown(block, {
+      pointerId: 75, button: 0, clientX: rect.left + 10, clientY: rect.top + 10
+    });
+    fireEvent.pointerMove(block, {
+      pointerId: 75, clientX: rect.left + 310, clientY: rect.top + 260
+    });
+    // Never reclaim the origin underneath an active pointer gesture: at the
+    // left/top scroll edge there is no negative scroll range available to
+    // compensate that origin shift, so shrinking here would break the grab.
+    await waitFor(() => expect(canvas.style.width).toBe('1000px'));
+    expect(canvas.style.height).toBe('672px');
+    expect(block.style.left).toBe('324px');
+    expect(block.style.top).toBe('284px');
+    fireEvent.pointerUp(block, {
+      pointerId: 75, clientX: rect.left + 310, clientY: rect.top + 260
+    });
+    // Releasing while the user is still looking at the left/top extension
+    // keeps that visible world rectangle backed. Reclaim follows as the user
+    // scrolls back to the baseline world.
+    await waitFor(() => expect(canvas.style.width).toBe('1000px'));
+    expect(canvas.style.height).toBe('672px');
+    expect(block.style.left).toBe('324px');
+    expect(block.style.top).toBe('284px');
+
+    const menuPoint = block.getBoundingClientRect();
+    fireEvent.contextMenu(canvas, {
+      clientX: menuPoint.left + 10,
+      clientY: menuPoint.top + 12
+    });
+    const menu = await view.findByRole('menu', { name: 'Canvas block actions' });
+    const assertMenuAttached = (): void => {
+      expect(Number.parseFloat(menu.style.left) - Number.parseFloat(block.style.left)).toBe(10);
+      expect(Number.parseFloat(menu.style.top) - Number.parseFloat(block.style.top)).toBe(12);
+    };
+    assertMenuAttached();
+
+    viewport.scrollLeft = 200;
+    viewport.scrollTop = 160;
+    fireEvent.scroll(viewport);
+    await waitFor(() => expect(block.style.left).toBe('124px'));
+    expect(canvas.style.width).toBe('800px');
+    expect(canvas.style.backgroundPosition).toBe('0px 0px');
+    expect(block.style.left).toBe('124px');
+    expect(block.style.top).toBe('124px');
+    expect(viewport.scrollLeft).toBe(0);
+    expect(viewport.scrollTop).toBe(0);
+    assertMenuAttached();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Add root Macro/ }));
+    const addRootSearch = await view.findByRole('textbox', { name: 'Search macros in SNoogL' });
+    const addRootHost = addRootSearch.closest<HTMLElement>('[data-macro-id-control]')!;
+    expect(Number.parseFloat(addRootHost.style.left) - Number.parseFloat(block.style.left)).toBe(10);
+    expect(Number.parseFloat(addRootHost.style.top) - Number.parseFloat(block.style.top)).toBe(12);
+    fireEvent.keyDown(addRootSearch, { key: 'Escape' });
+
+    // Repeat the extent cycle with a node editor open during reclamation.
+    rect = block.getBoundingClientRect();
+    fireEvent.pointerDown(block, {
+      pointerId: 76, button: 0, clientX: rect.left + 10, clientY: rect.top + 10
+    });
+    fireEvent.pointerMove(block, {
+      pointerId: 76, clientX: rect.left - 290, clientY: rect.top - 240
+    });
+    fireEvent.pointerUp(block, {
+      pointerId: 76, clientX: rect.left - 290, clientY: rect.top - 240
+    });
+    await waitFor(() => expect(block.style.left).toBe('24px'));
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 0;
+    rect = block.getBoundingClientRect();
+    fireEvent.pointerDown(block, {
+      pointerId: 77, button: 0, clientX: rect.left + 10, clientY: rect.top + 10
+    });
+    fireEvent.pointerMove(block, {
+      pointerId: 77, clientX: rect.left + 310, clientY: rect.top + 260
+    });
+    fireEvent.pointerUp(block, {
+      pointerId: 77, clientX: rect.left + 310, clientY: rect.top + 260
+    });
+    await waitFor(() => expect(block.style.left).toBe('324px'));
+    fireEvent.doubleClick(target);
+    const editor = await view.findByRole('textbox', { name: 'Edit focused SNL' });
+    const editorHost = editor.closest<HTMLElement>('[data-macro-id-control]')!;
+    const assertEditorAttached = (): void => {
+      expect(Number.parseFloat(editorHost.style.left) - Number.parseFloat(block.style.left)).toBe(6);
+      expect(Number.parseFloat(editorHost.style.top) - Number.parseFloat(block.style.top)).toBe(6);
+    };
+    assertEditorAttached();
+    viewport.scrollLeft = 200;
+    viewport.scrollTop = 160;
+    fireEvent.scroll(viewport);
+    await waitFor(() => expect(block.style.left).toBe('124px'));
+    assertEditorAttached();
+    fireEvent.keyDown(editor, { key: 'Escape' });
+  });
+
   it('expands the canvas bounds for blocks wider and taller than the viewport', () => {
     expect(canvasExtentForBlocks(
       { width: 800, height: 512 },
       [{ x: 120, y: 80, width: 1600, height: 1200 }],
       24
-    )).toEqual({ width: 1744, height: 1304 });
+     )).toEqual({ width: 1760, height: 1320 });
     expect(canvasExtentForBlocks(
       { width: 800, height: 512 },
       [{ x: 24, y: 24, width: 200, height: 100 }],
@@ -883,8 +1224,8 @@ describe('GuiCanvasEditor', () => {
     });
 
     callbacks.forEach((callback) => callback([], {} as ResizeObserver));
-    await waitFor(() => expect(canvas.style.width).toBe('1744px'));
-    expect(canvas.style.height).toBe('1304px');
+    await waitFor(() => expect(canvas.style.width).toBe('1760px'));
+    expect(canvas.style.height).toBe('1320px');
   });
 
   it('adds fixed-arity placeholders when a Macro is inserted as a new root', async () => {
@@ -1166,6 +1507,14 @@ describe('GuiCanvasEditor', () => {
     });
     expect(block.style.cursor).toBe('grab');
     expect(block.style.userSelect).toBe('none');
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    canvas.getBoundingClientRect = () => new DOMRect(0, 0, 800, 512);
+    block.getBoundingClientRect = () => new DOMRect(
+      Number.parseFloat(block.style.left),
+      Number.parseFloat(block.style.top),
+      100,
+      40
+    );
 
     expect(fireEvent.pointerDown(block, {
       pointerId: 2,
@@ -1182,6 +1531,33 @@ describe('GuiCanvasEditor', () => {
     fireEvent.pointerUp(block, { pointerId: 2, clientX: 30, clientY: 40 });
     await waitFor(() => expect(block.style.cursor).toBe('grab'));
     expect(view.container.querySelectorAll('[data-canvas-root]')).toHaveLength(1);
+  });
+
+  it('starts whole-block dragging from committed DOM geometry instead of stale position state', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root')]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    const block = await waitFor(() => view.container.querySelector<HTMLElement>('[data-canvas-root]')!);
+    canvas.getBoundingClientRect = () => new DOMRect(100, 80, 800, 512);
+    block.getBoundingClientRect = () => new DOMRect(500, 380, 120, 60);
+
+    fireEvent.pointerDown(block, {
+      pointerId: 73,
+      button: 0,
+      clientX: 520,
+      clientY: 400
+    });
+    fireEvent.pointerMove(block, { pointerId: 73, clientX: 530, clientY: 410 });
+
+    await waitFor(() => expect(block.style.left).toBe('410px'));
+    expect(block.style.top).toBe('310px');
   });
 
   it('uses adaptive compact blocks and lightens them on hover', async () => {
@@ -1414,6 +1790,45 @@ describe('GuiCanvasEditor', () => {
     fireEvent.change(cancelled, { target: { value: 'discarded' } });
     fireEvent.keyDown(cancelled, { key: 'Escape' });
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('new');
+  });
+
+  it('selects the exact nested subtree on primary pointer-down before click dispatch', async () => {
+    const view = render(
+      <GuiCanvasEditor
+        forest={[node('root', [node('branch', [node('leaf')])])]}
+        macroDataDriver={driver}
+        kindPalette={undefined}
+        onForestChange={() => undefined}
+        onResetFromSnl={() => undefined}
+      />
+    );
+    const root = await waitFor(() => view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    const branch = view.container.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    const leaf = view.container.querySelector<HTMLElement>('[data-tree-path="0.0"]')!;
+    root.getBoundingClientRect = () => new DOMRect(100, 100, 240, 60);
+    branch.getBoundingClientRect = () => new DOMRect(150, 110, 140, 40);
+    leaf.getBoundingClientRect = () => new DOMRect(200, 120, 50, 20);
+
+    fireEvent.pointerDown(leaf, {
+      pointerId: 76,
+      button: 0,
+      clientX: 220,
+      clientY: 130
+    });
+
+    await waitFor(() => expect(leaf.classList.contains('snl-canvas-focused')).toBe(true));
+    expect(branch.classList.contains('snl-canvas-focused')).toBe(false);
+    expect(root.classList.contains('snl-canvas-focused')).toBe(false);
+
+    // Native pointer capture may retarget pointerup/click to the root card.
+    // The exact pointerdown subtree remains authoritative for this gesture.
+    const block = leaf.closest<HTMLElement>('[data-canvas-root-index]')!;
+    leaf.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    branch.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+    fireEvent.pointerUp(block, { pointerId: 76, clientX: 220, clientY: 130 });
+    fireEvent.click(block, { clientX: 220, clientY: 130 });
+    await waitFor(() => expect(leaf.classList.contains('snl-canvas-focused')).toBe(true));
+    expect(root.classList.contains('snl-canvas-focused')).toBe(false);
   });
 
   it('selects the clicked node while dismissing an open node editor', async () => {

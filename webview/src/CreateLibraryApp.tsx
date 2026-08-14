@@ -1292,7 +1292,7 @@ function OutlineEditor({
         roots={rootNodes}
         moveToEdge
         rowClassName="snl-library-outline-row"
-        rowStyle={{ alignItems: 'flex-start', paddingRight: '11.3rem' }}
+        rowStyle={{ alignItems: 'flex-start' }}
         getId={(n) => n.id}
         getChildren={getChildren}
         renderRow={renderRow}
@@ -1389,10 +1389,7 @@ function OutlineRowContent({
 
   return (
     <div
-      className={[
-        'snl-library-outline-row-main',
-        depth >= 3 ? 'snl-library-outline-row-main--deep' : ''
-      ].filter(Boolean).join(' ')}
+      className="snl-library-outline-row-main"
       data-snl-library-row-main
       style={{
         '--snl-library-outline-depth-offset': `${depth * 1.5}rem`
@@ -1621,7 +1618,7 @@ function OutlineEntryTargetEditor({
       ariaLabel={t('entryId')}
       idPrefix={`snl-library-node-entry-${nodeId}`}
       hideResolvedChip
-      suggestionsInFlow
+      hideValidationMessage
       style={{ width: '11rem', flex: '0 1 11rem', minWidth: '6rem' }}
       inputStyle={{
         padding: '0.1rem 0.3rem',

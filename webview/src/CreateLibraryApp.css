@@ -1,10 +1,10 @@
 .snl-library-outline-row-main {
   display: grid;
   grid-template-columns:
-    calc(8rem + var(--snl-library-outline-depth-offset, 0rem))
-    fit-content(10rem)
-    minmax(7rem, 11rem)
-    minmax(8rem, 1fr);
+    calc(4rem + var(--snl-library-outline-depth-offset, 0rem))
+    minmax(0, 10rem)
+    minmax(6rem, 11rem)
+    minmax(0, 1fr);
   align-items: center;
   gap: 0.4rem;
   margin-left: calc(-1 * var(--snl-library-outline-depth-offset, 0rem));
@@ -18,20 +18,12 @@
   pointer-events: auto;
 }
 
-.snl-library-outline-row-main--deep {
-  --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
-}
-
-.snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content {
-  flex: 1 0 100% !important;
-}
-
 .snl-library-outline-counter {
   grid-column: 1;
   display: flex;
   align-items: center;
   width: calc(100% - var(--snl-library-counter-indent));
-  min-width: 4rem;
+  min-width: 0;
   min-height: 1.5rem;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.8rem;
@@ -59,7 +51,7 @@
 
 .snl-library-outline-kind {
   grid-column: 2;
-  width: max-content;
+  width: 100%;
   min-width: 0;
   max-width: 10rem;
   justify-self: start;
@@ -83,13 +75,25 @@
 }
 
 .snl-library-outline-metric {
+  box-sizing: border-box;
+  width: 4.2rem;
   margin-right: 0.35rem;
   flex-shrink: 0;
   pointer-events: auto;
 }
 
+/* Exact reservation: 0.3rem row inset + 4.2rem metric + 0.5rem combined
+   metric/cluster gap + 4.5rem dial. It is stable in every reveal state. */
 .snl-library-outline-row {
-  padding-right: 11.3rem !important;
+  --snl-library-toolbar-reservation: calc(0.3rem + 4.2rem + 0.5rem + 4.5rem);
+  padding-right: var(--snl-library-toolbar-reservation) !important;
+}
+
+@container snl-outline (min-width: 60.0625rem) {
+  .snl-library-outline-row.snl-library-outline-row:hover,
+  .snl-library-outline-row.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within) {
+    padding-right: var(--snl-library-toolbar-reservation) !important;
+  }
 }
 
 .snl-library-outline-row > .snl-outline-row-toolbar {
@@ -133,7 +137,7 @@
 
 @container snl-outline (max-width: 60rem) {
   .snl-library-outline-row-main {
-    grid-template-columns: minmax(calc(5.5rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) fit-content(10rem) minmax(0, 1fr);
+    grid-template-columns: minmax(calc(4rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) minmax(0, 10rem) minmax(0, 1fr);
     --snl-library-counter-indent: var(--snl-library-outline-depth-offset, 0rem);
   }
 

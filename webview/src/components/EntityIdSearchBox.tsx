@@ -391,7 +391,7 @@ export function EntityIdSearchBox(
   })();
 
   return (
-    <div ref={wrapperRef} style={{ position: 'relative', ...style }}>
+    <div ref={wrapperRef} style={{ position: 'relative', minWidth: 0, maxWidth: '100%', ...style }}>
       {label ? (
         <label
           htmlFor={inputId}
@@ -521,7 +521,11 @@ export function EntityIdSearchBox(
             border:
               '1px solid var(--vscode-quickInput-list-focusBackground, rgba(0,0,0,0.15))',
             boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-            borderRadius: '2px'
+            borderRadius: '2px',
+            boxSizing: 'border-box',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0
           }}
         >
           {results.map((e, i) => {
@@ -548,7 +552,9 @@ export function EntityIdSearchBox(
                     : 'transparent',
                   display: 'flex',
                   gap: '0.5rem',
-                  alignItems: 'baseline'
+                  alignItems: 'baseline',
+                  minWidth: 0,
+                  maxWidth: '100%'
                 }}
               >
                 <span

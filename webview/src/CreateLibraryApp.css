@@ -74,6 +74,31 @@
   min-width: 0;
 }
 
+/* The indented add form and its in-flow suggestions must not contribute a
+   long Entry id as an ancestor's min-content width. */
+.snl-tree-add-menu,
+.snl-tree-add-menu > *,
+.snl-tree-add-menu [role="listbox"],
+.snl-tree-add-menu [role="option"] {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.snl-tree-add-menu [role="listbox"] {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.snl-tree-add-menu [role="option"] > span:first-child {
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1 !important;
+}
+
 .snl-library-outline-metric {
   box-sizing: border-box;
   width: 4.2rem;

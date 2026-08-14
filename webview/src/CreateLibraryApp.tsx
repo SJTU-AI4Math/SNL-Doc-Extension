@@ -1255,6 +1255,7 @@ function OutlineEditor({
     return (
       <div style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}>
         <AddNodeForm
+          depth={depth}
           kinds={graph.kinds}
           entriesById={entriesById}
           entryOptions={entryOptions}
@@ -1309,6 +1310,7 @@ function OutlineEditor({
       {/* Root-level add: no parent. */}
       {addingUnder && !addingUnder.wrapTargetId && addingUnder.parentId === null && addingUnder.insertAfter === null ? (
         <AddNodeForm
+          depth={0}
           kinds={graph.kinds}
           entriesById={entriesById}
           entryOptions={entryOptions}
@@ -1662,6 +1664,7 @@ function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
 }
 
 function AddNodeForm({
+  depth,
   entriesById,
   entryOptions,
   counters,
@@ -1670,6 +1673,7 @@ function AddNodeForm({
   onCommit,
   onUpdate
 }: {
+  depth: number;
   // kinds is unused now (Create routes to CreateEntry panel), but kept in
   // the prop shape to avoid churn at the callsites.
   kinds: KindItem[];
@@ -1738,6 +1742,8 @@ function AddNodeForm({
 
   return (
     <div
+      className="snl-tree-add-menu"
+      data-snl-tree-add-depth={depth}
       style={{
         margin: '0.35rem 0',
         padding: '0.6rem 0.75rem',
@@ -1747,10 +1753,14 @@ function AddNodeForm({
           'var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e))',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.4rem'
+        gap: '0.4rem',
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0
       }}
     >
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', minWidth: 0 }}>
         <label
           htmlFor="snl-outline-entryid"
           style={{
@@ -1762,7 +1772,7 @@ function AddNodeForm({
         >
           {t('entryId')}
         </label>
-        <div style={{ flex: '1 1 auto' }}>
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
           {/* Cat 2026-07-09: replace the bare paste-uuid input with an
               autocomplete-backed picker. `allowNew=true` keeps the
               "type a new id, click Create" path working — a value not in
@@ -1778,6 +1788,7 @@ function AddNodeForm({
             hideResolvedChip
             autoFocus
             suggestionsInFlow
+            style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
             idPrefix="snl-outline-entryid"
             placeholder={t('entryPlaceholder')}
             onChange={(next) =>

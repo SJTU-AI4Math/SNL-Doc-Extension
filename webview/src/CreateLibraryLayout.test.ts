@@ -85,7 +85,7 @@ describe('Library outline responsive grid contract', () => {
   it('keeps the counter clear of Collapse and sizes the centered Kind track to its label', () => {
     const desktop = blockBetween(rowMain, '@container snl-outline (max-width: 60rem)');
     expect(declarations(desktop, rowMain).get('grid-template-columns')).toBe(
-      'calc(8rem + var(--snl-library-outline-depth-offset, 0rem)) fit-content(10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
+      'calc(4rem + var(--snl-library-outline-depth-offset, 0rem)) minmax(0, 10rem) minmax(6rem, 11rem) minmax(0, 1fr)'
     );
     expect(declarations(desktop, rowMain).get('margin-left')).toBe(
       'calc(-1 * var(--snl-library-outline-depth-offset, 0rem))'
@@ -102,23 +102,34 @@ describe('Library outline responsive grid contract', () => {
     expect(counterRule.get('width')).toBe(
       'calc(100% - var(--snl-library-counter-indent))'
     );
-    expect(counterRule.get('min-width')).toBe('4rem');
+    expect(counterRule.get('min-width')).toBe('0');
     const metricRule = declarations(desktop, metric);
     expect(metricRule.get('margin-right')).toBe('0.35rem');
     expect(metricRule.get('pointer-events')).toBe('auto');
     expect(metricRule.has('grid-column')).toBe(false);
     const libraryRow = declarations(desktop, '.snl-library-outline-row');
-    expect(libraryRow.get('padding-right')).toBe('11.3rem !important');
+    expect(libraryRow.get('--snl-library-toolbar-reservation')).toBe(
+      'calc(0.3rem + 4.2rem + 0.5rem + 4.5rem)'
+    );
+    expect(libraryRow.get('padding-right')).toBe('var(--snl-library-toolbar-reservation) !important');
     const kindRule = declarations(desktop, kind);
-    expect(kindRule.get('width')).toBe('max-content');
+    expect(kindRule.get('width')).toBe('100%');
     expect(kindRule.get('justify-self')).toBe('start');
     expect(kindRule.get('text-align')).toBe('center');
     expect(kindRule.get('max-width')).toBe('10rem');
     expect(kindRule.get('min-width')).toBe('0');
-    expect(declarations(
-      desktop,
-      '.snl-library-outline-row:has(.snl-library-outline-row-main--deep) > .snl-outline-row-content'
-    ).get('flex')).toBe('1 0 100% !important');
+    expect(desktop).not.toContain('.snl-library-outline-row-main--deep');
+    const desktopReveal = blockBetween(
+      '@container snl-outline (min-width: 60.0625rem)',
+      '@container snl-outline (max-width: 60rem)'
+    );
+    const revealReservation = declarations(
+      desktopReveal,
+      '.snl-library-outline-row.snl-library-outline-row:hover,\n  .snl-library-outline-row.snl-library-outline-row:has(> .snl-outline-row-toolbar:focus-within)'
+    );
+    expect(revealReservation.get('padding-right')).toBe(
+      'var(--snl-library-toolbar-reservation) !important'
+    );
     const libraryToolbar = declarations(
       desktop,
       '.snl-library-outline-row > .snl-outline-row-toolbar'
@@ -158,7 +169,7 @@ describe('Library outline responsive grid contract', () => {
       '@container snl-outline (max-width: 26rem)'
     );
     expect(declarations(medium, rowMain).get('grid-template-columns')).toBe(
-      'minmax(calc(5.5rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) fit-content(10rem) minmax(0, 1fr)'
+      'minmax(calc(4rem + var(--snl-library-outline-depth-offset, 0rem)), calc(8rem + var(--snl-library-outline-depth-offset, 0rem))) minmax(0, 10rem) minmax(0, 1fr)'
     );
     expect(declarations(medium, rowMain).get('--snl-library-counter-indent')).toBe(
       'var(--snl-library-outline-depth-offset, 0rem)'
@@ -228,7 +239,7 @@ describe('Library outline responsive grid contract', () => {
     row.dataset.snlLibraryRowMain = '';
     document.body.appendChild(row);
     expect(getComputedStyle(row).gridTemplateColumns.replace(/\s+/g, ' ').trim()).toBe(
-      'calc(8rem + var(--snl-library-outline-depth-offset, 0rem)) fit-content(10rem) minmax(7rem, 11rem) minmax(8rem, 1fr)'
+      'calc(4rem + var(--snl-library-outline-depth-offset, 0rem)) minmax(0, 10rem) minmax(6rem, 11rem) minmax(0, 1fr)'
     );
     row.remove();
     style.remove();

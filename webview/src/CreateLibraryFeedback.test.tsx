@@ -266,7 +266,7 @@ describe('Create Library feedback', () => {
     expect(main.firstElementChild).toBe(counter);
     expect(entryIdSlot.parentElement).toBe(main);
     expect(getComputedStyle(row).alignItems).toBe('flex-start');
-    expect(row.style.paddingRight).toBe('11.3rem');
+    expect(row.style.paddingRight).toBe('0px');
     expect(getComputedStyle(main).gridTemplateColumns).not.toBe('');
     expect(kind.style.borderColor).toBe('rgb(0, 255, 0)');
     expect(kind.style.background).toBe('rgb(255, 0, 0)');
@@ -336,7 +336,7 @@ describe('Create Library feedback', () => {
       .closest<HTMLElement>('[data-snl-library-row-main]');
     expect(rootMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('0rem');
     expect(childMain?.style.getPropertyValue('--snl-library-outline-depth-offset')).toBe('1.5rem');
-    expect(greatMain?.classList.contains('snl-library-outline-row-main--deep')).toBe(true);
+    expect(greatMain?.className).toBe('snl-library-outline-row-main');
     const rootCounter = rootMain?.querySelector<HTMLElement>('.snl-library-outline-counter');
     const childCounter = childMain?.querySelector<HTMLElement>('.snl-library-outline-counter');
     expect(rootCounter).not.toBeNull();

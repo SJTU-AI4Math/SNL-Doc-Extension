@@ -210,6 +210,9 @@ export interface EntityIdSearchBoxProps {
    *  input on match. Useful when the caller already renders its own
    *  status line (e.g. Library AddNodeForm). Default: false. */
   hideResolvedChip?: boolean;
+  /** Keep validation semantics on the input but omit the visual message.
+   *  Dense rows use this so transient search text cannot change row height. */
+  hideValidationMessage?: boolean;
   /** Render suggestions in normal document flow instead of overlaying the
    *  controls below. Intended for compact forms with primary actions directly
    *  under the search box. */
@@ -250,6 +253,7 @@ export function EntityIdSearchBox(
     autoFocus = false,
     idPrefix,
     hideResolvedChip = false,
+    hideValidationMessage = false,
     suggestionsInFlow = false
   } = props;
   const t = useUiMessages(MESSAGES);
@@ -440,7 +444,7 @@ export function EntityIdSearchBox(
       {/* Validation message. Rendered even in `info` / `ok` states when the
           validate fn wants to communicate something (e.g. permitNew's
           "will be created on submit"). */}
-      {verdict?.message ? (
+      {verdict?.message && !hideValidationMessage ? (
         <p
           style={{
             margin: '0.2rem 0 0',

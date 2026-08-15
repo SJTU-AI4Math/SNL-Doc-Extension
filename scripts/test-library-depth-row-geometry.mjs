@@ -107,18 +107,23 @@ for(const sample of matrix){
     }
   }
 }
+const reservationViolations=[],contentToolbarViolations=[],oneLineViolations=[],rowHeightViolations=[];
 for(const width of [1200,1000,961]){
   const states=matrix.filter(x=>x.width===width&&['idle','hover-depth4','focus-id-depth4','focus-toolbar-depth4'].includes(x.state));
   for(const sample of states){
     const row=sample.data.rows[4];
-    check(near(row.spaces.afterMain,152),`[ASSERT:TOOLBAR-RESERVATION] ${width}/${sample.state} ${row.spaces.afterMain}px != 152px`);
-    check(row.spaces.titleToToolbar>=-0.2,`[ASSERT:CONTENT-BEFORE-TOOLBAR] ${width}/${sample.state} crosses by ${-row.spaces.titleToToolbar}px`);
+    if(!near(row.spaces.afterMain,152))reservationViolations.push(`${width}/${sample.state} ${row.spaces.afterMain}px != 152px`);
+    if(row.spaces.titleToToolbar< -0.2)contentToolbarViolations.push(`${width}/${sample.state} crosses by ${-row.spaces.titleToToolbar}px`);
   }
   const idle=matrix.find(x=>x.width===width&&x.state==='idle');
-  check(idle.data.rows.every(row=>row.oneLine),`[ASSERT:DESKTOP-ONE-LINE] ${width}/idle depth row wrapped`);
+  if(!idle.data.rows.every(row=>row.oneLine))oneLineViolations.push(`${width}/idle depth row wrapped`);
   const heights=idle.data.rows.map(row=>row.rects.row.height);
-  check(Math.max(...heights)-Math.min(...heights)<1,`[ASSERT:ROW-HEIGHT-STABLE] ${width}/idle depth changes row height`);
+  if(Math.max(...heights)-Math.min(...heights)>=1)rowHeightViolations.push(`${width}/idle depth changes row height`);
 }
+check(reservationViolations.length===0,`[ASSERT:TOOLBAR-RESERVATION] ${reservationViolations.join('; ')}`);
+check(contentToolbarViolations.length===0,`[ASSERT:CONTENT-BEFORE-TOOLBAR] ${contentToolbarViolations.join('; ')}`);
+check(oneLineViolations.length===0,`[ASSERT:DESKTOP-ONE-LINE] ${oneLineViolations.join('; ')}`);
+check(rowHeightViolations.length===0,`[ASSERT:ROW-HEIGHT-STABLE] ${rowHeightViolations.join('; ')}`);
 const idle1200=matrix.find(x=>x.width===1200&&x.state==='idle').data.rows[8];
 const idle1000=matrix.find(x=>x.width===1000&&x.state==='idle').data.rows[8];
 const idle961=matrix.find(x=>x.width===961&&x.state==='idle').data.rows[8];
@@ -139,31 +144,37 @@ check(idle1200.rects.input.width>=idle1000.rects.input.width&&idle1000.rects.inp
 check(idle1000.rects.title.width>=200,`[ASSERT:DESKTOP-TITLE-BUDGET] desktop deep Title retained only ${idle1000.rects.title.width}px`);
 const medium417=matrix.find(x=>x.width===417&&x.state==='idle').data.rows[8];
 check(medium417.rects.kind.width<100,`[ASSERT:MEDIUM-KIND-SHRINK] 417px Kind ${medium417.rects.kind.width}px`);
+const suggestionOverlayViolations=[],suggestionHeightViolations=[],suggestionBaselineViolations=[];
 for(const width of [1200,1000,961,960,417,416,415,360]){
   const idle=matrix.find(x=>x.width===width&&x.state==='idle').data.rows[4];
   const focused=matrix.find(x=>x.width===width&&x.state==='focus-id-depth4').data;
-  check(focused.suggestions?.position==='absolute',`[ASSERT:ROW-SUGGESTIONS-OVERLAY] ${width}/ID focus position ${focused.suggestions?.position}`);
-  check(near(focused.rows[4].rects.row.height,idle.rects.row.height),`[ASSERT:SUGGESTIONS-ROW-HEIGHT-STABLE] ${width}/ID focus`);
-  check(near(focused.rows[4].rects.title.top,idle.rects.title.top)&&near(focused.rows[4].rects.input.top,idle.rects.input.top),`[ASSERT:SUGGESTIONS-BASELINE-STABLE] ${width}/ID focus`);
+  if(focused.suggestions?.position!=='absolute')suggestionOverlayViolations.push(`${width}/ID focus position ${focused.suggestions?.position}`);
+  if(!near(focused.rows[4].rects.row.height,idle.rects.row.height))suggestionHeightViolations.push(`${width}/ID focus`);
+  if(!near(focused.rows[4].rects.title.top,idle.rects.title.top)||!near(focused.rows[4].rects.input.top,idle.rects.input.top))suggestionBaselineViolations.push(`${width}/ID focus`);
 }
+check(suggestionOverlayViolations.length===0,`[ASSERT:ROW-SUGGESTIONS-OVERLAY] ${suggestionOverlayViolations.join('; ')}`);
+check(suggestionHeightViolations.length===0,`[ASSERT:SUGGESTIONS-ROW-HEIGHT-STABLE] ${suggestionHeightViolations.join('; ')}`);
+check(suggestionBaselineViolations.length===0,`[ASSERT:SUGGESTIONS-BASELINE-STABLE] ${suggestionBaselineViolations.join('; ')}`);
 check(hitTests.every(hit=>hit.exact),`[ASSERT:DISCLOSURE-HIT-TARGET] center hit tests failed`);
 for(const width of [959,960,961])check(matrix.some(x=>x.width===width&&x.state==='idle'),`[ASSERT:NAMED-CONTAINER-BOUNDARY] missing ${width}px sample`);
+const addViolations={action:[],menu:[],open:[],depth:[],bounded:[],formRect:[],fieldOverlap:[],visual:[],pointer:[],keyboard:[],pointerSelect:[],keyboardSelect:[]};
 for(const interaction of addInteractions){
-  check(!interaction.error,`${interaction.error??'[ASSERT:ADD-ACTION-EXISTS]'} d${interaction.depth}/${interaction.method}`);
-  check(interaction.formExists&&interaction.inputExists&&interaction.listExists,`[ASSERT:ADD-MENU-EXISTS] d${interaction.depth}/${interaction.method} form=${interaction.formExists} input=${interaction.inputExists} list=${interaction.listExists}`);
+  if(interaction.error)addViolations.action.push(`d${interaction.depth}/${interaction.method}`);
+  if(!(interaction.formExists&&interaction.inputExists&&interaction.listExists))addViolations.menu.push(`d${interaction.depth}/${interaction.method} form=${interaction.formExists} input=${interaction.inputExists} list=${interaction.listExists}`);
   if(!interaction.formExists||!interaction.inputExists||!interaction.listExists)continue;
-  check(interaction.expanded==='true',`[ASSERT:ADD-SUGGESTIONS-OPEN] d${interaction.depth}/${interaction.method} aria-expanded=${interaction.expanded}`);
-  check(interaction.formDepth===String(interaction.depth),`[ASSERT:ADD-MENU-ATTACHED-DEPTH] expected ${interaction.depth}, got ${interaction.formDepth}`);
-  check((interaction.overflow??Infinity)<=1,`[ASSERT:ADD-MENU-CONTAINER-BOUNDED] d${interaction.depth}/${interaction.method} overflow ${interaction.overflow}px`);
-  if(interaction.form&&interaction.container)check(interaction.form.left>=interaction.container.left-1&&interaction.form.right<=interaction.container.right+1,`[ASSERT:ADD-FORM-RECT-BOUNDED] d${interaction.depth} form ${interaction.form.left}..${interaction.form.right}, container ${interaction.container.left}..${interaction.container.right}`);
-  if(interaction.input&&interaction.list)check(intersection(interaction.input,interaction.list)<0.1,`[ASSERT:ADD-SUGGESTIONS-NO-FIELD-OVERLAP] d${interaction.depth}`);
+  if(interaction.expanded!=='true')addViolations.open.push(`d${interaction.depth}/${interaction.method} aria-expanded=${interaction.expanded}`);
+  if(interaction.formDepth!==String(interaction.depth))addViolations.depth.push(`expected ${interaction.depth}, got ${interaction.formDepth}`);
+  if((interaction.overflow??Infinity)>1)addViolations.bounded.push(`d${interaction.depth}/${interaction.method} overflow ${interaction.overflow}px`);
+  if(interaction.form&&interaction.container&&(interaction.form.left<interaction.container.left-1||interaction.form.right>interaction.container.right+1))addViolations.formRect.push(`d${interaction.depth} form ${interaction.form.left}..${interaction.form.right}, container ${interaction.container.left}..${interaction.container.right}`);
+  if(interaction.input&&interaction.list&&intersection(interaction.input,interaction.list)>=0.1)addViolations.fieldOverlap.push(`d${interaction.depth}`);
   const visual=interaction.idVisual;
   const rangeContained=visual?.rangeRects?.length>1&&visual.rangeRects.every(rect=>interaction.list&&rect.left>=interaction.list.left-1&&rect.right<=interaction.list.right+1);
-  check(visual?.text===ids[0]&&visual.whiteSpace==='normal'&&visual.overflowWrap==='anywhere'&&visual.textOverflow==='clip'&&visual.overflow!=='hidden'&&visual.scrollWidth<=visual.clientWidth+1&&visual.scrollHeight<=visual.clientHeight+1&&rangeContained,`[ASSERT:ADD-ID-VISUALLY-REACHABLE] d${interaction.depth} ${JSON.stringify(visual)}`);
-  check(visual?.pointerReachable===true,`[ASSERT:ADD-ID-POINTER-REACHABLE] d${interaction.depth}`);
-  check(interaction.activeDescendant===visual?.optionId,`[ASSERT:ADD-ID-KEYBOARD-REACHABLE] d${interaction.depth}`);
-  if(interaction.selectionMethod)check(interaction.selectedValue===ids[0],`[ASSERT:ADD-ID-${interaction.selectionMethod.toUpperCase()}-SELECTABLE] d${interaction.depth} selected ${interaction.selectedValue}`);
+  if(!(visual?.text===ids[0]&&visual.whiteSpace==='normal'&&visual.overflowWrap==='anywhere'&&visual.textOverflow==='clip'&&visual.overflow!=='hidden'&&visual.scrollWidth<=visual.clientWidth+1&&visual.scrollHeight<=visual.clientHeight+1&&rangeContained))addViolations.visual.push(`d${interaction.depth} ${JSON.stringify(visual)}`);
+  if(visual?.pointerReachable!==true)addViolations.pointer.push(`d${interaction.depth}`);
+  if(interaction.activeDescendant!==visual?.optionId)addViolations.keyboard.push(`d${interaction.depth}`);
+  if(interaction.selectionMethod&&interaction.selectedValue!==ids[0])addViolations[`${interaction.selectionMethod}Select`].push(`d${interaction.depth} selected ${interaction.selectedValue}`);
 }
+for(const [key,id] of Object.entries({action:'ADD-ACTION-EXISTS',menu:'ADD-MENU-EXISTS',open:'ADD-SUGGESTIONS-OPEN',depth:'ADD-MENU-ATTACHED-DEPTH',bounded:'ADD-MENU-CONTAINER-BOUNDED',formRect:'ADD-FORM-RECT-BOUNDED',fieldOverlap:'ADD-SUGGESTIONS-NO-FIELD-OVERLAP',visual:'ADD-ID-VISUALLY-REACHABLE',pointer:'ADD-ID-POINTER-REACHABLE',keyboard:'ADD-ID-KEYBOARD-REACHABLE',pointerSelect:'ADD-ID-POINTER-SELECTABLE',keyboardSelect:'ADD-ID-KEYBOARD-SELECTABLE'}))check(addViolations[key].length===0,`[ASSERT:${id}] ${addViolations[key].join('; ')}`);
 check(errors.length===0,`[ASSERT:BROWSER-CONSOLE-CLEAN] emitted ${errors.length} errors/warnings`);
 writeFileSync(resolve(out,'depth-width-matrix.json'),JSON.stringify({head:process.env.GITHUB_SHA||null,mutation,artifactBuild,priorArtifacts,buildStartedAt,fixtureSummary:{acceptanceDepths:'0-8',syntheticPressureDepths:'0-32',ids,kind:fixture.graph.kinds[0].name,title:fixture.graph.entries[0].title},pressure,shrinkPhases:{preferredId,idFloor,effectiveTitleFloor,blank:blankPhase,title:titlePhase,id:idPhase},menuMeta,addInteractions,hitTests,errors,failures,matrix},null,2));
 console.log(JSON.stringify({cases:matrix.length,widths,mutation:mutation||null,assertions:'named geometry/overflow/shrink/add-interaction/baseline/hit-test',failures,errors:errors.length,artifactBuild,out:explicitOut?out:'OS_TEMP_CLEANED'},null,2));
@@ -194,7 +205,7 @@ try {
   const run=await runHarness();
   if (!run.failures.length) terminalResult={kind:'pass'};
   else {
-    const ids=[...new Set(run.failures.flatMap(message=>[...message.matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match=>match[1])))];
+    const ids=run.failures.flatMap(message=>[...message.matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match=>match[1]));
     terminalResult={kind:'assertion',ids:ids.length?ids:['UNKNOWN']};
   }
 } catch (error) {

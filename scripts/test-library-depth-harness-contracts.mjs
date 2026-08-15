@@ -36,7 +36,10 @@ try {
   assert.equal(validateProbeResult('[ASSERT:A] expected\n{"kind":"assertion","ids":["A"]}\n', { kind: 'assertion', id: 'A' }).ok, true);
   assert.equal(validateProbeResult('[ASSERT:A]\n{"kind":"assertion","ids":["A"]}\n{"kind":"infra","id":"CLEANUP"}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('[ASSERT:A]\n[ASSERT:OTHER]\n{"kind":"assertion","ids":["A","OTHER"]}\n', { kind: 'assertion', id: 'A' }).ok, false, 'expected plus extra assertion must be rejected');
-  assert.equal(validateProbeResult('[ASSERT:A]\n{"kind":"assertion","ids":["A","A"]}\n', { kind: 'assertion', id: 'A' }).ok, false, 'duplicate expected assertion must be rejected');
+  const duplicateAssertion = validateProbeResult('[ASSERT:A] first occurrence\n[ASSERT:A] second occurrence\n{"kind":"assertion","ids":["A","A"]}\n', { kind: 'assertion', id: 'A' });
+  assert.deepEqual(duplicateAssertion.assertionIds, ['A', 'A'], 'raw duplicate assertion occurrences must be preserved in order');
+  assert.deepEqual(duplicateAssertion.result.ids, ['A', 'A'], 'terminal duplicate assertion occurrences must be preserved in order');
+  assert.equal(duplicateAssertion.ok, false, 'duplicate expected assertion must be rejected');
   assert.equal(validateProbeResult('[ASSERT:OTHER]\n{"kind":"assertion","ids":["OTHER"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('{kind:bad}\n{"kind":"assertion","ids":["A"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('', { kind: 'pass' }).ok, false);
@@ -88,13 +91,14 @@ try {
   const mutationSourceText = readFileSync(new URL('./test-library-depth-row-mutations.mjs', import.meta.url), 'utf8');
   assert.match(helperSource, /symlinkSync\(absoluteTarget, link, 'junction'\)/);
   assert.match(helperSource, /const absoluteTarget = path\.resolve\(target\)/);
-  assert.match(helperSource, /detached: false/);
+  assert.match(helperSource, /const detached = processTreePolicy\(\)\.detachedGroupRoot/);
   assert.doesNotMatch(geometrySourceText, /terminalFailures|failures\.filter/);
   assert.match(geometrySourceText, /terminalResult=\{kind:'assertion',ids:/);
   assert.match(mutationSourceText, /spawnProcessGroup\(process\.execPath, \[probe\]/);
   assert.deepEqual(processTreePolicy('linux'), { detachedGroupRoot: true, termination: 'process-group' });
   assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'taskkill-tree' });
-  assert.match(helperSource, /spawn\('taskkill', \['\/PID', String\(child\.pid\), '\/T', '\/F'\]/);
+  assert.match(helperSource, /terminateProcessTree\(child, timeoutMs = 5000\) \{\n  if \(!child\) return;\n  const ownership/);
+  assert.match(helperSource, /spawn\(taskkill, \['\/PID', String\(ownership\.rootPid\), '\/T', '\/F'\]/);
   void calls; void originalSymlink;
 
   if (process.platform !== 'win32') {
@@ -125,6 +129,38 @@ try {
     await new Promise((resolveWait) => setTimeout(resolveWait, 150));
     const ownedPids = readFileSync(standalonePids, 'utf8').trim().split(/\s+/).map(Number);
     assert.equal(ownedPids.every(pid => !existsSync(`/proc/${pid}`)), true, `standalone cleanup left descendants: ${ownedPids.filter(pid => existsSync(`/proc/${pid}`)).join(',')}`);
+
+    for (const [label, launch] of [
+      ['group root', spawnProcessGroup],
+      ['tracked root', spawnTracked]
+    ]) {
+      const unrelatedExitedRoot = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+      const exitedRootPids = resolve(temp, `${label.replaceAll(' ', '-')}-exited-root-pids`);
+      const exitedRootChild = `require('fs').appendFileSync(${JSON.stringify(exitedRootPids)},process.pid+'\\n');setInterval(()=>{},1000)`;
+      const exitedRootParent = `const {spawn}=require('child_process');const child=spawn(process.execPath,['-e',${JSON.stringify(exitedRootChild)}],{stdio:'ignore',detached:false});child.unref()`;
+      const exitedRoot = launch(process.execPath, ['-e', exitedRootParent], { stdio: 'ignore' });
+      await new Promise((resolveExit, rejectExit) => {
+        exitedRoot.once('error', rejectExit);
+        exitedRoot.once('exit', resolveExit);
+      });
+      for (let attempt = 0; attempt < 50 && !existsSync(exitedRootPids); attempt += 1) {
+        await new Promise(resolveWait => setTimeout(resolveWait, 20));
+      }
+      const descendantPid = Number(readFileSync(exitedRootPids, 'utf8').trim());
+      assert.equal(existsSync(`/proc/${descendantPid}`), true, `${label} descendant did not survive long enough to exercise exited-root cleanup`);
+      try {
+        await terminateProcessTree(exitedRoot);
+        await new Promise(resolveWait => setTimeout(resolveWait, 150));
+        assert.equal(existsSync(`/proc/${descendantPid}`), false, `${label} cleanup skipped a live descendant after its root exited`);
+        assert.equal(existsSync(`/proc/${unrelatedExitedRoot.pid}`), true, `${label} cleanup killed an unrelated process`);
+      } finally {
+        try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        if (label === 'group root') {
+          try { process.kill(-exitedRoot.pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        }
+        if (unrelatedExitedRoot.exitCode === null) unrelatedExitedRoot.kill('SIGTERM');
+      }
+    }
   }
 
   console.log(JSON.stringify({ kind: 'pass' }));

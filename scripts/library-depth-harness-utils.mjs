@@ -128,7 +128,7 @@ export function validateProbeResult(output, expected) {
   const results = parseTerminalResults(output);
   if (results.length !== 1) return { ok: false, reason: `expected exactly one terminal result, got ${results.length}`, results };
   const [result] = results;
-  const assertionIds = [...new Set([...String(output).matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match => match[1]))];
+  const assertionIds = [...String(output).matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match => match[1]);
   if (expected.kind === 'pass') {
     return { ok: result.kind === 'pass' && Object.keys(result).length === 1 && assertionIds.length === 0, result, assertionIds, reason: 'baseline must be exactly {kind:"pass"} with no assertion IDs' };
   }
@@ -146,7 +146,7 @@ export function validateProbeResult(output, expected) {
   };
 }
 
-const processGroupRoots = new WeakSet();
+const processOwnership = new WeakMap();
 
 export function processTreePolicy(platform = process.platform) {
   return platform === 'win32'
@@ -155,10 +155,13 @@ export function processTreePolicy(platform = process.platform) {
 }
 
 export function spawnTracked(command, args, options = {}) {
-  return spawn(command, args, {
+  const detached = processTreePolicy().detachedGroupRoot;
+  const child = spawn(command, args, {
     ...options,
-    detached: false
+    detached
   });
+  processOwnership.set(child, { rootPid: child.pid, processGroupId: detached ? child.pid : null });
+  return child;
 }
 
 export function spawnProcessGroup(command, args, options = {}) {
@@ -166,7 +169,10 @@ export function spawnProcessGroup(command, args, options = {}) {
     ...options,
     detached: processTreePolicy().detachedGroupRoot
   });
-  processGroupRoots.add(child);
+  processOwnership.set(child, {
+    rootPid: child.pid,
+    processGroupId: processTreePolicy().detachedGroupRoot ? child.pid : null
+  });
   return child;
 }
 
@@ -181,54 +187,84 @@ function waitForExit(child, timeoutMs = 5000) {
   });
 }
 
-function posixDescendantPids(rootPid) {
-  const result = spawnSync('/bin/ps', ['-eo', 'pid=,ppid='], { encoding: 'utf8' });
+function posixProcessTable() {
+  const result = spawnSync('/bin/ps', ['-eo', 'pid=,ppid=,pgid=,stat='], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`/bin/ps failed while enumerating descendants: ${result.stderr || result.status}`);
-  const children = new Map();
+  const rows = [];
   for (const line of result.stdout.split(/\r?\n/)) {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-    if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
-    const siblings = children.get(ppid) || [];
-    siblings.push(pid);
-    children.set(ppid, siblings);
+    const [pidText, ppidText, pgidText, state = ''] = line.trim().split(/\s+/);
+    const pid = Number(pidText), ppid = Number(ppidText), pgid = Number(pgidText);
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && Number.isInteger(pgid)) rows.push({ pid, ppid, pgid, state });
   }
-  const descendants = [];
-  const visit = (pid) => {
-    for (const childPid of children.get(pid) || []) visit(childPid);
-    if (pid !== rootPid) descendants.push(pid);
-  };
-  visit(rootPid);
-  return descendants;
+  return rows;
 }
 
-function signalPids(pids, signal) {
-  for (const pid of pids) {
-    try { process.kill(pid, signal); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+function posixOwnedGroups(rootPid, processGroupId) {
+  const rows = posixProcessTable();
+  const children = new Map();
+  for (const row of rows) {
+    const siblings = children.get(row.ppid) || [];
+    siblings.push(row);
+    children.set(row.ppid, siblings);
   }
+  const groups = new Set(processGroupId ? [processGroupId] : []);
+  const descendants = [];
+  const visit = (pid) => {
+    for (const child of children.get(pid) || []) {
+      descendants.push(child.pid);
+      groups.add(child.pgid);
+      visit(child.pid);
+    }
+  };
+  visit(rootPid);
+  return { groups: [...groups], descendants };
+}
+
+function posixLiveGroupIds(groupIds) {
+  const expected = new Set(groupIds);
+  const live = new Set();
+  for (const row of posixProcessTable()) {
+    if (expected.has(row.pgid) && !row.state.startsWith('Z')) live.add(row.pgid);
+  }
+  return [...live];
+}
+
+function signalProcessGroups(groupIds, signal) {
+  for (const pgid of groupIds) {
+    try { process.kill(-pgid, signal); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+  }
+}
+
+async function waitForProcessGroups(groupIds, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let live = posixLiveGroupIds(groupIds);
+  while (live.length && Date.now() < deadline) {
+    await new Promise(resolveWait => setTimeout(resolveWait, 25));
+    live = posixLiveGroupIds(groupIds);
+  }
+  return live;
 }
 
 export async function terminateProcessTree(child, timeoutMs = 5000) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child) return;
+  const ownership = processOwnership.get(child) || { rootPid: child.pid, processGroupId: null };
   if (process.platform === 'win32') {
     await new Promise((resolveTaskkill) => {
-      const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      const taskkill = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
+      const killer = spawn(taskkill, ['/PID', String(ownership.rootPid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
       killer.once('error', resolveTaskkill);
       killer.once('exit', resolveTaskkill);
     });
-  } else if (processGroupRoots.has(child)) {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
-    await waitForExit(child, Math.min(timeoutMs, 1000));
-    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
   } else {
-    // Standalone geometry runs are not process-group roots. Kill only the
-    // explicitly owned descendant tree so the caller's process group is safe.
-    const descendants = posixDescendantPids(child.pid);
-    signalPids(descendants, 'SIGTERM');
-    await new Promise(resolveWait => setTimeout(resolveWait, 100));
-    child.kill('SIGTERM');
-    await waitForExit(child, Math.min(timeoutMs, 1000));
-    signalPids(descendants, 'SIGKILL');
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    // Capture nested owned groups before signaling the root. The retained root
+    // PGID remains authoritative even after the root PID exits and descendants
+    // are reparented, so liveness of the root never gates tree cleanup.
+    const owned = posixOwnedGroups(ownership.rootPid, ownership.processGroupId);
+    signalProcessGroups(owned.groups, 'SIGTERM');
+    const liveAfterTerm = await waitForProcessGroups(owned.groups, Math.min(timeoutMs, 1000));
+    signalProcessGroups(liveAfterTerm, 'SIGKILL');
+    const liveAfterKill = await waitForProcessGroups(liveAfterTerm, Math.min(timeoutMs, 1000));
+    if (liveAfterKill.length) throw new Error(`owned process groups did not exit: ${liveAfterKill.join(',')}`);
   }
   await waitForExit(child, timeoutMs);
   if (child.exitCode === null && child.signalCode === null) throw new Error(`process tree ${child.pid} did not exit`);

@@ -151,7 +151,7 @@ export function validateProbeResult(output, expected) {
 }
 
 const processOwnership = new WeakMap();
-const verifiedCleanRegistries = new WeakSet();
+const verifiedCleanRegistries = new Set();
 const ownedRegistryContexts = new Map();
 const REGISTRY_PATH_ENV = 'SNL_PROCESS_OWNER_REGISTRY';
 const OWNER_TOKEN_ENV = 'SNL_PROCESS_OWNER_TOKEN';
@@ -239,8 +239,29 @@ function ownerId(token) {
   return createHash('sha256').update(token).digest('hex').slice(0, 24);
 }
 
-function ownedRegistryKey(registryPath, token, id) {
-  return `${registryPath}\0${token}\0${id}`;
+function registryFileIdentity(registryPath) {
+  const canonicalPath = realpathSync.native(registryPath);
+  const stat = statSync(canonicalPath, { bigint: true });
+  if (!stat.isFile()) throw new Error('process ownership registry is not a regular file');
+  const key = `${process.platform}\0${stat.dev.toString()}\0${stat.ino.toString()}`;
+  return Object.freeze({ key, canonicalPath, platform: process.platform, dev: stat.dev.toString(), ino: stat.ino.toString() });
+}
+
+function requireCurrentRegistryIdentity(context) {
+  const current = registryFileIdentity(context.registryPath);
+  if (current.key !== context.registryIdentity.key) {
+    throw new Error('process ownership registry file identity changed');
+  }
+  return current;
+}
+
+function bindRegistryIdentity(context, registryIdentity) {
+  Object.defineProperty(context, 'registryIdentity', { value: registryIdentity, enumerable: false, writable: false, configurable: false });
+  return context;
+}
+
+function ownedRegistryKey(registryIdentity, token, id) {
+  return `${registryIdentity.key}\0${token}\0${id}`;
 }
 
 export function createOwnedProcessRegistry() {
@@ -250,11 +271,12 @@ export function createOwnedProcessRegistry() {
   writeFileSync(registryPath, '', { mode: 0o600, flag: 'wx' });
   const token = randomBytes(32).toString('hex');
   const id = ownerId(token);
-  const context = {
+  const registryIdentity = registryFileIdentity(registryPath);
+  const context = bindRegistryIdentity({
     registryPath, directory, token, id, owned: true,
     env: { ...process.env, [REGISTRY_PATH_ENV]: registryPath, [OWNER_TOKEN_ENV]: token, [OWNER_ID_ENV]: id }
-  };
-  ownedRegistryContexts.set(ownedRegistryKey(registryPath, token, id), context);
+  }, registryIdentity);
+  ownedRegistryContexts.set(ownedRegistryKey(registryIdentity, token, id), context);
   return context;
 }
 
@@ -262,10 +284,11 @@ export function ownedProcessRegistryFromEnvironment(env = process.env) {
   const registryPath = env[REGISTRY_PATH_ENV], token = env[OWNER_TOKEN_ENV], id = env[OWNER_ID_ENV];
   if (!registryPath && !token && !id) return null;
   if (!registryPath || !token || !id || ownerId(token) !== id) throw new Error('invalid inherited process ownership registry environment');
-  const key = ownedRegistryKey(registryPath, token, id);
+  const registryIdentity = registryFileIdentity(registryPath);
+  const key = ownedRegistryKey(registryIdentity, token, id);
   const existing = ownedRegistryContexts.get(key);
   if (existing) return existing;
-  const context = { registryPath, directory: dirname(registryPath), token, id, owned: false, env: { ...env } };
+  const context = bindRegistryIdentity({ registryPath, directory: dirname(registryPath), token, id, owned: false, env: { ...env } }, registryIdentity);
   ownedRegistryContexts.set(key, context);
   return context;
 }
@@ -316,7 +339,8 @@ function appendOwnershipRecord(context, child, detached, command, metadata = {})
   // A prior zero-owned observation becomes stale as soon as a new record is
   // attempted. Invalidate before any fallible identity lookup or durable append
   // so append failures remain dirty and registry deletion continues to fail closed.
-  verifiedCleanRegistries.delete(context);
+  verifiedCleanRegistries.delete(context.registryIdentity.key);
+  requireCurrentRegistryIdentity(context);
   const record = {
     pid: child.pid,
     groupRoot: detached && process.platform !== 'win32' ? child.pid : null,
@@ -359,7 +383,9 @@ export function spawnProcessGroup(command, args, options = {}) {
 }
 
 function readOwnershipRecords(context) {
+  requireCurrentRegistryIdentity(context);
   const text = readFileSync(context.registryPath, 'utf8');
+  requireCurrentRegistryIdentity(context);
   const records = [];
   for (const [index, line] of text.split('\n').entries()) {
     if (!line && index === text.split('\n').length - 1) continue;
@@ -542,14 +568,17 @@ export async function verifyOwnedProcessRegistryClean(context) {
     if (targets.length) live.push({ pid: record.pid, targets });
   }
   if (live.length) throw new Error(`owned process registry is not clean: ${JSON.stringify(live)}`);
-  verifiedCleanRegistries.add(context);
+  const current = requireCurrentRegistryIdentity(context);
+  verifiedCleanRegistries.add(current.key);
 }
 
 export function destroyOwnedProcessRegistry(context) {
   if (!context?.owned) return;
-  if (!verifiedCleanRegistries.has(context)) throw new Error('refusing to remove an ownership registry before zero-owned verification');
+  const current = requireCurrentRegistryIdentity(context);
+  if (!verifiedCleanRegistries.has(current.key)) throw new Error('refusing to remove an ownership registry before zero-owned verification');
   rmSync(context.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  ownedRegistryContexts.delete(ownedRegistryKey(context.registryPath, context.token, context.id));
+  verifiedCleanRegistries.delete(current.key);
+  ownedRegistryContexts.delete(ownedRegistryKey(context.registryIdentity, context.token, context.id));
 }
 
 export async function terminateProcessTree(child, timeoutMs = 5000) {

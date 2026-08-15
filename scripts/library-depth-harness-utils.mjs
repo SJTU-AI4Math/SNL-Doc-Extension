@@ -1,10 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
+  appendFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -14,6 +16,7 @@ import {
   writeFileSync
 } from 'node:fs';
 import path, { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export function canonicalPath(target) {
   const absolute = path.resolve(target);
@@ -147,6 +150,9 @@ export function validateProbeResult(output, expected) {
 }
 
 const processOwnership = new WeakMap();
+const REGISTRY_PATH_ENV = 'SNL_PROCESS_OWNER_REGISTRY';
+const OWNER_TOKEN_ENV = 'SNL_PROCESS_OWNER_TOKEN';
+const OWNER_ID_ENV = 'SNL_PROCESS_OWNER_ID';
 
 export function processTreePolicy(platform = process.platform) {
   return platform === 'win32'
@@ -154,118 +160,244 @@ export function processTreePolicy(platform = process.platform) {
     : { detachedGroupRoot: true, termination: 'process-group' };
 }
 
-export function spawnTracked(command, args, options = {}) {
-  const detached = processTreePolicy().detachedGroupRoot;
-  const child = spawn(command, args, {
-    ...options,
-    detached
+export function windowsTaskkillCommand(pid, systemRoot = process.env.SystemRoot || 'C:\\Windows') {
+  return {
+    command: path.win32.join(systemRoot, 'System32', 'taskkill.exe'),
+    args: ['/PID', String(pid), '/T', '/F']
+  };
+}
+
+function ownerId(token) {
+  return createHash('sha256').update(token).digest('hex').slice(0, 24);
+}
+
+export function createOwnedProcessRegistry() {
+  const directory = mkdtempSync(path.resolve(tmpdir(), 'snl-process-owner-'));
+  chmodSync(directory, 0o700);
+  const registryPath = path.resolve(directory, 'processes.jsonl');
+  writeFileSync(registryPath, '', { mode: 0o600, flag: 'wx' });
+  const token = randomBytes(32).toString('hex');
+  const id = ownerId(token);
+  return {
+    registryPath, directory, token, id, owned: true,
+    env: { ...process.env, [REGISTRY_PATH_ENV]: registryPath, [OWNER_TOKEN_ENV]: token, [OWNER_ID_ENV]: id }
+  };
+}
+
+export function ownedProcessRegistryFromEnvironment(env = process.env) {
+  const registryPath = env[REGISTRY_PATH_ENV], token = env[OWNER_TOKEN_ENV], id = env[OWNER_ID_ENV];
+  if (!registryPath && !token && !id) return null;
+  if (!registryPath || !token || !id || ownerId(token) !== id) throw new Error('invalid inherited process ownership registry environment');
+  return { registryPath, directory: dirname(registryPath), token, id, owned: false, env: { ...env } };
+}
+
+export function ensureOwnedProcessRegistry() {
+  const inherited = ownedProcessRegistryFromEnvironment();
+  if (inherited) return inherited;
+  const created = createOwnedProcessRegistry();
+  Object.assign(process.env, {
+    [REGISTRY_PATH_ENV]: created.registryPath,
+    [OWNER_TOKEN_ENV]: created.token,
+    [OWNER_ID_ENV]: created.id
   });
-  processOwnership.set(child, { rootPid: child.pid, processGroupId: detached ? child.pid : null });
+  return created;
+}
+
+function linuxBirthIdentity(pid) {
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  const close = stat.lastIndexOf(')');
+  if (close < 0) throw new Error(`invalid /proc/${pid}/stat`);
+  const fields = stat.slice(close + 2).trim().split(/\s+/);
+  return { startTicks: fields[19], executable: realpathSync.native(`/proc/${pid}/exe`) };
+}
+
+function portableBirthIdentity(pid, platform = process.platform) {
+  if (platform === 'linux') return linuxBirthIdentity(pid);
+  if (platform === 'darwin') {
+    const result = spawnSync('/bin/ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'comm='], { encoding: 'utf8' });
+    if (result.status !== 0 || !result.stdout.trim()) throw new Error(`cannot read macOS birth identity for ${pid}`);
+    return { ps: result.stdout.trim() };
+  }
+  if (platform === 'win32') {
+    const powershell = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script = `Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}' | Select-Object CreationDate,ExecutablePath | ConvertTo-Json -Compress`;
+    const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true });
+    if (result.status !== 0 || !result.stdout.trim()) throw new Error(`cannot read Windows birth identity for ${pid}`);
+    return { cim: JSON.parse(result.stdout.trim()) };
+  }
+  throw new Error(`unsupported ownership identity platform ${platform}`);
+}
+
+function sameIdentity(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function appendOwnershipRecord(context, child, detached, command) {
+  if (!context || !Number.isInteger(child.pid)) throw new Error('owned process did not produce a PID');
+  const record = {
+    pid: child.pid,
+    groupRoot: detached && process.platform !== 'win32' ? child.pid : null,
+    platform: process.platform,
+    ownerId: context.id,
+    birth: portableBirthIdentity(child.pid),
+    executable: String(command),
+    createdAt: Date.now()
+  };
+  appendFileSync(context.registryPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
+  processOwnership.set(child, { context, record });
+}
+
+function spawnOwned(command, args, options, defaultDetached) {
+  const context = ownedProcessRegistryFromEnvironment(options.env || process.env) || ensureOwnedProcessRegistry();
+  const { ownedDetached, ...spawnOptions } = options;
+  const detached = ownedDetached ?? defaultDetached;
+  const env = { ...(spawnOptions.env || process.env), [REGISTRY_PATH_ENV]: context.registryPath, [OWNER_TOKEN_ENV]: context.token, [OWNER_ID_ENV]: context.id };
+  const child = spawn(command, args, { ...spawnOptions, env, detached });
+  try { appendOwnershipRecord(context, child, detached, command); }
+  catch (error) {
+    try { child.kill('SIGKILL'); } catch { /* fail closed after best-effort local kill */ }
+    throw error;
+  }
   return child;
+}
+
+export function spawnTracked(command, args, options = {}) {
+  return spawnOwned(command, args, options, processTreePolicy().detachedGroupRoot);
 }
 
 export function spawnProcessGroup(command, args, options = {}) {
-  const child = spawn(command, args, {
-    ...options,
-    detached: processTreePolicy().detachedGroupRoot
-  });
-  processOwnership.set(child, {
-    rootPid: child.pid,
-    processGroupId: processTreePolicy().detachedGroupRoot ? child.pid : null
-  });
-  return child;
+  return spawnOwned(command, args, options, processTreePolicy().detachedGroupRoot);
 }
 
-function waitForExit(child, timeoutMs = 5000) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolveWait) => {
-    const timer = setTimeout(resolveWait, timeoutMs);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      resolveWait();
-    });
-  });
+function readOwnershipRecords(context) {
+  const text = readFileSync(context.registryPath, 'utf8');
+  const records = [];
+  for (const [index, line] of text.split('\n').entries()) {
+    if (!line && index === text.split('\n').length - 1) continue;
+    if (!line.trim()) throw new Error(`malformed empty ownership registry record at line ${index + 1}`);
+    let record;
+    try { record = JSON.parse(line); } catch { throw new Error(`malformed ownership registry record at line ${index + 1}`); }
+    if (!Number.isInteger(record.pid) || record.pid <= 0 || record.ownerId !== context.id || record.platform !== process.platform || !record.birth) {
+      throw new Error(`invalid ownership registry record at line ${index + 1}`);
+    }
+    records.push(record);
+  }
+  return records;
 }
 
 function posixProcessTable() {
-  const result = spawnSync('/bin/ps', ['-eo', 'pid=,ppid=,pgid=,stat='], { encoding: 'utf8' });
+  const result = spawnSync('/bin/ps', ['-eo', 'pid=,ppid=,pgid=,stat=,comm='], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`/bin/ps failed while enumerating descendants: ${result.stderr || result.status}`);
   const rows = [];
   for (const line of result.stdout.split(/\r?\n/)) {
-    const [pidText, ppidText, pgidText, state = ''] = line.trim().split(/\s+/);
+    const [pidText, ppidText, pgidText, state = '', command = ''] = line.trim().split(/\s+/);
     const pid = Number(pidText), ppid = Number(ppidText), pgid = Number(pgidText);
-    if (Number.isInteger(pid) && Number.isInteger(ppid) && Number.isInteger(pgid)) rows.push({ pid, ppid, pgid, state });
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && Number.isInteger(pgid)) rows.push({ pid, ppid, pgid, state, command });
   }
   return rows;
 }
 
-function posixOwnedGroups(rootPid, processGroupId) {
-  const rows = posixProcessTable();
-  const children = new Map();
-  for (const row of rows) {
-    const siblings = children.get(row.ppid) || [];
-    siblings.push(row);
-    children.set(row.ppid, siblings);
+function linuxOwnerTokenState(pid, token) {
+  try {
+    return readFileSync(`/proc/${pid}/environ`).toString().split('\0').includes(`${OWNER_TOKEN_ENV}=${token}`) ? 'owned' : 'foreign';
+  } catch (error) {
+    if (error?.code === 'ENOENT') return 'exited';
+    throw error;
   }
-  const groups = new Set(processGroupId ? [processGroupId] : []);
-  const descendants = [];
-  const visit = (pid) => {
-    for (const child of children.get(pid) || []) {
-      descendants.push(child.pid);
-      groups.add(child.pgid);
-      visit(child.pid);
+}
+
+function liveRecordTargets(record, context) {
+  if (process.platform !== 'linux') {
+    let birth;
+    try { birth = portableBirthIdentity(record.pid); }
+    catch (error) {
+      try { process.kill(record.pid, 0); } catch (probeError) { if (probeError?.code === 'ESRCH') {
+        if (record.groupRoot && process.platform !== 'win32') {
+          const groupMembers = posixProcessTable().filter(row => row.pgid === record.groupRoot && !row.state.startsWith('Z'));
+          if (groupMembers.length) throw new Error(`cannot verify live detached group ${record.groupRoot} after its recorded root exited`);
+        }
+        return [];
+      } }
+      throw new Error(`cannot verify birth identity for live owned PID ${record.pid}: ${error?.message || error}`);
     }
-  };
-  visit(rootPid);
-  return { groups: [...groups], descendants };
-}
-
-function posixLiveGroupIds(groupIds) {
-  const expected = new Set(groupIds);
-  const live = new Set();
-  for (const row of posixProcessTable()) {
-    if (expected.has(row.pgid) && !row.state.startsWith('Z')) live.add(row.pgid);
+    if (!sameIdentity(birth, record.birth)) return [];
+    if (record.groupRoot && process.platform !== 'win32') {
+      return posixProcessTable().filter(row => row.pgid === record.groupRoot && !row.state.startsWith('Z')).map(row => row.pid);
+    }
+    return [record.pid];
   }
-  return [...live];
-}
-
-function signalProcessGroups(groupIds, signal) {
-  for (const pgid of groupIds) {
-    try { process.kill(-pgid, signal); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+  const rows = posixProcessTable().filter(row => !row.state.startsWith('Z'));
+  const candidates = record.groupRoot ? rows.filter(row => row.pgid === record.groupRoot) : rows.filter(row => row.pid === record.pid);
+  const observed = candidates.map(row => ({ row, tokenState: linuxOwnerTokenState(row.pid, context.token) })).filter(item => item.tokenState !== 'exited');
+  const owned = observed.filter(item => item.tokenState === 'owned').map(item => item.row);
+  const foreign = observed.filter(item => item.tokenState === 'foreign').map(item => item.row);
+  if (owned.length && foreign.length) throw new Error(`owned process target mixes unrelated PIDs for record ${record.pid}: candidates=${observed.map(item => `${item.row.pid}:${item.row.command}`).join(',')} owned=${owned.map(row => row.pid).join(',')}`);
+  if (owned.some(row => row.pid === record.pid) && !sameIdentity(linuxBirthIdentity(record.pid), record.birth)) {
+    throw new Error(`owned PID ${record.pid} birth identity changed`);
   }
+  return owned.map(row => row.pid);
 }
 
-async function waitForProcessGroups(groupIds, timeoutMs) {
+function signalRecord(record, signal) {
+  const target = record.groupRoot ? -record.groupRoot : record.pid;
+  try { process.kill(target, signal); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+}
+
+async function waitForRecordExit(record, context, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  let live = posixLiveGroupIds(groupIds);
+  let live = liveRecordTargets(record, context);
   while (live.length && Date.now() < deadline) {
     await new Promise(resolveWait => setTimeout(resolveWait, 25));
-    live = posixLiveGroupIds(groupIds);
+    live = liveRecordTargets(record, context);
   }
   return live;
 }
 
+export async function cleanupOwnedProcessRegistry(context, timeoutMs = 5000) {
+  const records = readOwnershipRecords(context);
+  if (process.platform === 'win32') {
+    for (const record of [...records].reverse()) {
+      if (record.pid === process.pid) continue;
+      if (!liveRecordTargets(record, context).length) continue;
+      const invocation = windowsTaskkillCommand(record.pid);
+      await new Promise((resolveTaskkill, rejectTaskkill) => {
+        const killer = spawn(invocation.command, invocation.args, { windowsHide: true, stdio: 'ignore' });
+        killer.once('error', rejectTaskkill);
+        killer.once('exit', code => code === 0 ? resolveTaskkill() : rejectTaskkill(new Error(`taskkill failed for owned PID ${record.pid}: ${code}`)));
+      });
+    }
+  } else {
+    for (const record of [...records].reverse()) {
+      if (record.pid === process.pid) continue;
+      if (!liveRecordTargets(record, context).length) continue;
+      signalRecord(record, 'SIGTERM');
+      const liveAfterTerm = await waitForRecordExit(record, context, Math.min(timeoutMs, 1000));
+      if (liveAfterTerm.length) signalRecord(record, 'SIGKILL');
+      const liveAfterKill = await waitForRecordExit(record, context, Math.min(timeoutMs, 1000));
+      if (liveAfterKill.length) throw new Error(`owned process target did not exit: ${record.pid} (${liveAfterKill.join(',')})`);
+    }
+  }
+}
+
+export async function verifyOwnedProcessRegistryClean(context) {
+  const live = [];
+  for (const record of readOwnershipRecords(context)) {
+    if (record.pid === process.pid) continue;
+    const targets = liveRecordTargets(record, context);
+    if (targets.length) live.push({ pid: record.pid, targets });
+  }
+  if (live.length) throw new Error(`owned process registry is not clean: ${JSON.stringify(live)}`);
+}
+
+export function destroyOwnedProcessRegistry(context) {
+  if (!context?.owned) return;
+  rmSync(context.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
+
 export async function terminateProcessTree(child, timeoutMs = 5000) {
   if (!child) return;
-  const ownership = processOwnership.get(child) || { rootPid: child.pid, processGroupId: null };
-  if (process.platform === 'win32') {
-    await new Promise((resolveTaskkill) => {
-      const taskkill = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
-      const killer = spawn(taskkill, ['/PID', String(ownership.rootPid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      killer.once('error', resolveTaskkill);
-      killer.once('exit', resolveTaskkill);
-    });
-  } else {
-    // Capture nested owned groups before signaling the root. The retained root
-    // PGID remains authoritative even after the root PID exits and descendants
-    // are reparented, so liveness of the root never gates tree cleanup.
-    const owned = posixOwnedGroups(ownership.rootPid, ownership.processGroupId);
-    signalProcessGroups(owned.groups, 'SIGTERM');
-    const liveAfterTerm = await waitForProcessGroups(owned.groups, Math.min(timeoutMs, 1000));
-    signalProcessGroups(liveAfterTerm, 'SIGKILL');
-    const liveAfterKill = await waitForProcessGroups(liveAfterTerm, Math.min(timeoutMs, 1000));
-    if (liveAfterKill.length) throw new Error(`owned process groups did not exit: ${liveAfterKill.join(',')}`);
-  }
-  await waitForExit(child, timeoutMs);
-  if (child.exitCode === null && child.signalCode === null) throw new Error(`process tree ${child.pid} did not exit`);
+  const ownership = processOwnership.get(child);
+  if (!ownership) throw new Error(`process ${child.pid} has no ownership registry record`);
+  await cleanupOwnedProcessRegistry(ownership.context, timeoutMs);
+  await verifyOwnedProcessRegistryClean(ownership.context);
 }

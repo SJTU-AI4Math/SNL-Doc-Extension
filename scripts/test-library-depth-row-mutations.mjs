@@ -6,17 +6,22 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   canonicalPath,
+  cleanupOwnedProcessRegistry,
   createDirectoryLink,
+  destroyOwnedProcessRegistry,
+  ensureOwnedProcessRegistry,
   fileCensus,
   requireExternalPath,
   sameFileCensus,
   spawnProcessGroup,
   spawnTracked,
   terminateProcessTree,
-  validateProbeResult
+  validateProbeResult,
+  verifyOwnedProcessRegistryClean
 } from './library-depth-harness-utils.mjs';
 
 const sourceRoot = canonicalPath(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+const ownershipRegistry = ensureOwnedProcessRegistry();
 const timeoutMs = Number(process.env.SNL_LIBRARY_MUTATION_TIMEOUT_MS || 180_000);
 const evidencePath = process.env.SNL_LIBRARY_MUTATION_EVIDENCE_OUT
   ? requireExternalPath(sourceRoot, process.env.SNL_LIBRARY_MUTATION_EVIDENCE_OUT, 'MUTATION-EVIDENCE-OUTSIDE-REPO')
@@ -87,7 +92,7 @@ function makeCopy() {
   };
 }
 
-async function runProbe(root, { mutation = '', forceFailure = '' } = {}) {
+async function runProbe(root, { mutation = '', forceFailure = '', runTimeoutMs = timeoutMs } = {}) {
   const probe = resolve(root, 'scripts/test-library-depth-row-geometry.mjs');
   const child = spawnProcessGroup(process.execPath, [probe], {
     cwd: root,
@@ -110,7 +115,7 @@ async function runProbe(root, { mutation = '', forceFailure = '' } = {}) {
   const timer = setTimeout(async () => {
     timedOut = true;
     try { await terminateProcessTree(child); } catch { /* reported by the exit/result checks */ }
-  }, timeoutMs);
+  }, runTimeoutMs);
   const result = await exit;
   clearTimeout(timer);
   if (timedOut || result.signal || result.error) {
@@ -183,6 +188,12 @@ try {
     assertCopyRestored(copy, forced, 'MUTATION-RESTORE-ON-FAILURE');
   });
 
+  await withCopy(async copy => {
+    const timed = await runProbe(copy.root, { forceFailure: 'hang-after-start', runTimeoutMs: 5_000 });
+    if (!timed.timedOut || !timed.harnessStarted || timed.cleanupError) fail('[ASSERT:MUTATION-TIMEOUT-ORPHAN-AUDIT] forced timeout did not start and clean its complete owned registry', timed);
+    await verifyOwnedProcessRegistryClean(ownershipRegistry);
+  });
+
   const rows = [];
   for (const spec of mutations) {
     await withCopy(async copy => {
@@ -202,7 +213,7 @@ try {
   if (sourceDigestAfter !== sourceDigestBefore) throw new Error(`[ASSERT:MUTATION-SOURCE-UNCHANGED] source bytes changed ${sourceDigestBefore} -> ${sourceDigestAfter}`);
   if (!sameFileCensus(sourceArtifactsBefore, sourceArtifactsAfter)) throw new Error('[ASSERT:MUTATION-SOURCE-ARTIFACTS] source artifact census changed');
 
-  const evidence = { sourceRoot, timeoutMs, sourceDigestBefore, sourceDigestAfter, baseline: baselineRow, baselineRuns: 1, forcedFailureRestoration: 'PASS', killed: rows.length, rows };
+  const evidence = { sourceRoot, timeoutMs, sourceDigestBefore, sourceDigestAfter, baseline: baselineRow, baselineRuns: 1, forcedFailureRestoration: 'PASS', forcedTimeoutOrphanAudit: 'PASS', killed: rows.length, rows };
   if (evidencePath) {
     mkdirSync(dirname(evidencePath), { recursive: true });
     writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
@@ -211,6 +222,14 @@ try {
   terminalResult = { kind: 'pass' };
 } catch (error) {
   terminalResult = { kind: 'infra', id: 'MUTATION-HARNESS', message: error?.stack || String(error) };
+}
+try {
+  await cleanupOwnedProcessRegistry(ownershipRegistry);
+  await verifyOwnedProcessRegistryClean(ownershipRegistry);
+} catch (error) {
+  terminalResult = { kind: 'infra', id: 'MUTATION-CLEANUP', message: error?.stack || String(error) };
+} finally {
+  destroyOwnedProcessRegistry(ownershipRegistry);
 }
 console.log(JSON.stringify(terminalResult));
 process.exitCode = terminalResult.kind === 'pass' ? 0 : 1;

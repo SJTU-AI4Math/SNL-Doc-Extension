@@ -21,6 +21,9 @@ public static class SnlOwnedJobLauncher {
   const uint SYNCHRONIZE = 0x00100000;
   const uint INFINITE = 0xffffffff;
   const uint WAIT_OBJECT_0 = 0;
+  const uint STILL_ACTIVE = 259;
+  const uint PRE_ASSIGNMENT_EXIT_CODE = 126;
+  const uint PRE_ASSIGNMENT_WAIT_MS = 5000;
   const int JobObjectExtendedLimitInformation = 9;
   const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
 
@@ -43,6 +46,8 @@ public static class SnlOwnedJobLauncher {
   [DllImport("kernel32.dll", SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
   [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
   [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForMultipleObjects(uint count, IntPtr[] handles, bool waitAll, uint ms);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr process, uint exitCode);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
   [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int id);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
@@ -58,9 +63,17 @@ public static class SnlOwnedJobLauncher {
     b.Append('\\', slashes * 2).Append('"'); return b.ToString();
   }
   static void Check(bool ok, string operation) { if (!ok) throw new Win32Exception(Marshal.GetLastWin32Error(), operation); }
+  static void TerminateUnassignedProcess(IntPtr process) {
+    Check(TerminateProcess(process, PRE_ASSIGNMENT_EXIT_CODE), "TerminateProcess(unassigned)");
+    uint waited = WaitForSingleObject(process, PRE_ASSIGNMENT_WAIT_MS);
+    if (waited != WAIT_OBJECT_0) throw new InvalidOperationException("unassigned suspended process did not exit within the bounded wait");
+    uint code; Check(GetExitCodeProcess(process, out code), "GetExitCodeProcess(unassigned)");
+    if (code == STILL_ACTIVE) throw new InvalidOperationException("unassigned suspended process remained active after termination");
+  }
 
   public static int Run(uint parentPid, string executable, string[] args) {
     IntPtr job = IntPtr.Zero, parent = IntPtr.Zero; PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+    bool created = false, assigned = false;
     try {
       job = CreateJobObject(IntPtr.Zero, null); Check(job != IntPtr.Zero, "CreateJobObject");
       var limits = new EXTENDED_LIMIT(); limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -70,15 +83,21 @@ public static class SnlOwnedJobLauncher {
         hStdInput = GetStdHandle(-10), hStdOutput = GetStdHandle(-11), hStdError = GetStdHandle(-12) };
       var command = new StringBuilder(Quote(executable)); foreach (var arg in args) command.Append(' ').Append(Quote(arg));
       Check(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, IntPtr.Zero, null, ref si, out pi), "CreateProcess");
+      created = true;
       Check(AssignProcessToJobObject(job, pi.hProcess), "AssignProcessToJobObject");
+      assigned = true;
       if (ResumeThread(pi.hThread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread");
       uint waited = WaitForMultipleObjects(2, new [] { pi.hProcess, parent }, false, INFINITE);
       if (waited == WAIT_OBJECT_0) { uint code; Check(GetExitCodeProcess(pi.hProcess, out code), "GetExitCodeProcess"); return unchecked((int)code); }
       if (waited == WAIT_OBJECT_0 + 1) return 125; // parent vanished; finally closes the kill-on-close job
       throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForMultipleObjects");
     } finally {
-      if (pi.hThread != IntPtr.Zero) CloseHandle(pi.hThread); if (pi.hProcess != IntPtr.Zero) CloseHandle(pi.hProcess);
-      if (parent != IntPtr.Zero) CloseHandle(parent); if (job != IntPtr.Zero) CloseHandle(job);
+      try {
+        if (created && !assigned) TerminateUnassignedProcess(pi.hProcess);
+      } finally {
+        if (pi.hThread != IntPtr.Zero) CloseHandle(pi.hThread); if (pi.hProcess != IntPtr.Zero) CloseHandle(pi.hProcess);
+        if (parent != IntPtr.Zero) CloseHandle(parent); if (job != IntPtr.Zero) CloseHandle(job);
+      }
     }
   }
 }

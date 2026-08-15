@@ -122,6 +122,25 @@ try {
   assert.match(windowsHelperSource, /ResumeThread/);
   assert.match(windowsHelperSource, /WaitForMultipleObjects/);
   assert.match(windowsHelperSource, /GetExitCodeProcess/);
+  assert.match(windowsHelperSource, /DllImport\("kernel32\.dll", SetLastError=true\)\]\s*static extern bool TerminateProcess\(IntPtr process, uint exitCode\)/, 'pre-assignment cleanup must import TerminateProcess');
+  assert.match(windowsHelperSource, /DllImport\("kernel32\.dll", SetLastError=true\)\]\s*static extern uint WaitForSingleObject\(IntPtr handle, uint ms\)/, 'pre-assignment cleanup must import bounded single-process waiting');
+  const launcherRun = windowsHelperSource.slice(windowsHelperSource.indexOf('public static int Run('), windowsHelperSource.indexOf("\n}\n'@"));
+  const createSucceeded = launcherRun.indexOf('created = true;');
+  const assignAttempt = launcherRun.indexOf('AssignProcessToJobObject');
+  const assignSucceeded = launcherRun.indexOf('assigned = true;');
+  const resumeAttempt = launcherRun.indexOf('ResumeThread');
+  const preAssignmentCleanup = launcherRun.indexOf('if (created && !assigned)');
+  const closeThread = launcherRun.indexOf('CloseHandle(pi.hThread)', preAssignmentCleanup);
+  assert.ok(createSucceeded > launcherRun.indexOf('CreateProcess('), 'creation state may only be set after CreateProcess succeeds');
+  assert.ok(assignAttempt > createSucceeded && assignSucceeded > assignAttempt, 'assignment state may only be set after AssignProcessToJobObject succeeds');
+  assert.ok(resumeAttempt > assignSucceeded, 'the child must never resume before successful Job assignment');
+  assert.ok(preAssignmentCleanup > resumeAttempt, 'pre-assignment cleanup must live in the finalizer');
+  assert.match(launcherRun.slice(preAssignmentCleanup, closeThread), /TerminateUnassignedProcess\(pi\.hProcess\)/, 'an unassigned suspended child must be terminated before handles close');
+  const unassignedCleanup = windowsHelperSource.slice(windowsHelperSource.indexOf('static void TerminateUnassignedProcess('), windowsHelperSource.indexOf('public static int Run('));
+  assert.match(unassignedCleanup, /TerminateProcess\(process,\s*PRE_ASSIGNMENT_EXIT_CODE\)/, 'pre-assignment cleanup must request a nonzero termination code');
+  assert.match(unassignedCleanup, /WaitForSingleObject\(process,\s*PRE_ASSIGNMENT_WAIT_MS\)/, 'termination must be bounded and observed before handles close');
+  assert.match(unassignedCleanup, /GetExitCodeProcess\(process/, 'termination must verify a process exit code before handles close');
+  assert.match(windowsHelperSource, /const uint PRE_ASSIGNMENT_EXIT_CODE = (?!0;)\d+;/, 'pre-assignment termination code must be nonzero');
   assert.doesNotMatch(windowsHelperSource, /Invoke-Expression|Start-Process/);
   assert.match(helperSource, /for \(const record of \[\.\.\.records\]\.reverse\(\)\)/);
   assert.deepEqual(windowsTaskkillCommand(202, 'D:\\Windows'), { command: 'D:\\Windows\\System32\\taskkill.exe', args: ['/PID', '202', '/T', '/F'] }, 'nested Windows PID must have its own absolute taskkill invocation after a dead root');
@@ -168,6 +187,35 @@ try {
   await assert.rejects(cleanupOwnedProcessRegistry(malformedRegistry), /malformed ownership registry record/);
   assert.throws(() => destroyOwnedProcessRegistry(malformedRegistry), /before zero-owned verification/);
   rmSync(malformedRegistry.directory, { recursive: true, force: true });
+
+  const reDirtiedRegistry = createOwnedProcessRegistry();
+  await verifyOwnedProcessRegistryClean(reDirtiedRegistry);
+  const reDirtiedChild = spawnTracked(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', env: reDirtiedRegistry.env });
+  try {
+    assert.throws(() => destroyOwnedProcessRegistry(reDirtiedRegistry), /before zero-owned verification/, 'a durable ownership append must invalidate prior zero-owned verification');
+  } finally {
+    if (existsSync(reDirtiedRegistry.registryPath)) {
+      await cleanupOwnedProcessRegistry(reDirtiedRegistry);
+      await verifyOwnedProcessRegistryClean(reDirtiedRegistry);
+      destroyOwnedProcessRegistry(reDirtiedRegistry);
+    } else {
+      try { reDirtiedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+    }
+  }
+  assert.equal(existsSync(reDirtiedRegistry.directory), false, 'registry deletion is allowed only after a fresh true zero-owned verification');
+
+  const failedAppendRegistry = createOwnedProcessRegistry();
+  await verifyOwnedProcessRegistryClean(failedAppendRegistry);
+  const originalRegistryMode = statSync(failedAppendRegistry.registryPath).mode & 0o777;
+  await import('node:fs').then(({ chmodSync }) => chmodSync(failedAppendRegistry.registryPath, 0o400));
+  assert.throws(
+    () => spawnTracked(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', env: failedAppendRegistry.env }),
+    /EACCES|permission denied/i,
+    'forced ownership append failure must fail closed'
+  );
+  assert.throws(() => destroyOwnedProcessRegistry(failedAppendRegistry), /before zero-owned verification/, 'a failed ownership append must invalidate prior zero-owned verification');
+  await import('node:fs').then(({ chmodSync }) => chmodSync(failedAppendRegistry.registryPath, originalRegistryMode));
+  rmSync(failedAppendRegistry.directory, { recursive: true, force: true });
   void calls; void originalSymlink;
 
   if (process.platform !== 'win32') {

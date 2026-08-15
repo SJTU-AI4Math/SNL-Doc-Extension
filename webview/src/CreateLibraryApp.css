@@ -74,8 +74,10 @@
   min-width: 0;
 }
 
-/* The indented add form and its in-flow suggestions must not contribute a
-   long Entry id as an ancestor's min-content width. */
+/* The indented add form and its in-flow suggestions stay bounded without
+   hiding identifiers. Add suggestions may grow vertically: every character of
+   a long Entry id remains visually reachable and the whole option remains an
+   operable pointer/keyboard target. */
 .snl-tree-add-menu,
 .snl-tree-add-menu > *,
 .snl-tree-add-menu [role="listbox"],
@@ -87,15 +89,20 @@
 
 .snl-tree-add-menu [role="listbox"] {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: visible;
+}
+
+.snl-tree-add-menu [role="option"] {
+  align-items: flex-start !important;
 }
 
 .snl-tree-add-menu [role="option"] > span:first-child {
   min-width: 0;
   max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
   flex-shrink: 1 !important;
 }
 

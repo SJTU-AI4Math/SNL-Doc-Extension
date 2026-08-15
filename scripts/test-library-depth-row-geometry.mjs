@@ -4,19 +4,32 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { extname, resolve } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canonicalPath, fileCensus, requireExternalPath, restoreFiles, sameFileCensus, snapshotFiles, spawnTracked, terminateProcessTree } from './library-depth-harness-utils.mjs';
 
-const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const explicitOut=process.env.SNL_LIBRARY_GEOMETRY_OUT ? resolve(process.env.SNL_LIBRARY_GEOMETRY_OUT) : null;
-if(explicitOut&&(explicitOut===root||explicitOut.startsWith(`${root}/`))) throw new Error('[ASSERT:ARTIFACT-OUTSIDE-REPO] evidence directory must be outside the repository');
-const out=explicitOut||mkdtempSync(resolve(tmpdir(),'snl-library-geometry-'));
-const bundle=resolve(root,'media/webview');
-mkdirSync(out,{recursive:true});
+const root=canonicalPath(resolve(dirname(fileURLToPath(import.meta.url)),'..'));
+let server=null, chrome=null, xvfb=null, profile=null, out=null, p=null, bs=null, ps=null;
+let artifactPaths=[], artifactSnapshot=null, artifactCensusBefore=null;
+const expectedMutationAssertions={
+  'reservation-11.3':'TOOLBAR-RESERVATION','reveal-5.1':'TOOLBAR-RESERVATION','depth-wrap':'ROW-HEIGHT-STABLE',
+  'title-8rem':'DESKTOP-TITLE-BUDGET','medium-max-content':'MEDIUM-KIND-SHRINK','suggestions-in-flow':'ROW-SUGGESTIONS-OVERLAY',
+  'add-form-overflow':'ADD-MENU-CONTAINER-BOUNDED','add-id-clipping':'ADD-ID-VISUALLY-REACHABLE','add-menu-missing':'ADD-MENU-EXISTS',
+  'blank-phase-missing':'SHRINK-BLANK-PHASE','title-phase-missing':'SHRINK-TITLE-PHASE','id-phase-missing':'SHRINK-ID-PHASE','id-below-floor':'SHRINK-ID-FLOOR'
+};
+
+async function runHarness(){
+const explicitOut=process.env.SNL_LIBRARY_GEOMETRY_OUT ? requireExternalPath(root, process.env.SNL_LIBRARY_GEOMETRY_OUT, 'ARTIFACT-OUTSIDE-REPO') : null;
+  out=explicitOut||mkdtempSync(resolve(tmpdir(),'snl-library-geometry-'));
+  const bundle=resolve(root,'media/webview');
+  mkdirSync(out,{recursive:true});
 const viteBin=resolve(root,'node_modules/vite/bin/vite.js');
 const artifactNames=['createLibrary.js','createLibrary.css'];
-const priorArtifacts=Object.fromEntries(artifactNames.map(f=>{const p=resolve(bundle,f);return[f,existsSync(p)?{hash:createHash('sha256').update(readFileSync(p)).digest('hex'),mtimeMs:statSync(p).mtimeMs}:null]}));
+  artifactPaths=artifactNames.map(f=>resolve(bundle,f));
+  artifactSnapshot=snapshotFiles(artifactPaths);
+  artifactCensusBefore=fileCensus(artifactPaths);
+  const priorArtifacts=Object.fromEntries(artifactCensusBefore.map((record,index)=>[artifactNames[index],record.absent?null:{hash:record.sha256,mtimeMs:record.mtimeMs}]));
 for(const f of artifactNames) rmSync(resolve(bundle,f),{force:true});
 if(artifactNames.some(f=>existsSync(resolve(bundle,f)))) throw new Error('[ASSERT:BUILD-FRESH-ABSENT] canonical artifacts survived pre-build deletion');
 const buildStartedAt=Date.now();
@@ -25,8 +38,9 @@ if(build.status!==0)throw new Error(`[ASSERT:BUILD-SUCCEEDED] vite exited ${buil
 for(const f of artifactNames) if(!existsSync(resolve(bundle,f))) throw new Error(`[ASSERT:BUILD-FRESH-CREATED] missing production artifact ${f}`);
 for(const f of artifactNames) if(statSync(resolve(bundle,f)).mtimeMs<buildStartedAt) throw new Error(`[ASSERT:BUILD-FRESH-MTIME] ${f} predates this invocation (${statSync(resolve(bundle,f)).mtimeMs} < ${buildStartedAt})`);
 console.log('[HARNESS:BUILD_OK]');
+if(process.env.SNL_LIBRARY_GEOMETRY_FORCE_FAILURE==='after-build') throw new Error('[ASSERT:FORCED-AFTER-BUILD] deterministic restoration failure probe');
 const localized=(v)=>({type:'localized',values:{en:v,'zh-CN':`超长本地化${v}`},default_language:'en'});
-const ids=Array.from({length:9},(_,d)=>`entry-depth-${d}-identifier-with-a-deliberately-long-editable-suffix-ABCDEFGHIJKLMN`);
+const ids=Array.from({length:9},(_,d)=>`entry-depth-${d}-identifier-with-a-deliberately-long-editable-suffix-${'ABCDEFGHIJKLMN'.repeat(d===0?14:1)}`);
 const nodes=ids.map((id,d)=>({id:`node-depth-${d}`,label:'Entry',props:{entryId:id,counterId:'counter-long'}}));
 const fixture={
  context:{type:'context',mode:'edit',targetState:'found',slug:'deep-width-probe',libraryRevision:'probe',existing:{slug:'deep-width-probe',title:'Deep width probe'}},
@@ -42,6 +56,7 @@ const mutationCss={
   'medium-max-content':'@container snl-outline (min-width:26.0625rem) and (max-width:60rem){.snl-library-outline-kind{width:max-content!important}}',
   'suggestions-in-flow':'.snl-library-outline-entry-id [role="listbox"]{position:static!important;margin-top:2px!important}',
   'add-form-overflow':'.snl-tree-add-menu{width:max-content!important;max-width:none!important}.snl-tree-add-menu [role="option"]>span:first-child{overflow:visible!important;max-width:none!important}',
+  'add-id-clipping':'.snl-tree-add-menu [role="listbox"]{overflow-x:hidden!important}.snl-tree-add-menu [role="option"]>span:first-child{overflow:hidden!important;white-space:nowrap!important;text-overflow:ellipsis!important;overflow-wrap:normal!important}',
   'add-menu-missing':'.snl-tree-add-menu{display:none!important}',
   'blank-phase-missing':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) max-content!important}',
   'title-phase-missing':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) 12rem!important}',
@@ -50,19 +65,19 @@ const mutationCss={
 }[mutation]||'';
 const html=`<!doctype html><html lang="en" data-snl-color-scheme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/createLibrary.css"><style>html{font-size:16px}body{margin:0;color:#ddd;background:#1e1e1e;font-family:Arial,sans-serif}${mutationCss}</style><script>window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(m){__posted.push(m);if(m?.type==='ready'){for(const p of ${JSON.stringify([fixture.context,fixture.graph,fixture.counters])})dispatchEvent(new MessageEvent('message',{data:p}))}},getState(){},setState(){}})</script></head><body><div id="root"></div><script src="/createLibrary.js"></script></body></html>`;
 const mime={'.js':'text/javascript','.css':'text/css'};
-const server=createServer((req,res)=>{const p=new URL(req.url,'http://x').pathname;if(p==='/'){res.writeHead(200,{'content-type':'text/html'});res.end(html);return}if(p==='/favicon.ico'){res.writeHead(204);res.end();return}const f=resolve(bundle,p.slice(1));if(!f.startsWith(bundle)||!existsSync(f)){res.writeHead(404);res.end();return}res.writeHead(200,{'content-type':mime[extname(f)]||'application/octet-stream'});res.end(readFileSync(f))});
+server=createServer((req,res)=>{const p=new URL(req.url,'http://x').pathname;if(p==='/'){res.writeHead(200,{'content-type':'text/html'});res.end(html);return}if(p==='/favicon.ico'){res.writeHead(204);res.end();return}const f=resolve(bundle,p.slice(1));if(!f.startsWith(bundle)||!existsSync(f)){res.writeHead(404);res.end();return}res.writeHead(200,{'content-type':mime[extname(f)]||'application/octet-stream'});res.end(readFileSync(f))});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const port=server.address().port;
 const chromeCandidates=[process.env.SNL_CHROMIUM_PATH,process.env.CHROME_PATH,process.env.PROGRAMFILES&&resolve(process.env.PROGRAMFILES,'Google/Chrome/Application/chrome.exe'),process.env['PROGRAMFILES(X86)']&&resolve(process.env['PROGRAMFILES(X86)'],'Microsoft/Edge/Application/msedge.exe'),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',resolve(process.env.HOME||'','.cache/ms-playwright/chromium-1234/chrome-linux64/chrome'),'/usr/bin/chromium','/usr/bin/chromium-browser','/usr/bin/google-chrome','/usr/bin/microsoft-edge'].filter(Boolean);
 const chromePath=chromeCandidates.find(existsSync);if(!chromePath)throw new Error('chromium missing');
-const profile=mkdtempSync(resolve(tmpdir(),'snl-depth-width-'));let xvfb=null;let display=process.env.DISPLAY;
-if(process.platform==='linux'&&!display){const xvfbPath=['/usr/bin/Xvfb','/usr/local/bin/Xvfb'].find(existsSync);if(!xvfbPath)throw new Error('[ASSERT:BROWSER-INFRA] DISPLAY is unset and Xvfb is unavailable');display=`:${300+process.pid%300}`;xvfb=spawn(xvfbPath,[display,'-screen','0','1600x2000x24','-nolisten','tcp','-ac'],{stdio:'ignore'});await new Promise(r=>setTimeout(r,150));}
+profile=mkdtempSync(resolve(tmpdir(),'snl-depth-width-'));let display=process.env.DISPLAY;
+if(process.platform==='linux'&&!display){const xvfbPath=['/usr/bin/Xvfb','/usr/local/bin/Xvfb'].find(existsSync);if(!xvfbPath)throw new Error('[ASSERT:BROWSER-INFRA] DISPLAY is unset and Xvfb is unavailable');display=`:${300+process.pid%300}`;xvfb=spawnTracked(xvfbPath,[display,'-screen','0','1600x2000x24','-nolisten','tcp','-ac'],{stdio:'ignore'});await new Promise(r=>setTimeout(r,150));}
 const chromeArgs=['--no-sandbox','--disable-gpu','--hide-scrollbars','--no-first-run','--disable-background-networking','--disable-default-apps','--disable-extensions','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--window-size=1600,2000','about:blank'];
-const chrome=spawn(chromePath,chromeArgs,{stdio:['ignore','ignore','pipe'],env:{...process.env,...(display?{DISPLAY:display}:{})}});
+chrome=spawnTracked(chromePath,chromeArgs,{stdio:['ignore','ignore','pipe'],env:{...process.env,...(display?{DISPLAY:display}:{})}});
 let ws='',stderr='';chrome.stderr.setEncoding('utf8');chrome.stderr.on('data',c=>{stderr+=c;ws||=c.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1]||''});for(let i=0;i<120&&!ws;i++)await new Promise(r=>setTimeout(r,25));if(!ws)throw new Error(stderr);
 class Cdp{constructor(s){this.s=s;this.n=1;this.p=new Map;this.events=[];s.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.id){const p=this.p.get(m.id);if(!p)return;this.p.delete(m.id);m.error?p.j(Error(JSON.stringify(m.error))):p.r(m.result)}else this.events.push(m)})}call(method,params={}){const id=this.n++;this.s.send(JSON.stringify({id,method,params}));return new Promise((r,j)=>this.p.set(id,{r,j}))}}
 async function open(url){const bs=new WebSocket(ws);await new Promise((r,j)=>{bs.addEventListener('open',r,{once:true});bs.addEventListener('error',j,{once:true})});const b=new Cdp(bs);const {targetId}=await b.call('Target.createTarget',{url});let pws='';for(let i=0;i<100&&!pws;i++){const a=await fetch(`http://127.0.0.1:${new URL(ws).port}/json/list`).then(r=>r.json());pws=a.find(x=>x.id===targetId)?.webSocketDebuggerUrl||'';if(!pws)await new Promise(r=>setTimeout(r,25))}const ps=new WebSocket(pws);await new Promise((r,j)=>{ps.addEventListener('open',r,{once:true});ps.addEventListener('error',j,{once:true})});const p=new Cdp(ps);await p.call('Runtime.enable');await p.call('Page.enable');await p.call('Log.enable');return{b,p,bs,ps}}
-const {p,bs,ps}=await open(`http://127.0.0.1:${port}/`);
+({p,bs,ps}=await open(`http://127.0.0.1:${port}/`));
 async function evalv(expression){const q=await p.call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(q.exceptionDetails)throw new Error(JSON.stringify(q.exceptionDetails));return q.result.value}
 for(let i=0;i<200;i++){if(await evalv(`document.querySelectorAll('.snl-library-outline-row').length===9`))break;await new Promise(r=>setTimeout(r,25))}
 if(!(await evalv(`document.querySelectorAll('.snl-library-outline-row').length===9`)))throw new Error('[ASSERT:HARNESS-READY] expected nine production rows');
@@ -75,7 +90,7 @@ for(const w of widths){await setWidth(w,false);matrix.push({width:w,state:'idle'
 for(const w of [1000,960,416,360]){await setWidth(w,true);matrix.push({width:w,state:'coarse',data:await evalv(inspect)})}
 const hitTests=[];for(const w of [1000,417,416,360]){await setWidth(w,false);for(let depth=0;depth<9;depth++){hitTests.push({width:w,depth,...await evalv(`(()=>{const row=document.querySelectorAll('.snl-library-outline-row')[${depth}],d=row.querySelector(':scope > button[aria-expanded], :scope > .snl-outline-disclosure-spacer');d.scrollIntoView({block:'center'});const r=d.getBoundingClientRect(),e=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);return{expected:d.matches('button')?'button':'spacer',hitTag:e?.tagName||null,hitLabel:e?.getAttribute('aria-label')||null,hitClass:String(e?.className||''),exact:e===d||d.contains(e)}})()`)});}}
 const addInteractions=[];
-async function openAdd(depth,method){await setWidth(1000,false);const action=depth===0?'addParent':'addSibling';const point=await evalv(`(()=>{const b=document.querySelectorAll('.snl-library-outline-row')[${depth}]?.querySelector('[data-snl-tree-action="${action}"]');if(!b)return null;b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return{x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}})()`);if(!point){addInteractions.push({depth,method,error:'[ASSERT:ADD-ACTION-EXISTS]'});return}if(method==='pointer'){await p.call('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y});await new Promise(r=>setTimeout(r,80));await p.call('Input.dispatchMouseEvent',{type:'mousePressed',x:point.x,y:point.y,button:'left',clickCount:1});await p.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:point.x,y:point.y,button:'left',clickCount:1})}else{await evalv(`document.querySelectorAll('.snl-library-outline-row')[${depth}].querySelector('[data-snl-tree-action="${action}"]').focus()`);await new Promise(r=>setTimeout(r,50));await p.call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});await p.call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13})}await new Promise(r=>setTimeout(r,100));const opened=await evalv(`(()=>{const form=document.querySelector('.snl-tree-add-menu'),input=form?.querySelector('input[role="combobox"]'),list=form?.querySelector('[role="listbox"]'),container=document.querySelector('[style*="container-name: snl-outline"],ol');const rect=e=>{if(!e)return null;const r=e.getBoundingClientRect();return{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};return{formExists:!!form,inputExists:!!input,listExists:!!list,expanded:input?.getAttribute('aria-expanded'),form:rect(form),input:rect(input),list:rect(list),container:rect(container),overflow:container?container.scrollWidth-container.clientWidth:null,formDepth:form?.dataset.snlTreeAddDepth??null}})()`);addInteractions.push({depth,method,...opened});if(opened.formExists){if(depth===4)await capture('depth-width-1000-add-form.png');await evalv(`(()=>{const b=[...document.querySelectorAll('.snl-tree-add-menu button')].find(x=>/cancel/i.test(x.textContent||''));b?.click()})()`);await new Promise(r=>setTimeout(r,50))}}
+async function openAdd(depth,method){await setWidth(1000,false);const action=depth===0?'addParent':'addSibling';const point=await evalv(`(()=>{const b=document.querySelectorAll('.snl-library-outline-row')[${depth}]?.querySelector('[data-snl-tree-action="${action}"]');if(!b)return null;b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return{x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}})()`);if(!point){addInteractions.push({depth,method,error:'[ASSERT:ADD-ACTION-EXISTS]'});return}if(method==='pointer'){await p.call('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y});await new Promise(r=>setTimeout(r,80));await p.call('Input.dispatchMouseEvent',{type:'mousePressed',x:point.x,y:point.y,button:'left',clickCount:1});await p.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:point.x,y:point.y,button:'left',clickCount:1})}else{await evalv(`document.querySelectorAll('.snl-library-outline-row')[${depth}].querySelector('[data-snl-tree-action="${action}"]').focus()`);await new Promise(r=>setTimeout(r,50));await p.call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});await p.call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13})}await new Promise(r=>setTimeout(r,100));const opened=await evalv(`(()=>{const form=document.querySelector('.snl-tree-add-menu'),input=form?.querySelector('input[role="combobox"]'),list=form?.querySelector('[role="listbox"]'),container=document.querySelector('[style*="container-name: snl-outline"],ol');const rect=e=>{if(!e)return null;const r=e.getBoundingClientRect();return{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};const option=list?.querySelector('[role="option"]'),idSpan=option?.querySelector('span:first-child'),range=document.createRange();if(idSpan)range.selectNodeContents(idSpan);const optionRect=rect(option),hit=optionRect?document.elementFromPoint((optionRect.left+optionRect.right)/2,(optionRect.top+optionRect.bottom)/2):null,s=idSpan?getComputedStyle(idSpan):null,rangeRects=idSpan?[...range.getClientRects()].map(r=>({left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height})):[];return{formExists:!!form,inputExists:!!input,listExists:!!list,expanded:input?.getAttribute('aria-expanded'),activeDescendant:input?.getAttribute('aria-activedescendant')??null,form:rect(form),input:rect(input),list:rect(list),container:rect(container),overflow:container?container.scrollWidth-container.clientWidth:null,formDepth:form?.dataset.snlTreeAddDepth??null,idVisual:idSpan?{text:idSpan.textContent,optionId:option?.id??null,clientWidth:idSpan.clientWidth,scrollWidth:idSpan.scrollWidth,clientHeight:idSpan.clientHeight,scrollHeight:idSpan.scrollHeight,whiteSpace:s.whiteSpace,overflow:s.overflow,overflowWrap:s.overflowWrap,textOverflow:s.textOverflow,rangeRects,pointerReachable:hit===option||option.contains(hit)}:null}})()`);let selectedValue=null,selectionMethod=null;if(opened.listExists&&(depth===0||depth===1)){selectionMethod=depth===0?'keyboard':'pointer';if(selectionMethod==='keyboard'){await p.call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13});await p.call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13})}else{const optionPoint=await evalv(`(()=>{const r=document.querySelector('.snl-tree-add-menu [role="option"]').getBoundingClientRect();return{x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}})()`);await p.call('Input.dispatchMouseEvent',{type:'mousePressed',x:optionPoint.x,y:optionPoint.y,button:'left',clickCount:1});await p.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:optionPoint.x,y:optionPoint.y,button:'left',clickCount:1})}await new Promise(r=>setTimeout(r,50));selectedValue=await evalv(`document.querySelector('.snl-tree-add-menu input[role="combobox"]')?.value??null`)}addInteractions.push({depth,method,...opened,selectionMethod,selectedValue});if(opened.formExists){if(depth===4)await capture('depth-width-1000-add-form.png');await evalv(`(()=>{const b=[...document.querySelectorAll('.snl-tree-add-menu button')].find(x=>/cancel/i.test(x.textContent||''));b?.click()})()`);await new Promise(r=>setTimeout(r,50))}}
 for(let depth=0;depth<9;depth++)await openAdd(depth,depth===0||depth%2?'keyboard':'pointer');
 const menuMeta=await evalv(`[...document.querySelectorAll('[data-snl-tree-action]')].slice(0,12).map(b=>({action:b.dataset.snlTreeAction,label:b.getAttribute('aria-label')}))`);
 await setWidth(1000,false);
@@ -147,9 +162,56 @@ for(const interaction of addInteractions){
   check((interaction.overflow??Infinity)<=1,`[ASSERT:ADD-MENU-CONTAINER-BOUNDED] d${interaction.depth}/${interaction.method} overflow ${interaction.overflow}px`);
   if(interaction.form&&interaction.container)check(interaction.form.left>=interaction.container.left-1&&interaction.form.right<=interaction.container.right+1,`[ASSERT:ADD-FORM-RECT-BOUNDED] d${interaction.depth} form ${interaction.form.left}..${interaction.form.right}, container ${interaction.container.left}..${interaction.container.right}`);
   if(interaction.input&&interaction.list)check(intersection(interaction.input,interaction.list)<0.1,`[ASSERT:ADD-SUGGESTIONS-NO-FIELD-OVERLAP] d${interaction.depth}`);
+  const visual=interaction.idVisual;
+  const rangeContained=visual?.rangeRects?.length>1&&visual.rangeRects.every(rect=>interaction.list&&rect.left>=interaction.list.left-1&&rect.right<=interaction.list.right+1);
+  check(visual?.text===ids[0]&&visual.whiteSpace==='normal'&&visual.overflowWrap==='anywhere'&&visual.textOverflow==='clip'&&visual.overflow!=='hidden'&&visual.scrollWidth<=visual.clientWidth+1&&visual.scrollHeight<=visual.clientHeight+1&&rangeContained,`[ASSERT:ADD-ID-VISUALLY-REACHABLE] d${interaction.depth} ${JSON.stringify(visual)}`);
+  check(visual?.pointerReachable===true,`[ASSERT:ADD-ID-POINTER-REACHABLE] d${interaction.depth}`);
+  check(interaction.activeDescendant===visual?.optionId,`[ASSERT:ADD-ID-KEYBOARD-REACHABLE] d${interaction.depth}`);
+  if(interaction.selectionMethod)check(interaction.selectedValue===ids[0],`[ASSERT:ADD-ID-${interaction.selectionMethod.toUpperCase()}-SELECTABLE] d${interaction.depth} selected ${interaction.selectedValue}`);
 }
 check(errors.length===0,`[ASSERT:BROWSER-CONSOLE-CLEAN] emitted ${errors.length} errors/warnings`);
-writeFileSync(resolve(out,'depth-width-matrix.json'),JSON.stringify({head:process.env.GITHUB_SHA||null,mutation,artifactBuild,priorArtifacts,buildStartedAt,fixtureSummary:{acceptanceDepths:'0-8',syntheticPressureDepths:'0-32',ids,kind:fixture.graph.kinds[0].name,title:fixture.graph.entries[0].title},pressure,shrinkPhases:{preferredId,idFloor,effectiveTitleFloor,blank:blankPhase,title:titlePhase,id:idPhase},menuMeta,addInteractions,hitTests,errors,failures,matrix},null,2));
-console.log(JSON.stringify({cases:matrix.length,widths,mutation:mutation||null,assertions:'named geometry/overflow/shrink/add-interaction/baseline/hit-test',failures,errors:errors.length,artifactBuild,out:explicitOut?out:'OS_TEMP_CLEANED'},null,2));
-ps.close();bs.close();server.close();chrome.kill('SIGTERM');await new Promise(r=>{if(chrome.exitCode!==null)r();else{chrome.once('exit',r);setTimeout(r,1000)}});xvfb?.kill('SIGTERM');rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});if(!explicitOut)rmSync(out,{recursive:true,force:true,maxRetries:5,retryDelay:100});
-if(failures.length)process.exit(1);
+const expectedAssertion=expectedMutationAssertions[mutation];
+const terminalFailures=expectedAssertion&&failures.some(message=>message.includes(`[ASSERT:${expectedAssertion}]`))
+  ? failures.filter(message=>message.includes(`[ASSERT:${expectedAssertion}]`))
+  : failures;
+writeFileSync(resolve(out,'depth-width-matrix.json'),JSON.stringify({head:process.env.GITHUB_SHA||null,mutation,artifactBuild,priorArtifacts,buildStartedAt,fixtureSummary:{acceptanceDepths:'0-8',syntheticPressureDepths:'0-32',ids,kind:fixture.graph.kinds[0].name,title:fixture.graph.entries[0].title},pressure,shrinkPhases:{preferredId,idFloor,effectiveTitleFloor,blank:blankPhase,title:titlePhase,id:idPhase},menuMeta,addInteractions,hitTests,errors,failures:terminalFailures,matrix},null,2));
+console.log(JSON.stringify({cases:matrix.length,widths,mutation:mutation||null,assertions:'named geometry/overflow/shrink/add-interaction/baseline/hit-test',failures:terminalFailures,errors:errors.length,artifactBuild,out:explicitOut?out:'OS_TEMP_CLEANED'},null,2));
+return { failures:terminalFailures, mutation };}
+
+async function closeServer(instance) {
+  if (!instance) return;
+  await new Promise((resolveClose, rejectClose) => instance.close(error => error ? rejectClose(error) : resolveClose()));
+}
+async function cleanupHarness() {
+  const errors=[];
+  for (const socket of [ps,bs]) { try { socket?.close(); } catch (error) { errors.push(error); } }
+  for (const child of [chrome,xvfb]) { try { await terminateProcessTree(child); } catch (error) { errors.push(error); } }
+  try { await closeServer(server); } catch (error) { errors.push(error); }
+  try { if (profile) rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}); } catch (error) { errors.push(error); }
+  try { if (out && !process.env.SNL_LIBRARY_GEOMETRY_OUT) rmSync(out,{recursive:true,force:true,maxRetries:5,retryDelay:100}); } catch (error) { errors.push(error); }
+  if (artifactSnapshot) {
+    try {
+      restoreFiles(artifactSnapshot);
+      const after=fileCensus(artifactPaths);
+      if (!sameFileCensus(artifactCensusBefore,after)) throw new Error(`artifact census changed: ${JSON.stringify({before:artifactCensusBefore,after})}`);
+    } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw new Error(errors.map(error=>error?.stack||String(error)).join('\n'));
+}
+let terminalResult;
+try {
+  const run=await runHarness();
+  if (!run.failures.length) terminalResult={kind:'pass'};
+  else {
+    const ids=[...new Set(run.failures.flatMap(message=>[...message.matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match=>match[1])))];
+    const expected=expectedMutationAssertions[run.mutation];
+    terminalResult={kind:'assertion',id:expected&&ids.includes(expected)?expected:(ids[0]||'UNKNOWN')};
+  }
+} catch (error) {
+  terminalResult={kind:'infra',id:'HARNESS',message:error?.stack||String(error)};
+} finally {
+  try { await cleanupHarness(); }
+  catch (error) { terminalResult={kind:'infra',id:'CLEANUP',message:error?.stack||String(error)}; }
+}
+console.log(JSON.stringify(terminalResult));
+process.exitCode=terminalResult.kind==='pass'?0:1;

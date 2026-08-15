@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { resolve } from 'node:path';
 import {
+  cleanupOwnedProcessRegistry,
+  createOwnedProcessRegistry,
   createDirectoryLink,
+  destroyOwnedProcessRegistry,
   fileCensus,
   isPathInside,
   parseTerminalResults,
@@ -17,7 +20,9 @@ import {
   spawnProcessGroup,
   spawnTracked,
   terminateProcessTree,
-  validateProbeResult
+  verifyOwnedProcessRegistryClean,
+  validateProbeResult,
+  windowsTaskkillCommand
 } from './library-depth-harness-utils.mjs';
 
 const temp = mkdtempSync(resolve(tmpdir(), 'snl-depth-contracts-'));
@@ -91,14 +96,24 @@ try {
   const mutationSourceText = readFileSync(new URL('./test-library-depth-row-mutations.mjs', import.meta.url), 'utf8');
   assert.match(helperSource, /symlinkSync\(absoluteTarget, link, 'junction'\)/);
   assert.match(helperSource, /const absoluteTarget = path\.resolve\(target\)/);
-  assert.match(helperSource, /const detached = processTreePolicy\(\)\.detachedGroupRoot/);
+  assert.match(helperSource, /const detached = ownedDetached \?\? defaultDetached/);
   assert.doesNotMatch(geometrySourceText, /terminalFailures|failures\.filter/);
   assert.match(geometrySourceText, /terminalResult=\{kind:'assertion',ids:/);
   assert.match(mutationSourceText, /spawnProcessGroup\(process\.execPath, \[probe\]/);
   assert.deepEqual(processTreePolicy('linux'), { detachedGroupRoot: true, termination: 'process-group' });
   assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'taskkill-tree' });
-  assert.match(helperSource, /terminateProcessTree\(child, timeoutMs = 5000\) \{\n  if \(!child\) return;\n  const ownership/);
-  assert.match(helperSource, /spawn\(taskkill, \['\/PID', String\(ownership\.rootPid\), '\/T', '\/F'\]/);
+  assert.match(helperSource, /SNL_PROCESS_OWNER_TOKEN/);
+  assert.match(helperSource, /appendFileSync\(context\.registryPath/);
+  assert.match(helperSource, /path\.win32\.join\(systemRoot, 'System32', 'taskkill\.exe'\)/);
+  assert.match(helperSource, /for \(const record of \[\.\.\.records\]\.reverse\(\)\)/);
+  assert.deepEqual(windowsTaskkillCommand(202, 'D:\\Windows'), { command: 'D:\\Windows\\System32\\taskkill.exe', args: ['/PID', '202', '/T', '/F'] }, 'nested Windows PID must have its own absolute taskkill invocation after a dead root');
+
+  const malformedRegistry = createOwnedProcessRegistry();
+  assert.equal(statSync(malformedRegistry.directory).mode & 0o777, 0o700, 'ownership registry directory must be private');
+  assert.equal(statSync(malformedRegistry.registryPath).mode & 0o777, 0o600, 'ownership registry file must be private');
+  appendFileSync(malformedRegistry.registryPath, '{"pid":');
+  await assert.rejects(cleanupOwnedProcessRegistry(malformedRegistry), /malformed ownership registry record/);
+  destroyOwnedProcessRegistry(malformedRegistry);
   void calls; void originalSymlink;
 
   if (process.platform !== 'win32') {
@@ -159,6 +174,32 @@ try {
           try { process.kill(-exitedRoot.pid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
         }
         if (unrelatedExitedRoot.exitCode === null) unrelatedExitedRoot.kill('SIGTERM');
+      }
+    }
+
+    for (const nestedDetached of [false, true]) {
+      const registry = createOwnedProcessRegistry();
+      const nestedMarker = resolve(temp, `nested-detached-${nestedDetached}-alive`);
+      const nestedPids = resolve(temp, `nested-detached-${nestedDetached}-pids`);
+      const unrelatedMarker = resolve(temp, `nested-detached-${nestedDetached}-unrelated`);
+      const unrelated = spawn(process.execPath, ['-e', `setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(unrelatedMarker)},'alive'),500)`], { stdio: 'ignore' });
+      const descendantSource = `require('fs').appendFileSync(${JSON.stringify(nestedPids)},process.pid+'\\n');setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(nestedMarker)},'alive'),2500);setInterval(()=>{},1000)`;
+      const nestedSource = `import(${JSON.stringify(new URL('./library-depth-harness-utils.mjs', import.meta.url).href)}).then(({spawnTracked})=>{const c=spawnTracked(process.execPath,['-e',${JSON.stringify(descendantSource)}],{stdio:'ignore',ownedDetached:${nestedDetached}});c.unref()})`;
+      const root = spawnTracked(process.execPath, ['-e', nestedSource], { stdio: 'ignore', ownedDetached: false, env: registry.env });
+      await new Promise((resolveExit, rejectExit) => { root.once('error', rejectExit); root.once('exit', resolveExit); });
+      for (let attempt = 0; attempt < 50 && !existsSync(nestedPids); attempt += 1) await new Promise(resolveWait => setTimeout(resolveWait, 20));
+      const descendantPid = Number(readFileSync(nestedPids, 'utf8').trim());
+      assert.equal(existsSync(`/proc/${descendantPid}`), true, `nested ${nestedDetached ? 'detached' : 'inherited'} descendant was not alive before external cleanup`);
+      try {
+        await cleanupOwnedProcessRegistry(registry);
+        await verifyOwnedProcessRegistryClean(registry);
+        await new Promise(resolveWait => setTimeout(resolveWait, 600));
+        assert.equal(existsSync(nestedMarker), false, `nested ${nestedDetached ? 'detached' : 'inherited'} descendant survived exited-root registry cleanup`);
+        assert.equal(existsSync(unrelatedMarker), true, 'registry cleanup killed an unrelated process');
+      } finally {
+        try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        if (unrelated.exitCode === null) unrelated.kill('SIGTERM');
+        destroyOwnedProcessRegistry(registry);
       }
     }
   }

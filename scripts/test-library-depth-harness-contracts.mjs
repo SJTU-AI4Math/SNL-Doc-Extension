@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { resolve } from 'node:path';
 import {
@@ -114,6 +114,9 @@ try {
   assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'job-object' });
   assert.match(helperSource, /SNL_PROCESS_OWNER_TOKEN/);
   assert.match(helperSource, /appendFileSync\(context\.registryPath/);
+  assert.match(helperSource, /realpathSync\.native\(registryPath\)/, 'registry aliases, including Windows case/separator aliases, must resolve through the native filesystem');
+  assert.match(helperSource, /statSync\(canonicalPath, \{ bigint: true \}\)/, 'registry identity must use lossless filesystem metadata');
+  assert.match(helperSource, /process\.platform.*stat\.dev.*stat\.ino/, 'registry identity must include platform and device/inode identity');
   const windowsHelperPath = resolve(new URL('./windows-job-launcher.ps1', import.meta.url).pathname);
   const windowsHelperSource = readFileSync(windowsHelperPath, 'utf8');
   assert.match(windowsHelperSource, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/);
@@ -203,6 +206,70 @@ try {
     }
   }
   assert.equal(existsSync(reDirtiedRegistry.directory), false, 'registry deletion is allowed only after a fresh true zero-owned verification');
+
+  const aliasRegistry = createOwnedProcessRegistry();
+  await verifyOwnedProcessRegistryClean(aliasRegistry);
+  const dotAliasPath = `${aliasRegistry.directory}${path.sep}.${path.sep}${path.basename(aliasRegistry.registryPath)}`;
+  const aliasEnv = { ...aliasRegistry.env, SNL_PROCESS_OWNER_REGISTRY: dotAliasPath };
+  const aliasChild = spawnTracked(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', env: aliasEnv });
+  try {
+    assert.throws(() => destroyOwnedProcessRegistry(aliasRegistry), /before zero-owned verification/, 'dot-path aliases must invalidate the canonical registry identity before append');
+    await cleanupOwnedProcessRegistry(aliasRegistry);
+    await verifyOwnedProcessRegistryClean(aliasRegistry);
+    destroyOwnedProcessRegistry(aliasRegistry);
+  } finally {
+    if (existsSync(aliasRegistry.directory)) {
+      try { aliasChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+      rmSync(aliasRegistry.directory, { recursive: true, force: true });
+    }
+  }
+  assert.equal(existsSync(aliasRegistry.directory), false, 'dot-alias child cleanup must permit a fresh zero reverify and deletion');
+
+  for (const aliasKind of ['symlink', 'hardlink']) {
+    const linkedRegistry = createOwnedProcessRegistry();
+    const linkedAliasPath = resolve(temp, `${aliasKind}-registry-${linkedRegistry.id}`);
+    let aliasSupported = true;
+    try {
+      if (aliasKind === 'symlink') symlinkSync(linkedRegistry.registryPath, linkedAliasPath, 'file');
+      else linkSync(linkedRegistry.registryPath, linkedAliasPath);
+    } catch (error) {
+      if (aliasKind === 'symlink' && ['EPERM', 'EACCES', 'ENOTSUP'].includes(error?.code)) aliasSupported = false;
+      else throw error;
+    }
+    if (!aliasSupported) {
+      rmSync(linkedRegistry.directory, { recursive: true, force: true });
+      continue;
+    }
+    await verifyOwnedProcessRegistryClean(linkedRegistry);
+    const linkedEnv = { ...linkedRegistry.env, SNL_PROCESS_OWNER_REGISTRY: linkedAliasPath };
+    const linkedChild = spawnTracked(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', env: linkedEnv });
+    try {
+      assert.throws(() => destroyOwnedProcessRegistry(linkedRegistry), /before zero-owned verification/, `${aliasKind} aliases must invalidate the same canonical registry identity`);
+      await cleanupOwnedProcessRegistry(linkedRegistry);
+      await verifyOwnedProcessRegistryClean(linkedRegistry);
+      destroyOwnedProcessRegistry(linkedRegistry);
+    } finally {
+      if (existsSync(linkedRegistry.directory)) {
+        try { linkedChild.kill('SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
+        rmSync(linkedRegistry.directory, { recursive: true, force: true });
+      }
+      rmSync(linkedAliasPath, { force: true });
+    }
+  }
+
+  const replacedRegistry = createOwnedProcessRegistry();
+  await verifyOwnedProcessRegistryClean(replacedRegistry);
+  const originalRegistryPath = `${replacedRegistry.registryPath}.original`;
+  renameSync(replacedRegistry.registryPath, originalRegistryPath);
+  writeFileSync(replacedRegistry.registryPath, '', { mode: 0o600, flag: 'wx' });
+  try {
+    assert.throws(() => destroyOwnedProcessRegistry(replacedRegistry), /file identity changed/, 'registry replacement after verification must fail closed');
+    assert.equal(existsSync(replacedRegistry.directory), true, 'identity mismatch must not delete the registry directory');
+  } finally {
+    rmSync(replacedRegistry.registryPath, { force: true });
+    renameSync(originalRegistryPath, replacedRegistry.registryPath);
+    destroyOwnedProcessRegistry(replacedRegistry);
+  }
 
   const failedAppendRegistry = createOwnedProcessRegistry();
   await verifyOwnedProcessRegistryClean(failedAppendRegistry);

@@ -10,6 +10,7 @@ import {
   fileCensus,
   requireExternalPath,
   sameFileCensus,
+  spawnProcessGroup,
   spawnTracked,
   terminateProcessTree,
   validateProbeResult
@@ -88,7 +89,7 @@ function makeCopy() {
 
 async function runProbe(root, { mutation = '', forceFailure = '' } = {}) {
   const probe = resolve(root, 'scripts/test-library-depth-row-geometry.mjs');
-  const child = spawnTracked(process.execPath, [probe], {
+  const child = spawnProcessGroup(process.execPath, [probe], {
     cwd: root,
     env: {
       ...process.env,

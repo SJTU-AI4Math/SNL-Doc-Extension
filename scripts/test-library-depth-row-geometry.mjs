@@ -12,12 +12,6 @@ import { canonicalPath, fileCensus, requireExternalPath, restoreFiles, sameFileC
 const root=canonicalPath(resolve(dirname(fileURLToPath(import.meta.url)),'..'));
 let server=null, chrome=null, xvfb=null, profile=null, out=null, p=null, bs=null, ps=null;
 let artifactPaths=[], artifactSnapshot=null, artifactCensusBefore=null;
-const expectedMutationAssertions={
-  'reservation-11.3':'TOOLBAR-RESERVATION','reveal-5.1':'TOOLBAR-RESERVATION','depth-wrap':'ROW-HEIGHT-STABLE',
-  'title-8rem':'DESKTOP-TITLE-BUDGET','medium-max-content':'MEDIUM-KIND-SHRINK','suggestions-in-flow':'ROW-SUGGESTIONS-OVERLAY',
-  'add-form-overflow':'ADD-MENU-CONTAINER-BOUNDED','add-id-clipping':'ADD-ID-VISUALLY-REACHABLE','add-menu-missing':'ADD-MENU-EXISTS',
-  'blank-phase-missing':'SHRINK-BLANK-PHASE','title-phase-missing':'SHRINK-TITLE-PHASE','id-phase-missing':'SHRINK-ID-PHASE','id-below-floor':'SHRINK-ID-FLOOR'
-};
 
 async function runHarness(){
 const explicitOut=process.env.SNL_LIBRARY_GEOMETRY_OUT ? requireExternalPath(root, process.env.SNL_LIBRARY_GEOMETRY_OUT, 'ARTIFACT-OUTSIDE-REPO') : null;
@@ -49,19 +43,19 @@ const fixture={
 };
 const mutation=process.env.SNL_LIBRARY_GEOMETRY_MUTATION||'';
 const mutationCss={
-  'reservation-11.3':'.snl-library-outline-row{--snl-library-toolbar-reservation:11.3rem!important}',
-  'reveal-5.1':'.snl-library-outline-row.snl-library-outline-row:hover,.snl-library-outline-row.snl-library-outline-row:has(>.snl-outline-row-toolbar:focus-within){padding-right:5.1rem!important}',
+  'reservation-11.3':'.snl-library-outline-row{--snl-library-toolbar-reservation:9.8rem!important}',
+  'reveal-5.1':'.snl-library-outline-row.snl-library-outline-row:hover,.snl-library-outline-row.snl-library-outline-row:has(>.snl-outline-row-toolbar:focus-within){--snl-library-toolbar-reservation:9.8rem!important}',
   'depth-wrap':'.snl-library-outline-row:has([data-snl-library-row-main][style*="4.5rem"])>.snl-outline-row-content{flex:1 0 100%!important}',
-  'title-8rem':'.snl-library-outline-row-main{grid-template-columns:calc(8rem + var(--snl-library-outline-depth-offset,0rem)) fit-content(10rem) minmax(7rem,11rem) minmax(8rem,1fr)!important}',
-  'medium-max-content':'@container snl-outline (min-width:26.0625rem) and (max-width:60rem){.snl-library-outline-kind{width:max-content!important}}',
-  'suggestions-in-flow':'.snl-library-outline-entry-id [role="listbox"]{position:static!important;margin-top:2px!important}',
-  'add-form-overflow':'.snl-tree-add-menu{width:max-content!important;max-width:none!important}.snl-tree-add-menu [role="option"]>span:first-child{overflow:visible!important;max-width:none!important}',
+  'title-8rem':'.snl-library-outline-row-main:not(.snl-pressure-probe) .snl-outline-row-title{max-width:8rem!important}',
+  'medium-max-content':'@container snl-outline (min-width:26.0625rem) and (max-width:60rem){.snl-library-outline-row-main[style*="12rem"]{grid-template-columns:minmax(calc(4rem + var(--snl-library-outline-depth-offset,0rem)),calc(8rem + var(--snl-library-outline-depth-offset,0rem))) 101px minmax(0,1fr)!important}}',
+  'suggestions-in-flow':'.snl-library-outline-entry-id [role="listbox"]{position:fixed!important}',
+  'add-form-overflow':'.snl-tree-add-menu{position:relative!important;overflow:visible!important}.snl-tree-add-menu::after{content:"";position:absolute;left:calc(100% + 2px);top:0;width:2px;height:1px}',
   'add-id-clipping':'.snl-tree-add-menu [role="listbox"]{overflow-x:hidden!important}.snl-tree-add-menu [role="option"]>span:first-child{overflow:hidden!important;white-space:nowrap!important;text-overflow:ellipsis!important;overflow-wrap:normal!important}',
   'add-menu-missing':'.snl-tree-add-menu{display:none!important}',
-  'blank-phase-missing':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) max-content!important}',
-  'title-phase-missing':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) 12rem!important}',
-  'id-phase-missing':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) 11rem minmax(0,1fr)!important}',
-  'id-below-floor':'.snl-library-outline-row-main{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(2rem,11rem) minmax(0,1fr)!important}'
+  'blank-phase-missing':'.snl-pressure-probe{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) fit-content(100%)!important}',
+  'title-phase-missing':'.snl-pressure-probe{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(6rem,11rem) minmax(16rem,1fr)!important}',
+  'id-phase-missing':'.snl-pressure-probe{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) 11rem minmax(0,1fr)!important}',
+  'id-below-floor':'.snl-pressure-probe{grid-template-columns:calc(4rem + var(--snl-library-outline-depth-offset,0rem)) minmax(0,10rem) minmax(2rem,11rem) minmax(0,1fr)!important}'
 }[mutation]||'';
 const html=`<!doctype html><html lang="en" data-snl-color-scheme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/createLibrary.css"><style>html{font-size:16px}body{margin:0;color:#ddd;background:#1e1e1e;font-family:Arial,sans-serif}${mutationCss}</style><script>window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(m){__posted.push(m);if(m?.type==='ready'){for(const p of ${JSON.stringify([fixture.context,fixture.graph,fixture.counters])})dispatchEvent(new MessageEvent('message',{data:p}))}},getState(){},setState(){}})</script></head><body><div id="root"></div><script src="/createLibrary.js"></script></body></html>`;
 const mime={'.js':'text/javascript','.css':'text/css'};
@@ -94,7 +88,7 @@ async function openAdd(depth,method){await setWidth(1000,false);const action=dep
 for(let depth=0;depth<9;depth++)await openAdd(depth,depth===0||depth%2?'keyboard':'pointer');
 const menuMeta=await evalv(`[...document.querySelectorAll('[data-snl-tree-action]')].slice(0,12).map(b=>({action:b.dataset.snlTreeAction,label:b.getAttribute('aria-label')}))`);
 await setWidth(1000,false);
-await setWidth(961,false);const pressure=[];await evalv(`(()=>{const m=document.querySelectorAll('[data-snl-library-row-main]')[8],w=m.getBoundingClientRect().width;Object.assign(m.style,{width:w+'px',minWidth:w+'px',maxWidth:w+'px',flex:'none'})})()`);for(let depth=0;depth<=32;depth++){pressure.push(await evalv(`(()=>{const main=document.querySelectorAll('[data-snl-library-row-main]')[8],title=main.querySelector('.snl-outline-row-title'),input=main.querySelector('input');main.style.setProperty('--snl-library-outline-depth-offset','${depth*1.5}rem');const tr=title.getBoundingClientRect(),ir=input.getBoundingClientRect(),s=getComputedStyle(main),range=document.createRange();range.selectNodeContents(title);return{depth:${depth},title:+tr.width.toFixed(2),titleNatural:+range.getBoundingClientRect().width.toFixed(2),id:+ir.width.toFixed(2),tracks:s.gridTemplateColumns,mainOverflow:main.scrollWidth-main.clientWidth}})()`));}await evalv(`(()=>{const m=document.querySelectorAll('[data-snl-library-row-main]')[8];m.style.width='';m.style.setProperty('--snl-library-outline-depth-offset','12rem')})()`);
+await setWidth(961,false);const pressure=[];await evalv(`(()=>{const m=document.querySelectorAll('[data-snl-library-row-main]')[8],w=m.getBoundingClientRect().width;m.classList.add('snl-pressure-probe');Object.assign(m.style,{width:w+'px',minWidth:w+'px',maxWidth:w+'px',flex:'none'})})()`);for(let depth=0;depth<=32;depth++){pressure.push(await evalv(`(()=>{const main=document.querySelectorAll('[data-snl-library-row-main]')[8],title=main.querySelector('.snl-outline-row-title'),input=main.querySelector('input');main.style.setProperty('--snl-library-outline-depth-offset','${depth*1.5}rem');const tr=title.getBoundingClientRect(),ir=input.getBoundingClientRect(),s=getComputedStyle(main),range=document.createRange();range.selectNodeContents(title);return{depth:${depth},title:+tr.width.toFixed(2),titleNatural:+range.getBoundingClientRect().width.toFixed(2),id:+ir.width.toFixed(2),tracks:s.gridTemplateColumns,mainOverflow:main.scrollWidth-main.clientWidth}})()`));}await evalv(`(()=>{const m=document.querySelectorAll('[data-snl-library-row-main]')[8];m.style.width='';m.style.setProperty('--snl-library-outline-depth-offset','12rem')})()`);
 const errors=p.events.filter(e=>e.method==='Runtime.exceptionThrown'||e.method==='Log.entryAdded'&&['error','warning'].includes(e.params?.entry?.level));
 const artifactBuild=Object.fromEntries(['createLibrary.js','createLibrary.css'].map(f=>[f,{sha256:createHash('sha256').update(readFileSync(resolve(bundle,f))).digest('hex')} ]));
 const failures=[];
@@ -138,7 +132,7 @@ const monotone=(values)=>values.every((v,i)=>i===0||v<=values[i-1]+0.25);
 check(blankPhase.length>0,`[ASSERT:SHRINK-BLANK-PHASE] no measured excess title-track reservation before ellipsis`);
 check(titlePhase.length>0&&monotone(titlePhase.map(r=>r.title)),`[ASSERT:SHRINK-TITLE-PHASE] Title did not decrease monotonically toward measured floor`);
 check(idPhase.length>0,`[ASSERT:SHRINK-ID-PHASE] no measured ID shrink phase after Title reached its floor`);
-check(idPhase.length>0&&idPhase.every(r=>r.title<=effectiveTitleFloor+0.25),`[ASSERT:SHRINK-ORDER-ID-LAST] ID shrank before Title reached effective floor ${effectiveTitleFloor}px`);
+check(idPhase.length===0||idPhase.every(r=>r.title<=effectiveTitleFloor+0.25),`[ASSERT:SHRINK-ORDER-ID-LAST] ID shrank before Title reached effective floor ${effectiveTitleFloor}px`);
 check(monotone(idPhase.map(r=>r.id))&&idFloor>=96,`[ASSERT:SHRINK-ID-FLOOR] ID phase non-monotone or below 6rem (${idFloor}px)`);
 check(pressure.every((r,i)=>i===0||r.id<=pressure[i-1].id+0.25),`[ASSERT:SHRINK-PIECEWISE-MONOTONE] ID grew under increasing depth pressure`);
 check(idle1200.rects.input.width>=idle1000.rects.input.width&&idle1000.rects.input.width>=idle961.rects.input.width,`[ASSERT:SHRINK-DESKTOP-MONOTONE] desktop ID widths are non-monotone`);
@@ -157,6 +151,7 @@ for(const width of [959,960,961])check(matrix.some(x=>x.width===width&&x.state==
 for(const interaction of addInteractions){
   check(!interaction.error,`${interaction.error??'[ASSERT:ADD-ACTION-EXISTS]'} d${interaction.depth}/${interaction.method}`);
   check(interaction.formExists&&interaction.inputExists&&interaction.listExists,`[ASSERT:ADD-MENU-EXISTS] d${interaction.depth}/${interaction.method} form=${interaction.formExists} input=${interaction.inputExists} list=${interaction.listExists}`);
+  if(!interaction.formExists||!interaction.inputExists||!interaction.listExists)continue;
   check(interaction.expanded==='true',`[ASSERT:ADD-SUGGESTIONS-OPEN] d${interaction.depth}/${interaction.method} aria-expanded=${interaction.expanded}`);
   check(interaction.formDepth===String(interaction.depth),`[ASSERT:ADD-MENU-ATTACHED-DEPTH] expected ${interaction.depth}, got ${interaction.formDepth}`);
   check((interaction.overflow??Infinity)<=1,`[ASSERT:ADD-MENU-CONTAINER-BOUNDED] d${interaction.depth}/${interaction.method} overflow ${interaction.overflow}px`);
@@ -170,13 +165,9 @@ for(const interaction of addInteractions){
   if(interaction.selectionMethod)check(interaction.selectedValue===ids[0],`[ASSERT:ADD-ID-${interaction.selectionMethod.toUpperCase()}-SELECTABLE] d${interaction.depth} selected ${interaction.selectedValue}`);
 }
 check(errors.length===0,`[ASSERT:BROWSER-CONSOLE-CLEAN] emitted ${errors.length} errors/warnings`);
-const expectedAssertion=expectedMutationAssertions[mutation];
-const terminalFailures=expectedAssertion&&failures.some(message=>message.includes(`[ASSERT:${expectedAssertion}]`))
-  ? failures.filter(message=>message.includes(`[ASSERT:${expectedAssertion}]`))
-  : failures;
-writeFileSync(resolve(out,'depth-width-matrix.json'),JSON.stringify({head:process.env.GITHUB_SHA||null,mutation,artifactBuild,priorArtifacts,buildStartedAt,fixtureSummary:{acceptanceDepths:'0-8',syntheticPressureDepths:'0-32',ids,kind:fixture.graph.kinds[0].name,title:fixture.graph.entries[0].title},pressure,shrinkPhases:{preferredId,idFloor,effectiveTitleFloor,blank:blankPhase,title:titlePhase,id:idPhase},menuMeta,addInteractions,hitTests,errors,failures:terminalFailures,matrix},null,2));
-console.log(JSON.stringify({cases:matrix.length,widths,mutation:mutation||null,assertions:'named geometry/overflow/shrink/add-interaction/baseline/hit-test',failures:terminalFailures,errors:errors.length,artifactBuild,out:explicitOut?out:'OS_TEMP_CLEANED'},null,2));
-return { failures:terminalFailures, mutation };}
+writeFileSync(resolve(out,'depth-width-matrix.json'),JSON.stringify({head:process.env.GITHUB_SHA||null,mutation,artifactBuild,priorArtifacts,buildStartedAt,fixtureSummary:{acceptanceDepths:'0-8',syntheticPressureDepths:'0-32',ids,kind:fixture.graph.kinds[0].name,title:fixture.graph.entries[0].title},pressure,shrinkPhases:{preferredId,idFloor,effectiveTitleFloor,blank:blankPhase,title:titlePhase,id:idPhase},menuMeta,addInteractions,hitTests,errors,failures,matrix},null,2));
+console.log(JSON.stringify({cases:matrix.length,widths,mutation:mutation||null,assertions:'named geometry/overflow/shrink/add-interaction/baseline/hit-test',failures,errors:errors.length,artifactBuild,out:explicitOut?out:'OS_TEMP_CLEANED'},null,2));
+return { failures, mutation };}
 
 async function closeServer(instance) {
   if (!instance) return;
@@ -204,8 +195,7 @@ try {
   if (!run.failures.length) terminalResult={kind:'pass'};
   else {
     const ids=[...new Set(run.failures.flatMap(message=>[...message.matchAll(/\[ASSERT:([A-Z0-9-]+)\]/g)].map(match=>match[1])))];
-    const expected=expectedMutationAssertions[run.mutation];
-    terminalResult={kind:'assertion',id:expected&&ids.includes(expected)?expected:(ids[0]||'UNKNOWN')};
+    terminalResult={kind:'assertion',ids:ids.length?ids:['UNKNOWN']};
   }
 } catch (error) {
   terminalResult={kind:'infra',id:'HARNESS',message:error?.stack||String(error)};

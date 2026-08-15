@@ -159,7 +159,7 @@ describe('fresh initialization membership publication', () => {
     expect(state.deletes).toContain(configPath);
   });
 
-  it('upgrades exact markerless _unpackaged retry residue and publishes config 0.0.11', async () => {
+  it('upgrades exact markerless _unpackaged retry residue and publishes config 0.1.0', async () => {
     addDirectory(`${snl}/packages`);
     addDirectory(`${snl}/entries`);
     addDirectory(`${snl}/macros`);
@@ -172,6 +172,6 @@ describe('fresh initialization membership publication', () => {
     expect(getJson(unpackagedPath)).toMatchObject({
       ...unpackagedPredecessor, schema_version: 2, entry_ids: []
     });
-    expect(getJson(configPath)).toMatchObject({ version: '0.0.11' });
+    expect(getJson(configPath)).toMatchObject({ version: '0.1.0' });
   });
 });

@@ -183,8 +183,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.0.11');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.0.11' });
+    expect(report.to).toBe('0.1.0');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.1.0' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 
@@ -227,7 +227,7 @@ describe('VS Code workspace data migration adapter', () => {
 
     const result = await readDashboardWorkspaceData(vscode.Uri.file('/ws'));
 
-    expect(result.inspection.status).toBe('current');
+    expect(result.inspection.status).toBe('needsMigration');
     expect(result.overview.entries.map((entry) => entry.id)).toEqual(['entry.one']);
     for (const directory of ['packages', 'entries', 'macros']) {
       expect(mocks.readDirectories.get(`/ws/.SNL_Doc/${directory}`)).toBe(1);
@@ -235,6 +235,63 @@ describe('VS Code workspace data migration adapter', () => {
     for (const path of entities.keys()) {
       expect(mocks.readFiles.get(`/ws/.SNL_Doc/${path}`)).toBe(1);
     }
+  });
+
+  it('rejects target-invalid flat Kind coloring on a 0.0.11 Dashboard read', async () => {
+    for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
+      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+    }
+    put('/ws/.SNL_Doc/config.json', {
+      version: '0.0.11',
+      entry_kinds: [{
+        id: 'definition', name: 'Definition', defaultCounterName: '', style: '',
+        coloring: { stroke: '#111111', background: '#ffffff' }
+      }],
+      macro_kinds: [],
+      entity_storage: {
+        version: 1, legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt(null, new Map(), false)
+      }
+    });
+    put(
+      `/ws/.SNL_Doc/${packageManifestPath(UNPACKAGED_PACKAGE_ID)}`,
+      makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')
+    );
+
+    await expect(readDashboardWorkspaceData(vscode.Uri.file('/ws')))
+      .rejects.toThrow(/coloring.*light|coloring.*dark|themed/i);
+  });
+
+  it('rejects a Dashboard overview when 0.0.11 Package membership omits a live Entry', async () => {
+    for (const directory of ['packages', 'entries', 'macros', 'libraries']) {
+      mocks.directories.add(`/ws/.SNL_Doc/${directory}`);
+    }
+    put('/ws/.SNL_Doc/config.json', {
+      version: '0.0.11', entry_kinds: [], macro_kinds: [], active_macro_packages: ['Logic'],
+      entity_storage: {
+        version: 1, legacy_backup_version: '0.0.5',
+        entry_default_package: UNPACKAGED_PACKAGE_ID,
+        receipt: makeEntityStorageReceipt(null, new Map(), false)
+      }
+    });
+    put(
+      `/ws/.SNL_Doc/${packageManifestPath(UNPACKAGED_PACKAGE_ID)}`,
+      makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')
+    );
+    put(
+      `/ws/.SNL_Doc/${packageManifestPath('Logic')}`,
+      makePackageManifest('Logic', 'Logic', '', [])
+    );
+    put(
+      `/ws/.SNL_Doc/${entryEntityPath('Logic', 'hidden')}`,
+      makeEntryEnvelope('Logic', {
+        id: 'hidden', package: 'Logic', kind: 'definition', title: 'Hidden', content: { snl: '' }, pointer: null
+      })
+    );
+
+    await expect(readDashboardWorkspaceData(vscode.Uri.file('/ws')))
+      .rejects.toThrow(/entry_ids.*diverges|membership/i);
   });
 
   it('keeps Dashboard migration inspection fail-closed for a partial entity topology', async () => {
@@ -254,10 +311,8 @@ describe('VS Code workspace data migration adapter', () => {
       makePackageManifest(UNPACKAGED_PACKAGE_ID, 'Unpackaged', '')
     );
 
-    const result = await readDashboardWorkspaceData(vscode.Uri.file('/ws'));
-
-    expect(result.inspection.status).toBe('invalid');
-    expect(result.inspection.message).toMatch(/missing.*entries/i);
+    await expect(readDashboardWorkspaceData(vscode.Uri.file('/ws')))
+      .rejects.toThrow(/missing.*entries/i);
   });
 
   it('rejects a Dashboard refresh when a shared entity snapshot is malformed', async () => {

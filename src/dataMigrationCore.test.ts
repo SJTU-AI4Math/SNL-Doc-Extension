@@ -4,6 +4,8 @@ import {
   compareDataVersions,
   planDataMigrations,
   runDataMigrationChain,
+  hasSplitEntityTopologyDataVersion,
+  usesCurrentEntityStorageDataVersion,
   type DataMigration
 } from './dataMigrationCore';
 
@@ -24,10 +26,24 @@ const chain = [
 
 describe('data migration core', () => {
   it('uses strict SemVer ordering for workspace data versions', () => {
-    expect(CURRENT_DATA_VERSION).toBe('0.0.11');
+    expect(CURRENT_DATA_VERSION).toBe('0.1.0');
     expect(compareDataVersions('0.0.3', '0.0.4')).toBeLessThan(0);
     expect(compareDataVersions('0.10.0', '0.9.0')).toBeGreaterThan(0);
     expect(() => compareDataVersions('7', '0.0.4')).toThrow(/SemVer/);
+  });
+
+  it('distinguishes split topology from the current readable payload generation', () => {
+    expect(hasSplitEntityTopologyDataVersion('0.0.5')).toBe(false);
+    expect(hasSplitEntityTopologyDataVersion('0.0.6')).toBe(true);
+    expect(hasSplitEntityTopologyDataVersion('0.0.10')).toBe(true);
+    expect(hasSplitEntityTopologyDataVersion('0.0.11')).toBe(true);
+    expect(hasSplitEntityTopologyDataVersion('0.1.0')).toBe(true);
+    expect(hasSplitEntityTopologyDataVersion('0.2.0')).toBe(false);
+
+    expect(usesCurrentEntityStorageDataVersion('0.0.10')).toBe(false);
+    expect(usesCurrentEntityStorageDataVersion('0.0.11')).toBe(true);
+    expect(usesCurrentEntityStorageDataVersion('0.1.0')).toBe(true);
+    expect(usesCurrentEntityStorageDataVersion('0.2.0')).toBe(false);
   });
 
   it('plans a contiguous chain from any supported older version', () => {

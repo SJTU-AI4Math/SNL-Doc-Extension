@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { compareDataVersions, CURRENT_DATA_VERSION } from './dataMigrationCore';
+import { compareDataVersions, CURRENT_DATA_VERSION, usesCurrentEntityStorageDataVersion } from './dataMigrationCore';
 import {
   assertCurrentEntityStorageMetadata,
   readEntryEntityRecordWithOwner,
@@ -30,7 +30,7 @@ export async function readPopoverEntry(
   if (relation > 0) {
     throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
   }
-  if (relation < 0) {
+  if (!usesCurrentEntityStorageDataVersion(version)) {
     return readEntries(root).then((entries) => entries.find((candidate) => candidate.id === id));
   }
 

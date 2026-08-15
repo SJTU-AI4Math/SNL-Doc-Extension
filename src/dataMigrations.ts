@@ -918,6 +918,16 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
     to: '0.0.11',
     description: 'Publish authoritative exact Entry membership in every Package manifest.',
     migrate: async (context) => { migrate0010To0011PackageMembership(context); }
+  },
+  {
+    from: '0.0.11',
+    to: '0.1.0',
+    description: 'Align the workspace data version with SNL Doc Extension 0.1.0.',
+    migrate: async (context) => {
+      // Payload schemas are unchanged, but the current marker must never be
+      // published over a config that current readers reject.
+      assertThemedKindCatalogs(context.data.config);
+    }
   }
 ];
 

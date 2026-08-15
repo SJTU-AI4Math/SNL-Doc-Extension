@@ -19,7 +19,7 @@ import {
   normalize_macro_template
 } from './localizedContent';
 import { slugify } from './slug';
-import { CURRENT_DATA_VERSION, compareDataVersions } from './dataMigrationCore';
+import { CURRENT_DATA_VERSION, compareDataVersions, usesCurrentEntityStorageDataVersion } from './dataMigrationCore';
 import {
   assertThemedKindCatalogs,
   fillKindColoringDefaults,
@@ -166,23 +166,21 @@ async function assertWorkspaceWritableOnDisk(
     );
   }
   assertWorkspaceDataWritable(rawConfig, { allowPendingMigration });
-  if (
-    rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
-    (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
-  ) {
+  const version = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+    ? (rawConfig as Record<string, unknown>).version
+    : undefined;
+  const usesCurrentEntityStorage = typeof version === 'string' &&
+    usesCurrentEntityStorageDataVersion(version);
+  if (usesCurrentEntityStorage) {
     try {
       assertThemedKindCatalogs(rawConfig);
     } catch (error) {
       throw new Error(`Workspace data is not writable: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (
-    validateTopology &&
-    rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig) &&
-    (rawConfig as Record<string, unknown>).version === CURRENT_DATA_VERSION
-  ) {
+  if (validateTopology && usesCurrentEntityStorage) {
     const topology = await inspectStoredWorkspaceData(entityReadStorage(workspaceRoot));
-    if (topology.status !== 'current') {
+    if (topology.status !== 'current' && topology.status !== 'needsMigration') {
       throw new Error(`Workspace data is not writable: ${topology.message}`);
     }
   }
@@ -590,7 +588,7 @@ function entityStorageModeFromConfig(raw: unknown): boolean {
   if (relation > 0) {
     throw new Error(`Workspace data ${version} is newer than this Extension supports.`);
   }
-  return relation === 0;
+  return usesCurrentEntityStorageDataVersion(version);
 }
 
 async function usesEntityStorage(workspaceRoot: vscode.Uri): Promise<boolean> {
@@ -829,7 +827,9 @@ function normalizeConfig(raw: unknown): SnlConfig {
   }
   const rawKinds = Array.isArray(cfg.entry_kinds) ? cfg.entry_kinds : [];
   const rawMacroKinds = Array.isArray(cfg.macro_kinds) ? cfg.macro_kinds : [];
-  if (cfg.version === CURRENT_DATA_VERSION) {
+  const strictThemedKinds = typeof cfg.version === 'string' &&
+    usesCurrentEntityStorageDataVersion(cfg.version);
+  if (strictThemedKinds) {
     assertThemedKindCatalogs(raw);
   }
   for (const [field, records] of [
@@ -854,7 +854,7 @@ function normalizeConfig(raw: unknown): SnlConfig {
           throw new Error(`config.json#${field}[${JSON.stringify(id)}].name must be a string.`);
         }
       }
-      if (cfg.version === CURRENT_DATA_VERSION) {
+      if (strictThemedKinds) {
         requireThemedKindColoring(
           managed.coloring,
           `config.json#${field}[${JSON.stringify(id)}].coloring`
@@ -3621,7 +3621,7 @@ export async function readOverview(
   const relationshipsPromise = readRelationships(workspaceRoot);
   const config = await configPromise;
   const entityMode = typeof config?.version === 'string' &&
-    compareDataVersions(config.version, CURRENT_DATA_VERSION) === 0;
+    usesCurrentEntityStorageDataVersion(config.version);
   const entitySnapshot: EntityStorageSnapshot | undefined = entityMode
     ? operationSnapshot?.entities
     : undefined;

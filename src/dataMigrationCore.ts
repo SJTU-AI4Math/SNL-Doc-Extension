@@ -1,4 +1,4 @@
-export const CURRENT_DATA_VERSION = '0.0.11' as const;
+export const CURRENT_DATA_VERSION = '0.1.0' as const;
 
 export interface DataMigration<Context> {
   readonly from: string;
@@ -30,6 +30,19 @@ export function compareDataVersions(left: string, right: string): number {
     if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
   }
   return 0;
+}
+
+function isSupportedDataVersionAtLeast(version: string, minimum: string): boolean {
+  return compareDataVersions(version, minimum) >= 0 &&
+    compareDataVersions(version, CURRENT_DATA_VERSION) <= 0;
+}
+
+export function hasSplitEntityTopologyDataVersion(version: string): boolean {
+  return isSupportedDataVersionAtLeast(version, '0.0.6');
+}
+
+export function usesCurrentEntityStorageDataVersion(version: string): boolean {
+  return isSupportedDataVersionAtLeast(version, '0.0.11');
 }
 
 export function planDataMigrations<Context>(

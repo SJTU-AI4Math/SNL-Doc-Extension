@@ -136,23 +136,42 @@ const canonicalize = (
 };
 
 const snapshot = (version: string): WorkspaceDataSnapshot => {
-  const patch = Number(version.split('.')[2] ?? 0);
-  const entryKind = patch >= 3
+  const [major, minor, patch] = version.split('.').map(Number);
+  const themedKinds = major > 0 || minor > 0 || patch >= 9;
+  const entryKind = themedKinds
     ? {
         id: 'theorem', name: 'Theorem',
-        coloring: { stroke: '#123456', background: '#123456' },
+        coloring: {
+          light: { stroke: '#123456', background: '#123456' },
+          dark: { stroke: '#123456', background: '#123456' }
+        },
         defaultCounterName: '', style: 'box', custom: 'preserve'
       }
-    : {
-        id: 'theorem', name: 'Theorem', color: '#123456',
-        numbering: { pattern: '.1' }, style: 'box', custom: 'preserve'
-      };
-  const macroKind = patch >= 3
+    : patch >= 3
+      ? {
+          id: 'theorem', name: 'Theorem',
+          coloring: { stroke: '#123456', background: '#123456' },
+          defaultCounterName: '', style: 'box', custom: 'preserve'
+        }
+      : {
+          id: 'theorem', name: 'Theorem', color: '#123456',
+          numbering: { pattern: '.1' }, style: 'box', custom: 'preserve'
+        };
+  const macroKind = themedKinds
     ? {
         id: 'rule', name: 'Rule', description: '',
-        coloring: { stroke: '#abcdef', background: '#abcdef' }, custom: 7
+        coloring: {
+          light: { stroke: '#abcdef', background: '#abcdef' },
+          dark: { stroke: '#abcdef', background: '#abcdef' }
+        },
+        custom: 7
       }
-    : { id: 'rule', name: 'Rule', color: '#abcdef', custom: 7 };
+    : patch >= 3
+      ? {
+          id: 'rule', name: 'Rule', description: '',
+          coloring: { stroke: '#abcdef', background: '#abcdef' }, custom: 7
+        }
+      : { id: 'rule', name: 'Rule', color: '#abcdef', custom: 7 };
   return {
   config: {
     version,
@@ -172,6 +191,35 @@ const snapshot = (version: string): WorkspaceDataSnapshot => {
 };
 
 describe('workspace data migrations', () => {
+  it('rejects malformed flat Kind coloring before promoting 0.0.11 to 0.1.0', async () => {
+    const data = snapshot('0.0.11');
+    (data.config.entry_kinds as Array<Record<string, unknown>>)[0].coloring = {
+      stroke: '#123456', background: '#123456'
+    };
+
+    await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw))
+      .rejects.toThrow(/coloring.*light|coloring.*dark|themed/i);
+    expect(data.config.version).toBe('0.0.11');
+  });
+
+  it('advances 0.0.11 to 0.1.0 without rewriting workspace payloads', async () => {
+    const data = snapshot('0.0.11');
+    const before = cloneWorkspaceDataSnapshot(data);
+
+    const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
+
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
+      '0.0.11->0.1.0'
+    ]);
+    expect(data.config).toEqual({ ...before.config, version: '0.1.0' });
+    expect(data.macroPackages).toEqual(before.macroPackages);
+    expect(data.relationships).toEqual(before.relationships);
+    expect(data.entries).toEqual(before.entries);
+    expect(data.packageManifests).toEqual(before.packageManifests);
+    expect(data.entryEntities).toEqual(before.entryEntities);
+    expect(data.macroEntities).toEqual(before.macroEntities);
+  });
+
   it('builds exact sorted Package membership in the explicit 0.0.10 to 0.0.11 edge', async () => {
     const data = snapshot('0.0.10');
     data.packageManifests.set(packageManifestPath('logic'), {
@@ -196,8 +244,8 @@ describe('workspace data migrations', () => {
 
     const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
 
-    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.10->0.0.11']);
-    expect(data.config.version).toBe('0.0.11');
+    expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual(['0.0.10->0.0.11', '0.0.11->0.1.0']);
+    expect(data.config.version).toBe('0.1.0');
     expect(data.packageManifests.get(packageManifestPath('logic'))).toMatchObject({
       schema_version: 2,
       entry_ids: ['logic.alpha', 'logic.zed'],
@@ -238,7 +286,7 @@ describe('workspace data migrations', () => {
     );
 
     await expect(migrateWorkspaceSnapshot(data, (_file, raw) => raw)).resolves.toMatchObject({
-      from: '0.0.10', to: '0.0.11'
+      from: '0.0.10', to: '0.1.0'
     });
     expect(data.packageManifests.get(packageManifestPath('logic'))).toEqual({
       ...makePackageManifest('logic', 'Logic', '', ['visible']),
@@ -284,9 +332,9 @@ describe('workspace data migrations', () => {
     const report = await migrateWorkspaceSnapshot(data, (_file, raw) => raw);
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
-      '0.0.9->0.0.10', '0.0.10->0.0.11'
+      '0.0.9->0.0.10', '0.0.10->0.0.11', '0.0.11->0.1.0'
     ]);
-    expect(data.config.version).toBe('0.0.11');
+    expect(data.config.version).toBe('0.1.0');
     expect([...data.packageManifests]).toEqual([[packageManifestPath('logic'), expect.objectContaining({
       schema_version: 2, entry_ids: ['entry-1'], vendor: 'keep'
     })]]);
@@ -325,7 +373,8 @@ describe('workspace data migrations', () => {
     expect(inspectWorkspaceData({ version: '0.0.8' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.9' }).status).toBe('needsMigration');
     expect(inspectWorkspaceData({ version: '0.0.10' }).status).toBe('needsMigration');
-    expect(inspectWorkspaceData({ version: '0.0.11' }).status).toBe('current');
+    expect(inspectWorkspaceData({ version: '0.0.11' }).status).toBe('needsMigration');
+    expect(inspectWorkspaceData({ version: '0.1.0' }).status).toBe('current');
     const old = inspectWorkspaceData({ version: '0.0.1' });
     expect(old.status).toBe('needsMigration');
     expect(old.pending?.map((step) => `${step.from}->${step.to}`)).toEqual([
@@ -335,7 +384,7 @@ describe('workspace data migrations', () => {
       '0.0.4->0.0.5',
       '0.0.5->0.0.6',
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10', '0.0.10->0.0.11'
+      '0.0.9->0.0.10', '0.0.10->0.0.11', '0.0.11->0.1.0'
     ]);
   });
 
@@ -352,7 +401,8 @@ describe('workspace data migrations', () => {
     expect(() => assertWorkspaceDataWritable({ version: '0.0.8' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.9' })).toThrow(/migration/i);
     expect(() => assertWorkspaceDataWritable({ version: '0.0.10' })).toThrow(/migration/i);
-    expect(() => assertWorkspaceDataWritable({ version: '0.0.11' })).not.toThrow();
+    expect(() => assertWorkspaceDataWritable({ version: '0.0.11' })).toThrow(/migration/i);
+    expect(() => assertWorkspaceDataWritable({ version: '0.1.0' })).not.toThrow();
   });
 
   it('migrates legacy Kind color pairs into lossless light and dark variants', async () => {
@@ -371,9 +421,9 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.8->0.0.9',
-      '0.0.9->0.0.10', '0.0.10->0.0.11'
+      '0.0.9->0.0.10', '0.0.10->0.0.11', '0.0.11->0.1.0'
     ]);
-    expect(data.config.version).toBe('0.0.11');
+    expect(data.config.version).toBe('0.1.0');
     expect(data.config.entry_kinds).toEqual([{
       id: 'theorem', name: 'Theorem',
       coloring: {
@@ -519,9 +569,9 @@ describe('workspace data migrations', () => {
 
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10', '0.0.10->0.0.11'
+      '0.0.9->0.0.10', '0.0.10->0.0.11', '0.0.11->0.1.0'
     ]);
-    expect(data.config.version).toBe('0.0.11');
+    expect(data.config.version).toBe('0.1.0');
     expect(data.macroEntities.get('macros/logic-x.json')!.schema_version).toBe(1);
     expect(canonicalizeV11).toHaveBeenCalledTimes(1);    const migrated = data.macroEntities.get('macros/logic-x.json')!.macro as any;
     expect(migrated).not.toHaveProperty('default_style');
@@ -773,10 +823,10 @@ describe('workspace data migrations', () => {
     expect(report.applied.map((step) => `${step.from}->${step.to}`)).toEqual([
       '0.0.5->0.0.6',
       '0.0.6->0.0.9',
-      '0.0.9->0.0.10', '0.0.10->0.0.11'
+      '0.0.9->0.0.10', '0.0.10->0.0.11', '0.0.11->0.1.0'
     ]);
     expect(data.config).toMatchObject({
-      version: '0.0.11',
+      version: '0.1.0',
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',
@@ -881,7 +931,7 @@ describe('workspace data migrations', () => {
       description: 'Legacy Entries without an assigned package.'
     });
     await expect(migrateWorkspaceSnapshot(data, canonicalize)).resolves.toMatchObject({
-      to: '0.0.11'
+      to: '0.1.0'
     });
 
     const conflict = snapshot('0.0.5');
@@ -921,7 +971,7 @@ describe('workspace data migrations', () => {
       structuredClone(reference.macroEntities.get(macroEntityPath('Logic', 'old'))!)
     );
     await expect(migrateWorkspaceSnapshot(alreadyMigrated, canonicalize))
-      .resolves.toMatchObject({ to: '0.0.11' });
+      .resolves.toMatchObject({ to: '0.1.0' });
   });
 
   it('chains every historical migration and preserves unknown config fields', async () => {
@@ -931,7 +981,7 @@ describe('workspace data migrations', () => {
 
     expect(report.applied).toEqual(
       WORKSPACE_DATA_MIGRATIONS.filter((step) => step.from !== '0.0.7' && step.from !== '0.0.8')
-    );    expect(data.config.version).toBe('0.0.11');
+    );    expect(data.config.version).toBe('0.1.0');
     expect(data.config.vendor_extension).toEqual({ keep: true });
     const kind = (data.config.entry_kinds as Array<Record<string, unknown>>)[0];
     expect(kind).toMatchObject({
@@ -1094,8 +1144,8 @@ describe('workspace data migrations', () => {
     const canonicalizeMacroPackage = vi.fn(canonicalize);
     const report = await migrateWorkspaceSnapshot(data, canonicalizeMacroPackage);
     expect(report.applied.map((step) => step.from)).toEqual([
-      '0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10'
-    ]);    expect(data.config.version).toBe('0.0.11');
+      '0.0.3', '0.0.4', '0.0.5', '0.0.6', '0.0.9', '0.0.10', '0.0.11'
+    ]);    expect(data.config.version).toBe('0.1.0');
   });
 
   it('keeps the source snapshot untouched when any migration fails', async () => {

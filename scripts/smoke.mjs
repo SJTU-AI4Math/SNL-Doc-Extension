@@ -233,7 +233,7 @@ async function main() {
   await fs.mkdir(partialSnlRoot, { recursive: true });
   const partialInit = await initSnlDoc(Uri.file(partialRootPath));
   assert(partialInit.status === 'created', 'partial init is repaired as created');
-  assert((await readConfig(partialRootPath)).version === '0.0.11', 'partial init writes config marker');
+  assert((await readConfig(partialRootPath)).version === '0.1.0', 'partial init writes config marker');
   await fs.stat(nodePath.join(partialSnlRoot, 'entries'));
   await fs.stat(nodePath.join(partialSnlRoot, 'macros'));
   await fs.stat(nodePath.join(partialSnlRoot, 'packages'));
@@ -445,8 +445,8 @@ async function main() {
 
   const cfg = await readConfig(tmpRoot);
   assert(
-    cfg.version === '0.0.11',
-    `config.version === "0.0.11" (got ${cfg.version})`
+    cfg.version === '0.1.0',
+    `config.version === "0.1.0" (got ${cfg.version})`
   );
   assert(
     Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
@@ -2580,6 +2580,45 @@ async function main() {
   }
   assert(!missingLibraryCreated, 'Library writer never synthesizes an incomplete Library');
 
+  const malformedPredecessorTmp = await fs.mkdtemp(
+    nodePath.join(os.tmpdir(), 'snl-library-malformed-predecessor-')
+  );
+  const malformedPredecessorRoot = Uri.file(malformedPredecessorTmp);
+  assert((await initSnlDoc(malformedPredecessorRoot)).status === 'created',
+    'malformed predecessor Library fixture workspace is initialized');
+  const malformedPredecessorConfigPath = nodePath.join(
+    malformedPredecessorTmp, '.SNL_Doc', 'config.json'
+  );
+  const malformedPredecessorConfig = JSON.parse(
+    await fs.readFile(malformedPredecessorConfigPath, 'utf8')
+  );
+  malformedPredecessorConfig.version = '0.0.11';
+  malformedPredecessorConfig.entry_kinds = [{
+    id: 'definition', name: 'Definition', defaultCounterName: '', style: '',
+    coloring: { stroke: '#111111', background: '#ffffff' }
+  }];
+  await fs.writeFile(
+    malformedPredecessorConfigPath,
+    JSON.stringify(malformedPredecessorConfig)
+  );
+  let malformedPredecessorRejected = false;
+  try {
+    const result = await createLibrary(malformedPredecessorRoot, 'Must Not Publish');
+    malformedPredecessorRejected = result.status !== 'created';
+  } catch { malformedPredecessorRejected = true; }
+  assert(malformedPredecessorRejected,
+    'unrelated Library creation rejects target-invalid 0.0.11 Kind catalogs');
+  let malformedPredecessorPublished = true;
+  try {
+    await fs.stat(nodePath.join(
+      malformedPredecessorTmp, '.SNL_Doc', 'libraries', 'Must_Not_Publish'
+    ));
+  } catch (error) {
+    malformedPredecessorPublished = error?.code !== 'ENOENT';
+  }
+  assert(!malformedPredecessorPublished,
+    'rejected 0.0.11 Library creation publishes no unrelated data');
+
   const preflightTmp = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'snl-library-preflight-'));
   const preflightRoot = Uri.file(preflightTmp);
   assert((await initSnlDoc(preflightRoot)).status === 'created',
@@ -2836,7 +2875,7 @@ async function main() {
       Array.isArray(retriedInitManifest.entry_ids) && retriedInitManifest.entry_ids.length === 0,
     'retry upgrades predecessor initialization residue before committing current config'
   );
-  assert((await readConfig(tmpRoot11)).version === '0.0.11', 'retry commits the current config last');
+  assert((await readConfig(tmpRoot11)).version === '0.1.0', 'retry commits the current config last');
   await fs.rm(tmpRoot11, { recursive: true, force: true });
 
   console.log(`\nALL SMOKE ASSERTS PASSED (${passed} checks).`);

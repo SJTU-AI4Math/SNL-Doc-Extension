@@ -7,7 +7,11 @@ import {
   readPackageManifestRecords,
   type EntityStorageSnapshot
 } from './entityStorageIo';
-import { CURRENT_DATA_VERSION } from './dataMigrationCore';
+import {
+  CURRENT_DATA_VERSION,
+  hasSplitEntityTopologyDataVersion,
+  usesCurrentEntityStorageDataVersion
+} from './dataMigrationCore';
 import {
   cloneWorkspaceDataSnapshot,
   inspectWorkspaceData,
@@ -47,7 +51,9 @@ export async function readStoredWorkspaceDataSnapshot(
 ): Promise<StoredWorkspaceDataReadSnapshot> {
   const config = await storage.readJson('config.json');
   const versionInspection = inspectWorkspaceData(config);
-  if (versionInspection.status !== 'current') return Object.freeze({ config });
+  const hasEntityTopology = typeof versionInspection.currentVersion === 'string' &&
+    usesCurrentEntityStorageDataVersion(versionInspection.currentVersion);
+  if (!hasEntityTopology) return Object.freeze({ config });
   const entities = await readEntityStorageSnapshot(storage);
   return Object.freeze({ config, entities });
 }
@@ -63,11 +69,8 @@ export async function inspectStoredWorkspaceData(
   try {
     const config = snapshot ? snapshot.config : await storage.readJson('config.json');
     const inspection = inspectWorkspaceData(config);
-    const hasEntityTopology = inspection.status === 'current' ||
-      (inspection.status === 'needsMigration' &&
-        (inspection.currentVersion === '0.0.6' || inspection.currentVersion === '0.0.7' ||
-          inspection.currentVersion === '0.0.8' || inspection.currentVersion === '0.0.9' ||
-          inspection.currentVersion === '0.0.10'));
+    const hasEntityTopology = typeof inspection.currentVersion === 'string' &&
+      hasSplitEntityTopologyDataVersion(inspection.currentVersion);
     if (hasEntityTopology) {
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         throw new Error('Current entity topology requires an object config.');
@@ -147,7 +150,8 @@ export async function inspectStoredWorkspaceData(
           throw new Error(`Entry entity references missing Package ${envelope.package}.`);
         }
       }
-      if (inspection.status === 'current') {
+      if (typeof inspection.currentVersion === 'string' &&
+          usesCurrentEntityStorageDataVersion(inspection.currentVersion)) {
         const entryIdsByOwner = new Map<string, string[]>(
           packages.map(({ manifest }) => [manifest.id, []])
         );

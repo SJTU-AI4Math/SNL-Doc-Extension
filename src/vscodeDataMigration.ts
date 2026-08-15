@@ -141,6 +141,9 @@ export async function readDashboardWorkspaceData(
     readOverview(workspaceRoot, snapshot),
     inspectStoredWorkspaceData(storage, snapshot)
   ]);
+  if (inspection.status === 'invalid') {
+    throw new Error(inspection.message);
+  }
   return { overview, inspection };
 }
 

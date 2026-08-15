@@ -4,8 +4,8 @@
 
 SNL Doc has intentionally separate version domains:
 
-- **Extension release**: `package.json#version` (currently `0.0.1`). This is the VS Code Marketplace/package release and never drives workspace migration.
-- **Workspace topology schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.0.11`; it plans coordinated cross-file migrations.
+- **Extension release**: `package.json#version` (currently `0.1.0`). This is the VS Code Marketplace/package release and never drives workspace migration.
+- **Workspace topology schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.1.0`; it plans coordinated cross-file migrations.
 - **Split-file payload schema**: every `snl-package`, `snl-entry`, and `snl-macro` file carries a numeric `schema_version` independent of its envelope `version`. The current Package generation is `2`; Entry and Macro remain at generation `1`. Files created before `0.0.10` have no marker and are the unique implicit legacy generation. Package schema `2` adds the authoritative, exact `entry_ids` membership index and is reached only through the coordinated workspace `0.0.10 -> 0.0.11` migration, not by an isolated lazy Package-file rewrite.
 - **Macro package format**: each Macro package's `version` (currently string generation `"11"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
 - **Relationships file format**: `relationships.json#version` (currently numeric generation `1`). It is likewise subordinate to the workspace data version.
@@ -43,6 +43,7 @@ The registry is intentionally explicit; SemVer arithmetic does not invent missin
 - `0.0.8 -> 0.0.9`: migrate Macro schema v10 directly to v11 and apply themed Kind colors. Missing kinds become `const`, persisted `partial` becomes `sub`, and all other consumer-defined kind strings are preserved.
 - `0.0.9 -> 0.0.10`: enable per-file payload schema migration without eagerly rewriting existing split files. An absent `schema_version` remains readable as the single legacy generation.
 - `0.0.10 -> 0.0.11`: derive exact Entry ownership from all Entry envelopes, publish sorted `entry_ids` in every Package manifest, and advance Package payload schema `1 -> 2`. This is a cross-file membership migration: Package manifests and Entry envelopes are validated together before the workspace version is committed.
+- `0.0.11 -> 0.1.0`: align the workspace topology version with Extension `0.1.0`. Payload schemas remain unchanged; the migration advances only `config.json#version` after the existing current-schema validation gates pass.
 
 All three direct edges compose every transformation omitted between their source
 and `0.0.9`. Macro v11 localizes a complete TemplateSpec rather than only a text

@@ -10,10 +10,22 @@ The extension ships separate reading, management, search, graph, authoring,
 and HTML-export surfaces; see [`docs/extension-feature-inventory.md`](docs/extension-feature-inventory.md)
 for the current command and panel inventory.
 
-## Install & build
+## Install a release
+
+Download the `.vsix` file from the matching GitHub Release. In VS Code, open
+the Extensions view, select the `...` menu, choose **Install from VSIX...**,
+and select the downloaded file.
+
+You can also install it from a terminal:
 
 ```bash
-npm install              # pulls @sjtu-ai4math/snl-basics from npm
+code --install-extension snl-doc-extension-0.1.0.vsix
+```
+
+## Build from source
+
+```bash
+npm ci                   # install the exact locked dependencies
 npm run compile          # type-check + emit the extension (tsc -> ./out)
 npm run build:webview    # build every webview bundle
 ```

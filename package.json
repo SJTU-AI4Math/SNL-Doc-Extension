@@ -3,7 +3,7 @@
   "displayName": "%snlDoc.displayName%",
   "description": "%snlDoc.description%",
   "publisher": "sjtu-ai4math",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension.git"
@@ -470,13 +470,19 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "1.90.0",
     "@vitejs/plugin-react": "^5",
+    "@vscode/vsce": "3.9.2",
     "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
     "monaco-editor": "0.53.0",
     "typescript": "~5.9.3",
     "vite": "^8",
     "vitest": "^3.2.6"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension#readme",
+  "bugs": {
+    "url": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension/issues"
   }
 }

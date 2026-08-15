@@ -11,10 +11,16 @@ vi.mock('vscode', () => ({
   FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
   Uri: {
     joinPath: (base: TestUri, ...parts: string[]): TestUri => {
-      const path = [base.path.replace(/\/$/, ''), ...parts].join('/');
+      // Model VS Code's two local-URI views: `path` always uses URI slashes,
+      // while `fsPath` follows the host platform. Conflating them made the
+      // Windows swap fixture target a different string than production used.
+      const fsPath = join(base.fsPath, ...parts);
+      const path = [base.path.replace(/\/$/, ''), ...parts]
+        .join('/')
+        .replace(/\\/g, '/');
       return {
         path,
-        fsPath: path,
+        fsPath,
         scheme: base.scheme,
         toString: () => `${base.scheme}:${path}`
       };
@@ -29,8 +35,9 @@ interface TestUri {
   toString(): string;
 }
 
-function uri(path: string, scheme = 'mem'): TestUri {
-  return { path, fsPath: path, scheme, toString: () => `${scheme}:${path}` };
+function uri(fsPath: string, scheme = 'mem'): TestUri {
+  const path = fsPath.replace(/\\/g, '/');
+  return { path, fsPath, scheme, toString: () => `${scheme}:${path}` };
 }
 
 import { cacheWorkspaceAsset } from './workspaceAssets';

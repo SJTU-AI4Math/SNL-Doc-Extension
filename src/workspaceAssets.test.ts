@@ -89,7 +89,11 @@ describe('cacheWorkspaceAsset', () => {
       await nodeFs.mkdir(join(workspace, '.SNL_Doc'), { recursive: true });
       await nodeFs.mkdir(outside, { recursive: true });
       await nodeFs.writeFile(join(outside, 'secret.png'), new Uint8Array([9]));
-      await nodeFs.symlink(outside, join(workspace, '.SNL_Doc', 'assets'), 'dir');
+      await nodeFs.symlink(
+        outside,
+        join(workspace, '.SNL_Doc', 'assets'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
       const followingFs = {
         stat: async (target: TestUri) => {
           const stat = await nodeFs.stat(target.fsPath);
@@ -137,7 +141,11 @@ describe('cacheWorkspaceAsset', () => {
       const result = await realpath(path);
       if (!swapped && path === target) {
         await nodeFs.rename(figures, `${figures}.safe`);
-        await nodeFs.symlink(outside, figures, 'dir');
+        await nodeFs.symlink(
+          outside,
+          figures,
+          process.platform === 'win32' ? 'junction' : 'dir'
+        );
         swapped = true;
       }
       return result;

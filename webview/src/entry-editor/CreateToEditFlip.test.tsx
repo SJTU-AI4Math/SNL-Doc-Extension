@@ -250,23 +250,27 @@ describe('CreateEntryApp create → edit flip', () => {
     fireEvent.click(createEntryButton);
     expect(posted.some((message) => message?.type === 'create')).toBe(false);
 
-    send({ type: 'created', id: 'created-while-package-pending' });
-    send({
-      ...(editContext({
-        id: 'created-while-package-pending',
-        package: '_unpackaged',
-        title: 'Created While Package Pending',
-        kind: 'definition',
-        content: {}
-      }) as Record<string, unknown>),
-      entryPackages: ['_unpackaged', 'Logic', 'Deferred']
+    act(() => {
+      send({ type: 'created', id: 'created-while-package-pending' });
+      send({
+        ...(editContext({
+          id: 'created-while-package-pending',
+          package: '_unpackaged',
+          title: 'Created While Package Pending',
+          kind: 'definition',
+          content: {}
+        }) as Record<string, unknown>),
+        entryPackages: ['_unpackaged', 'Logic', 'Deferred']
+      });
     });
 
     const packageField = view.getByLabelText('Entry Package') as HTMLInputElement;
     await waitFor(() => expect(packageField.value).toBe('Unpackaged (_unpackaged)'));
     expect(packageField.readOnly).toBe(true);
-    expect(view.queryByRole('button', { name: 'Creating…' })).toBeNull();
-    expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
+    await waitFor(() => {
+      expect(view.queryByRole('button', { name: 'Creating…' })).toBeNull();
+      expect(view.queryByLabelText('New Entry Package ID')).toBeNull();
+    });
 
     act(() => send({
       type: 'packageCreated',

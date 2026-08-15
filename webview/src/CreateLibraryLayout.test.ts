@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(path.resolve(__dirname, 'CreateLibraryApp.css'), 'utf8');
-const dashboardCss = readFileSync(path.resolve(__dirname, 'components/TreeNodeActionDashboard.css'), 'utf8');
+const css = readFileSync(path.resolve(__dirname, 'CreateLibraryApp.css'), 'utf8')
+  .replace(/\r\n?/g, '\n');
+const dashboardCss = readFileSync(path.resolve(__dirname, 'components/TreeNodeActionDashboard.css'), 'utf8')
+  .replace(/\r\n?/g, '\n');
 
 function blockBetween(start: string, end?: string): string {
   const from = css.indexOf(start);

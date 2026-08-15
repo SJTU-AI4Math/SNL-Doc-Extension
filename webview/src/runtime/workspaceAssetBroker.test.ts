@@ -10,7 +10,7 @@ interface WorkspaceAssetBrokerRuntimeMaps {
   requests: Map<unknown, unknown>;
   epochs: Map<unknown, unknown>;
   consumers: Map<unknown, Set<HTMLImageElement>>;
-  consumerPaths: Map<unknown, unknown>;
+  pathKeys: Map<unknown, unknown>;
 }
 
 function installWithRuntimeMaps(
@@ -41,13 +41,13 @@ function installWithRuntimeMaps(
   if (captured.length !== 5) {
     throw new Error(`expected five broker Maps, captured ${captured.length}`);
   }
-  const [resolutions, requests, epochs, consumers, consumerPaths] = captured;
+  const [resolutions, requests, epochs, consumers, pathKeys] = captured;
   return {
     resolutions: resolutions as Map<unknown, unknown>,
     requests: requests as Map<unknown, unknown>,
     epochs: epochs as Map<unknown, unknown>,
     consumers: consumers as Map<unknown, Set<HTMLImageElement>>,
-    consumerPaths: consumerPaths as Map<unknown, unknown>
+    pathKeys: pathKeys as Map<unknown, unknown>
   };
 }
 afterEach(() => {
@@ -265,6 +265,34 @@ describe('workspace asset broker', () => {
     }
   );
 
+  it('invalidates one known path without scanning unrelated resolutions', async () => {
+    const postMessage = vi.fn();
+    const base = 'vscode-webview://panel/workspace/assets';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    const maps = installWithRuntimeMaps(postMessage);
+    const images = Array.from({ length: 100 }, (_, index) => {
+      const image = document.createElement('img');
+      image.src = `${base}/indexed-${index}.png`;
+      return image;
+    });
+    document.body.append(...images);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(100));
+
+    Object.defineProperty(maps.resolutions, 'values', {
+      configurable: true,
+      value: () => { throw new Error('known-path invalidation scanned all resolutions'); }
+    });
+    Object.defineProperty(maps.resolutions, Symbol.iterator, {
+      configurable: true,
+      value: () => { throw new Error('known-path invalidation iterated all resolutions'); }
+    });
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'snl.assets/invalidate', path: 'indexed-50.png', revision: 1
+    } }));
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(101));
+  });
+
   it('releases 1000 pending requests when their only consumers become external', async () => {
     const postMessage = vi.fn();
     const base = 'vscode-webview://panel/workspace/assets';
@@ -287,7 +315,7 @@ describe('workspace asset broker', () => {
     expect(maps.requests.size).toBe(1000);
     expect(maps.epochs.size).toBe(1000);
     expect(maps.consumers.size).toBe(1000);
-    expect(maps.consumerPaths.size).toBe(1000);
+    expect(maps.pathKeys.size).toBe(1000);
     expect([...maps.consumers.values()].every((images) => images.size === 1)).toBe(true);
 
     images.forEach((image, index) => {
@@ -298,7 +326,7 @@ describe('workspace asset broker', () => {
       maps.requests.size,
       maps.epochs.size,
       maps.consumers.size,
-      maps.consumerPaths.size
+      maps.pathKeys.size
     ]).toEqual([0, 0, 0, 0, 0]));
   });
 
@@ -327,7 +355,7 @@ describe('workspace asset broker', () => {
       maps.requests.size,
       maps.epochs.size,
       maps.consumers.size,
-      maps.consumerPaths.size
+      maps.pathKeys.size
     ]).toEqual([0, 0, 0, 0, 0]));
   });
 
@@ -402,7 +430,7 @@ describe('workspace asset broker', () => {
     expect(maps.requests.size).toBe(0);
     expect(maps.epochs.size).toBe(0);
     expect(maps.consumers.size).toBe(0);
-    expect(maps.consumerPaths.size).toBe(0);
+    expect(maps.pathKeys.size).toBe(0);
     expect(postMessage).not.toHaveBeenCalled();
   });
 

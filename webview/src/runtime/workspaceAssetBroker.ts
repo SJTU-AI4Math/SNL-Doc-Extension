@@ -82,7 +82,7 @@ export function installWorkspaceAssetBroker(
   const requests = new Map<string, string>();
   const epochs = new Map<string, number>();
   const consumers = new Map<string, Set<HTMLImageElement>>();
-  const consumerPaths = new Map<string, string>();
+  const pathKeys = new Map<string, Set<string>>();
   let disposed = false;
 
   const mutateSource = (image: HTMLImageElement, source: string | null): void => {
@@ -92,15 +92,20 @@ export function installWorkspaceAssetBroker(
     else image.setAttribute('src', source);
   };
 
-  const hasPathState = (path: string): boolean => {
-    for (const resolution of resolutions.values()) {
-      if (resolution.identity.path === path) return true;
-    }
-    for (const [key, consumerPath] of consumerPaths) {
-      if (consumerPath === path && consumers.get(key)?.size) return true;
-    }
-    return false;
+  const trackKey = (path: string, key: string): void => {
+    const keys = pathKeys.get(path) ?? new Set<string>();
+    keys.add(key);
+    pathKeys.set(path, keys);
   };
+
+  const forgetKeyIfUnused = (path: string, key: string): void => {
+    if (resolutions.has(key) || consumers.get(key)?.size) return;
+    const keys = pathKeys.get(path);
+    keys?.delete(key);
+    if (!keys?.size) pathKeys.delete(path);
+  };
+
+  const hasPathState = (path: string): boolean => Boolean(pathKeys.get(path)?.size);
 
   const cleanupEpoch = (path: string): void => {
     if (!hasPathState(path)) epochs.delete(path);
@@ -117,12 +122,12 @@ export function installWorkspaceAssetBroker(
     expected?.delete(image);
     if (expected?.size) return associated;
     consumers.delete(associated.key);
-    consumerPaths.delete(associated.key);
     const pending = resolutions.get(associated.key);
     if (pending?.status === 'pending') {
       resolutions.delete(associated.key);
       requests.delete(pending.request_id);
     }
+    forgetKeyIfUnused(associated.path, associated.key);
     if (cleanEpoch) cleanupEpoch(associated.path);
     return associated;
   };
@@ -134,7 +139,7 @@ export function installWorkspaceAssetBroker(
     const expected = consumers.get(association.key) ?? new Set<HTMLImageElement>();
     expected.add(image);
     consumers.set(association.key, expected);
-    consumerPaths.set(association.key, association.path);
+    trackKey(association.path, association.key);
     if (previous && previous.key !== association.key) cleanupEpoch(previous.path);
   };
 
@@ -158,6 +163,7 @@ export function installWorkspaceAssetBroker(
     for (const [key, resolution] of resolutions) {
       if (resolution.status === 'pending') continue;
       resolutions.delete(key);
+      forgetKeyIfUnused(resolution.identity.path, key);
       cleanupEpoch(resolution.identity.path);
       settled -= 1;
       if (settled <= SETTLED_CACHE_LIMIT) break;
@@ -233,14 +239,20 @@ export function installWorkspaceAssetBroker(
     if (!path || path.includes('\\') || path.startsWith('/') ||
         path.includes('?') || path.includes('#') ||
         path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) return;
-    if (!hasPathState(path)) return;
+    const indexedKeys = [...(pathKeys.get(path) ?? [])];
+    if (!indexedKeys.length) return;
     epochs.set(path, (epochs.get(path) ?? 0) + 1);
-    for (const [key, resolution] of resolutions) {
-      if (resolution.identity.path !== path) continue;
-      resolutions.delete(key);
-      if (resolution.status === 'pending') requests.delete(resolution.request_id);
+    const images = new Set<HTMLImageElement>();
+    for (const key of indexedKeys) {
+      const resolution = resolutions.get(key);
+      if (resolution) {
+        resolutions.delete(key);
+        if (resolution.status === 'pending') requests.delete(resolution.request_id);
+      }
+      for (const image of consumers.get(key) ?? []) images.add(image);
+      forgetKeyIfUnused(path, key);
     }
-    for (const image of document.querySelectorAll<HTMLImageElement>('img[data-snl-asset-path]')) {
+    for (const image of images) {
       const associated = associations.get(image);
       if (!associated || associated.path !== path) continue;
       const identity = decodeWorkspaceSource(
@@ -342,7 +354,7 @@ export function installWorkspaceAssetBroker(
       requests.clear();
       epochs.clear();
       consumers.clear();
-      consumerPaths.clear();
+      pathKeys.clear();
     }
   };
 }

@@ -99,8 +99,8 @@ describe('editor-title cat navigation button', () => {
 
   it('points at a real, registered command', () => {
     expect(navigationCommand).toBeDefined();
-    expect(extensionSource).toContain(
-      "registerCommand(\n    'snlDoc.openNavigation'"
+    expect(extensionSource).toMatch(
+      /registerCommand\(\s*['"]snlDoc\.openNavigation['"]/
     );
   });
 

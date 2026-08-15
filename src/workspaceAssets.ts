@@ -116,16 +116,27 @@ export async function readWorkspaceAsset(
       fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
     );
     try {
-      const opened = await handle.stat();
-      if (!opened.isFile() || opened.size > MAX_IMAGE_BYTES) {
+      const opened = await handle.stat({ bigint: true });
+      if (!opened.isFile() || opened.size > BigInt(MAX_IMAGE_BYTES)) {
         throw new Error('Workspace image must be a regular file no larger than 10 MiB.');
       }
       // Revalidate after opening, then bind the path to the opened inode. A
       // check-then-swap cannot redirect the bytes without changing this pair.
       await assertLocalRealpathContainment(assetRoot, target);
-      const current = await nodeFs.stat(target.fsPath);
-      if (opened.dev !== current.dev || opened.ino !== current.ino) {
-        throw new Error('Workspace image changed while it was being opened.');
+      const currentHandle = await nodeFs.open(
+        target.fsPath,
+        fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+      );
+      try {
+        // Compare handle-backed identities on both sides. Mixing path stat with
+        // fstat is not portable on affected Windows/libuv releases: the same
+        // file can receive different st_dev values from those two APIs.
+        const current = await currentHandle.stat({ bigint: true });
+        if (opened.dev !== current.dev || opened.ino !== current.ino) {
+          throw new Error('Workspace image changed while it was being opened.');
+        }
+      } finally {
+        await currentHandle.close();
       }
       bytes = await handle.readFile();
     } finally {

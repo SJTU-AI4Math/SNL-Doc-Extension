@@ -9,10 +9,12 @@ import {
   fileCensus,
   isPathInside,
   parseTerminalResults,
+  processTreePolicy,
   requireExternalPath,
   restoreFiles,
   sameFileCensus,
   snapshotFiles,
+  spawnProcessGroup,
   spawnTracked,
   terminateProcessTree,
   validateProbeResult
@@ -31,11 +33,12 @@ try {
   assert.deepEqual(parseTerminalResults('{"kind":"pass"}\n'), [{ kind: 'pass' }]);
   assert.equal(validateProbeResult('{"kind":"pass"}\n', { kind: 'pass' }).ok, true);
   assert.equal(validateProbeResult('{"kind":"pass","extra":true}\n', { kind: 'pass' }).ok, false);
-  assert.equal(validateProbeResult('[ASSERT:A] expected\n{"kind":"assertion","id":"A"}\n', { kind: 'assertion', id: 'A' }).ok, true);
-  assert.equal(validateProbeResult('[ASSERT:A]\n{"kind":"assertion","id":"A"}\n{"kind":"infra","id":"CLEANUP"}\n', { kind: 'assertion', id: 'A' }).ok, false);
-  assert.equal(validateProbeResult('[ASSERT:A]\n[ASSERT:OTHER]\n{"kind":"assertion","id":"A"}\n', { kind: 'assertion', id: 'A' }).ok, false);
-  assert.equal(validateProbeResult('[ASSERT:OTHER]\n{"kind":"assertion","id":"OTHER"}\n', { kind: 'assertion', id: 'A' }).ok, false);
-  assert.equal(validateProbeResult('{kind:bad}\n{"kind":"assertion","id":"A"}\n', { kind: 'assertion', id: 'A' }).ok, false);
+  assert.equal(validateProbeResult('[ASSERT:A] expected\n{"kind":"assertion","ids":["A"]}\n', { kind: 'assertion', id: 'A' }).ok, true);
+  assert.equal(validateProbeResult('[ASSERT:A]\n{"kind":"assertion","ids":["A"]}\n{"kind":"infra","id":"CLEANUP"}\n', { kind: 'assertion', id: 'A' }).ok, false);
+  assert.equal(validateProbeResult('[ASSERT:A]\n[ASSERT:OTHER]\n{"kind":"assertion","ids":["A","OTHER"]}\n', { kind: 'assertion', id: 'A' }).ok, false, 'expected plus extra assertion must be rejected');
+  assert.equal(validateProbeResult('[ASSERT:A]\n{"kind":"assertion","ids":["A","A"]}\n', { kind: 'assertion', id: 'A' }).ok, false, 'duplicate expected assertion must be rejected');
+  assert.equal(validateProbeResult('[ASSERT:OTHER]\n{"kind":"assertion","ids":["OTHER"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
+  assert.equal(validateProbeResult('{kind:bad}\n{"kind":"assertion","ids":["A"]}\n', { kind: 'assertion', id: 'A' }).ok, false);
   assert.equal(validateProbeResult('', { kind: 'pass' }).ok, false);
 
   const repository = resolve(temp, 'repository');
@@ -81,17 +84,47 @@ try {
   // The helper source is also checked statically so Windows never requests an
   // unprivileged directory symlink and always supplies an absolute target.
   const helperSource = readFileSync(new URL('./library-depth-harness-utils.mjs', import.meta.url), 'utf8');
+  const geometrySourceText = readFileSync(new URL('./test-library-depth-row-geometry.mjs', import.meta.url), 'utf8');
+  const mutationSourceText = readFileSync(new URL('./test-library-depth-row-mutations.mjs', import.meta.url), 'utf8');
   assert.match(helperSource, /symlinkSync\(absoluteTarget, link, 'junction'\)/);
   assert.match(helperSource, /const absoluteTarget = path\.resolve\(target\)/);
+  assert.match(helperSource, /detached: false/);
+  assert.doesNotMatch(geometrySourceText, /terminalFailures|failures\.filter/);
+  assert.match(geometrySourceText, /terminalResult=\{kind:'assertion',ids:/);
+  assert.match(mutationSourceText, /spawnProcessGroup\(process\.execPath, \[probe\]/);
+  assert.deepEqual(processTreePolicy('linux'), { detachedGroupRoot: true, termination: 'process-group' });
+  assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'taskkill-tree' });
+  assert.match(helperSource, /spawn\('taskkill', \['\/PID', String\(child\.pid\), '\/T', '\/F'\]/);
   void calls; void originalSymlink;
 
   if (process.platform !== 'win32') {
     const marker = resolve(temp, 'grandchild-alive');
-    const child = spawnTracked(process.execPath, ['-e', `const {spawn}=require('child_process');spawn(process.execPath,['-e',${JSON.stringify(`setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(marker)},'alive'),3000)`)}],{stdio:'ignore'});setInterval(()=>{},1000)`], { stdio: 'ignore' });
+    const pids = resolve(temp, 'nested-pids');
+    const unrelatedMarker = resolve(temp, 'unrelated-alive');
+    const unrelated = spawn(process.execPath, ['-e', `setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(unrelatedMarker)},'alive'),600)`], { stdio: 'ignore' });
+    const grandchildSource = `require('fs').appendFileSync(${JSON.stringify(pids)},process.pid+'\\n');setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(marker)},'alive'),3000);setInterval(()=>{},1000)`;
+    const browserSource = `const {spawn}=require('child_process');require('fs').appendFileSync(${JSON.stringify(pids)},process.pid+'\\n');spawn(process.execPath,['-e',${JSON.stringify(grandchildSource)}],{stdio:'ignore',detached:false});setInterval(()=>{},1000)`;
+    const geometrySource = `import(${JSON.stringify(new URL('./library-depth-harness-utils.mjs', import.meta.url).href)}).then(({spawnTracked})=>{require('fs').appendFileSync(${JSON.stringify(pids)},process.pid+'\\n');spawnTracked(process.execPath,['-e',${JSON.stringify(browserSource)}],{stdio:'ignore'});setInterval(()=>{},1000)})`;
+    const child = spawnProcessGroup(process.execPath, ['-e', geometrySource], { stdio: 'ignore' });
     await new Promise((resolveWait) => setTimeout(resolveWait, 150));
     await terminateProcessTree(child);
-    await new Promise((resolveWait) => setTimeout(resolveWait, 3200));
-    assert.equal(existsSync(marker), false, 'descendant process was killed with its detached group');
+    await new Promise((resolveWait) => setTimeout(resolveWait, 700));
+    assert.equal(existsSync(marker), false, 'nested descendant survived process-group timeout termination');
+    assert.equal(existsSync(unrelatedMarker), true, 'unrelated process was killed');
+    const nestedPids = readFileSync(pids, 'utf8').trim().split(/\s+/).map(Number);
+    assert.equal(nestedPids.length, 3, 'geometry, browser, and grandchild all started');
+    assert.equal(nestedPids.every(pid => !existsSync(`/proc/${pid}`)), true, `nested descendants remain: ${nestedPids.filter(pid => existsSync(`/proc/${pid}`)).join(',')}`);
+    if (unrelated.exitCode === null) unrelated.kill('SIGTERM');
+
+    const standalonePids = resolve(temp, 'standalone-pids');
+    const standaloneGrandchild = `require('fs').appendFileSync(${JSON.stringify(standalonePids)},process.pid+'\\n');setInterval(()=>{},1000)`;
+    const standaloneChild = `const {spawn}=require('child_process');require('fs').appendFileSync(${JSON.stringify(standalonePids)},process.pid+'\\n');spawn(process.execPath,['-e',${JSON.stringify(standaloneGrandchild)}],{stdio:'ignore',detached:false});setInterval(()=>{},1000)`;
+    const standalone = spawnTracked(process.execPath, ['-e', standaloneChild], { stdio: 'ignore' });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    await terminateProcessTree(standalone);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+    const ownedPids = readFileSync(standalonePids, 'utf8').trim().split(/\s+/).map(Number);
+    assert.equal(ownedPids.every(pid => !existsSync(`/proc/${pid}`)), true, `standalone cleanup left descendants: ${ownedPids.filter(pid => existsSync(`/proc/${pid}`)).join(',')}`);
   }
 
   console.log(JSON.stringify({ kind: 'pass' }));

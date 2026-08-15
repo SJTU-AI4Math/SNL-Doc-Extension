@@ -17,6 +17,7 @@ import {
 } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export function canonicalPath(target) {
   const absolute = path.resolve(target);
@@ -150,20 +151,86 @@ export function validateProbeResult(output, expected) {
 }
 
 const processOwnership = new WeakMap();
+const verifiedCleanRegistries = new WeakSet();
 const REGISTRY_PATH_ENV = 'SNL_PROCESS_OWNER_REGISTRY';
 const OWNER_TOKEN_ENV = 'SNL_PROCESS_OWNER_TOKEN';
 const OWNER_ID_ENV = 'SNL_PROCESS_OWNER_ID';
 
 export function processTreePolicy(platform = process.platform) {
-  return platform === 'win32'
-    ? { detachedGroupRoot: false, termination: 'taskkill-tree' }
-    : { detachedGroupRoot: true, termination: 'process-group' };
+  if (platform === 'win32') return { detachedGroupRoot: false, termination: 'job-object' };
+  if (platform === 'darwin') return { detachedGroupRoot: true, termination: 'token-validated-process-group' };
+  return { detachedGroupRoot: true, termination: 'process-group' };
 }
 
 export function windowsTaskkillCommand(pid, systemRoot = process.env.SystemRoot || 'C:\\Windows') {
   return {
     command: path.win32.join(systemRoot, 'System32', 'taskkill.exe'),
     args: ['/PID', String(pid), '/T', '/F']
+  };
+}
+
+function parseWindowsCommandLine(commandLine) {
+  const input = String(commandLine);
+  const arguments_ = [];
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    while (cursor < input.length && (input[cursor] === ' ' || input[cursor] === '\t')) cursor += 1;
+    if (cursor === input.length) break;
+
+    let argument = '';
+    let quoted = false;
+    while (cursor < input.length) {
+      if (!quoted && (input[cursor] === ' ' || input[cursor] === '\t')) break;
+
+      let backslashes = 0;
+      while (input[cursor] === '\\') {
+        backslashes += 1;
+        cursor += 1;
+      }
+      if (input[cursor] === '"') {
+        argument += '\\'.repeat(Math.floor(backslashes / 2));
+        if (backslashes % 2 === 1) {
+          argument += '"';
+          cursor += 1;
+        } else if (quoted && input[cursor + 1] === '"') {
+          argument += '"';
+          cursor += 2;
+        } else {
+          quoted = !quoted;
+          cursor += 1;
+        }
+      } else {
+        argument += '\\'.repeat(backslashes);
+        if (cursor < input.length) {
+          argument += input[cursor];
+          cursor += 1;
+        }
+      }
+    }
+    // CommandLineToArgvW accepts an unterminated quote, but ownership checks
+    // must reject ambiguous or truncated CIM command lines rather than guess.
+    if (quoted) return null;
+    arguments_.push(argument);
+  }
+  return arguments_;
+}
+
+export function windowsCommandLineHasExactArgument(commandLine, expectedArgument) {
+  const parsed = parseWindowsCommandLine(commandLine);
+  return parsed !== null && parsed.includes(String(expectedArgument));
+}
+
+export function windowsJobLauncherCommand(command, args, context, systemRoot = process.env.SystemRoot || 'C:\\Windows') {
+  if (!Number.isInteger(context?.parentPid) || context.parentPid <= 0 || !/^[0-9a-f]{64}$/.test(context?.token || '') || !/^[0-9a-f]{24}$/.test(context?.ownerId || '')) {
+    throw new Error('invalid Windows Job launcher ownership metadata');
+  }
+  const powershell = path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const helper = fileURLToPath(new URL('./windows-job-launcher.ps1', import.meta.url));
+  const payload = Buffer.from(JSON.stringify({ executable: String(command), arguments: args.map(String) }), 'utf8').toString('base64');
+  return {
+    command: powershell,
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, String(context.parentPid), context.token, context.ownerId, payload]
   };
 }
 
@@ -232,7 +299,7 @@ function sameIdentity(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function appendOwnershipRecord(context, child, detached, command) {
+function appendOwnershipRecord(context, child, detached, command, metadata = {}) {
   if (!context || !Number.isInteger(child.pid)) throw new Error('owned process did not produce a PID');
   const record = {
     pid: child.pid,
@@ -241,6 +308,7 @@ function appendOwnershipRecord(context, child, detached, command) {
     ownerId: context.id,
     birth: portableBirthIdentity(child.pid),
     executable: String(command),
+    ...metadata,
     createdAt: Date.now()
   };
   appendFileSync(context.registryPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -252,8 +320,13 @@ function spawnOwned(command, args, options, defaultDetached) {
   const { ownedDetached, ...spawnOptions } = options;
   const detached = ownedDetached ?? defaultDetached;
   const env = { ...(spawnOptions.env || process.env), [REGISTRY_PATH_ENV]: context.registryPath, [OWNER_TOKEN_ENV]: context.token, [OWNER_ID_ENV]: context.id };
-  const child = spawn(command, args, { ...spawnOptions, env, detached });
-  try { appendOwnershipRecord(context, child, detached, command); }
+  const launch = process.platform === 'win32'
+    ? windowsJobLauncherCommand(command, args, { parentPid: process.pid, token: context.token, ownerId: context.id })
+    : { command, args };
+  const child = spawn(launch.command, launch.args, { ...spawnOptions, env, detached });
+  try {
+    appendOwnershipRecord(context, child, detached, launch.command, process.platform === 'win32' ? { jobLauncher: true, targetExecutable: String(command) } : {});
+  }
   catch (error) {
     try { child.kill('SIGKILL'); } catch { /* fail closed after best-effort local kill */ }
     throw error;
@@ -277,7 +350,8 @@ function readOwnershipRecords(context) {
     if (!line.trim()) throw new Error(`malformed empty ownership registry record at line ${index + 1}`);
     let record;
     try { record = JSON.parse(line); } catch { throw new Error(`malformed ownership registry record at line ${index + 1}`); }
-    if (!Number.isInteger(record.pid) || record.pid <= 0 || record.ownerId !== context.id || record.platform !== process.platform || !record.birth) {
+    if (!Number.isInteger(record.pid) || record.pid <= 0 || record.ownerId !== context.id || record.platform !== process.platform || !record.birth
+      || (process.platform === 'win32' && (record.groupRoot !== null || record.jobLauncher !== true || typeof record.targetExecutable !== 'string' || !record.targetExecutable))) {
       throw new Error(`invalid ownership registry record at line ${index + 1}`);
     }
     records.push(record);
@@ -306,7 +380,72 @@ function linuxOwnerTokenState(pid, token) {
   }
 }
 
+export function parseMacProcessTable(text, token) {
+  const exactToken = new RegExp(`(?:^|\\s)${OWNER_TOKEN_ENV}=${token}(?=\\s|$)`);
+  return String(text).split(/\r?\n/).filter(Boolean).map((line, index) => {
+    const fields = line.split('\t');
+    if (fields.length !== 5) throw new Error(`unverifiable macOS process row ${index + 1}`);
+    const [pidText, pgidText, state, executable, command] = fields;
+    const pid = Number(pidText), pgid = Number(pgidText);
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(pgid) || pgid <= 0 || !state || !path.isAbsolute(executable) || !command) {
+      throw new Error(`unverifiable macOS process identity at row ${index + 1}`);
+    }
+    return { pid, pgid, state, executable, command, zombie: state.startsWith('Z'), tokenState: exactToken.test(command) ? 'owned' : 'foreign' };
+  });
+}
+
+function macProcessDetails(rows, token) {
+  const encoded = [];
+  for (const row of rows) {
+    const identity = spawnSync('/bin/ps', ['-p', String(row.pid), '-o', 'comm='], { encoding: 'utf8' });
+    const environment = spawnSync('/bin/ps', ['eww', '-p', String(row.pid), '-o', 'command='], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    if (identity.status !== 0 || environment.status !== 0 || !identity.stdout.trim() || !environment.stdout.trim()) {
+      try { process.kill(row.pid, 0); } catch (error) { if (error?.code === 'ESRCH') continue; }
+      throw new Error(`cannot verify macOS token and executable identity for live PID ${row.pid}`);
+    }
+    encoded.push([row.pid, row.pgid, row.state, identity.stdout.trim(), environment.stdout.trim()].join('\t'));
+  }
+  return parseMacProcessTable(encoded.join('\n'), token);
+}
+
+function macLiveRecordTargets(record, context) {
+  const candidates = posixProcessTable().filter(row => !row.state.startsWith('Z') && (record.groupRoot ? row.pgid === record.groupRoot : row.pid === record.pid));
+  const observed = macProcessDetails(candidates, context.token).filter(row => !row.zombie);
+  const foreign = observed.filter(row => row.tokenState !== 'owned');
+  if (foreign.length) throw new Error(`macOS owned process group ${record.groupRoot || record.pid} contains unverifiable or foreign members: ${foreign.map(row => `${row.pid}:${row.executable}`).join(',')}`);
+  if (observed.some(row => row.pid === record.pid)) {
+    const birth = portableBirthIdentity(record.pid, 'darwin');
+    if (!sameIdentity(birth, record.birth)) throw new Error(`owned macOS PID ${record.pid} birth identity changed`);
+  }
+  return observed.map(row => row.pid);
+}
+
+function windowsOwnedLaunchers(context) {
+  const powershell = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const helper = fileURLToPath(new URL('./windows-job-launcher.ps1', import.meta.url));
+  const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress';
+  const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`cannot verify Windows owned Job launchers with CIM: ${result.stderr || result.status}`);
+  const parsed = result.stdout.trim() ? JSON.parse(result.stdout) : [];
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  const sameWindowsPath = (left, right) => path.win32.normalize(left).toLowerCase() === path.win32.normalize(right).toLowerCase();
+  const owned = [];
+  for (const row of rows) {
+    const pid = Number(row.ProcessId), command = String(row.CommandLine || ''), executable = String(row.ExecutablePath || '');
+    if (!Number.isInteger(pid) || pid <= 0 || !executable || !command || !sameWindowsPath(executable, powershell)) continue;
+    const argv = parseWindowsCommandLine(command);
+    if (!argv || argv.length !== 10 || !sameWindowsPath(argv[0], powershell)) continue;
+    if (!['-nologo', '-noprofile', '-noninteractive', '-file'].every((argument, index) => argv[index + 1].toLowerCase() === argument)) continue;
+    if (!sameWindowsPath(argv[5], helper) || !/^[1-9][0-9]*$/.test(argv[6])) continue;
+    if (argv[7] !== context.token || argv[8] !== context.id || !/^[A-Za-z0-9+/]+={0,2}$/.test(argv[9])) continue;
+    owned.push({ pid, executable, command });
+  }
+  return owned;
+}
+
 function liveRecordTargets(record, context) {
+  if (process.platform === 'darwin') return macLiveRecordTargets(record, context);
+  if (process.platform === 'win32') return windowsOwnedLaunchers(context).filter(row => row.pid === record.pid).map(row => row.pid);
   if (process.platform !== 'linux') {
     let birth;
     try { birth = portableBirthIdentity(record.pid); }
@@ -387,10 +526,12 @@ export async function verifyOwnedProcessRegistryClean(context) {
     if (targets.length) live.push({ pid: record.pid, targets });
   }
   if (live.length) throw new Error(`owned process registry is not clean: ${JSON.stringify(live)}`);
+  verifiedCleanRegistries.add(context);
 }
 
 export function destroyOwnedProcessRegistry(context) {
   if (!context?.owned) return;
+  if (!verifiedCleanRegistries.has(context)) throw new Error('refusing to remove an ownership registry before zero-owned verification');
   rmSync(context.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 }
 

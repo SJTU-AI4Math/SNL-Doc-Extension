@@ -12,6 +12,7 @@ import {
   fileCensus,
   isPathInside,
   parseTerminalResults,
+  parseMacProcessTable,
   processTreePolicy,
   requireExternalPath,
   restoreFiles,
@@ -22,10 +23,18 @@ import {
   terminateProcessTree,
   verifyOwnedProcessRegistryClean,
   validateProbeResult,
+  windowsCommandLineHasExactArgument,
+  windowsJobLauncherCommand,
   windowsTaskkillCommand
 } from './library-depth-harness-utils.mjs';
 
 const temp = mkdtempSync(resolve(tmpdir(), 'snl-depth-contracts-'));
+const isProcessAlive = async pid => {
+  if (process.platform === 'linux') return existsSync(`/proc/${pid}`);
+  if (process.platform === 'win32') { try { process.kill(pid, 0); return true; } catch { return false; } }
+  const probe = spawn('/bin/ps', ['-p', String(pid), '-o', 'stat='], { stdio: ['ignore', 'pipe', 'ignore'] });
+  return await new Promise(resolveProbe => { let output = ''; probe.stdout.on('data', chunk => { output += chunk; }); probe.once('exit', code => resolveProbe(Boolean(code === 0 && output.trim() && !output.trim().startsWith('Z')))); });
+};
 try {
   assert.equal(isPathInside('/repo', '/repo'), true);
   assert.equal(isPathInside('/repo', '/repo/evidence/result.json'), true);
@@ -101,19 +110,64 @@ try {
   assert.match(geometrySourceText, /terminalResult=\{kind:'assertion',ids:/);
   assert.match(mutationSourceText, /spawnProcessGroup\(process\.execPath, \[probe\]/);
   assert.deepEqual(processTreePolicy('linux'), { detachedGroupRoot: true, termination: 'process-group' });
-  assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'taskkill-tree' });
+  assert.deepEqual(processTreePolicy('darwin'), { detachedGroupRoot: true, termination: 'token-validated-process-group' });
+  assert.deepEqual(processTreePolicy('win32'), { detachedGroupRoot: false, termination: 'job-object' });
   assert.match(helperSource, /SNL_PROCESS_OWNER_TOKEN/);
   assert.match(helperSource, /appendFileSync\(context\.registryPath/);
-  assert.match(helperSource, /path\.win32\.join\(systemRoot, 'System32', 'taskkill\.exe'\)/);
+  const windowsHelperPath = resolve(new URL('./windows-job-launcher.ps1', import.meta.url).pathname);
+  const windowsHelperSource = readFileSync(windowsHelperPath, 'utf8');
+  assert.match(windowsHelperSource, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE/);
+  assert.match(windowsHelperSource, /CREATE_SUSPENDED/);
+  assert.match(windowsHelperSource, /AssignProcessToJobObject/);
+  assert.match(windowsHelperSource, /ResumeThread/);
+  assert.match(windowsHelperSource, /WaitForMultipleObjects/);
+  assert.match(windowsHelperSource, /GetExitCodeProcess/);
+  assert.doesNotMatch(windowsHelperSource, /Invoke-Expression|Start-Process/);
   assert.match(helperSource, /for \(const record of \[\.\.\.records\]\.reverse\(\)\)/);
   assert.deepEqual(windowsTaskkillCommand(202, 'D:\\Windows'), { command: 'D:\\Windows\\System32\\taskkill.exe', args: ['/PID', '202', '/T', '/F'] }, 'nested Windows PID must have its own absolute taskkill invocation after a dead root');
+  const jobOwnerId = 'c'.repeat(24);
+  const job = windowsJobLauncherCommand('C:\\Program Files\\nodejs\\node.exe', ['a b', 'x"y'], { parentPid: 42, token: 'a'.repeat(64), ownerId: jobOwnerId }, 'D:\\Windows');
+  assert.equal(job.command, 'D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  assert.deepEqual(job.args.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-File']);
+  assert.deepEqual(job.args.slice(-4, -1), ['42', 'a'.repeat(64), jobOwnerId]);
+  assert.deepEqual(JSON.parse(Buffer.from(job.args.at(-1), 'base64').toString('utf8')), { executable: 'C:\\Program Files\\nodejs\\node.exe', arguments: ['a b', 'x"y'] });
+  const exactProfile = '--user-data-dir=C:\\Temp Dir\\profile';
+  assert.equal(windowsCommandLineHasExactArgument('chrome.exe "--user-data-dir=C:\\Temp Dir\\profile" --type=renderer', exactProfile), true);
+  assert.equal(windowsCommandLineHasExactArgument('chrome.exe --user-data-dir=C:\\Temp\\profile-other', '--user-data-dir=C:\\Temp\\profile'), false, 'prefix lookalike must not match');
+  assert.equal(windowsCommandLineHasExactArgument('chrome.exe prefix--owner-token suffix', '--owner-token'), false, 'substring lookalikes must not match');
+  assert.equal(windowsCommandLineHasExactArgument('chrome.exe --Owner-Token', '--owner-token'), false, 'non-path argument identity is case-sensitive');
+  assert.equal(windowsCommandLineHasExactArgument('tool.exe "" tail', ''), true, 'empty quoted arguments must be preserved');
+  assert.equal(windowsCommandLineHasExactArgument('tool.exe\t"two words"\tnext', 'two words'), true, 'tabs delimit unquoted arguments');
+  assert.equal(windowsCommandLineHasExactArgument(String.raw`tool.exe "say \"hello\""`, 'say "hello"'), true, 'odd backslash runs before quotes produce literal quotes');
+  assert.equal(windowsCommandLineHasExactArgument('tool.exe "one""two"', 'one"two'), true, 'paired quotes inside a quoted argument produce one literal quote');
+  assert.equal(windowsCommandLineHasExactArgument(String.raw`tool.exe "C:\path with space\\"`, 'C:\\path with space\\'), true, 'even backslash runs before a closing quote preserve trailing backslashes');
+  assert.equal(windowsCommandLineHasExactArgument(String.raw`tool.exe "one\\\"two"`, 'one\\"two'), true, 'three backslashes before a quote produce one backslash and one literal quote');
+  assert.equal(windowsCommandLineHasExactArgument('tool.exe "unterminated argument', 'unterminated argument'), false, 'unmatched quotes must fail closed');
+  assert.equal(windowsCommandLineHasExactArgument('tool.exe "valid" "unterminated', 'valid'), false, 'a malformed later argument invalidates the whole command line');
+  assert.doesNotMatch(helperSource, /\.CommandLine\.Contains\(/, 'Windows launcher ownership must not use substring command-line matching');
+
+  const macRows = parseMacProcessTable([
+    '501\t501\tS\t/usr/local/bin/node\t/usr/local/bin/node child.js SNL_PROCESS_OWNER_TOKEN=' + 'b'.repeat(64) + ' OTHER=x',
+    '502\t501\tS\t/Applications/Google Chrome\t/Applications/Google Chrome --type=renderer SNL_PROCESS_OWNER_TOKEN=' + 'b'.repeat(64),
+    '503\t501\tS\t/bin/sleep\t/bin/sleep 9 SNL_PROCESS_OWNER_TOKEN=' + 'c'.repeat(64),
+    '504\t501\tZ\t/bin/zombie\t/bin/zombie SNL_PROCESS_OWNER_TOKEN=' + 'b'.repeat(64)
+  ].join('\n'), 'b'.repeat(64));
+  assert.deepEqual(macRows.map(row => ({ pid: row.pid, tokenState: row.tokenState, executable: row.executable, zombie: row.zombie })), [
+    { pid: 501, tokenState: 'owned', executable: '/usr/local/bin/node', zombie: false },
+    { pid: 502, tokenState: 'owned', executable: '/Applications/Google Chrome', zombie: false },
+    { pid: 503, tokenState: 'foreign', executable: '/bin/sleep', zombie: false },
+    { pid: 504, tokenState: 'owned', executable: '/bin/zombie', zombie: true }
+  ]);
+  assert.equal(parseMacProcessTable(`505\t501\tS\t/bin/sleep\t/bin/sleep SNL_PROCESS_OWNER_TOKEN=${'b'.repeat(64)}0`, 'b'.repeat(64))[0].tokenState, 'foreign', 'macOS token matching must reject a longer value with the owned token as prefix');
+  assert.throws(() => parseMacProcessTable(`506\t501\tS\tsleep\tsleep SNL_PROCESS_OWNER_TOKEN=${'b'.repeat(64)}`, 'b'.repeat(64)), /unverifiable macOS process identity/, 'macOS process identity must include an absolute executable');
 
   const malformedRegistry = createOwnedProcessRegistry();
   assert.equal(statSync(malformedRegistry.directory).mode & 0o777, 0o700, 'ownership registry directory must be private');
   assert.equal(statSync(malformedRegistry.registryPath).mode & 0o777, 0o600, 'ownership registry file must be private');
   appendFileSync(malformedRegistry.registryPath, '{"pid":');
   await assert.rejects(cleanupOwnedProcessRegistry(malformedRegistry), /malformed ownership registry record/);
-  destroyOwnedProcessRegistry(malformedRegistry);
+  assert.throws(() => destroyOwnedProcessRegistry(malformedRegistry), /before zero-owned verification/);
+  rmSync(malformedRegistry.directory, { recursive: true, force: true });
   void calls; void originalSymlink;
 
   if (process.platform !== 'win32') {
@@ -132,7 +186,7 @@ try {
     assert.equal(existsSync(unrelatedMarker), true, 'unrelated process was killed');
     const nestedPids = readFileSync(pids, 'utf8').trim().split(/\s+/).map(Number);
     assert.equal(nestedPids.length, 3, 'geometry, browser, and grandchild all started');
-    assert.equal(nestedPids.every(pid => !existsSync(`/proc/${pid}`)), true, `nested descendants remain: ${nestedPids.filter(pid => existsSync(`/proc/${pid}`)).join(',')}`);
+    assert.equal((await Promise.all(nestedPids.map(isProcessAlive))).every(alive => !alive), true, `nested descendants remain: ${(await Promise.all(nestedPids.map(async pid => await isProcessAlive(pid) ? pid : null))).filter(Boolean).join(',')}`);
     if (unrelated.exitCode === null) unrelated.kill('SIGTERM');
 
     const standalonePids = resolve(temp, 'standalone-pids');
@@ -143,7 +197,7 @@ try {
     await terminateProcessTree(standalone);
     await new Promise((resolveWait) => setTimeout(resolveWait, 150));
     const ownedPids = readFileSync(standalonePids, 'utf8').trim().split(/\s+/).map(Number);
-    assert.equal(ownedPids.every(pid => !existsSync(`/proc/${pid}`)), true, `standalone cleanup left descendants: ${ownedPids.filter(pid => existsSync(`/proc/${pid}`)).join(',')}`);
+    assert.equal((await Promise.all(ownedPids.map(isProcessAlive))).every(alive => !alive), true, `standalone cleanup left descendants: ${(await Promise.all(ownedPids.map(async pid => await isProcessAlive(pid) ? pid : null))).filter(Boolean).join(',')}`);
 
     for (const [label, launch] of [
       ['group root', spawnProcessGroup],
@@ -162,12 +216,12 @@ try {
         await new Promise(resolveWait => setTimeout(resolveWait, 20));
       }
       const descendantPid = Number(readFileSync(exitedRootPids, 'utf8').trim());
-      assert.equal(existsSync(`/proc/${descendantPid}`), true, `${label} descendant did not survive long enough to exercise exited-root cleanup`);
+      assert.equal(await isProcessAlive(descendantPid), true, `${label} descendant did not survive long enough to exercise exited-root cleanup`);
       try {
         await terminateProcessTree(exitedRoot);
         await new Promise(resolveWait => setTimeout(resolveWait, 150));
-        assert.equal(existsSync(`/proc/${descendantPid}`), false, `${label} cleanup skipped a live descendant after its root exited`);
-        assert.equal(existsSync(`/proc/${unrelatedExitedRoot.pid}`), true, `${label} cleanup killed an unrelated process`);
+        assert.equal(await isProcessAlive(descendantPid), false, `${label} cleanup skipped a live descendant after its root exited`);
+        assert.equal(await isProcessAlive(unrelatedExitedRoot.pid), true, `${label} cleanup killed an unrelated process`);
       } finally {
         try { process.kill(descendantPid, 'SIGKILL'); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
         if (label === 'group root') {
@@ -189,7 +243,7 @@ try {
       await new Promise((resolveExit, rejectExit) => { root.once('error', rejectExit); root.once('exit', resolveExit); });
       for (let attempt = 0; attempt < 50 && !existsSync(nestedPids); attempt += 1) await new Promise(resolveWait => setTimeout(resolveWait, 20));
       const descendantPid = Number(readFileSync(nestedPids, 'utf8').trim());
-      assert.equal(existsSync(`/proc/${descendantPid}`), true, `nested ${nestedDetached ? 'detached' : 'inherited'} descendant was not alive before external cleanup`);
+      assert.equal(await isProcessAlive(descendantPid), true, `nested ${nestedDetached ? 'detached' : 'inherited'} descendant was not alive before external cleanup`);
       try {
         await cleanupOwnedProcessRegistry(registry);
         await verifyOwnedProcessRegistryClean(registry);
@@ -202,6 +256,22 @@ try {
         destroyOwnedProcessRegistry(registry);
       }
     }
+  } else {
+    const registry = createOwnedProcessRegistry();
+    const marker = resolve(temp, 'windows-job-grandchild-alive');
+    const pids = resolve(temp, 'windows-job-pids');
+    const grandchild = `require('fs').appendFileSync(${JSON.stringify(pids)},process.pid+'\\n');setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(marker)},'alive'),3000);setInterval(()=>{},1000)`;
+    const rootSource = `const fs=require('fs'),{spawn}=require('child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:'ignore',detached:true});c.unref();const t=setInterval(()=>{if(fs.existsSync(${JSON.stringify(pids)}))clearInterval(t)},10)`;
+    const root = spawnProcessGroup(process.execPath, ['-e', rootSource], { stdio: 'ignore', env: registry.env });
+    await new Promise((resolveExit, rejectExit) => { root.once('error', rejectExit); root.once('exit', resolveExit); });
+    for (let attempt = 0; attempt < 50 && !existsSync(pids); attempt += 1) await new Promise(resolveWait => setTimeout(resolveWait, 20));
+    const childPid = Number(readFileSync(pids, 'utf8').trim());
+    await new Promise(resolveWait => setTimeout(resolveWait, 250));
+    assert.equal(await isProcessAlive(childPid), false, 'Windows kill-on-close Job left a detached descendant after root exit');
+    assert.equal(existsSync(marker), false, 'Windows detached descendant survived long enough to write marker');
+    await cleanupOwnedProcessRegistry(registry);
+    await verifyOwnedProcessRegistryClean(registry);
+    destroyOwnedProcessRegistry(registry);
   }
 
   console.log(JSON.stringify({ kind: 'pass' }));

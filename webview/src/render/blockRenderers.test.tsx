@@ -354,9 +354,9 @@ describe('CollapsibleRenderer', () => {
   // the host instead, the offset is measured from the padding box's outer edge
   // and the arrow escapes past the left border again.
   //
-  // jsdom does not do layout, so the geometry itself is asserted in the
-  // browser harness. What is checkable here is the DOM contract the CSS keys
-  // off: the toggle must be a direct child of `.snl-collapsible__summary`,
+  // jsdom does not do layout; these tests assert component behavior, ARIA,
+  // and the DOM contract the CSS keys off: the toggle must be a direct child
+  // of `.snl-collapsible__summary`,
   // which must be a direct child of `.snl-collapsible`.
   it('nests the toggle inside the summary row so the gutter offset resolves', () => {
     const { container } = mount(blockNode([node('summary'), node('body1')]));

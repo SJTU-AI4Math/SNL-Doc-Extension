@@ -123,9 +123,7 @@ describe('editor optimistic concurrency', () => {
     await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
       type: 'update', expectedRevision: 'revision-1',
       payload: expect.objectContaining({
-        name: {
-          type: 'i18n', default_language: 'en', values: { en: 'Unsaved kind' }
-        }
+        name: 'Unsaved kind'
       })
     })));
   });

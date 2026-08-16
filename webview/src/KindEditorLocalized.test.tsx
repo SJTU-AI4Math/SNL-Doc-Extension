@@ -17,11 +17,34 @@ vi.mock('./vscodeApi', async () => {
 });
 
 const { KindEditorApp } = await import('./KindEditorApp');
+const { set_content_language } = await import('./runtime/preferencesRuntime');
+
+const languages = [
+  { id: 'en', display_name: 'English (US)' },
+  { id: 'zh-CN', display_name: '简体中文（中国大陆）' }
+];
+
+function sendContext(existing: Record<string, unknown>, kindRevision = 'revision-1'): void {
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', id: 'theorem', targetState: 'found',
+      kindRevision, existingIds: [], existing, languages
+    }}));
+  });
+}
+
+async function submittedPayload(type: 'create' | 'update'): Promise<Record<string, unknown>> {
+  await waitFor(() => expect(posted.some((message) => (message as { type?: string }).type === type)).toBe(true));
+  return (posted.find((message) => (message as { type?: string }).type === type) as {
+    payload: Record<string, unknown>
+  }).payload;
+}
 
 afterEach(() => {
   cleanup();
   posted.length = 0;
   document.documentElement.lang = 'en';
+  set_content_language('en');
 });
 
 describe('Entry Kind localized editor', () => {
@@ -29,16 +52,13 @@ describe('Entry Kind localized editor', () => {
     render(<KindEditorApp domain="entry" />);
     act(() => {
       window.dispatchEvent(new MessageEvent('message', { data: {
-        type: 'context', mode: 'create', targetState: 'found', existingIds: [],
-        contentLanguage: 'en',
-        languages: [
-          { id: 'en', display_name: 'English (US)' },
-          { id: 'zh-CN', display_name: '简体中文（中国大陆）' }
-        ]
+        type: 'context', mode: 'create', targetState: 'found', existingIds: [], languages
       }}));
     });
 
     fireEvent.change(await screen.findByLabelText('ID'), { target: { value: 'theorem' } });
+    expect((screen.getByLabelText('Entry Kind language') as HTMLSelectElement).value).toBe('__snl_general__');
+    fireEvent.change(screen.getByLabelText('Entry Kind language'), { target: { value: 'en' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Theorem' } });
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'A proved result.' } });
     fireEvent.change(screen.getByLabelText('Entry Kind language'), { target: { value: 'zh-CN' } });
@@ -46,56 +66,92 @@ describe('Entry Kind localized editor', () => {
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: '已经证明的结果。' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Entry Kind' }));
 
-    await waitFor(() => expect(posted.some((message) => (message as { type?: string }).type === 'create')).toBe(true));
-    const create = posted.find((message) => (message as { type?: string }).type === 'create') as {
-      payload: Record<string, unknown>
-    };
-    expect(create.payload.name).toEqual({
+    const payload = await submittedPayload('create');
+    expect(payload.name).toEqual({
       type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' }
     });
-    expect(create.payload.description).toEqual({
+    expect(payload.description).toEqual({
       type: 'i18n', default_language: 'en', values: { en: 'A proved result.', 'zh-CN': '已经证明的结果。' }
     });
-    expect(create.payload.coloring).toMatchObject({
+    expect(payload.coloring).toMatchObject({
       light: { stroke: expect.any(String), background: expect.any(String) },
       dark: { stroke: expect.any(String), background: expect.any(String) }
     });
   });
 
-  it('preserves legacy scalar fallbacks when adding another language', async () => {
+  it('selects General for plain fields and preserves plain strings when editing General', async () => {
     render(<KindEditorApp domain="entry" />);
-    act(() => {
-      window.dispatchEvent(new MessageEvent('message', { data: {
-        type: 'context', mode: 'edit', id: 'theorem', targetState: 'found',
-        kindRevision: 'revision-1', existingIds: [],
-        existing: {
-          id: 'theorem',
-          name: '  Theorem  ',
-          description: '  A legacy description.  '
-        },
-        languages: [
-          { id: 'en', display_name: 'English (US)' },
-          { id: 'zh-CN', display_name: '简体中文（中国大陆）' }
-        ]
-      }}));
+    sendContext({
+      id: 'theorem', name: 'Invariant theorem', description: 'Invariant description'
+    });
+
+    expect((await screen.findByLabelText('Entry Kind language') as HTMLSelectElement).value).toBe('__snl_general__');
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('Invariant theorem');
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Edited invariant theorem' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Edited invariant description' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Entry Kind' }));
+
+    const payload = await submittedPayload('update');
+    expect(payload.name).toBe('Edited invariant theorem');
+    expect(payload.description).toBe('Edited invariant description');
+  });
+
+  it('creates only the selected projection when a plain field is switched to a specific language', async () => {
+    render(<KindEditorApp domain="entry" />);
+    sendContext({
+      id: 'theorem', name: 'Invariant theorem', description: 'Invariant description'
     });
 
     fireEvent.change(await screen.findByLabelText('Entry Kind language'), { target: { value: 'zh-CN' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '定理' } });
-    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '旧版描述。' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '描述' } });
     fireEvent.click(screen.getByRole('button', { name: 'Update Entry Kind' }));
 
-    await waitFor(() => expect(posted.some((message) => (message as { type?: string }).type === 'update')).toBe(true));
-    const update = posted.find((message) => (message as { type?: string }).type === 'update') as {
-      payload: Record<string, unknown>
-    };
-    expect(update.payload.name).toEqual({
-      type: 'i18n', default_language: 'en',
-      values: { en: '  Theorem  ', 'zh-CN': '定理' }
+    const payload = await submittedPayload('update');
+    expect(payload.name).toEqual({
+      type: 'i18n', default_language: 'zh-CN', values: { 'zh-CN': '定理' }
     });
-    expect(update.payload.description).toEqual({
-      type: 'i18n', default_language: 'en',
-      values: { en: '  A legacy description.  ', 'zh-CN': '旧版描述。' }
+    expect(payload.description).toEqual({
+      type: 'i18n', default_language: 'zh-CN', values: { 'zh-CN': '描述' }
+    });
+    expect(JSON.stringify(payload)).not.toContain('Invariant theorem');
+    expect(JSON.stringify(payload)).not.toContain('Invariant description');
+  });
+
+  it('does not retarget the selected edit scope when the panel reading language changes', async () => {
+    render(<KindEditorApp domain="entry" />);
+    sendContext({
+      id: 'theorem',
+      name: { type: 'i18n', default_language: 'en', values: { en: 'Theorem', 'zh-CN': '定理' } },
+      description: { type: 'i18n', default_language: 'en', values: { en: 'Description', 'zh-CN': '描述' } }
+    });
+
+    const selector = await screen.findByLabelText('Entry Kind language') as HTMLSelectElement;
+    fireEvent.change(selector, { target: { value: 'zh-CN' } });
+    act(() => set_content_language('fr'));
+    expect(selector.value).toBe('zh-CN');
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('定理');
+  });
+
+  it('edits only the selected locale and preserves every own locale and default language', async () => {
+    render(<KindEditorApp domain="entry" />);
+    sendContext({
+      id: 'theorem',
+      name: { type: 'i18n', default_language: 'fr', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '旧定理' } },
+      description: { type: 'i18n', default_language: 'fr', values: { fr: 'Description', en: 'English description', 'zh-CN': '旧描述' } }
+    });
+
+    fireEvent.change(await screen.findByLabelText('Entry Kind language'), { target: { value: 'zh-CN' } });
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '新定理' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '新描述' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Entry Kind' }));
+
+    const payload = await submittedPayload('update');
+    expect(payload.name).toEqual({
+      type: 'i18n', default_language: 'fr', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '新定理' }
+    });
+    expect(payload.description).toEqual({
+      type: 'i18n', default_language: 'fr', values: { fr: 'Description', en: 'English description', 'zh-CN': '新描述' }
     });
   });
 });

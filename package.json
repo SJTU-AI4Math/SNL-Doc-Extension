@@ -450,7 +450,6 @@
     "test:library-depth-row:contracts": "node scripts/test-library-depth-harness-contracts.mjs",
     "test:library-depth-row:mutations": "node scripts/test-library-depth-row-mutations.mjs",
     "test:create-entry-paint": "node scripts/test-create-entry-row-paint-occlusion.mjs",
-    "test:collapsible-production": "node scripts/test-collapsible-production-surfaces.mjs",
     "vscode:prepublish": "npm test && npm run compile && npm run build:export-runtime && npm run build:webview",
     "smoke:vsix-host": "node scripts/smoke-vsix-host.mjs"
   },

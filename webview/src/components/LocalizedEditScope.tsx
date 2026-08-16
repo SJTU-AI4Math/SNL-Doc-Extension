@@ -28,6 +28,7 @@ const LocalizedEditLanguageContext = createContext<LocalizedEditLanguageContextV
 export interface LocalizedEditScopeProps {
   initialLanguage: string;
   availableLanguages: readonly string[];
+  scopeIdentity?: string;
   onLanguageChange?(language: string): void;
   children: React.ReactNode;
 }
@@ -39,16 +40,25 @@ export interface LocalizedEditScopeProps {
 export function LocalizedEditScope({
   initialLanguage,
   availableLanguages,
+  scopeIdentity,
   onLanguageChange,
   children
 }: LocalizedEditScopeProps): React.ReactElement {
   const [language, setLanguageState] = useState(initialLanguage);
   const manuallySelectedRef = useRef(false);
+  const previousScopeIdentityRef = useRef(scopeIdentity);
   const [followsOuterLanguage, setFollowsOuterLanguage] = useState(true);
 
   useEffect(() => {
-    if (!manuallySelectedRef.current) setLanguageState(initialLanguage);
-  }, [initialLanguage]);
+    if (previousScopeIdentityRef.current !== scopeIdentity) {
+      previousScopeIdentityRef.current = scopeIdentity;
+      manuallySelectedRef.current = false;
+      setFollowsOuterLanguage(true);
+      setLanguageState(initialLanguage);
+    } else if (!manuallySelectedRef.current) {
+      setLanguageState(initialLanguage);
+    }
+  }, [initialLanguage, scopeIdentity]);
 
   useEffect(() => {
     onLanguageChange?.(language);

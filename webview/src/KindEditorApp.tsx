@@ -297,6 +297,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     <p style={{ opacity: .85 }}>{t('updateConfig')}<code>.SNL_Doc/config.json#{descriptor.configKey}</code>{t('immutable')}</p>
     {mode === 'edit' ? <KindTextField label={t('idReadonly')} value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label={t('id')} entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={t(domain === 'entry' ? 'entryIdExample' : 'macroIdExample')} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}
     {domain === 'entry' ? <LocalizedEditScope
+      scopeIdentity={`${mode}:${mode === 'edit' ? targetId : 'new'}`}
       initialLanguage={editLanguage}
       availableLanguages={[LOCALIZED_GENERAL_LANGUAGE, ...languages.map((language) => language.id)]}
       onLanguageChange={setEditLanguage}

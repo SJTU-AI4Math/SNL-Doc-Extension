@@ -176,6 +176,12 @@ describe('CreateEntryApp localization', () => {
     expect(title.selectionStart).toBe(4);
     expect(title.selectionEnd).toBe(4);
     expect(view.getByLabelText('标题语言: 通用')).toBeTruthy();
+
+    fireEvent.input(view.getByLabelText('ID'), { target: { value: 'general-caret-stable-title' } });
+    fireEvent.click(view.getByRole('button', { name: '创建条目' }));
+    const create = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'create');
+    expect(create?.entry.title).toBe('abcXdef');
   });
 
   it('keeps an existing I18N title input stable during a locale edit', async () => {
@@ -187,7 +193,10 @@ describe('CreateEntryApp localization', () => {
         entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
         existing: {
           id: 'existing-i18n', package: '_unpackaged', kind: 'theorem',
-          title: { type: 'i18n', default_language: 'zh-CN', values: { 'zh-CN': 'abcdef' } },
+          title: {
+            type: 'i18n', default_language: 'zh-CN',
+            values: { 'zh-CN': 'abcdef', en: 'Distinct English title' }
+          },
           content: {}, pointer: null
         }
       }
@@ -206,6 +215,14 @@ describe('CreateEntryApp localization', () => {
     expect(title.selectionStart).toBe(4);
     expect(title.selectionEnd).toBe(4);
     expect(view.getByLabelText('标题语言: 简体中文')).toBeTruthy();
+
+    fireEvent.click(view.getByRole('button', { name: '更新条目' }));
+    const update = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'update');
+    expect(update?.entry.title).toEqual({
+      type: 'i18n', default_language: 'zh-CN',
+      values: { 'zh-CN': 'abcXdef', en: 'Distinct English title' }
+    });
   });
 
   it('resets title language for a new authoritative target but preserves a same-target draft', async () => {

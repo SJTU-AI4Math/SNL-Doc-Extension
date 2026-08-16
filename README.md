@@ -46,7 +46,9 @@ can only initialize an empty workspace catalog.
 Shipped Entry Kind catalogs cover Fulcrum math notes, Lean 4, TypeScript, and
 Python. The Macro Kind catalog intentionally remains the SNL-Basics defaults;
 language-specific macro catalogs are not included without a concrete SNL macro
-semantics mapping.
+semantics mapping. The Fulcrum preset is also the reference dark semantic
+palette; see [`docs/fulcrum-dark-kind-palette.md`](docs/fulcrum-dark-kind-palette.md)
+for its color roles, contrast values, and consumer guidance.
 
 ## Entry authoring and relationships
 

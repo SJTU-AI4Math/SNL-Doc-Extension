@@ -137,7 +137,7 @@ describe('shipped Kind preset packages', () => {
     const macros = loadKindPresetPackages(resources, 'macro');
     expect(entries.find((preset) => preset.id === 'fulcrum-math-notes')?.kinds.map((kind) => kind.id)).toEqual([
       'chapter', 'section', 'subsection', 'definition', 'axiom', 'lemma', 'theorem', 'corollary',
-      'property', 'remark', 'example', 'counterexample', 'construction', 'proof', 'problem', 'context'
+      'property', 'remark', 'example', 'counterexample', 'construction', 'proof', 'problem', 'context', 'ctor'
     ]);
     expect(macros.map((preset) => preset.id)).toEqual(['snl-basics-defaults']);
     expect(macros[0].kinds.map((kind) => kind.id)).toEqual(['rule', 'const', 'bvar', 'binder', 'fvar', 'sub']);
@@ -154,6 +154,22 @@ describe('shipped Kind preset packages', () => {
         }
       }
       if (kind.id !== 'sub') expect(kind.coloring.dark).not.toEqual(kind.coloring.light);
+    }
+  });
+
+  it('locks the Fulcrum recommended dark semantic palette', () => {
+    const fulcrum = loadKindPresetPackages(resources, 'entry')
+      .find((preset) => preset.id === 'fulcrum-math-notes')!;
+    const expected: Record<string, string> = {
+      chapter: '#E5E7EB', section: '#CBD5E1', subsection: '#94A3B8', definition: '#4ADE80',
+      axiom: '#FACC15', theorem: '#60A5FA', lemma: '#93C5FD', corollary: '#7DD3FC',
+      property: '#E879F9', remark: '#FB923C', example: '#C084FC', counterexample: '#FB7185',
+      construction: '#A3A3A3', proof: '#D1D5DB', problem: '#38BDF8', context: '#A78BFA', ctor: '#A3E635'
+    };
+    expect(Object.fromEntries(fulcrum.kinds.map((kind) => [kind.id, kind.coloring.dark.stroke]))).toEqual(expected);
+    for (const kind of fulcrum.kinds) {
+      expect(kind.coloring.dark.background, kind.id).toBe('#313131');
+      expect(contrastRatio(kind.coloring.dark.stroke, kind.coloring.dark.background), kind.id).toBeGreaterThanOrEqual(4.5);
     }
   });
 

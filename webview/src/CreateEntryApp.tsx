@@ -607,6 +607,7 @@ interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
   availableLanguages: readonly string[];
+  resetKey: unknown;
   languageCatalog: readonly { id: string; display_name: string }[];
   label: string;
   inputLabel: string;
@@ -626,8 +627,8 @@ function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React
     : LOCALIZED_GENERAL_LANGUAGE;
   return (
     <LocalizedEditScope
-      key={initialLanguage}
       initialLanguage={initialLanguage}
+      resetKey={props.resetKey}
       availableLanguages={[...new Set([
         LOCALIZED_GENERAL_LANGUAGE,
         ...props.availableLanguages,
@@ -807,6 +808,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   const supportedLanguages = use_supported_languages();
   const [title, setTitle] = useState<Localized<string, string>>('');
+  const [titleEditScopeResetKey, setTitleEditScopeResetKey] = useState(0);
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
   // (`requireUnique`). In edit mode we still use it — the widget is
@@ -1038,6 +1040,7 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError('');
           break;
         case 'retarget': {
+          setTitleEditScopeResetKey((previous) => previous + 1);
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous
           // entry's text is never shown against the new id, and drop the
@@ -1204,6 +1207,9 @@ export function CreateEntryApp(): React.ReactElement {
                 }
               }
               if (!preserveDraft) {
+                if (editingIdRef.current !== incomingId) {
+                  setTitleEditScopeResetKey((previous) => previous + 1);
+                }
                 editingIdRef.current = incomingId;
                 setTitle(msg.existing.title ?? '');
                 setSelectedPackage(msg.existing.package || '_unpackaged');
@@ -1780,6 +1786,7 @@ export function CreateEntryApp(): React.ReactElement {
       <EntryTitleLocalizedEditor
         value={title}
         onChange={setTitle}
+        resetKey={titleEditScopeResetKey}
         availableLanguages={supportedLanguages.map((item) => item.id)}
         languageCatalog={supportedLanguages}
         label={t('title')}

@@ -95,6 +95,105 @@ describe('Inductive editor arity auto-fill', () => {
     host.remove();
   });
 
+  it('classifies a delimited temporary Macro as fvar without querying its internal placeholder', async () => {
+    const queried: string[] = [];
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        queried.push(macro_name);
+        return macro_name === '#'
+          ? Object.assign({}, macro('#', false, 'registered hash'), { kind: 'const' })
+          : null;
+      }
+    }});
+    const common = {
+      macroDataDriver: kindDriver,
+      macroCandidates: [],
+      macroOrigin: {},
+      kindPalette: {
+        fvar: { stroke: '#ff0000', background: '#440000' },
+        const: { stroke: '#0000ff', background: '#000044' }
+      },
+      onOpenMacroEditor: () => undefined,
+      onChange: () => undefined
+    };
+    const view = render(<GuiInductiveEditor {...common} snl="$ghost$" />);
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('fvar'));
+    expect(input.value).toBe('$ghost$');
+    expect(input.style.borderColor).toBe('rgb(255, 0, 0)');
+    expect(input.closest<HTMLElement>('.snl-tree-row')!.style.background)
+      .toBe('rgba(68, 0, 0, 0.18)');
+    expect(queried).not.toContain('#');
+
+    view.rerender(<GuiInductiveEditor {...common} snl="$warm$" />);
+    await waitFor(() => expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('$warm$'));
+    expect(queried).not.toContain('#');
+  });
+
+  it('preserves authored binder priority for a delimited temporary Macro', async () => {
+    const queried: string[] = [];
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        queried.push(macro_name);
+        return null;
+      }
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="root(@$x$,$x$)"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        kindPalette={{
+          fvar: { stroke: '#ff0000', background: '#440000' },
+          binder: { stroke: '#8800ff', background: '#220044' },
+          bvar: { stroke: '#00aa00', background: '#004400' }
+        }}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const inputs = view.getAllByRole('textbox') as HTMLInputElement[];
+    await waitFor(() => expect(inputs[1].title).toContain('binder'));
+    expect(inputs[1].style.borderColor).toBe('rgb(136, 0, 255)');
+    expect(inputs[2].title).toContain('fvar');
+    expect(inputs[2].style.borderColor).toBe('rgb(255, 0, 0)');
+    expect(queried).not.toContain('#');
+  });
+
+  it('still queries a registered bare Macro', async () => {
+    const queried: string[] = [];
+    const kindDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        queried.push(macro_name);
+        return macro_name === 'registered'
+          ? Object.assign({}, macro('registered', false, 'R'), { kind: 'const' })
+          : null;
+      }
+    }});
+    const view = render(
+      <GuiInductiveEditor
+        snl="registered"
+        macroDataDriver={kindDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        kindPalette={{
+          fvar: { stroke: '#ff0000', background: '#440000' },
+          const: { stroke: '#0000ff', background: '#000044' }
+        }}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    await waitFor(() => expect(input.title).toContain('const'));
+    expect(queried).toContain('registered');
+    expect(input.style.borderColor).toBe('rgb(0, 0, 255)');
+  });
+
   it('uses the queried Macro Kind and the editor Macro Kind palette for row coloring', async () => {
     const kindDriver = new MacroDataDriver({ queries: {
       query_macro: async ({ macro_name }: { macro_name: string }) =>

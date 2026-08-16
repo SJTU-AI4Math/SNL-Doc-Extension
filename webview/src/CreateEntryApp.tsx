@@ -5448,11 +5448,20 @@ function stringifyLeafHead(node: SnlSyntaxTree): string {
 /**
  * Resolve the effective `kind` for a row so we can color its input frame.
  * Priority: node.kind (set by parser for `@`-binder / annotate-bind) →
- * macro's declared kind in the merged DB → env_mode-driven default →
- * 'fvar' fallback (mirrors DEFAULT_KIND_PALETTE fallback used elsewhere).
+ * parser temporary-macro semantics → macro's declared kind in the merged DB →
+ * legacy env_mode-driven default → 'fvar' fallback.
+ *
+ * Delimited `%…%` / `$…$` / `$$…$$` sources are parser-owned temporary
+ * macros. Their internal macro_name is an implementation placeholder, not a
+ * catalog key, and the renderer classifies an otherwise-unbound one as fvar.
  */
+function isTemporaryMacroNode(node: SnlSyntaxTree): boolean {
+  return node.env_mode !== undefined && typeof node.temporary_source === 'string';
+}
+
 function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): string {
   if (node.kind && node.kind !== '') return node.kind;
+  if (isTemporaryMacroNode(node)) return 'fvar';
   if (macro?.kind) return macro.kind;
   if (node.env_mode === 'text') return 'const';
   if (node.env_mode === 'formula_inline' || node.env_mode === 'formula_display') {
@@ -5463,11 +5472,11 @@ function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): strin
 
 export function useQueriedMacro(
   driver: MacroDataDriver,
-  macroName: string
+  macroName: string | undefined
 ): SnlMacro | undefined {
   const [result, setResult] = useState<{
     driver: MacroDataDriver;
-    macroName: string;
+    macroName: string | undefined;
     macro: SnlMacro | undefined;
   }>(() => ({ driver, macroName, macro: undefined }));
   // Epoch guard: `query_macro` has an LRU cache, so a cache HIT for the new
@@ -5486,13 +5495,15 @@ export function useQueriedMacro(
       }
     };
     settle(undefined);
-    void driver.query_macro({ macro_name: macroName, signal: controller.signal })
-      .then((value) => settle(value ?? undefined))
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          settle(undefined);
-        }
-      });
+    if (macroName !== undefined) {
+      void driver.query_macro({ macro_name: macroName, signal: controller.signal })
+        .then((value) => settle(value ?? undefined))
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            settle(undefined);
+          }
+        });
+    }
     return () => controller.abort();
   }, [driver, macroName]);
   // Effects clear state only after a render commits. Bind the stored result to
@@ -6436,7 +6447,10 @@ function InductiveNode({
 
   const hasKids = node.children.length > 0;
   const isCollapsed = collapsed.has(nodeId);
-  const macroEntry = useQueriedMacro(macroDataDriver, node.macro_name);
+  const macroEntry = useQueriedMacro(
+    macroDataDriver,
+    isTemporaryMacroNode(node) ? undefined : node.macro_name
+  );
   /**
    * The Macro whose arity has already been reconciled for this row, so
    * reclaiming surplus slots happens once per Macro change rather than on

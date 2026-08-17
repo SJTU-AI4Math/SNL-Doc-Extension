@@ -132,8 +132,8 @@ const fixtures = {
   hover: {
     ...details(
       'hover',
-      entry('fixture-hover', { snl: 'pair(childref@child,siblingref@sibling)' }),
-      [option('child', '@childref'), option('sibling', '@siblingref'), option('grandchild', '@grandref')]
+      entry('fixture-hover', { snl: 'pair(siblingref@sibling,childref@child)' }),
+      [option('child', '@childref'), option('sibling', '@siblingref'), option('grandchild', '@grandref'), option('nested-sibling', '@nestedref')]
     ),
     macros: {
       pair: {
@@ -145,18 +145,19 @@ const fixtures = {
   }
 };
 const popoverEntries = {
-  child: entry('child', { snl: 'grandref@grandchild' }),
+  child: entry('child', { snl: 'pair(nestedref@nested-sibling,grandref@grandchild)' }),
   grandchild: entry('grandchild', {
     markdown: `GRANDCHILDSENTINEL\n\n${Array.from({ length: 24 }, (_, index) => `Scrollable line ${index + 1}`).join('\n\n')}\n\n\`\`\`text\nGRANDCHILDCODESENTINEL_${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(40)}\n\`\`\``
   }),
-  sibling: entry('sibling', { text: 'Sibling body sentinel' })
+  sibling: entry('sibling', { text: 'Sibling body sentinel' }),
+  'nested-sibling': entry('nested-sibling', { text: 'Nested sibling body sentinel' })
 };
 
 function htmlFor(mode) {
   const fixture = fixtures[mode];
   if (!fixture) return null;
   const payload = JSON.stringify({ fixture, popoverEntries, kind });
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><button id="outside-target" aria-label="outside" style="position:fixed;right:1px;bottom:1px;width:4px;height:4px;opacity:0"></button><script src="/entryInfoview.js"></script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.__nativeEvents=[];for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,event=>window.__nativeEvents.push({type,src:event.target?.closest?.('[data-src]')?.getAttribute('data-src')??null}),true);window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><button id="outside-target" aria-label="outside" style="position:fixed;right:1px;bottom:1px;width:4px;height:4px;opacity:0"></button><script src="/entryInfoview.js"></script></body></html>`;
 }
 
 async function waitFor(evaluate, expression, label, attempts = 240) {
@@ -199,6 +200,10 @@ async function openPage(browser, browserWs, mode, width, port, height = 700) {
     `document.querySelector('[data-entry-id]')?.getAttribute('data-entry-id') === ${JSON.stringify(`fixture-${mode}`)}`,
     `${mode} fixture sentinel at ${width}px`
   );
+  // KaTeX font swaps can move live origins after content first appears. Native
+  // parity starts only once the production document's fonts and paint settle.
+  await evaluate('document.fonts ? document.fonts.ready.then(() => true) : true');
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
   return { targetId, page, socket, evaluate };
 }
 
@@ -372,8 +377,6 @@ try {
 
   for (const { width, height } of viewportScenarios) {
     const opened = await openPage(browser, browserWs, 'hover', width, server.address().port, height);
-    let hoverRoot;
-    let hoverNested;
     try {
       const { page, evaluate } = opened;
       const pointFor = (selector, label) => waitFor(
@@ -394,48 +397,135 @@ try {
           type: 'mouseReleased', x: point.x, y: point.y, button: 'left', buttons: 0, clickCount: 1
         });
       };
-      const snapshot = (subject, originSelector) => evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject===${JSON.stringify(subject)});if(!marker)return null;const shell=marker.closest('.snl-entry-hover-popover'),origin=document.querySelector(${JSON.stringify(originSelector)}),r=shell.getBoundingClientRect(),a=origin.getBoundingClientRect(),b=document.querySelector('[data-entry-body]').getBoundingClientRect(),intersection=Math.max(0,Math.min(r.right,b.right)-Math.max(r.left,b.left))*Math.max(0,Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)),horizontal=r.left>=a.right-0.5?'right':r.right<=a.left+0.5?'left':'overlap-x',vertical=r.top>=a.bottom-0.5?'below':r.bottom<=a.top+0.5?'above':'overlap-y',parsed=marker.dataset.snlPopoverOriginRect.split(',').map(Number);return{id:marker.dataset.snlPopoverId,subject:marker.dataset.snlPopoverSubject,parentId:marker.dataset.snlPopoverParentId,originPath:marker.dataset.snlPopoverOriginPath,bounds:marker.dataset.snlPopoverOriginBounds,originRect:parsed,anchor:[a.left,a.top,a.right,a.bottom],rect:[r.left,r.top,r.right,r.bottom],side:horizontal+'/'+vertical,bodyOverlap:intersection,frozen:marker.dataset.snlPopoverFrozen==='true',phase:marker.dataset.snlPopoverPhase,visible:getComputedStyle(shell).display!=='none'&&getComputedStyle(shell).pointerEvents==='auto',paint:[getComputedStyle(shell).display,getComputedStyle(shell).visibility,getComputedStyle(shell).opacity,getComputedStyle(shell).pointerEvents],viewport:[innerWidth,innerHeight],contained:r.left>=-0.5&&r.top>=-0.5&&r.right<=innerWidth+0.5&&r.bottom<=innerHeight+0.5,shellCount:document.querySelectorAll('.snl-entry-hover-popover').length}})()`);
+      const nativePointerDown = async (point) => {
+        await page.call('Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: point.x, y: point.y, button: 'left', buttons: 1, clickCount: 1
+        });
+        await page.call('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: point.x, y: point.y, button: 'left', buttons: 0, clickCount: 1
+        });
+      };
+      const dispatchKey = async (key, code, windowsVirtualKeyCode) => {
+        await page.call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code, windowsVirtualKeyCode });
+        await page.call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode });
+        // Chromium animates keyboard scrolling; sample only after its bounded settle.
+        await delay(400);
+      };
+      const snapshot = (subject, originSelector) => evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject===${JSON.stringify(subject)}&&e.dataset.snlPopoverPhase!=='closing');if(!marker)return null;const shell=marker.closest('.snl-entry-hover-popover'),origin=document.querySelector(${JSON.stringify(originSelector)}),r=shell.getBoundingClientRect(),a=origin.getBoundingClientRect(),b=document.querySelector('[data-entry-body]').getBoundingClientRect(),intersection=Math.max(0,Math.min(r.right,b.right)-Math.max(r.left,b.left))*Math.max(0,Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)),horizontal=r.left>=a.right-0.5?'right':r.right<=a.left+0.5?'left':'overlap-x',vertical=r.top>=a.bottom-0.5?'below':r.bottom<=a.top+0.5?'above':'overlap-y',parsed=marker.dataset.snlPopoverOriginRect.split(',').map(Number),requests=window.__posted.filter(m=>m?.type==='requestEntryDetails'&&m.entryId===${JSON.stringify(subject)}).length;return{id:marker.dataset.snlPopoverId,subject:marker.dataset.snlPopoverSubject,parentId:marker.dataset.snlPopoverParentId,originPath:marker.dataset.snlPopoverOriginPath,bounds:marker.dataset.snlPopoverOriginBounds,originRect:parsed,anchor:[a.left,a.top,a.right,a.bottom],rect:[r.left,r.top,r.right,r.bottom],side:horizontal+'/'+vertical,bodyOverlap:intersection,frozen:marker.dataset.snlPopoverFrozen==='true',phase:marker.dataset.snlPopoverPhase,visible:getComputedStyle(shell).display!=='none'&&getComputedStyle(shell).pointerEvents==='auto',paint:[getComputedStyle(shell).display,getComputedStyle(shell).visibility,getComputedStyle(shell).opacity,getComputedStyle(shell).pointerEvents],viewport:[innerWidth,innerHeight],contained:r.left>=-0.5&&r.top>=-0.5&&r.right<=innerWidth+0.5&&r.bottom<=innerHeight+0.5,shellCount:[...document.querySelectorAll('.snl-entry-hover-popover')].filter(e=>getComputedStyle(e).display!=='none').length,markerCount:[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing').length,requests}})()`);
+      const sampleStable = async (subject, originSelector, frozen, label) => {
+        const startedAt = Date.now();
+        const samples = [];
+        for (let frame = 0; frame < 6; frame++) {
+          await evaluate('new Promise(requestAnimationFrame)');
+          samples.push(await snapshot(subject, originSelector));
+        }
+        await delay(300);
+        for (let frame = 0; frame < 6; frame++) {
+          await evaluate('new Promise(requestAnimationFrame)');
+          samples.push(await snapshot(subject, originSelector));
+        }
+        assert(
+          samples.length === 12 && Date.now() - startedAt >= 250 &&
+          samples.every((sample) => sample && sample.visible && sample.frozen === frozen && samePlacement(samples[0], sample)),
+          label,
+          { elapsedMs: Date.now() - startedAt, samples }
+        );
+        return samples.at(-1);
+      };
+      const activeBranches = () => evaluate(`(()=>[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing').map(e=>({id:e.dataset.snlPopoverId,subject:e.dataset.snlPopoverSubject,parentId:e.dataset.snlPopoverParentId,frozen:e.dataset.snlPopoverFrozen,phase:e.dataset.snlPopoverPhase})))()`);
+      const nativeEventCounts = (src) => evaluate(`(()=>Object.fromEntries(['pointerdown','pointerup','click'].map(type=>[type,window.__nativeEvents.filter(event=>event.type===type&&event.src===${JSON.stringify(src)}).length])))()`);
 
       const rootSelector = '[data-entry-body] [data-src="child"]';
       const rootPoint = await moveTo(rootSelector, `root hover origin ${width}x${height}`);
-      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverPhase==='visible') && document.querySelector('.snl-entry-hover-popover [data-src=\"grandchild\"]') && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible root hover preview');
-      hoverRoot = await snapshot('child', rootSelector);
-      assert(hoverRoot && !hoverRoot.frozen && hoverRoot.visible && hoverRoot.bounds === 'viewport', `ORIGIN-HOVER-ROOT:${width}x${height}`, hoverRoot);
-      assert(hoverRoot.contained, `VIEWPORT-ROOT:${width}x${height}`, hoverRoot);
+      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverPhase==='visible') && document.querySelector('.snl-entry-hover-popover [data-src="grandchild"]') && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible root hover preview');
+      const hoverRoot = await sampleStable('child', rootSelector, false, `ORIGIN-HOVER-STABLE-ROOT:${width}x${height}`);
+      assert(hoverRoot.bounds === 'viewport' && hoverRoot.contained, `VIEWPORT-ROOT:${width}x${height}`, hoverRoot);
       await nativeClick(rootPoint);
       await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverFrozen==='true')`, 'root hover-to-click pin');
-      const pinnedRoot = await snapshot('child', rootSelector);
-      assert(samePlacement(hoverRoot, pinnedRoot) && pinnedRoot.frozen && pinnedRoot.visible && pinnedRoot.shellCount === 1, `ORIGIN-PIN-ROOT:${width}x${height}`, { hoverRoot, pinnedRoot });
+      const pinnedRoot = await sampleStable('child', rootSelector, true, `ORIGIN-PIN-STABLE-ROOT:${width}x${height}`);
+      assert(samePlacement(hoverRoot, pinnedRoot) && pinnedRoot.shellCount === 1 && pinnedRoot.markerCount === 1, `ORIGIN-PIN-ROOT:${width}x${height}`, { hoverRoot, pinnedRoot });
+
+      const rootEventsBefore = await nativeEventCounts('child');
+      await nativeClick(rootPoint);
+      const repeatedRoot = await sampleStable('child', rootSelector, true, `ORIGIN-REPEAT-STABLE-ROOT:${width}x${height}`);
+      const rootEventsAfter = await nativeEventCounts('child');
+      assert(samePlacement(pinnedRoot, repeatedRoot) && repeatedRoot.id === pinnedRoot.id && repeatedRoot.markerCount === 1 && repeatedRoot.shellCount === 1 && repeatedRoot.requests === pinnedRoot.requests && repeatedRoot.requests === 1 && ['pointerdown','pointerup','click'].every(type=>rootEventsAfter[type]===rootEventsBefore[type]+1), `ORIGIN-REPEAT-ROOT:${width}x${height}`, { pinnedRoot, repeatedRoot, rootEventsBefore, rootEventsAfter, branches: await activeBranches() });
 
       const nestedSelector = '.snl-entry-hover-popover [data-src="grandchild"]';
       const nestedPoint = await moveTo(nestedSelector, `nested hover origin ${width}x${height}`);
       await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='grandchild'&&e.dataset.snlPopoverPhase==='visible') && [...document.querySelectorAll('.snl-entry-hover-popover')].some(e=>e.textContent.includes('GRANDCHILDSENTINEL')) && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible nested hover preview');
-      hoverNested = await snapshot('grandchild', nestedSelector);
-      assert(hoverNested && !hoverNested.frozen && hoverNested.visible && hoverNested.bounds === 'viewport' && hoverNested.parentId === pinnedRoot.id, `ORIGIN-HOVER-NESTED:${width}x${height}`, hoverNested);
+      const hoverNested = await sampleStable('grandchild', nestedSelector, false, `ORIGIN-HOVER-STABLE-NESTED:${width}x${height}`);
+      assert(hoverNested.bounds === 'viewport' && hoverNested.parentId === pinnedRoot.id, `ORIGIN-HOVER-NESTED:${width}x${height}`, hoverNested);
       const viewport = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover'),rect=shell.getBoundingClientRect(),style=getComputedStyle(shell),code=shell.querySelector('.snl-markdown-body pre');return{rect:[rect.left,rect.top,rect.right,rect.bottom],clientHeight:shell.clientHeight,scrollHeight:shell.scrollHeight,overflowX:style.overflowX,overflowY:style.overflowY,maxHeight:style.maxHeight,boxSizing:style.boxSizing,code:code?[code.clientWidth,code.scrollWidth,getComputedStyle(code).overflowX]:null}})()`);
       assert(
         viewport.rect[0] >= 7.5 && viewport.rect[1] >= 7.5 &&
         viewport.rect[2] <= width - 7.5 && viewport.rect[3] <= height - 7.5 &&
-        viewport.boxSizing === 'border-box' && ['auto', 'scroll'].includes(viewport.overflowY) &&
+        viewport.boxSizing === 'border-box' && ['auto', 'scroll'].includes(viewport.overflowX) &&
+        ['auto', 'scroll'].includes(viewport.overflowY) &&
         viewport.code && viewport.code[1] > viewport.code[0] && ['auto', 'scroll'].includes(viewport.code[2]),
         `VIEWPORT-NESTED:${width}x${height}`,
         viewport
       );
-      if (height === 260) {
-        assert(viewport.scrollHeight > viewport.clientHeight, `SCROLL-RANGE:${width}x${height}`, viewport);
-        const reached = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');shell.scrollTop=shell.scrollHeight;const code=shell.querySelector('.snl-markdown-body pre'),tail=code.getBoundingClientRect(),frame=shell.getBoundingClientRect();return{scrollTop:shell.scrollTop,max:shell.scrollHeight-shell.clientHeight,tailVisible:tail.bottom<=frame.bottom+0.5&&tail.bottom>=frame.top-0.5}})()`);
-        assert(reached.scrollTop > 0 && Math.abs(reached.scrollTop - reached.max) <= 1 && reached.tailVisible, `SCROLL-REACH:${width}x${height}`, reached);
-      }
+
       await nativeClick(nestedPoint);
       await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='grandchild'&&e.dataset.snlPopoverFrozen==='true')`, 'nested hover-to-click pin');
-      const pinnedNested = await snapshot('grandchild', nestedSelector);
-      assert(samePlacement(hoverNested, pinnedNested) && pinnedNested.frozen && pinnedNested.visible && pinnedNested.shellCount === 2, `ORIGIN-PIN-NESTED:${width}x${height}`, { hoverNested, pinnedNested });
-      evidence.push({ width, height, mode: 'origin-hover-pin', root: pinnedRoot, nested: pinnedNested });
+      const pinnedNested = await sampleStable('grandchild', nestedSelector, true, `ORIGIN-PIN-STABLE-NESTED:${width}x${height}`);
+      assert(samePlacement(hoverNested, pinnedNested) && pinnedNested.shellCount === 2 && pinnedNested.markerCount === 2, `ORIGIN-PIN-NESTED:${width}x${height}`, { hoverNested, pinnedNested });
+
+      const nestedEventsBefore = await nativeEventCounts('grandchild');
+      await nativeClick(nestedPoint);
+      const repeatedNested = await sampleStable('grandchild', nestedSelector, true, `ORIGIN-REPEAT-STABLE-NESTED:${width}x${height}`);
+      const nestedEventsAfter = await nativeEventCounts('grandchild');
+      assert(samePlacement(pinnedNested, repeatedNested) && repeatedNested.id === pinnedNested.id && repeatedNested.markerCount === 2 && repeatedNested.shellCount === 2 && repeatedNested.requests === pinnedNested.requests && repeatedNested.requests === 1 && ['pointerdown','pointerup','click'].every(type=>nestedEventsAfter[type]===nestedEventsBefore[type]+1), `ORIGIN-REPEAT-NESTED:${width}x${height}`, { pinnedNested, repeatedNested, nestedEventsBefore, nestedEventsAfter, branches: await activeBranches() });
+
+      if (height === 260) {
+        assert(viewport.scrollHeight > viewport.clientHeight, `SCROLL-RANGE:${width}x${height}`, viewport);
+        const wheelPoint = await pointFor('.snl-entry-hover-popover:last-of-type', 'nested popover wheel target');
+        const beforeWheel = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');return shell.scrollTop})()`);
+        await page.call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: wheelPoint.x, y: wheelPoint.y, deltaX: 0, deltaY: 96 });
+        await delay(100);
+        const afterWheel = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');return shell.scrollTop})()`);
+        assert(afterWheel > beforeWheel, `SCROLL-WHEEL:${width}x${height}`, { beforeWheel, afterWheel, viewport });
+
+        const focused = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover'),surface=shell.querySelector('.snl-entry-overflow-surface');shell.focus({preventScroll:true});return{focused:document.activeElement===shell,frameTabIndex:shell.tabIndex,surfaceHasTabIndex:surface.hasAttribute('tabindex'),surfaceTabIndex:surface.tabIndex,scrollTop:shell.scrollTop}})()`);
+        assert(focused.focused && focused.frameTabIndex === 0 && !focused.surfaceHasTabIndex && focused.surfaceTabIndex === -1, `SCROLL-FOCUS:${width}x${height}`, focused);
+        await dispatchKey('Home', 'Home', 36);
+        const afterHome = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');return shell.scrollTop})()`);
+        await dispatchKey('PageDown', 'PageDown', 34);
+        const afterPageDown = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');return shell.scrollTop})()`);
+        await dispatchKey('End', 'End', 35);
+        const reached = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover'),code=shell.querySelector('.snl-markdown-body pre'),tail=code.getBoundingClientRect(),frame=shell.getBoundingClientRect();return{scrollTop:shell.scrollTop,max:shell.scrollHeight-shell.clientHeight,tailVisible:tail.bottom<=frame.bottom+0.5&&tail.bottom>=frame.top-0.5}})()`);
+        assert(afterHome < afterWheel && afterPageDown > afterHome, `SCROLL-PAGEDOWN:${width}x${height}`, { afterWheel, afterHome, afterPageDown });
+        assert(reached.scrollTop > 0 && Math.abs(reached.scrollTop - reached.max) <= 1 && reached.tailVisible, `SCROLL-END-TAIL:${width}x${height}`, reached);
+      }
+      const nestedSiblingSelector = '.snl-entry-hover-popover [data-src="nested-sibling"]';
+      const nestedSiblingPoint = await pointFor(nestedSiblingSelector, `nested sibling origin ${width}x${height}`);
+      const nestedSiblingHit = await evaluate(`(()=>{const p=${JSON.stringify(nestedSiblingPoint)},hit=document.elementFromPoint(p.x,p.y),origin=document.querySelector(${JSON.stringify(nestedSiblingSelector)}),r=origin.getBoundingClientRect();return{origin:[r.left,r.top,r.right,r.bottom],hit:hit?.outerHTML?.slice(0,500),hitSubject:hit?.closest?.('[data-src]')?.getAttribute('data-src'),shell:hit?.closest?.('.snl-entry-hover-popover')?.textContent?.slice(0,120)}})()`);
+      assert(nestedSiblingHit.hitSubject === 'nested-sibling', `ORIGIN-SIBLING-HIT-NESTED:${width}x${height}`, nestedSiblingHit);
+      await nativeClick(nestedSiblingPoint);
+      await waitFor(evaluate, `(()=>{const active=[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing');return active.length===2&&document.querySelectorAll('.snl-entry-hover-popover').length===2&&active.some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverId===${JSON.stringify(pinnedRoot.id)})&&active.some(e=>e.dataset.snlPopoverSubject==='nested-sibling'&&e.dataset.snlPopoverParentId===${JSON.stringify(pinnedRoot.id)}&&e.dataset.snlPopoverFrozen==='true')&&!active.some(e=>e.dataset.snlPopoverSubject==='grandchild')&&[...document.querySelectorAll('.snl-entry-hover-popover')].some(e=>e.textContent.includes('Nested sibling body sentinel'))})()`, 'loaded nested sibling replaces child branch');
+      const nestedSibling = await sampleStable('nested-sibling', nestedSiblingSelector, true, `ORIGIN-SIBLING-STABLE-NESTED:${width}x${height}`);
+      assert(nestedSibling.parentId === pinnedRoot.id && nestedSibling.markerCount === 2 && nestedSibling.shellCount === 2, `ORIGIN-SIBLING-NESTED:${width}x${height}`, { nestedSibling, branches: await activeBranches() });
+
+      const rootSiblingSelector = '[data-entry-body] [data-src="sibling"]';
+      const rootSiblingPoint = await pointFor(rootSiblingSelector, `root sibling origin ${width}x${height}`);
+      const rootSiblingHit = await evaluate(`(()=>{const p=${JSON.stringify(rootSiblingPoint)},hit=document.elementFromPoint(p.x,p.y);return{hit:hit?.outerHTML?.slice(0,500),hitSubject:hit?.closest?.('[data-src]')?.getAttribute('data-src')}})()`);
+      assert(rootSiblingHit.hitSubject === 'sibling', `ORIGIN-SIBLING-HIT-ROOT:${width}x${height}`, rootSiblingHit);
+      await nativeClick(rootSiblingPoint);
+      await waitFor(evaluate, `(()=>{const active=[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing');return active.length===1&&document.querySelectorAll('.snl-entry-hover-popover').length===1&&active[0].dataset.snlPopoverSubject==='sibling'&&active[0].dataset.snlPopoverParentId===''&&active[0].dataset.snlPopoverFrozen==='true'&&document.querySelector('.snl-entry-hover-popover')?.textContent.includes('Sibling body sentinel')})()`, 'loaded root sibling replaces complete root branch');
+      const rootSibling = await sampleStable('sibling', rootSiblingSelector, true, `ORIGIN-SIBLING-STABLE-ROOT:${width}x${height}`);
+      assert(rootSibling.parentId === '' && rootSibling.markerCount === 1 && rootSibling.shellCount === 1, `ORIGIN-SIBLING-ROOT:${width}x${height}`, { rootSibling, branches: await activeBranches() });
+
+      const outsidePoint = await pointFor('#outside-target', `outside target ${width}x${height}`);
+      await nativePointerDown(outsidePoint);
+      await waitFor(evaluate, `document.querySelectorAll('[data-snl-popover-id]').length===0 && document.querySelectorAll('.snl-entry-hover-popover').length===0`, 'outside pointerdown dismisses all roots');
+      assert((await activeBranches()).length === 0, `ORIGIN-OUTSIDE-DISMISS:${width}x${height}`, await activeBranches());
+      evidence.push({ width, height, mode: 'origin-native-closure', root: repeatedRoot, nested: repeatedNested, nestedSibling, rootSibling, viewport });
     } finally {
       await closePage(browser, opened);
     }
-
   }
+
 
   terminalResult = { kind: 'pass', widths, desktopHoverWidth: 1000, checks: evidence.length };
 } catch (error) {

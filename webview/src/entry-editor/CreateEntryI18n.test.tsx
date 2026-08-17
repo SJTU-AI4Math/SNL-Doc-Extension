@@ -225,6 +225,50 @@ describe('CreateEntryApp localization', () => {
     });
   });
 
+  it('keeps Save gating bound to the editor title payload when the reading locale changes', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', targetGeneration: 2, mode: 'edit', id: 'locale-independent-title-gate',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+      entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-title-gate',
+      existing: {
+        id: 'locale-independent-title-gate', package: '_unpackaged', kind: 'theorem', pointer: null, content: {},
+        title: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'Authored English title', 'zh-CN': '   ' }
+        }
+      }
+    } }));
+
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value)
+      .toBe('Authored English title'));
+    const save = view.getByRole('button', { name: '更新条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+
+    act(() => set_content_language('en'));
+    await waitFor(() => expect(document.documentElement.dataset.snlContentLanguage).toBe('en'));
+    expect(save.disabled).toBe(false);
+
+    act(() => set_content_language('zh-CN'));
+    await waitFor(() => expect(document.documentElement.dataset.snlContentLanguage).toBe('zh-CN'));
+    expect(save.disabled).toBe(false);
+  });
+
+  it('preserves the exact displayed General title bytes on Save', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    const title = await view.findByLabelText('标题');
+    fireEvent.input(title, { target: { value: '  Title  ' } });
+    fireEvent.input(view.getByLabelText('ID'), { target: { value: 'spaced-title' } });
+
+    const save = view.getByRole('button', { name: '创建条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const create = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'create');
+    expect(create?.entry.title).toBe('  Title  ');
+  });
+
   it('materializes the displayed General title on direct Save without typing', async () => {
     const view = render(<CreateEntryApp />);
     window.dispatchEvent(new MessageEvent('message', { data: {

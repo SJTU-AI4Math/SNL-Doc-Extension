@@ -128,7 +128,7 @@ import {
 } from './render/macroKindPalette';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
-import { resolve_localized_string } from '../../src/localizedContent';
+import { normalize_kind_label, resolve_localized_string } from '../../src/localizedContent';
 import { MonacoTextEditor } from './entry-editor/MonacoTextEditor';
 import { extractExportedBinders } from './render/contextSrcLookup';
 import {
@@ -1216,7 +1216,7 @@ export function CreateEntryApp(): React.ReactElement {
                 }
               }
               const incomingTitle = msg.existing.title ?? '';
-              if (!preserveDraft || !titleDirtyRef.current) {
+              if (!justSaved && (!preserveDraft || !titleDirtyRef.current)) {
                 setTitle(incomingTitle);
               }
               if (!preserveDraft) {
@@ -1430,7 +1430,15 @@ export function CreateEntryApp(): React.ReactElement {
     [kinds, selectedKind]
   );
 
-  const trimmedTitle = resolve_localized_string(title, contentLanguage).trim();
+  const previewTitle = resolve_localized_string(title, contentLanguage).trim();
+  const persistedTitle = materializeLocalizedValueForSave(title, titleEditLanguage);
+  let validTitle = false;
+  try {
+    normalize_kind_label(persistedTitle, 'Entry title', true);
+    validTitle = true;
+  } catch {
+    validTitle = false;
+  }
   const previewContent = useMemo<Record<ContentFormat, string>>(() => {
     const projected = { ...content };
     for (const format of LOCALIZABLE_CONTENT_FORMATS) {
@@ -1521,7 +1529,7 @@ export function CreateEntryApp(): React.ReactElement {
     targetState !== 'notFound' &&
     !packageCreating &&
     kinds.length > 0 &&
-    trimmedTitle.length > 0 &&
+    validTitle &&
     trimmedId.length > 0 &&
     isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
@@ -1561,10 +1569,7 @@ export function CreateEntryApp(): React.ReactElement {
       id: trimmedId,
       package: selectedPackage,
       kind: selectedKind,
-      title: (() => {
-        const materialized = materializeLocalizedValueForSave(title, titleEditLanguage);
-        return typeof materialized === 'string' ? materialized.trim() : materialized;
-      })(),
+      title: persistedTitle!,
       content: {
         snl: content.snl || undefined,
         ...persistedContent
@@ -1741,7 +1746,7 @@ export function CreateEntryApp(): React.ReactElement {
   /** The most specific reason the save button is currently disabled. */
   function saveBlockingReason(): string {
     if (kinds.length === 0) return t('cannotSaveNoKinds');
-    if (!trimmedTitle) return t('cannotSaveTitle');
+    if (!validTitle) return t('cannotSaveTitle');
     if (!trimmedId) return t('cannotSaveId');
     if (!isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined)) {
       return t('cannotSaveDuplicateId', { id: trimmedId });
@@ -2054,7 +2059,7 @@ export function CreateEntryApp(): React.ReactElement {
           <LivePreview
             kind={kind}
             entryId={trimmedId || t('newEntryId')}
-            title={trimmedTitle}
+            title={previewTitle}
             content={previewContent}
             entries={existingIds}
             userMacros={userMacros}

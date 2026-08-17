@@ -174,21 +174,42 @@ const HOVER_OPEN_DELAY_MS = 1000;
 const FADE_MS = 150;
 const EMPTY_ENTRY_PACKAGES: Readonly<Record<string, string>> = Object.freeze({});
 
-export function entryPopoverFrameStyle(phase: PopoverPhase): React.CSSProperties {
+export function entryPopoverFrameStyle(
+  value: PopoverPhase | Pick<HoverPopover<string>, 'phase' | 'y' | 'originRect'>
+): React.CSSProperties {
+  // Preserve the phase-only helper contract for non-DOM consumers. Production
+  // always supplies the complete instance so viewport-side sizing is active.
+  const popover = typeof value === 'string'
+    ? { phase: value, y: 8, originRect: { top: 16, bottom: 16 } }
+    : value;
+  const viewportMargin = 8;
+  const belowTop = Math.max(popover.y, popover.originRect.bottom + viewportMargin);
+  const availableAbove = popover.originRect.top - 2 * viewportMargin;
+  const availableBelow = typeof window === 'undefined'
+    ? Number.POSITIVE_INFINITY
+    : window.innerHeight - belowTop - viewportMargin;
+  const placeAbove = availableAbove > availableBelow;
   return {
     ...popoverFrameStyle(),
     maxWidth: 'min(720px, calc(100vw - 16px))',
+    // Keep the frame inside the explicit viewport bounds while reserving the
+    // side of the live origin itself, so the hovered target remains clickable.
+    maxHeight: placeAbove
+      ? `${Math.max(0, availableAbove)}px`
+      : `min(calc(100vh - 16px), calc(100vh - ${belowTop + viewportMargin}px))`,
+    ...(placeAbove ? { top: viewportMargin } : { top: belowTop }),
     width: 'max-content',
     boxSizing: 'border-box',
     background: '#ffffff',
     boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
     borderRadius: 0,
-    // Entry bodies own horizontal overflow; clipping here would hide their
-    // local scrollers and can cut the remeasured recursive frame.
+    // Entry formulas and code blocks keep their local horizontal scrollers.
+    // CSS computes this visible axis to auto when paired with overflowY:auto;
+    // unlike hidden, that fallback remains operable instead of clipping them.
     overflowX: 'visible',
-    overflowY: 'visible',
-    opacity: phase === 'visible' ? 1 : 0,
-    pointerEvents: phase === 'visible' ? 'auto' : 'none'
+    overflowY: typeof value === 'string' ? 'visible' : 'auto',
+    opacity: popover.phase === 'visible' ? 1 : 0,
+    pointerEvents: popover.phase === 'visible' ? 'auto' : 'none'
   };
 }
 
@@ -393,19 +414,37 @@ export function HoverPopoverProvider({
         snapshotGeneration
       );
       return (
-        <EntryPopoverContent
-          entryId={popover.subject}
-          requestIdentity={requestIdentity}
-          detail={details.generation === snapshotGeneration
-            ? details.values[requestIdentity.key]
-            : undefined}
-          requestDetails={requestDetails}
-          entries={entries}
-          postMessage={postMessage}
-          userMacros={userMacros}
-          kindPalette={kindPalette}
-          markdownImageUrlTransform={markdownImageUrlTransform}
-        />
+        <>
+          <span
+            hidden
+            data-snl-popover-id={popover.id}
+            data-snl-popover-subject={popover.subject}
+            data-snl-popover-parent-id={popover.parentId ?? ''}
+            data-snl-popover-frozen={String(popover.frozen)}
+            data-snl-popover-phase={popover.phase}
+            data-snl-popover-origin-path={popover.originElement?.getAttribute('data-tree-path') ?? ''}
+            data-snl-popover-origin-bounds="viewport"
+            data-snl-popover-origin-rect={[
+              popover.originRect.left,
+              popover.originRect.top,
+              popover.originRect.right,
+              popover.originRect.bottom
+            ].join(',')}
+          />
+          <EntryPopoverContent
+            entryId={popover.subject}
+            requestIdentity={requestIdentity}
+            detail={details.generation === snapshotGeneration
+              ? details.values[requestIdentity.key]
+              : undefined}
+            requestDetails={requestDetails}
+            entries={entries}
+            postMessage={postMessage}
+            userMacros={userMacros}
+            kindPalette={kindPalette}
+            markdownImageUrlTransform={markdownImageUrlTransform}
+          />
+        </>
       );
     },
     [details, entries, packageIdentities, snapshotGeneration, postMessage, requestDetails,
@@ -414,7 +453,7 @@ export function HoverPopoverProvider({
 
   const style = useMemo(
     () => (popover: HoverPopover<string>): React.CSSProperties =>
-      entryPopoverFrameStyle(popover.phase),
+      entryPopoverFrameStyle(popover),
     []
   );
 

@@ -363,6 +363,66 @@ describe('Create Macro localization', () => {
     });
   });
 
+  it('materializes the displayed General whole-template on direct Save without typing', async () => {
+    document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'macro-general-save', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'en', display_name: 'English' },
+        { id: 'zh-CN', display_name: '简体中文' },
+        { id: 'ja', display_name: '日本語' }
+      ]
+    });
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['General.direct'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
+      existing: {
+        name: 'General.direct', description: '', source: { entries: [], urls: [], source_extension: 'SOURCE-EXT' },
+        dynamic_arity: false, tags: [], macro_extension: 'MACRO-EXT',
+        styles: [{
+          style_name: 'default', tags: [], style_extension: 'STYLE-EXT',
+          template: {
+            type: 'i18n', default_language: 'en', map_extension: 'MAP-EXT',
+            values: {
+              en: { mode: 'text', body: 'GENERAL #0', projection_extension: 'GENERAL-EXT' },
+              'zh-CN': { mode: 'text', body: 'ZH #0', projection_extension: 'ZH-EXT' },
+              ja: { mode: 'text', body: 'JA #0', projection_extension: 'JA-EXT' }
+            }
+          }
+        }]
+      }
+    } })));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Language: English/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'General' }));
+    const template = screen.getAllByRole('textbox').find((element) => element.tagName === 'TEXTAREA')!;
+    expect(template).toHaveProperty('value', 'GENERAL #0');
+    fireEvent.click(screen.getByRole('button', { name: /Language: General/ }));
+    fireEvent.click(screen.getByRole('option', { name: /简体中文/ }));
+    expect(template).toHaveProperty('value', 'ZH #0');
+    fireEvent.click(screen.getByRole('button', { name: /Language: 简体中文/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'General' }));
+    act(() => set_content_language('zh-CN'));
+    expect(screen.getByRole('button', { name: /Language: General/ })).toBeTruthy();
+
+    const save = screen.getByRole('button', { name: /Update Macro/ }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const update = posted.find((candidate) =>
+      typeof candidate === 'object' && candidate !== null && (candidate as { type?: string }).type === 'update'
+    ) as { macro?: { macro_extension?: string; source?: Record<string, unknown>; styles?: Array<Record<string, unknown>> } } | undefined;
+    expect(update?.macro?.macro_extension).toBe('MACRO-EXT');
+    expect(update?.macro?.source?.source_extension).toBe('SOURCE-EXT');
+    expect(update?.macro?.styles?.[0]?.style_extension).toBe('STYLE-EXT');
+    expect(update?.macro?.styles?.[0]?.template).toMatchObject({
+      mode: 'text', body: 'GENERAL #0', projection_extension: 'GENERAL-EXT'
+    });
+    expect(JSON.stringify(update?.macro?.styles?.[0]?.template)).not.toContain('__snl_general__');
+  });
+
   it('canonicalizes the legacy partial Macro Kind to v11 sub before create', () => {
     document.documentElement.lang = 'en';
     render(<CreateMacroApp />);
@@ -592,10 +652,11 @@ describe('Create Macro localization', () => {
             styles: [{
               style_name: 'default',  tags: [],
               template: {
-                type: 'i18n', default_language: 'en',
+                type: 'i18n', default_language: 'en', map_extension: 'MAP-EXT',
                 values: {
-                  en: { mode: 'text', body: 'English #*' },
-                  'zh-CN': { mode: 'text', body: '中文 #*' }
+                  en: { mode: 'text', body: 'English #*', projection_extension: 'EN-EXT' },
+                  'zh-CN': { mode: 'text', body: '中文 #*', projection_extension: 'ZH-EXT' },
+                  ja: { mode: 'text', body: '日本語 #*', projection_extension: 'JA-EXT' }
                 }
               }
             }]
@@ -613,9 +674,12 @@ describe('Create Macro localization', () => {
     expect(update?.macro.kind).toBe('const');
     expect(update?.macro.styles[0].template).toMatchObject({
       type: 'i18n',
+      default_language: 'en',
+      map_extension: 'MAP-EXT',
       values: {
-        en: { mode: 'text', body: 'English #*' },
-        'zh-CN': { mode: 'formula_inline', body: '中文 #*' }
+        en: expect.objectContaining({ mode: 'text', body: 'English #*', projection_extension: 'EN-EXT' }),
+        'zh-CN': expect.objectContaining({ mode: 'formula_inline', body: '中文 #*', projection_extension: 'ZH-EXT' }),
+        ja: expect.objectContaining({ mode: 'text', body: '日本語 #*', projection_extension: 'JA-EXT' })
       }
     });
     confirm.mockRestore();

@@ -445,6 +445,7 @@
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "node scripts/prepare-test-artifacts.mjs && vitest run",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
+    "test:entry-overflow": "node scripts/test-entry-overflow-geometry.mjs",
     "test:library-paint": "node scripts/test-library-row-paint-occlusion.mjs",
     "test:library-depth-row": "node scripts/test-library-depth-row-geometry.mjs",
     "test:library-depth-row:contracts": "node scripts/test-library-depth-harness-contracts.mjs",

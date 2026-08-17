@@ -130,6 +130,221 @@ describe('CreateEntryApp localization', () => {
     expect(view.getByLabelText('TEXT 内容语言: English')).toBeTruthy();
   });
 
+  it('keeps the title input and caret stable when a specific-locale edit creates I18N', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    const title = await view.findByLabelText('标题') as HTMLInputElement;
+    fireEvent.input(title, { target: { value: 'abcdef' } });
+    fireEvent.click(view.getByLabelText('标题语言: 通用'));
+    fireEvent.click(view.getByText('简体中文', { selector: 'span' }).closest('button')!);
+
+    title.focus();
+    title.setSelectionRange(3, 3);
+    fireEvent.input(title, {
+      target: { value: 'abcXdef', selectionStart: 4, selectionEnd: 4 }
+    });
+
+    const titleAfterEdit = view.getByLabelText('标题') as HTMLInputElement;
+    expect(titleAfterEdit).toBe(title);
+    expect(document.activeElement).toBe(title);
+    expect(title.selectionStart).toBe(4);
+    expect(title.selectionEnd).toBe(4);
+
+    fireEvent.input(view.getByLabelText('ID'), { target: { value: 'caret-stable-title' } });
+    fireEvent.click(view.getByRole('button', { name: '创建条目' }));
+    const create = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'create');
+    expect(create?.entry.title).toEqual({
+      type: 'i18n', default_language: 'zh-CN', values: { 'zh-CN': 'abcXdef' }
+    });
+  });
+
+  it('keeps the General title input stable during an ordinary edit', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    const title = await view.findByLabelText('标题') as HTMLInputElement;
+    fireEvent.input(title, { target: { value: 'abcdef' } });
+    title.focus();
+    title.setSelectionRange(3, 3);
+
+    fireEvent.input(title, {
+      target: { value: 'abcXdef', selectionStart: 4, selectionEnd: 4 }
+    });
+
+    expect(view.getByLabelText('标题')).toBe(title);
+    expect(document.activeElement).toBe(title);
+    expect(title.selectionStart).toBe(4);
+    expect(title.selectionEnd).toBe(4);
+    expect(view.getByLabelText('标题语言: 通用')).toBeTruthy();
+
+    fireEvent.input(view.getByLabelText('ID'), { target: { value: 'general-caret-stable-title' } });
+    fireEvent.click(view.getByRole('button', { name: '创建条目' }));
+    const create = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'create');
+    expect(create?.entry.title).toBe('abcXdef');
+  });
+
+  it('keeps an existing I18N title input stable during a locale edit', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'context', targetGeneration: 1, mode: 'edit', id: 'existing-i18n',
+        kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+        entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
+        existing: {
+          id: 'existing-i18n', package: '_unpackaged', kind: 'theorem',
+          title: {
+            type: 'i18n', default_language: 'zh-CN',
+            values: { 'zh-CN': 'abcdef', en: 'Distinct English title' }
+          },
+          content: {}, pointer: null
+        }
+      }
+    }));
+    const title = await view.findByLabelText('标题') as HTMLInputElement;
+    await waitFor(() => expect(title.value).toBe('abcdef'));
+    title.focus();
+    title.setSelectionRange(3, 3);
+
+    fireEvent.input(title, {
+      target: { value: 'abcXdef', selectionStart: 4, selectionEnd: 4 }
+    });
+
+    expect(view.getByLabelText('标题')).toBe(title);
+    expect(document.activeElement).toBe(title);
+    expect(title.selectionStart).toBe(4);
+    expect(title.selectionEnd).toBe(4);
+    expect(view.getByLabelText('标题语言: 简体中文')).toBeTruthy();
+
+    fireEvent.click(view.getByRole('button', { name: '更新条目' }));
+    const update = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'update');
+    expect(update?.entry.title).toEqual({
+      type: 'i18n', default_language: 'zh-CN',
+      values: { 'zh-CN': 'abcXdef', en: 'Distinct English title' }
+    });
+  });
+
+  it('keeps Save gating bound to the editor title payload when the reading locale changes', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', targetGeneration: 2, mode: 'edit', id: 'locale-independent-title-gate',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+      entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-title-gate',
+      existing: {
+        id: 'locale-independent-title-gate', package: '_unpackaged', kind: 'theorem', pointer: null, content: {},
+        title: {
+          type: 'i18n', default_language: 'en',
+          values: { en: 'Authored English title', 'zh-CN': '   ' }
+        }
+      }
+    } }));
+
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value)
+      .toBe('Authored English title'));
+    const save = view.getByRole('button', { name: '更新条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+
+    act(() => set_content_language('en'));
+    await waitFor(() => expect(document.documentElement.dataset.snlContentLanguage).toBe('en'));
+    expect(save.disabled).toBe(false);
+
+    act(() => set_content_language('zh-CN'));
+    await waitFor(() => expect(document.documentElement.dataset.snlContentLanguage).toBe('zh-CN'));
+    expect(save.disabled).toBe(false);
+  });
+
+  it('preserves the exact displayed General title bytes on Save', async () => {
+    const view = render(<CreateEntryApp />);
+    sendCreateContext();
+    const title = await view.findByLabelText('标题');
+    fireEvent.input(title, { target: { value: '  Title  ' } });
+    fireEvent.input(view.getByLabelText('ID'), { target: { value: 'spaced-title' } });
+
+    const save = view.getByRole('button', { name: '创建条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const create = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'create');
+    expect(create?.entry.title).toBe('  Title  ');
+  });
+
+  it('materializes the displayed General title on direct Save without typing', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', targetGeneration: 3, mode: 'edit', id: 'general-direct-title',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+      entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-general',
+      existing: {
+        id: 'general-direct-title', package: '_unpackaged', kind: 'theorem', pointer: null, content: {},
+        title: {
+          type: 'i18n', default_language: 'en', extension: 'title-extension',
+          values: { en: 'GENERAL-TITLE', 'zh-CN': 'ZH-TITLE', ja: 'JA-TITLE' }
+        }
+      }
+    } }));
+
+    await waitFor(() => expect(view.getByLabelText('标题语言: English')).toBeTruthy());
+    fireEvent.click(view.getByLabelText('标题语言: English'));
+    fireEvent.click(view.getByText('通用', { selector: 'span' }).closest('button')!);
+    expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('GENERAL-TITLE');
+    fireEvent.click(view.getByLabelText('标题语言: 通用'));
+    fireEvent.click(view.getByText('简体中文', { selector: 'span' }).closest('button')!);
+    expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('ZH-TITLE');
+    fireEvent.click(view.getByLabelText('标题语言: 简体中文'));
+    fireEvent.click(view.getByText('通用', { selector: 'span' }).closest('button')!);
+    act(() => set_content_language('en'));
+    expect(view.getByLabelText('标题语言: 通用')).toBeTruthy();
+
+    const save = view.getByRole('button', { name: '更新条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const update = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'update');
+    expect(update?.entry.title).toBe('GENERAL-TITLE');
+    expect(JSON.stringify(update?.entry.title)).not.toContain('__snl_general__');
+  });
+
+  it('resets title language for a new authoritative target but preserves a same-target draft', async () => {
+    const editContext = (id: string, title: unknown, targetGeneration: number) => ({
+      type: 'context', targetGeneration, mode: 'edit', id,
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+      entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: `rev-${targetGeneration}`,
+      existing: { id, package: '_unpackaged', kind: 'theorem', title, content: {}, pointer: null }
+    });
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: editContext('entry-a', {
+        type: 'i18n', default_language: 'en', values: { en: 'Entry A', 'zh-CN': '条目 A' }
+      }, 1)
+    }));
+    await view.findByDisplayValue('Entry A');
+    fireEvent.click(view.getByLabelText('标题语言: English'));
+    fireEvent.click(view.getByText('简体中文', { selector: 'span' }).closest('button')!);
+    const title = view.getByLabelText('标题') as HTMLInputElement;
+    fireEvent.input(title, { target: { value: '未保存的 A' } });
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: editContext('entry-a', {
+        type: 'i18n', default_language: 'en', values: { en: 'External A', 'zh-CN': '外部 A' }
+      }, 1)
+    }));
+    await waitFor(() => expect(title.value).toBe('未保存的 A'));
+    expect(view.getByLabelText('标题语言: 简体中文')).toBeTruthy();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'retarget', mode: 'edit', id: 'entry-b', targetGeneration: 2 }
+    }));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: editContext('entry-b', {
+        type: 'i18n', default_language: 'en', values: { en: 'Entry B', 'zh-CN': '条目 B' }
+      }, 2)
+    }));
+
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('Entry B'));
+    expect(view.getByLabelText('标题语言: English')).toBeTruthy();
+  });
+
   it('gives the title editor its own language selector independent from panel content language', async () => {
     const view = render(<CreateEntryApp />);
     window.dispatchEvent(new MessageEvent('message', {
@@ -139,18 +354,21 @@ describe('CreateEntryApp localization', () => {
         entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
         existing: {
           id: 'localized-entry', package: '_unpackaged', kind: 'theorem',
-          title: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '中文标题' } },
+          title: {
+            type: 'i18n', default_language: 'en', extension: 'title-map-extension',
+            values: { en: 'Old English title', 'zh-CN': '中文标题', ja: '日本語タイトル' }
+          },
           content: {}, pointer: null
         }
       }
     }));
 
     await view.findByLabelText('标题');
-    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('Old English title'));
     expect(view.getByLabelText('标题语言: English')).toBeTruthy();
     act(() => set_content_language('en'));
-    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
-    expect(view.getByText('正在显示来自 zh-CN 的回退标题')).toBeTruthy();
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('Old English title'));
+    expect(view.getByText('当前语言已有翻译')).toBeTruthy();
     expect(view.getByRole('heading', { name: '编辑条目' })).toBeTruthy();
     expect(view.getByLabelText('条目包')).toHaveProperty('readOnly', true);
     expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
@@ -160,8 +378,8 @@ describe('CreateEntryApp localization', () => {
     const update = postMessage.mock.calls.map(([message]) => message)
       .find((message) => message?.type === 'update');
     expect(update?.entry.title).toEqual({
-      type: 'i18n', default_language: 'en',
-      values: { 'zh-CN': '中文标题', en: 'English title' }
+      type: 'i18n', default_language: 'en', extension: 'title-map-extension',
+      values: { en: 'English title', 'zh-CN': '中文标题', ja: '日本語タイトル' }
     });
   });
 });

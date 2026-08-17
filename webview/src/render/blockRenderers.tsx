@@ -73,6 +73,8 @@ export function collapsibleBlockTitle(
 
 /**
  * Author intent for the initial fold state, read from `node.mdata.collapsed`.
+ * Authored Collapsible blocks default closed; an explicit boolean remains the
+ * existing document-level override (`false` means initially open).
  *
  * This is read-only: the expanded/collapsed state the *reader* produces by
  * clicking is transient UI state held in `useState` and is never written back
@@ -81,11 +83,11 @@ export function collapsibleBlockTitle(
  */
 function initiallyCollapsed(node: SnlSyntaxTree): boolean {
   const mdata = node.mdata;
-  return (
-    typeof mdata === 'object' &&
-    mdata !== null &&
-    (mdata as { collapsed?: unknown }).collapsed === true
-  );
+  if (typeof mdata === 'object' && mdata !== null) {
+    const authored = (mdata as { collapsed?: unknown }).collapsed;
+    if (typeof authored === 'boolean') return authored;
+  }
+  return true;
 }
 
 /**

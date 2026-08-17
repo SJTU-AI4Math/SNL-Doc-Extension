@@ -172,8 +172,25 @@ interface HoverPopoverProviderProps {
 
 const HOVER_OPEN_DELAY_MS = 1000;
 const FADE_MS = 150;
-const POPOVER_MAX_WIDTH = 720;
 const EMPTY_ENTRY_PACKAGES: Readonly<Record<string, string>> = Object.freeze({});
+
+export function entryPopoverFrameStyle(phase: PopoverPhase): React.CSSProperties {
+  return {
+    ...popoverFrameStyle(),
+    maxWidth: 'min(720px, calc(100vw - 16px))',
+    width: 'max-content',
+    boxSizing: 'border-box',
+    background: '#ffffff',
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
+    borderRadius: 0,
+    // Entry bodies own horizontal overflow; clipping here would hide their
+    // local scrollers and can cut the remeasured recursive frame.
+    overflowX: 'visible',
+    overflowY: 'visible',
+    opacity: phase === 'visible' ? 1 : 0,
+    pointerEvents: phase === 'visible' ? 'auto' : 'none'
+  };
+}
 
 function EntryPopoverContent({
   entryId,
@@ -202,7 +219,16 @@ function EntryPopoverContent({
   }, [detail, requestDetails, requestIdentity]);
 
   if (detail === undefined) {
-    return <div style={{ padding: '0.6rem 0.8rem', color: '#333' }}>{t('loading')}</div>;
+    return (
+      <div style={{
+        width: 'min(720px, calc(100vw - 16px))',
+        boxSizing: 'border-box',
+        padding: '0.6rem 0.8rem',
+        color: '#333'
+      }}>
+        {t('loading')}
+      </div>
+    );
   }
   if (detail.error) {
     return (
@@ -387,27 +413,15 @@ export function HoverPopoverProvider({
   );
 
   const style = useMemo(
-    () => (popover: HoverPopover<string>): React.CSSProperties => ({
-      ...popoverFrameStyle(),
-      maxWidth: POPOVER_MAX_WIDTH,
-      width: 'max-content',
-      background: '#ffffff',
-      boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
-      borderRadius: 0,
-      overflowX: 'hidden',
-      overflowY: 'auto',
-      maxHeight: '80vh',
-      // The shared provider owns phase transitions; these values remain here
-      // because the visual frame is Extension-specific.
-      opacity: popover.phase === 'visible' ? 1 : 0,
-      pointerEvents: popover.phase === 'visible' ? 'auto' : 'none'
-    }),
+    () => (popover: HoverPopover<string>): React.CSSProperties =>
+      entryPopoverFrameStyle(popover.phase),
     []
   );
 
   return (
     <PopoverActivationRegistryContext.Provider value={registerActivation}>
       <SharedHoverPopoverProvider<string>
+        className="snl-entry-hover-popover"
         renderPopover={renderPopover}
         options={{ openDelayMs: HOVER_OPEN_DELAY_MS, fadeMs: FADE_MS }}
         style={style}

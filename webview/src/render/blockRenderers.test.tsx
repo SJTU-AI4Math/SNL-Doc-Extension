@@ -233,25 +233,25 @@ describe('CollapsibleRenderer', () => {
     return el;
   };
 
-  it('toggles body visibility on click', () => {
+  it('starts closed and toggles body visibility on click', () => {
     mount(blockNode([node('summary'), node('body1'), node('body2')]));
     expect(screen.getByTestId('child-summary')).toBeTruthy();
-    expect(bodyHost().hidden).toBe(false);
+    expect(bodyHost().hidden).toBe(true);
 
     const btn = screen.getByRole('button');
-    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
 
     fireEvent.click(btn);
-    // Content is still in the DOM (so export can harvest it) but hidden.
+    // Content stays in the DOM so export can harvest it, then becomes visible.
     expect(screen.queryByTestId('child-body1')).toBeTruthy();
     expect(screen.queryByTestId('child-body2')).toBeTruthy();
-    expect(bodyHost().hidden).toBe(true);
-    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+    expect(bodyHost().hidden).toBe(false);
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('true');
     // Summary always visible.
     expect(screen.getByTestId('child-summary')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button'));
-    expect(bodyHost().hidden).toBe(false);
+    expect(bodyHost().hidden).toBe(true);
   });
 
   it('exposes the export markers the static runtime rebuilds collapse from', () => {
@@ -274,9 +274,30 @@ describe('CollapsibleRenderer', () => {
     expect(host.getAttribute('data-snl-collapse-noun')).toBe('part');
   });
 
-  it('starts expanded for other mdata shapes', () => {
+  it('defaults closed for non-boolean and absent mdata', () => {
     mount(blockNode([node('summary'), node('body1')], { collapsed: 'true' }));
+    expect(bodyHost().hidden).toBe(true);
+  });
+
+  it('preserves an explicit authored mdata.collapsed false override', () => {
+    mount(blockNode([node('summary'), node('body1')], { collapsed: false }));
     expect(bodyHost().hidden).toBe(false);
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('preserves reader state across ordinary rerenders', () => {
+    const view = mount(blockNode([node('summary'), node('body1')]));
+    fireEvent.click(screen.getByRole('button'));
+    expect(bodyHost().hidden).toBe(false);
+    view.rerender(
+      <CollapsibleRenderer
+        node={blockNode([node('summary'), node('body1'), node('body2')])}
+        macro_data_driver={{} as never}
+        renderChild={renderChild}
+      />
+    );
+    expect(bodyHost().hidden).toBe(false);
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('true');
   });
 
   it('renders no toggle when there are fewer than two children', () => {
@@ -296,15 +317,15 @@ describe('CollapsibleRenderer', () => {
 
   it('exposes an aria-label on the toggle', () => {
     mount(blockNode([node('summary'), node('body1')]));
-    expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Collapse');
+    expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Expand');
   });
 
   it('localizes collapse accessibility copy and export vocabulary in Chinese', () => {
     document.documentElement.lang = 'zh-CN';
     mount(blockNode([node('summary'), node('body1'), node('body2')]));
     const button = screen.getByRole('button');
-    expect(button.getAttribute('aria-label')).toBe('收起');
-    expect(button.getAttribute('title')).toBe('收起 2 个部分');
+    expect(button.getAttribute('aria-label')).toBe('展开');
+    expect(button.getAttribute('title')).toBe('展开 2 个部分');
     expect(document.querySelector('.snl-collapsible')?.getAttribute('data-snl-collapse-noun'))
       .toBe('个部分');
   });
@@ -333,9 +354,9 @@ describe('CollapsibleRenderer', () => {
   // the host instead, the offset is measured from the padding box's outer edge
   // and the arrow escapes past the left border again.
   //
-  // jsdom does not do layout, so the geometry itself is asserted in the
-  // browser harness. What is checkable here is the DOM contract the CSS keys
-  // off: the toggle must be a direct child of `.snl-collapsible__summary`,
+  // jsdom does not do layout; these tests assert component behavior, ARIA,
+  // and the DOM contract the CSS keys off: the toggle must be a direct child
+  // of `.snl-collapsible__summary`,
   // which must be a direct child of `.snl-collapsible`.
   it('nests the toggle inside the summary row so the gutter offset resolves', () => {
     const { container } = mount(blockNode([node('summary'), node('body1')]));

@@ -24,7 +24,7 @@
           "background": "#F0F0F0"
         },
         "dark": {
-          "stroke": "#A3A3A3",
+          "stroke": "#E5E7EB",
           "background": "#313131"
         }
       },
@@ -55,7 +55,7 @@
           "background": "#F0F0F0"
         },
         "dark": {
-          "stroke": "#A3A3A3",
+          "stroke": "#CBD5E1",
           "background": "#313131"
         }
       },
@@ -86,7 +86,7 @@
           "background": "#F0F0F0"
         },
         "dark": {
-          "stroke": "#A3A3A3",
+          "stroke": "#94A3B8",
           "background": "#313131"
         }
       },
@@ -148,7 +148,7 @@
           "background": "#FFFFAC"
         },
         "dark": {
-          "stroke": "#FDE047",
+          "stroke": "#FACC15",
           "background": "#313131"
         }
       },
@@ -179,7 +179,7 @@
           "background": "#DAF0FF"
         },
         "dark": {
-          "stroke": "#60A5FA",
+          "stroke": "#93C5FD",
           "background": "#313131"
         }
       },
@@ -241,7 +241,7 @@
           "background": "#DAF0FF"
         },
         "dark": {
-          "stroke": "#60A5FA",
+          "stroke": "#7DD3FC",
           "background": "#313131"
         }
       },
@@ -427,7 +427,7 @@
           "background": "#F0F0F0"
         },
         "dark": {
-          "stroke": "#A3A3A3",
+          "stroke": "#D1D5DB",
           "background": "#313131"
         }
       },
@@ -458,7 +458,7 @@
           "background": "#DAF0FF"
         },
         "dark": {
-          "stroke": "#60A5FA",
+          "stroke": "#38BDF8",
           "background": "#313131"
         }
       },
@@ -501,6 +501,37 @@
         "values": {
           "en": "Declares context used by subsequent entries.",
           "zh-CN": "声明后续条目使用的上下文。"
+        }
+      }
+    },
+    {
+      "id": "ctor",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Constructor",
+          "zh-CN": "构造子"
+        }
+      },
+      "coloring": {
+        "light": {
+          "stroke": "#2F6F00",
+          "background": "#CFFFA8"
+        },
+        "dark": {
+          "stroke": "#A3E635",
+          "background": "#313131"
+        }
+      },
+      "defaultCounterName": "ctor",
+      "style": "ctor",
+      "description": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Introduces a constructor of an inductive object.",
+          "zh-CN": "引入归纳对象的一个构造子。"
         }
       }
     }

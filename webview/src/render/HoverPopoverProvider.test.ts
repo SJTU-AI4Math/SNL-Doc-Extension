@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  entryPopoverFrameStyle,
   entryDetailsRequest,
   popoverRequestIdentity,
   popoverTerminalDetail
 } from './HoverPopoverProvider';
 import type { EntryOption } from './EntrySurface';
+
+describe('recursive popover frame geometry', () => {
+  it('caps the shell to desktop 720px and the narrow viewport without cropping horizontal content', () => {
+    const style = entryPopoverFrameStyle('visible');
+    expect(style.maxWidth).toBe('min(720px, calc(100vw - 16px))');
+    expect(style.width).toBe('max-content');
+    expect(style.boxSizing).toBe('border-box');
+    expect(style.overflowX).toBe('visible');
+    expect(style.overflowY).toBe('visible');
+    expect(style.pointerEvents).toBe('auto');
+  });
+});
 
 describe('popover Entry identity requests', () => {
   it('includes the stable package identity from the Entry option', () => {

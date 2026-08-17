@@ -441,7 +441,7 @@ async function main() {
   console.log('\n[2] applyEntryKindsPreset(fulcrum-math-notes)');
   const applied = await applyEntryKindsPreset(root, 'fulcrum-math-notes');
   assert(applied.status === 'applied', 'applyEntryKindsPreset -> applied');
-  assert(applied.count === 16, `preset applied 16 kinds (got ${applied.count})`);
+  assert(applied.count === 17, `preset applied 17 kinds (got ${applied.count})`);
 
   const cfg = await readConfig(tmpRoot);
   assert(
@@ -449,8 +449,8 @@ async function main() {
     `config.version === "0.1.0" (got ${cfg.version})`
   );
   assert(
-    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 16,
-    `config has 16 entry_kinds (got ${cfg.entry_kinds?.length})`
+    Array.isArray(cfg.entry_kinds) && cfg.entry_kinds.length === 17,
+    `config has 17 entry_kinds (got ${cfg.entry_kinds?.length})`
   );
   const defn = cfg.entry_kinds.find((k) => k.id === 'definition');
   assert(!!defn, 'definition kind present');
@@ -514,7 +514,7 @@ async function main() {
   });
   assert(created.status === 'created', 'createEntryKind -> created');
   const cfg2 = await readConfig(tmpRoot);
-  assert(cfg2.entry_kinds.length === 17, 'entry_kinds now 17 after append');
+  assert(cfg2.entry_kinds.length === 18, 'entry_kinds now 18 after append');
   assert(cfg2.entry_kinds.find((kind) => kind.id === 'definition').vendor_kind?.keep === true,
     'Entry Kind create preserves unknown fields on untouched catalog records');
   const cfg2Raw = JSON.parse(await fs.readFile(kindsConfigPath, 'utf8'));

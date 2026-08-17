@@ -61,6 +61,7 @@ import { LocalizedLanguageSelector } from './components/LocalizedLanguageSelecto
 import {
   LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
+  materializeLocalizedValueForSave,
   useLocalizedBinding,
   useLocalizedEditLanguage
 } from './components/LocalizedEditScope';
@@ -127,7 +128,7 @@ import {
 } from './render/macroKindPalette';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
-import { resolve_localized_string } from '../../src/localizedContent';
+import { normalize_kind_label, resolve_localized_string } from '../../src/localizedContent';
 import { MonacoTextEditor } from './entry-editor/MonacoTextEditor';
 import { extractExportedBinders } from './render/contextSrcLookup';
 import {
@@ -606,7 +607,10 @@ function projectLocalizedContent(
 interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
+  onLanguageChange(language: string): void;
+  initialLanguage: string;
   availableLanguages: readonly string[];
+  resetKey: unknown;
   languageCatalog: readonly { id: string; display_name: string }[];
   label: string;
   inputLabel: string;
@@ -621,13 +625,11 @@ interface EntryTitleLocalizedEditorProps {
 }
 
 function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React.ReactElement {
-  const initialLanguage = is_i18n(props.value)
-    ? props.value.default_language
-    : LOCALIZED_GENERAL_LANGUAGE;
   return (
     <LocalizedEditScope
-      key={initialLanguage}
-      initialLanguage={initialLanguage}
+      initialLanguage={props.initialLanguage}
+      resetKey={props.resetKey}
+      onLanguageChange={props.onLanguageChange}
       availableLanguages={[...new Set([
         LOCALIZED_GENERAL_LANGUAGE,
         ...props.availableLanguages,
@@ -807,6 +809,12 @@ export function CreateEntryApp(): React.ReactElement {
 
   const supportedLanguages = use_supported_languages();
   const [title, setTitle] = useState<Localized<string, string>>('');
+  const [titleEditLanguage, setTitleEditLanguage] = useState(LOCALIZED_GENERAL_LANGUAGE);
+  const [titleEditInitialLanguage, setTitleEditInitialLanguage] = useState(
+    LOCALIZED_GENERAL_LANGUAGE
+  );
+  const [titleEditScopeResetKey, setTitleEditScopeResetKey] = useState(0);
+  const titleDirtyRef = useRef(false);
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
   // (`requireUnique`). In edit mode we still use it — the widget is
@@ -1038,6 +1046,7 @@ export function CreateEntryApp(): React.ReactElement {
           setPackageCreateError('');
           break;
         case 'retarget': {
+          setTitleEditScopeResetKey((previous) => previous + 1);
           // One panel serves every entry now (cat 2026-07-25). Clear the
           // form before the new entry's context lands so the previous
           // entry's text is never shown against the new id, and drop the
@@ -1051,6 +1060,9 @@ export function CreateEntryApp(): React.ReactElement {
           editingIdRef.current = '';
           entryRevisionRef.current = undefined;
           contentDirtyRef.current.clear();
+          titleDirtyRef.current = false;
+          setTitleEditLanguage(LOCALIZED_GENERAL_LANGUAGE);
+          setTitleEditInitialLanguage(LOCALIZED_GENERAL_LANGUAGE);
           markFormDirty(false);
           setStatus({ kind: 'idle' });
           setTargetState('found');
@@ -1203,9 +1215,21 @@ export function CreateEntryApp(): React.ReactElement {
                   });
                 }
               }
+              const incomingTitle = msg.existing.title ?? '';
+              if (!justSaved && (!preserveDraft || !titleDirtyRef.current)) {
+                setTitle(incomingTitle);
+              }
               if (!preserveDraft) {
+                if (editingIdRef.current !== incomingId) {
+                  const initialTitleLanguage = is_i18n(incomingTitle)
+                    ? incomingTitle.default_language
+                    : LOCALIZED_GENERAL_LANGUAGE;
+                  setTitleEditLanguage(initialTitleLanguage);
+                  setTitleEditInitialLanguage(initialTitleLanguage);
+                  setTitleEditScopeResetKey((previous) => previous + 1);
+                }
                 editingIdRef.current = incomingId;
-                setTitle(msg.existing.title ?? '');
+                titleDirtyRef.current = false;
                 setSelectedPackage(msg.existing.package || '_unpackaged');
                 setSelectedKind(msg.existing.kind || '');
                 setPointerDraft(pointerDraftFrom(msg.existing.pointer));
@@ -1312,7 +1336,10 @@ export function CreateEntryApp(): React.ReactElement {
           const acknowledgesCurrentGeneration =
             submittedEditGenerationRef.current === editGenerationRef.current;
           submittedEditGenerationRef.current = null;
-          if (acknowledgesCurrentGeneration) markFormDirty(false);
+          if (acknowledgesCurrentGeneration) {
+            titleDirtyRef.current = false;
+            markFormDirty(false);
+          }
           // `draftKey` embeds `mode`, so the flip switches to
           // `createEntry:edit:<id>`. A stale stash left there by an earlier
           // session for the same id would be restored on top of the content
@@ -1349,6 +1376,7 @@ export function CreateEntryApp(): React.ReactElement {
           if (acknowledgesCurrentGeneration) {
             markFormDirty(false);
             contentDirtyRef.current.clear();
+            titleDirtyRef.current = false;
           }
           setStatus({ kind: 'updated', id: msg.id });
           break;
@@ -1402,7 +1430,15 @@ export function CreateEntryApp(): React.ReactElement {
     [kinds, selectedKind]
   );
 
-  const trimmedTitle = resolve_localized_string(title, contentLanguage).trim();
+  const previewTitle = resolve_localized_string(title, contentLanguage).trim();
+  const persistedTitle = materializeLocalizedValueForSave(title, titleEditLanguage);
+  let validTitle = false;
+  try {
+    normalize_kind_label(persistedTitle, 'Entry title', true);
+    validTitle = true;
+  } catch {
+    validTitle = false;
+  }
   const previewContent = useMemo<Record<ContentFormat, string>>(() => {
     const projected = { ...content };
     for (const format of LOCALIZABLE_CONTENT_FORMATS) {
@@ -1493,7 +1529,7 @@ export function CreateEntryApp(): React.ReactElement {
     targetState !== 'notFound' &&
     !packageCreating &&
     kinds.length > 0 &&
-    trimmedTitle.length > 0 &&
+    validTitle &&
     trimmedId.length > 0 &&
     isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined) &&
     selectedKind.length > 0 &&
@@ -1513,16 +1549,15 @@ export function CreateEntryApp(): React.ReactElement {
     ): Localized<string, string> | undefined => {
       const localized = contentI18n[format];
       if (!localized) return content[format] || undefined;
-      if (!contentDirtyRef.current.has(format)) return localized;
       const language = contentEditLanguages[format];
-      // Merely selecting General is a viewing-scope change. The map is
-      // converted to a plain string only when updateLocalizedContent handles
-      // an actual edit in General and removes this localized state.
-      if (language === LOCALIZED_GENERAL_LANGUAGE) return localized;
-      return {
-        ...localized,
-        values: { ...localized.values, [language]: content[format] }
-      };
+      const rawValue = contentDirtyRef.current.has(format) &&
+        language !== LOCALIZED_GENERAL_LANGUAGE
+        ? {
+            ...localized,
+            values: { ...localized.values, [language]: content[format] }
+          }
+        : localized;
+      return materializeLocalizedValueForSave(rawValue, language);
     };
     const persistedContent = {
       typst: persist('typst'),
@@ -1534,7 +1569,7 @@ export function CreateEntryApp(): React.ReactElement {
       id: trimmedId,
       package: selectedPackage,
       kind: selectedKind,
-      title: typeof title === 'string' ? title.trim() : title,
+      title: persistedTitle!,
       content: {
         snl: content.snl || undefined,
         ...persistedContent
@@ -1578,6 +1613,8 @@ export function CreateEntryApp(): React.ReactElement {
     const restored = loadDraft<{
       id: string;
       title: Localized<string, string>;
+      titleEditLanguage?: string;
+      titleDirty?: boolean;
       selectedKind: string;
       content: Record<ContentFormat, string>;
       contentI18n?: Partial<Record<LocalizableContentFormat, I18n<string, string>>>;
@@ -1605,7 +1642,23 @@ export function CreateEntryApp(): React.ReactElement {
       : LOCALIZABLE_CONTENT_FORMATS;
     for (const format of restoredDirtyFormats) contentDirtyRef.current.add(format);
     setId(restored.id);
-    setTitle(restored.title);
+    // A modern clean-title draft must not overwrite the host title already
+    // applied by the identity-establishing context. Legacy drafts remain
+    // conservative because they have no exact title dirty bit.
+    if (restored.titleDirty !== false) setTitle(restored.title);
+    const restoredTitleLanguage = typeof restored.titleEditLanguage === 'string'
+      ? restored.titleEditLanguage
+      : is_i18n(restored.title)
+        ? restored.title.default_language
+        : LOCALIZED_GENERAL_LANGUAGE;
+    setTitleEditLanguage(restoredTitleLanguage);
+    setTitleEditInitialLanguage(restoredTitleLanguage);
+    setTitleEditScopeResetKey((previous) => previous + 1);
+    // Legacy whole-record drafts cannot prove that title was untouched, so
+    // conservatively preserve it. Modern envelopes carry the exact bit.
+    titleDirtyRef.current = typeof restored.titleDirty === 'boolean'
+      ? restored.titleDirty
+      : true;
     setSelectedKind(restored.selectedKind);
     setContent(restored.content);
     if (restored.contentI18n) setContentI18n(restored.contentI18n);
@@ -1653,6 +1706,8 @@ export function CreateEntryApp(): React.ReactElement {
     {
       id,
       title,
+      titleEditLanguage,
+      titleDirty: titleDirtyRef.current,
       selectedKind,
       content,
       contentI18n,
@@ -1691,7 +1746,7 @@ export function CreateEntryApp(): React.ReactElement {
   /** The most specific reason the save button is currently disabled. */
   function saveBlockingReason(): string {
     if (kinds.length === 0) return t('cannotSaveNoKinds');
-    if (!trimmedTitle) return t('cannotSaveTitle');
+    if (!validTitle) return t('cannotSaveTitle');
     if (!trimmedId) return t('cannotSaveId');
     if (!isEntityIdUnique(trimmedId, existingIds, mode === 'edit' ? trimmedId : undefined)) {
       return t('cannotSaveDuplicateId', { id: trimmedId });
@@ -1730,6 +1785,9 @@ export function CreateEntryApp(): React.ReactElement {
     setPointerDraft({ ...EMPTY_POINTER_DRAFT });
     pointerDirtyRef.current = false;
     contentDirtyRef.current.clear();
+    titleDirtyRef.current = false;
+    setTitleEditLanguage(LOCALIZED_GENERAL_LANGUAGE);
+    setTitleEditInitialLanguage(LOCALIZED_GENERAL_LANGUAGE);
     markFormDirty(false);
     setActiveFormat('snl');
     setSnlMode('text');
@@ -1779,7 +1837,14 @@ export function CreateEntryApp(): React.ReactElement {
 
       <EntryTitleLocalizedEditor
         value={title}
-        onChange={setTitle}
+        onChange={(next) => {
+          titleDirtyRef.current = true;
+          if (!formDirtyRef.current) markFormDirty(true);
+          setTitle(next);
+        }}
+        onLanguageChange={setTitleEditLanguage}
+        initialLanguage={titleEditInitialLanguage}
+        resetKey={titleEditScopeResetKey}
         availableLanguages={supportedLanguages.map((item) => item.id)}
         languageCatalog={supportedLanguages}
         label={t('title')}
@@ -1994,7 +2059,7 @@ export function CreateEntryApp(): React.ReactElement {
           <LivePreview
             kind={kind}
             entryId={trimmedId || t('newEntryId')}
-            title={trimmedTitle}
+            title={previewTitle}
             content={previewContent}
             entries={existingIds}
             userMacros={userMacros}
@@ -5448,11 +5513,20 @@ function stringifyLeafHead(node: SnlSyntaxTree): string {
 /**
  * Resolve the effective `kind` for a row so we can color its input frame.
  * Priority: node.kind (set by parser for `@`-binder / annotate-bind) →
- * macro's declared kind in the merged DB → env_mode-driven default →
- * 'fvar' fallback (mirrors DEFAULT_KIND_PALETTE fallback used elsewhere).
+ * parser temporary-macro semantics → macro's declared kind in the merged DB →
+ * legacy env_mode-driven default → 'fvar' fallback.
+ *
+ * Delimited `%…%` / `$…$` / `$$…$$` sources are parser-owned temporary
+ * macros. Their internal macro_name is an implementation placeholder, not a
+ * catalog key, and the renderer classifies an otherwise-unbound one as fvar.
  */
+function isTemporaryMacroNode(node: SnlSyntaxTree): boolean {
+  return node.env_mode !== undefined && typeof node.temporary_source === 'string';
+}
+
 function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): string {
   if (node.kind && node.kind !== '') return node.kind;
+  if (isTemporaryMacroNode(node)) return 'fvar';
   if (macro?.kind) return macro.kind;
   if (node.env_mode === 'text') return 'const';
   if (node.env_mode === 'formula_inline' || node.env_mode === 'formula_display') {
@@ -5463,11 +5537,11 @@ function resolveRowKind(node: SnlSyntaxTree, macro: SnlMacro | undefined): strin
 
 export function useQueriedMacro(
   driver: MacroDataDriver,
-  macroName: string
+  macroName: string | undefined
 ): SnlMacro | undefined {
   const [result, setResult] = useState<{
     driver: MacroDataDriver;
-    macroName: string;
+    macroName: string | undefined;
     macro: SnlMacro | undefined;
   }>(() => ({ driver, macroName, macro: undefined }));
   // Epoch guard: `query_macro` has an LRU cache, so a cache HIT for the new
@@ -5486,13 +5560,15 @@ export function useQueriedMacro(
       }
     };
     settle(undefined);
-    void driver.query_macro({ macro_name: macroName, signal: controller.signal })
-      .then((value) => settle(value ?? undefined))
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          settle(undefined);
-        }
-      });
+    if (macroName !== undefined) {
+      void driver.query_macro({ macro_name: macroName, signal: controller.signal })
+        .then((value) => settle(value ?? undefined))
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            settle(undefined);
+          }
+        });
+    }
     return () => controller.abort();
   }, [driver, macroName]);
   // Effects clear state only after a render commits. Bind the stored result to
@@ -6436,7 +6512,10 @@ function InductiveNode({
 
   const hasKids = node.children.length > 0;
   const isCollapsed = collapsed.has(nodeId);
-  const macroEntry = useQueriedMacro(macroDataDriver, node.macro_name);
+  const macroEntry = useQueriedMacro(
+    macroDataDriver,
+    isTemporaryMacroNode(node) ? undefined : node.macro_name
+  );
   /**
    * The Macro whose arity has already been reconciled for this row, so
    * reclaiming surplus slots happens once per Macro change rather than on

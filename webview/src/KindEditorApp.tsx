@@ -14,6 +14,13 @@ import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSe
 import { isEntityIdUnique } from './components/formValidation';
 import { PanelHeader } from './components/PanelHeader';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
+import {
+  LOCALIZED_GENERAL_LANGUAGE,
+  LocalizedEditScope,
+  materializeLocalizedValueForSave,
+  useLocalizedBinding,
+  useLocalizedEditLanguage
+} from './components/LocalizedEditScope';
 import { useVsCodeBridge } from './components/useVsCodeBridge';
 import type { EntryOption } from './render/EntrySurface';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
@@ -35,7 +42,7 @@ const MESSAGES = defineUiMessages(
     immutable: '. IDs are unique and immutable.', unknownError: 'Unknown error',
     idReadonly: 'ID (readonly)', id: 'ID', entryIdExample: 'e.g. theorem', macroIdExample: 'e.g. operator',
     displayName: 'Display name', description: 'Description', defaultCounter: 'Default counter name',
-    styleTag: 'Style tag', lightTheme: 'Light theme', darkTheme: 'Dark theme', editLanguage: 'Entry Kind language',
+    styleTag: 'Style tag', lightTheme: 'Light theme', darkTheme: 'Dark theme', editLanguage: 'Entry Kind language', generalLanguage: 'General',
     lightStroke: 'Light stroke', lightBackground: 'Light background',
     darkStroke: 'Dark stroke', darkBackground: 'Dark background', preview: 'preview',
     updating: 'Updating…', creating: 'Creating…', updateKind: 'Update {kind}', createKind: 'Create {kind}',
@@ -47,7 +54,7 @@ const MESSAGES = defineUiMessages(
     immutable: '。ID 必须唯一且不可修改。', unknownError: '未知错误',
     idReadonly: 'ID（只读）', id: 'ID', entryIdExample: '例如 theorem', macroIdExample: '例如 operator',
     displayName: '显示名称', description: '说明', defaultCounter: '默认计数器名称',
-    styleTag: '样式标签', lightTheme: '浅色主题', darkTheme: '深色主题', editLanguage: '条目类型语言',
+    styleTag: '样式标签', lightTheme: '浅色主题', darkTheme: '深色主题', editLanguage: '条目类型语言', generalLanguage: '通用',
     lightStroke: '浅色描边', lightBackground: '浅色背景',
     darkStroke: '深色描边', darkBackground: '深色背景', preview: '预览',
     updating: '正在更新…', creating: '正在创建…', updateKind: '更新{kind}', createKind: '创建{kind}',
@@ -58,26 +65,6 @@ const MESSAGES = defineUiMessages(
 export type KindEditorDomain = 'entry' | 'macro';
 interface LanguageDescriptor { id: string; display_name: string; }
 
-function editLocalizedProjection(
-  value: Localized<string, string>,
-  language: string,
-  projection: string,
-  legacyDefaultLanguage: string
-): Localized<string, string> {
-  if (typeof value === 'string') {
-    if (!value.trim()) {
-      return { type: 'i18n', default_language: language, values: { [language]: projection } };
-    }
-    return {
-      type: 'i18n',
-      default_language: legacyDefaultLanguage,
-      values: language === legacyDefaultLanguage
-        ? { [language]: projection }
-        : { [legacyDefaultLanguage]: value, [language]: projection }
-    };
-  }
-  return { ...value, values: { ...value.values, [language]: projection } };
-}
 type Mode = 'create' | 'edit';
 type Status =
   | { kind: 'idle' | 'creating' }
@@ -120,7 +107,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     { id: 'en', display_name: 'English (US)' },
     { id: 'zh-CN', display_name: '简体中文（中国大陆）' }
   ]);
-  const [editLanguage, setEditLanguage] = useState(contentLanguage);
+  const [editLanguage, setEditLanguage] = useState(LOCALIZED_GENERAL_LANGUAGE);
   const [lightStroke, setLightStroke] = useState(DEFAULT_LIGHT_KIND_COLORING.stroke);
   const [lightBackground, setLightBackground] = useState(DEFAULT_LIGHT_KIND_COLORING.background);
   const [darkStroke, setDarkStroke] = useState(DEFAULT_DARK_KIND_COLORING.stroke);
@@ -158,13 +145,23 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       setTargetId(nextMode === 'edit' ? (msg.id ?? '') : '');
       setRawExistingIds(Array.isArray(msg.existingIds) ? msg.existingIds : []);
       if (Array.isArray(msg.languages) && msg.languages.length > 0) setLanguages(msg.languages);
-      if (nextMode === 'create') preservedColoringRef.current = null;
+      if (nextMode === 'create') {
+        preservedColoringRef.current = null;
+        if (!dirtyRef.current) setEditLanguage(LOCALIZED_GENERAL_LANGUAGE);
+      }
       if (nextMode === 'edit' && !dirtyRef.current) {
         revisionRef.current = msg.kindRevision;
         setId(msg.id ?? '');
         const existing = msg.existing ?? {};
-        setName(typeof existing.name === 'string' || is_valid_i18n_string(existing.name) ? existing.name : '');
-        setDescription(typeof existing.description === 'string' || is_valid_i18n_string(existing.description) ? existing.description : '');
+        const existingName = typeof existing.name === 'string' || is_valid_i18n_string(existing.name) ? existing.name : '';
+        const existingDescription = typeof existing.description === 'string' || is_valid_i18n_string(existing.description) ? existing.description : '';
+        setName(existingName);
+        setDescription(existingDescription);
+        setEditLanguage(
+          typeof existingName === 'string' && typeof existingDescription === 'string'
+            ? LOCALIZED_GENERAL_LANGUAGE
+            : contentLanguage
+        );
         const coloring = normalizeKindColoring(existing.coloring);
         preservedColoringRef.current = coloring;
         setLightStroke(coloring.light.stroke);
@@ -191,10 +188,6 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       setStatus({ kind: msg.type as Exclude<Status['kind'], 'idle' | 'creating' | 'created' | 'updated'>, message: msg.message ?? t('unknownError') });
     }
   });
-
-  useEffect(() => {
-    if (!dirtyRef.current) setEditLanguage(contentLanguage);
-  }, [contentLanguage]);
 
   useEffect(() => {
     if (!contextReady) return;
@@ -261,7 +254,9 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     setStatus({ kind: 'creating' });
     const payload: Record<string, unknown> = {
       id: trimmedId,
-      name: domain === 'entry' ? name : projectedName.trim(),
+      name: domain === 'entry'
+        ? materializeLocalizedValueForSave(name, editLanguage)
+        : projectedName.trim(),
       coloring: {
         ...(preservedColoringRef.current ?? {}),
         light: {
@@ -277,7 +272,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       }
     };
     if (domain === 'entry') {
-      payload.description = description;
+      payload.description = materializeLocalizedValueForSave(description, editLanguage);
       payload.defaultCounterName = defaultCounterName.trim();
       payload.style = style.trim();
     } else {
@@ -304,21 +299,27 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     <PanelHeader title={t(mode === 'edit' ? 'edit' : 'create', { kind: kindName })} vsApi={apiRef.current} back={{ label: t('dashboard'), title: t('back'), message: { type: 'nav.openDashboard' } }} />
     <p style={{ opacity: .85 }}>{t('updateConfig')}<code>.SNL_Doc/config.json#{descriptor.configKey}</code>{t('immutable')}</p>
     {mode === 'edit' ? <KindTextField label={t('idReadonly')} value={id} onChange={setId} readOnly mono /> : <EntityIdSearchBox label={t('id')} entries={existingIds} value={id} onChange={setId} validate={ENTRY_VALIDATE_RULES.requireUnique} placeholder={t(domain === 'entry' ? 'entryIdExample' : 'macroIdExample')} inputStyle={{ fontFamily: 'var(--vscode-editor-font-family, monospace)' }} />}
-    {domain === 'entry' ? <FormField label={t('editLanguage')}>
-      <Select value={editLanguage} onChange={(event) => setEditLanguage(event.target.value)}>
-        {languages.map((language) => <option key={language.id} value={language.id}>{language.display_name}</option>)}
-      </Select>
-    </FormField> : null}
-    <KindTextField label={t('displayName')} value={projectedName} onChange={(value) => setName(
-      domain === 'entry'
-        ? editLocalizedProjection(name, editLanguage, value, languages[0]?.id ?? contentLanguage)
-        : value
-    )} />
-    <KindTextField label={t('description')} value={projectedDescription} onChange={(value) => setDescription(
-      domain === 'entry'
-        ? editLocalizedProjection(description, editLanguage, value, languages[0]?.id ?? contentLanguage)
-        : value
-    )} />
+    {domain === 'entry' ? <LocalizedEditScope
+      resetKey={`${mode}:${mode === 'edit' ? targetId : 'new'}`}
+      initialLanguage={editLanguage}
+      availableLanguages={[LOCALIZED_GENERAL_LANGUAGE, ...languages.map((language) => language.id)]}
+      onLanguageChange={setEditLanguage}
+    >
+      <EntryKindLocalizedFields
+        name={name}
+        description={description}
+        languages={languages}
+        generalLabel={t('generalLanguage')}
+        languageLabel={t('editLanguage')}
+        nameLabel={t('displayName')}
+        descriptionLabel={t('description')}
+        onName={setName}
+        onDescription={setDescription}
+      />
+    </LocalizedEditScope> : <>
+      <KindTextField label={t('displayName')} value={projectedName} onChange={setName} />
+      <KindTextField label={t('description')} value={projectedDescription} onChange={setDescription} />
+    </>}
     {domain === 'entry' ? <>
       <KindTextField label={t('defaultCounter')} value={defaultCounterName} onChange={setDefaultCounterName} mono />
       <KindTextField label={t('styleTag')} value={style} onChange={setStyle} mono />
@@ -348,6 +349,43 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
   </main>;
 }
 
+
+
+function EntryKindLocalizedFields({
+  name,
+  description,
+  languages,
+  generalLabel,
+  languageLabel,
+  nameLabel,
+  descriptionLabel,
+  onName,
+  onDescription
+}: {
+  name: Localized<string, string>;
+  description: Localized<string, string>;
+  languages: LanguageDescriptor[];
+  generalLabel: string;
+  languageLabel: string;
+  nameLabel: string;
+  descriptionLabel: string;
+  onName: (value: Localized<string, string>) => void;
+  onDescription: (value: Localized<string, string>) => void;
+}): React.ReactElement {
+  const editScope = useLocalizedEditLanguage();
+  const nameBinding = useLocalizedBinding({ value: name, onChange: onName, defaultLanguage: languages[0]?.id ?? 'en' });
+  const descriptionBinding = useLocalizedBinding({ value: description, onChange: onDescription, defaultLanguage: languages[0]?.id ?? 'en' });
+  return <>
+    <FormField label={languageLabel}>
+      <Select value={editScope.language} onChange={(event) => editScope.setLanguage(event.target.value)}>
+        <option value={LOCALIZED_GENERAL_LANGUAGE}>{generalLabel}</option>
+        {languages.map((language) => <option key={language.id} value={language.id}>{language.display_name}</option>)}
+      </Select>
+    </FormField>
+    <KindTextField label={nameLabel} value={nameBinding.resolvedValue ?? ''} onChange={nameBinding.setValue} />
+    <KindTextField label={descriptionLabel} value={descriptionBinding.resolvedValue ?? ''} onChange={descriptionBinding.setValue} />
+  </>;
+}
 
 function KindColorThemeFields({ title, strokeLabel, backgroundLabel, stroke, background, name, onStroke, onBackground }: {
   title: string;

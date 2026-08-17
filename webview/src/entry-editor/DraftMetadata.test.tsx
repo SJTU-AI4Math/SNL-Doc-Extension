@@ -261,7 +261,7 @@ describe('restored draft in edit mode', () => {
     });
   });
 
-  it('keeps every unsaved localized projection across a modern draft remount', async () => {
+  it('materializes a selected General content projection on direct Save without typing', async () => {
     saveDraft(api, 'createEntry:edit:thm-1', {
       id: 'thm-1', title: 'Draft', selectedKind: 'theorem',
       content: { snl: 'host_snl', typst: '', latex: '', markdown: '本地中文', text: '' },
@@ -283,9 +283,11 @@ describe('restored draft in edit mode', () => {
     // not replace its other unsaved language projections with disk values.
     sendInit();
     await new Promise((resolve) => setTimeout(resolve, 100));
-    // Selecting General without editing is not permission to collapse the
-    // localized map into a plain string.
+    // General selection is projection-only before Save: the raw localized map
+    // remains available when switching away and back.
     chooseContentLanguage(view, 'MARKDOWN content language', 'en', 'General');
+    chooseContentLanguage(view, 'MARKDOWN content language', 'General', 'zh-CN');
+    chooseContentLanguage(view, 'MARKDOWN content language', 'zh-CN', 'General');
     fireEvent.click(await waitFor(() => submitButton(view)));
     const submission = await waitFor(() => {
       const found = posted.find(
@@ -297,10 +299,92 @@ describe('restored draft in edit mode', () => {
       return found!;
     });
     const content = submission.entry.content as Record<string, unknown>;
-    expect(content.markdown).toEqual({
-      type: 'i18n', default_language: 'en',
-      values: { en: 'local English', 'zh-CN': '本地中文' }
+    expect(content.markdown).toBe('local English');
+    expect(JSON.stringify(content.markdown)).not.toContain('__snl_general__');
+  });
+
+  it('materializes General for typst, latex, markdown, and text in one real-component save', async () => {
+    const formats = ['typst', 'latex', 'markdown', 'text'] as const;
+    const localized = Object.fromEntries(formats.map((format) => [format, {
+      type: 'i18n', default_language: 'en', extension: `${format}-map-extension`,
+      values: {
+        en: `${format}-GENERAL`, 'zh-CN': `${format}-ZH`, ja: `${format}-JA`
+      }
+    }]));
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1', title: 'Host Title', selectedKind: 'theorem',
+      content: {
+        snl: 'host_snl', typst: 'typst-GENERAL', latex: 'latex-GENERAL',
+        markdown: 'markdown-GENERAL', text: 'text-GENERAL'
+      },
+      contentI18n: localized,
+      contentEditLanguages: {
+        typst: '__snl_general__', latex: '__snl_general__',
+        markdown: '__snl_general__', text: '__snl_general__'
+      },
+      contentDirtyFormats: [], activeFormat: 'markdown', snlMode: 'text'
     });
+    const view = render(<CreateEntryApp />);
+    sendInit(localized);
+    await waitFor(() => expect(titleInput(view).value).toBe('Host Title'));
+    // Exercise the actual selector while proving a switch does not destroy the map.
+    chooseContentLanguage(view, 'MARKDOWN content language', 'General', 'ja');
+    chooseContentLanguage(view, 'MARKDOWN content language', 'ja', 'General');
+    set_content_language('zh-CN');
+    expect(view.getByLabelText('MARKDOWN content language: General')).toBeTruthy();
+    const save = submitButton(view);
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const submission = await waitFor(() => posted.find(
+      (message): message is { type: string; entry: Record<string, unknown> } =>
+        typeof message === 'object' && message !== null &&
+        (message as { type?: string }).type === 'update'
+    ));
+    const content = submission!.entry.content as Record<string, unknown>;
+    for (const format of formats) expect(content[format]).toBe(`${format}-GENERAL`);
+    expect(JSON.stringify(content)).not.toContain('__snl_general__');
+  });
+
+  it('updates only en for every localized content format and preserves default, zh, ja, and extensions', async () => {
+    const formats = ['typst', 'latex', 'markdown', 'text'] as const;
+    const localized = Object.fromEntries(formats.map((format) => [format, {
+      type: 'i18n', default_language: 'fr', extension: `${format}-map-extension`,
+      values: {
+        fr: `${format}-DEFAULT`, en: `${format}-OLD-EN`,
+        'zh-CN': `${format}-ZH`, ja: `${format}-JA`
+      }
+    }]));
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1', title: 'Host Title', selectedKind: 'theorem',
+      content: {
+        snl: 'host_snl', typst: 'typst-NEW-EN', latex: 'latex-NEW-EN',
+        markdown: 'markdown-NEW-EN', text: 'text-NEW-EN'
+      },
+      contentI18n: localized,
+      contentEditLanguages: { typst: 'en', latex: 'en', markdown: 'en', text: 'en' },
+      contentDirtyFormats: [...formats], activeFormat: 'markdown', snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit(localized);
+    await waitFor(() => expect(titleInput(view).value).toBe('Host Title'));
+    set_content_language('zh-CN');
+    expect(view.getByLabelText('MARKDOWN content language: en')).toBeTruthy();
+    fireEvent.click(submitButton(view));
+    const submission = await waitFor(() => posted.find(
+      (message): message is { type: string; entry: Record<string, unknown> } =>
+        typeof message === 'object' && message !== null &&
+        (message as { type?: string }).type === 'update'
+    ));
+    const content = submission!.entry.content as Record<string, any>;
+    for (const format of formats) {
+      expect(content[format]).toEqual({
+        type: 'i18n', default_language: 'fr', extension: `${format}-map-extension`,
+        values: {
+          fr: `${format}-DEFAULT`, en: `${format}-NEW-EN`,
+          'zh-CN': `${format}-ZH`, ja: `${format}-JA`
+        }
+      });
+    }
   });
 
   it('keeps an exact empty dirty-format set after a modern draft watcher refresh', async () => {
@@ -519,4 +603,136 @@ describe('restored draft in edit mode', () => {
       expect(view.getByRole('button', { name: /(?:Relationships|关系) \(0\)/ })).toBeTruthy()
     );
   });
+
+  it('restores the exact modern title language and raw map without coupling to reading locale', async () => {
+    const localizedTitle = {
+      type: 'i18n' as const,
+      default_language: 'zh-CN',
+      values: { 'zh-CN': '主机中文', en: 'HOST ENGLISH' }
+    };
+    const sendLocalized = (): void => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', id: 'thm-1',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
+      existingIds: ['thm-1'], entryRevision: 'title-revision',
+      existing: { id: 'thm-1', title: localizedTitle, kind: 'theorem', content: { snl: 'title_body' }, pointer: null }
+    } }));
+
+    const first = render(<CreateEntryApp />);
+    sendLocalized();
+    await waitFor(() => expect(titleInput(first).value).toBe('主机中文'));
+    fireEvent.input(titleInput(first), { target: { value: '草稿中文' } });
+    fireEvent.click(first.getByLabelText('Title language: zh-CN'));
+    fireEvent.click(within(first.getByRole('listbox', { name: 'Title language' }))
+      .getByText('en').closest('button')!);
+    await waitFor(() => expect(first.getByLabelText('Title language: en')).toBeTruthy());
+    await waitFor(() => {
+      const draft = loadDraft<Record<string, unknown>>(api, 'createEntry:edit:thm-1');
+      expect(draft).toMatchObject({ titleEditLanguage: 'en', titleDirty: true });
+      expect(draft?.title).toEqual({
+        type: 'i18n', default_language: 'zh-CN',
+        values: { 'zh-CN': '草稿中文', en: 'HOST ENGLISH' }
+      });
+      expect(JSON.stringify(draft?.title)).not.toContain('__snl_general__');
+    });
+    // Keep this lifecycle test on the text editor; Canvas identity is unrelated
+    // and has its own dedicated restoration coverage above.
+    const persisted = loadDraft<Record<string, unknown>>(api, 'createEntry:edit:thm-1')!;
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      ...persisted, activeFormat: 'markdown', snlMode: 'text'
+    });
+    first.unmount();
+
+    set_content_language('zh-CN');
+    const second = render(<CreateEntryApp />);
+    sendLocalized();
+    await waitFor(() => expect(second.getByLabelText('Title language: en')).toBeTruthy());
+    await waitFor(() => expect(titleInput(second).value).toBe('HOST ENGLISH'));
+    expect(document.documentElement.lang).toBe('en');
+    fireEvent.click(submitButton(second));
+    const submission = posted.find((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { type?: string }).type === 'update'
+    ) as { entry: { title: unknown } };
+    expect(submission.entry.title).toEqual({
+      type: 'i18n', default_language: 'zh-CN',
+      values: { 'zh-CN': '草稿中文', en: 'HOST ENGLISH' }
+    });
+  });
+
+  it('adopts a watcher title when only the body is dirty', async () => {
+    saveDraft(api, 'createEntry:edit:thm-1', {
+      id: 'thm-1',
+      title: { type: 'i18n', default_language: 'en', values: { en: 'OLD TITLE', 'zh-CN': '旧标题' } },
+      titleEditLanguage: 'en',
+      titleDirty: false,
+      selectedKind: 'theorem',
+      content: { snl: 'host_snl', typst: '', latex: '', markdown: 'LOCAL DIRTY BODY', text: '' },
+      contentDirtyFormats: ['markdown'],
+      activeFormat: 'markdown', snlMode: 'text'
+    });
+    const view = render(<CreateEntryApp />);
+    sendInit({ markdown: 'old host body' });
+    await waitFor(() => expect(titleInput(view).value).toBe('Host Title'));
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', id: 'thm-1',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
+      existingIds: ['thm-1'], entryRevision: 'fresh-revision',
+      existing: {
+        id: 'thm-1', kind: 'theorem', pointer: null,
+        title: { type: 'i18n', default_language: 'en', values: { en: 'FRESH HOST TITLE', 'zh-CN': '新标题' } },
+        content: { markdown: 'fresh host body' }
+      }
+    } }));
+    await waitFor(() => expect(titleInput(view).value).toBe('FRESH HOST TITLE'));
+    expect(view.getByLabelText('Title language: en')).toBeTruthy();
+    fireEvent.click(submitButton(view));
+    const submission = posted.find((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { type?: string }).type === 'update'
+    ) as { entry: { title: unknown; content: { markdown: unknown } } };
+    expect(submission.entry.title).toEqual({
+      type: 'i18n', default_language: 'en', values: { en: 'FRESH HOST TITLE', 'zh-CN': '新标题' }
+    });
+    expect(JSON.stringify(submission.entry.content.markdown)).toContain('LOCAL DIRTY BODY');
+  });
+
+  it('preserves an exact dirty title and manual language across watcher and reading-locale changes', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', id: 'thm-1',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
+      existingIds: ['thm-1'], entryRevision: 'old-revision',
+      existing: {
+        id: 'thm-1', kind: 'theorem', pointer: null, content: {},
+        title: { type: 'i18n', default_language: 'en', values: { en: 'ORIGINAL EN', 'zh-CN': '原始中文' } }
+      }
+    } }));
+    await waitFor(() => expect(titleInput(view).value).toBe('ORIGINAL EN'));
+    fireEvent.click(view.getByLabelText('Title language: en'));
+    fireEvent.click(within(view.getByRole('listbox', { name: 'Title language' }))
+      .getByText('zh-CN').closest('button')!);
+    fireEvent.input(titleInput(view), { target: { value: 'LOCAL DIRTY ZH' } });
+    set_content_language('zh-CN');
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', id: 'thm-1',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
+      existingIds: ['thm-1'], entryRevision: 'fresh-revision',
+      existing: {
+        id: 'thm-1', kind: 'theorem', pointer: null, content: {},
+        title: { type: 'i18n', default_language: 'en', values: { en: 'EXTERNAL EN', 'zh-CN': '外部中文' } }
+      }
+    } }));
+    await waitFor(() => expect(titleInput(view).value).toBe('LOCAL DIRTY ZH'));
+    expect(view.getByLabelText('Title language: zh-CN')).toBeTruthy();
+    expect(document.documentElement.lang).toBe('en');
+    fireEvent.click(submitButton(view));
+    const submission = posted.find((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { type?: string }).type === 'update'
+    ) as { entry: { title: unknown } };
+    expect(submission.entry.title).toEqual({
+      type: 'i18n', default_language: 'en', values: { en: 'ORIGINAL EN', 'zh-CN': 'LOCAL DIRTY ZH' }
+    });
+  });
+
 });

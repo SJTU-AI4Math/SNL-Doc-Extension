@@ -213,6 +213,40 @@ export function entryPopoverFrameStyle(
   };
 }
 
+function EntryPopoverFrameMarker({ popover }: {
+  popover: HoverPopover<string>;
+}): React.ReactElement {
+  const markerRef = useRef<HTMLSpanElement>(null);
+  useSsrSafeLayoutEffect(() => {
+    const frame = markerRef.current?.parentElement;
+    if (!frame) return;
+    frame.tabIndex = 0;
+    return () => {
+      if (frame.getAttribute('tabindex') === '0') frame.removeAttribute('tabindex');
+    };
+  }, []);
+
+  return (
+    <span
+      ref={markerRef}
+      hidden
+      data-snl-popover-id={popover.id}
+      data-snl-popover-subject={popover.subject}
+      data-snl-popover-parent-id={popover.parentId ?? ''}
+      data-snl-popover-frozen={String(popover.frozen)}
+      data-snl-popover-phase={popover.phase}
+      data-snl-popover-origin-path={popover.originElement?.getAttribute('data-tree-path') ?? ''}
+      data-snl-popover-origin-bounds="viewport"
+      data-snl-popover-origin-rect={[
+        popover.originRect.left,
+        popover.originRect.top,
+        popover.originRect.right,
+        popover.originRect.bottom
+      ].join(',')}
+    />
+  );
+}
+
 function EntryPopoverContent({
   entryId,
   requestIdentity,
@@ -415,22 +449,7 @@ export function HoverPopoverProvider({
       );
       return (
         <>
-          <span
-            hidden
-            data-snl-popover-id={popover.id}
-            data-snl-popover-subject={popover.subject}
-            data-snl-popover-parent-id={popover.parentId ?? ''}
-            data-snl-popover-frozen={String(popover.frozen)}
-            data-snl-popover-phase={popover.phase}
-            data-snl-popover-origin-path={popover.originElement?.getAttribute('data-tree-path') ?? ''}
-            data-snl-popover-origin-bounds="viewport"
-            data-snl-popover-origin-rect={[
-              popover.originRect.left,
-              popover.originRect.top,
-              popover.originRect.right,
-              popover.originRect.bottom
-            ].join(',')}
-          />
+          <EntryPopoverFrameMarker popover={popover} />
           <EntryPopoverContent
             entryId={popover.subject}
             requestIdentity={requestIdentity}

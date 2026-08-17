@@ -76,6 +76,17 @@ describe('EntrySurface horizontal overflow', () => {
     );
   });
 
+  it('keeps ordinary EntrySurface wrappers out of the sequential tab order', () => {
+    const { content } = renderWideEntry();
+    const surface = content.closest<HTMLDivElement>('.snl-entry-overflow-surface')!;
+    expect(surface.hasAttribute('tabindex')).toBe(false);
+    expect(surface.tabIndex).toBe(-1);
+
+    content.tabIndex = 0;
+    content.focus();
+    expect(document.activeElement).toBe(content);
+  });
+
   it('registers a non-passive native wheel listener', () => {
     const add = vi.spyOn(HTMLElement.prototype, 'addEventListener');
     renderWideEntry();

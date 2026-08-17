@@ -49,6 +49,8 @@ describe('layered Escape dismissal', () => {
 
     fireEvent.click(document.querySelector('button')!);
     await waitFor(() => expect(document.querySelectorAll('[data-popover-id]')).toHaveLength(2));
+    expect([...document.querySelectorAll<HTMLElement>('[data-popover-id]')]
+      .every((frame) => frame.tabIndex === 0)).toBe(true);
 
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(document.querySelectorAll('[data-popover-id]')).toHaveLength(1));

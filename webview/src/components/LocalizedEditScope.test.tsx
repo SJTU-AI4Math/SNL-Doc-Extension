@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { I18n } from '@sjtu-ai4math/snl-basics/runtime';
 import {
+  LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
+  materializeLocalizedValueForSave,
   useLocalizedEditLanguage,
   useLocalizedBinding
 } from './LocalizedEditScope';
@@ -18,6 +20,33 @@ function LanguageProbe({ name }: { name: string }): React.ReactElement {
     <button type="button" onClick={() => local.setLanguage('en')}>{name} English</button>
   </div>;
 }
+
+
+describe('materializeLocalizedValueForSave', () => {
+  const localized = {
+    type: 'i18n' as const,
+    default_language: 'en',
+    extension_flag: 'keep-map-extension',
+    values: {
+      en: 'GENERAL-EN',
+      'zh-CN': 'ZH-SENTINEL',
+      ja: 'JA-SENTINEL'
+    }
+  };
+
+  it('materializes the displayed General projection without serializing the sentinel', () => {
+    const before = JSON.stringify(localized);
+    expect(materializeLocalizedValueForSave(localized, LOCALIZED_GENERAL_LANGUAGE)).toBe('GENERAL-EN');
+    expect(JSON.stringify(localized)).toBe(before);
+    expect(JSON.stringify(materializeLocalizedValueForSave(localized, LOCALIZED_GENERAL_LANGUAGE)))
+      .not.toContain(LOCALIZED_GENERAL_LANGUAGE);
+  });
+
+  it('returns the complete raw localized value for a specific editor language', () => {
+    expect(materializeLocalizedValueForSave(localized, 'zh-CN')).toBe(localized);
+    expect(materializeLocalizedValueForSave(localized, 'zh-CN')).toEqual(localized);
+  });
+});
 
 describe('LocalizedEditScope', () => {
   it('changes only the wrapped component language and isolates nested scopes', () => {

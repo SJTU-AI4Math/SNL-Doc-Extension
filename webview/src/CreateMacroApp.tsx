@@ -97,6 +97,7 @@ import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import {
   LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
+  materializeLocalizedValueForSave,
   useLocalizedBinding,
   useLocalizedEditLanguage
 } from './components/LocalizedEditScope';
@@ -748,17 +749,21 @@ function projectionToExtendedTemplate(
 }
 
 function styleDraftToExtended(s: StyleDraft, dynamicArity: boolean): ExtendedSnlMacroStyle {
-  const template = is_i18n(s.template_localized)
+  const materialized = materializeLocalizedValueForSave(
+    s.template_localized,
+    s.template_edit_language
+  );
+  const template = is_i18n(materialized)
     ? {
-        ...s.template_localized,
-        values: Object.fromEntries(Object.entries(s.template_localized.values).map(
+        ...materialized,
+        values: Object.fromEntries(Object.entries(materialized.values).map(
           ([language, projection]) => [
             language,
             projection === undefined ? undefined : projectionToExtendedTemplate(projection, dynamicArity)
           ]
         ))
       }
-    : projectionToExtendedTemplate(s.template_localized, dynamicArity);
+    : projectionToExtendedTemplate(materialized ?? projectionFromStyle(s), dynamicArity);
   return {
     ...s.extensions,
     style_name: s.style_name,

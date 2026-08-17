@@ -122,6 +122,40 @@ describe('Entry Kind localized editor', () => {
     expect(JSON.stringify(payload)).not.toContain('Invariant description');
   });
 
+  it('materializes both displayed General fields on a direct save without typing', async () => {
+    render(<KindEditorApp domain="entry" />);
+    sendContext({
+      id: 'theorem',
+      name: {
+        type: 'i18n', default_language: 'en', extension: 'name-extension',
+        values: { en: 'GENERAL-NAME', 'zh-CN': 'ZH-NAME', ja: 'JA-NAME' }
+      },
+      description: {
+        type: 'i18n', default_language: 'en', extension: 'description-extension',
+        values: { en: 'GENERAL-DESCRIPTION', 'zh-CN': 'ZH-DESCRIPTION', ja: 'JA-DESCRIPTION' }
+      }
+    });
+
+    const selector = await screen.findByLabelText('Entry Kind language') as HTMLSelectElement;
+    fireEvent.change(selector, { target: { value: '__snl_general__' } });
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('GENERAL-NAME');
+    expect((screen.getByLabelText('Description') as HTMLInputElement).value).toBe('GENERAL-DESCRIPTION');
+    // Selection is projection-only before acknowledgment: switching back recovers the raw map.
+    fireEvent.change(selector, { target: { value: 'zh-CN' } });
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('ZH-NAME');
+    fireEvent.change(selector, { target: { value: '__snl_general__' } });
+    act(() => set_content_language('zh-CN'));
+    expect(selector.value).toBe('__snl_general__');
+
+    const save = screen.getByRole('button', { name: 'Update Entry Kind' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const payload = await submittedPayload('update');
+    expect(payload.name).toBe('GENERAL-NAME');
+    expect(payload.description).toBe('GENERAL-DESCRIPTION');
+    expect(JSON.stringify(payload)).not.toContain('__snl_general__');
+  });
+
   it('resets a retained edit scope when the authoritative Kind target changes', async () => {
     render(<KindEditorApp domain="entry" />);
     sendContext({
@@ -197,8 +231,8 @@ describe('Entry Kind localized editor', () => {
     render(<KindEditorApp domain="entry" />);
     sendContext({
       id: 'theorem',
-      name: { type: 'i18n', default_language: 'fr', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '旧定理' } },
-      description: { type: 'i18n', default_language: 'fr', values: { fr: 'Description', en: 'English description', 'zh-CN': '旧描述' } }
+      name: { type: 'i18n', default_language: 'fr', extension: 'name-extension', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '旧定理', ja: '定理' } },
+      description: { type: 'i18n', default_language: 'fr', extension: 'description-extension', values: { fr: 'Description', en: 'English description', 'zh-CN': '旧描述', ja: '説明' } }
     });
 
     fireEvent.change(await screen.findByLabelText('Entry Kind language'), { target: { value: 'zh-CN' } });
@@ -208,10 +242,10 @@ describe('Entry Kind localized editor', () => {
 
     const payload = await submittedPayload('update');
     expect(payload.name).toEqual({
-      type: 'i18n', default_language: 'fr', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '新定理' }
+      type: 'i18n', default_language: 'fr', extension: 'name-extension', values: { fr: 'Théorème', en: 'Theorem', 'zh-CN': '新定理', ja: '定理' }
     });
     expect(payload.description).toEqual({
-      type: 'i18n', default_language: 'fr', values: { fr: 'Description', en: 'English description', 'zh-CN': '新描述' }
+      type: 'i18n', default_language: 'fr', extension: 'description-extension', values: { fr: 'Description', en: 'English description', 'zh-CN': '新描述', ja: '説明' }
     });
   });
 });

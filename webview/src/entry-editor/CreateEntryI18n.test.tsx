@@ -225,6 +225,42 @@ describe('CreateEntryApp localization', () => {
     });
   });
 
+  it('materializes the displayed General title on direct Save without typing', async () => {
+    const view = render(<CreateEntryApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', targetGeneration: 3, mode: 'edit', id: 'general-direct-title',
+      kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } }, numbering: 'theorem', style: 'default' }],
+      entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-general',
+      existing: {
+        id: 'general-direct-title', package: '_unpackaged', kind: 'theorem', pointer: null, content: {},
+        title: {
+          type: 'i18n', default_language: 'en', extension: 'title-extension',
+          values: { en: 'GENERAL-TITLE', 'zh-CN': 'ZH-TITLE', ja: 'JA-TITLE' }
+        }
+      }
+    } }));
+
+    await waitFor(() => expect(view.getByLabelText('标题语言: English')).toBeTruthy());
+    fireEvent.click(view.getByLabelText('标题语言: English'));
+    fireEvent.click(view.getByText('通用', { selector: 'span' }).closest('button')!);
+    expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('GENERAL-TITLE');
+    fireEvent.click(view.getByLabelText('标题语言: 通用'));
+    fireEvent.click(view.getByText('简体中文', { selector: 'span' }).closest('button')!);
+    expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('ZH-TITLE');
+    fireEvent.click(view.getByLabelText('标题语言: 简体中文'));
+    fireEvent.click(view.getByText('通用', { selector: 'span' }).closest('button')!);
+    act(() => set_content_language('en'));
+    expect(view.getByLabelText('标题语言: 通用')).toBeTruthy();
+
+    const save = view.getByRole('button', { name: '更新条目' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    const update = postMessage.mock.calls.map(([message]) => message)
+      .find((message) => message?.type === 'update');
+    expect(update?.entry.title).toBe('GENERAL-TITLE');
+    expect(JSON.stringify(update?.entry.title)).not.toContain('__snl_general__');
+  });
+
   it('resets title language for a new authoritative target but preserves a same-target draft', async () => {
     const editContext = (id: string, title: unknown, targetGeneration: number) => ({
       type: 'context', targetGeneration, mode: 'edit', id,
@@ -274,18 +310,21 @@ describe('CreateEntryApp localization', () => {
         entryPackages: ['_unpackaged'], existingIds: [], relationships: [], entryRevision: 'rev-1',
         existing: {
           id: 'localized-entry', package: '_unpackaged', kind: 'theorem',
-          title: { type: 'i18n', default_language: 'en', values: { 'zh-CN': '中文标题' } },
+          title: {
+            type: 'i18n', default_language: 'en', extension: 'title-map-extension',
+            values: { en: 'Old English title', 'zh-CN': '中文标题', ja: '日本語タイトル' }
+          },
           content: {}, pointer: null
         }
       }
     }));
 
     await view.findByLabelText('标题');
-    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('Old English title'));
     expect(view.getByLabelText('标题语言: English')).toBeTruthy();
     act(() => set_content_language('en'));
-    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('中文标题'));
-    expect(view.getByText('正在显示来自 zh-CN 的回退标题')).toBeTruthy();
+    await waitFor(() => expect((view.getByLabelText('标题') as HTMLInputElement).value).toBe('Old English title'));
+    expect(view.getByText('当前语言已有翻译')).toBeTruthy();
     expect(view.getByRole('heading', { name: '编辑条目' })).toBeTruthy();
     expect(view.getByLabelText('条目包')).toHaveProperty('readOnly', true);
     expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
@@ -295,8 +334,8 @@ describe('CreateEntryApp localization', () => {
     const update = postMessage.mock.calls.map(([message]) => message)
       .find((message) => message?.type === 'update');
     expect(update?.entry.title).toEqual({
-      type: 'i18n', default_language: 'en',
-      values: { 'zh-CN': '中文标题', en: 'English title' }
+      type: 'i18n', default_language: 'en', extension: 'title-map-extension',
+      values: { en: 'English title', 'zh-CN': '中文标题', ja: '日本語タイトル' }
     });
   });
 });

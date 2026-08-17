@@ -61,6 +61,7 @@ import { LocalizedLanguageSelector } from './components/LocalizedLanguageSelecto
 import {
   LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
+  materializeLocalizedValueForSave,
   useLocalizedBinding,
   useLocalizedEditLanguage
 } from './components/LocalizedEditScope';
@@ -606,6 +607,7 @@ function projectLocalizedContent(
 interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
+  onLanguageChange(language: string): void;
   availableLanguages: readonly string[];
   resetKey: unknown;
   languageCatalog: readonly { id: string; display_name: string }[];
@@ -629,6 +631,7 @@ function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React
     <LocalizedEditScope
       initialLanguage={initialLanguage}
       resetKey={props.resetKey}
+      onLanguageChange={props.onLanguageChange}
       availableLanguages={[...new Set([
         LOCALIZED_GENERAL_LANGUAGE,
         ...props.availableLanguages,
@@ -808,6 +811,7 @@ export function CreateEntryApp(): React.ReactElement {
 
   const supportedLanguages = use_supported_languages();
   const [title, setTitle] = useState<Localized<string, string>>('');
+  const [titleEditLanguage, setTitleEditLanguage] = useState(LOCALIZED_GENERAL_LANGUAGE);
   const [titleEditScopeResetKey, setTitleEditScopeResetKey] = useState(0);
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
@@ -1519,16 +1523,15 @@ export function CreateEntryApp(): React.ReactElement {
     ): Localized<string, string> | undefined => {
       const localized = contentI18n[format];
       if (!localized) return content[format] || undefined;
-      if (!contentDirtyRef.current.has(format)) return localized;
       const language = contentEditLanguages[format];
-      // Merely selecting General is a viewing-scope change. The map is
-      // converted to a plain string only when updateLocalizedContent handles
-      // an actual edit in General and removes this localized state.
-      if (language === LOCALIZED_GENERAL_LANGUAGE) return localized;
-      return {
-        ...localized,
-        values: { ...localized.values, [language]: content[format] }
-      };
+      const rawValue = contentDirtyRef.current.has(format) &&
+        language !== LOCALIZED_GENERAL_LANGUAGE
+        ? {
+            ...localized,
+            values: { ...localized.values, [language]: content[format] }
+          }
+        : localized;
+      return materializeLocalizedValueForSave(rawValue, language);
     };
     const persistedContent = {
       typst: persist('typst'),
@@ -1540,7 +1543,10 @@ export function CreateEntryApp(): React.ReactElement {
       id: trimmedId,
       package: selectedPackage,
       kind: selectedKind,
-      title: typeof title === 'string' ? title.trim() : title,
+      title: (() => {
+        const materialized = materializeLocalizedValueForSave(title, titleEditLanguage);
+        return typeof materialized === 'string' ? materialized.trim() : materialized;
+      })(),
       content: {
         snl: content.snl || undefined,
         ...persistedContent
@@ -1786,6 +1792,7 @@ export function CreateEntryApp(): React.ReactElement {
       <EntryTitleLocalizedEditor
         value={title}
         onChange={setTitle}
+        onLanguageChange={setTitleEditLanguage}
         resetKey={titleEditScopeResetKey}
         availableLanguages={supportedLanguages.map((item) => item.id)}
         languageCatalog={supportedLanguages}

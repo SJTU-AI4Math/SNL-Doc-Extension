@@ -1232,7 +1232,10 @@ export function CreateMacroApp(): React.ReactElement {
    * state. Field maps to defaults; the on-disk record must already have been
    * migrated to v6 shape by the host reader (snlDoc.v5MacroToV6).
    */
-  function hydrateFromExisting(existing: ExtendedSnlMacro): void {
+  function hydrateFromExisting(
+    existing: ExtendedSnlMacro,
+    preserveTemplateEditLanguages = false
+  ): void {
     absorbHydratedMacroBase(existing);
     setName(existing.name ?? '');
     setDescription(existing.description ?? '');
@@ -1275,7 +1278,14 @@ export function CreateMacroApp(): React.ReactElement {
           };
         })
       : [newStyleDraft('default')];
-    setStyles(drafts.length > 0 ? drafts : [newStyleDraft('default')]);
+    const hydratedStyles = drafts.length > 0 ? drafts : [newStyleDraft('default')];
+    setStyles((previous) => hydratedStyles.map((style, index) => {
+      if (!preserveTemplateEditLanguages) return style;
+      const prior = previous[index];
+      return prior?.style_name === style.style_name
+        ? { ...style, template_edit_language: prior.template_edit_language }
+        : style;
+    }));
     setActiveStyle(0);
     setActiveTab('katex_template');
     editingNameRef.current = existing.name ?? '';
@@ -1338,7 +1348,7 @@ export function CreateMacroApp(): React.ReactElement {
             if (!sameDirtyDraft || !macroRevisionRef.current) {
               macroRevisionRef.current = msg.macroRevision;
             }
-            if (!sameDirtyDraft) hydrateFromExisting(msg.existing);
+            if (!sameDirtyDraft) hydrateFromExisting(msg.existing, !identityChanged);
           } else if (msg.mode === 'create' && msg.prefill && !formDirtyRef.current) {
             // Cat 2026-07-12: seed the form from a row's `%…%` / `$…$` /
             // `$$…$$` / plain-id content so the user doesn't retype.
@@ -1867,7 +1877,7 @@ export function CreateMacroApp(): React.ReactElement {
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
       {current ? (
         <LocalizedEditScope
-          key={activeStyle}
+          resetKey={`${draftKey}:${activeStyle}`}
           initialLanguage={current.template_edit_language}
           availableLanguages={[...new Set([
             LOCALIZED_GENERAL_LANGUAGE,

@@ -608,6 +608,7 @@ interface EntryTitleLocalizedEditorProps {
   value: Localized<string, string>;
   onChange(value: Localized<string, string>): void;
   onLanguageChange(language: string): void;
+  initialLanguage: string;
   availableLanguages: readonly string[];
   resetKey: unknown;
   languageCatalog: readonly { id: string; display_name: string }[];
@@ -624,12 +625,9 @@ interface EntryTitleLocalizedEditorProps {
 }
 
 function EntryTitleLocalizedEditor(props: EntryTitleLocalizedEditorProps): React.ReactElement {
-  const initialLanguage = is_i18n(props.value)
-    ? props.value.default_language
-    : LOCALIZED_GENERAL_LANGUAGE;
   return (
     <LocalizedEditScope
-      initialLanguage={initialLanguage}
+      initialLanguage={props.initialLanguage}
       resetKey={props.resetKey}
       onLanguageChange={props.onLanguageChange}
       availableLanguages={[...new Set([
@@ -812,7 +810,11 @@ export function CreateEntryApp(): React.ReactElement {
   const supportedLanguages = use_supported_languages();
   const [title, setTitle] = useState<Localized<string, string>>('');
   const [titleEditLanguage, setTitleEditLanguage] = useState(LOCALIZED_GENERAL_LANGUAGE);
+  const [titleEditInitialLanguage, setTitleEditInitialLanguage] = useState(
+    LOCALIZED_GENERAL_LANGUAGE
+  );
   const [titleEditScopeResetKey, setTitleEditScopeResetKey] = useState(0);
+  const titleDirtyRef = useRef(false);
   const [id, setId] = useState<string>('');
   // Full shared pool (id+title) for dedupe validation in create mode
   // (`requireUnique`). In edit mode we still use it — the widget is
@@ -1058,6 +1060,9 @@ export function CreateEntryApp(): React.ReactElement {
           editingIdRef.current = '';
           entryRevisionRef.current = undefined;
           contentDirtyRef.current.clear();
+          titleDirtyRef.current = false;
+          setTitleEditLanguage(LOCALIZED_GENERAL_LANGUAGE);
+          setTitleEditInitialLanguage(LOCALIZED_GENERAL_LANGUAGE);
           markFormDirty(false);
           setStatus({ kind: 'idle' });
           setTargetState('found');
@@ -1210,12 +1215,21 @@ export function CreateEntryApp(): React.ReactElement {
                   });
                 }
               }
+              const incomingTitle = msg.existing.title ?? '';
+              if (!preserveDraft || !titleDirtyRef.current) {
+                setTitle(incomingTitle);
+              }
               if (!preserveDraft) {
                 if (editingIdRef.current !== incomingId) {
+                  const initialTitleLanguage = is_i18n(incomingTitle)
+                    ? incomingTitle.default_language
+                    : LOCALIZED_GENERAL_LANGUAGE;
+                  setTitleEditLanguage(initialTitleLanguage);
+                  setTitleEditInitialLanguage(initialTitleLanguage);
                   setTitleEditScopeResetKey((previous) => previous + 1);
                 }
                 editingIdRef.current = incomingId;
-                setTitle(msg.existing.title ?? '');
+                titleDirtyRef.current = false;
                 setSelectedPackage(msg.existing.package || '_unpackaged');
                 setSelectedKind(msg.existing.kind || '');
                 setPointerDraft(pointerDraftFrom(msg.existing.pointer));
@@ -1322,7 +1336,10 @@ export function CreateEntryApp(): React.ReactElement {
           const acknowledgesCurrentGeneration =
             submittedEditGenerationRef.current === editGenerationRef.current;
           submittedEditGenerationRef.current = null;
-          if (acknowledgesCurrentGeneration) markFormDirty(false);
+          if (acknowledgesCurrentGeneration) {
+            titleDirtyRef.current = false;
+            markFormDirty(false);
+          }
           // `draftKey` embeds `mode`, so the flip switches to
           // `createEntry:edit:<id>`. A stale stash left there by an earlier
           // session for the same id would be restored on top of the content
@@ -1359,6 +1376,7 @@ export function CreateEntryApp(): React.ReactElement {
           if (acknowledgesCurrentGeneration) {
             markFormDirty(false);
             contentDirtyRef.current.clear();
+            titleDirtyRef.current = false;
           }
           setStatus({ kind: 'updated', id: msg.id });
           break;
@@ -1590,6 +1608,8 @@ export function CreateEntryApp(): React.ReactElement {
     const restored = loadDraft<{
       id: string;
       title: Localized<string, string>;
+      titleEditLanguage?: string;
+      titleDirty?: boolean;
       selectedKind: string;
       content: Record<ContentFormat, string>;
       contentI18n?: Partial<Record<LocalizableContentFormat, I18n<string, string>>>;
@@ -1617,7 +1637,23 @@ export function CreateEntryApp(): React.ReactElement {
       : LOCALIZABLE_CONTENT_FORMATS;
     for (const format of restoredDirtyFormats) contentDirtyRef.current.add(format);
     setId(restored.id);
-    setTitle(restored.title);
+    // A modern clean-title draft must not overwrite the host title already
+    // applied by the identity-establishing context. Legacy drafts remain
+    // conservative because they have no exact title dirty bit.
+    if (restored.titleDirty !== false) setTitle(restored.title);
+    const restoredTitleLanguage = typeof restored.titleEditLanguage === 'string'
+      ? restored.titleEditLanguage
+      : is_i18n(restored.title)
+        ? restored.title.default_language
+        : LOCALIZED_GENERAL_LANGUAGE;
+    setTitleEditLanguage(restoredTitleLanguage);
+    setTitleEditInitialLanguage(restoredTitleLanguage);
+    setTitleEditScopeResetKey((previous) => previous + 1);
+    // Legacy whole-record drafts cannot prove that title was untouched, so
+    // conservatively preserve it. Modern envelopes carry the exact bit.
+    titleDirtyRef.current = typeof restored.titleDirty === 'boolean'
+      ? restored.titleDirty
+      : true;
     setSelectedKind(restored.selectedKind);
     setContent(restored.content);
     if (restored.contentI18n) setContentI18n(restored.contentI18n);
@@ -1665,6 +1701,8 @@ export function CreateEntryApp(): React.ReactElement {
     {
       id,
       title,
+      titleEditLanguage,
+      titleDirty: titleDirtyRef.current,
       selectedKind,
       content,
       contentI18n,
@@ -1742,6 +1780,9 @@ export function CreateEntryApp(): React.ReactElement {
     setPointerDraft({ ...EMPTY_POINTER_DRAFT });
     pointerDirtyRef.current = false;
     contentDirtyRef.current.clear();
+    titleDirtyRef.current = false;
+    setTitleEditLanguage(LOCALIZED_GENERAL_LANGUAGE);
+    setTitleEditInitialLanguage(LOCALIZED_GENERAL_LANGUAGE);
     markFormDirty(false);
     setActiveFormat('snl');
     setSnlMode('text');
@@ -1791,8 +1832,13 @@ export function CreateEntryApp(): React.ReactElement {
 
       <EntryTitleLocalizedEditor
         value={title}
-        onChange={setTitle}
+        onChange={(next) => {
+          titleDirtyRef.current = true;
+          if (!formDirtyRef.current) markFormDirty(true);
+          setTitle(next);
+        }}
         onLanguageChange={setTitleEditLanguage}
+        initialLanguage={titleEditInitialLanguage}
         resetKey={titleEditScopeResetKey}
         availableLanguages={supportedLanguages.map((item) => item.id)}
         languageCatalog={supportedLanguages}

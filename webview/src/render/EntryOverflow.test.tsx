@@ -70,6 +70,14 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).not.toMatch(/\.katex\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   });
 
+  it('uses Computer Modern for root textual SNL without resizing nested math or code', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\.snl-text:not\(pre \*\):not\(\.katex \*\)\s*\{[^}]*font-family:\s*KaTeX_Main,\s*serif[^}]*font-size:\s*1em/s
+    );
+    expect(entrySurfaceCss).not.toMatch(/\.snl-text\s+:is\([^)]*\.katex[^)]*\)\s*\{[^}]*font-(?:family|size):/s);
+    expect(entrySurfaceCss).not.toMatch(/\.snl-markdown-body\s+(?:pre|code)\s*\{[^}]*font-family:\s*KaTeX_Main/s);
+  });
+
   it('resets inherited emergency wrapping inside nested formula and code islands', () => {
     expect(entrySurfaceCss).toMatch(
       /\.snl-text\s+:is\([^)]*\.katex[^)]*\.katex \*[^)]*pre[^)]*code[^)]*\)\s*\{[^}]*overflow-wrap:\s*normal[^}]*word-break:\s*normal/s

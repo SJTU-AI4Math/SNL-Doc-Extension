@@ -37,6 +37,8 @@
 .snl-entry-overflow-surface [data-entry-body] .snl-text:not(pre *):not(.katex *) {
   min-width: 0;
   max-width: 100%;
+  font-family: KaTeX_Main, serif;
+  font-size: 1em;
   overflow-wrap: anywhere;
   word-break: break-word;
 }

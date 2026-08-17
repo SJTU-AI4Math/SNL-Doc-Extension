@@ -56,6 +56,20 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).toContain('::-webkit-scrollbar');
   });
 
+  it('wraps only defensive plain and textual leaves while preserving code and formulas', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\[data-entry-body\]\s*>\s*pre\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*pre-wrap/s
+    );
+    expect(entrySurfaceCss).toMatch(
+      /\.snl-text:not\(pre \*\):not\(\.katex \*\)\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*word-break:\s*break-word/s
+    );
+    expect(entrySurfaceCss).toMatch(
+      /\.snl-markdown-body\s+p\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*word-break:\s*break-word/s
+    );
+    expect(entrySurfaceCss).not.toMatch(/\.snl-markdown-body\s+pre\s*\{[^}]*white-space:\s*pre-wrap/s);
+    expect(entrySurfaceCss).not.toMatch(/\.katex\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
   it('registers a non-passive native wheel listener', () => {
     const add = vi.spyOn(HTMLElement.prototype, 'addEventListener');
     renderWideEntry();

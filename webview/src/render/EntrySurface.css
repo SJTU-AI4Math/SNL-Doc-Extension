@@ -11,11 +11,43 @@
 /* Entry bodies may contain wide KaTeX, tables, code, or custom blocks. Keep
    that overflow local to the Entry instead of widening the whole Infoview. */
 .snl-entry-overflow-surface [data-entry-body] {
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+/* Basics 0.1.5 can emit a plain/Typst Entry body as one direct pre. It has
+   no inner wrapper to absorb an unbroken token, so wrap only that emergency
+   shape; Markdown fenced code remains nested under .snl-markdown-body. */
+.snl-entry-overflow-surface [data-entry-body] > pre {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* Text tokens may otherwise contribute their min-content width to a Basics
+   row. Formula and code descendants deliberately retain local scrolling and
+   unbroken layout. */
+.snl-entry-overflow-surface [data-entry-body] .snl-text:not(pre *):not(.katex *) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Markdown prose needs the same emergency wrapping, while its nested pre/code
+   surfaces retain their own horizontal scrolling contract. */
+.snl-entry-overflow-surface [data-entry-body] .snl-markdown-body p {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Basics gives Markdown code blocks their own horizontal scroller. Firefox
@@ -32,4 +64,12 @@
 .snl-entry-overflow-surface [data-entry-body] *::-webkit-scrollbar:horizontal {
   display: none;
   height: 0;
+}
+
+/* The real recursive shell also carries this class so production geometry can
+   be asserted from the generated bundle, independently of React style order. */
+.snl-entry-hover-popover {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 16px));
 }

@@ -1,0 +1,304 @@
+#!/usr/bin/env node
+import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, extname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'snl-entry-overflow-'));
+const bundle = resolve(temporaryRoot, 'bundle');
+const profile = resolve(temporaryRoot, 'profile');
+let server;
+let chrome;
+let browserSocket;
+const pageSockets = new Set();
+
+const delay = (ms) => new Promise((done) => setTimeout(done, ms));
+const closeSocket = (socket) => {
+  if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+};
+const cleanup = async () => {
+  for (const socket of pageSockets) closeSocket(socket);
+  closeSocket(browserSocket);
+  if (server) await new Promise((done) => server.close(done));
+  if (chrome?.exitCode === null) {
+    chrome.kill('SIGTERM');
+    await Promise.race([new Promise((done) => chrome.once('exit', done)), delay(3000)]);
+    if (chrome.exitCode === null) chrome.kill('SIGKILL');
+  }
+  rmSync(temporaryRoot, { recursive: true, force: true });
+};
+
+class Cdp {
+  constructor(socket) {
+    this.socket = socket;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.events = [];
+    socket.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data);
+      if (!message.id) {
+        this.events.push(message);
+        return;
+      }
+      const pending = this.pending.get(message.id);
+      if (!pending) return;
+      this.pending.delete(message.id);
+      if (message.error) pending.reject(new Error(JSON.stringify(message.error)));
+      else pending.resolve(message.result);
+    });
+  }
+  call(method, params = {}) {
+    const id = this.nextId++;
+    this.socket.send(JSON.stringify({ id, method, params }));
+    return new Promise((resolveCall, reject) => {
+      this.pending.set(id, { resolve: resolveCall, reject });
+    });
+  }
+}
+
+async function connect(url) {
+  const socket = new WebSocket(url);
+  await new Promise((resolveOpen, reject) => {
+    socket.addEventListener('open', resolveOpen, { once: true });
+    socket.addEventListener('error', reject, { once: true });
+  });
+  return socket;
+}
+
+const long = (prefix) => `${prefix}_${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}`;
+const kind = {
+  id: 'definition',
+  name: 'Definition',
+  description: 'Definition',
+  coloring: {
+    light: { stroke: '#111111', background: '#eeeeee' },
+    dark: { stroke: '#dddddd', background: '#222222' }
+  },
+  style: ''
+};
+const option = (id, snl) => ({ id, package: 'geometry', title: id, hasContent: true, ...(snl ? { snl } : {}) });
+const entry = (id, content) => ({ id, kind: 'definition', title: id, content, pointer: null });
+const details = (fixture, selectedEntry, entries = []) => ({
+  type: 'entryDetails',
+  fixture,
+  entry: selectedEntry,
+  kind,
+  entries,
+  entryPackages: Object.fromEntries(entries.map(({ id }) => [id, 'geometry'])),
+  relationshipSections: [],
+  relatedEntries: []
+});
+
+const fixtures = {
+  plain: details('plain', entry('fixture-plain', { text: long('PLAIN_SENTINEL') })),
+  snl: {
+    ...details('snl', entry('fixture-snl', { snl: `longtext(%snltextsentinel${'a'.repeat(2800)}%)` })),
+    macros: {
+      longtext: {
+        name: 'longtext', description: 'text fixture', source: { entries: [], urls: [] },
+        dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', tags: [], template: { mode: 'text', body: '#0' } }]
+      }
+    }
+  },
+  markdown: details('markdown', entry('fixture-markdown', {
+    markdown: `${long('MARKDOWN_PROSE_SENTINEL')}\n\n\`\`\`text\n${long('MARKDOWN_CODE_SENTINEL')}\n\`\`\``
+  })),
+  formula: details('formula', entry('fixture-formula', {
+    latex: `\\texttt{FORMULASENTINEL${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}}`
+  })),
+  hover: details(
+    'hover',
+    entry('fixture-hover', { snl: 'childref@child' }),
+    [option('child', '@childref'), option('grandchild', '@grandref')]
+  )
+};
+const popoverEntries = {
+  child: entry('child', { snl: 'grandref@grandchild' }),
+  grandchild: entry('grandchild', { latex: `\\texttt{GRANDCHILDSENTINEL${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}}` })
+};
+
+function htmlFor(mode) {
+  const fixture = fixtures[mode];
+  if (!fixture) return null;
+  const payload = JSON.stringify({ fixture, popoverEntries, kind });
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><script src="/entryInfoview.js"></script></body></html>`;
+}
+
+async function waitFor(evaluate, expression, label, attempts = 240) {
+  for (let index = 0; index < attempts; index++) {
+    const value = await evaluate(expression);
+    if (value) return value;
+    await delay(25);
+  }
+  const debug = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]');return {tail:b?.innerHTML?.slice(-1200),classes:[...b?.querySelectorAll('*')??[]].map(e=>e.className).filter(x=>typeof x==='string'&&x).slice(-30)}})()`);
+  throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(debug)}`);
+}
+
+async function openPage(browser, browserWs, mode, width, port) {
+  const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank' });
+  let pageWs = '';
+  for (let index = 0; index < 120 && !pageWs; index++) {
+    const targets = await fetch(`http://127.0.0.1:${new URL(browserWs).port}/json/list`).then((response) => response.json());
+    pageWs = targets.find((target) => target.id === targetId)?.webSocketDebuggerUrl ?? '';
+    if (!pageWs) await delay(25);
+  }
+  if (!pageWs) throw new Error(`CDP page socket unavailable for ${mode}:${width}`);
+  const socket = await connect(pageWs);
+  pageSockets.add(socket);
+  const page = new Cdp(socket);
+  await page.call('Runtime.enable');
+  await page.call('Page.enable');
+  await page.call('Emulation.setDeviceMetricsOverride', {
+    width, height: 700, deviceScaleFactor: 1, mobile: false
+  });
+  await page.call('Page.navigate', { url: `http://127.0.0.1:${port}/?fixture=${mode}` });
+  const evaluate = async (expression) => {
+    const result = await page.call('Runtime.evaluate', {
+      expression, returnByValue: true, awaitPromise: true
+    });
+    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+    return result.result.value;
+  };
+  await waitFor(
+    evaluate,
+    `document.querySelector('[data-entry-id]')?.getAttribute('data-entry-id') === ${JSON.stringify(`fixture-${mode}`)}`,
+    `${mode} fixture sentinel at ${width}px`
+  );
+  return { targetId, page, socket, evaluate };
+}
+
+async function closePage(browser, opened) {
+  closeSocket(opened.socket);
+  pageSockets.delete(opened.socket);
+  await browser.call('Target.closeTarget', { targetId: opened.targetId });
+}
+
+function assert(condition, id, detail) {
+  if (!condition) throw new Error(`[${id}] ${JSON.stringify(detail)}`);
+}
+
+let terminalResult;
+try {
+  const build = spawnSync(
+    process.execPath,
+    [resolve(root, 'node_modules/vite/bin/vite.js'), 'build', '--config', resolve(root, 'webview/vite.config.ts'), '--outDir', bundle, '--emptyOutDir'],
+    { cwd: root, env: { ...process.env, SNL_WEBVIEW_ENTRY: 'entryInfoview' }, stdio: 'inherit' }
+  );
+  if (build.status !== 0) throw new Error(`production build failed: ${build.status}`);
+  for (const artifact of ['entryInfoview.js', 'entryInfoview.css']) {
+    if (!existsSync(resolve(bundle, artifact))) throw new Error(`fresh production artifact missing: ${artifact}`);
+  }
+
+  const mime = { '.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
+  server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://fixture');
+    if (url.pathname === '/') {
+      const html = htmlFor(url.searchParams.get('fixture'));
+      if (!html) { response.writeHead(400); response.end(); return; }
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.end(html);
+      return;
+    }
+    if (url.pathname === '/favicon.ico') { response.writeHead(204); response.end(); return; }
+    const file = resolve(bundle, url.pathname.slice(1));
+    if (!file.startsWith(`${bundle}/`) || !existsSync(file)) { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream' });
+    response.end(readFileSync(file));
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+
+  const chromePath = [
+    process.env.SNL_CHROMIUM_PATH,
+    resolve(process.env.HOME ?? '', '.cache/ms-playwright/chromium-1234/chrome-linux64/chrome'),
+    resolve(process.env.HOME ?? '', '.cache/ms-playwright/chromium-1187/chrome-linux/chrome'),
+    '/usr/bin/chromium',
+    '/usr/bin/google-chrome'
+  ].find((candidate) => candidate && existsSync(candidate));
+  if (!chromePath) throw new Error('Chromium missing');
+  chrome = spawn(chromePath, [
+    '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`, 'about:blank'
+  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let browserWs = '';
+  let chromeStderr = '';
+  chrome.stderr.setEncoding('utf8');
+  chrome.stderr.on('data', (chunk) => {
+    chromeStderr += chunk;
+    browserWs ||= chunk.match(/DevTools listening on (ws:\/\/\S+)/)?.[1] ?? '';
+  });
+  for (let index = 0; index < 160 && !browserWs; index++) await delay(25);
+  if (!browserWs) throw new Error(`Chromium CDP unavailable: ${chromeStderr}`);
+  browserSocket = await connect(browserWs);
+  const browser = new Cdp(browserSocket);
+  const widths = [480, 360, 320, 240];
+  const evidence = [];
+
+  for (const width of widths) {
+    for (const mode of ['plain', 'snl', 'markdown', 'formula']) {
+      const opened = await openPage(browser, browserWs, mode, width, server.address().port);
+      try {
+        const { evaluate } = opened;
+        if (mode === 'plain') {
+          await waitFor(evaluate, `document.querySelector('[data-entry-body] > pre')?.textContent?.startsWith('PLAIN_SENTINEL_')`, 'plain direct pre');
+          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),p=b.querySelector(':scope > pre'),r=p.getBoundingClientRect();return{body:[b.clientWidth,b.scrollWidth],pre:[p.clientWidth,p.scrollWidth,getComputedStyle(p).whiteSpace,getComputedStyle(p).overflowWrap,r.left,r.right],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1] && measured.pre[2] === 'pre-wrap' && measured.pre[3] === 'anywhere', `PLAIN:${width}`, measured);
+          evidence.push({ width, mode, measured });
+        } else if (mode === 'snl') {
+          await waitFor(evaluate, `document.querySelector('[data-entry-body] .snl-text')?.textContent?.startsWith('snltextsentinel')`, 'SNL text leaf');
+          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),t=b.querySelector('.snl-text');return{body:[b.clientWidth,b.scrollWidth],text:[t.clientWidth,t.scrollWidth,getComputedStyle(t).overflowWrap,getComputedStyle(t).wordBreak],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1] && measured.text[2] === 'anywhere' && measured.text[3] === 'break-word', `SNL-TEXT:${width}`, measured);
+          evidence.push({ width, mode, measured });
+        } else if (mode === 'markdown') {
+          await waitFor(evaluate, `document.querySelector('.snl-markdown-body p')?.textContent?.startsWith('MARKDOWN_PROSE_SENTINEL_') && document.querySelector('.snl-markdown-body pre code')?.textContent?.startsWith('MARKDOWN_CODE_SENTINEL_')`, 'Markdown prose and fenced code');
+          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),p=b.querySelector('.snl-markdown-body p'),pre=b.querySelector('.snl-markdown-body pre');return{body:[b.clientWidth,b.scrollWidth],prose:[p.clientWidth,p.scrollWidth,getComputedStyle(p).overflowWrap,getComputedStyle(p).wordBreak],code:[pre.clientWidth,pre.scrollWidth,getComputedStyle(pre).overflowX,getComputedStyle(pre).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1] && measured.prose[1] <= measured.prose[0] && measured.code[1] > measured.code[0] && ['auto', 'scroll'].includes(measured.code[2]) && measured.code[3] !== 'pre-wrap', `MARKDOWN:${width}`, measured);
+          evidence.push({ width, mode, measured });
+        } else {
+          await waitFor(evaluate, `document.querySelector('.snl-latex-body .katex')?.textContent?.includes('FORMULA')`, 'KaTeX formula host');
+          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.snl-latex-body'),k=h.querySelector('.katex');return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],host:[h.clientWidth,h.scrollWidth],katex:[k.clientWidth,k.scrollWidth,getComputedStyle(k).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.body[1] > measured.body[0] && ['auto', 'scroll'].includes(measured.body[2]) && measured.host[1] > measured.host[0] && measured.katex[2] !== 'pre-wrap' && measured.root[0] === measured.root[1], `FORMULA:${width}`, measured);
+          evidence.push({ width, mode, measured });
+        }
+      } finally {
+        await closePage(browser, opened);
+      }
+    }
+  }
+
+  for (const width of [1000, ...widths]) {
+    const opened = await openPage(browser, browserWs, 'hover', width, server.address().port);
+    try {
+      const { page, evaluate } = opened;
+      const hoverTarget = async (selector, label) => {
+        const point = await waitFor(evaluate, `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width&&r.height?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`, label);
+        await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+      };
+      await hoverTarget('[data-entry-body] [data-src="child"]', 'root child reference');
+      await waitFor(evaluate, `document.querySelectorAll('.snl-entry-hover-popover').length === 1 && document.querySelector('.snl-entry-hover-popover [data-src="grandchild"]') && getComputedStyle(document.querySelector('.snl-entry-hover-popover')).pointerEvents === 'auto'`, 'first visible production popover', 320);
+      await hoverTarget('.snl-entry-hover-popover [data-src="grandchild"]', 'nested grandchild reference');
+      await waitFor(evaluate, `document.querySelectorAll('.snl-entry-hover-popover').length === 2 && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>getComputedStyle(e).pointerEvents==='auto')`, 'second production popover', 320);
+      const measured = await evaluate(`(()=>[...document.querySelectorAll('.snl-entry-hover-popover')].map((e)=>{const r=e.getBoundingClientRect(),probe=e.querySelector('button,[data-src],[data-entry-body]'),q=probe.getBoundingClientRect(),hit=document.elementFromPoint(q.left+Math.min(2,q.width/2),q.top+Math.min(2,q.height/2));return{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,maxWidth:getComputedStyle(e).maxWidth,overflowX:getComputedStyle(e).overflowX,hit:e.contains(hit),probe:probe.outerHTML.slice(0,80)}}))()`);
+      assert(measured.length === 2 && measured.every((shell) => shell.left >= 0 && shell.right <= width && shell.top >= 0 && shell.bottom <= 700 && shell.width <= Math.min(720, width - 16) + 0.5 && shell.overflowX === 'visible' && shell.hit), `HOVER:${width}`, measured);
+      evidence.push({ width, mode: 'hover', measured });
+    } finally {
+      await closePage(browser, opened);
+    }
+  }
+
+  terminalResult = { kind: 'pass', widths, desktopHoverWidth: 1000, checks: evidence.length };
+} catch (error) {
+  terminalResult = { kind: 'failure', detail: error instanceof Error ? error.message : String(error) };
+  process.exitCode = 1;
+} finally {
+  try {
+    await cleanup();
+  } catch (error) {
+    terminalResult = { kind: 'infra', stage: 'cleanup', detail: error instanceof Error ? error.message : String(error) };
+    process.exitCode = 1;
+  }
+  console.log(`ENTRY_OVERFLOW_GEOMETRY_RESULT ${JSON.stringify(terminalResult)}`);
+}

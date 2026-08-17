@@ -110,6 +110,22 @@ const fixtures = {
   formula: details('formula', entry('fixture-formula', {
     latex: `\\texttt{FORMULASENTINEL${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}}`
   })),
+  mixed: {
+    ...details('mixed', entry('fixture-mixed', { snl: 'mixedformula()' })),
+    macros: {
+      mixedformula: {
+        name: 'mixedformula', description: 'mixed prose and inline formula fixture',
+        source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+        styles: [{
+          style_name: 'default', tags: [],
+          template: {
+            mode: 'text',
+            body: `MIXEDPROSESENTINEL${'a'.repeat(720)} $\\texttt{MIXEDFORMULASENTINEL${'0123456789'.repeat(90)}}$ MIXEDTAILSENTINEL${'z'.repeat(720)}`
+          }
+        }]
+      }
+    }
+  },
   hover: details(
     'hover',
     entry('fixture-hover', { snl: 'childref@child' }),
@@ -266,6 +282,33 @@ try {
       } finally {
         await closePage(browser, opened);
       }
+    }
+  }
+
+  for (const width of [320, 240]) {
+    const opened = await openPage(browser, browserWs, 'mixed', width, server.address().port);
+    try {
+      const { evaluate } = opened;
+      await waitFor(
+        evaluate,
+        `document.querySelector('[data-entry-body] .snl-text .katex')?.textContent?.includes('MIXEDFORMULA') && document.querySelector('[data-entry-body] .snl-text')?.textContent?.startsWith('MIXEDPROSESENTINEL')`,
+        'mixed SNL prose and inline KaTeX island'
+      );
+      const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),t=b.querySelector('.snl-text'),k=t.querySelector('.katex'),base=k.querySelector('.base'),kr=k.getBoundingClientRect(),br=base.getBoundingClientRect(),walker=document.createTreeWalker(t,NodeFilter.SHOW_TEXT);let prose=null;while(walker.nextNode()){if(walker.currentNode.data.startsWith('MIXEDPROSESENTINEL')){prose=walker.currentNode;break}}const range=document.createRange();range.selectNodeContents(prose);const proseRects=[...range.getClientRects()];const ks=getComputedStyle(k),ts=getComputedStyle(t);return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],text:[t.clientWidth,t.scrollWidth,ts.overflowWrap,ts.wordBreak],katex:[k.clientWidth,k.scrollWidth,ks.overflowWrap,ks.wordBreak,kr.width,kr.height],base:[br.width,br.height,base.getClientRects().length],proseLines:proseRects.length,proseSpan:proseRects.length?proseRects.at(-1).bottom-proseRects[0].top:0,root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+      assert(
+        measured.text[2] === 'anywhere' && measured.text[3] === 'break-word' &&
+        measured.katex[2] === 'normal' && measured.katex[3] === 'normal' &&
+        measured.katex[4] > measured.body[0] && measured.katex[5] < 40 &&
+        measured.base[0] > measured.body[0] && measured.base[1] < 40 && measured.base[2] === 1 &&
+        measured.proseLines > 1 && measured.proseSpan > 40 &&
+        measured.body[1] > measured.body[0] && ['auto', 'scroll'].includes(measured.body[2]) &&
+        measured.root[0] === measured.root[1],
+        `MIXED:${width}`,
+        measured
+      );
+      evidence.push({ width, mode: 'mixed', measured });
+    } finally {
+      await closePage(browser, opened);
     }
   }
 

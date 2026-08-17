@@ -41,6 +41,22 @@
   word-break: break-word;
 }
 
+/* The wrap controls above inherit. Restore the atomic layout contract when
+   Basics renders an inline formula or code island inside the textual host. */
+.snl-entry-overflow-surface [data-entry-body] .snl-text :is(
+  .snl-math-span,
+  .snl-math-span *,
+  .katex,
+  .katex *,
+  pre,
+  pre *,
+  code,
+  code *
+) {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 /* Markdown prose needs the same emergency wrapping, while its nested pre/code
    surfaces retain their own horizontal scrolling contract. */
 .snl-entry-overflow-surface [data-entry-body] .snl-markdown-body p {

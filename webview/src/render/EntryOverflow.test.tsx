@@ -70,6 +70,12 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).not.toMatch(/\.katex\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   });
 
+  it('resets inherited emergency wrapping inside nested formula and code islands', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\.snl-text\s+:is\([^)]*\.katex[^)]*\.katex \*[^)]*pre[^)]*code[^)]*\)\s*\{[^}]*overflow-wrap:\s*normal[^}]*word-break:\s*normal/s
+    );
+  });
+
   it('registers a non-passive native wheel listener', () => {
     const add = vi.spyOn(HTMLElement.prototype, 'addEventListener');
     renderWideEntry();

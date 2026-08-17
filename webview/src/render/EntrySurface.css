@@ -57,6 +57,17 @@
   word-break: normal;
 }
 
+/* Basics counter-scales an inline formula island inside the canonical 1.21em
+   Text host. Give an intrinsically wide island its own horizontal
+   viewport so the transformed KaTeX box cannot escape without contributing
+   scroll geometry to the containing Entry. */
+.snl-entry-overflow-surface [data-entry-body] .snl-text > .snl-math-span {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+
 /* Markdown prose needs the same emergency wrapping, while its nested pre/code
    surfaces retain their own horizontal scrolling contract. */
 .snl-entry-overflow-surface [data-entry-body] .snl-markdown-body p {

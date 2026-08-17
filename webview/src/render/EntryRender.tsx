@@ -185,6 +185,14 @@ function referencedEntryId(context: SnlInteractionContext): string | null {
   return explicit || context.macro?.source.entries[0] || null;
 }
 
+/** Keep hover previews and click pins on one live semantic origin contract. */
+function popoverOrigin(context: SnlInteractionContext): {
+  element: HTMLElement;
+  bounds: 'viewport';
+} {
+  return { element: context.target, bounds: 'viewport' };
+}
+
 export function EntryRender({
   entry,
   kind,
@@ -288,7 +296,7 @@ export function EntryRender({
       clearCurrentHover();
       const id = popovers.spawn(
         entryId,
-        context.target.getBoundingClientRect(),
+        popoverOrigin(context),
         context.client_x,
         context.client_y,
         currentPopoverId,
@@ -323,7 +331,7 @@ export function EntryRender({
       }
       const id = popovers.pin(
         entryId,
-        context.target,
+        popoverOrigin(context),
         context.client_x,
         context.client_y,
         currentPopoverId,

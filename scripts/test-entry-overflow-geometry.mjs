@@ -110,6 +110,9 @@ const fixtures = {
   formula: details('formula', entry('fixture-formula', {
     latex: `\\texttt{FORMULASENTINEL${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}}`
   })),
+  roottext: details('roottext', entry('fixture-roottext', {
+    snl: '%RootCM $\\text{RootCM}$%'
+  })),
   mixed: {
     ...details('mixed', entry('fixture-mixed', { snl: 'mixedformula()' })),
     macros: {
@@ -126,22 +129,34 @@ const fixtures = {
       }
     }
   },
-  hover: details(
-    'hover',
-    entry('fixture-hover', { snl: 'childref@child' }),
-    [option('child', '@childref'), option('grandchild', '@grandref')]
-  )
+  hover: {
+    ...details(
+      'hover',
+      entry('fixture-hover', { snl: 'pair(childref@child,siblingref@sibling)' }),
+      [option('child', '@childref'), option('sibling', '@siblingref'), option('grandchild', '@grandref')]
+    ),
+    macros: {
+      pair: {
+        name: 'pair', description: 'two references', source: { entries: [], urls: [] },
+        dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#0 + #1' } }]
+      }
+    }
+  }
 };
 const popoverEntries = {
   child: entry('child', { snl: 'grandref@grandchild' }),
-  grandchild: entry('grandchild', { latex: `\\texttt{GRANDCHILDSENTINEL${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(80)}}` })
+  grandchild: entry('grandchild', {
+    markdown: `GRANDCHILDSENTINEL\n\n${Array.from({ length: 24 }, (_, index) => `Scrollable line ${index + 1}`).join('\n\n')}\n\n\`\`\`text\nGRANDCHILDCODESENTINEL_${'abcdefghijklmnopqrstuvwxyz0123456789'.repeat(40)}\n\`\`\``
+  }),
+  sibling: entry('sibling', { text: 'Sibling body sentinel' })
 };
 
 function htmlFor(mode) {
   const fixture = fixtures[mode];
   if (!fixture) return null;
   const payload = JSON.stringify({ fixture, popoverEntries, kind });
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><script src="/entryInfoview.js"></script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><button id="outside-target" aria-label="outside" style="position:fixed;right:1px;bottom:1px;width:4px;height:4px;opacity:0"></button><script src="/entryInfoview.js"></script></body></html>`;
 }
 
 async function waitFor(evaluate, expression, label, attempts = 240) {
@@ -154,7 +169,7 @@ async function waitFor(evaluate, expression, label, attempts = 240) {
   throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(debug)}`);
 }
 
-async function openPage(browser, browserWs, mode, width, port) {
+async function openPage(browser, browserWs, mode, width, port, height = 700) {
   const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank' });
   let pageWs = '';
   for (let index = 0; index < 120 && !pageWs; index++) {
@@ -169,7 +184,7 @@ async function openPage(browser, browserWs, mode, width, port) {
   await page.call('Runtime.enable');
   await page.call('Page.enable');
   await page.call('Emulation.setDeviceMetricsOverride', {
-    width, height: 700, deviceScaleFactor: 1, mobile: false
+    width, height, deviceScaleFactor: 1, mobile: false
   });
   await page.call('Page.navigate', { url: `http://127.0.0.1:${port}/?fixture=${mode}` });
   const evaluate = async (expression) => {
@@ -275,8 +290,8 @@ try {
           evidence.push({ width, mode, measured });
         } else {
           await waitFor(evaluate, `document.querySelector('.snl-latex-body .katex')?.textContent?.includes('FORMULA')`, 'KaTeX formula host');
-          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.snl-latex-body'),k=h.querySelector('.katex');return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],host:[h.clientWidth,h.scrollWidth],katex:[k.clientWidth,k.scrollWidth,getComputedStyle(k).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
-          assert(measured.body[1] > measured.body[0] && ['auto', 'scroll'].includes(measured.body[2]) && measured.host[1] > measured.host[0] && measured.katex[2] !== 'pre-wrap' && measured.root[0] === measured.root[1], `FORMULA:${width}`, measured);
+          const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.snl-latex-body'),k=h.querySelector('.katex');return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],host:[h.clientWidth,h.scrollWidth,getComputedStyle(h).overflowX],katex:[k.clientWidth,k.scrollWidth,getComputedStyle(k).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.body[1] === measured.body[0] && measured.host[1] > measured.host[0] && ['auto', 'scroll'].includes(measured.host[2]) && measured.katex[2] !== 'pre-wrap' && measured.root[0] === measured.root[1], `FORMULA:${width}`, measured);
           evidence.push({ width, mode, measured });
         }
       } finally {
@@ -294,14 +309,15 @@ try {
         `document.querySelector('[data-entry-body] .snl-text .katex')?.textContent?.includes('MIXEDFORMULA') && document.querySelector('[data-entry-body] .snl-text')?.textContent?.startsWith('MIXEDPROSESENTINEL')`,
         'mixed SNL prose and inline KaTeX island'
       );
-      const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),t=b.querySelector('.snl-text'),k=t.querySelector('.katex'),base=k.querySelector('.base'),kr=k.getBoundingClientRect(),br=base.getBoundingClientRect(),walker=document.createTreeWalker(t,NodeFilter.SHOW_TEXT);let prose=null;while(walker.nextNode()){if(walker.currentNode.data.startsWith('MIXEDPROSESENTINEL')){prose=walker.currentNode;break}}const range=document.createRange();range.selectNodeContents(prose);const proseRects=[...range.getClientRects()];const ks=getComputedStyle(k),ts=getComputedStyle(t);return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],text:[t.clientWidth,t.scrollWidth,ts.overflowWrap,ts.wordBreak],katex:[k.clientWidth,k.scrollWidth,ks.overflowWrap,ks.wordBreak,kr.width,kr.height],base:[br.width,br.height,base.getClientRects().length],proseLines:proseRects.length,proseSpan:proseRects.length?proseRects.at(-1).bottom-proseRects[0].top:0,root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+      const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),t=b.querySelector('.snl-text'),k=t.querySelector('.katex'),m=k.closest('.snl-math-span'),base=k.querySelector('.base'),kr=k.getBoundingClientRect(),br=base.getBoundingClientRect(),walker=document.createTreeWalker(t,NodeFilter.SHOW_TEXT);let prose=null;while(walker.nextNode()){if(walker.currentNode.data.startsWith('MIXEDPROSESENTINEL')){prose=walker.currentNode;break}}const range=document.createRange();range.selectNodeContents(prose);const proseRects=[...range.getClientRects()];const ks=getComputedStyle(k),ts=getComputedStyle(t);return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],text:[t.clientWidth,t.scrollWidth,ts.overflowWrap,ts.wordBreak],katex:[k.clientWidth,k.scrollWidth,ks.overflowWrap,ks.wordBreak,kr.width,kr.height],math:[m?.clientWidth,m?.scrollWidth,m?getComputedStyle(m).overflowX:null,m?.className],base:[br.width,br.height,base.getClientRects().length],proseLines:proseRects.length,proseSpan:proseRects.length?proseRects.at(-1).bottom-proseRects[0].top:0,root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
       assert(
         measured.text[2] === 'anywhere' && measured.text[3] === 'break-word' &&
         measured.katex[2] === 'normal' && measured.katex[3] === 'normal' &&
         measured.katex[4] > measured.body[0] && measured.katex[5] < 40 &&
         measured.base[0] > measured.body[0] && measured.base[1] < 40 && measured.base[2] === 1 &&
         measured.proseLines > 1 && measured.proseSpan > 40 &&
-        measured.body[1] > measured.body[0] && ['auto', 'scroll'].includes(measured.body[2]) &&
+        measured.body[1] === measured.body[0] && measured.math[1] > measured.math[0] &&
+        ['auto', 'scroll'].includes(measured.math[2]) &&
         measured.root[0] === measured.root[1],
         `MIXED:${width}`,
         measured
@@ -312,24 +328,113 @@ try {
     }
   }
 
-  for (const width of [1000, ...widths]) {
-    const opened = await openPage(browser, browserWs, 'hover', width, server.address().port);
+  for (const width of [320, 480, 1000]) {
+    const opened = await openPage(browser, browserWs, 'roottext', width, server.address().port);
     try {
-      const { page, evaluate } = opened;
-      const hoverTarget = async (selector, label) => {
-        const point = await waitFor(evaluate, `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width&&r.height?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`, label);
-        await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
-      };
-      await hoverTarget('[data-entry-body] [data-src="child"]', 'root child reference');
-      await waitFor(evaluate, `document.querySelectorAll('.snl-entry-hover-popover').length === 1 && document.querySelector('.snl-entry-hover-popover [data-src="grandchild"]') && getComputedStyle(document.querySelector('.snl-entry-hover-popover')).pointerEvents === 'auto'`, 'first visible production popover', 320);
-      await hoverTarget('.snl-entry-hover-popover [data-src="grandchild"]', 'nested grandchild reference');
-      await waitFor(evaluate, `document.querySelectorAll('.snl-entry-hover-popover').length === 2 && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>getComputedStyle(e).pointerEvents==='auto')`, 'second production popover', 320);
-      const measured = await evaluate(`(()=>[...document.querySelectorAll('.snl-entry-hover-popover')].map((e)=>{const r=e.getBoundingClientRect(),probe=e.querySelector('button,[data-src],[data-entry-body]'),q=probe.getBoundingClientRect(),hit=document.elementFromPoint(q.left+Math.min(2,q.width/2),q.top+Math.min(2,q.height/2));return{left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,maxWidth:getComputedStyle(e).maxWidth,overflowX:getComputedStyle(e).overflowX,hit:e.contains(hit),probe:probe.outerHTML.slice(0,80)}}))()`);
-      assert(measured.length === 2 && measured.every((shell) => shell.left >= 0 && shell.right <= width && shell.top >= 0 && shell.bottom <= 700 && shell.width <= Math.min(720, width - 16) + 0.5 && shell.overflowX === 'visible' && shell.hit), `HOVER:${width}`, measured);
-      evidence.push({ width, mode: 'hover', measured });
+      const { evaluate } = opened;
+      await waitFor(
+        evaluate,
+        `document.querySelector('[data-entry-body] .katex-html.snl-text')?.textContent?.includes('RootCM') && document.querySelector('[data-entry-body] .katex-html.snl-text .snl-math-span .katex')`,
+        'canonical root Text host and inline KaTeX reference'
+      );
+      const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.katex-html.snl-text'),m=h.querySelector('.snl-math-span'),k=m.querySelector('.katex'),textEl=k.querySelector('.mord.text')??k.querySelector('.mord'),walker=document.createTreeWalker(h,NodeFilter.SHOW_TEXT);let literal=null;while(walker.nextNode()){if(walker.currentNode.parentElement?.closest('.katex')===k)continue;if(walker.currentNode.data.includes('RootCM')){literal=walker.currentNode;break}}const start=literal.data.indexOf('RootCM'),range=document.createRange();range.setStart(literal,start);range.setEnd(literal,start+6);const lr=range.getBoundingClientRect(),tr=textEl.getBoundingClientRect(),hs=getComputedStyle(h),bs=getComputedStyle(b);return{hostClass:h.className,family:hs.fontFamily,fontSize:parseFloat(hs.fontSize),baseSize:parseFloat(bs.fontSize),lineHeight:hs.lineHeight,literal:[lr.left,lr.top,lr.right,lr.bottom,lr.width,lr.height],reference:[tr.left,tr.top,tr.right,tr.bottom,tr.width,tr.height],mathFont:parseFloat(getComputedStyle(k).fontSize),body:[b.clientWidth,b.scrollWidth],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+      assert(
+        measured.hostClass.split(/\s+/).includes('snl-text') &&
+        measured.family.includes('KaTeX_Main') &&
+        Math.abs(measured.fontSize / measured.baseSize - 1.21) < 0.015 &&
+        Math.abs(measured.fontSize - measured.mathFont) < 0.1 &&
+        Math.abs(measured.literal[4] - measured.reference[4]) < 0.75 &&
+        Math.abs(measured.literal[3] - measured.reference[3]) < 3 &&
+        measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1],
+        `ROOT-TEXT-CM:${width}`,
+        measured
+      );
+      evidence.push({ width, mode: 'roottext', measured });
     } finally {
       await closePage(browser, opened);
     }
+  }
+
+  const viewportScenarios = [
+    { width: 320, height: 700 },
+    { width: 480, height: 700 },
+    { width: 1000, height: 700 },
+    { width: 480, height: 260 }
+  ];
+  const closeEnough = (left, right, tolerance = 0.75) =>
+    left.length === right.length && left.every((value, index) => Math.abs(value - right[index]) <= tolerance);
+  const samePlacement = (before, after) =>
+    before.id === after.id && before.subject === after.subject &&
+    before.parentId === after.parentId && before.originPath === after.originPath &&
+    before.bounds === after.bounds && closeEnough(before.anchor, after.anchor) &&
+    closeEnough(before.originRect, after.originRect) && closeEnough(before.rect, after.rect) &&
+    before.side === after.side && Math.abs(before.bodyOverlap - after.bodyOverlap) <= 0.75;
+
+  for (const { width, height } of viewportScenarios) {
+    const opened = await openPage(browser, browserWs, 'hover', width, server.address().port, height);
+    let hoverRoot;
+    let hoverNested;
+    try {
+      const { page, evaluate } = opened;
+      const pointFor = (selector, label) => waitFor(
+        evaluate,
+        `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width&&r.height?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`,
+        label
+      );
+      const moveTo = async (selector, label) => {
+        const point = await pointFor(selector, label);
+        await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+        return point;
+      };
+      const nativeClick = async (point) => {
+        await page.call('Input.dispatchMouseEvent', {
+          type: 'mousePressed', x: point.x, y: point.y, button: 'left', buttons: 1, clickCount: 1
+        });
+        await page.call('Input.dispatchMouseEvent', {
+          type: 'mouseReleased', x: point.x, y: point.y, button: 'left', buttons: 0, clickCount: 1
+        });
+      };
+      const snapshot = (subject, originSelector) => evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject===${JSON.stringify(subject)});if(!marker)return null;const shell=marker.closest('.snl-entry-hover-popover'),origin=document.querySelector(${JSON.stringify(originSelector)}),r=shell.getBoundingClientRect(),a=origin.getBoundingClientRect(),b=document.querySelector('[data-entry-body]').getBoundingClientRect(),intersection=Math.max(0,Math.min(r.right,b.right)-Math.max(r.left,b.left))*Math.max(0,Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)),horizontal=r.left>=a.right-0.5?'right':r.right<=a.left+0.5?'left':'overlap-x',vertical=r.top>=a.bottom-0.5?'below':r.bottom<=a.top+0.5?'above':'overlap-y',parsed=marker.dataset.snlPopoverOriginRect.split(',').map(Number);return{id:marker.dataset.snlPopoverId,subject:marker.dataset.snlPopoverSubject,parentId:marker.dataset.snlPopoverParentId,originPath:marker.dataset.snlPopoverOriginPath,bounds:marker.dataset.snlPopoverOriginBounds,originRect:parsed,anchor:[a.left,a.top,a.right,a.bottom],rect:[r.left,r.top,r.right,r.bottom],side:horizontal+'/'+vertical,bodyOverlap:intersection,frozen:marker.dataset.snlPopoverFrozen==='true',phase:marker.dataset.snlPopoverPhase,visible:getComputedStyle(shell).display!=='none'&&getComputedStyle(shell).pointerEvents==='auto',paint:[getComputedStyle(shell).display,getComputedStyle(shell).visibility,getComputedStyle(shell).opacity,getComputedStyle(shell).pointerEvents],viewport:[innerWidth,innerHeight],contained:r.left>=-0.5&&r.top>=-0.5&&r.right<=innerWidth+0.5&&r.bottom<=innerHeight+0.5,shellCount:document.querySelectorAll('.snl-entry-hover-popover').length}})()`);
+
+      const rootSelector = '[data-entry-body] [data-src="child"]';
+      const rootPoint = await moveTo(rootSelector, `root hover origin ${width}x${height}`);
+      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverPhase==='visible') && document.querySelector('.snl-entry-hover-popover [data-src=\"grandchild\"]') && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible root hover preview');
+      hoverRoot = await snapshot('child', rootSelector);
+      assert(hoverRoot && !hoverRoot.frozen && hoverRoot.visible && hoverRoot.bounds === 'viewport', `ORIGIN-HOVER-ROOT:${width}x${height}`, hoverRoot);
+      assert(hoverRoot.contained, `VIEWPORT-ROOT:${width}x${height}`, hoverRoot);
+      await nativeClick(rootPoint);
+      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverFrozen==='true')`, 'root hover-to-click pin');
+      const pinnedRoot = await snapshot('child', rootSelector);
+      assert(samePlacement(hoverRoot, pinnedRoot) && pinnedRoot.frozen && pinnedRoot.visible && pinnedRoot.shellCount === 1, `ORIGIN-PIN-ROOT:${width}x${height}`, { hoverRoot, pinnedRoot });
+
+      const nestedSelector = '.snl-entry-hover-popover [data-src="grandchild"]';
+      const nestedPoint = await moveTo(nestedSelector, `nested hover origin ${width}x${height}`);
+      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='grandchild'&&e.dataset.snlPopoverPhase==='visible') && [...document.querySelectorAll('.snl-entry-hover-popover')].some(e=>e.textContent.includes('GRANDCHILDSENTINEL')) && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible nested hover preview');
+      hoverNested = await snapshot('grandchild', nestedSelector);
+      assert(hoverNested && !hoverNested.frozen && hoverNested.visible && hoverNested.bounds === 'viewport' && hoverNested.parentId === pinnedRoot.id, `ORIGIN-HOVER-NESTED:${width}x${height}`, hoverNested);
+      const viewport = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover'),rect=shell.getBoundingClientRect(),style=getComputedStyle(shell),code=shell.querySelector('.snl-markdown-body pre');return{rect:[rect.left,rect.top,rect.right,rect.bottom],clientHeight:shell.clientHeight,scrollHeight:shell.scrollHeight,overflowX:style.overflowX,overflowY:style.overflowY,maxHeight:style.maxHeight,boxSizing:style.boxSizing,code:code?[code.clientWidth,code.scrollWidth,getComputedStyle(code).overflowX]:null}})()`);
+      assert(
+        viewport.rect[0] >= 7.5 && viewport.rect[1] >= 7.5 &&
+        viewport.rect[2] <= width - 7.5 && viewport.rect[3] <= height - 7.5 &&
+        viewport.boxSizing === 'border-box' && ['auto', 'scroll'].includes(viewport.overflowY) &&
+        viewport.code && viewport.code[1] > viewport.code[0] && ['auto', 'scroll'].includes(viewport.code[2]),
+        `VIEWPORT-NESTED:${width}x${height}`,
+        viewport
+      );
+      if (height === 260) {
+        assert(viewport.scrollHeight > viewport.clientHeight, `SCROLL-RANGE:${width}x${height}`, viewport);
+        const reached = await evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject==='grandchild'),shell=marker.closest('.snl-entry-hover-popover');shell.scrollTop=shell.scrollHeight;const code=shell.querySelector('.snl-markdown-body pre'),tail=code.getBoundingClientRect(),frame=shell.getBoundingClientRect();return{scrollTop:shell.scrollTop,max:shell.scrollHeight-shell.clientHeight,tailVisible:tail.bottom<=frame.bottom+0.5&&tail.bottom>=frame.top-0.5}})()`);
+        assert(reached.scrollTop > 0 && Math.abs(reached.scrollTop - reached.max) <= 1 && reached.tailVisible, `SCROLL-REACH:${width}x${height}`, reached);
+      }
+      await nativeClick(nestedPoint);
+      await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='grandchild'&&e.dataset.snlPopoverFrozen==='true')`, 'nested hover-to-click pin');
+      const pinnedNested = await snapshot('grandchild', nestedSelector);
+      assert(samePlacement(hoverNested, pinnedNested) && pinnedNested.frozen && pinnedNested.visible && pinnedNested.shellCount === 2, `ORIGIN-PIN-NESTED:${width}x${height}`, { hoverNested, pinnedNested });
+      evidence.push({ width, height, mode: 'origin-hover-pin', root: pinnedRoot, nested: pinnedNested });
+    } finally {
+      await closePage(browser, opened);
+    }
+
   }
 
   terminalResult = { kind: 'pass', widths, desktopHoverWidth: 1000, checks: evidence.length };

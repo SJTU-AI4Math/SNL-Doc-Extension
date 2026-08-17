@@ -102,12 +102,14 @@ describe('EntryRender popover preference', () => {
     const reference = view.getByTestId('reference');
     fireEvent.mouseMove(reference);
     expect(popovers.spawn).toHaveBeenCalledWith(
-      'explicit-child', expect.anything(), 12, 14, 'parent-popover', { activation }
+      'explicit-child', { element: reference, bounds: 'viewport' },
+      12, 14, 'parent-popover', { activation }
     );
     expect(registerActivation).toHaveBeenCalledWith('parent-popover', activation);
     fireEvent.click(reference);
     expect(popovers.pin).toHaveBeenCalledWith(
-      'explicit-child', reference, 12, 14, 'parent-popover', { activation }
+      'explicit-child', { element: reference, bounds: 'viewport' },
+      12, 14, 'parent-popover', { activation }
     );
     fireEvent.click(reference, { ctrlKey: true });
     expect(postMessage).toHaveBeenCalledWith({
@@ -141,7 +143,7 @@ describe('EntryRender popover preference', () => {
 
     fireEvent.click(reference);
     await waitFor(() => expect(popovers.pin).toHaveBeenCalledWith(
-      'child', reference, 12, 14, null, { activation }
+      'child', { element: reference, bounds: 'viewport' }, 12, 14, null, { activation }
     ));
     expect(popovers.spawn).not.toHaveBeenCalled();
   });

@@ -17,6 +17,7 @@ import { MissingEditorTarget } from './components/MissingEditorTarget';
 import {
   LOCALIZED_GENERAL_LANGUAGE,
   LocalizedEditScope,
+  materializeLocalizedValueForSave,
   useLocalizedBinding,
   useLocalizedEditLanguage
 } from './components/LocalizedEditScope';
@@ -253,7 +254,9 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
     setStatus({ kind: 'creating' });
     const payload: Record<string, unknown> = {
       id: trimmedId,
-      name: domain === 'entry' ? name : projectedName.trim(),
+      name: domain === 'entry'
+        ? materializeLocalizedValueForSave(name, editLanguage)
+        : projectedName.trim(),
       coloring: {
         ...(preservedColoringRef.current ?? {}),
         light: {
@@ -269,7 +272,7 @@ export function KindEditorApp({ domain }: { domain: KindEditorDomain }): React.R
       }
     };
     if (domain === 'entry') {
-      payload.description = description;
+      payload.description = materializeLocalizedValueForSave(description, editLanguage);
       payload.defaultCounterName = defaultCounterName.trim();
       payload.style = style.trim();
     } else {

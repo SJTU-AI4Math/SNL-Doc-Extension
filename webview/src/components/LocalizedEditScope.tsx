@@ -152,6 +152,20 @@ function inspectLocalized<Value>(
   return { state: 'missing', explicitValue: undefined, resolvedValue: undefined, sourceLanguage: undefined };
 }
 
+/**
+ * Materialize the value written by a localized editor without mutating its draft.
+ * General writes the projection currently displayed for the map's declared
+ * default/fallback chain as a plain value. A specific language keeps the raw
+ * localized value, including unknown extension fields and every other locale.
+ */
+export function materializeLocalizedValueForSave<Value>(
+  rawValue: Localized<string, Value>,
+  editLanguage: string
+): Localized<string, Value> | Value | undefined {
+  if (editLanguage !== LOCALIZED_GENERAL_LANGUAGE || !is_i18n(rawValue)) return rawValue;
+  return inspectLocalized(rawValue, rawValue.default_language).resolvedValue;
+}
+
 /** A generic localized-value lens driven by the nearest local editor scope. */
 export function useLocalizedBinding<Value>({
   value,

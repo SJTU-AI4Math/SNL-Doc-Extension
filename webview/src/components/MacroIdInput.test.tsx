@@ -115,6 +115,27 @@ describe('MacroIdInput', () => {
     expect((input as HTMLInputElement).value).toBe('FOL.forall');
   });
 
+  it('can reserve Tab for structural field navigation without accepting a suggestion', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('FO');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          macroCandidates={['FOL.forall', 'Foo.bar'].map((id) => ({ id, labels: [] }))}
+          acceptSuggestionOnTab={false}
+          aria-label="Navigable Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Navigable Macro ID' });
+    fireEvent.focus(input);
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+    expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(true);
+    expect((input as HTMLInputElement).value).toBe('FO');
+  });
+
   it('refreshes suggestions when the caret moves to another token before Tab', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('foo ba');

@@ -91,18 +91,26 @@ describe('Inductive node action dial', () => {
     expect(document.activeElement).toBe(moved);
   });
 
-  it('extracts the selected delimited text into the next placeholder with a routed Alt+X command', () => {
+  it('extracts selected delimited text, then focuses and selects the new child', async () => {
     const { view, latest } = renderEditor('$#0 + b$(a)');
-    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
     input.focus();
     input.setSelectionRange(6, 7);
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.extractSelection' } }));
     expect(latest()).toBe('$#0 + #1$(a,$b$)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const child = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === '$b$'
+    ) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(child);
+    expect([child.selectionStart, child.selectionEnd]).toEqual([0, 3]);
   });
 
-  it('adds an empty child without carving selected text when Alt+X has no delimiter', () => {
+  it('extracts a plain selected range into a child and focuses its complete text', async () => {
     const { view, latest } = renderEditor('root(a)');
-    const input = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    const existingIds = Array.from(view.container.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]'))
+      .map((row) => row.dataset.snlTreeNodeId);
     input.focus();
     input.setSelectionRange(1, 3);
 
@@ -110,13 +118,85 @@ describe('Inductive node action dial', () => {
       data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
     }));
 
-    expect(latest()).toBe('root(a,)');
-    expect(input.value).toBe('root');
+    expect(latest()).toBe('root(a,oo)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const child = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === 'oo'
+    ) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(child);
+    expect([child.selectionStart, child.selectionEnd]).toEqual([0, 2]);
+    expect(existingIds).not.toContain(rowForInput(child).dataset.snlTreeNodeId);
   });
 
-  it('adds a parent through the routed Alt+P semantic action', () => {
+  it.each([
+    ['$x$(a)', '$x$', '$x$(a,$x$)'],
+    ['$$x$$(a)', '$$x$$', '$$x$$(a,$$x$$)'],
+    ['%x%(a)', '%x%', '%x%(a,%x%)']
+  ])('keeps the parent delimiter exactly once when Alt+X selects the whole %s surface', async (
+    initial,
+    childValue,
+    expected
+  ) => {
+    const { view, latest } = renderEditor(initial);
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+
+    expect(latest()).toBe(expected);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const child = view.getAllByRole('textbox').find(
+      (candidate) => candidate !== input && (candidate as HTMLTextAreaElement).value === childValue
+    ) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(child);
+    expect([child.selectionStart, child.selectionEnd]).toEqual([0, childValue.length]);
+  });
+
+  it.each([
+    [0, 1],
+    [2, 3]
+  ])('creates an empty inline-formula child when Alt+X selects only delimiter characters (%i,%i)', async (
+    start,
+    end
+  ) => {
+    const { view, latest } = renderEditor('$x$(a)');
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(start, end);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+    expect(latest()).toBe('$x$(a,$$)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect((document.activeElement as HTMLTextAreaElement).value).toBe('$$');
+  });
+
+  it('creates and focuses an empty child with the same delimiter when Alt+X selection is empty', async () => {
+    const { view, latest } = renderEditor('$x$(a)');
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(2, 2);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.extractSelection' }
+    }));
+
+    expect(latest()).toBe('$x$(a,$$)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const child = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === '$$'
+    ) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(child);
+    expect([child.selectionStart, child.selectionEnd]).toEqual([0, 2]);
+  });
+
+  it('adds a parent through Alt+P, focuses it, and selects its complete text', async () => {
     const { view, latest } = renderEditor('root(a,b)');
-    const input = view.getAllByRole('textbox')[1] as HTMLInputElement;
+    const input = view.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    const originalId = rowForInput(input).dataset.snlTreeNodeId;
     input.focus();
 
     window.dispatchEvent(new MessageEvent('message', {
@@ -124,6 +204,36 @@ describe('Inductive node action dial', () => {
     }));
 
     expect(latest()).toBe('root((a),b)');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const parent = document.activeElement as HTMLTextAreaElement;
+    expect(parent).not.toBe(input);
+    expect(parent.matches('[data-snl-macro-input]')).toBe(true);
+    expect(parent.value).toBe('');
+    expect([parent.selectionStart, parent.selectionEnd]).toEqual([0, 0]);
+    expect(rowForInput(parent).dataset.snlTreeNodeId).not.toBe(originalId);
+    const wrapped = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === 'a'
+    ) as HTMLTextAreaElement;
+    expect(rowForInput(wrapped).dataset.snlTreeNodeId).toBe(originalId);
+  });
+
+  it('wraps the root with a fresh parent identity and focuses that parent', async () => {
+    const { view, latest } = renderEditor('root(a)');
+    const root = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    const rootId = rowForInput(root).dataset.snlTreeNodeId;
+    root.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.addParent' }
+    }));
+    expect(latest()).toBe('(root(a))');
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const parent = document.activeElement as HTMLTextAreaElement;
+    expect(parent.value).toBe('');
+    expect(rowForInput(parent).dataset.snlTreeNodeId).not.toBe(rootId);
+    const wrappedRoot = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === 'root'
+    ) as HTMLTextAreaElement;
+    expect(rowForInput(wrappedRoot).dataset.snlTreeNodeId).toBe(rootId);
   });
 
   it('adds a sibling through the routed Alt+S semantic action', () => {
@@ -177,6 +287,78 @@ describe('Inductive node action dial', () => {
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.openStyle' } }));
     expect(document.activeElement).toBe(view.getAllByRole('textbox')[2]);
     expect((document.activeElement as HTMLElement).closest('.snl-tree-row-toolbar')).toBeNull();
+  });
+
+  it('makes Tab and Shift+Tab exact inverses across only alternative Style fields', async () => {
+    const styledDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) => ({
+          name: macro_name,
+          dynamic_arity: true,
+          styles: macro_name === 'a'
+            ? [
+                { style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                { style_name: 'compact', template: { mode: 'formula_inline', body: '#*' }, tags: [] }
+              ]
+            : macro_name === 'b'
+              ? [{ style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] }]
+              : []
+        } as never)
+      }
+    });
+    const view = render(
+      <GuiInductiveEditor
+        snl="root(a,b,c)"
+        macroDataDriver={styledDriver}
+        macroCandidates={['a', 'b', 'c'].map((id) => ({ id, labels: [] }))}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+    const inputByValue = (value: string): HTMLTextAreaElement => view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === value
+    ) as HTMLTextAreaElement;
+    const a = inputByValue('a');
+    const b = inputByValue('b');
+    const c = inputByValue('c');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const styleA = rowForInput(a).querySelector('.snl-tree-style-select') as HTMLSelectElement;
+
+    a.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.openStyle' }
+    }));
+    expect(document.activeElement).toBe(styleA);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.openStyle' }
+    }));
+    expect(document.activeElement).toBe(b);
+    expect([b.selectionStart, b.selectionEnd]).toEqual([0, 1]);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.openStyle' }
+    }));
+    expect(document.activeElement).toBe(c);
+    expect([c.selectionStart, c.selectionEnd]).toEqual([0, 1]);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(b);
+    expect([b.selectionStart, b.selectionEnd]).toEqual([0, 1]);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(styleA);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(a);
+    expect([a.selectionStart, a.selectionEnd]).toEqual([0, 1]);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
   });
 
   it('uses an auto-sized multiline Macro editor and keeps Shift+Enter in the current row', () => {

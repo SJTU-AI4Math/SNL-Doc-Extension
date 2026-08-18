@@ -5763,6 +5763,21 @@ export function GuiInductiveEditor({
     });
   }, []);
 
+  const focusMacroField = (field: HTMLElement | undefined): void => {
+    if (!field) return;
+    field.dataset.snlSuppressSuggestionsOnce = 'true';
+    field.focus();
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) field.select();
+  };
+  const focusNodeMacro = (targetNodeId: string): void => {
+    requestAnimationFrame(() => {
+      const targetRow = Array.from(
+        editorRootRef.current?.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]') ?? []
+      ).find((candidate) => candidate.dataset.snlTreeNodeId === targetNodeId);
+      focusMacroField(targetRow?.querySelector<HTMLElement>('[data-snl-macro-input]') ?? undefined);
+    });
+  };
+
   const runShortcutAction = useCallback((action: string): void => {
     const active = document.activeElement as HTMLElement | null;
     const row = active?.closest<HTMLElement>('[data-snl-tree-node-id]');
@@ -5776,7 +5791,7 @@ export function GuiInductiveEditor({
     }
     if (action === 'inductive.previousField') {
       if (active?.matches('.snl-tree-style-select')) {
-        row.querySelector<HTMLElement>('[data-snl-macro-input]')?.focus();
+        focusMacroField(row.querySelector<HTMLElement>('[data-snl-macro-input]') ?? undefined);
         return;
       }
       const editors = Array.from<HTMLElement>(
@@ -5786,9 +5801,10 @@ export function GuiInductiveEditor({
       const previous = current ? editors[editors.indexOf(current) - 1] : undefined;
       const previousRow = previous?.closest<HTMLElement>('[data-snl-tree-node-id]');
       const previousStyle = previousRow?.querySelector<HTMLSelectElement>(
-        '.snl-tree-style-select:not(:disabled)'
+        '.snl-tree-style-select[data-snl-style-navigable="true"]:not(:disabled)'
       );
-      (previousStyle ?? previous)?.focus();
+      if (previousStyle) previousStyle.focus();
+      else focusMacroField(previous);
       return;
     }
     if (action === 'inductive.openStyle') {
@@ -5798,10 +5814,12 @@ export function GuiInductiveEditor({
         );
         const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
         const next = current ? editors[editors.indexOf(current) + 1] : undefined;
-        next?.focus();
+        focusMacroField(next);
         return;
       }
-      const style = row.querySelector<HTMLSelectElement>('.snl-tree-style-select:not(:disabled)');
+      const style = row.querySelector<HTMLSelectElement>(
+        '.snl-tree-style-select[data-snl-style-navigable="true"]:not(:disabled)'
+      );
       if (style) style.focus();
       else {
         const editors = Array.from<HTMLElement>(
@@ -5809,7 +5827,7 @@ export function GuiInductiveEditor({
         );
         const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
         const next = current ? editors[editors.indexOf(current) + 1] : undefined;
-        next?.focus();
+        focusMacroField(next);
       }
       return;
     }
@@ -5833,31 +5851,53 @@ export function GuiInductiveEditor({
       const end = input.selectionEnd ?? start;
       const current = getNodeAtPath(tree, path);
       if (!current) return;
-      const head = input.value.startsWith('@') ? input.value.slice(1) : input.value;
-      const hasDelimiter =
-        head.startsWith('$$') && head.endsWith('$$') ||
-        head.startsWith('$') && head.endsWith('$') ||
-        head.startsWith('%') && head.endsWith('%');
-      if (!hasDelimiter) {
-        const next = transformAtPath(tree, path, (node) => ({
-          ...node,
-          children: [...node.children, createSnlSyntaxTreeNode('')]
-        }));
-        propagate(next);
-        if (collapsed.has(nodeId)) toggleCollapsed(nodeId);
-        return;
+      const binderLength = input.value.startsWith('@') ? 1 : 0;
+      const unboundSurface = input.value.slice(binderLength);
+      const delimiterLength = unboundSurface.startsWith('$$') && unboundSurface.endsWith('$$')
+        ? 2
+        : (unboundSurface.startsWith('$') && unboundSurface.endsWith('$') ||
+            unboundSurface.startsWith('%') && unboundSurface.endsWith('%'))
+          ? 1
+          : 0;
+      const bodyStart = binderLength + delimiterLength;
+      const bodyEnd = delimiterLength > 0 ? input.value.length - delimiterLength : input.value.length;
+      const selected = input.value.slice(
+        Math.min(bodyEnd, Math.max(bodyStart, start)),
+        Math.min(bodyEnd, Math.max(bodyStart, end))
+      );
+      let nextNode = end > start
+        ? extractInductiveSelection(current, input.value, start, end)
+        : null;
+      if (!nextNode) {
+        const child = createSnlSyntaxTreeNode(selected);
+        if (current.env_mode !== undefined) {
+          child.env_mode = current.env_mode;
+          child.temporary_source = selected;
+          child.temporary_format = current.temporary_format;
+        }
+        ensureTreeIdentity(child);
+        nextNode = { ...current, children: [...current.children, child] };
       }
-      const extracted = extractInductiveSelection(current, input.value, start, end);
-      if (extracted) propagate(transformAtPath(tree, path, () => extracted));
+      const child = nextNode.children.at(-1);
+      propagate(transformAtPath(tree, path, () => nextNode!));
+      if (collapsed.has(nodeId)) toggleCollapsed(nodeId);
+      if (child) focusNodeMacro(treeIdentity(child));
+      return;
+    }
+    if (action === 'inductive.addParent') {
+      const next = applyTreeOp(tree, 'wrapParent', path);
+      if (next === tree) return;
+      const parent = getNodeAtPath(next, path);
+      propagate(next);
+      if (parent) focusNodeMacro(treeIdentity(parent));
       return;
     }
     const op = action === 'inductive.moveUp' ? 'moveUp'
       : action === 'inductive.moveDown' ? 'moveDown'
         : action === 'inductive.outdent' ? 'outdent'
           : action === 'inductive.indent' ? 'indent'
-            : action === 'inductive.addParent' ? 'wrapParent'
-              : action === 'inductive.addSibling' ? 'addSibling'
-                : null;
+            : action === 'inductive.addSibling' ? 'addSibling'
+              : null;
     if (!op) return;
     treeOp(op, path);
     requestAnimationFrame(() => {
@@ -6746,6 +6786,7 @@ function InductiveNode({
           data-snl-macro-input
           value={rawInput}
           macroCandidates={macroCandidates}
+          acceptSuggestionOnTab={false}
           onChange={commitRaw}
           placeholder={depth === 0 ? t('rootMacroPlaceholder') : t('leafPlaceholder')}
           spellCheck={false}
@@ -6845,6 +6886,7 @@ function InductiveNode({
 
         <select
           className="snl-tree-style-select"
+          data-snl-style-navigable={styleTags.length > 1 || explicitStyleMissing ? true : undefined}
           value={styleDisplay}
           disabled={!styleSelectable}
           onChange={(event) => commitStyle(event.target.value)}

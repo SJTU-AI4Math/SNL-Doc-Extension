@@ -147,6 +147,8 @@ interface MacroIdInputBaseProps {
   snooglInsertsMacroId?: boolean;
   /** Select the whole value once the control mounts (F2-style editing). */
   selectAllOnMount?: boolean;
+  /** Let this control consume Tab for autocomplete. Structural editors disable it. */
+  acceptSuggestionOnTab?: boolean;
 }
 
 export type MacroIdInputProps =
@@ -173,6 +175,7 @@ export const MacroIdInput = forwardRef<
     openSnooglOnMount = false,
     snooglInsertsMacroId = false,
     selectAllOnMount = false,
+    acceptSuggestionOnTab = true,
     style,
     className,
     ...props
@@ -341,7 +344,7 @@ export const MacroIdInput = forwardRef<
         );
         return;
       }
-      if (event.key === 'Tab' && !event.shiftKey) {
+      if (event.key === 'Tab' && !event.shiftKey && acceptSuggestionOnTab) {
         event.preventDefault();
         applySuggestion(
           currentSuggestions[highlightedSuggestion] ?? currentSuggestions[0]
@@ -360,7 +363,10 @@ export const MacroIdInput = forwardRef<
   const handleControlFocus = (
     event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
   ): void => {
-    if (!interactionDisabled) setSuggestionsOpen(true);
+    const suppressSuggestions = event.currentTarget.dataset.snlSuppressSuggestionsOnce === 'true';
+    delete event.currentTarget.dataset.snlSuppressSuggestionsOnce;
+    if (suppressSuggestions) setSuggestionsOpen(false);
+    else if (!interactionDisabled) setSuggestionsOpen(true);
     (props.onFocus as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
   const handleControlSelect = (

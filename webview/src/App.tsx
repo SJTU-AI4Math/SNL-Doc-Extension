@@ -14,6 +14,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getVsCodeApi, useVsCodeApiRef, PANEL_STYLE } from './vscodeApi';
 import { Button } from './components/Button';
+import { StructuralTreeControls } from './components/StructuralTreeControls';
+import {
+  describeStructuralTree, initialStructuralCollapse, reconcileStructuralCollapse,
+  setAllStructuralNodes, structuralCollapseCapabilities, toggleStructuralNode,
+  type StructuralTreeDescriptor
+} from './components/structuralTreeCollapse';
 import { PanelHeader, type PanelHeaderAction } from './components/PanelHeader';
 import {
   EntrySurface,
@@ -522,32 +528,28 @@ function LibraryLayer({
   ctx: RenderCtx;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  // Which nodes are currently collapsed. Default = all expanded, so we
-  // store the exceptions rather than the whole state. Rebuilt on every
-  // `outline` swap so stale nodeIds don't linger.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const outlineKey = React.useMemo(
-    () =>
-      outline
-        .map((n) => n.nodeId)
-        .join('|'),
-    [outline]
+  const descriptors = describeStructuralTree(outline, node => node.nodeId, node => node.children);
+  const descriptorKey = descriptors.map(({ id, depth }) => `${depth}:${id}`).join('|');
+  const previousDescriptors = useRef<readonly StructuralTreeDescriptor[]>(descriptors);
+  const previousSlug = useRef(slug);
+  // Library reading starts closed; state is transient and never reaches the host model.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => initialStructuralCollapse(descriptors, true)
   );
   useEffect(() => {
-    setCollapsed(new Set());
-  }, [outlineKey, slug]);
-
-  const toggle = React.useCallback((nodeId: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
-      return next;
+    setCollapsed((current) => {
+      if (previousSlug.current !== slug) return initialStructuralCollapse(descriptors, true);
+      return reconcileStructuralCollapse(current, previousDescriptors.current, descriptors, true);
     });
-  }, []);
+    previousSlug.current = slug;
+    previousDescriptors.current = descriptors;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [descriptorKey, slug]);
+
+  const toggle = React.useCallback((nodeId: string, sameDepth: boolean): void => {
+    setCollapsed((prev) => toggleStructuralNode(prev, descriptors, nodeId, sameDepth));
+  }, [descriptorKey]);
+  const collapseCapabilities = structuralCollapseCapabilities(descriptors, collapsed);
 
   // Count total entries reachable via DFS so the subtitle isn't misleading.
   const totalEntries = React.useMemo(() => countNodes(outline), [outline]);
@@ -594,6 +596,11 @@ function LibraryLayer({
           </>
         }
       />
+      <StructuralTreeControls
+        {...collapseCapabilities}
+        onExpandAll={() => setCollapsed(setAllStructuralNodes(descriptors, false))}
+        onCollapseAll={() => setCollapsed(setAllStructuralNodes(descriptors, true))}
+      />
       {description ? (
         <p style={{ opacity: 0.85, marginTop: 0 }}>{description}</p>
       ) : null}
@@ -635,7 +642,7 @@ export function LibraryOutline({
 }: {
   nodes: OutlineNode[];
   collapsed?: Set<string>;
-  toggle?: (nodeId: string) => void;
+  toggle?: (nodeId: string, sameDepth: boolean) => void;
   ctx?: RenderCtx;
   outlineRef?: React.RefObject<HTMLDivElement | null>;
 }): React.ReactElement {
@@ -702,7 +709,7 @@ function OutlineTreeNode({
   node: OutlineNode;
   depth: number;
   collapsed: Set<string>;
-  toggle: (nodeId: string) => void;
+  toggle: (nodeId: string, sameDepth: boolean) => void;
   ctx: RenderCtx;
 }): React.ReactElement {
   const hasChildren = node.children.length > 0;
@@ -723,8 +730,14 @@ function OutlineTreeNode({
         {hasChildren ? (
           <CollapseToggle
             collapsed={isCollapsed}
-            onClick={() => toggle(node.nodeId)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              toggle(node.nodeId, event.ctrlKey);
+            }}
             childCount={countNodes(node.children)}
+            nodeLabel={node.entry?.title || node.nodeId}
+            controlsId={`library-outline-children-${encodeURIComponent(node.nodeId)}`}
           />
         ) : null}
         {node.entry ? (
@@ -758,6 +771,7 @@ function OutlineTreeNode({
       </div>
       {hasChildren && !isCollapsed ? (
         <div
+          id={`library-outline-children-${encodeURIComponent(node.nodeId)}`}
           data-snl-subtree=""
           style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
         >
@@ -786,11 +800,15 @@ function OutlineTreeNode({
 function CollapseToggle({
   collapsed,
   onClick,
-  childCount
+  childCount,
+  nodeLabel,
+  controlsId
 }: {
   collapsed: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   childCount: number;
+  nodeLabel: string;
+  controlsId: string;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   return (
@@ -800,7 +818,8 @@ function CollapseToggle({
       size="sm"
       onClick={onClick}
       title={t(collapsed ? 'expandChildren' : 'collapseChildren', { count: childCount })}
-      aria-label={t(collapsed ? 'expand' : 'collapse')}
+      aria-label={`${t(collapsed ? 'expand' : 'collapse')} ${nodeLabel}`}
+      aria-controls={controlsId}
       aria-expanded={!collapsed}
       style={{
         ...(COLLAPSE_TOGGLE_STYLE as React.CSSProperties),

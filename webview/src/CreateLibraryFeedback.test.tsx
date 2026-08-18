@@ -105,6 +105,36 @@ describe('Create Library feedback', () => {
     expect(addRoot.style.display).toBe('block');
   });
 
+  it('defaults both structural trees closed and keeps all controls transient', () => {
+    setupApi();
+    render(<CreateLibraryApp />);
+    send({ type: 'context', mode: 'edit', slug: 'algebra', existing: { slug: 'algebra', title: 'Algebra' } });
+    send({ type: 'countersLoaded', counters: [
+      { id: 'counter-root', name: 'root-counter', numbering: '1', children: [
+        { id: 'counter-child', name: 'child-counter', numbering: 'a', children: [] }
+      ] }
+    ] });
+    sendGraph({
+      nodes: [
+        { id: 'root', label: 'Entry', props: { entryId: 'entry-root' } },
+        { id: 'child', label: 'Entry', props: { entryId: 'entry-child' } }
+      ],
+      relationships: [{ from: 'root', to: 'child', label: 'branch' }],
+      entries: [
+        { id: 'entry-root', title: 'Root', kind: 'definition', hasContent: true },
+        { id: 'entry-child', title: 'Child', kind: 'definition', hasContent: true }
+      ]
+    });
+    expect(screen.getByRole('button', { name: 'Expand root' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));
+    expect(screen.getByRole('button', { name: 'Expand counter-root' })).toBeTruthy();
+    postMessage.mockClear();
+    for (const button of screen.getAllByRole('button', { name: 'Expand all' })) fireEvent.click(button);
+    expect(screen.getByRole('button', { name: 'Collapse root' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Collapse counter-root' })).toBeTruthy();
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
   it('starts the Counters section collapsed in edit mode', () => {
     setupApi();
     render(<CreateLibraryApp />);
@@ -328,6 +358,7 @@ describe('Create Library feedback', () => {
       }]
     });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
     const rootMain = screen.getByDisplayValue('entry-root')
       .closest<HTMLElement>('[data-snl-library-row-main]');
     const childMain = screen.getByDisplayValue('entry-child')
@@ -346,7 +377,7 @@ describe('Create Library feedback', () => {
     expect(childMetric?.closest('.snl-outline-row-toolbar')).not.toBeNull();
     expect(
       childMain?.closest('.snl-outline-row')
-        ?.querySelector<HTMLElement>('.snl-outline-disclosure-spacer, button[aria-label="Collapse"]')?.style.width
+        ?.querySelector<HTMLElement>('.snl-outline-disclosure-spacer, button[aria-label^="Collapse "]')?.style.width
     ).toBe('1.5rem');
   });
 

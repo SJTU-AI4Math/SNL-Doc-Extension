@@ -114,6 +114,48 @@ describe('TreeOutlineEditor move modifiers', () => {
     });
   });
 
+  it('defaults foldable nodes closed and provides no-op-aware all controls', () => {
+    const tree: Item[] = [{ id: 'root', children: [{ id: 'child', children: [] }] }];
+    const view = render(
+      <TreeOutlineEditor roots={tree} getId={node => node.id} getChildren={node => node.children}
+        renderRow={node => node.id} onOp={() => undefined} emptyState={null} />
+    );
+    const disclosure = view.getByRole('button', { name: 'Expand root' });
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    expect(disclosure.getAttribute('aria-controls')).toBeTruthy();
+    expect((view.getByRole('button', { name: 'Expand all' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((view.getByRole('button', { name: 'Collapse all' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(view.getByRole('button', { name: 'Expand all' }));
+    expect(view.getByRole('button', { name: 'Collapse root' })).toBeTruthy();
+  });
+
+  it('uses Ctrl only for absolute-depth toggling including hidden branches', () => {
+    const tree: Item[] = [
+      { id: 'a', children: [{ id: 'a1', children: [{ id: 'ax', children: [] }] }] },
+      { id: 'b', children: [{ id: 'b1', children: [{ id: 'bx', children: [] }] }] }
+    ];
+    const view = render(
+      <TreeOutlineEditor roots={tree} getId={node => node.id} getChildren={node => node.children}
+        renderRow={node => node.id} onOp={() => undefined} emptyState={null} />
+    );
+    fireEvent.click(view.getByRole('button', { name: 'Expand all' }));
+    fireEvent.click(view.getByRole('button', { name: 'Collapse a1' }), { ctrlKey: true });
+    expect(view.getByRole('button', { name: 'Expand a1' })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Expand b1' })).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: 'Collapse a' }), { metaKey: true });
+    expect(view.getByRole('button', { name: 'Expand a' })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Collapse b' })).toBeTruthy();
+  });
+
+  it('disables both all controls for a leaf-only tree', () => {
+    const view = render(
+      <TreeOutlineEditor roots={roots} getId={node => node.id} getChildren={node => node.children}
+        renderRow={node => node.id} onOp={() => undefined} emptyState={null} />
+    );
+    expect((view.getByRole('button', { name: 'Expand all' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((view.getByRole('button', { name: 'Collapse all' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('localizes structural action names in Chinese', () => {
     document.documentElement.lang = 'zh-CN';
     const view = render(

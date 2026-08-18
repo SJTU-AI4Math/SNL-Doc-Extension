@@ -67,6 +67,12 @@ import {
 } from './components/LocalizedEditScope';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
+import { StructuralTreeControls } from './components/StructuralTreeControls';
+import {
+  describeStructuralTree, initialStructuralCollapse, reconcileStructuralCollapse,
+  setAllStructuralNodes, structuralCollapseCapabilities, toggleStructuralNode,
+  type StructuralTreeDescriptor
+} from './components/structuralTreeCollapse';
 import { Icon } from './components/Icon';
 import { IconButton } from './components/IconButton';
 import { MenuItemButton } from './components/MenuItemButton';
@@ -5666,7 +5672,15 @@ export function GuiInductiveEditor({
   });
   const [parseError, setParseError] = useState<string | null>(null);
   // Collapse follows stable UI node identity, not a dotted array-index path.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Inductive keeps its historical default: every node expanded.
+  const initialDescriptors = describeStructuralTree(
+    [tree], node => treeIdentity(node), node => node.children
+  );
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => initialStructuralCollapse(initialDescriptors, false)
+  );
+  const previousCollapseDescriptors = useRef<readonly StructuralTreeDescriptor[]>(initialDescriptors);
+  const previousCollapseIdentity = useRef(editorIdentity);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const undoStackRef = useRef<SnlSyntaxTree[]>([]);
   const previousEditorIdentityRef = useRef(editorIdentity);
@@ -5690,6 +5704,26 @@ export function GuiInductiveEditor({
       setParseError(parsed.error);
     }
   }, [snl]);
+
+  const collapseDescriptors = describeStructuralTree(
+    [tree], node => treeIdentity(node), node => node.children
+  );
+  const collapseDescriptorKey = collapseDescriptors
+    .map(({ id, depth }) => `${depth}:${id}`).join('|');
+  useEffect(() => {
+    setCollapsed(current => {
+      if (previousCollapseIdentity.current !== editorIdentity) {
+        return initialStructuralCollapse(collapseDescriptors, false);
+      }
+      return reconcileStructuralCollapse(
+        current, previousCollapseDescriptors.current, collapseDescriptors, false
+      );
+    });
+    previousCollapseIdentity.current = editorIdentity;
+    previousCollapseDescriptors.current = collapseDescriptors;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseDescriptorKey, editorIdentity]);
+  const collapseCapabilities = structuralCollapseCapabilities(collapseDescriptors, collapsed);
 
   const propagate = useCallback(
     (nextTree: SnlSyntaxTree, recordUndo = true): void => {
@@ -5759,14 +5793,11 @@ export function GuiInductiveEditor({
     [tree, propagate]
   );
 
-  const toggleCollapsed = useCallback((nodeId: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) next.delete(nodeId);
-      else next.add(nodeId);
-      return next;
-    });
-  }, []);
+  const toggleCollapsed = useCallback((nodeId: string, sameDepth = false): void => {
+    setCollapsed((prev) => toggleStructuralNode(
+      prev, collapseDescriptors, nodeId, sameDepth
+    ));
+  }, [collapseDescriptorKey]);
 
   const focusMacroField = (field: HTMLElement | undefined): void => {
     if (!field) return;
@@ -6055,6 +6086,11 @@ export function GuiInductiveEditor({
         </div>
       ) : null}
 
+      <StructuralTreeControls
+        {...collapseCapabilities}
+        onExpandAll={() => setCollapsed(setAllStructuralNodes(collapseDescriptors, false))}
+        onCollapseAll={() => setCollapsed(setAllStructuralNodes(collapseDescriptors, true))}
+      />
       <InductiveNode
         node={tree}
         path=""
@@ -6449,7 +6485,7 @@ function InductiveNode({
   kindPalette?: KindPalette;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
   collapsed: Set<string>;
-  onToggleCollapsed: (nodeId: string) => void;
+  onToggleCollapsed: (nodeId: string, sameDepth?: boolean) => void;
   /**
    * Path-based structural ops routed to the top-level GuiInductiveEditor
    * (cat 2026-07-15). Row-side buttons '+ parent', '⇥ indent', '⇤ outdent',
@@ -6760,9 +6796,15 @@ function InductiveNode({
         {hasKids ? (
           <Button
             type="button"
-            onClick={() => onToggleCollapsed(nodeId)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleCollapsed(nodeId, event.ctrlKey);
+            }}
             style={chevronButtonStyle}
-            aria-label={isCollapsed ? t('expandNode') : t('collapseNode')}
+            aria-label={`${isCollapsed ? t('expandNode') : t('collapseNode')} ${node.macro_name || nodeId}`}
+            aria-expanded={!isCollapsed}
+            aria-controls={`inductive-children-${encodeURIComponent(nodeId)}`}
             title={isCollapsed ? t('expandNode') : t('collapseNode')}
           >
             {isCollapsed ? '▶' : '▼'}
@@ -6985,7 +7027,7 @@ function InductiveNode({
       </div>
 
       {hasKids && !isCollapsed ? (
-        <div>
+        <div id={`inductive-children-${encodeURIComponent(nodeId)}`}>
           {node.children.map((child, i) => {
             const childPath = path === '' ? String(i) : `${path}.${i}`;
             const childNumber =

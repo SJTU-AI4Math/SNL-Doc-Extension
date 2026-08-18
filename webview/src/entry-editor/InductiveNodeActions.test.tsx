@@ -36,6 +36,28 @@ afterEach(() => {
   document.documentElement.lang = 'en';
 });
 
+describe('Inductive structural collapse controls', () => {
+  it('keeps the historical expanded default and changes no serialized SNL', () => {
+    const { view, latest } = renderEditor('root(a(x),b(y))');
+    expect(view.getByRole('button', { name: 'Collapse root' }).getAttribute('aria-expanded')).toBe('true');
+    expect((view.getByRole('button', { name: 'Expand all' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(view.getByRole('button', { name: 'Collapse all' }));
+    expect(view.getByRole('button', { name: 'Expand root' })).toBeTruthy();
+    expect(latest()).toBe('root(a(x),b(y))');
+  });
+
+  it('uses Ctrl only for same absolute depth and includes branches hidden later', () => {
+    const { view } = renderEditor('root(a(x),b(y))');
+    fireEvent.click(view.getByRole('button', { name: 'Collapse a' }), { ctrlKey: true });
+    expect(view.getByRole('button', { name: 'Expand a' })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Expand b' })).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: 'Collapse root' }), { metaKey: true });
+    fireEvent.click(view.getByRole('button', { name: 'Expand root' }));
+    expect(view.getByRole('button', { name: 'Expand a' })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Expand b' })).toBeTruthy();
+  });
+});
+
 describe('Inductive node action dial', () => {
   it('clears undo when retargeting to a different Entry with identical SNL', () => {
     let latest = 'root(a,b,c)';
@@ -515,7 +537,7 @@ describe('Inductive node action dial', () => {
       return input;
     };
     const macroB = inputByValue('b');
-    fireEvent.click(within(rowForInput(macroB)).getByLabelText('Collapse'));
+    fireEvent.click(within(rowForInput(macroB)).getByLabelText('Collapse b'));
     expect(view.queryByDisplayValue('c')).toBeNull();
 
     const macroD = inputByValue('d');

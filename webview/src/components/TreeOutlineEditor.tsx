@@ -18,8 +18,14 @@
 // dispatch a counterOp, …). This keeps the component free of any knowledge
 // about graphs, counters, or the host protocol.
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { IconButton } from './IconButton';
+import { StructuralTreeControls } from './StructuralTreeControls';
+import {
+  describeStructuralTree, initialStructuralCollapse, reconcileStructuralCollapse,
+  setAllStructuralNodes, structuralCollapseCapabilities, toggleStructuralNode,
+  type StructuralTreeDescriptor
+} from './structuralTreeCollapse';
 import {
   TreeNodeActionDashboard,
   type TreeNodeActionCommand
@@ -38,8 +44,8 @@ import {
 
 const MESSAGES = defineUiMessages(
   'treeOutline',
-  { expand: 'Expand', collapse: 'Collapse' },
-  { expand: '展开', collapse: '折叠' }
+  { expand: 'Expand', collapse: 'Collapse', expandNode: 'Expand {node}', collapseNode: 'Collapse {node}' },
+  { expand: '展开', collapse: '折叠', expandNode: '展开 {node}', collapseNode: '折叠 {node}' }
 );
 
 /**
@@ -80,6 +86,8 @@ export interface TreeOutlineEditorProps<T> {
   rowClassName?: string;
   /** Optional domain layout overrides applied after shared row defaults. */
   rowStyle?: React.CSSProperties;
+  /** Immutable containing-tree identity; changing it resets transient folds. */
+  collapseIdentity?: string;
 }
 
 const HOVER_STYLE_TAG_ID = 'snl-tree-outline-hover-style';
@@ -106,28 +114,49 @@ export function TreeOutlineEditor<T>({
   renderDashboardLeadingActions,
   moveToEdge = false,
   rowClassName,
-  rowStyle
+  rowStyle,
+  collapseIdentity
 }: TreeOutlineEditorProps<T>): React.ReactElement {
   ensureHoverStyle();
   const t = useUiMessages(MESSAGES);
-  // Collapse state keyed by node id — persists across re-renders / host pushes
-  // as long as this component instance is mounted.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-
-  const toggleCollapsed = (id: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const descriptors = describeStructuralTree(roots, getId, getChildren);
+  const descriptorKey = descriptors.map(({ id, depth }) => `${depth}:${id}`).join('|');
+  const previousDescriptors = useRef<readonly StructuralTreeDescriptor[]>(descriptors);
+  const previousCollapseIdentity = useRef(collapseIdentity);
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => initialStructuralCollapse(descriptors, true)
+  );
+  useEffect(() => {
+    setCollapsed((current) => {
+      if (previousCollapseIdentity.current !== collapseIdentity) {
+        return initialStructuralCollapse(descriptors, true);
+      }
+      return reconcileStructuralCollapse(
+        current, previousDescriptors.current, descriptors, true
+      );
     });
+    previousCollapseIdentity.current = collapseIdentity;
+    previousDescriptors.current = descriptors;
+    // Descriptor identity is the source-model identity relevant to collapse.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [descriptorKey, collapseIdentity]);
+
+  const toggleCollapsed = (id: string, sameDepth: boolean): void => {
+    setCollapsed((prev) => toggleStructuralNode(prev, descriptors, id, sameDepth));
   };
+  const capabilities = structuralCollapseCapabilities(descriptors, collapsed);
 
   if (roots.length === 0) {
     return <>{emptyState}</>;
   }
 
   return (
+    <>
+      <StructuralTreeControls
+        {...capabilities}
+        onExpandAll={() => setCollapsed(setAllStructuralNodes(descriptors, false))}
+        onCollapseAll={() => setCollapsed(setAllStructuralNodes(descriptors, true))}
+      />
     <ol
       style={{
         listStyle: 'none',
@@ -160,6 +189,7 @@ export function TreeOutlineEditor<T>({
         />
       ))}
     </ol>
+    </>
   );
 }
 
@@ -177,7 +207,7 @@ interface TreeRowProps<T> {
   renderDashboardLeadingActions?: (node: T, depth: number) => React.ReactNode;
   onOp: (op: TreeOp) => void;
   collapsed: Set<string>;
-  onToggleCollapsed: (id: string) => void;
+  onToggleCollapsed: (id: string, sameDepth: boolean) => void;
   moveToEdge: boolean;
   rowClassName?: string;
   rowStyle?: React.CSSProperties;
@@ -240,13 +270,17 @@ function TreeRow<T>({
         {hasKids ? (
           <IconButton
             icon={isCollapsed ? 'chevron-right' : 'chevron-down'}
-            label={isCollapsed ? t('expand') : t('collapse')}
+            label={t(isCollapsed ? 'expandNode' : 'collapseNode', { node: id })}
             variant="ghost"
             size="sm"
-            onClick={() => onToggleCollapsed(id)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleCollapsed(id, event.ctrlKey);
+            }}
             style={disclosureButtonStyle()}
             {...treeDisclosureA11y(!isCollapsed, childrenId)}
-            title={isCollapsed ? t('expand') : t('collapse')}
+            title={t(isCollapsed ? 'expandNode' : 'collapseNode', { node: id })}
           />
         ) : (
           <span

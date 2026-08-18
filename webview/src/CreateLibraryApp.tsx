@@ -569,6 +569,7 @@ export function CreateLibraryApp(): React.ReactElement {
 
       {mode === 'edit' ? (
         <CountersSection
+          collapseIdentity={slug}
           counters={counters}
           error={counterError}
           onCounterOp={postCounterOp}
@@ -577,6 +578,7 @@ export function CreateLibraryApp(): React.ReactElement {
 
       {mode === 'edit' ? (
         <OutlineEditor
+          collapseIdentity={slug}
           graph={graph}
           error={graphError}
           onGraphOp={postGraphOp}
@@ -612,10 +614,12 @@ function countCounterTree(nodes: CounterNode[]): number {
  * (name + numbering) with a duplicate-name warning tag.
  */
 function CountersSection({
+  collapseIdentity,
   counters,
   error,
   onCounterOp
 }: {
+  collapseIdentity: string;
   counters: CounterNode[];
   error: string | null;
   onCounterOp: (op: Record<string, unknown>) => void;
@@ -745,6 +749,7 @@ function CountersSection({
       {collapsed ? null : (
         <>
           <TreeOutlineEditor<CounterNode>
+            collapseIdentity={`counters:${collapseIdentity}`}
             roots={counters}
             getId={(n) => n.id}
             getChildren={(n) => n.children}
@@ -946,6 +951,7 @@ function StatusLine({
 import { numberFor, readingOrder as computeReadingOrder } from '../../src/libraryGraph';
 
 interface OutlineEditorProps {
+  collapseIdentity: string;
   graph: GraphState | null;
   error: string | null;
   onGraphOp: (op: Record<string, unknown>) => void;
@@ -971,6 +977,7 @@ interface OutlineEditorProps {
  * the fresh graph — one-way data flow, no local optimistic state.
  */
 function OutlineEditor({
+  collapseIdentity,
   graph,
   error,
   onGraphOp,
@@ -1290,6 +1297,7 @@ function OutlineEditor({
       {graph.warnings.length > 0 ? <WarningBanner warnings={graph.warnings} /> : null}
 
       <TreeOutlineEditor<GraphNode>
+        collapseIdentity={`outline:${collapseIdentity}`}
         roots={rootNodes}
         moveToEdge
         rowClassName="snl-library-outline-row"

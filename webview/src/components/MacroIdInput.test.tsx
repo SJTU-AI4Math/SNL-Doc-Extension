@@ -422,4 +422,26 @@ describe('MacroIdInput', () => {
     fireEvent.keyDown(search, { key: 'Tab' });
     expect(input.value).toBe('Div.div');
   });
+
+  it('does not restore selection imperatively while an IME composition is active', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('abcd');
+      return <MacroIdInput value={value} onChange={setValue} macroCandidates={[]} />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    const setSelectionRange = vi.spyOn(input, 'setSelectionRange');
+
+    fireEvent.compositionStart(input);
+    fireEvent.input(input, {
+      target: { value: 'ab猫cd', selectionStart: 3, selectionEnd: 3 },
+      isComposing: true
+    });
+
+    expect(setSelectionRange).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input);
+    expect(setSelectionRange).toHaveBeenLastCalledWith(3, 3);
+  });
+
 });

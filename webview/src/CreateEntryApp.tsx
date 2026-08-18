@@ -24,6 +24,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemedKindColoring } from '../../src/kindColoring';
+import { analyzeLatexTemplatePlaceholders } from '../../src/templatePlaceholders';
 import { resolveWebviewKindColoring } from './render/kindColoring';
 import { flushSync } from 'react-dom';
 import 'katex/dist/katex.min.css';
@@ -5593,32 +5594,94 @@ export function useQueriedMacro(
     : undefined;
 }
 
-/**
- * Fixed-arity a macro's default-style template implies. Returns the
- * required child count (i.e. max #N + 1 across all styles, since child
- * slots are numbered from 0). Returns 0 for dynamic-arity macros or
- * templates with no `#N` placeholders. Ignores escaped `\#`. Mirrors
- * `maxChildIndex` in CreateMacroApp.tsx — kept local to avoid a shared
- * module just for one 8-line helper.
- */
+/** All authored bodies in one Style. Localized projections deliberately share
+ * one arity so changing the UI/content locale cannot reshape the editor tree. */
+function styleTemplateBodies(style: SnlMacro['styles'][number]): string[] {
+  const template = (style as unknown as { template?: unknown }).template;
+  if (template !== null && typeof template === 'object') {
+    const record = template as Record<string, unknown>;
+    if (record.type === 'i18n' && record.values !== null && typeof record.values === 'object') {
+      return Object.values(record.values as Record<string, unknown>).flatMap((projection) =>
+        projection !== null && typeof projection === 'object' &&
+        typeof (projection as Record<string, unknown>).body === 'string'
+          ? [(projection as { body: string }).body]
+          : []
+      );
+    }
+    if (typeof record.body === 'string') return [record.body];
+  }
+  return [resolve_style_template(style, webview_language_runtime).body];
+}
+
+function effectiveMacroStyle(
+  macro: SnlMacro,
+  explicitStyleName: string | undefined
+): SnlMacro['styles'][number] | undefined {
+  const styles = macro.styles ?? [];
+  if (explicitStyleName) {
+    const explicit = styles.find((style) => style.style_name === explicitStyleName);
+    if (explicit) return explicit;
+  }
+  return styles[0];
+}
+
+function bodiesArity(bodies: readonly string[]): number {
+  return bodies.reduce(
+    (arity, body) => Math.max(arity, analyzeLatexTemplatePlaceholders(body).positional_arity),
+    0
+  );
+}
+
+/** Preserve the Canvas editor's existing catalog-level arity behavior. */
 function macroTemplateArity(macro: SnlMacro): number {
   let max = -1;
   for (const style of macro.styles ?? []) {
     const rawTemplate = (style as unknown as { template?: unknown }).template;
-    const tpl = rawTemplate !== null && typeof rawTemplate === 'object'
+    const body = rawTemplate !== null && typeof rawTemplate === 'object'
       ? resolveWireTemplate(
           rawTemplate as WireMacroStyle['template'],
           webview_language_runtime.query_environment().language
         ).body
-      : resolve_style_template(style, webview_language_runtime);
-    const re = /(?<!\\)#(\d+)/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(tpl)) !== null) {
-      const idx = Number(m[1]);
-      if (Number.isFinite(idx) && idx > max) max = idx;
+      : resolve_style_template(style, webview_language_runtime).body;
+    const placeholder = /(?<!\\)#(\d+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = placeholder.exec(body)) !== null) {
+      max = Math.max(max, Number(match[1]));
     }
   }
   return max + 1;
+}
+
+type InductiveArityAuthority = {
+  key: string;
+  count: number;
+  dynamic: boolean;
+};
+
+/** Resolve the exact semantic input that owns a row's generated slots. */
+function inductiveArityAuthority(
+  node: SnlSyntaxTree,
+  macro: SnlMacro | undefined
+): InductiveArityAuthority | undefined {
+  if (isTemporaryMacroNode(node)) {
+    const source = node.temporary_source!;
+    return {
+      key: `temporary:${node.env_mode ?? ''}:${source}`,
+      count: analyzeLatexTemplatePlaceholders(source).positional_arity,
+      dynamic: false
+    };
+  }
+  if (!macro) return undefined;
+  const style = effectiveMacroStyle(macro, node.style_name);
+  const bodies = style ? styleTemplateBodies(style) : [];
+  const dynamic = macro.dynamic_arity === true;
+  return {
+    key: JSON.stringify([
+      'registered', macro.name, dynamic, style?.style_name ?? '', bodies
+    ]),
+    count: bodiesArity(bodies),
+    dynamic
+  };
 }
 
 function paletteFor(kindId: string, kindPalette?: KindPalette): KindColoringVariant | undefined {
@@ -5767,8 +5830,9 @@ export function GuiInductiveEditor({
       setTree((previous) => {
         const next = withArityAtPath(previous, path, count);
         if (next === previous) return previous;
-        undoStackRef.current.push(previous);
-        if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+        // Generated slots are part of the authoritative Macro/Style edit that
+        // triggered them, not a second undo state. On initial/catalog resolution
+        // they are likewise derived editor state and need no standalone undo.
         ensureTreeIdentity(next);
         const nextSnl = serializeTreePreserving(stripEmptyPlaceholders(next));
         lastSerializedRef.current = nextSnl;
@@ -6161,6 +6225,26 @@ export function serializeTreePreserving(node: SnlSyntaxTree): string {
 }
 
 /**
+ * True only for an editor-generated slot with no serializable semantics.
+ * Deliberately conservative: metadata-bearing apparent blanks are authored
+ * data and must survive arity shrink and placeholder serialization pruning.
+ */
+export function isSemanticallyBlankInductiveNode(node: SnlSyntaxTree): boolean {
+  if (node.macro_name !== '' || node.children.length !== 0 ||
+      (node.kind ?? '') !== '' || (node.mdata !== undefined && node.mdata !== null)) {
+    return false;
+  }
+  // The canonical generated node has exactly these four fields. Any other
+  // defined field is conservatively treated as authored semantics, including
+  // forward-compatible fields this editor does not know yet.
+  const canonicalFields = new Set(['macro_name', 'kind', 'mdata', 'children']);
+  return !Object.entries(node as unknown as Record<string, unknown>).some(
+    ([field, value]) => !canonicalFields.has(field) && value !== undefined
+  );
+}
+
+
+/**
  * Drop empty placeholder rows that cannot be serialized.
  *
  * Cat 2026-07-25: an empty row is now a real SNL empty node — `foo(a,)` and
@@ -6174,9 +6258,7 @@ export function serializeTreePreserving(node: SnlSyntaxTree): string {
  */
 export function stripEmptyPlaceholders(node: SnlSyntaxTree): SnlSyntaxTree {
   const kids = node.children.map(stripEmptyPlaceholders);
-  const isEmptyRow = (child: SnlSyntaxTree): boolean =>
-    child.macro_name.trim() === '' && child.children.length === 0;
-  if (kids.length === 1 && isEmptyRow(kids[0])) {
+  if (kids.length === 1 && isSemanticallyBlankInductiveNode(kids[0])) {
     return { ...node, children: [] };
   }
   return { ...node, children: kids };
@@ -6216,9 +6298,6 @@ export function withArityAtPath(
   count: number
 ): SnlSyntaxTree {
   const steps = path === '' ? [] : path.split('.').map(Number);
-  const isEmptyRow = (child: SnlSyntaxTree): boolean =>
-    child.macro_name.trim() === '' && child.children.length === 0;
-
   const walk = (node: SnlSyntaxTree, depth: number): SnlSyntaxTree => {
     if (depth === steps.length) {
       if (count > node.children.length) {
@@ -6234,8 +6313,15 @@ export function withArityAtPath(
         };
       }
       const surplus = node.children.slice(count);
-      if (surplus.length === 0 || !surplus.every(isEmptyRow)) return node;
-      return { ...node, children: node.children.slice(0, count) };
+      if (surplus.length === 0) return node;
+      const retainedSurplus = surplus.filter(
+        (child) => !isSemanticallyBlankInductiveNode(child)
+      );
+      if (retainedSurplus.length === surplus.length) return node;
+      return {
+        ...node,
+        children: [...node.children.slice(0, count), ...retainedSurplus]
+      };
     }
     const index = steps[depth];
     const child = node.children[index];
@@ -6621,71 +6707,43 @@ function InductiveNode({
     macroDataDriver,
     isTemporaryMacroNode(node) ? undefined : node.macro_name
   );
-  /**
-   * The Macro whose arity has already been reconciled for this row, so
-   * reclaiming surplus slots happens once per Macro change rather than on
-   * every render — otherwise `+ child` would be undone as fast as it is
-   * clicked.
-   */
-  const reconciledMacroRef = useRef<string | null>(null);
+  const arityAuthority = inductiveArityAuthority(node, macroEntry);
+  /** Last authoritative Macro/Style/payload signature reconciled for this row.
+   * Child edits are intentionally absent, so manual Add persists until the next
+   * authority edge. */
+  const reconciledAuthorityRef = useRef<string | null>(null);
   const effectiveKind = resolveRowKind(node, macroEntry);
   const palette = paletteFor(effectiveKind, kindPalette);
   const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
   const kindColorMatched = macroMatched && palette !== undefined;
 
-  /**
-   * Open the child rows a fixed-arity Macro requires, as soon as the row
-   * actually resolves to one.
-   *
-   * This used to live in `commitRaw`, which made it dead in the common case:
-   * `useQueriedMacro` is keyed on `node.macro_name`, so at the moment the
-   * author finishes typing `pair` the lookup for `pair` has not run yet —
-   * `macroEntry` still holds the PREVIOUS name's result, the
-   * `leaf.macro_name === node.macro_name` guard fails, and no slots appear.
-   * It only ever fired when re-committing an already-resolved name.
-   *
-   * Reacting to the resolved macro instead fires exactly once, when the
-   * answer arrives. Cat 2026-07-25.
-   */
   useEffect(() => {
-    // `useQueriedMacro` binds each result to its driver + name, so a defined
-    // `macroEntry` always describes the current row even before effects run.
-    if (!macroEntry) return;
-    if (macroEntry.dynamic_arity === true) {
-      // Dynamic Macros do not have a target count to reconcile, but they still
-      // form a Macro transition boundary. Record the name so returning to a
-      // previously seen fixed Macro cannot be mistaken for an already-settled
-      // render and leave this initial slot behind.
-      reconciledMacroRef.current = macroEntry.name;
-      if (node.children.length === 0) {
-        setRowArity(path, 1);
-        if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
-      }
+    if (!arityAuthority) {
+      reconciledAuthorityRef.current = null;
       return;
     }
-    const requiredArity = macroTemplateArity(macroEntry);
-    if (requiredArity > node.children.length) {
-      setRowArity(path, requiredArity);
-      // Expand the row so the new slots are visible immediately — otherwise
-      // the author just sees the frame border change color with no other cue.
-      if (collapsed.has(nodeId)) onToggleCollapsed(nodeId);
-      return;
+    if (reconciledAuthorityRef.current === arityAuthority.key) return;
+    // Mark the edge before publishing the functional tree update. This avoids a
+    // child-count render from treating the same authority as a second edge.
+    reconciledAuthorityRef.current = arityAuthority.key;
+    const requiredArity = arityAuthority.dynamic
+      ? Math.max(1, node.children.length)
+      : arityAuthority.count;
+    setRowArity(path, requiredArity);
+    if (requiredArity > node.children.length && collapsed.has(nodeId)) {
+      onToggleCollapsed(nodeId);
     }
-    // Retyping one Macro over another leaves the previous Macro's slots
-    // behind (`pair` opens two, then `atom` needs none and the row would
-    // serialize as `atom(,)`). Reclaim that surplus — but only on the edit
-    // that actually changed the Macro, and only while the surplus is
-    // entirely empty.
-    //
-    // Both conditions matter. Without the first, `+ child` on a fixed-arity
-    // row is undone the instant the author clicks it and the button looks
-    // broken; without the second, work the author already typed would be
-    // silently deleted. Review 2026-07-25.
-    if (reconciledMacroRef.current === macroEntry.name) return;
-    reconciledMacroRef.current = macroEntry.name;
-    if (node.children.length > requiredArity) setRowArity(path, requiredArity);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [macroEntry, node.macro_name, node.children.length]);
+  }, [
+    arityAuthority?.key,
+    arityAuthority?.count,
+    arityAuthority?.dynamic,
+    setRowArity,
+    path,
+    node.children.length,
+    collapsed,
+    nodeId,
+    onToggleCollapsed
+  ]);
 
   // Frame: kind palette when the row resolved to a pool macro (or an
   // env_mode leaf); default gray when the name doesn't match anything.

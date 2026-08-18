@@ -4,7 +4,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';
-import { GuiInductiveEditor, useQueriedMacro, withContextEntryId } from '../CreateEntryApp';
+import {
+  GuiInductiveEditor,
+  isSemanticallyBlankInductiveNode,
+  useQueriedMacro,
+  withArityAtPath,
+  withContextEntryId
+} from '../CreateEntryApp';
 
 afterEach(() => {
   cleanup();
@@ -736,8 +742,8 @@ describe('Inductive editor arity auto-fill', () => {
     const box = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
     fireEvent.change(box, { target: { value: 'atom' } });
     await new Promise((resolve) => setTimeout(resolve, 300));
-    // The surplus starts at index 0 and is not entirely empty, so nothing goes.
-    expect(latest()).toBe('atom(a,)');
+    // Blank excess slots are removed individually; authored siblings remain.
+    expect(latest()).toBe('atom(a)');
   });
 
   // The production driver is a long-lived useMemo with an LRU cache, so the
@@ -851,4 +857,135 @@ describe('Inductive editor arity auto-fill', () => {
       );
     });
   });
+
+  it('derives temporary Macro arity from authored unescaped placeholders', async () => {
+    const zero = renderEditor('$x$');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(zero.view.getAllByRole('textbox')).toHaveLength(1);
+    cleanup();
+
+    const one = renderEditor('$#0$');
+    await waitFor(() => expect(one.view.getAllByRole('textbox')).toHaveLength(2));
+    cleanup();
+
+    const two = renderEditor('$#0 + #1$');
+    await waitFor(() => expect(two.latest()).toBe('$#0 + #1$(,)'));
+  });
+
+  it('does not count an escaped temporary placeholder', async () => {
+    const escaped = renderEditor('$\\#0$');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(escaped.view.getAllByRole('textbox')).toHaveLength(1);
+  });
+
+  it('uses only the effective Style and reconciles when Style changes', async () => {
+    const styledMacro = {
+      name: 'styled-arity', description: '', source: { entries: [], urls: [] }, tags: [],
+      dynamic_arity: false,
+      styles: [
+        { style_name: 'default', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+        { style_name: 'wide', template: { mode: 'formula_inline', body: '#0 #1 #2' }, tags: [] }
+      ]
+    } as never;
+    const styledDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'styled-arity' ? styledMacro : null
+    }});
+    let latest = 'styled-arity';
+    const view = render(<GuiInductiveEditor
+      snl={latest}
+      macroDataDriver={styledDriver}
+      macroCandidates={[{ id: 'styled-arity', labels: [], styles: ['default', 'wide'] }]}
+      macroOrigin={{}}
+      onOpenMacroEditor={() => undefined}
+      onChange={(next) => { latest = next; }}
+    />);
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+    fireEvent.change(view.getByRole('combobox', { name: 'Macro style for styled-arity' }), {
+      target: { value: 'wide' }
+    });
+    await waitFor(() => expect(latest).toBe('styled-arity[wide](,,)'));
+  });
+
+  it('uses every locale projection in the effective Style as one stable arity', async () => {
+    const localized = {
+      name: 'localized', description: '', source: { entries: [], urls: [] }, tags: [],
+      dynamic_arity: false,
+      styles: [{ style_name: 'default', tags: [], template: {
+        type: 'i18n', default_language: 'en', values: {
+          en: { mode: 'formula_inline', body: '#0' },
+          zh: { mode: 'formula_inline', body: '#0 #1' }
+        }
+      }}]
+    } as never;
+    const localizedDriver = new MacroDataDriver({ queries: {
+      query_macro: async () => localized
+    }});
+    let latest = 'localized';
+    render(<GuiInductiveEditor
+      snl={latest} macroDataDriver={localizedDriver} macroCandidates={[]}
+      macroOrigin={{}} onOpenMacroEditor={() => undefined}
+      onChange={(next) => { latest = next; }}
+    />);
+    await waitFor(() => expect(latest).toBe('localized(,)'));
+  });
+
+  it('reconciles same-name Macro payload shrink and grow', async () => {
+    const makeDriver = (template: string) => new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'same' ? macro('same', false, template) : null
+    }});
+    let latest = 'same';
+    const props = (macroDataDriver: MacroDataDriver) => ({
+      snl: latest, macroDataDriver, macroCandidates: [], macroOrigin: {},
+      onOpenMacroEditor: () => undefined, onChange: (next: string) => { latest = next; }
+    });
+    const view = render(<GuiInductiveEditor {...props(makeDriver('#0 #1'))} />);
+    await waitFor(() => expect(latest).toBe('same(,)'));
+    view.rerender(<GuiInductiveEditor {...props(makeDriver('#0'))} />);
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+    view.rerender(<GuiInductiveEditor {...props(makeDriver('#0 #1 #2'))} />);
+    await waitFor(() => expect(latest).toBe('same(,,)'));
+  });
+
+  it('selectively removes blank excess children while retaining semantic excess in order', () => {
+    const tree = createSnlSyntaxTreeNode('root', { children: [
+      createSnlSyntaxTreeNode('required'),
+      createSnlSyntaxTreeNode(''),
+      createSnlSyntaxTreeNode('kept-a'),
+      createSnlSyntaxTreeNode(''),
+      createSnlSyntaxTreeNode('kept-b')
+    ] });
+    const next = withArityAtPath(tree, '', 1);
+    expect(next.children.map((child) => child.macro_name)).toEqual(['required', 'kept-a', 'kept-b']);
+  });
+
+  it('does not classify metadata-bearing apparent blanks as semantic blanks', () => {
+    for (const field of ['style_name', 'source', 'postfix', 'env_mode', 'temporary_source',
+      'temporary_format', 'binder_explicit', 'binder_name', 'scope'] as const) {
+      const node = createSnlSyntaxTreeNode('') as unknown as Record<string, unknown>;
+      node[field] = field === 'binder_explicit' ? true : { semantic: field };
+      expect(isSemanticallyBlankInductiveNode(node as never), field).toBe(false);
+    }
+    const withMdata = createSnlSyntaxTreeNode('');
+    withMdata.mdata = { source: 'authored' };
+    expect(isSemanticallyBlankInductiveNode(withMdata)).toBe(false);
+    expect(isSemanticallyBlankInductiveNode(createSnlSyntaxTreeNode(' '))).toBe(false);
+    const withUnknownSemantics = createSnlSyntaxTreeNode('') as unknown as Record<string, unknown>;
+    withUnknownSemantics.context = 'authored-context';
+    expect(isSemanticallyBlankInductiveNode(withUnknownSemantics as never)).toBe(false);
+  });
+
+  it('undoes a Macro edit and its generated slots atomically', async () => {
+    const { view, latest } = renderEditor('x');
+    const box = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    box.focus();
+    fireEvent.change(box, { target: { value: 'pair' } });
+    await waitFor(() => expect(latest()).toBe('pair(,)'));
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.undo' }
+    }));
+    await waitFor(() => expect(latest()).toBe('x'));
+  });
+
 });

@@ -321,8 +321,7 @@ try {
         measured.katex[4] > measured.body[0] && measured.katex[5] < 40 &&
         measured.base[0] > measured.body[0] && measured.base[1] < 40 && measured.base[2] === 1 &&
         measured.proseLines > 1 && measured.proseSpan > 40 &&
-        measured.body[1] === measured.body[0] && measured.math[1] > measured.math[0] &&
-        ['auto', 'scroll'].includes(measured.math[2]) &&
+        measured.body[1] === measured.body[0] && measured.math[2] === 'visible' &&
         measured.root[0] === measured.root[1],
         `MIXED:${width}`,
         measured
@@ -342,14 +341,15 @@ try {
         `document.querySelector('[data-entry-body] .katex-html.snl-text')?.textContent?.includes('RootCM') && document.querySelector('[data-entry-body] .katex-html.snl-text .snl-math-span .katex')`,
         'canonical root Text host and inline KaTeX reference'
       );
-      const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.katex-html.snl-text'),m=h.querySelector('.snl-math-span'),k=m.querySelector('.katex'),textEl=k.querySelector('.mord.text')??k.querySelector('.mord'),walker=document.createTreeWalker(h,NodeFilter.SHOW_TEXT);let literal=null;while(walker.nextNode()){if(walker.currentNode.parentElement?.closest('.katex')===k)continue;if(walker.currentNode.data.includes('RootCM')){literal=walker.currentNode;break}}const start=literal.data.indexOf('RootCM'),range=document.createRange();range.setStart(literal,start);range.setEnd(literal,start+6);const lr=range.getBoundingClientRect(),tr=textEl.getBoundingClientRect(),hs=getComputedStyle(h),bs=getComputedStyle(b);return{hostClass:h.className,family:hs.fontFamily,fontSize:parseFloat(hs.fontSize),baseSize:parseFloat(bs.fontSize),lineHeight:hs.lineHeight,literal:[lr.left,lr.top,lr.right,lr.bottom,lr.width,lr.height],reference:[tr.left,tr.top,tr.right,tr.bottom,tr.width,tr.height],mathFont:parseFloat(getComputedStyle(k).fontSize),body:[b.clientWidth,b.scrollWidth],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+      const measured = await evaluate(`(()=>{const entry=document.querySelector('[data-entry-id]'),title=entry.querySelector('.snl-entry-title > span'),b=document.querySelector('[data-entry-body]'),h=b.querySelector('.katex-html.snl-text'),m=h.querySelector('.snl-math-span'),k=m.querySelector('.katex'),textEl=k.querySelector('.mord.text')??k.querySelector('.mord'),walker=document.createTreeWalker(h,NodeFilter.SHOW_TEXT);let literal=null;while(walker.nextNode()){if(walker.currentNode.parentElement?.closest('.katex')===k)continue;if(walker.currentNode.data.includes('RootCM')){literal=walker.currentNode;break}}const start=literal.data.indexOf('RootCM'),range=document.createRange();range.setStart(literal,start);range.setEnd(literal,start+6);const lr=range.getBoundingClientRect(),tr=textEl.getBoundingClientRect(),hs=getComputedStyle(h),ts=getComputedStyle(title),ms=getComputedStyle(m),bs=getComputedStyle(b),mr=m.getBoundingClientRect();return{hostClass:h.className,family:hs.fontFamily,titleFamily:ts.fontFamily,titleWeight:ts.fontWeight,fontSize:parseFloat(hs.fontSize),baseSize:parseFloat(bs.fontSize),lineHeight:hs.lineHeight,literal:[lr.left,lr.top,lr.right,lr.bottom,lr.width,lr.height],reference:[tr.left,tr.top,tr.right,tr.bottom,tr.width,tr.height],math:[m.clientWidth,m.scrollWidth,ms.display,ms.overflowX,mr.width,mr.height],mathFont:parseFloat(getComputedStyle(k).fontSize),body:[b.clientWidth,b.scrollWidth],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
       assert(
         measured.hostClass.split(/\s+/).includes('snl-text') &&
-        measured.family.includes('KaTeX_Main') &&
+        measured.family.includes('KaTeX_Main') && measured.titleFamily.includes('KaTeX_Main') &&
         Math.abs(measured.fontSize / measured.baseSize - 1.21) < 0.015 &&
         Math.abs(measured.fontSize - measured.mathFont) < 0.1 &&
         Math.abs(measured.literal[4] - measured.reference[4]) < 0.75 &&
         Math.abs(measured.literal[3] - measured.reference[3]) < 3 &&
+        measured.math[2] === 'inline' && measured.math[3] === 'visible' && measured.math[5] < 40 &&
         measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1],
         `ROOT-TEXT-CM:${width}`,
         measured
@@ -527,7 +527,16 @@ try {
   }
 
 
-  terminalResult = { kind: 'pass', widths, desktopHoverWidth: 1000, checks: evidence.length };
+  terminalResult = {
+    kind: 'pass',
+    widths,
+    desktopHoverWidth: 1000,
+    checks: evidence.length,
+    measurements: {
+      mixed320: evidence.find((item) => item.mode === 'mixed' && item.width === 320)?.measured,
+      roottext320: evidence.find((item) => item.mode === 'roottext' && item.width === 320)?.measured
+    }
+  };
 } catch (error) {
   terminalResult = { kind: 'failure', detail: error instanceof Error ? error.message : String(error) };
   process.exitCode = 1;

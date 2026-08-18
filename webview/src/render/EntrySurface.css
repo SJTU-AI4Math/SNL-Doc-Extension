@@ -15,9 +15,21 @@
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
+  /* `overflow-x:auto` makes an omitted vertical axis compute to `auto` too.
+     Keep the Entry's natural document height instead of creating a nested
+     up/down wheel owner around every body. */
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+/* SNL-Basics 0.2.4 gives the root KaTeX panel horizontal overflow, which
+   similarly promotes its vertical axis to `auto`. The outer Entry body owns
+   horizontal containment; the root panel must not become another up/down
+   wheel region. */
+.snl-entry-overflow-surface [data-entry-body] .katex-panel {
+  overflow-y: hidden;
 }
 
 /* Basics 0.1.5 can emit a plain/Typst Entry body as one direct pre. It has

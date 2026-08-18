@@ -56,6 +56,15 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).toContain('::-webkit-scrollbar');
   });
 
+  it('does not make the Entry body or SNL root a vertical scroll owner', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\[data-entry-body\]\s*\{[^}]*overflow-x:\s*auto[^}]*overflow-y:\s*hidden/s
+    );
+    expect(entrySurfaceCss).toMatch(
+      /\[data-entry-body\]\s+\.katex-panel\s*\{[^}]*overflow-y:\s*hidden/s
+    );
+  });
+
   it('wraps only defensive plain and textual leaves while preserving code and formulas', () => {
     expect(entrySurfaceCss).toMatch(
       /\[data-entry-body\]\s*>\s*pre\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*pre-wrap/s

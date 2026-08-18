@@ -12,7 +12,7 @@
 // Lives under `webview/` purely because that is the vitest project running in
 // jsdom; the code under test is host-side.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -234,6 +234,116 @@ describe('the exported runtime, executed', () => {
       expect(ownSubtree(byId(id)).hidden).toBe(true);
     }
     expect(collapse.disabled).toBe(true);
+  });
+
+  it('initializes lazy popover collapsibles once per inserted render scope', () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML = `
+        <main class="snl-export">
+          <div id="main-controls" data-snl-collapsible-controls=""></div>
+          <div id="main-peer" data-snl-collapsible="" data-snl-collapse-level="1"
+               data-snl-child-count="1" data-snl-collapsed="true">
+            <div>main peer</div><div data-snl-subtree="">main hidden content</div>
+          </div>
+          <span id="popover-anchor" data-src="lazy-entry">lazy</span>
+        </main>`;
+      globalThis.__SNL_POPOVERS__ = {
+        'lazy-entry': `
+          <article data-entry-id="lazy-entry">
+            <div class="snl-collapsible-scope" data-snl-collapsible-scope-label="Lazy preview">
+              <div data-snl-collapsible-controls=""></div>
+              <div id="popover-default" data-snl-collapsible="" data-snl-collapse-level="0"
+                   data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-collapsed="true"
+                   data-snl-initial-collapsed="true">
+                <div class="snl-collapsible__summary">default closed</div>
+                <div data-snl-subtree=""><span>default hidden content</span>
+                  <div id="popover-nested" data-snl-collapsible="" data-snl-collapse-level="1"
+                       data-snl-child-count="1" data-snl-collapse-noun="part"
+                       data-snl-initial-collapsed="false">
+                    <div class="snl-collapsible__summary">nested open</div>
+                    <div data-snl-subtree="">nested hidden content</div>
+                  </div>
+                </div>
+              </div>
+              <div id="popover-explicit" data-snl-collapsible="" data-snl-collapse-level="1"
+                   data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-collapsed="true"
+                   data-snl-initial-collapsed="true">
+                <div class="snl-collapsible__summary">explicit peer</div>
+                <div data-snl-subtree="">explicit hidden content</div>
+              </div>
+            </div>
+          </article>`
+      };
+      // Re-run over the replacement document after installing the lazy payload.
+      // eslint-disable-next-line no-eval
+      (0, eval)(EXPORT_RUNTIME_JS);
+
+      const anchor = byId('popover-anchor');
+      const show = (): HTMLElement => {
+        anchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        vi.advanceTimersByTime(1000);
+        const popover = document.querySelector<HTMLElement>('[data-snl-popover="lazy-entry"]');
+        if (!popover) throw new Error('popover did not open');
+        return popover;
+      };
+      const hide = (popover: HTMLElement): void => {
+        anchor.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        vi.advanceTimersByTime(180 + 150);
+        expect(popover.isConnected).toBe(false);
+      };
+
+      let popover = show();
+      expect(popover.querySelectorAll('button.snl-collapse-toggle')).toHaveLength(3);
+      expect(popover.querySelectorAll('[data-snl-collapsible-controls] > button')).toHaveLength(2);
+      expect(byId('main-controls').querySelectorAll('button')).toHaveLength(2);
+      expect(ownSubtree(byId('popover-default')).hidden).toBe(true);
+      expect(ownSubtree(byId('popover-nested')).hidden).toBe(false);
+      expect(ownSubtree(byId('popover-explicit')).hidden).toBe(true);
+      expect(popover.textContent).toContain('default hidden content');
+      expect(popover.textContent).toContain('nested hidden content');
+      expect(popover.textContent).toContain('explicit hidden content');
+
+      // Plain click is local; Ctrl+Click applies only to peers at the same
+      // authored depth inside this lazy render scope, never the main document.
+      click(toggleOf(byId('popover-nested')));
+      expect(ownSubtree(byId('popover-nested')).hidden).toBe(true);
+      expect(ownSubtree(byId('popover-explicit')).hidden).toBe(true);
+      click(toggleOf(byId('popover-nested')));
+      click(toggleOf(byId('popover-nested')), { ctrlKey: true });
+      expect(ownSubtree(byId('popover-nested')).hidden).toBe(true);
+      expect(ownSubtree(byId('popover-explicit')).hidden).toBe(true);
+      expect(ownSubtree(byId('main-peer')).hidden).toBe(true);
+
+      const controls = popover.querySelector<HTMLElement>('[data-snl-collapsible-controls]')!;
+      const expand = Array.from(controls.querySelectorAll('button')).find((button) =>
+        button.textContent === 'Expand all')!;
+      const collapse = Array.from(controls.querySelectorAll('button')).find((button) =>
+        button.textContent === 'Collapse all')!;
+      click(expand);
+      for (const id of ['popover-default', 'popover-nested', 'popover-explicit']) {
+        expect(ownSubtree(byId(id)).hidden).toBe(false);
+      }
+      click(collapse);
+      for (const id of ['popover-default', 'popover-nested', 'popover-explicit']) {
+        expect(ownSubtree(byId(id)).hidden).toBe(true);
+      }
+
+      const staleToggle = toggleOf(byId('popover-default'));
+      hide(popover);
+      popover = show();
+      expect(popover.querySelectorAll('button.snl-collapse-toggle')).toHaveLength(3);
+      expect(popover.querySelectorAll('[data-snl-collapsible-controls] > button')).toHaveLength(2);
+      // A retained detached control must not reach into the replacement scope.
+      click(staleToggle);
+      expect(ownSubtree(byId('popover-default')).hidden).toBe(true);
+      hide(popover);
+      expect(document.querySelectorAll('[data-snl-popover]')).toHaveLength(0);
+    } finally {
+      delete globalThis.__SNL_POPOVERS__;
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps current sub helpers and legacy partial helpers outside hover selection', () => {

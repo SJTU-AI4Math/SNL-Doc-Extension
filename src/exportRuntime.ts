@@ -175,6 +175,10 @@ const RUNTIME_TEMPLATE = String.raw`
       // clipped by overflow-x:hidden (5px in the user's integrated HTML).
       if (el.firstElementChild) el.firstElementChild.style.boxSizing = 'border-box';
       document.body.appendChild(el);
+      // Popover HTML is inserted lazily, after the document-wide initializer
+      // has run. Restore stripped React controls inside this render scope now,
+      // before the new surface can receive interaction.
+      wireCollapse(el);
       place(el, x, y);
 
       var layer = { el: el, depth: depth, anchor: anchor };
@@ -279,18 +283,10 @@ const RUNTIME_TEMPLATE = String.raw`
     }
   }
 
-  /**
-   * Restore expand/collapse. The exporter marks each subtree wrapper with
-   * data-snl-subtree and its owning row with data-snl-collapsible, so the
-   * static file can rebuild the toggle the live Infoview renders as a button.
-   *
-   * The toggle is built to the SAME contract as the live one
-   * (src/collapseToggleContract.ts): same glyphs, same geometry, same .snl-btn
-   * classes, count in the tooltip rather than on the button face. Those
-   * .snl-btn styles are already inside the stylesheet the export inlines.
-   */
-  function wireCollapse() {
-    var hosts = document.querySelectorAll('[data-snl-collapsible]');
+  /** Restore stripped toggles from exporter markers. */
+  function wireCollapse(root) {
+    var boundary = root || document;
+    var hosts = boundary.querySelectorAll('[data-snl-collapsible]');
     var records = [];
     var controlGroups = [];
 
@@ -307,8 +303,14 @@ const RUNTIME_TEMPLATE = String.raw`
     }
 
     function scopeFor(node) {
-      return node.closest && node.closest('.snl-collapsible-scope') ||
-        document.querySelector('.snl-export') || document.body;
+      var scope = node.closest && node.closest('.snl-collapsible-scope');
+      if (scope && (boundary === document || boundary === scope || boundary.contains(scope))) return scope;
+      // A lazy popover is an independent exported render surface. Falling back
+      // to document.querySelector('.snl-export') here would couple its depth
+      // shortcuts and controls to the main page.
+      return boundary === document
+        ? document.querySelector('.snl-export') || document.body
+        : boundary;
     }
 
     function updateGroups(scope) {
@@ -347,6 +349,10 @@ const RUNTIME_TEMPLATE = String.raw`
 
     for (var i = 0; i < hosts.length; i++) {
       (function (host, index) {
+        if (host.__snlExportCollapseRecord) {
+          records.push(host.__snlExportCollapseRecord);
+          return;
+        }
         var subtree = ownedSubtree(host);
         if (!subtree) return;
         var count = parseInt(host.getAttribute('data-snl-child-count') || '0', 10);
@@ -383,14 +389,16 @@ const RUNTIME_TEMPLATE = String.raw`
           scope: scopeFor(host)
         };
         records.push(record);
+        host.__snlExportCollapseRecord = record;
         toggle.addEventListener('click', function (event) {
           var nextOpen = toggle.getAttribute('aria-expanded') !== 'true';
           if (event.ctrlKey && record.level !== null) {
             event.preventDefault();
             event.stopPropagation();
-            for (var r = 0; r < records.length; r++) {
-              var peer = records[r];
-              if (peer.scope === record.scope && peer.level === record.level) setOpen(peer, nextOpen);
+            var peerHosts = record.scope.querySelectorAll('[data-snl-collapsible]');
+            for (var r = 0; r < peerHosts.length; r++) {
+              var peer = peerHosts[r].__snlExportCollapseRecord;
+              if (peer && peer.scope === record.scope && peer.level === record.level) setOpen(peer, nextOpen);
             }
           } else {
             if (event.ctrlKey || event.metaKey) {
@@ -406,9 +414,10 @@ const RUNTIME_TEMPLATE = String.raw`
       })(hosts[i], i);
     }
 
-    var controls = document.querySelectorAll('[data-snl-collapsible-controls]');
+    var controls = boundary.querySelectorAll('[data-snl-collapsible-controls]');
     for (var j = 0; j < controls.length; j++) {
       (function (mount) {
+        if (mount.__snlExportCollapseControls) return;
         var scope = scopeFor(mount);
         var scopedRecords = [];
         for (var r = 0; r < records.length; r++) {
@@ -442,6 +451,7 @@ const RUNTIME_TEMPLATE = String.raw`
         collapse.addEventListener('click', applyAll(false));
         mount.appendChild(expand);
         mount.appendChild(collapse);
+        mount.__snlExportCollapseControls = true;
         controlGroups.push({
           scope: scope,
           records: scopedRecords,

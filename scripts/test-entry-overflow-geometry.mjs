@@ -364,7 +364,9 @@ try {
     { width: 320, height: 700 },
     { width: 480, height: 700 },
     { width: 1000, height: 700 },
-    { width: 480, height: 260 }
+    // Put a compact root origin near the bottom edge. An above-side frame must
+    // stay attached to that origin rather than being pinned to the viewport top.
+    { width: 480, height: 260, rootPaddingTop: 40 }
   ];
   const closeEnough = (left, right, tolerance = 0.75) =>
     left.length === right.length && left.every((value, index) => Math.abs(value - right[index]) <= tolerance);
@@ -375,10 +377,14 @@ try {
     closeEnough(before.originRect, after.originRect) && closeEnough(before.rect, after.rect) &&
     before.side === after.side && Math.abs(before.bodyOverlap - after.bodyOverlap) <= 0.75;
 
-  for (const { width, height } of viewportScenarios) {
+  let edgePlacement = null;
+  for (const { width, height, rootPaddingTop = 0 } of viewportScenarios) {
     const opened = await openPage(browser, browserWs, 'hover', width, server.address().port, height);
     try {
       const { page, evaluate } = opened;
+      if (rootPaddingTop > 0) {
+        await evaluate(`(()=>{document.querySelector('#root').style.paddingTop=${JSON.stringify(`${rootPaddingTop}px`)};return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))})()`);
+      }
       const pointFor = (selector, label) => waitFor(
         evaluate,
         `(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return r.width&&r.height?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`,
@@ -411,7 +417,7 @@ try {
         // Chromium animates keyboard scrolling; sample only after its bounded settle.
         await delay(400);
       };
-      const snapshot = (subject, originSelector) => evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject===${JSON.stringify(subject)}&&e.dataset.snlPopoverPhase!=='closing');if(!marker)return null;const shell=marker.closest('.snl-entry-hover-popover'),origin=document.querySelector(${JSON.stringify(originSelector)}),r=shell.getBoundingClientRect(),a=origin.getBoundingClientRect(),b=document.querySelector('[data-entry-body]').getBoundingClientRect(),intersection=Math.max(0,Math.min(r.right,b.right)-Math.max(r.left,b.left))*Math.max(0,Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)),horizontal=r.left>=a.right-0.5?'right':r.right<=a.left+0.5?'left':'overlap-x',vertical=r.top>=a.bottom-0.5?'below':r.bottom<=a.top+0.5?'above':'overlap-y',parsed=marker.dataset.snlPopoverOriginRect.split(',').map(Number),requests=window.__posted.filter(m=>m?.type==='requestEntryDetails'&&m.entryId===${JSON.stringify(subject)}).length;return{id:marker.dataset.snlPopoverId,subject:marker.dataset.snlPopoverSubject,parentId:marker.dataset.snlPopoverParentId,originPath:marker.dataset.snlPopoverOriginPath,bounds:marker.dataset.snlPopoverOriginBounds,originRect:parsed,anchor:[a.left,a.top,a.right,a.bottom],rect:[r.left,r.top,r.right,r.bottom],side:horizontal+'/'+vertical,bodyOverlap:intersection,frozen:marker.dataset.snlPopoverFrozen==='true',phase:marker.dataset.snlPopoverPhase,visible:getComputedStyle(shell).display!=='none'&&getComputedStyle(shell).pointerEvents==='auto',paint:[getComputedStyle(shell).display,getComputedStyle(shell).visibility,getComputedStyle(shell).opacity,getComputedStyle(shell).pointerEvents],viewport:[innerWidth,innerHeight],contained:r.left>=-0.5&&r.top>=-0.5&&r.right<=innerWidth+0.5&&r.bottom<=innerHeight+0.5,shellCount:[...document.querySelectorAll('.snl-entry-hover-popover')].filter(e=>getComputedStyle(e).display!=='none').length,markerCount:[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing').length,requests}})()`);
+      const snapshot = (subject, originSelector) => evaluate(`(()=>{const marker=[...document.querySelectorAll('[data-snl-popover-id]')].find(e=>e.dataset.snlPopoverSubject===${JSON.stringify(subject)}&&e.dataset.snlPopoverPhase!=='closing');if(!marker)return null;const shell=marker.closest('.snl-entry-hover-popover'),origin=document.querySelector(${JSON.stringify(originSelector)}),r=shell.getBoundingClientRect(),a=origin.getBoundingClientRect(),b=document.querySelector('[data-entry-body]').getBoundingClientRect(),intersection=Math.max(0,Math.min(r.right,b.right)-Math.max(r.left,b.left))*Math.max(0,Math.min(r.bottom,b.bottom)-Math.max(r.top,b.top)),horizontal=r.left>=a.right-0.5?'right':r.right<=a.left+0.5?'left':'overlap-x',vertical=r.top>=a.bottom-0.5?'below':r.bottom<=a.top+0.5?'above':'overlap-y',anchorGap=vertical==='above'?a.top-r.bottom:vertical==='below'?r.top-a.bottom:-1,originHit=origin.contains(document.elementFromPoint(a.left+a.width/2,a.top+a.height/2)),parsed=marker.dataset.snlPopoverOriginRect.split(',').map(Number),requests=window.__posted.filter(m=>m?.type==='requestEntryDetails'&&m.entryId===${JSON.stringify(subject)}).length;return{id:marker.dataset.snlPopoverId,subject:marker.dataset.snlPopoverSubject,parentId:marker.dataset.snlPopoverParentId,originPath:marker.dataset.snlPopoverOriginPath,bounds:marker.dataset.snlPopoverOriginBounds,originRect:parsed,anchor:[a.left,a.top,a.right,a.bottom],rect:[r.left,r.top,r.right,r.bottom],side:horizontal+'/'+vertical,anchorGap,originHit,bodyOverlap:intersection,frozen:marker.dataset.snlPopoverFrozen==='true',phase:marker.dataset.snlPopoverPhase,visible:getComputedStyle(shell).display!=='none'&&getComputedStyle(shell).pointerEvents==='auto',paint:[getComputedStyle(shell).display,getComputedStyle(shell).visibility,getComputedStyle(shell).opacity,getComputedStyle(shell).pointerEvents],viewport:[innerWidth,innerHeight],contained:r.left>=-0.5&&r.top>=-0.5&&r.right<=innerWidth+0.5&&r.bottom<=innerHeight+0.5,shellCount:[...document.querySelectorAll('.snl-entry-hover-popover')].filter(e=>getComputedStyle(e).display!=='none').length,markerCount:[...document.querySelectorAll('[data-snl-popover-id]')].filter(e=>e.dataset.snlPopoverPhase!=='closing').length,requests}})()`);
       const sampleStable = async (subject, originSelector, frozen, label) => {
         const startedAt = Date.now();
         const samples = [];
@@ -439,7 +445,12 @@ try {
       const rootPoint = await moveTo(rootSelector, `root hover origin ${width}x${height}`);
       await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverPhase==='visible') && document.querySelector('.snl-entry-hover-popover [data-src="grandchild"]') && [...document.querySelectorAll('.snl-entry-hover-popover')].every(e=>{const style=getComputedStyle(e),rect=e.getBoundingClientRect();return style.display!=='none'&&style.visibility==='visible'&&style.opacity==='1'&&style.pointerEvents==='auto'&&rect.width>0&&rect.height>0})`, 'loaded visible root hover preview');
       const hoverRoot = await sampleStable('child', rootSelector, false, `ORIGIN-HOVER-STABLE-ROOT:${width}x${height}`);
-      assert(hoverRoot.bounds === 'viewport' && hoverRoot.contained, `VIEWPORT-ROOT:${width}x${height}`, hoverRoot);
+      assert(
+        hoverRoot.bounds === 'viewport' && hoverRoot.contained && hoverRoot.originHit &&
+        hoverRoot.anchorGap >= 7.5 && hoverRoot.anchorGap <= 20,
+        `VIEWPORT-ROOT:${width}x${height}`,
+        hoverRoot
+      );
       await nativeClick(rootPoint);
       await waitFor(evaluate, `[...document.querySelectorAll('[data-snl-popover-id]')].some(e=>e.dataset.snlPopoverSubject==='child'&&e.dataset.snlPopoverFrozen==='true')`, 'root hover-to-click pin');
       const pinnedRoot = await sampleStable('child', rootSelector, true, `ORIGIN-PIN-STABLE-ROOT:${width}x${height}`);
@@ -520,6 +531,24 @@ try {
       await nativePointerDown(outsidePoint);
       await waitFor(evaluate, `document.querySelectorAll('[data-snl-popover-id]').length===0 && document.querySelectorAll('.snl-entry-hover-popover').length===0`, 'outside pointerdown dismisses all roots');
       assert((await activeBranches()).length === 0, `ORIGIN-OUTSIDE-DISMISS:${width}x${height}`, await activeBranches());
+      if (rootPaddingTop > 0) {
+        const placementEvidence = (sample) => ({
+          id: sample.id,
+          anchor: sample.anchor,
+          rect: sample.rect,
+          side: sample.side,
+          anchorGap: sample.anchorGap,
+          originHit: sample.originHit,
+          contained: sample.contained,
+          frozen: sample.frozen
+        });
+        edgePlacement = {
+          viewport: [width, height],
+          hover: placementEvidence(hoverRoot),
+          pinned: placementEvidence(pinnedRoot),
+          nested: placementEvidence(pinnedNested)
+        };
+      }
       evidence.push({ width, height, mode: 'origin-native-closure', root: repeatedRoot, nested: repeatedNested, nestedSibling, rootSibling, viewport });
     } finally {
       await closePage(browser, opened);
@@ -532,6 +561,7 @@ try {
     widths,
     desktopHoverWidth: 1000,
     checks: evidence.length,
+    edgePlacement,
     measurements: {
       mixed320: evidence.find((item) => item.mode === 'mixed' && item.width === 320)?.measured,
       roottext320: evidence.find((item) => item.mode === 'roottext' && item.width === 320)?.measured

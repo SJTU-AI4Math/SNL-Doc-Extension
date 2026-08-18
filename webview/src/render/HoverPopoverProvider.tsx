@@ -197,7 +197,15 @@ export function entryPopoverFrameStyle(
     maxHeight: placeAbove
       ? `${Math.max(0, availableAbove)}px`
       : `min(calc(100vh - 16px), calc(100vh - ${belowTop + viewportMargin}px))`,
-    ...(placeAbove ? { top: viewportMargin } : { top: belowTop }),
+    ...(placeAbove
+      ? {
+          // Anchor compact above-side frames to the origin. Pinning `top` to the
+          // viewport margin detached short content and made the popover appear
+          // swallowed at the top of a short viewport.
+          top: 'auto',
+          bottom: window.innerHeight - popover.originRect.top + viewportMargin
+        }
+      : { top: belowTop }),
     width: 'max-content',
     boxSizing: 'border-box',
     background: '#ffffff',

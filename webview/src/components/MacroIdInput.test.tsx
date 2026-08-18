@@ -67,6 +67,14 @@ describe('MacroIdInput', () => {
     ]);
   });
 
+  it('keeps every structural-looking character literal inside percent text', () => {
+    expect(tokenizeMacroIdDsl('%foo@bar,(baz)[style]$x$%')).toEqual([
+      { text: '%', tone: 'text' },
+      { text: 'foo@bar,(baz)[style]$x$', tone: 'plain' },
+      { text: '%', tone: 'text' }
+    ]);
+  });
+
   it('auto-closes delimiters in the control and renders parser-aware colors', async () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');

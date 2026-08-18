@@ -65,12 +65,16 @@ export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
     else tokens.push({ text, tone });
   };
   for (const char of value) {
-    if (char === '$') {
-      push(char, inTextDelimiter ? 'plain' : 'formula');
-      atNodeStart = false;
-    } else if (char === '%') {
+    if (char === '%') {
       push(char, 'text');
       inTextDelimiter = !inTextDelimiter;
+      atNodeStart = false;
+    } else if (inTextDelimiter) {
+      // `%…%` is one parser-owned literal Text leaf. Do not present any
+      // interior `$`, `@`, comma, or bracket as active SNL structure.
+      push(char, 'plain');
+    } else if (char === '$') {
+      push(char, 'formula');
       atNodeStart = false;
     } else if (char === '@') {
       push(char, atNodeStart ? 'binder' : 'context');

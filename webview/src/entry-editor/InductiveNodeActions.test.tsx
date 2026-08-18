@@ -271,6 +271,30 @@ describe('Inductive node action dial', () => {
     expect(document.activeElement).toBe(macroA);
   });
 
+  it('reverses across disabled Styles and skips collapsed descendants', () => {
+    const { view } = renderEditor('root(a,b(c),d)');
+    const inputByValue = (value: string): HTMLTextAreaElement => {
+      const input = view.getAllByRole('textbox').find(
+        (candidate) => (candidate as HTMLTextAreaElement).value === value
+      ) as HTMLTextAreaElement | undefined;
+      if (!input) throw new Error(`Missing Inductive editor for ${value}`);
+      return input;
+    };
+    const macroB = inputByValue('b');
+    fireEvent.click(within(rowForInput(macroB)).getByLabelText('Collapse'));
+    expect(view.queryByDisplayValue('c')).toBeNull();
+
+    const macroD = inputByValue('d');
+    macroD.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+
+    expect(document.activeElement).toBe(macroB);
+    expect(rowForInput(macroB).querySelector<HTMLSelectElement>('.snl-tree-style-select')?.disabled)
+      .toBe(true);
+  });
+
   it('explains that formula delimiters inside percent text stay literal', () => {
     const { view } = renderEditor('%$\\texcommand$ is text%');
     expect(view.getByText(/Inside %…%, \$…\$ stays literal text/)).toBeTruthy();

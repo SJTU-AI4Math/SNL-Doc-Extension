@@ -1069,6 +1069,7 @@ export function activate(context: vscode.ExtensionContext): void {
     'addParent',
     'addSibling',
     'openStyle',
+    'previousField',
     'nextNode',
     'undo'
   ].map((action) => vscode.commands.registerCommand(

@@ -25,11 +25,11 @@
 }
 
 /* SNL-Basics 0.2.4 gives the root KaTeX panel horizontal overflow, which
-   similarly promotes its vertical axis to `auto`. The outer Entry body owns
-   horizontal containment; the root panel must not become another up/down
-   wheel region. */
+   turns it into a two-axis clip and cuts the 1px semantic highlight shadow at
+   the panel edge. The outer Entry body owns horizontal containment; keep the
+   root panel paint-visible on both axes. */
 .snl-entry-overflow-surface [data-entry-body] .katex-panel {
-  overflow-y: hidden;
+  overflow: visible;
 }
 
 /* Basics 0.1.5 can emit a plain/Typst Entry body as one direct pre. It has

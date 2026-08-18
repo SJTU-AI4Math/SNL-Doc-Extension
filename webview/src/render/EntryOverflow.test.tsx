@@ -61,7 +61,7 @@ describe('EntrySurface horizontal overflow', () => {
       /\[data-entry-body\]\s*\{[^}]*overflow-x:\s*auto[^}]*overflow-y:\s*hidden/s
     );
     expect(entrySurfaceCss).toMatch(
-      /\[data-entry-body\]\s+\.katex-panel\s*\{[^}]*overflow-y:\s*hidden/s
+      /\[data-entry-body\]\s+\.katex-panel\s*\{[^}]*overflow:\s*visible/s
     );
   });
 

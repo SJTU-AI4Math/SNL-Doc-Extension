@@ -434,10 +434,13 @@ export const MacroIdInput = forwardRef<
     bottom: style?.bottom,
     zIndex: style?.zIndex,
     display: style?.display ?? (multiline ? 'inline-block' : 'inline-flex'),
-    flex: style?.flex,
-    flexGrow: style?.flexGrow,
-    flexShrink: style?.flexShrink,
-    flexBasis: style?.flexBasis,
+    ...(style?.flex !== undefined
+      ? { flex: style.flex }
+      : {
+          flexGrow: style?.flexGrow,
+          flexShrink: style?.flexShrink,
+          flexBasis: style?.flexBasis
+        }),
     alignSelf: style?.alignSelf,
     width: autoSize ? `${widthCh}ch` : style?.width,
     minWidth: style?.minWidth,
@@ -462,6 +465,9 @@ export const MacroIdInput = forwardRef<
     zIndex: 1,
     display: 'block',
     flex: undefined,
+    flexGrow: undefined,
+    flexShrink: undefined,
+    flexBasis: undefined,
     width: '100%',
     minWidth: 0,
     maxWidth: '100%',

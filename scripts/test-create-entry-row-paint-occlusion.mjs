@@ -275,11 +275,13 @@ const inspectExpression = `(() => {
   const cluster = toolbar?.querySelector('.snl-tree-operation-cluster');
   const dial = toolbar?.querySelector('.snl-tree-operation-dial');
   const button = dial?.querySelector('button');
+  const macro = row?.querySelector('[data-macro-id-control]');
+  const textarea = macro?.querySelector('textarea');
   let container = row?.parentElement ?? null;
   while (container && !getComputedStyle(container).containerName.split(/\\s+/).includes('snl-inductive')) {
     container = container.parentElement;
   }
-  if (!row || !toolbar || !cluster || !dial || !button) return { missing: true, rowCount: rows.length };
+  if (!row || !toolbar || !cluster || !dial || !button || !macro || !textarea) return { missing: true, rowCount: rows.length };
   const rect = (element) => { const r = element.getBoundingClientRect(); return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height }; };
   const colorAlpha = (value) => {
     const normalized = String(value).trim().toLowerCase();
@@ -316,15 +318,17 @@ const inspectExpression = `(() => {
       opaqueBacking: backgroundColorAlpha !== null && Math.abs(backgroundColorAlpha - 1) < 0.0001
     };
   };
-  const rs=getComputedStyle(row), ts=getComputedStyle(toolbar), cs=getComputedStyle(cluster), ds=getComputedStyle(dial), bs=getComputedStyle(button);
-  const rr=rect(row), tr=rect(toolbar), cr=rect(cluster), dr=rect(dial), br=rect(button);
+  const rs=getComputedStyle(row), ts=getComputedStyle(toolbar), cs=getComputedStyle(cluster), ds=getComputedStyle(dial), bs=getComputedStyle(button), ms=getComputedStyle(macro), xs=getComputedStyle(textarea);
+  const rr=rect(row), tr=rect(toolbar), cr=rect(cluster), dr=rect(dial), br=rect(button), mr=rect(macro), xr=rect(textarea);
   return {
     missing: false,
     rowCount: rows.length,
     media:{ hover:matchMedia('(hover: hover)').matches, fine:matchMedia('(pointer: fine)').matches, coarse:matchMedia('(pointer: coarse)').matches },
     container: container ? { exists:true, name:getComputedStyle(container).containerName, contentWidth:Number.parseFloat(getComputedStyle(container).width), rectWidth:container.getBoundingClientRect().width } : { exists:false },
-    rects:{row:rr,toolbar:tr,cluster:cr,dial:dr,button:br},
+    rects:{row:rr,toolbar:tr,cluster:cr,dial:dr,button:br,macro:mr,textarea:xr},
     styles:{
+      macro:{width:ms.width,minWidth:ms.minWidth,flexGrow:ms.flexGrow,flexShrink:ms.flexShrink,flexBasis:ms.flexBasis},
+      textarea:{width:xs.width,height:xs.height,overflowX:xs.overflowX,overflowY:xs.overflowY,whiteSpace:xs.whiteSpace},
       row:{backgroundColor:rs.backgroundColor,backgroundImage:rs.backgroundImage,boxShadow:rs.boxShadow,paddingRight:rs.paddingRight,paddingBottom:rs.paddingBottom},
       toolbar:{opacity:ts.opacity,pointerEvents:ts.pointerEvents,backgroundColor:ts.backgroundColor,backgroundImage:ts.backgroundImage,boxShadow:ts.boxShadow,paint:paint(ts)},
       cluster:{backgroundColor:cs.backgroundColor,backgroundImage:cs.backgroundImage,boxShadow:cs.boxShadow,paint:paint(cs)},
@@ -352,6 +356,8 @@ async function inspect(state, scheme, containerWidth, matrix) {
   assert(Math.abs(result.container.contentWidth - containerWidth) < 0.01, 'measured named container width must match matrix width', result.container);
   assert(transparent(result.styles.cluster) && result.styles.cluster.boxShadow === 'none', 'CreateEntry action cluster must never gain a plate', result.styles.cluster);
   assert(transparent(result.styles.toolbar) && result.styles.toolbar.boxShadow === 'none', 'CreateEntry toolbar ancestor must never gain a plate', result.styles.toolbar);
+  assert(result.styles.macro.flexGrow === '1' && result.styles.macro.minWidth === '0px', 'Inductive Macro wrapper must own the flexible remaining row width', result.styles.macro);
+  assert(Math.abs(result.rects.textarea.width - result.rects.macro.width) < 1, 'Inductive textarea must fill its flexible wrapper', result.rects);
   return result;
 }
 
@@ -410,6 +416,30 @@ try {
     assert(narrow.styles.toolbar.opacity === '1' && opaqueBacking(narrow.styles.dial), 'narrow named-container controls require an opaque backing', narrow.styles);
     assert(Number.parseFloat(narrow.styles.row.paddingBottom) > 60, 'narrow visible dashboard must reserve vertical row space', narrow.styles.row);
   }
+
+  const idleDark = matrix.filter((entry) => entry.state === 'idle' && entry.scheme === 'dark');
+  const width479 = idleDark.find((entry) => entry.containerWidth === 479)?.result;
+  const width961 = idleDark.find((entry) => entry.containerWidth === 961)?.result;
+  assert(width479 && width961 && width961.rects.macro.width - width479.rects.macro.width > 300,
+    'short Inductive content must expand with the available container width instead of keeping an intrinsic ch width',
+    { width479: width479?.rects.macro, width961: width961?.rects.macro });
+
+  const longMacro = 'Long Macro content that wraps inside the available row width '.repeat(12).trim();
+  const longMacroJson = JSON.stringify(longMacro);
+  const seededLongEditor = await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1]?.querySelector('textarea[data-snl-macro-input]');
+    if (!textarea) return false;
+    textarea.value=${longMacroJson};
+    return textarea.value === ${longMacroJson};
+  })()`);
+  assert(seededLongEditor, 'production Inductive textarea must accept the long-content geometry probe', seededLongEditor);
+  await setInductiveContentWidth(961);
+  const wideEditor = await evaluate(`(() => { const t=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]'), w=t.closest('[data-macro-id-control]'); return { width:w.getBoundingClientRect().width, height:t.getBoundingClientRect().height, scrollHeight:t.scrollHeight, overflowX:getComputedStyle(t).overflowX }; })()`);
+  await setInductiveContentWidth(479);
+  const narrowEditor = await evaluate(`(() => { const t=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]'), w=t.closest('[data-macro-id-control]'); return { width:w.getBoundingClientRect().width, height:t.getBoundingClientRect().height, scrollHeight:t.scrollHeight, overflowX:getComputedStyle(t).overflowX }; })()`);
+  assert(narrowEditor.width < wideEditor.width - 300 && narrowEditor.height > wideEditor.height + 20 && narrowEditor.height >= narrowEditor.scrollHeight,
+    'long Inductive content must wrap and grow vertically only after the available width narrows',
+    { wideEditor, narrowEditor });
 
   await evaluate(`document.documentElement.dataset.snlColorScheme='dark'; document.activeElement?.blur()`);
   await setViewport(1280, true);

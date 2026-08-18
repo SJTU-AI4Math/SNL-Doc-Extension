@@ -185,7 +185,7 @@ describe('Inductive node action dial', () => {
     const next = view.getAllByRole('textbox')[2] as HTMLTextAreaElement;
 
     expect(editor.tagName).toBe('TEXTAREA');
-    expect(editor.closest<HTMLElement>('[data-macro-id-control]')?.style.width).toContain('ch');
+    expect(editor.closest<HTMLElement>('[data-macro-id-control]')?.style.flex).toBe('1 1 auto');
     editor.focus();
     expect(fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })).toBe(true);
     expect(document.activeElement).toBe(editor);

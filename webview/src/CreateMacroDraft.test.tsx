@@ -94,6 +94,20 @@ describe('Create Macro persisted drafts', () => {
     expect((screen.getByPlaceholderText(/\\frac/) as HTMLTextAreaElement).value).toBe('\\draft');
   });
 
+  it('opens the new-kind panel once for the native input/change pair', () => {
+    render(<CreateMacroApp />);
+    send(context('create', null));
+    const kind = document.getElementById('m-kind') as HTMLSelectElement;
+
+    fireEvent.input(kind, { target: { value: '__new__' } });
+    fireEvent.change(kind);
+
+    expect(posted.filter((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { type?: unknown }).type === 'createMacroKind'
+    )).toHaveLength(1);
+  });
+
   it('keeps a restored edit draft through host refresh and submits its original revision', () => {
     const first = render(<CreateMacroApp />);
     send(context('edit', macro('FOL.forall', 'original'), 'revision-original'));

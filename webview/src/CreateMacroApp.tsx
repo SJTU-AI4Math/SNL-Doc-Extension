@@ -1748,10 +1748,24 @@ export function CreateMacroApp(): React.ReactElement {
     </main>;
   }
 
+  const commitKindSelection = (event: React.FormEvent<HTMLSelectElement>): void => {
+    const nextKind = event.currentTarget.value;
+    if (nextKind === kind) return;
+    if (nextKind === '__new__') {
+      apiRef.current?.postMessage({ type: 'createMacroKind' });
+      // This sentinel intentionally leaves controlled state unchanged. Restore
+      // the DOM now so the following native change event cannot post twice.
+      event.currentTarget.value = kind;
+      return;
+    }
+    markFormDirty();
+    setKind(nextKind);
+  };
+
   return (
     <main
       style={PANEL_STYLE}
-      onInputCapture={markFormDirty}
+      onInput={markFormDirty}
     >
       <PanelHeader
         vsApi={apiRef.current}
@@ -1794,21 +1808,8 @@ export function CreateMacroApp(): React.ReactElement {
             <select
               id="m-kind"
               value={kind}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === '__new__') {
-                  // Cat 2026-07-12: "+ New macro kind…" sentinel opens
-                  // the CreateMacroKindPanel via a host round-trip; kind
-                  // stays whatever it was so the user's current form
-                  // state isn't affected. The dropdown will re-render
-                  // with the new entry on the next visibilitychange
-                  // (refreshKinds handler above).
-                  apiRef.current?.postMessage({ type: 'createMacroKind' });
-                  return;
-                }
-                markFormDirty();
-                setKind(v);
-              }}
+              onInput={commitKindSelection}
+              onChange={commitKindSelection}
               style={{ ...inputStyle, flex: 1 }}
             >
               <option value="">{t('unset')}</option>
@@ -3200,6 +3201,35 @@ export function BlockRendererPresetControl({
   }, [imagePathControlled, value]);
 
   const selectedPreset = mode === 'preset' ? spec.name : '';
+  const selectedControl = mode === 'unset' ? '' : mode === 'custom' ? '__custom__' : selectedPreset;
+  const commitPreset = (event: React.FormEvent<HTMLSelectElement>): void => {
+    const next = event.currentTarget.value;
+    if (next === selectedControl) return;
+    if (next === '') {
+      setMode('unset');
+      onChange('');
+    } else if (next === '__custom__') {
+      setMode('custom');
+      if (PRESET_KEYS.has(spec.name) || !value) onChange('');
+    } else {
+      setMode('preset');
+      onChange(next);
+    }
+  };
+  const commitNumbering = (event: React.FormEvent<HTMLSelectElement>): void => {
+    const marker = event.currentTarget.value;
+    if (marker === (spec.params.marker ?? 'decimal')) return;
+    onChange(serializeBlockRendererSpec('enumerate', { marker }));
+  };
+  const commitImageLayout = (event: React.FormEvent<HTMLSelectElement>): void => {
+    const layout = event.currentTarget.value;
+    if (!spec.params.src || layout === (spec.params.layout ?? 'block')) return;
+    onChange(serializeBlockRendererSpec('image', {
+      src: spec.params.src,
+      layout,
+      alt: spec.params.alt ?? ''
+    }));
+  };
   const hint =
     mode === 'preset'
       ? (() => {
@@ -3223,23 +3253,9 @@ export function BlockRendererPresetControl({
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <select
           id="m-rkey-preset"
-          value={mode === 'unset' ? '' : mode === 'custom' ? '__custom__' : selectedPreset}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === '') {
-              setMode('unset');
-              onChange('');
-            } else if (v === '__custom__') {
-              setMode('custom');
-              // If the current value is a preset key, wipe it so the
-              // custom input starts empty; if it was already custom
-              // preserve it.
-              if (PRESET_KEYS.has(spec.name) || !value) onChange('');
-            } else {
-              setMode('preset');
-              onChange(v);
-            }
-          }}
+          value={selectedControl}
+          onInput={commitPreset}
+          onChange={commitPreset}
           style={{ ...inputStyle, width: 'auto', minWidth: '10rem' }}
         >
           <option value="">{t('presetNone')}</option>
@@ -3265,9 +3281,8 @@ export function BlockRendererPresetControl({
           {t('numbering')}
           <select aria-label={t('numbering')}
             value={spec.params.marker ?? 'decimal'}
-            onChange={(event) => onChange(serializeBlockRendererSpec('enumerate', {
-              marker: event.target.value
-            }))}
+            onInput={commitNumbering}
+            onChange={commitNumbering}
             style={{ ...inputStyle, display: 'block', marginTop: '0.25rem' }}>
             <option value="decimal">{t('numberingDecimal')}</option>
             <option value="lower-alpha">{t('numberingLowerAlpha')}</option>
@@ -3312,14 +3327,8 @@ export function BlockRendererPresetControl({
           <label style={labelStyle}>
             {t('imageLayout')}
             <select aria-label={t('imageLayout')} value={spec.params.layout ?? 'block'}
-              onChange={(event) => {
-                if (!spec.params.src) return;
-                onChange(serializeBlockRendererSpec('image', {
-                  src: spec.params.src,
-                  layout: event.target.value,
-                  alt: spec.params.alt ?? ''
-                }));
-              }}
+              onInput={commitImageLayout}
+              onChange={commitImageLayout}
               style={{ ...inputStyle, display: 'block', marginTop: '0.25rem' }}>
               <option value="inline">{t('imageInline')}</option>
               <option value="block">{t('imageBlock')}</option>

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { readFileSync } from 'node:fs';
-import { cleanup, fireEvent, render, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MacroDataDriver } from '@sjtu-ai4math/snl-basics';
 import { GuiInductiveEditor } from '../CreateEntryApp';
@@ -394,6 +395,39 @@ describe('Inductive node action dial', () => {
     expect(latest()).toBe('root(%first line\nsecond line%,b)');
     expect(editor.rows).toBe(2);
     expect(document.activeElement).not.toBe(next);
+  });
+
+  it('commits the first native Style input before an ancestor dirty render can restore the old value', async () => {
+    const styledDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => macro_name === 'a'
+        ? ({ name: 'a', dynamic_arity: true, styles: [
+            { style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+            { style_name: 'compact', template: { mode: 'formula_inline', body: '#*' }, tags: [] }
+          ] } as never)
+        : null
+    } });
+    let latest = 'root(a)';
+    function Harness(): React.ReactElement {
+      const [dirty, setDirty] = useState(false);
+      return <div data-dirty={String(dirty)} onInputCapture={() => setDirty(true)}>
+        <GuiInductiveEditor snl={latest} macroDataDriver={styledDriver}
+          macroCandidates={[]} macroOrigin={{}} onOpenMacroEditor={() => undefined}
+          onChange={(next) => { latest = next; }} />
+      </div>;
+    }
+    const view = render(<Harness />);
+    const style = await waitFor(() => {
+      const candidate = rowForInput(view.getAllByRole('textbox')[1])
+        .querySelector<HTMLSelectElement>('.snl-tree-style-select');
+      expect(candidate?.disabled).toBe(false);
+      return candidate!;
+    });
+
+    fireEvent.input(style, { target: { value: 'compact' } });
+    fireEvent.change(style);
+
+    expect(style.value).toBe('compact');
+    expect(latest).toBe('root(a[compact])');
   });
 
   it('routes Macro Tab to Style and Style Enter to the next visible Macro editor', async () => {

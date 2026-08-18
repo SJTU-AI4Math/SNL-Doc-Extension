@@ -1812,7 +1812,7 @@ export function CreateEntryApp(): React.ReactElement {
   return (
     <main
       style={PANEL_STYLE}
-      onInputCapture={() => { markFormDirty(true); }}
+      onInput={() => { markFormDirty(true); }}
     >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
@@ -2532,6 +2532,10 @@ function PointerEditor({
   );
   const occurrenceInvalid = !!error && error.startsWith(t('positiveOccurrence').replace(/\.$/, ''));
   const update = (patch: Partial<PointerDraft>): void => onChange({ ...value, ...patch });
+  const updateMode = (event: React.FormEvent<HTMLSelectElement>): void => {
+    const mode = event.currentTarget.value as PointerMode;
+    if (mode !== value.mode) update({ mode });
+  };
   return (
     <div data-testid="entry-pointer-editor">
       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -2559,7 +2563,8 @@ function PointerEditor({
           <select
             id="snl-entry-pointer-mode"
             value={value.mode}
-            onChange={(event) => update({ mode: event.target.value as PointerMode })}
+            onInput={updateMode}
+            onChange={updateMode}
             aria-describedby={describedBy}
             style={inputStyle}
           >
@@ -5015,19 +5020,19 @@ export function GuiCanvasEditor({
               const selectedStyle = node.style_name ?? styleNames[0] ?? '';
               const explicitStyleMissing =
                 Boolean(node.style_name) && !styleNames.includes(node.style_name!);
+              const commitSelectedStyle = (event: React.FormEvent<HTMLSelectElement>): void => {
+                const nextStyle = event.currentTarget.value;
+                if (nextStyle === selectedStyle) return;
+                changeCanvasStyle(focusedMacroControl.target, nextStyle, styleNames);
+              };
               return (
                 <>
                   {styleNames.length > 0 || explicitStyleMissing ? (
                     <select
                       aria-label={t('macroStyle')}
                       value={selectedStyle}
-                      onChange={(event) =>
-                        changeCanvasStyle(
-                          focusedMacroControl.target,
-                          event.target.value,
-                          styleNames
-                        )
-                      }
+                      onInput={commitSelectedStyle}
+                      onChange={commitSelectedStyle}
                       onKeyDown={(event) => event.stopPropagation()}
                       title={t('selectMacroStyle')}
                       style={{
@@ -6670,6 +6675,7 @@ function InductiveNode({
   const styleSelectable = styleAvailable || explicitStyleMissing;
 
   const commitStyle = (nextValue: string): void => {
+    if (nextValue === styleDisplay) return;
     const trimmed = nextValue.trim();
     // Empty or default → implicit (drop the field so serialization stays
     // as `foo(…)` rather than `foo[default](…)`).
@@ -6893,7 +6899,8 @@ function InductiveNode({
           data-snl-style-navigable={styleTags.length > 1 || explicitStyleMissing ? true : undefined}
           value={styleDisplay}
           disabled={!styleSelectable}
-          onChange={(event) => commitStyle(event.target.value)}
+          onInput={(event) => commitStyle(event.currentTarget.value)}
+          onChange={(event) => commitStyle(event.currentTarget.value)}
           aria-label={t('macroStyleFor', { name: node.macro_name || t('unresolvedMacro') })}
           title={
             explicitStyleMissing

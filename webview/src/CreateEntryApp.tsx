@@ -6513,7 +6513,11 @@ function InductiveNode({
     const nextMacroName = contextSurface?.macroSurface ?? leaf.macro_name;
     if (contextSurface) {
       contextDraftOpenRef.current = typedContext === '';
-      contextAutoFocusRequestedRef.current = true;
+      // A newly typed trailing `@` explicitly enters the context field. When
+      // an existing `@entry` suffix is merely projected out while the author
+      // edits the Macro prefix, stealing focus makes every keystroke jump to
+      // the context input's end.
+      contextAutoFocusRequestedRef.current = typedContext === '';
       setContextInputOpen(true);
     }
     // Bracket syntax and an `@entry` suffix belong to their independent

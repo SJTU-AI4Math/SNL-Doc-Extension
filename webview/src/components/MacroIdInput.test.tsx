@@ -224,7 +224,7 @@ describe('MacroIdInput', () => {
     expect(input.value).toBe(expected);
   });
 
-  it('opens an embedded SNoogL picker with Ctrl+F and Tab inserts the selected Macro', () => {
+  it('commits the first clicked SNoogL result without requiring a second selection', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
       return (
@@ -244,8 +244,6 @@ describe('MacroIdInput', () => {
     const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
     expect(document.activeElement).toBe(search);
     fireEvent.click(view.getByRole('option', { name: 'FOL.forall' }));
-    expect(document.activeElement).toBe(search);
-    fireEvent.keyDown(search, { key: 'Tab' });
     expect(input.value).toBe('FOL.forall');
     expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
   });

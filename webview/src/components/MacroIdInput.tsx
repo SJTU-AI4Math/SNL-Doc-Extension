@@ -217,7 +217,12 @@ export const MacroIdInput = forwardRef<
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
-    pendingCaretRef.current = normalized.caret;
+    // A parent may project one typed surface into separate fields (for
+    // example `foo@entry` becomes Macro `foo` plus a context picker). React
+    // then writes a value different from the browser's native edit and moves
+    // the caret to the end. Preserve the post-input caret for every edit, not
+    // only delimiter auto-close.
+    pendingCaretRef.current = normalized.caret ?? nextCaret;
     setCaretPosition(normalized.caret ?? nextCaret ?? normalized.value.length);
     onChange(normalized.value);
     if (!interactionDisabled) setSuggestionsOpen(true);
@@ -568,14 +573,17 @@ export const MacroIdInput = forwardRef<
     setSnooglOpen(false);
     window.setTimeout(() => controlRef.current?.focus(), 0);
   };
-  const commitSnooglSelection = (): void => {
-    const id = snooglResults[snooglSelection];
+  const commitSnooglResult = (id: string): void => {
     const range = snooglRangeRef.current;
-    if (!id || !range) return;
+    if (!range) return;
     // In insert-only mode `range` is already the collapsed caret position, so
     // picking a Macro never wipes the surrounding SNL expression.
     replaceRangeWithMacro(range, id);
     closeSnoogl();
+  };
+  const commitSnooglSelection = (): void => {
+    const id = snooglResults[snooglSelection];
+    if (id) commitSnooglResult(id);
   };
   const snooglDialog = snooglOpen ? (
     <div
@@ -640,7 +648,7 @@ export const MacroIdInput = forwardRef<
             role="option"
             aria-selected={index === snooglSelection}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setSnooglSelection(index)}
+            onClick={() => commitSnooglResult(id)}
             style={{
               padding: '0.35rem 0.5rem',
               cursor: 'pointer',

@@ -361,6 +361,24 @@ describe('Inductive node action dial', () => {
     expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
   });
 
+  it('preserves the middle caret when a legacy inline context is split into its own field', () => {
+    const { view, latest } = renderEditor('foo@entry');
+    const input = view.getAllByRole('textbox')[0] as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(2, 2);
+
+    fireEvent.input(input, {
+      target: { value: 'foXo@entry', selectionStart: 3, selectionEnd: 3 }
+    });
+
+    expect(view.getAllByRole('textbox')[0]).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('foXo');
+    expect(input.selectionStart).toBe(3);
+    expect(input.selectionEnd).toBe(3);
+    expect(latest()).toBe('foXo@entry');
+  });
+
   it('uses an auto-sized multiline Macro editor and keeps Shift+Enter in the current row', () => {
     const { view, latest } = renderEditor('root(%first line%,b)');
     const editor = view.getAllByRole('textbox')[1] as HTMLTextAreaElement;

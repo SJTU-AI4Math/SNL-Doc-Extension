@@ -32,6 +32,13 @@
   overflow: visible;
 }
 
+/* Palette frames are normally a 1px outward shadow. Any finite scrollport
+   clips that paint at its start/end boundary, so preserve the palette color
+   through currentColor and draw 2px inward, leaving at least a full visible pixel even when the far edge lands on a fractional clipped pixel. */
+.snl-entry-overflow-surface .katex-html .snl-single-hover {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 50%, transparent) !important;
+}
+
 /* Basics 0.1.5 can emit a plain/Typst Entry body as one direct pre. It has
    no inner wrapper to absorb an unbroken token, so wrap only that emergency
    shape; Markdown fenced code remains nested under .snl-markdown-body. */

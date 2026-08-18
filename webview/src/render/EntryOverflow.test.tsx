@@ -65,6 +65,12 @@ describe('EntrySurface horizontal overflow', () => {
     );
   });
 
+  it('draws semantic highlight frames inward so scrollport edges cannot clip them', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\.snl-single-hover\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px color-mix\(in srgb, currentColor 50%, transparent\)\s*!important/s
+    );
+  });
+
   it('wraps only defensive plain and textual leaves while preserving code and formulas', () => {
     expect(entrySurfaceCss).toMatch(
       /\[data-entry-body\]\s*>\s*pre\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*pre-wrap/s

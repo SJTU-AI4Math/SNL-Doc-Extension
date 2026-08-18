@@ -80,6 +80,14 @@ const fixture = {
     defaultCounterName: 'section'
   }],
   macros: {
+    Root: {
+      name: 'Root', description: 'style input race fixture',
+      source: { entries: [], urls: [] }, dynamic_arity: true, tags: [],
+      styles: [
+        { style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#*' } },
+        { style_name: 'compact', tags: [], template: { mode: 'formula_inline', body: '#*' } }
+      ]
+    },
     'FOL.forall': {
       name: 'FOL.forall', description: 'browser interaction fixture',
       source: { entries: [], urls: [] }, dynamic_arity: true, tags: [],
@@ -87,7 +95,7 @@ const fixture = {
     }
   },
   macroKinds: [],
-  macroOrigin: { 'FOL.forall': 'fixture.json' },
+  macroOrigin: { Root: 'fixture.json', 'FOL.forall': 'fixture.json' },
   metricThresholds: { structuralIndexRedBelow: 60, structuralIndexGreenAtLeast: 80 },
   entryPackages: ['_unpackaged'],
   existingIds: [],
@@ -123,7 +131,10 @@ const html = `<!doctype html>
 </style>
 ${visiblePaintMutation}
 <script>
-  window.__snlFixture = ${JSON.stringify(fixture)};
+  const baseFixture = ${JSON.stringify(fixture)};
+  window.__snlFixture = location.search === '?create'
+    ? { ...baseFixture, mode: 'create', id: undefined, seedId: 'entry-id', existing: null }
+    : baseFixture;
   window.__snlPosted = [];
   window.acquireVsCodeApi = () => ({
     postMessage(message) {
@@ -377,6 +388,21 @@ try {
   })()`);
   await waitFor(`document.querySelectorAll('.snl-inductive-editor .snl-tree-row').length >= 3`);
 
+  await waitFor(`Boolean(document.querySelector('.snl-tree-style-select:not(:disabled)')?.querySelector('option[value="compact"]'))`);
+  const firstStyleSelection = await evaluate(`(() => {
+    const select=document.querySelector('.snl-tree-style-select:not(:disabled)');
+    const setValue=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;
+    setValue.call(select,'compact');
+    select.dispatchEvent(new Event('input',{bubbles:true}));
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+    return true;
+  })()`);
+  assert(firstStyleSelection, 'production Style select must accept the first native input/change sequence', firstStyleSelection);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  const firstStyleResult = await evaluate(`(() => { const select=document.querySelector('.snl-tree-style-select:not(:disabled)'); return {value:select.value, selected:select.selectedOptions[0]?.value}; })()`);
+  assert(firstStyleResult.value === 'compact' && firstStyleResult.selected === 'compact',
+    'the first clean-to-dirty Style selection must survive the ancestor dirty render', firstStyleResult);
+
   const schemes = ['light', 'dark', 'high-contrast-light', 'high-contrast'];
   const matrix = [];
   for (const scheme of schemes) {
@@ -500,6 +526,26 @@ try {
   assert(opaqueBacking(coarse.styles.dial), 'coarse-pointer visible controls require an alpha-1 dial backing', coarse.styles.dial);
   assert(Number.parseFloat(coarse.styles.row.paddingBottom) > 60, 'coarse-pointer dashboard must reserve vertical row space', coarse.styles.row);
 
+  await page.call('Page.navigate', { url: `http://127.0.0.1:${port}/?create` });
+  await waitFor(`document.querySelector('#snl-entry-id')?.value === 'entry-id'`);
+  const seededEntryIdEdit = await evaluate(`(() => {
+    const input=document.querySelector('#snl-entry-id');
+    window.__entryIdCaretProbe=input;
+    input.focus();
+    input.setSelectionRange(3,3);
+    return {value:input.value,start:input.selectionStart,end:input.selectionEnd};
+  })()`);
+  assert(seededEntryIdEdit?.value === 'entry-id', 'production Create Entry ID must accept the middle-edit probe', seededEntryIdEdit);
+  await page.call('Input.insertText', { text: 'X' });
+  const entryIdCaret = await evaluate(`new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const input=document.querySelector('#snl-entry-id');
+      resolve({same:input===window.__entryIdCaretProbe,active:document.activeElement===input,value:input?.value,start:input?.selectionStart,end:input?.selectionEnd});
+    }));
+  })`);
+  assert(entryIdCaret.same && entryIdCaret.active && entryIdCaret.value === 'entXry-id' && entryIdCaret.start === 4 && entryIdCaret.end === 4,
+    'first clean-to-dirty Entry ID edit must preserve the value and middle caret', entryIdCaret);
+
   const browserErrors = page.events.filter((event) =>
     event.method === 'Runtime.exceptionThrown' ||
     event.method === 'Log.entryAdded' && ['error', 'warning'].includes(event.params?.entry?.level)
@@ -512,7 +558,7 @@ try {
     namedContainerWidths: [479, 480, 481, 959, 960, 961],
     states: ['idle', 'row-hover', 'toolbar-hover', 'focus-within', 'narrow-row-hover', 'coarse'],
     coarse: true,
-    interactions: { caret: caretResult, snoogl: snooglResult },
+    interactions: { caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, entryIdCaret },
     artifactBuild
   }, null, 2));
 } finally {

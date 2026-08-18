@@ -147,8 +147,10 @@ interface MacroIdInputBaseProps {
   snooglInsertsMacroId?: boolean;
   /** Select the whole value once the control mounts (F2-style editing). */
   selectAllOnMount?: boolean;
-  /** Let this control consume Tab for autocomplete. Structural editors disable it. */
+  /** Let this control consume Tab for autocomplete. */
   acceptSuggestionOnTab?: boolean;
+  /** Reports whether this control currently owns unshifted Tab for a visible suggestion. */
+  onSuggestionTabOwnershipChange?: (ownsTab: boolean) => void;
 }
 
 export type MacroIdInputProps =
@@ -176,6 +178,7 @@ export const MacroIdInput = forwardRef<
     snooglInsertsMacroId = false,
     selectAllOnMount = false,
     acceptSuggestionOnTab = true,
+    onSuggestionTabOwnershipChange,
     style,
     className,
     ...props
@@ -186,6 +189,9 @@ export const MacroIdInput = forwardRef<
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const compositionActiveRef = useRef(false);
+  const inputDuringCompositionRef = useRef(false);
+  const suggestionOwnershipRef = useRef(false);
+  const [compositionActive, setCompositionActive] = useState(false);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
   const [mirrorStyle, setMirrorStyle] = useState<React.CSSProperties>({});
@@ -230,8 +236,12 @@ export const MacroIdInput = forwardRef<
     // caret now instead of leaking it into a later unrelated prop update.
     setSelectionEpoch((epoch) => epoch + 1);
     setCaretPosition(normalized.caret ?? nextCaret ?? normalized.value.length);
+    setHighlightedSuggestion(0);
     onChange(normalized.value);
-    if (!interactionDisabled) setSuggestionsOpen(true);
+    if (!interactionDisabled) {
+      if (compositionActiveRef.current) inputDuringCompositionRef.current = true;
+      else setSuggestionsOpen(true);
+    }
   };
 
   useLayoutEffect(() => {
@@ -247,10 +257,18 @@ export const MacroIdInput = forwardRef<
 
   const beginComposition = (): void => {
     compositionActiveRef.current = true;
+    inputDuringCompositionRef.current = false;
+    setCompositionActive(true);
     pendingCaretRef.current = null;
   };
   const endComposition = (): void => {
     compositionActiveRef.current = false;
+    setCompositionActive(false);
+    if (inputDuringCompositionRef.current && !interactionDisabled) {
+      inputDuringCompositionRef.current = false;
+      setHighlightedSuggestion(0);
+      setSuggestionsOpen(true);
+    }
     if (pendingCaretRef.current !== null) {
       setSelectionEpoch((epoch) => epoch + 1);
     }
@@ -299,6 +317,19 @@ export const MacroIdInput = forwardRef<
     );
   }, [suggestions.length]);
 
+  const ownsSuggestionTab = acceptSuggestionOnTab && suggestionsOpen && suggestions.length > 0 &&
+    !compositionActive && !snooglOpen;
+  useEffect(() => {
+    if (suggestionOwnershipRef.current === ownsSuggestionTab) return;
+    suggestionOwnershipRef.current = ownsSuggestionTab;
+    onSuggestionTabOwnershipChange?.(ownsSuggestionTab);
+  }, [ownsSuggestionTab, onSuggestionTabOwnershipChange]);
+  useEffect(() => () => {
+    if (!suggestionOwnershipRef.current) return;
+    suggestionOwnershipRef.current = false;
+    onSuggestionTabOwnershipChange?.(false);
+  }, [onSuggestionTabOwnershipChange]);
+
   const snooglResults = snooglOpen
     ? searchIndex.search(snooglQuery)
         .map((result) => result.value.id)
@@ -330,6 +361,11 @@ export const MacroIdInput = forwardRef<
   ): void => {
     const currentCaret = event.currentTarget.selectionStart ?? value.length;
     const selectionEnd = event.currentTarget.selectionEnd ?? currentCaret;
+    if (event.nativeEvent.isComposing &&
+        (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
+         event.key === 'Escape' || event.key === 'Tab')) {
+      return;
+    }
     if (
       !interactionDisabled &&
       !event.nativeEvent.isComposing &&
@@ -377,11 +413,11 @@ export const MacroIdInput = forwardRef<
         );
         return;
       }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setSuggestionsOpen(false);
-        return;
-      }
+    }
+    if (event.key === 'Escape' && suggestionsOpen) {
+      event.preventDefault();
+      setSuggestionsOpen(false);
+      return;
     }
     (props.onKeyDown as React.KeyboardEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
@@ -389,10 +425,7 @@ export const MacroIdInput = forwardRef<
   const handleControlFocus = (
     event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
   ): void => {
-    const suppressSuggestions = event.currentTarget.dataset.snlSuppressSuggestionsOnce === 'true';
     delete event.currentTarget.dataset.snlSuppressSuggestionsOnce;
-    if (suppressSuggestions) setSuggestionsOpen(false);
-    else if (!interactionDisabled) setSuggestionsOpen(true);
     (props.onFocus as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
   const handleControlSelect = (
@@ -405,7 +438,7 @@ export const MacroIdInput = forwardRef<
   const handleControlBlur = (
     event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
   ): void => {
-    window.setTimeout(() => setSuggestionsOpen(false), 0);
+    setSuggestionsOpen(false);
     (props.onBlur as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
 
@@ -636,7 +669,12 @@ export const MacroIdInput = forwardRef<
           setSnooglSelection(0);
         }}
         onKeyDown={(event) => {
-          if (event.key === 'Tab') {
+          if (event.nativeEvent.isComposing &&
+              (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
+               event.key === 'Escape' || event.key === 'Tab')) {
+            return;
+          }
+          if (event.key === 'Tab' && !event.shiftKey && snooglResults.length > 0) {
             event.preventDefault();
             event.stopPropagation();
             commitSnooglSelection();

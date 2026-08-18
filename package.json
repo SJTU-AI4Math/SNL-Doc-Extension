@@ -422,7 +422,7 @@
       {
         "command": "snlDoc.inductive.openStyle",
         "key": "tab",
-        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus && !snl.inductiveAutocompleteOwnsTab"
       },
       {
         "command": "snlDoc.inductive.previousField",

@@ -1,6 +1,6 @@
 
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MacroDataDriver, createSnlSyntaxTreeNode } from '@sjtu-ai4math/snl-basics';
@@ -12,8 +12,14 @@ import {
   withContextEntryId
 } from '../CreateEntryApp';
 
+const postMessage = vi.fn();
+(globalThis as { __snlApi?: { postMessage: (message: unknown) => void } }).__snlApi = {
+  postMessage
+};
+
 afterEach(() => {
   cleanup();
+  postMessage.mockClear();
   document.documentElement.lang = 'en';
 });
 
@@ -39,6 +45,7 @@ const driver = new MacroDataDriver({
       // Variadic but with a leading fixed slot, so ignoring dynamic_arity
       // would wrongly open a row.
       if (macro_name === 'list') return macro('list', true, '#0: #*');
+      if (macro_name === 'spread2') return macro('spread2', true, '#0 #1 #*');
       if (macro_name === 'atom') return macro('atom', false, 'A');
       if (macro_name === 'top') return macro('top', false, '#0 , #1');
       if (macro_name === 'top3') return macro('top3', false, '#0 #1 #2');
@@ -657,6 +664,14 @@ describe('Inductive editor arity auto-fill', () => {
     expect(latest()).toBe('list');
   });
 
+  it('honors the positional prefix of a dynamic Macro before its variadic tail', async () => {
+    const { view, latest } = renderEditor('x');
+    const box = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
+    fireEvent.change(box, { target: { value: 'spread2' } });
+    await waitFor(() => expect(latest()).toBe('spread2(,)'));
+    expect(view.getAllByRole('textbox')).toHaveLength(3);
+  });
+
   it('reconciles again when returning from a dynamic Macro to the same fixed Macro', async () => {
     const { view, latest } = renderEditor('atom');
     const box = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
@@ -986,6 +1001,24 @@ describe('Inductive editor arity auto-fill', () => {
       data: { type: 'shortcutAction', action: 'inductive.undo' }
     }));
     await waitFor(() => expect(latest()).toBe('x'));
+  });
+
+  it('routes a stable owner token while inline completion owns Tab', async () => {
+    const { view } = renderEditor('x');
+    const box = view.getAllByRole('textbox')[0] as HTMLInputElement;
+    fireEvent.change(box, { target: { value: 'pa' } });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'inductiveAutocompleteTabOwnership',
+      ownerToken: expect.any(String),
+      ownsTab: true
+    })));
+    const ownerToken = postMessage.mock.calls
+      .map(([message]) => message as { ownerToken?: string; ownsTab?: boolean })
+      .find((message) => message.ownsTab === true)?.ownerToken;
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
+      type: 'inductiveAutocompleteTabOwnership', ownerToken, ownsTab: false
+    }));
   });
 
 });

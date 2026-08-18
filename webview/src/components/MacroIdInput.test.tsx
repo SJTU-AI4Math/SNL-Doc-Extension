@@ -93,7 +93,7 @@ describe('MacroIdInput', () => {
     expect(view.container.querySelectorAll('[data-tone="context"]')).toHaveLength(1);
   });
 
-  it('autocompletes Macro IDs from the workspace library', () => {
+  it('gates autocomplete on real input and re-arms after Escape', () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('FO');
       return (
@@ -106,34 +106,113 @@ describe('MacroIdInput', () => {
       );
     }
     const view = render(<Harness />);
-    const input = view.getByRole('textbox', { name: 'Autocomplete Macro ID' });
+    const input = view.getByRole('textbox', { name: 'Autocomplete Macro ID' }) as HTMLInputElement;
+
     fireEvent.focus(input);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.change(input, { target: { value: 'Foo' } });
     expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
-    expect(view.getByText('FOL.forall')).toBeTruthy();
-    expect(view.getByText('Foo.bar')).toBeTruthy();
-    fireEvent.keyDown(input, { key: 'Tab' });
-    expect((input as HTMLInputElement).value).toBe('FOL.forall');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.blur(input);
+    fireEvent.focus(input);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
   });
 
-  it('can reserve Tab for structural field navigation without accepting a suggestion', () => {
+  it('owns forward Tab only for an input-armed visible result and always leaves Shift+Tab', () => {
+    const onOwnershipChange = vi.fn();
+    const onKeyDown = vi.fn();
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('FO');
       return (
         <MacroIdInput
           value={value}
           onChange={setValue}
+          onKeyDown={onKeyDown}
+          onSuggestionTabOwnershipChange={onOwnershipChange}
           macroCandidates={['FOL.forall', 'Foo.bar'].map((id) => ({ id, labels: [] }))}
-          acceptSuggestionOnTab={false}
           aria-label="Navigable Macro ID"
         />
       );
     }
     const view = render(<Harness />);
-    const input = view.getByRole('textbox', { name: 'Navigable Macro ID' });
+    const input = view.getByRole('textbox', { name: 'Navigable Macro ID' }) as HTMLInputElement;
     fireEvent.focus(input);
-    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
     expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(true);
-    expect((input as HTMLInputElement).value).toBe('FO');
+    expect(input.value).toBe('FO');
+
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(true);
+    expect(fireEvent.keyDown(input, { key: 'Tab', shiftKey: true })).toBe(true);
+    expect(input.value).toBe('Fo');
+    expect(onKeyDown).toHaveBeenLastCalledWith(expect.objectContaining({ key: 'Tab', shiftKey: true }));
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input.value).toBe('FOL.forall');
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('clears Tab ownership on empty results, blur, Escape, and unmount', () => {
+    const onOwnershipChange = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue}
+        onSuggestionTabOwnershipChange={onOwnershipChange}
+        macroCandidates={[{ id: 'Foo.one', labels: [] }]}
+        aria-label="Ownership lifecycle Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Ownership lifecycle Macro ID' });
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(true);
+    fireEvent.change(input, { target: { value: 'no-match' } });
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    fireEvent.blur(input);
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+    fireEvent.focus(input);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.change(input, { target: { value: 'Foo' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    view.unmount();
+    expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not open inline completion for composition input until composition ends', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue}
+        macroCandidates={[{ id: 'Foo.one', labels: [] }]}
+        aria-label="Composition-gated Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Composition-gated Macro ID' });
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'Fo' } });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.compositionEnd(input);
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+  });
+
+  it('resets the highlighted result to the first candidate after each material query change', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue} macroCandidates={[
+        { id: 'Alpha.one', labels: ['common'] },
+        { id: 'Beta.two', labels: ['common'] },
+        { id: 'Alpha.beta', labels: [] }
+      ]} aria-label="Rank-reset Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Rank-reset Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'common' } });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(view.getAllByRole('option')[1]?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.change(input, { target: { value: 'Alpha' } });
+    expect(view.getAllByRole('option')[0]?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('refreshes suggestions when the caret moves to another token before Tab', () => {
@@ -151,11 +230,12 @@ describe('MacroIdInput', () => {
     const view = render(<Harness />);
     const input = view.getByRole('textbox', { name: 'Multi-token Macro ID' }) as HTMLInputElement;
     fireEvent.focus(input);
-    input.setSelectionRange(0, 3);
+    fireEvent.change(input, { target: { value: 'foo bar' } });
+    input.setSelectionRange(1, 3);
     fireEvent.select(input);
     expect(view.getByRole('option', { name: 'Foo.macro' })).toBeTruthy();
     fireEvent.keyDown(input, { key: 'Tab' });
-    expect(input.value).toBe('Foo.macro ba');
+    expect(input.value).toBe('Foo.macro bar');
   });
 
   it('leaves Shift+Tab to the consumer instead of accepting an autocomplete suggestion', () => {
@@ -421,6 +501,62 @@ describe('MacroIdInput', () => {
     expect(results.every((label) => !label?.includes('['))).toBe(true);
     fireEvent.keyDown(search, { key: 'Tab' });
     expect(input.value).toBe('Div.div');
+  });
+
+  it('commits modal forward Tab only with results and leaves reverse/empty Tab native', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('seed');
+      return <MacroIdInput value={value} onChange={setValue} macroCandidates={[
+        { id: 'Foo.one', labels: [] }, { id: 'Bar.two', labels: [] }
+      ]} aria-label="Modal keyboard Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Modal keyboard Macro ID' }) as HTMLInputElement;
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    let search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    expect(fireEvent.keyDown(search, { key: 'Tab', shiftKey: true })).toBe(true);
+    expect(input.value).toBe('seed');
+    fireEvent.change(search, { target: { value: 'no-match' } });
+    expect(fireEvent.keyDown(search, { key: 'Tab' })).toBe(true);
+    expect(input.value).toBe('seed');
+    fireEvent.change(search, { target: { value: 'Foo' } });
+    expect(fireEvent.keyDown(search, { key: 'Tab' })).toBe(false);
+    expect(input.value).toBe('Foo.one');
+    expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
+
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.keyDown(search, { key: 'Escape' });
+    expect(view.queryByRole('dialog', { name: 'SNoogL Macro Search' })).toBeNull();
+    fireEvent.focus(input);
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+  });
+
+  it('does not navigate, commit, or dismiss inline and modal completion during IME composition', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('Fo');
+      return <MacroIdInput value={value} onChange={setValue} macroCandidates={[
+        { id: 'Foo.one', labels: [] }, { id: 'Foo.two', labels: [] }
+      ]} aria-label="IME completion Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'IME completion Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Foo' } });
+    fireEvent.compositionStart(input);
+    for (const key of ['ArrowDown', 'Tab', 'Escape']) {
+      expect(fireEvent.keyDown(input, { key, isComposing: true })).toBe(true);
+    }
+    expect(input.value).toBe('Foo');
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+    fireEvent.compositionEnd(input);
+
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    for (const key of ['ArrowDown', 'Tab', 'Escape']) {
+      expect(fireEvent.keyDown(search, { key, isComposing: true })).toBe(true);
+    }
+    expect(view.getByRole('dialog', { name: 'SNoogL Macro Search' })).toBeTruthy();
+    expect(input.value).toBe('Foo');
   });
 
   it('does not restore selection imperatively while an IME composition is active', () => {

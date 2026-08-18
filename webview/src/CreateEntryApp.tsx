@@ -5750,6 +5750,14 @@ export function GuiInductiveEditor({
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const undoStackRef = useRef<SnlSyntaxTree[]>([]);
   const previousEditorIdentityRef = useRef(editorIdentity);
+  const autocompleteOwnerRef = useRef<string | null>(null);
+  const publishAutocompleteTabOwnership = useCallback((ownerToken: string, ownsTab: boolean): void => {
+    if (ownsTab) autocompleteOwnerRef.current = ownerToken;
+    else if (autocompleteOwnerRef.current === ownerToken) autocompleteOwnerRef.current = null;
+    getVsCodeApi()?.postMessage({
+      type: 'inductiveAutocompleteTabOwnership', ownerToken, ownsTab
+    });
+  }, []);
   if (previousEditorIdentityRef.current !== editorIdentity) {
     previousEditorIdentityRef.current = editorIdentity;
     undoStackRef.current = [];
@@ -6015,6 +6023,17 @@ export function GuiInductiveEditor({
   }, [treeOp, tree, propagate, collapsed, toggleCollapsed]);
 
   useEffect(() => {
+    return () => {
+      const ownerToken = autocompleteOwnerRef.current;
+      if (!ownerToken) return;
+      autocompleteOwnerRef.current = null;
+      getVsCodeApi()?.postMessage({
+        type: 'inductiveAutocompleteTabOwnership', ownerToken, ownsTab: false
+      });
+    };
+  }, [editorIdentity]);
+
+  useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       const message = event.data as { type?: string; action?: string } | undefined;
       if (message?.type === 'shortcutAction' && typeof message.action === 'string') {
@@ -6176,6 +6195,7 @@ export function GuiInductiveEditor({
         onToggleCollapsed={toggleCollapsed}
         treeOp={treeOp}
         setRowArity={setRowArity}
+        onSuggestionTabOwnershipChange={publishAutocompleteTabOwnership}
       />
       <p
         style={{
@@ -6550,7 +6570,8 @@ function InductiveNode({
   collapsed,
   onToggleCollapsed,
   treeOp,
-  setRowArity
+  setRowArity,
+  onSuggestionTabOwnershipChange
 }: {
   node: SnlSyntaxTree;
   /** Dotted path from root; root = "", children = "0", "0.1", ... */
@@ -6582,6 +6603,7 @@ function InductiveNode({
    * rearrangements don't need multi-level onChange chaining.
    */
   setRowArity: (path: string, count: number) => void;
+  onSuggestionTabOwnershipChange: (ownerToken: string, ownsTab: boolean) => void;
   treeOp: (
     op: 'wrapParent' | 'addSibling' | 'indent' | 'outdent' | 'moveUp' | 'moveDown',
     path: string,
@@ -6599,6 +6621,10 @@ function InductiveNode({
   const contextDraftOpenRef = React.useRef(false);
   const contextAutoFocusRequestedRef = React.useRef(false);
   const previousNodeIdRef = React.useRef(nodeId);
+  const handleSuggestionTabOwnershipChange = React.useCallback(
+    (ownsTab: boolean) => onSuggestionTabOwnershipChange(nodeId, ownsTab),
+    [nodeId, onSuggestionTabOwnershipChange]
+  );
 
   React.useEffect(() => {
     if (contextInputOpen) contextAutoFocusRequestedRef.current = false;
@@ -6727,7 +6753,7 @@ function InductiveNode({
     // child-count render from treating the same authority as a second edge.
     reconciledAuthorityRef.current = arityAuthority.key;
     const requiredArity = arityAuthority.dynamic
-      ? Math.max(1, node.children.length)
+      ? Math.max(1, arityAuthority.count, node.children.length)
       : arityAuthority.count;
     setRowArity(path, requiredArity);
     if (requiredArity > node.children.length && collapsed.has(nodeId)) {
@@ -6899,7 +6925,7 @@ function InductiveNode({
           data-snl-macro-input
           value={rawInput}
           macroCandidates={macroCandidates}
-          acceptSuggestionOnTab={false}
+          onSuggestionTabOwnershipChange={handleSuggestionTabOwnershipChange}
           onChange={commitRaw}
           placeholder={depth === 0 ? t('rootMacroPlaceholder') : t('leafPlaceholder')}
           spellCheck={false}
@@ -7113,6 +7139,7 @@ function InductiveNode({
                 onToggleCollapsed={onToggleCollapsed}
                 treeOp={treeOp}
                 setRowArity={setRowArity}
+                onSuggestionTabOwnershipChange={onSuggestionTabOwnershipChange}
               />
             );
           })}

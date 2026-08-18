@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { nextInductiveAutocompleteOwner } from './inductiveAutocompleteOwnership';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -113,6 +114,7 @@ export class CreateEntryPanel {
   private openPackageCreatorOnNextContext = false;
   private disposables: vscode.Disposable[] = [];
   private contextGeneration = 0;
+  private inductiveAutocompleteOwner: string | null = null;
   /** Changes only when the singleton points at a different authoring target. */
   private targetGeneration = 0;
   /**
@@ -258,8 +260,10 @@ export class CreateEntryPanel {
       trace.mark('reveal-existing');
       return;
     }
-    // Different entry: clear the form before the new data lands so no field
-    // from the previous entry is ever visible against the new id.
+    // Different entry: clear transient focus/ownership state before the new data lands.
+    this.clearInductiveAutocompleteOwnership();
+    // Clear the form before the new data lands so no field from the previous
+    // entry is ever visible against the new id.
     void this.panel.webview.postMessage({
       type: 'retarget', mode, id, targetGeneration: this.targetGeneration
     });
@@ -573,6 +577,24 @@ export class CreateEntryPanel {
       | { type?: string; entry?: EntryData; expectedRevision?: string; saveRequestId?: string }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
+      return;
+    }
+
+    if (msg.type === 'inductiveAutocompleteTabOwnership') {
+      const ownership = message as { ownerToken?: unknown; ownsTab?: unknown };
+      if (typeof ownership.ownerToken !== 'string' || !ownership.ownerToken ||
+          typeof ownership.ownsTab !== 'boolean') return;
+      const previousOwner = this.inductiveAutocompleteOwner;
+      const nextOwner = nextInductiveAutocompleteOwner(previousOwner, {
+        ownerToken: ownership.ownerToken,
+        ownsTab: ownership.ownsTab
+      });
+      this.inductiveAutocompleteOwner = nextOwner;
+      if (nextOwner !== previousOwner || ownership.ownsTab) {
+        await vscode.commands.executeCommand(
+          'setContext', 'snl.inductiveAutocompleteOwnsTab', nextOwner !== null
+        );
+      }
       return;
     }
 
@@ -1082,8 +1104,15 @@ export class CreateEntryPanel {
     }
   }
 
+  private clearInductiveAutocompleteOwnership(): void {
+    if (this.inductiveAutocompleteOwner === null) return;
+    this.inductiveAutocompleteOwner = null;
+    void vscode.commands.executeCommand('setContext', 'snl.inductiveAutocompleteOwnsTab', false);
+  }
+
   public dispose(): void {
     CreateEntryPanel.instance = undefined;
+    this.clearInductiveAutocompleteOwnership();
     void vscode.commands.executeCommand('setContext', 'snlDoc.inductiveInputFocus', false);
 
     this.panel.dispose();

@@ -225,6 +225,10 @@ export const MacroIdInput = forwardRef<
     // the caret to the end. Preserve the post-input caret for every edit, not
     // only delimiter auto-close.
     pendingCaretRef.current = normalized.caret ?? nextCaret;
+    // Every edit gets its own layout transaction, even when the parent rejects
+    // it and leaves the controlled value unchanged. This consumes the pending
+    // caret now instead of leaking it into a later unrelated prop update.
+    setSelectionEpoch((epoch) => epoch + 1);
     setCaretPosition(normalized.caret ?? nextCaret ?? normalized.value.length);
     onChange(normalized.value);
     if (!interactionDisabled) setSuggestionsOpen(true);

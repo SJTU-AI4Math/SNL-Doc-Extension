@@ -444,4 +444,30 @@ describe('MacroIdInput', () => {
     expect(setSelectionRange).toHaveBeenLastCalledWith(3, 3);
   });
 
+
+  it('does not leak a rejected edit caret into a later external value update', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('abcd');
+      return <>
+        <MacroIdInput value={value} onChange={() => undefined} macroCandidates={[]} />
+        <button type="button" onClick={() => setValue('uvwxyz')}>external update</button>
+      </>;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    const setSelectionRange = vi.spyOn(input, 'setSelectionRange');
+    input.focus();
+    input.setSelectionRange(2, 2);
+    setSelectionRange.mockClear();
+
+    fireEvent.input(input, {
+      target: { value: 'abXcd', selectionStart: 3, selectionEnd: 3 }
+    });
+    setSelectionRange.mockClear();
+    fireEvent.click(view.getByRole('button', { name: 'external update' }));
+
+    expect(input.value).toBe('uvwxyz');
+    expect(setSelectionRange).not.toHaveBeenCalled();
+  });
+
 });

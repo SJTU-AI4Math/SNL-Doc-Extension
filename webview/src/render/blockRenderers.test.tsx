@@ -261,6 +261,8 @@ describe('CollapsibleRenderer', () => {
     // Counts the FOLDABLE parts, not every child — the summary never folds.
     expect(host.getAttribute('data-snl-child-count')).toBe('2');
     expect(host.getAttribute('data-snl-collapse-noun')).toBe('parts');
+    expect(host.getAttribute('data-snl-collapse-level')).toBe('0');
+    expect(host.getAttribute('data-snl-initial-collapsed')).toBe('true');
     expect(bodyHost().hasAttribute('data-snl-subtree')).toBe(true);
   });
 
@@ -317,14 +319,14 @@ describe('CollapsibleRenderer', () => {
 
   it('exposes an aria-label on the toggle', () => {
     mount(blockNode([node('summary'), node('body1')]));
-    expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Expand');
+    expect(screen.getByRole('button').getAttribute('aria-label')).toBe('Expand collapsible block summary');
   });
 
   it('localizes collapse accessibility copy and export vocabulary in Chinese', () => {
     document.documentElement.lang = 'zh-CN';
     mount(blockNode([node('summary'), node('body1'), node('body2')]));
     const button = screen.getByRole('button');
-    expect(button.getAttribute('aria-label')).toBe('展开');
+    expect(button.getAttribute('aria-label')).toBe('展开可折叠块 summary');
     expect(button.getAttribute('title')).toBe('展开 2 个部分');
     expect(document.querySelector('.snl-collapsible')?.getAttribute('data-snl-collapse-noun'))
       .toBe('个部分');

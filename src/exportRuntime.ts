@@ -291,67 +291,165 @@ const RUNTIME_TEMPLATE = String.raw`
    */
   function wireCollapse() {
     var hosts = document.querySelectorAll('[data-snl-collapsible]');
-    for (var i = 0; i < hosts.length; i++) {
-      (function (host) {
-        // The subtree is a DIRECT child in the Entry outline, but the
-        // collapsible block renderer nests its body one level down (inside
-        // .snl-collapsible, after the summary row). Search descendants and
-        // keep only the one whose nearest collapsible host is THIS host, so a
-        // nested collapsible's body never gets adopted by its ancestor.
-        var subtree = null;
-        var candidates = host.querySelectorAll('[data-snl-subtree]');
-        for (var c = 0; c < candidates.length; c++) {
-          var owner = candidates[c].parentNode;
-          while (owner && owner !== host && !owner.hasAttribute('data-snl-collapsible')) {
-            owner = owner.parentNode;
-          }
-          if (owner === host) { subtree = candidates[c]; break; }
-        }
-        if (!subtree) return;
+    var records = [];
+    var controlGroups = [];
 
+    function ownedSubtree(host) {
+      var candidates = host.querySelectorAll('[data-snl-subtree]');
+      for (var c = 0; c < candidates.length; c++) {
+        var owner = candidates[c].parentNode;
+        while (owner && owner !== host && !owner.hasAttribute('data-snl-collapsible')) {
+          owner = owner.parentNode;
+        }
+        if (owner === host) return candidates[c];
+      }
+      return null;
+    }
+
+    function scopeFor(node) {
+      return node.closest && node.closest('.snl-collapsible-scope') ||
+        document.querySelector('.snl-export') || document.body;
+    }
+
+    function updateGroups(scope) {
+      for (var g = 0; g < controlGroups.length; g++) {
+        var group = controlGroups[g];
+        if (group.scope !== scope) continue;
+        var canExpand = false;
+        var canCollapse = false;
+        for (var r = 0; r < group.records.length; r++) {
+          if (group.records[r].toggle.getAttribute('aria-expanded') === 'true') canCollapse = true;
+          else canExpand = true;
+        }
+        group.expand.disabled = !canExpand;
+        group.collapse.disabled = !canCollapse;
+      }
+    }
+
+    function setOpen(record, open) {
+      record.toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      record.subtree.hidden = !open;
+      record.toggle.textContent = open ? '__GLYPH_EXPANDED__' : '__GLYPH_COLLAPSED__';
+      var action = open ? (record.zh ? '收起' : 'Collapse') : (record.zh ? '展开' : 'Expand');
+      record.toggle.title = action + ' ' + record.count + ' ' + record.noun;
+      if (record.level === null) {
+        record.toggle.setAttribute('aria-label', action);
+      } else {
+        var summary = record.summary;
+        record.toggle.setAttribute(
+          'aria-label',
+          record.zh
+            ? action + '可折叠块' + (summary ? ' ' + summary : '')
+            : action + ' collapsible block' + (summary ? ' ' + summary : '')
+        );
+      }
+    }
+
+    for (var i = 0; i < hosts.length; i++) {
+      (function (host, index) {
+        var subtree = ownedSubtree(host);
+        if (!subtree) return;
         var count = parseInt(host.getAttribute('data-snl-child-count') || '0', 10);
-        // Vocabulary travels with the markup: the Entry outline hides
-        // sub-entries, a collapsible block hides body parts.
-        var noun = host.getAttribute('data-snl-collapse-noun');
         var zh = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0;
+        var noun = host.getAttribute('data-snl-collapse-noun');
         if (!noun) noun = zh ? '个子条目' : 'sub-entr' + (count === 1 ? 'y' : 'ies');
+        var levelText = host.getAttribute('data-snl-collapse-level');
+        var level = levelText === null ? null : parseInt(levelText, 10);
+        if (level !== null && !isFinite(level)) level = null;
 
         var toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = '__TOGGLE_CLASS__';
         toggle.setAttribute('style', '__TOGGLE_STYLE__');
-        // Honour the state the reader was looking at when they exported.
+        var bodyId = subtree.id || 'snl-export-collapse-' + index;
+        subtree.id = bodyId;
+        toggle.setAttribute('aria-controls', bodyId);
         toggle.setAttribute(
           'aria-expanded',
           host.getAttribute('data-snl-collapsed') === 'true' ? 'false' : 'true'
         );
-
-        function paint() {
-          var open = toggle.getAttribute('aria-expanded') === 'true';
-          subtree.hidden = !open;
-          toggle.textContent = open ? '__GLYPH_EXPANDED__' : '__GLYPH_COLLAPSED__';
-          var action = open ? (zh ? '收起' : 'Collapse') : (zh ? '展开' : 'Expand');
-          toggle.title = action + ' ' + count + (zh ? ' ' : ' ') + noun;
-          toggle.setAttribute('aria-label', action);
-        }
-        toggle.addEventListener('click', function () {
-          toggle.setAttribute(
-            'aria-expanded',
-            toggle.getAttribute('aria-expanded') === 'true' ? 'false' : 'true'
-          );
-          paint();
-        });
-
-        // The toggle's left:-20px is measured from its offset parent, which
-        // must be the positioned row it belongs to. In the Entry outline that
-        // is the host's first child; in a collapsible block it is the
-        // .snl-collapsible__summary row (see ui.css). Mount inside that row
-        // when one exists, otherwise fall back to the host.
         var row = host.querySelector(':scope > .snl-collapsible__summary');
         var mount = row || host;
+        var record = {
+          host: host,
+          subtree: subtree,
+          toggle: toggle,
+          row: mount,
+          summary: mount.textContent && mount.textContent.trim(),
+          count: count,
+          noun: noun,
+          zh: zh,
+          level: level,
+          scope: scopeFor(host)
+        };
+        records.push(record);
+        toggle.addEventListener('click', function (event) {
+          var nextOpen = toggle.getAttribute('aria-expanded') !== 'true';
+          if (event.ctrlKey && record.level !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            for (var r = 0; r < records.length; r++) {
+              var peer = records[r];
+              if (peer.scope === record.scope && peer.level === record.level) setOpen(peer, nextOpen);
+            }
+          } else {
+            if (event.ctrlKey || event.metaKey) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            setOpen(record, nextOpen);
+          }
+          updateGroups(record.scope);
+        });
         mount.insertBefore(toggle, mount.firstChild);
-        paint();
-      })(hosts[i]);
+        setOpen(record, toggle.getAttribute('aria-expanded') === 'true');
+      })(hosts[i], i);
+    }
+
+    var controls = document.querySelectorAll('[data-snl-collapsible-controls]');
+    for (var j = 0; j < controls.length; j++) {
+      (function (mount) {
+        var scope = scopeFor(mount);
+        var scopedRecords = [];
+        for (var r = 0; r < records.length; r++) {
+          if (records[r].scope === scope && records[r].level !== null) scopedRecords.push(records[r]);
+        }
+        if (scopedRecords.length === 0) return;
+        var zh = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0;
+        var scopeLabel = scope.getAttribute && scope.getAttribute('data-snl-collapsible-scope-label') ||
+          (zh ? '渲染内容' : 'rendered content');
+        var expand = document.createElement('button');
+        var collapse = document.createElement('button');
+        expand.type = collapse.type = 'button';
+        expand.className = collapse.className = 'snl-btn snl-btn--sm snl-btn--secondary';
+        expand.textContent = zh ? '全部展开' : 'Expand all';
+        collapse.textContent = zh ? '全部收起' : 'Collapse all';
+        expand.setAttribute('aria-label', zh
+          ? '展开' + scopeLabel + '中的所有可折叠块'
+          : 'Expand all collapsible blocks in ' + scopeLabel);
+        collapse.setAttribute('aria-label', zh
+          ? '收起' + scopeLabel + '中的所有可折叠块'
+          : 'Collapse all collapsible blocks in ' + scopeLabel);
+        function applyAll(open) {
+          return function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            for (var k = 0; k < scopedRecords.length; k++) setOpen(scopedRecords[k], open);
+            updateGroups(scope);
+          };
+        }
+        expand.addEventListener('click', applyAll(true));
+        collapse.addEventListener('click', applyAll(false));
+        mount.appendChild(expand);
+        mount.appendChild(collapse);
+        controlGroups.push({
+          scope: scope,
+          records: scopedRecords,
+          expand: expand,
+          collapse: collapse
+        });
+        updateGroups(scope);
+      })(controls[j]);
     }
   }
 
@@ -388,6 +486,11 @@ export const EXPORT_RUNTIME_WIRING_JS = RUNTIME_TEMPLATE
 export const EXPORT_RUNTIME_CSS = `
 [data-snl-collapsible] { position: relative; }
 .snl-export { padding-left: ${-COLLAPSE_TOGGLE_GEOMETRY.left + 8}px; }
+.snl-collapsible-scope { position: relative; min-width: 0; }
+.snl-collapsible-scope__controls {
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: .35rem; margin: 0 0 .4rem;
+}
 
 /* Collapse MUST beat the inline style on the row it hides.
  *

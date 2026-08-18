@@ -77,6 +77,8 @@ function markCollapsibleRows(clone: HTMLElement): void {
       host.removeAttribute('data-snl-child-count');
       host.removeAttribute('data-snl-collapse-noun');
       host.removeAttribute('data-snl-collapsed');
+      host.removeAttribute('data-snl-initial-collapsed');
+      host.removeAttribute('data-snl-collapse-level');
     }
   }
 }

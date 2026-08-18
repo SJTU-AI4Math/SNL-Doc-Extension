@@ -211,6 +211,15 @@ html[data-snl-motion='reduced'] .snl-btn:active:not(:disabled):not([aria-disable
   word-break:break-word;
 }
 
+.snl-collapsible-scope { position:relative; min-width:0; }
+.snl-collapsible-scope__controls {
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+  gap:.35rem;
+  margin:0 0 .4rem;
+}
+
 /* Collapsible block macros (`block_template_name: "collapsible"`).
 
    Gutter: the toggle is `position:absolute; left:-20px` (COLLAPSE_TOGGLE_STYLE,

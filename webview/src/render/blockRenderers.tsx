@@ -34,19 +34,23 @@ import {
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { getVsCodeApi } from '../vscodeApi';
 import { parseBlockRendererSpec } from './blockRendererSpec';
+import { useCollapsibleController } from './CollapsibleScope';
 
 const MESSAGES = defineUiMessages(
   'collapsibleBlock',
   {
     title: { arg: 'count', one: '{action} {count} part', other: '{action} {count} parts' },
     expand: 'Expand', collapse: 'Collapse',
+    expandBlock: 'Expand collapsible block {summary}',
+    collapseBlock: 'Collapse collapsible block {summary}',
     noun: { arg: 'count', one: 'part', other: 'parts' },
     imagePathRequired: 'Image path is required.',
     imageLoading: 'Loading image…',
     imageLoadFailed: 'Could not load this workspace image.'
   },
   {
-    title: '{action} {count} 个部分', expand: '展开', collapse: '收起', noun: '个部分',
+    title: '{action} {count} 个部分', expand: '展开', collapse: '收起',
+    expandBlock: '展开可折叠块 {summary}', collapseBlock: '收起可折叠块 {summary}', noun: '个部分',
     imagePathRequired: '必须填写图片路径。',
     imageLoading: '正在加载图片…',
     imageLoadFailed: '无法加载此工作区图片。'
@@ -101,7 +105,9 @@ function initiallyCollapsed(node: SnlSyntaxTree): boolean {
 export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => {
   const t = useUiMessages(MESSAGES);
   const children: SnlSyntaxTree[] = Array.isArray(node.children) ? node.children : [];
-  const [collapsed, setCollapsed] = useState(() => initiallyCollapsed(node));
+  const authoredInitial = initiallyCollapsed(node);
+  const controller = useCollapsibleController(authoredInitial, children.length >= 2);
+  const { collapsed } = controller;
 
   // Degenerate case: no separable body → plain block, no chrome.
   if (children.length < 2) {
@@ -115,7 +121,9 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
   }
 
   const [summary, ...body] = children;
-  const toggle = (): void => setCollapsed((c) => !c);
+  const summaryName = typeof summary.macro_name === 'string' && summary.macro_name
+    ? summary.macro_name
+    : 'summary';
 
   return (
     <div
@@ -130,6 +138,8 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
       data-snl-child-count={body.length}
       data-snl-collapse-noun={t('noun', { count: body.length })}
       data-snl-collapsed={collapsed ? 'true' : undefined}
+      data-snl-initial-collapsed={authoredInitial ? 'true' : 'false'}
+      data-snl-collapse-level={controller.depth}
     >
       {/* `position: relative` + the toggle's `position: absolute; left: -20px`
           make the triangle hang in a gutter to the LEFT of the row. The gutter
@@ -138,13 +148,23 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
           INDENT_PER_LEVEL, and the static export, which reserves it with
           `.snl-export { padding-left }`). Without that reservation the glyph
           escapes past the left edge of the block. */}
-      <div className="snl-collapsible__summary" onClick={toggle}>
+      <div
+        className="snl-collapsible__summary"
+        onClick={(event) => {
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          controller.toggle(event);
+        }}
+      >
         <button
           type="button"
           className={COLLAPSE_TOGGLE_CLASS}
           style={COLLAPSE_TOGGLE_STYLE as React.CSSProperties}
           aria-expanded={!collapsed}
-          aria-label={t(collapsed ? 'expand' : 'collapse')}
+          aria-controls={controller.bodyId}
+          aria-label={t(collapsed ? 'expandBlock' : 'collapseBlock', { summary: summaryName })}
           title={t('title', {
             action: t(collapsed ? 'expand' : 'collapse'),
             count: body.length
@@ -153,12 +173,13 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
             // The summary row is itself clickable; stop the bubble so one
             // click is not counted twice.
             e.stopPropagation();
-            toggle();
+            if (e.ctrlKey || e.metaKey) e.preventDefault();
+            controller.toggle(e);
           }}
         >
           {collapsed ? COLLAPSE_GLYPH.collapsed : COLLAPSE_GLYPH.expanded}
         </button>
-        {renderChild(summary)}
+        {controller.nest(renderChild(summary))}
       </div>
       {/* Rendered UNCONDITIONALLY and hidden with the `hidden` attribute
           rather than removed from the tree.
@@ -177,10 +198,15 @@ export const CollapsibleRenderer: SnlBlockRenderer = ({ node, renderChild }) => 
           template's `separator` is NOT applied here — without a wrapper the
           steps would run together as inline text ("…there.hence…"). Separation
           is the renderer's job precisely because it is presentation. */}
-      <div className="snl-collapsible__body" data-snl-subtree="" hidden={collapsed}>
+      <div
+        id={controller.bodyId}
+        className="snl-collapsible__body"
+        data-snl-subtree=""
+        hidden={collapsed}
+      >
         {body.map((child, i) => (
           <div className="snl-collapsible__part" key={i}>
-            {renderChild(child)}
+            {controller.nest(renderChild(child))}
           </div>
         ))}
       </div>

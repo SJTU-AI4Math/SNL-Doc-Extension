@@ -39,17 +39,31 @@ const HARVESTED = `
   <div style="position:relative"><section>outline-row</section></div>
   <div data-snl-subtree=""><section>outline-child</section></div>
 </div>
-<div id="block" class="snl-collapsible" data-snl-collapsible=""
-     data-snl-child-count="2" data-snl-collapse-noun="parts" data-snl-collapsed="true">
+<div class="snl-collapsible-scope">
+<div data-snl-collapsible-controls=""></div>
+<div id="block" class="snl-collapsible" data-snl-collapsible="" data-snl-collapse-level="0"
+     data-snl-child-count="2" data-snl-collapse-noun="parts" data-snl-collapsed="true"
+     data-snl-initial-collapsed="true">
   <div class="snl-collapsible__summary"><section>block-summary</section></div>
   <div class="snl-collapsible__body" data-snl-subtree="">
     <div class="snl-collapsible__part">part1</div>
-    <div id="nested" class="snl-collapsible" data-snl-collapsible=""
-         data-snl-child-count="1" data-snl-collapse-noun="part">
+    <div id="nested" class="snl-collapsible" data-snl-collapsible="" data-snl-collapse-level="1"
+         data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-initial-collapsed="false">
       <div class="snl-collapsible__summary"><section>nested-summary</section></div>
       <div class="snl-collapsible__body" data-snl-subtree=""><div>nested-part</div></div>
     </div>
   </div>
+</div>
+<div id="peer" class="snl-collapsible" data-snl-collapsible="" data-snl-collapse-level="1"
+     data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-collapsed="true"
+     data-snl-initial-collapsed="true">
+  <div class="snl-collapsible__summary"><section>peer-summary</section></div>
+  <div class="snl-collapsible__body" data-snl-subtree=""><div>peer-part</div></div>
+</div>
+</div>
+<div class="snl-collapsible-scope" data-snl-collapsible-scope-label="Flat preview">
+  <div id="empty-controls" data-snl-collapsible-controls=""></div>
+  <div>leaf-only content</div>
 </div>
 <div data-entry-body="">
   <span data-scope="binder" data-bindref="b1" data-kind="rule" data-name="forall">
@@ -95,8 +109,8 @@ const byId = (id: string): HTMLElement => {
   return el;
 };
 
-const click = (el: Element): void => {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+const click = (el: Element, init: MouseEventInit = {}): void => {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
 };
 const hover = (el: Element): void => {
   el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
@@ -117,8 +131,8 @@ describe('the exported runtime, executed', () => {
   });
 
   it('builds a toggle for every collapsible host, on both surfaces', () => {
-    expect(document.querySelectorAll('[data-snl-collapsible]')).toHaveLength(3);
-    expect(document.querySelectorAll('button')).toHaveLength(3);
+    expect(document.querySelectorAll('[data-snl-collapsible]')).toHaveLength(4);
+    expect(document.querySelectorAll('button.snl-collapse-toggle')).toHaveLength(4);
   });
 
   it('collapses and re-expands an Entry outline row', () => {
@@ -168,7 +182,7 @@ describe('the exported runtime, executed', () => {
     (0, eval)(EXPORT_RUNTIME_JS);
 
     expect(toggleOf(byId('block')).title).toBe('展开 2 个部分');
-    expect(toggleOf(byId('block')).getAttribute('aria-label')).toBe('展开');
+    expect(toggleOf(byId('block')).getAttribute('aria-label')).toBe('展开可折叠块 block-summary');
     expect(toggleOf(byId('outline')).title).toBe('收起 2 个子条目');
     expect(toggleOf(byId('outline')).getAttribute('aria-label')).toBe('收起');
   });
@@ -177,6 +191,49 @@ describe('the exported runtime, executed', () => {
     click(toggleOf(byId('nested')));
     expect(ownSubtree(byId('nested')).hidden).toBe(true);
     expect(ownSubtree(byId('block')).hidden).toBe(true); // parent unchanged
+  });
+
+
+  it('Ctrl+Click toggles authored blocks at the same persisted absolute depth only', () => {
+    expect(ownSubtree(byId('nested')).hidden).toBe(false);
+    expect(ownSubtree(byId('peer')).hidden).toBe(true);
+    expect(ownSubtree(byId('block')).hidden).toBe(true);
+
+    click(toggleOf(byId('nested')), { ctrlKey: true });
+    expect(ownSubtree(byId('nested')).hidden).toBe(true);
+    expect(ownSubtree(byId('peer')).hidden).toBe(true);
+    expect(ownSubtree(byId('block')).hidden).toBe(true);
+
+    click(toggleOf(byId('nested')), { ctrlKey: true });
+    expect(ownSubtree(byId('nested')).hidden).toBe(false);
+    expect(ownSubtree(byId('peer')).hidden).toBe(false);
+    expect(ownSubtree(byId('block')).hidden).toBe(true);
+  });
+
+  it('adds no bulk controls to an exported scope without foldable blocks', () => {
+    expect(byId('empty-controls').querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('builds separate localized bulk controls for each exported render scope', () => {
+    const controls = document.querySelector<HTMLElement>('[data-snl-collapsible-controls]')!;
+    const expand = Array.from(controls.querySelectorAll('button')).find((button) =>
+      button.textContent === 'Expand all') as HTMLButtonElement;
+    const collapse = Array.from(controls.querySelectorAll('button')).find((button) =>
+      button.textContent === 'Collapse all') as HTMLButtonElement;
+    expect(expand.disabled).toBe(false);
+    expect(collapse.disabled).toBe(false);
+
+    click(expand);
+    for (const id of ['block', 'nested', 'peer']) {
+      expect(ownSubtree(byId(id)).hidden).toBe(false);
+    }
+    expect(expand.disabled).toBe(true);
+
+    click(collapse);
+    for (const id of ['block', 'nested', 'peer']) {
+      expect(ownSubtree(byId(id)).hidden).toBe(true);
+    }
+    expect(collapse.disabled).toBe(true);
   });
 
   it('keeps current sub helpers and legacy partial helpers outside hover selection', () => {

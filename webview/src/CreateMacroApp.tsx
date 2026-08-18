@@ -70,6 +70,7 @@ import {
   type MacroRecord
 } from './render/macroData';
 import { extensionRenderers } from './render/blockRenderers';
+import { CollapsibleScope } from './render/CollapsibleScope';
 import { macroKindsToPalette } from './render/macroKindPalette';
 import {
   useVsCodeApiRef,
@@ -1939,6 +1940,7 @@ export function CreateMacroApp(): React.ReactElement {
           {/* Right column: Preview + template body (grows). */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div className="snl-preview-canvas" style={{ marginBottom: '0.6rem' }}>
+              <CollapsibleScope resetKey={DRAFT_KEY} label={t('macroPreview')}>
               <PreviewBoundary
                 key={
                   previewTemplate +
@@ -1957,6 +1959,7 @@ export function CreateMacroApp(): React.ReactElement {
                   kindPalette={kindPalette}
                 />
               </PreviewBoundary>
+              </CollapsibleScope>
             </div>
             <p style={{ margin: '0 0.5rem', opacity: 0.75, fontSize: '0.8rem' }}>
               {t(current?.mode === 'block'

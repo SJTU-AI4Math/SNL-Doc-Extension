@@ -109,6 +109,7 @@ import {
 import { mergeDraftIntoEntryPool } from './render/entryPreviewPool';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { extensionRenderers } from './render/blockRenderers';
+import { CollapsibleScope } from './render/CollapsibleScope';
 import {
   attachCanvasRoot,
   canPersistCanvasForest,
@@ -4761,6 +4762,7 @@ export function GuiCanvasEditor({
   };
 
   return (
+    <CollapsibleScope resetKey="entry-canvas" label={t('canvasAria')}>
     <section>
       <div
         ref={viewportRef}
@@ -5182,6 +5184,7 @@ export function GuiCanvasEditor({
         </div>
       ) : null}
     </section>
+    </CollapsibleScope>
   );
 }
 

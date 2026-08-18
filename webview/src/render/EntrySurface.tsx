@@ -1,6 +1,14 @@
 import React from 'react';
 import { EntryRender, type EntryRenderProps } from './EntryRender';
+import { CollapsibleScope } from './CollapsibleScope';
+import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import './EntrySurface.css';
+
+const MESSAGES = defineUiMessages(
+  'entrySurface',
+  { scopeLabel: 'Entry {id}' },
+  { scopeLabel: '条目 {id}' }
+);
 
 interface EntryWheelEvent {
   readonly shiftKey: boolean;
@@ -70,7 +78,11 @@ export function handleEntryShiftWheel(
  * navigation or framing, but Entry presentation always passes through here.
  */
 export function EntrySurface(props: EntryRenderProps): React.ReactElement {
+  const t = useUiMessages(MESSAGES);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
+  // Layout-only tests intentionally render this wrapper with minimal mocked
+  // props; production still resets by the real Entry identity.
+  const entryId = (props.entry as { id?: string } | undefined)?.id ?? 'entry';
 
   React.useEffect(() => {
     const surface = surfaceRef.current;
@@ -85,7 +97,9 @@ export function EntrySurface(props: EntryRenderProps): React.ReactElement {
 
   return (
     <div ref={surfaceRef} className="snl-entry-overflow-surface">
-      <EntryRender {...props} />
+      <CollapsibleScope resetKey={entryId} label={t('scopeLabel', { id: entryId })}>
+        <EntryRender {...props} />
+      </CollapsibleScope>
     </div>
   );
 }

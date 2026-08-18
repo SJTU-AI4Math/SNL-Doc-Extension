@@ -54,6 +54,7 @@ import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import { macroKindsToPalette } from './render/macroKindPalette';
 import { extensionRenderers } from './render/blockRenderers';
+import { CollapsibleScope } from './render/CollapsibleScope';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import {
   use_preferences_revision,
@@ -69,7 +70,7 @@ const PACKAGE_MESSAGES = defineUiMessages(
     colPreview: 'Preview', colName: 'Name', colArity: 'Arity', srcTitle: 'Src status. 🟢 has entry src and it resolves in the pool. 🟡 has entry src but unresolved, OR only url srcs. 🔴 no src declared.', colSrc: 'Src', colMode: 'Mode', colKind: 'Kind', colStyle: 'Style', colMacroTags: 'Macro Tags', colStyleTags: 'Style Tags', colDescription: 'Description', colActions: 'Actions',
     selectMacro: 'Select macro {name}', deselectMacro: 'Deselect macro {name}', editMacro: 'Edit macro {name}', editMacroStyle: 'Edit macro {name} — style {style}', collapseStyles: 'Collapse styles', expandStyles: 'Expand styles', collapseRows: 'Collapse this macro’s style rows', moreRows: { arg: 'count', one: 'Show {count} more style row', other: 'Show {count} more style rows' }, defaultStyle: 'Default style', untagged: '(untagged)', copyMacro: 'Copy macro {name}', copy: 'Copy', deleteMacro: 'Delete macro {name}', sameAsDefault: 'same as default', noKind: 'No matching macro kind in the catalog', colorTitle: 'stroke {stroke} / background {background}',
     selectedCount: '{count} selected', transferTitle: 'Copy or move the selected macros to another package', transfer: 'Copy / Move…', delete: 'Delete', dismiss: 'Dismiss', transferHeading: 'Copy / Move macros', transferMode: 'Transfer mode', move: 'Move', copyModeTitle: 'Copy selected macros — source package left unchanged', moveModeTitle: 'Move selected macros — removed from source package', transferSummaryNew: '{verb} the {count} selected macro(s) into a brand-new package.', transferSummaryExisting: '{verb} the {count} selected macro(s) to the selected package.', moveEffect: 'They will be removed from this package.', copyEffect: 'The source package is left unchanged.', destination: 'Destination package', createNew: '— Create new package —', newFile: 'New package file name (letters, digits, - and _ only)', filePlaceholder: 'my_new_package', invalidFile: 'Only letters, digits, hyphen and underscore are allowed.', displayName: 'Display name (optional)', displayNamePlaceholder: 'Package display name', description: 'Description (optional)', transferIntoNew: '{verb} into new package',
-    resolvedEntries: '{count} entry src(s) resolved: {ids}', unresolved: '{count} unresolved: {ids}', urlSources: '{count} url src(s)', missingEntries: '{count} entry src(s) NOT in pool: {ids}', urlSourcesWithIds: '{count} url src(s): {ids}', noSource: 'No src declared (neither entry nor url).', srcStatus: 'Src status: {color}', green: 'green', yellow: 'yellow', red: 'red'
+    resolvedEntries: '{count} entry src(s) resolved: {ids}', unresolved: '{count} unresolved: {ids}', urlSources: '{count} url src(s)', missingEntries: '{count} entry src(s) NOT in pool: {ids}', urlSourcesWithIds: '{count} url src(s): {ids}', noSource: 'No src declared (neither entry nor url).', srcStatus: 'Src status: {color}', green: 'green', yellow: 'yellow', red: 'red', macroPreviewScope: 'Macro preview {name}'
   },
   {
     panelTitle: 'SNL 宏包', dashboard: '仪表板', backDashboard: '返回仪表板', loading: '正在加载宏包…', noFile: '宏包文件 {file} 尚不存在。', macroCount: { arg: 'count', other: '{file} · {count} 个宏' },
@@ -78,7 +79,7 @@ const PACKAGE_MESSAGES = defineUiMessages(
     colPreview: '预览', colName: '名称', colArity: '元数', srcTitle: '来源状态：🟢 条目来源存在且可在共享池中解析；🟡 条目来源无法解析或只有 URL 来源；🔴 未声明来源。', colSrc: '来源', colMode: '模式', colKind: '类别', colStyle: '样式', colMacroTags: '宏标签', colStyleTags: '样式标签', colDescription: '说明', colActions: '操作',
     selectMacro: '选择宏 {name}', deselectMacro: '取消选择宏 {name}', editMacro: '编辑宏 {name}', editMacroStyle: '编辑宏 {name} — 样式 {style}', collapseStyles: '收起样式', expandStyles: '展开样式', collapseRows: '收起此宏的样式行', moreRows: { arg: 'count', other: '再显示 {count} 个样式行' }, defaultStyle: '默认样式', untagged: '（未标记）', copyMacro: '复制宏 {name}', copy: '复制', deleteMacro: '删除宏 {name}', sameAsDefault: '与默认值相同', noKind: '类别目录中没有匹配的宏类别', colorTitle: '描边 {stroke} / 背景 {background}',
     selectedCount: '已选择 {count} 个', transferTitle: '将所选宏复制或移动到其他宏包', transfer: '复制 / 移动…', delete: '删除', dismiss: '关闭', transferHeading: '复制 / 移动宏', transferMode: '传输模式', move: '移动', copyModeTitle: '复制所选宏——源宏包保持不变', moveModeTitle: '移动所选宏——将从源宏包中移除', transferSummaryNew: '将 {count} 个所选宏{verb}到全新宏包。', transferSummaryExisting: '将 {count} 个所选宏{verb}到选定宏包。', moveEffect: '这些宏将从当前宏包中移除。', copyEffect: '源宏包保持不变。', destination: '目标宏包', createNew: '— 创建新宏包 —', newFile: '新宏包文件名（仅限字母、数字、- 和 _）', filePlaceholder: 'my_new_package', invalidFile: '只能使用字母、数字、连字符和下划线。', displayName: '显示名称（可选）', displayNamePlaceholder: '宏包显示名称', description: '说明（可选）', transferIntoNew: '{verb}到新宏包',
-    resolvedEntries: '已解析 {count} 个条目来源：{ids}', unresolved: '{count} 个未解析：{ids}', urlSources: '{count} 个 URL 来源', missingEntries: '共享池中不存在的 {count} 个条目来源：{ids}', urlSourcesWithIds: '{count} 个 URL 来源：{ids}', noSource: '未声明来源（既无条目也无 URL）。', srcStatus: '来源状态：{color}', green: '正常', yellow: '警告', red: '缺失'
+    resolvedEntries: '已解析 {count} 个条目来源：{ids}', unresolved: '{count} 个未解析：{ids}', urlSources: '{count} 个 URL 来源', missingEntries: '共享池中不存在的 {count} 个条目来源：{ids}', urlSourcesWithIds: '{count} 个 URL 来源：{ids}', noSource: '未声明来源（既无条目也无 URL）。', srcStatus: '来源状态：{color}', green: '正常', yellow: '警告', red: '缺失', macroPreviewScope: '宏预览 {name}'
   }
 );
 
@@ -1272,6 +1273,7 @@ function MacroPreview({
   hooks: SnlRenderHooks;
   kindPalette: KindPalette | undefined;
 }): React.ReactElement {
+  const t = useUiMessages(PACKAGE_MESSAGES);
   const preferencesRevision = use_preferences_revision();
   const language = webview_language_runtime.query_environment().language;
   // Locate the specific style being previewed (fall back through language defaults).
@@ -1326,14 +1328,19 @@ function MacroPreview({
   // adding a chip here would just re-introduce the "framed panel" look that
   // 猫猫 called out.
   return (
-    <SnlSyntaxTreeView
-      key={`preferences-${preferencesRevision}`}
-      tree={tree}
-      macro_data_driver={macroDataDriver}
-      reader_runtime={webview_language_runtime}
-      hooks={hooks}
-      kindPalette={kindPalette}
-    />
+    <CollapsibleScope
+      resetKey={`${macro.name}:${styleTag ?? 'default'}`}
+      label={t('macroPreviewScope', { name: macro.name })}
+    >
+      <SnlSyntaxTreeView
+        key={`preferences-${preferencesRevision}`}
+        tree={tree}
+        macro_data_driver={macroDataDriver}
+        reader_runtime={webview_language_runtime}
+        hooks={hooks}
+        kindPalette={kindPalette}
+      />
+    </CollapsibleScope>
   );
 }
 

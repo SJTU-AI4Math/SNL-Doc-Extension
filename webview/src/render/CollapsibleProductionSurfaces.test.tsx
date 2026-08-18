@@ -115,4 +115,30 @@ describe('authored Collapsible blocks on the canonical production EntrySurface',
     expect(innerButton.getAttribute('aria-expanded')).toBe('true');
     expect(outerButton.getAttribute('aria-expanded')).toBe('true');
   });
+
+  it('owns one set of contextual bulk controls for the whole Entry render scope', async () => {
+    const view = mountSurface(
+      'Fold(%Outer summary%, Fold(%Inner summary%, %Inner body%), %Outer body%)'
+    );
+    await waitFor(() => expect(view.container.querySelectorAll('.snl-collapsible')).toHaveLength(2));
+    expect(view.container.querySelectorAll('[data-snl-collapsible-controls]')).toHaveLength(1);
+    const expand = view.getByRole('button', {
+      name: 'Expand all collapsible blocks in Entry production-surface'
+    }) as HTMLButtonElement;
+    const collapse = view.getByRole('button', {
+      name: 'Collapse all collapsible blocks in Entry production-surface'
+    }) as HTMLButtonElement;
+    expect(expand.disabled).toBe(false);
+    expect(collapse.disabled).toBe(true);
+
+    fireEvent.click(expand);
+    const disclosures = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>('button[aria-controls]')
+    );
+    expect(disclosures).toHaveLength(2);
+    expect(disclosures.every((button) => button.getAttribute('aria-expanded') === 'true')).toBe(true);
+    expect(expand.disabled).toBe(true);
+    expect(collapse.disabled).toBe(false);
+  });
+
 });

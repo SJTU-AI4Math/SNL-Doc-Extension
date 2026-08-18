@@ -79,9 +79,15 @@ const fixture = {
     style: 'default',
     defaultCounterName: 'section'
   }],
-  macros: {},
+  macros: {
+    'FOL.forall': {
+      name: 'FOL.forall', description: 'browser interaction fixture',
+      source: { entries: [], urls: [] }, dynamic_arity: true, tags: [],
+      styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#*' } }]
+    }
+  },
   macroKinds: [],
-  macroOrigin: {},
+  macroOrigin: { 'FOL.forall': 'fixture.json' },
   metricThresholds: { structuralIndexRedBelow: 60, structuralIndexGreenAtLeast: 80 },
   entryPackages: ['_unpackaged'],
   existingIds: [],
@@ -424,6 +430,50 @@ try {
     'short Inductive content must expand with the available container width instead of keeping an intrinsic ch width',
     { width479: width479?.rects.macro, width961: width961?.rects.macro });
 
+  // Real production event paths for two authoring regressions: a parent may
+  // split an inline context suffix into a separate field, and pointer-picking
+  // a SNoogL result must commit on the first click.
+  await setViewport(1280, false);
+  await setInductiveContentWidth(961);
+  const seededCaretEdit = await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1]?.querySelector('textarea[data-snl-macro-input]');
+    if (!textarea) return false;
+    textarea.focus();
+    const setValue=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set;
+    setValue.call(textarea,'ChXild@ctx');
+    textarea.setSelectionRange(3,3);
+    textarea.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'X'}));
+    return true;
+  })()`);
+  assert(seededCaretEdit, 'production Inductive textarea must accept the caret regression edit', seededCaretEdit);
+  await waitFor(`document.querySelectorAll('.snl-tree-row')[1]?.querySelector('textarea[data-snl-macro-input]')?.value === 'ChXild'`);
+  const caretResult = await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    return { value:textarea.value, start:textarea.selectionStart, end:textarea.selectionEnd, active:document.activeElement===textarea };
+  })()`);
+  assert(caretResult.active && caretResult.start === 3 && caretResult.end === 3,
+    'context projection must preserve the authored middle caret instead of forcing it to the end', caretResult);
+
+  await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    textarea.focus();
+    textarea.setSelectionRange(3,3);
+    textarea.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',ctrlKey:true,bubbles:true,cancelable:true}));
+  })()`);
+  await waitFor(`document.querySelector('[role="dialog"] [role="option"]')?.textContent?.includes('FOL.forall')`);
+  const snooglPoint = await evaluate(`(() => { const r=document.querySelector('[role="dialog"] [role="option"]').getBoundingClientRect(); return {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}; })()`);
+  await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: snooglPoint.x, y: snooglPoint.y });
+  await page.call('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, x: snooglPoint.x, y: snooglPoint.y });
+  await page.call('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, x: snooglPoint.x, y: snooglPoint.y });
+  await waitFor(`!document.querySelector('[role="dialog"]')`);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  const snooglResult = await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    return { value:textarea.value, active:document.activeElement===textarea };
+  })()`);
+  assert(snooglResult.value === 'FOL.forall' && snooglResult.active,
+    'the first real pointer click must commit a SNoogL result and restore the Macro editor', snooglResult);
+
   const longMacro = 'Long Macro content that wraps inside the available row width '.repeat(12).trim();
   const longMacroJson = JSON.stringify(longMacro);
   const seededLongEditor = await evaluate(`(() => {
@@ -462,6 +512,7 @@ try {
     namedContainerWidths: [479, 480, 481, 959, 960, 961],
     states: ['idle', 'row-hover', 'toolbar-hover', 'focus-within', 'narrow-row-hover', 'coarse'],
     coarse: true,
+    interactions: { caret: caretResult, snoogl: snooglResult },
     artifactBuild
   }, null, 2));
 } finally {

@@ -58,6 +58,7 @@ export function autoCloseLeadingDelimiter(
 export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
   const tokens: MacroIdDslToken[] = [];
   let atNodeStart = true;
+  let inTextDelimiter = false;
   const push = (text: string, tone: MacroIdDslTone): void => {
     const previous = tokens.at(-1);
     if (previous?.tone === tone) previous.text += text;
@@ -65,10 +66,11 @@ export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
   };
   for (const char of value) {
     if (char === '$') {
-      push(char, 'formula');
+      push(char, inTextDelimiter ? 'plain' : 'formula');
       atNodeStart = false;
     } else if (char === '%') {
       push(char, 'text');
+      inTextDelimiter = !inTextDelimiter;
       atNodeStart = false;
     } else if (char === '@') {
       push(char, atNodeStart ? 'binder' : 'context');
@@ -335,7 +337,7 @@ export const MacroIdInput = forwardRef<
         );
         return;
       }
-      if (event.key === 'Tab') {
+      if (event.key === 'Tab' && !event.shiftKey) {
         event.preventDefault();
         applySuggestion(
           currentSuggestions[highlightedSuggestion] ?? currentSuggestions[0]

@@ -224,6 +224,10 @@
         "title": "%snlDoc.command.inductive.openStyle%"
       },
       {
+        "command": "snlDoc.inductive.previousField",
+        "title": "%snlDoc.command.inductive.previousField%"
+      },
+      {
         "command": "snlDoc.inductive.nextNode",
         "title": "%snlDoc.command.inductive.nextNode%"
       },
@@ -418,6 +422,11 @@
       {
         "command": "snlDoc.inductive.openStyle",
         "key": "tab",
+        "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
+      },
+      {
+        "command": "snlDoc.inductive.previousField",
+        "key": "shift+tab",
         "when": "activeWebviewPanelId == snlCreateEntry && snlDoc.inductiveInputFocus"
       },
       {

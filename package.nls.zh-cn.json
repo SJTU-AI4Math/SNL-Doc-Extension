@@ -60,6 +60,7 @@
   "snlDoc.command.inductive.addParent": "SNL：添加父节点",
   "snlDoc.command.inductive.addSibling": "SNL：添加同级节点",
   "snlDoc.command.inductive.openStyle": "SNL：打开节点样式",
+  "snlDoc.command.inductive.previousField": "SNL：编辑上一个节点字段",
   "snlDoc.command.inductive.nextNode": "SNL：编辑下一个节点",
   "snlDoc.command.inductive.undo": "SNL：撤回归纳式编辑"
 }

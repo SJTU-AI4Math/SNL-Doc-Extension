@@ -280,7 +280,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   macroEditSingleId: 'Macro edit accepts a single macro id; use Ctrl+F2 to edit the subtree.',
   macroEditNameOnly: 'Macro edit accepts a Macro name only; use the Style dropdown.',
   unparseableSnl: 'Text-mode SNL is not parseable ({error}). Tree shown reflects the last successful parse; editing here will overwrite the Text content on next change.',
-  inductiveHelp: 'Inductive editor — hover a row for the action dial. Delimited forms are recognized: $foo$, $$x+y$$, %text%, @$x$. A suffix @ opens the Context Entry ID input. Choose Style from the adjacent dropdown.',
+  inductiveHelp: 'Inductive editor — hover a row for the action dial. Delimited forms are recognized: $foo$, $$x+y$$, %text%, @$x$. Inside %…%, $…$ stays literal text; compose formulas as children, for example %#0 ... %($\\alpha$). A suffix @ opens the Context Entry ID input. Choose Style from the adjacent dropdown.',
   expandNode: 'Expand',
   collapseNode: 'Collapse',
   rootMacroPlaceholder: 'root macro',
@@ -379,7 +379,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   addRootMacro: '添加根宏', editMacroMenu: '编辑宏', editSubtreeSnl: '将子树作为 SNL 编辑', detachBlock: '拆分为独立块', delete: '删除', canvasBlockActions: '画布块操作',
   macroEditSingleId: '宏编辑仅接受单个宏 ID；请使用 Ctrl+F2 编辑子树。', macroEditNameOnly: '宏编辑仅接受宏名称；请使用“样式”下拉框。',
   unparseableSnl: '文本模式 SNL 无法解析（{error}）。当前树反映上次成功解析的结果；下次在此编辑时将覆盖文本内容。',
-  inductiveHelp: '归纳式编辑器——将鼠标悬停在行上可显示操作盘。支持分隔形式：$foo$、$$x+y$$、%text%、@$x$。后缀 @ 会打开“上下文条目 ID”输入框。可从相邻下拉框选择样式。',
+  inductiveHelp: '归纳式编辑器——将鼠标悬停在行上可显示操作盘。支持分隔形式：$foo$、$$x+y$$、%text%、@$x$。在 %…% 内，$…$ 仍是纯文本；请用子节点组合公式，例如 %#0 ... %($\\alpha$)。后缀 @ 会打开“上下文条目 ID”输入框。可从相邻下拉框选择样式。',
   expandNode: '展开', collapseNode: '折叠', rootMacroPlaceholder: '根宏', leafPlaceholder: '名称 / $expr$ / %text% / @…', kindTooltip: '种类：{kind}{source}', envModeSource: '（来自 env_mode）',
   macroNotFound: '名称与当前数据库中的任何宏都不匹配', contextEntryId: '上下文条目 ID', entryId: '条目 ID', unresolvedMacro: '未解析的宏', macroStyleFor: '{name} 的宏样式',
   missingStyle: '样式 [{style}] 缺失；请选择清除或已声明的样式', styleUnavailable: '样式不可用——名称与任何带样式的宏都不匹配', explicitStyle: '显式样式：[{style}]', implicitStyle: '默认样式（隐式）：[{style}]',
@@ -5774,6 +5774,23 @@ export function GuiInductiveEditor({
       if (previous) propagate(previous, false);
       return;
     }
+    if (action === 'inductive.previousField') {
+      if (active?.matches('.snl-tree-style-select')) {
+        row.querySelector<HTMLElement>('[data-snl-macro-input]')?.focus();
+        return;
+      }
+      const editors = Array.from<HTMLElement>(
+        editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
+      );
+      const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
+      const previous = current ? editors[editors.indexOf(current) - 1] : undefined;
+      const previousRow = previous?.closest<HTMLElement>('[data-snl-tree-node-id]');
+      const previousStyle = previousRow?.querySelector<HTMLSelectElement>(
+        '.snl-tree-style-select:not(:disabled)'
+      );
+      (previousStyle ?? previous)?.focus();
+      return;
+    }
     if (action === 'inductive.openStyle') {
       if (active?.matches('.snl-tree-style-select')) {
         const editors = Array.from<HTMLElement>(
@@ -6724,6 +6741,8 @@ function InductiveNode({
 
         {/* Name input — dark-mode uniform styling + kind-colored frame. */}
         <MacroIdInput
+          multiline
+          autoSize
           data-snl-macro-input
           value={rawInput}
           macroCandidates={macroCandidates}

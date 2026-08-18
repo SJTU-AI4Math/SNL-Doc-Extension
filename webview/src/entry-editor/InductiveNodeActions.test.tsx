@@ -179,6 +179,23 @@ describe('Inductive node action dial', () => {
     expect((document.activeElement as HTMLElement).closest('.snl-tree-row-toolbar')).toBeNull();
   });
 
+  it('uses an auto-sized multiline Macro editor and keeps Shift+Enter in the current row', () => {
+    const { view, latest } = renderEditor('root(%first line%,b)');
+    const editor = view.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    const next = view.getAllByRole('textbox')[2] as HTMLTextAreaElement;
+
+    expect(editor.tagName).toBe('TEXTAREA');
+    expect(editor.closest<HTMLElement>('[data-macro-id-control]')?.style.width).toContain('ch');
+    editor.focus();
+    expect(fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true })).toBe(true);
+    expect(document.activeElement).toBe(editor);
+
+    fireEvent.change(editor, { target: { value: '%first line\nsecond line%' } });
+    expect(latest()).toBe('root(%first line\nsecond line%,b)');
+    expect(editor.rows).toBe(2);
+    expect(document.activeElement).not.toBe(next);
+  });
+
   it('routes Macro Tab to Style and Style Enter to the next visible Macro editor', async () => {
     const styledDriver = new MacroDataDriver({
       queries: {
@@ -213,6 +230,50 @@ describe('Inductive node action dial', () => {
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'shortcutAction', action: 'inductive.nextNode' } }));
     expect(document.activeElement).toBe(view.getAllByRole('textbox')[2]);
     expect(latest).toContain('a[compact]');
+  });
+
+  it('routes Shift+Tab as the exact reverse of Macro to Style to next Macro', async () => {
+    const styledDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) =>
+          macro_name === 'a'
+            ? ({ name: 'a', dynamic_arity: true, styles: [
+                { style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                { style_name: 'compact', template: { mode: 'formula_inline', body: '#*' }, tags: [] }
+              ] } as never)
+            : null
+      }
+    });
+    const view = render(
+      <GuiInductiveEditor
+        snl="root(a,b)"
+        macroDataDriver={styledDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+    const macroA = view.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    const macroB = view.getAllByRole('textbox')[2] as HTMLTextAreaElement;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const styleA = rowForInput(macroA).querySelector('select') as HTMLSelectElement;
+
+    macroB.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(styleA);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(macroA);
+  });
+
+  it('explains that formula delimiters inside percent text stay literal', () => {
+    const { view } = renderEditor('%$\\texcommand$ is text%');
+    expect(view.getByText(/Inside %…%, \$…\$ stays literal text/)).toBeTruthy();
   });
 
   it('numbers visible child nodes from #0 at every depth', () => {

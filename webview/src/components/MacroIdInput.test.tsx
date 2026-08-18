@@ -59,6 +59,14 @@ describe('MacroIdInput', () => {
     ]);
   });
 
+  it('keeps dollar delimiters literal when coloring percent-delimited text', () => {
+    expect(tokenizeMacroIdDsl('%$\\texcommand$ stays text%')).toEqual([
+      { text: '%', tone: 'text' },
+      { text: '$\\texcommand$ stays text', tone: 'plain' },
+      { text: '%', tone: 'text' }
+    ]);
+  });
+
   it('auto-closes delimiters in the control and renders parser-aware colors', async () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
@@ -119,6 +127,29 @@ describe('MacroIdInput', () => {
     expect(view.getByRole('option', { name: 'Foo.macro' })).toBeTruthy();
     fireEvent.keyDown(input, { key: 'Tab' });
     expect(input.value).toBe('Foo.macro ba');
+  });
+
+  it('leaves Shift+Tab to the consumer instead of accepting an autocomplete suggestion', () => {
+    const onKeyDown = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('Fo');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onKeyDown={onKeyDown}
+          macroCandidates={[{ id: 'Foo.macro', labels: [] }]}
+          aria-label="Reversible Macro navigation"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Reversible Macro navigation' }) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
+
+    expect(input.value).toBe('Fo');
+    expect(onKeyDown).toHaveBeenCalledOnce();
   });
 
   it('wraps an existing value when a delimiter is typed at the leading caret', () => {

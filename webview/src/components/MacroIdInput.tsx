@@ -182,6 +182,8 @@ export const MacroIdInput = forwardRef<
   const t = useUiMessages(MESSAGES);
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
+  const compositionActiveRef = useRef(false);
+  const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
   const [mirrorStyle, setMirrorStyle] = useState<React.CSSProperties>({});
   const mirrorSignatureRef = useRef('');
@@ -226,11 +228,26 @@ export const MacroIdInput = forwardRef<
   };
 
   useLayoutEffect(() => {
-    if (pendingCaretRef.current === null) return;
-    const caret = pendingCaretRef.current;
+    // Selection changes during composition can terminate or relocate the IME
+    // session. Keep the requested caret pending until compositionend.
+    if (compositionActiveRef.current || pendingCaretRef.current === null) return;
+    const control = controlRef.current;
+    if (!control) return;
+    const caret = Math.min(pendingCaretRef.current, control.value.length);
     pendingCaretRef.current = null;
-    controlRef.current?.setSelectionRange(caret, caret);
-  }, [value]);
+    control.setSelectionRange(caret, caret);
+  }, [selectionEpoch, value]);
+
+  const beginComposition = (): void => {
+    compositionActiveRef.current = true;
+    pendingCaretRef.current = null;
+  };
+  const endComposition = (): void => {
+    compositionActiveRef.current = false;
+    if (pendingCaretRef.current !== null) {
+      setSelectionEpoch((epoch) => epoch + 1);
+    }
+  };
 
   useEffect(() => {
     if (snooglOpen) snooglSearchRef.current?.focus();
@@ -687,6 +704,14 @@ export const MacroIdInput = forwardRef<
               event.target.selectionStart
             )}
             onSelect={handleControlSelect}
+            onCompositionStart={(event) => {
+              beginComposition();
+              textareaProps.onCompositionStart?.(event);
+            }}
+            onCompositionEnd={(event) => {
+              textareaProps.onCompositionEnd?.(event);
+              endComposition();
+            }}
             onKeyDown={handleControlKeyDown}
             onFocus={handleControlFocus}
             onBlur={handleControlBlur}
@@ -718,6 +743,14 @@ export const MacroIdInput = forwardRef<
             event.target.selectionStart
           )}
           onSelect={handleControlSelect}
+          onCompositionStart={(event) => {
+            beginComposition();
+            inputProps.onCompositionStart?.(event);
+          }}
+          onCompositionEnd={(event) => {
+            inputProps.onCompositionEnd?.(event);
+            endComposition();
+          }}
           onKeyDown={handleControlKeyDown}
           onFocus={handleControlFocus}
           onBlur={handleControlBlur}

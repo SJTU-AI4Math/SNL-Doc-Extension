@@ -480,6 +480,34 @@ try {
   assert(caretResult.active && caretResult.start === 3 && caretResult.end === 3,
     'context projection must preserve the authored middle caret instead of forcing it to the end', caretResult);
 
+  const imeSetup = await evaluate(`(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    textarea.focus();
+    textarea.setSelectionRange(2,2);
+    const nativeSetSelectionRange=textarea.setSelectionRange.bind(textarea);
+    textarea.__snlImeSelectionCalls=0;
+    textarea.setSelectionRange=(...args)=>{ textarea.__snlImeSelectionCalls += 1; return nativeSetSelectionRange(...args); };
+    return {value:textarea.value,start:textarea.selectionStart};
+  })()`);
+  assert(imeSetup.value === 'ChXild' && imeSetup.start === 2,
+    'production IME probe must begin in the middle of the Macro editor', imeSetup);
+  await page.call('Input.imeSetComposition', {
+    text: '猫', selectionStart: 1, selectionEnd: 1, replacementStart: 2, replacementEnd: 2
+  });
+  const imeDuring = await evaluate(`new Promise(resolve => requestAnimationFrame(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    resolve({calls:textarea.__snlImeSelectionCalls,value:textarea.value,start:textarea.selectionStart,end:textarea.selectionEnd,active:document.activeElement===textarea});
+  }))`);
+  assert(imeDuring.calls === 0 && imeDuring.active,
+    'controlled Macro input must not call setSelectionRange during active IME composition', imeDuring);
+  await page.call('Input.insertText', { text: '猫' });
+  const imeAfter = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
+    resolve({calls:textarea.__snlImeSelectionCalls,value:textarea.value,start:textarea.selectionStart,end:textarea.selectionEnd,active:document.activeElement===textarea});
+  })))`);
+  assert(imeAfter.value === 'Ch猫Xild' && imeAfter.start === 3 && imeAfter.end === 3 && imeAfter.active,
+    'committing the IME composition must preserve its text and final caret', imeAfter);
+
   await evaluate(`(() => {
     const textarea=document.querySelectorAll('.snl-tree-row')[1].querySelector('textarea[data-snl-macro-input]');
     textarea.focus();
@@ -558,7 +586,7 @@ try {
     namedContainerWidths: [479, 480, 481, 959, 960, 961],
     states: ['idle', 'row-hover', 'toolbar-hover', 'focus-within', 'narrow-row-hover', 'coarse'],
     coarse: true,
-    interactions: { caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, entryIdCaret },
+    interactions: { caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, imeDuring, imeAfter, entryIdCaret },
     artifactBuild
   }, null, 2));
 } finally {

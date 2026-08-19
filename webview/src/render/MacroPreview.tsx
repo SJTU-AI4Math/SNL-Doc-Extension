@@ -192,44 +192,50 @@ export function MacroPreview({
   runtime: MacroPreviewRuntime;
   label: string;
 }): React.ReactElement {
-  let template: WireMacroTemplate | undefined;
-  let tree: SnlSyntaxTree | undefined;
-  try {
-    template = previewTemplate(macro, styleName, runtime.language);
-    tree = macroPreviewTree(macro, styleName, runtime.language);
-  } catch {
-    return (
-      <PreviewFrame macroName={macro.name} label={label}>
-        <PreviewFallback />
-      </PreviewFrame>
-    );
-  }
-  if (!template?.body.trim()) {
-    return (
-      <PreviewFrame macroName={macro.name} label={label}>
-        <PreviewFallback />
-      </PreviewFrame>
-    );
-  }
-
+  const preview = React.useMemo(() => {
+    try {
+      return {
+        template: previewTemplate(macro, styleName, runtime.language),
+        tree: macroPreviewTree(macro, styleName, runtime.language)
+      };
+    } catch {
+      return undefined;
+    }
+  }, [macro, runtime.language, styleName]);
   const resetKey = `${macro.name}:${styleName ?? 'default'}:${runtime.renderRevision}`;
-  const view = (
-    <SnlSyntaxTreeView
-      key={resetKey}
-      tree={tree}
-      macro_data_driver={runtime.macroDataDriver}
-      reader_runtime={runtime.readerRuntime}
-      hooks={runtime.hooks}
-      kindPalette={runtime.kindPalette}
-    />
-  );
+  const view = React.useMemo(() => preview ? (
+    <CollapsibleScope resetKey={resetKey} label={label}>
+      <SnlSyntaxTreeView
+        key={resetKey}
+        tree={preview.tree}
+        macro_data_driver={runtime.macroDataDriver}
+        reader_runtime={runtime.readerRuntime}
+        hooks={runtime.hooks}
+        kindPalette={runtime.kindPalette}
+      />
+    </CollapsibleScope>
+  ) : null, [
+    label,
+    preview,
+    resetKey,
+    runtime.hooks,
+    runtime.kindPalette,
+    runtime.macroDataDriver,
+    runtime.readerRuntime
+  ]);
+
+  if (!preview?.template?.body.trim() || !view) {
+    return (
+      <PreviewFrame macroName={macro.name} label={label}>
+        <PreviewFallback />
+      </PreviewFrame>
+    );
+  }
 
   return (
     <PreviewFrame macroName={macro.name} label={label}>
       <MacroPreviewBoundary fallback={<PreviewFallback />}>
-        <CollapsibleScope resetKey={resetKey} label={label}>
-          {view}
-        </CollapsibleScope>
+        {view}
       </MacroPreviewBoundary>
     </PreviewFrame>
   );

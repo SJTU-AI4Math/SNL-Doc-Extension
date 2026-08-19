@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WireMacro } from './macroWire';
 import {
   MacroPreview,
@@ -55,6 +55,48 @@ describe('MacroPreview', () => {
     );
     await waitFor(() => expect(explicit.container.textContent).toContain('EXPLICIT'));
     expect(explicit.container.textContent).not.toContain('DEFAULT');
+  });
+
+  it('keeps settled KaTeX output when its parent rerenders', async () => {
+    const value = macro('stable', [
+      style('default', 'formula_inline', '\\mathrm{STABLE}')
+    ]);
+    const runtime = createMacroPreviewRuntime({ macros: { stable: value }, language: 'en' });
+    const originalQuery = runtime.macroDataDriver.query_macro.bind(runtime.macroDataDriver);
+    let settleQuery: (() => void) | undefined;
+    const queryGate = new Promise<void>((resolve) => { settleQuery = resolve; });
+    const query = vi.spyOn(runtime.macroDataDriver, 'query_macro').mockImplementation(async (args) => {
+      await queryGate;
+      if (args.signal?.aborted) {
+        throw args.signal.reason ?? new DOMException('Aborted', 'AbortError');
+      }
+      return originalQuery(args);
+    });
+    const Parent = ({ revision }: { revision: number }) => (
+      <div data-parent-revision={revision}>
+        <MacroPreview macro={value} runtime={runtime} label="stable preview" />
+      </div>
+    );
+    const view = render(<Parent revision={0} />);
+    await waitFor(() => expect(query).toHaveBeenCalled());
+
+    view.rerender(<Parent revision={1} />);
+    view.rerender(<Parent revision={2} />);
+    await act(async () => { settleQuery?.(); });
+
+    const katexOutput = () => view.container.querySelector('.katex-html')?.innerHTML;
+    await waitFor(() => {
+      expect(katexOutput()).toEqual(expect.stringMatching(/\S/));
+    });
+    const settledOutput = katexOutput();
+    const settledQueryCount = query.mock.calls.length;
+
+    view.rerender(<Parent revision={3} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(katexOutput()).toBe(settledOutput);
+    expect(settledOutput).not.toBe('');
+    expect(query).toHaveBeenCalledTimes(settledQueryCount);
   });
 
   it('resolves one locale projection atomically', async () => {

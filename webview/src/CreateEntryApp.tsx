@@ -5665,10 +5665,11 @@ function inductiveArityAuthority(
 ): InductiveArityAuthority | undefined {
   if (isTemporaryMacroNode(node)) {
     const source = node.temporary_source!;
+    const placeholders = analyzeLatexTemplatePlaceholders(source);
     return {
       key: `temporary:${node.env_mode ?? ''}:${source}`,
-      count: analyzeLatexTemplatePlaceholders(source).positional_arity,
-      dynamic: false
+      count: placeholders.positional_arity,
+      dynamic: placeholders.variadic
     };
   }
   if (!macro) return undefined;

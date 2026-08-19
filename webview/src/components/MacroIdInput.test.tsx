@@ -733,6 +733,43 @@ describe('MacroIdInput', () => {
     });
   });
 
+  it('focuses the positioned style portal before keyboard navigation and Tab commit', async () => {
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onStructuredCommit={commits}
+          macroCandidates={styledCandidates}
+          aria-label="Portal focus Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Portal focus Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Div' } });
+    fireEvent.contextMenu(await view.findByRole('option', { name: 'Div.div' }));
+    const defaultStyle = await view.findByRole('menuitem', { name: /frac.*default/i });
+    await waitFor(() => expect(document.activeElement).toBe(defaultStyle));
+
+    fireEvent.keyDown(defaultStyle, { key: 'ArrowDown' });
+    const inlineStyle = view.getByRole('menuitem', { name: /^inline/i });
+    await waitFor(() => expect(document.activeElement).toBe(inlineStyle));
+    fireEvent.keyDown(inlineStyle, { key: 'Tab' });
+
+    expect(commits).toHaveBeenCalledOnce();
+    expect(commits).toHaveBeenCalledWith({
+      macroName: 'Div.div',
+      styleName: 'inline',
+      replacementRange: { start: 0, end: 3 },
+      source: 'inline-style-tab'
+    });
+    expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
   it('opens a style menu from inline contextmenu and keyboard, closes on outside/stale changes, and guards IME', async () => {
     const commits = vi.fn();
     function Harness(): React.ReactElement {

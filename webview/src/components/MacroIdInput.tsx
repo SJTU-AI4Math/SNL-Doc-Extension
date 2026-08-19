@@ -342,9 +342,9 @@ export const MacroIdInput = forwardRef<
     if (snooglOpen) snooglSearchRef.current?.focus();
   }, [snooglOpen]);
   useEffect(() => {
-    if (!styleMenu) return;
+    if (!styleMenu || !styleMenuPosition) return;
     styleMenuItemRefs.current[styleMenuFocusIndex]?.focus({ preventScroll: true });
-  }, [styleMenu, styleMenuFocusIndex]);
+  }, [styleMenu, styleMenuFocusIndex, styleMenuPosition]);
 
   useEffect(() => {
     if (!selectAllOnMount || interactionDisabled) return;
@@ -552,6 +552,7 @@ export const MacroIdInput = forwardRef<
     setSuggestionsOpen(false);
     setSnooglOpen(false);
     closeStyleMenu(false);
+    window.setTimeout(() => controlRef.current?.focus({ preventScroll: true }), 0);
     return true;
   };
 
@@ -697,7 +698,10 @@ export const MacroIdInput = forwardRef<
   const handleControlBlur = (
     event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>
   ): void => {
-    setSuggestionsOpen(false);
+    const nextFocus = event.relatedTarget as HTMLElement | null;
+    if (!nextFocus?.closest('[data-macro-style-menu="true"]')) {
+      setSuggestionsOpen(false);
+    }
     (props.onBlur as React.FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined)?.(event);
   };
 

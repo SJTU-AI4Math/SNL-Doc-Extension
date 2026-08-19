@@ -893,6 +893,52 @@ describe('Inductive editor arity auto-fill', () => {
     expect(escaped.view.getAllByRole('textbox')).toHaveLength(1);
   });
 
+  it('opens the required editor slot for a variadic-only temporary Macro', async () => {
+    const variadic = renderEditor('$#*$');
+    await waitFor(() => expect(variadic.view.getAllByRole('textbox')).toHaveLength(2));
+  });
+
+  it('keeps a temporary variadic Macro dynamic after its required positional prefix', async () => {
+    const variadic = renderEditor('$#0 #*$(,)');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(variadic.view.getAllByRole('textbox')).toHaveLength(3);
+    expect(variadic.latest()).toBe('$#0 #*$(,)');
+  });
+
+  it('does not treat an escaped temporary variadic placeholder as dynamic', async () => {
+    const escaped = renderEditor('$\\#*$');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(escaped.view.getAllByRole('textbox')).toHaveLength(1);
+  });
+
+  it('reconciles temporary arity again when its source changes', async () => {
+    let latest = '$#0$';
+    const props = (snl: string) => ({
+      snl, macroDataDriver: driver, macroCandidates: [], macroOrigin: {},
+      onOpenMacroEditor: () => undefined, onChange: (next: string) => { latest = next; }
+    });
+    const view = render(<GuiInductiveEditor {...props(latest)} />);
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+
+    view.rerender(<GuiInductiveEditor {...props('$#0 #1$')} />);
+    await waitFor(() => expect(latest).toBe('$#0 #1$(,)'));
+    expect(view.getAllByRole('textbox')).toHaveLength(3);
+  });
+
+  it('reconciles temporary arity again when its environment changes', async () => {
+    let latest = '$#0$';
+    const props = (snl: string) => ({
+      snl, macroDataDriver: driver, macroCandidates: [], macroOrigin: {},
+      onOpenMacroEditor: () => undefined, onChange: (next: string) => { latest = next; }
+    });
+    const view = render(<GuiInductiveEditor {...props(latest)} />);
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+
+    view.rerender(<GuiInductiveEditor {...props('%#0%')} />);
+    await waitFor(() => expect(view.getAllByRole('textbox')).toHaveLength(2));
+    expect(latest).toBe('%#0%');
+  });
+
   it('uses only the effective Style and reconciles when Style changes', async () => {
     const styledMacro = {
       name: 'styled-arity', description: '', source: { entries: [], urls: [] }, tags: [],

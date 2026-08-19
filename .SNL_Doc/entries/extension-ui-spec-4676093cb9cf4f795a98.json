@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.infoview.edit-dashboard",
+    "kind": "button",
+    "title": "Edit in Dashboard Button",
+    "content": {
+      "snl": "ButtonDescription(%This returns from Infoview to the Dashboard editing surface.%,NavigateBackTo(%the Dashboard editing surface%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

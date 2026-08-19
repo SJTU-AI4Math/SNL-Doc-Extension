@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry.edit.gui-macro-style",
+    "kind": "text-input",
+    "title": "GUI Macro Style Input (Edit Entry)",
+    "content": {
+      "snl": "%Edits the Tree v2 style_name and serializes an explicit bracketed style only when authored.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

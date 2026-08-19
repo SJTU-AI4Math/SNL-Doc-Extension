@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.macro-package.batch-delete",
+    "kind": "button",
+    "title": "Delete Macros Batch Button",
+    "content": {
+      "snl": "ButtonPress(DeleteSelectedItems(%macros from the package%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

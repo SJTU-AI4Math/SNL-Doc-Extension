@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro-kind.edit.name",
+    "kind": "text-input",
+    "title": "Macro Kind Name Input (Edit)",
+    "content": {
+      "snl": "%SNL Macro Kind display-name field.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "Toolkit documentation term: GUI inductive editor",
+    "source": {
+      "entries": [
+        "ui.section.macro.edit.gui-inductive"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{GUI inductive editor}"
+        }
+      }
+    ],
+    "name": "GUI_inductive_editor"
+  },
+  "schema_version": 1
+}

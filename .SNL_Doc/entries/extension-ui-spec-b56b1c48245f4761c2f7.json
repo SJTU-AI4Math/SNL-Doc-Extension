@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "concept.extension.macro-kind-palette",
+    "kind": "concept",
+    "title": "Workspace Macro Kind Palette",
+    "content": {
+      "snl": "%A runtime color palette derived from workspace Macro Kinds and passed through every SNL render surface, including Entry previews, Infoview, graph popovers, and package macro previews.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.dashboard.libraries",
+    "kind": "section",
+    "title": "Libraries Section",
+    "content": {
+      "snl": "%#0 section listing libraries discovered by disk walk of #1. Rows link to #2.%(Dashboard,Path.join(Folder.SNL_Doc,Folder.libraries),Edit_Library)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

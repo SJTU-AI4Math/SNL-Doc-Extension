@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.relationship.create.label",
+    "kind": "text-input",
+    "title": "Relationship Label Input (Create)",
+    "content": {
+      "snl": "%Relationship label field.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

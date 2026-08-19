@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "concept.extension.entry-render",
+    "kind": "concept",
+    "title": "EntryRender",
+    "content": {
+      "snl": "%The Extension-local Entry renderer built on #0 and #1. It chooses body priority snl, markdown, latex, then text; Typst remains authorable but is not selected here. SNL rendering is query-only, receives workspace Macro Kind colors, resolves source Entries/URLs/context, and shares recursive popovers. SNL-Basics generic EntryDataDriver rendering is a separate optional route not yet consumed by the Extension.%(EntrySurface,MacroDataDriver)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

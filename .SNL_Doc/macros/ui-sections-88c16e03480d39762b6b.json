@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "Toolkit documentation term: Entries Section",
+    "source": {
+      "entries": [
+        "ui.section.dashboard.entries"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entries Section}"
+        }
+      }
+    ],
+    "name": "Entries_Section"
+  },
+  "schema_version": 1
+}

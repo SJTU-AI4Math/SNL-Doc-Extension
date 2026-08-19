@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Toolkit documentation term: tree-view editor",
+    "source": {
+      "entries": [
+        "concept.extension.tree-view-editor"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{tree-view editor}"
+        }
+      }
+    ],
+    "name": "tree-view_editor"
+  },
+  "schema_version": 1
+}

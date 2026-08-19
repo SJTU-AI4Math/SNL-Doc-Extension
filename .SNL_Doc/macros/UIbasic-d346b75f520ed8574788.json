@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Validate and create an entity.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "validate and create #0"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "ValidateAndCreateEntity"
+  },
+  "schema_version": 1
+}

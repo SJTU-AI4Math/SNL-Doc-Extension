@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.library.entry-metrics",
+    "kind": "section",
+    "title": "Entry Source Metrics (Library)",
+    "content": {
+      "snl": "%Displays the same source-structure badges beside Entry references in the Library outline, using resource-aware workspace thresholds and cross-Entry source lookup.%(Source_structure_metrics)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

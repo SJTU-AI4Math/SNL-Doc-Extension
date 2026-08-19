@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Apply the selected preset.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "apply the selected #0 preset"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "ApplySelectedPreset"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.relationship-graph.canvas",
+    "kind": "section",
+    "title": "Relationship Graph Canvas Section",
+    "content": {
+      "snl": "%Interactive visualization of Entry nodes and semantic relationship edges.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

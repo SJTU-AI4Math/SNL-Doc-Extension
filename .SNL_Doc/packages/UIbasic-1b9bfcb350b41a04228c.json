@@ -1,0 +1,9 @@
+{
+  "format": "snl-package",
+  "version": 1,
+  "id": "UIbasic",
+  "name": "UI Basic",
+  "description": "",
+  "schema_version": 2,
+  "entry_ids": []
+}

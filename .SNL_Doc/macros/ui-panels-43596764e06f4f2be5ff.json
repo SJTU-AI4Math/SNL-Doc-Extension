@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Create Relationship",
+    "source": {
+      "entries": [
+        "ui.panel.relationship.create"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Create Relationship}"
+        }
+      }
+    ],
+    "name": "Create_Relationship"
+  },
+  "schema_version": 1
+}

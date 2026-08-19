@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Delete the current tree row and its subtree.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "delete the current tree row and its subtree"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "DeleteTreeRow"
+  },
+  "schema_version": 1
+}

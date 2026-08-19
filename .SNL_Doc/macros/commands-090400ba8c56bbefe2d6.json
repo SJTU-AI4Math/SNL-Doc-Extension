@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "commands",
+  "macro": {
+    "description": "Command Palette title for snlDoc.editEntryKind",
+    "source": {
+      "entries": [
+        "command.snlDoc.editEntryKind"
+      ],
+      "urls": []
+    },
+    "kind": "command",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{SNL: Edit Entry Kind}"
+        }
+      }
+    ],
+    "name": "CommandTitle.snlDoc.editEntryKind"
+  },
+  "schema_version": 1
+}

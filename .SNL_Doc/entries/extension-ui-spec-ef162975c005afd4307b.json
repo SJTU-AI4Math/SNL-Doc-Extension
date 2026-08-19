@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry-kind.edit.default-counter",
+    "kind": "text-input",
+    "title": "Default Counter Name Input (Edit)",
+    "content": {
+      "snl": "%Name of the Library Counter used by default for this Entry Kind.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

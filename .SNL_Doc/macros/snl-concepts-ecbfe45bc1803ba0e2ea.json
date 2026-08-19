@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "VS Code setting snlDoc.metrics.structuredRatioRedBelow.",
+    "source": {
+      "entries": [
+        "concept.extension.source-structure-metrics"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{snlDoc.metrics.structuredRatioRedBelow}"
+        }
+      }
+    ],
+    "name": "Setting.structuredRatioRedBelow"
+  },
+  "schema_version": 1
+}

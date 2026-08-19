@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.panel-nav.back-infoview",
+    "kind": "button",
+    "title": "Back to Infoview Button",
+    "content": {
+      "snl": "ButtonDescription(%From Relationship Graph, navigation uses the shared nav.openInfoview message.%,NavigateBackTo(Infoview))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

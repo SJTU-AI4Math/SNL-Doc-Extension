@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Create Library",
+    "source": {
+      "entries": [
+        "ui.panel.library.create"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Create Library}"
+        }
+      }
+    ],
+    "name": "Create_Library"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.snoogl.kind-filter",
+    "kind": "text-input",
+    "title": "SNoogL Kind Filter",
+    "content": {
+      "snl": "%Filters results by Entry Kind or Macro Kind.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

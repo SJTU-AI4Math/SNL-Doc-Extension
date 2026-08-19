@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "concept.extension.shared-ui-controls",
+    "kind": "concept",
+    "title": "Shared UI Controls",
+    "content": {
+      "snl": "%A common interaction layer for #0, form rows, validation feedback, empty-state actions, disclosure controls, entity-id search, and tree toolbars. It keeps keyboard, disabled, busy, and destructive behavior consistent across webviews.%(Button_component)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

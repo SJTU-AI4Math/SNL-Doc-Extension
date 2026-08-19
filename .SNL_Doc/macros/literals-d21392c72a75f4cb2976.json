@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "literals",
+  "macro": {
+    "description": "Toolkit documentation term: Ex. A.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Ex. A.}"
+        }
+      }
+    ],
+    "name": "Literal.example_A"
+  },
+  "schema_version": 1
+}

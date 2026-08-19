@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.macro-package.create.submit",
+    "kind": "button",
+    "title": "Create Macro Package Submit Button",
+    "content": {
+      "snl": "ButtonPress(CreateEntity(%an empty SNL macro package%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

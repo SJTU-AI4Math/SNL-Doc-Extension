@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Edit Macro Kind",
+    "source": {
+      "entries": [
+        "ui.panel.macro-kind.edit"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Edit Macro Kind}"
+        }
+      }
+    ],
+    "name": "Edit_Macro_Kind"
+  },
+  "schema_version": 1
+}

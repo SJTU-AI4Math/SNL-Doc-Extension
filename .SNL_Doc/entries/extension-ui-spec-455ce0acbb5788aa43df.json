@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro.create",
+    "kind": "panel",
+    "title": "Create Macro",
+    "content": {
+      "snl": "PanelDescription(%#0 for authoring a macro name, package, kind, descriptions, sources, tags, output backends, and strict #1 styles. Styles use #2, required tags, a four-way mode, and a template; dynamic styles edit text around a real #3 plus #4, block styles choose #5, and live preview resolves through #6.%(Panel,Macro_v8,style_name,Literal.hash_star,separator,block_template_name,MacroDataDriver),%Contains #0, #1, #2, #3, macro name/kind/description inputs, create-kind action, and submit action.%(Entry.ui.section.macro.create.styles,Entry.ui.section.macro.create.preview,Entry.ui.section.macro.create.sources,Entry.ui.section.macro.create.tags),RunVSCodeCommand(CommandTitle.snlDoc.createMacro),%Image%@ui.panel.macro.create.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

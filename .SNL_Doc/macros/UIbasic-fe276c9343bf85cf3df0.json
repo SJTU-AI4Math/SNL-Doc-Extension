@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Open one of two possible panels for the same selected context.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "open either #0 for #2 or #1 for #2"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "OpenOneOfFor"
+  },
+  "schema_version": 1
+}

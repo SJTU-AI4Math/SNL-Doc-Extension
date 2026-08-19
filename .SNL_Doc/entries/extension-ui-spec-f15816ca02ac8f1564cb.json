@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "command.snlDoc.createRelationship",
+    "kind": "command",
+    "title": "snlDoc.createRelationship",
+    "content": {
+      "snl": "%VS Code command registered as #0. Command Palette title: #1.%(snlDoc.createRelationship,CommandTitle.snlDoc.createRelationship)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Delete one item after confirmation.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "delete #0 after confirmation"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "DeleteItemAfterConfirmation"
+  },
+  "schema_version": 1
+}

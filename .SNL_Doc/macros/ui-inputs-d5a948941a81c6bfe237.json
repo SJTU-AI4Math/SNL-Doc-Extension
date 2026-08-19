@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-inputs",
+  "macro": {
+    "description": "Toolkit documentation term: Entry ID Field",
+    "source": {
+      "entries": [
+        "ui.input.entry.id"
+      ],
+      "urls": []
+    },
+    "kind": "ui-input",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entry ID Field}"
+        }
+      }
+    ],
+    "name": "Entry_ID_Field"
+  },
+  "schema_version": 1
+}

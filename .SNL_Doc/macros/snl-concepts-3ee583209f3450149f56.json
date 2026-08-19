@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Toolkit documentation term: <KindName> -- <Title>",
+    "source": {
+      "entries": [
+        "concept.extension.entry-title-format"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{<KindName> -- <Title>}"
+        }
+      }
+    ],
+    "name": "KindName_--_Title"
+  },
+  "schema_version": 1
+}

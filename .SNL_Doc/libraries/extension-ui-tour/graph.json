@@ -1,0 +1,3354 @@
+{
+  "nodes": [
+    {
+      "id": "node.ui.panel.dashboard",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.dashboard"
+      }
+    },
+    {
+      "id": "node.ui.panel.infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.infoview"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-infoview"
+      }
+    },
+    {
+      "id": "node.ui.panel.library.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.library.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.library.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.library.edit"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.initialize",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.initialize"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.edit"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.initialize",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.initialize"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.edit"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro.edit"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship.create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship.create"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship.edit"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship-graph",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship-graph"
+      }
+    },
+    {
+      "id": "node.ui.panel.snoogl",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.snoogl"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.entry-kinds",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.entry-kinds"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.snl-macros",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.snl-macros"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.entries",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.entries"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.libraries",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.libraries"
+      }
+    },
+    {
+      "id": "node.ui.section.library.outline",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.library.outline"
+      }
+    },
+    {
+      "id": "node.ui.section.library.counters",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.library.counters"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.generate-uuid",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.generate-uuid"
+      }
+    },
+    {
+      "id": "node.ui.button.shared.add-bar",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.shared.add-bar"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.move-up",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.move-up"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.indent",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.indent"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.outdent",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.outdent"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.delete",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.delete"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.id"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.title",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.title"
+      }
+    },
+    {
+      "id": "node.ui.input.counter.numbering",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.counter.numbering"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.view-graph",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.view-graph"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.open-infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.open-infoview"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.relationships",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.relationships"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.macro-kinds",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.macro-kinds"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.libraries.entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.libraries.entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.libraries.create-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.libraries.create-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entries.create-header",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entries.create-header"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entries.search",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entries.search"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entries.entrance-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entries.entrance-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entries.create-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entries.create-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.relationships.entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.relationships.entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.relationships.create-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.relationships.create-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.relationships.regenerate",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.relationships.regenerate"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.snl-macros.create-header",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.snl-macros.create-header"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.snl-macros.search",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.snl-macros.search"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.snl-macros.package-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.snl-macros.package-entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.snl-macros.add-package",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.snl-macros.add-package"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entry-kinds.entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entry-kinds.entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entry-kinds.create-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entry-kinds.create-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.entry-kinds.initialize-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.entry-kinds.initialize-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.macro-kinds.entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.macro-kinds.entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.macro-kinds.create-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.macro-kinds.create-list"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.macro-kinds.initialize-list",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.macro-kinds.initialize-list"
+      }
+    },
+    {
+      "id": "node.ui.section.infoview.libraries",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.infoview.libraries"
+      }
+    },
+    {
+      "id": "node.ui.section.infoview.library-reading",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.infoview.library-reading"
+      }
+    },
+    {
+      "id": "node.ui.section.entry-infoview.entry-render",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry-infoview.entry-render"
+      }
+    },
+    {
+      "id": "node.ui.input.library.create.title",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.library.create.title"
+      }
+    },
+    {
+      "id": "node.ui.button.library.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.library.edit.slug",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.library.edit.slug"
+      }
+    },
+    {
+      "id": "node.ui.input.library.edit.title",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.library.edit.title"
+      }
+    },
+    {
+      "id": "node.ui.button.library.edit.update-title",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.edit.update-title"
+      }
+    },
+    {
+      "id": "node.ui.input.counter.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.counter.name"
+      }
+    },
+    {
+      "id": "node.ui.button.counter.add-first",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.counter.add-first"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.add-child",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.add-child"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.add-sibling",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.add-sibling"
+      }
+    },
+    {
+      "id": "node.ui.button.tree.move-down",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.tree.move-down"
+      }
+    },
+    {
+      "id": "node.ui.button.library.outline.entry-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.outline.entry-entrance"
+      }
+    },
+    {
+      "id": "node.ui.input.library.outline.entry-id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.library.outline.entry-id"
+      }
+    },
+    {
+      "id": "node.ui.input.library.outline.counter",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.library.outline.counter"
+      }
+    },
+    {
+      "id": "node.ui.button.library.outline.reference-create",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.outline.reference-create"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.kind"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.content",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.content"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.save",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.save"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.name"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.stroke",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.stroke"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.background",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.background"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.default-counter",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.default-counter"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.style",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.style"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-kind.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-kind.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.name"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.stroke",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.stroke"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.background",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.background"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.default-counter",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.default-counter"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.style",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.style"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-kind.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-kind.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.initialize.preset",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.initialize.preset"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-kind.initialize.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-kind.initialize.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.create.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.create.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.create.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.create.description"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.create.stroke",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.create.stroke"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.create.background",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.create.background"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-kind.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-kind.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.edit.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.edit.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.edit.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.edit.description"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.edit.stroke",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.edit.stroke"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.edit.background",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.edit.background"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-kind.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-kind.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.initialize.preset",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.initialize.preset"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-kind.initialize.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-kind.initialize.submit"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.section.macro-package.macros",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro-package.macros"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.macro-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.macro-entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.create-macro",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.create-macro"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.select-mode",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.select-mode"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.batch-delete",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.batch-delete"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.kind"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.create.styles",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.create.styles"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.template",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.template"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.kind"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.edit.styles",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.edit.styles"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.template",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.template"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.edit.gui-inductive",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.edit.gui-inductive"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.create.from",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.create.from"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.create.to",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.create.to"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.create.label",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.create.label"
+      }
+    },
+    {
+      "id": "node.ui.button.relationship.create.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.relationship.create.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.edit.from",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.edit.from"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.edit.to",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.edit.to"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.edit.label",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.edit.label"
+      }
+    },
+    {
+      "id": "node.ui.button.relationship.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.relationship.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.section.relationship-graph.canvas",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.relationship-graph.canvas"
+      }
+    },
+    {
+      "id": "node.ui.input.snoogl.query",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.snoogl.query"
+      }
+    },
+    {
+      "id": "node.ui.section.snoogl.entry-results",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.snoogl.entry-results"
+      }
+    },
+    {
+      "id": "node.ui.button.snoogl.entry-result-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.snoogl.entry-result-entrance"
+      }
+    },
+    {
+      "id": "node.ui.section.snoogl.macro-results",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.snoogl.macro-results"
+      }
+    },
+    {
+      "id": "node.ui.button.snoogl.macro-result-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.snoogl.macro-result-entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.view-graph",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.view-graph"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.edit-dashboard",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.edit-dashboard"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.library-entrance",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.library-entrance"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.back-libraries",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.back-libraries"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.library-graph",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.library-graph"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.edit-library",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.edit-library"
+      }
+    },
+    {
+      "id": "node.ui.button.infoview.outline-toggle",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.infoview.outline-toggle"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-infoview.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-infoview.edit"
+      }
+    },
+    {
+      "id": "node.ui.section.entry-infoview.context",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry-infoview.context"
+      }
+    },
+    {
+      "id": "node.ui.section.entry-infoview.dependencies",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry-infoview.dependencies"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-infoview.related-entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-infoview.related-entry"
+      }
+    },
+    {
+      "id": "node.ui.button.library.edit.view-infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.edit.view-infoview"
+      }
+    },
+    {
+      "id": "node.ui.button.counter.add-root",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.counter.add-root"
+      }
+    },
+    {
+      "id": "node.ui.button.library.outline.add-root",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.outline.add-root"
+      }
+    },
+    {
+      "id": "node.ui.button.library.outline.cancel-add",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.library.outline.cancel-add"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.create.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.create.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.create.content",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.create.content"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.content.snl",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.content.snl"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.content.typst",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.content.typst"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.content.latex",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.content.latex"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.content.markdown",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.content.markdown"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.content.text",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.content.text"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.snl-text-editor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.snl-text-editor"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.snl-gui-editor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.snl-gui-editor"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.create.contributor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.create.contributor"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.create.pointer",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.create.pointer"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry.edit"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.edit.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.edit.id"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.edit.title",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.edit.title"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.edit.kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.edit.kind"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.edit.content",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.edit.content"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.view-infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.view-infoview"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.edit.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.edit.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.edit.content",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.edit.content"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.content.snl",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.content.snl"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.content.typst",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.content.typst"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.content.latex",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.content.latex"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.content.markdown",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.content.markdown"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.content.text",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.content.text"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.snl-text-editor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.snl-text-editor"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.snl-gui-editor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.snl-gui-editor"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.edit.contributor",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.edit.contributor"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.edit.pointer",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.edit.pointer"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.create.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.create.id"
+      }
+    },
+    {
+      "id": "node.ui.section.entry-kind.create.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry-kind.create.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.entry-kind.edit.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry-kind.edit.preview"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.create.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.create.id"
+      }
+    },
+    {
+      "id": "node.ui.section.macro-kind.create.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro-kind.create.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.macro-kind.edit.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro-kind.edit.preview"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package.edit"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.create.file",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.create.file"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.create.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.create.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.create.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.create.description"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.edit.file",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.edit.file"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.edit.name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.edit.name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-package.edit.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-package.edit.description"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.edit.submit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.edit.submit"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.toggle-active",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.toggle-active"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.edit",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.edit"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.expand-styles",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.expand-styles"
+      }
+    },
+    {
+      "id": "node.ui.section.macro-package.batch-actions",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro-package.batch-actions"
+      }
+    },
+    {
+      "id": "node.ui.section.macro-package.transfer-modal",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro-package.transfer-modal"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.description"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.create-kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.create-kind"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.create.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.create.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.create.sources",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.create.sources"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.source-entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.source-entry"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.source-url",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.source-url"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.create.tags",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.create.tags"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.description",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.description"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.create-kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.create-kind"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.edit.preview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.edit.preview"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.edit.sources",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.edit.sources"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.source-entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.source-entry"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.source-url",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.source-url"
+      }
+    },
+    {
+      "id": "node.ui.section.macro.edit.tags",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.macro.edit.tags"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.create.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.create.id"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.create.metadata",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.create.metadata"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.edit.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.edit.id"
+      }
+    },
+    {
+      "id": "node.ui.input.relationship.edit.metadata",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.relationship.edit.metadata"
+      }
+    },
+    {
+      "id": "node.ui.button.relationship-graph.open-entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.relationship-graph.open-entry"
+      }
+    },
+    {
+      "id": "node.ui.button.relationship-graph.edit-edge",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.relationship-graph.edit-edge"
+      }
+    },
+    {
+      "id": "node.ui.section.snoogl.search",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.snoogl.search"
+      }
+    },
+    {
+      "id": "node.ui.button.snoogl.entry-mode",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.snoogl.entry-mode"
+      }
+    },
+    {
+      "id": "node.ui.button.snoogl.macro-mode",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.snoogl.macro-mode"
+      }
+    },
+    {
+      "id": "node.ui.section.snoogl.filters",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.snoogl.filters"
+      }
+    },
+    {
+      "id": "node.ui.input.snoogl.kind-filter",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.snoogl.kind-filter"
+      }
+    },
+    {
+      "id": "node.ui.button.dashboard.snl-macros.toggle-active",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.dashboard.snl-macros.toggle-active"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.row-delete",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.row-delete"
+      }
+    },
+    {
+      "id": "node.ui.section.dashboard.entry-metrics",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.dashboard.entry-metrics"
+      }
+    },
+    {
+      "id": "node.ui.section.library.entry-metrics",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.library.entry-metrics"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.style-name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.style-name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.style-name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.style-name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.template-left",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.template-left"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.separator",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.separator"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.template-right",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.template-right"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.template-left",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.template-left"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.separator",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.separator"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.template-right",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.template-right"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.block-template-name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.block-template-name"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.block-template-name",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.block-template-name"
+      }
+    },
+    {
+      "id": "node.ui.button.macro-package.batch-transfer",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro-package.batch-transfer"
+      }
+    },
+    {
+      "id": "node.ui.section.shared.panel-nav",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.shared.panel-nav"
+      }
+    },
+    {
+      "id": "node.ui.button.panel-nav.back-dashboard",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.panel-nav.back-dashboard"
+      }
+    },
+    {
+      "id": "node.ui.button.panel-nav.back-infoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.panel-nav.back-infoview"
+      }
+    },
+    {
+      "id": "node.ui.button.panel-nav.refresh",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.panel-nav.refresh"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.mode",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.mode"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.mode",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.mode"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.create.dynamic-arity",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.create.dynamic-arity"
+      }
+    },
+    {
+      "id": "node.ui.input.macro.edit.dynamic-arity",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro.edit.dynamic-arity"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.style-add",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.style-add"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.style-add",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.style-add"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.style-remove",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.style-remove"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.style-remove",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.style-remove"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.style-move-default",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.style-move-default"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.style-move-default",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.style-move-default"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.arg-add",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.arg-add"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.arg-add",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.arg-add"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.arg-remove",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.arg-remove"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.arg-remove",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.arg-remove"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.create.args-reset",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.create.args-reset"
+      }
+    },
+    {
+      "id": "node.ui.button.macro.edit.args-reset",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.macro.edit.args-reset"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.create.gui-inductive",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.create.gui-inductive"
+      }
+    },
+    {
+      "id": "node.ui.section.entry.edit.gui-inductive",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.section.entry.edit.gui-inductive"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.create.gui-macro-style",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.create.gui-macro-style"
+      }
+    },
+    {
+      "id": "node.ui.input.entry.edit.gui-macro-style",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry.edit.gui-macro-style"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.create.gui-open-macro",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.create.gui-open-macro"
+      }
+    },
+    {
+      "id": "node.ui.button.entry.edit.gui-open-macro",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry.edit.gui-open-macro"
+      }
+    },
+    {
+      "id": "node.ui.button.entry-infoview.context-related-entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.button.entry-infoview.context-related-entry"
+      }
+    },
+    {
+      "id": "node.ui.input.entry-kind.edit.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.entry-kind.edit.id"
+      }
+    },
+    {
+      "id": "node.ui.input.macro-kind.edit.id",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.input.macro-kind.edit.id"
+      }
+    },
+    {
+      "id": "n_1",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.dashboard.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.infoview.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.infoview.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-infoview.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-infoview.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.library.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.library.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.library.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.library.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.initialize.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.initialize.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry-kind.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry-kind.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.initialize.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.initialize.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-kind.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-kind.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship.create.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship.create.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.relationship-graph.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.relationship-graph.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.snoogl.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.snoogl.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.entry.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.entry.edit.img"
+      }
+    },
+    {
+      "id": "node.ui.panel.macro-package.edit.img",
+      "label": "Entry",
+      "props": {
+        "entryId": "ui.panel.macro-package.edit.img"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "n_1",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.button.dashboard.view-graph",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.button.dashboard.open-infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.libraries",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.entries",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.relationships",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.snl-macros",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.entry-kinds",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.section.library.outline",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.section.library.counters",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.button.entry.generate-uuid",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.move-up",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.indent",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.outdent",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.delete",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.input.entry.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.input.entry.title",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.counters",
+      "to": "node.ui.input.counter.numbering",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.libraries",
+      "to": "node.ui.button.dashboard.libraries.entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.libraries",
+      "to": "node.ui.button.dashboard.libraries.create-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entries",
+      "to": "node.ui.button.dashboard.entries.create-header",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entries",
+      "to": "node.ui.button.dashboard.entries.search",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entries",
+      "to": "node.ui.button.dashboard.entries.entrance-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entries",
+      "to": "node.ui.button.dashboard.entries.create-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.relationships",
+      "to": "node.ui.button.dashboard.relationships.entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.relationships",
+      "to": "node.ui.button.dashboard.relationships.create-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.relationships",
+      "to": "node.ui.button.dashboard.relationships.regenerate",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.snl-macros",
+      "to": "node.ui.button.dashboard.snl-macros.create-header",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.snl-macros",
+      "to": "node.ui.button.dashboard.snl-macros.search",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.snl-macros",
+      "to": "node.ui.button.dashboard.snl-macros.package-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.snl-macros",
+      "to": "node.ui.button.dashboard.snl-macros.add-package",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entry-kinds",
+      "to": "node.ui.button.dashboard.entry-kinds.entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entry-kinds",
+      "to": "node.ui.button.dashboard.entry-kinds.create-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entry-kinds",
+      "to": "node.ui.button.dashboard.entry-kinds.initialize-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.macro-kinds",
+      "to": "node.ui.button.dashboard.macro-kinds.entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.macro-kinds",
+      "to": "node.ui.button.dashboard.macro-kinds.create-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.macro-kinds",
+      "to": "node.ui.button.dashboard.macro-kinds.initialize-list",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.infoview",
+      "to": "node.ui.section.infoview.libraries",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.infoview",
+      "to": "node.ui.section.infoview.library-reading",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-infoview",
+      "to": "node.ui.section.entry-infoview.entry-render",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.create",
+      "to": "node.ui.input.library.create.title",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.create",
+      "to": "node.ui.button.library.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.input.library.edit.slug",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.input.library.edit.title",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.button.library.edit.update-title",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.counters",
+      "to": "node.ui.input.counter.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.counters",
+      "to": "node.ui.button.counter.add-first",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.add-child",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.add-sibling",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.tree.move-down",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.library.outline.entry-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.input.library.outline.entry-id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.input.library.outline.counter",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.library.outline.reference-create",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.input.entry.kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.input.entry.content",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.button.entry.save",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.stroke",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.background",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.default-counter",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.style",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.button.entry-kind.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.stroke",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.background",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.default-counter",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.style",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.button.entry-kind.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.initialize",
+      "to": "node.ui.input.entry-kind.initialize.preset",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.initialize",
+      "to": "node.ui.button.entry-kind.initialize.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.input.macro-kind.create.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.input.macro-kind.create.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.input.macro-kind.create.stroke",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.input.macro-kind.create.background",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.button.macro-kind.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.input.macro-kind.edit.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.input.macro-kind.edit.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.input.macro-kind.edit.stroke",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.input.macro-kind.edit.background",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.button.macro-kind.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.initialize",
+      "to": "node.ui.input.macro-kind.initialize.preset",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.initialize",
+      "to": "node.ui.button.macro-kind.initialize.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.create",
+      "to": "node.ui.button.macro-package.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.section.macro-package.macros",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.macros",
+      "to": "node.ui.button.macro-package.macro-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.macros",
+      "to": "node.ui.button.macro-package.create-macro",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.macros",
+      "to": "node.ui.button.macro-package.select-mode",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.batch-actions",
+      "to": "node.ui.button.macro-package.batch-delete",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.input.macro.create.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.input.macro.create.kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.section.macro.create.styles",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.template",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.button.macro.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.input.macro.edit.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.input.macro.edit.kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.section.macro.edit.styles",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.template",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.button.macro.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.section.macro.edit.gui-inductive",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.input.relationship.create.from",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.input.relationship.create.to",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.input.relationship.create.label",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.button.relationship.create.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.input.relationship.edit.from",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.input.relationship.edit.to",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.input.relationship.edit.label",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.button.relationship.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship-graph",
+      "to": "node.ui.section.relationship-graph.canvas",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.search",
+      "to": "node.ui.input.snoogl.query",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.snoogl",
+      "to": "node.ui.section.snoogl.entry-results",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.entry-results",
+      "to": "node.ui.button.snoogl.entry-result-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.snoogl",
+      "to": "node.ui.section.snoogl.macro-results",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.macro-results",
+      "to": "node.ui.button.snoogl.macro-result-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.libraries",
+      "to": "node.ui.button.infoview.view-graph",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.libraries",
+      "to": "node.ui.button.infoview.edit-dashboard",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.libraries",
+      "to": "node.ui.button.infoview.library-entrance",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.library-reading",
+      "to": "node.ui.button.infoview.back-libraries",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.library-reading",
+      "to": "node.ui.button.infoview.library-graph",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.library-reading",
+      "to": "node.ui.button.infoview.edit-library",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.infoview.library-reading",
+      "to": "node.ui.button.infoview.outline-toggle",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-infoview",
+      "to": "node.ui.button.entry-infoview.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-infoview",
+      "to": "node.ui.section.entry-infoview.context",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-infoview",
+      "to": "node.ui.section.entry-infoview.dependencies",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry-infoview.dependencies",
+      "to": "node.ui.button.entry-infoview.related-entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.button.library.edit.view-infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.counters",
+      "to": "node.ui.button.counter.add-root",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.library.outline.add-root",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.button.library.outline.cancel-add",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.section.entry.create.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.section.entry.create.content",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.content.snl",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.content.typst",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.content.latex",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.content.markdown",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.content.text",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.snl-text-editor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.button.entry.create.snl-gui-editor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.section.entry.create.contributor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.section.entry.create.pointer",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.input.entry.edit.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.input.entry.edit.title",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.input.entry.edit.kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.input.entry.edit.content",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.button.entry.edit.view-infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.section.entry.edit.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.section.entry.edit.content",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.content.snl",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.content.typst",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.content.latex",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.content.markdown",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.content.text",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.snl-text-editor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.button.entry.edit.snl-gui-editor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.section.entry.edit.contributor",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.section.entry.edit.pointer",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.button.entry.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.input.entry-kind.create.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.section.entry-kind.create.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.section.entry-kind.edit.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.input.macro-kind.create.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.section.macro-kind.create.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.section.macro-kind.edit.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.create",
+      "to": "node.ui.input.macro-package.create.file",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.create",
+      "to": "node.ui.input.macro-package.create.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.create",
+      "to": "node.ui.input.macro-package.create.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.edit",
+      "to": "node.ui.input.macro-package.edit.file",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.edit",
+      "to": "node.ui.input.macro-package.edit.name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.edit",
+      "to": "node.ui.input.macro-package.edit.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.edit",
+      "to": "node.ui.button.macro-package.edit.submit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.button.macro-package.toggle-active",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.button.macro-package.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.macros",
+      "to": "node.ui.button.macro-package.expand-styles",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.section.macro-package.batch-actions",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.section.macro-package.transfer-modal",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.input.macro.create.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.button.macro.create.create-kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.section.macro.create.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.section.macro.create.sources",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.sources",
+      "to": "node.ui.input.macro.create.source-entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.sources",
+      "to": "node.ui.input.macro.create.source-url",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.section.macro.create.tags",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.input.macro.edit.description",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.button.macro.edit.create-kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.section.macro.edit.preview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.section.macro.edit.sources",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.sources",
+      "to": "node.ui.input.macro.edit.source-entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.sources",
+      "to": "node.ui.input.macro.edit.source-url",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.section.macro.edit.tags",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.input.relationship.create.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.input.relationship.create.metadata",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.input.relationship.edit.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.input.relationship.edit.metadata",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.relationship-graph.canvas",
+      "to": "node.ui.button.relationship-graph.open-entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.relationship-graph.canvas",
+      "to": "node.ui.button.relationship-graph.edit-edge",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.snoogl",
+      "to": "node.ui.section.snoogl.search",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.search",
+      "to": "node.ui.button.snoogl.entry-mode",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.search",
+      "to": "node.ui.button.snoogl.macro-mode",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.snoogl",
+      "to": "node.ui.section.snoogl.filters",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.snoogl.filters",
+      "to": "node.ui.input.snoogl.kind-filter",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.snl-macros",
+      "to": "node.ui.button.dashboard.snl-macros.toggle-active",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.macros",
+      "to": "node.ui.button.macro-package.row-delete",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.dashboard.entries",
+      "to": "node.ui.section.dashboard.entry-metrics",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.library.outline",
+      "to": "node.ui.section.library.entry-metrics",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.style-name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.style-name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.template-left",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.separator",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.template-right",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.template-left",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.separator",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.template-right",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.block-template-name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.block-template-name",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro-package.batch-actions",
+      "to": "node.ui.button.macro-package.batch-transfer",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.shared.panel-nav",
+      "to": "node.ui.button.panel-nav.back-dashboard",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.shared.panel-nav",
+      "to": "node.ui.button.panel-nav.back-infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.shared.panel-nav",
+      "to": "node.ui.button.panel-nav.refresh",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.mode",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.mode",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.input.macro.create.dynamic-arity",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.input.macro.edit.dynamic-arity",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.button.macro.create.style-add",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.button.macro.edit.style-add",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.button.macro.create.style-remove",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.button.macro.edit.style-remove",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.styles",
+      "to": "node.ui.button.macro.create.style-move-default",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.styles",
+      "to": "node.ui.button.macro.edit.style-move-default",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.preview",
+      "to": "node.ui.button.macro.create.arg-add",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.preview",
+      "to": "node.ui.button.macro.edit.arg-add",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.preview",
+      "to": "node.ui.button.macro.create.arg-remove",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.preview",
+      "to": "node.ui.button.macro.edit.arg-remove",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.create.preview",
+      "to": "node.ui.button.macro.create.args-reset",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.macro.edit.preview",
+      "to": "node.ui.button.macro.edit.args-reset",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.content",
+      "to": "node.ui.section.entry.create.gui-inductive",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.content",
+      "to": "node.ui.section.entry.edit.gui-inductive",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.gui-inductive",
+      "to": "node.ui.input.entry.create.gui-macro-style",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.gui-inductive",
+      "to": "node.ui.input.entry.edit.gui-macro-style",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.create.gui-inductive",
+      "to": "node.ui.button.entry.create.gui-open-macro",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry.edit.gui-inductive",
+      "to": "node.ui.button.entry.edit.gui-open-macro",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.section.entry-infoview.context",
+      "to": "node.ui.button.entry-infoview.context-related-entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.input.entry-kind.edit.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.input.macro-kind.edit.id",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.dashboard",
+      "to": "node.ui.section.dashboard.macro-kinds",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.infoview",
+      "to": "node.ui.panel.infoview.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-infoview",
+      "to": "node.ui.panel.entry-infoview.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.create",
+      "to": "node.ui.panel.library.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.library.edit",
+      "to": "node.ui.panel.library.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.create",
+      "to": "node.ui.panel.entry.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.create",
+      "to": "node.ui.panel.entry-kind.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.initialize",
+      "to": "node.ui.panel.entry-kind.initialize.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry-kind.edit",
+      "to": "node.ui.panel.entry-kind.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.create",
+      "to": "node.ui.panel.macro-kind.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.initialize",
+      "to": "node.ui.panel.macro-kind.initialize.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-kind.edit",
+      "to": "node.ui.panel.macro-kind.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.create",
+      "to": "node.ui.panel.macro-package.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package",
+      "to": "node.ui.panel.macro-package.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.create",
+      "to": "node.ui.panel.macro.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro.edit",
+      "to": "node.ui.panel.macro.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.create",
+      "to": "node.ui.panel.relationship.create.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship.edit",
+      "to": "node.ui.panel.relationship.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.relationship-graph",
+      "to": "node.ui.panel.relationship-graph.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.snoogl",
+      "to": "node.ui.panel.snoogl.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.entry.edit",
+      "to": "node.ui.panel.entry.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.ui.panel.macro-package.edit",
+      "to": "node.ui.panel.macro-package.edit.img",
+      "label": "branch"
+    }
+  ]
+}

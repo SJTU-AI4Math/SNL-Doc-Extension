@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Describe a button's presentation separately from the action triggered by pressing it.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "#0\nPressing it will #1."
+        }
+      }
+    ],
+    "tags": [],
+    "name": "ButtonDescription"
+  },
+  "schema_version": 1
+}

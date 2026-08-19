@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "filesystem",
+  "macro": {
+    "description": "Toolkit documentation term: meta.json",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "filesystem",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{meta.json}"
+        }
+      }
+    ],
+    "name": "File.meta_json"
+  },
+  "schema_version": 1
+}

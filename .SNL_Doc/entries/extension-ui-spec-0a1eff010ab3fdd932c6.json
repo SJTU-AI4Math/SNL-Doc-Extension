@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro-kind.create",
+    "kind": "panel",
+    "title": "Create Macro Kind",
+    "content": {
+      "snl": "PanelDescription(%#0 to declare a new #1 (id, name, description, coloring). Macro kinds carry no numbering. Persists to #2 under #3.%(Panel,MacroKind,File.config_json,JsonKey.macro_kinds),%Contains #0, id/name/description/color inputs, and a submit action.%(Entry.ui.section.macro-kind.create.preview),RunVSCodeCommand(CommandTitle.snlDoc.createMacroKind),%Image%@ui.panel.macro-kind.create.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

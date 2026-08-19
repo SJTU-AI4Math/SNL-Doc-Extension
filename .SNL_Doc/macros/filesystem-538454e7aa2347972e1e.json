@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "filesystem",
+  "macro": {
+    "description": "Toolkit documentation term: .SNL_Doc",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "filesystem",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{.SNL\\_Doc}"
+        }
+      }
+    ],
+    "name": "Folder.SNL_Doc"
+  },
+  "schema_version": 1
+}

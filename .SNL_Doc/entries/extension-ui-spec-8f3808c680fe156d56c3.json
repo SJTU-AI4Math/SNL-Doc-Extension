@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.relationship.create.to",
+    "kind": "text-input",
+    "title": "Relationship To Entry Input (Create)",
+    "content": {
+      "snl": "%Selects the target Entry id.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.entries.search",
+    "kind": "button",
+    "title": "SNoogL: Entry Search Button",
+    "content": {
+      "snl": "ButtonPress(OpenPanel(SNoogL(Entry)))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

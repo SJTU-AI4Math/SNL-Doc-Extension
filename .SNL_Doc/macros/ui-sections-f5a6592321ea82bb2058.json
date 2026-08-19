@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "Toolkit documentation term: SNL Macros Section",
+    "source": {
+      "entries": [
+        "ui.section.dashboard.snl-macros"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{SNL Macros Section}"
+        }
+      }
+    ],
+    "name": "SNL_Macros_Section"
+  },
+  "schema_version": 1
+}

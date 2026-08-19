@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.entry.create.content",
+    "kind": "section",
+    "title": "Entry Content Section (Create)",
+    "content": {
+      "snl": "%Five-format Entry content editor.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

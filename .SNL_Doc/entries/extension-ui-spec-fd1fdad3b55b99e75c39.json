@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.entry-infoview",
+    "kind": "panel",
+    "title": "Entry Infoview",
+    "content": {
+      "snl": "PanelDescription(%Dedicated per-Entry reading panel, opened directly or by Ctrl-clicking an Entry title. It renders one #0 through #1, colors macros with the workspace palette, and supports #2 for nested Entry and macro references.%(EntrySurface,MacroDataDriver,Recursive_hover_popovers),%Contains #0, #1, #2, and an edit action.%(Entry.ui.section.entry-infoview.entry-render,Entry.ui.section.entry-infoview.context,Entry.ui.section.entry-infoview.dependencies),RunVSCodeCommand(snlDoc.openEntryInfoview_entryId),%Image%@ui.panel.entry-infoview.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

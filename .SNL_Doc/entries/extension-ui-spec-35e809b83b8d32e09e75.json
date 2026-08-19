@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.snl-macros.toggle-active",
+    "kind": "button",
+    "title": "Toggle Package Active Button (Dashboard List)",
+    "content": {
+      "snl": "ButtonDescription(%A macro-package row action in the Dashboard list.%,Toggle(%the package active state%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

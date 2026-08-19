@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.macro-package.macros",
+    "kind": "section",
+    "title": "Macro Package Macros Section",
+    "content": {
+      "snl": "%Table of macros in the current package. Every row renders all styles through #0 with the workspace #1, exposes source status, and offers direct Edit/Delete actions.%(MacroDataDriver,Macro_Kind_palette)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

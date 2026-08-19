@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "commands",
+  "macro": {
+    "description": "Command Palette title for snlDoc.initEntryKinds",
+    "source": {
+      "entries": [
+        "command.snlDoc.initEntryKinds"
+      ],
+      "urls": []
+    },
+    "kind": "command",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{SNL: Initialize Entry Kinds}"
+        }
+      }
+    ],
+    "name": "CommandTitle.snlDoc.initEntryKinds"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.entry.create.contributor: Contributor Section (Create Entry)",
+    "source": {
+      "entries": [
+        "ui.section.entry.create.contributor"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Contributor Section (Create Entry)}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.entry.create.contributor"
+  },
+  "schema_version": 1
+}

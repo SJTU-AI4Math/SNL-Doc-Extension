@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "commands",
+  "macro": {
+    "description": "Extension command identifier: snlDoc.openMacroPackage",
+    "source": {
+      "entries": [
+        "command.snlDoc.openMacroPackage"
+      ],
+      "urls": []
+    },
+    "kind": "command",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{snlDoc.openMacroPackage}"
+        }
+      }
+    ],
+    "name": "snlDoc.openMacroPackage"
+  },
+  "schema_version": 1
+}

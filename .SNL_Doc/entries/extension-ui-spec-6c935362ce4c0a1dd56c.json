@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.infoview.edit-library",
+    "kind": "button",
+    "title": "Edit This Library Button",
+    "content": {
+      "snl": "ButtonPress(OpenPanelFor(Edit_Library,%the Library being read%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

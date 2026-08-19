@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro-package.edit",
+    "kind": "panel",
+    "title": "Edit Macro Package",
+    "content": {
+      "snl": "PanelDescription(%Edits package file/name/description metadata.%,%Contains file, name, and description inputs plus a submit action.%,RunVSCodeCommand(CommandTitle.snlDoc.editMacroPackage),%Image%@ui.panel.macro-package.edit.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

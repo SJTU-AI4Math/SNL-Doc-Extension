@@ -1,0 +1,9 @@
+{
+  "format": "snl-package",
+  "version": 1,
+  "id": "ui-inputs",
+  "name": "UI Inputs",
+  "description": "Concrete text/select input terminology.",
+  "schema_version": 2,
+  "entry_ids": []
+}

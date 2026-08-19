@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro-package.edit.name",
+    "kind": "text-input",
+    "title": "Macro Package Display Name Input (Edit)",
+    "content": {
+      "snl": "%Edits the package name.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

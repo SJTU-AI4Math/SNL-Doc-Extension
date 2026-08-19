@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "command.snlDoc.createMacroPickPackage",
+    "kind": "command",
+    "title": "snlDoc.createMacroPickPackage",
+    "content": {
+      "snl": "%Internal helper command #0. It opens the active-package QuickPick and then launches Create Macro for the selected package; its documentation label is #1, not a contributed Command Palette title.%(snlDoc.createMacroPickPackage,CommandLabel.snlDoc.createMacroPickPackage)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

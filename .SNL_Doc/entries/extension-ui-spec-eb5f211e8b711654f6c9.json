@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.tree.add-sibling",
+    "kind": "button",
+    "title": "Add Sibling Row Toolbar Button",
+    "content": {
+      "snl": "ButtonPress(AddTreeRow(%a sibling after the current row%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.entry-infoview.context: Entry Infoview Context Section",
+    "source": {
+      "entries": [
+        "ui.section.entry-infoview.context"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entry Infoview Context Section}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.entry-infoview.context"
+  },
+  "schema_version": 1
+}

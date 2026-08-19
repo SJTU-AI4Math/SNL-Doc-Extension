@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "command.snlDoc.openEntryInfoview",
+    "kind": "command",
+    "title": "snlDoc.openEntryInfoview",
+    "content": {
+      "snl": "%Programmatic-only. Given an entryId, opens or reveals a dedicated #0 panel keyed by that id. Dispatched by #1 on any rendered entry title.%(Entry_Infoview,Shortcut_Ctrl_click)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+out/
+media/webview/
+media/exportRuntime.js
+release
+*.vsix
+.DS_Store
+.SNL_Doc/

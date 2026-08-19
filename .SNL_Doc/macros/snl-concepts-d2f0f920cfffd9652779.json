@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Catfood term for Shared UI Controls.",
+    "source": {
+      "entries": [
+        "concept.extension.shared-ui-controls"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Button}"
+        }
+      }
+    ],
+    "name": "Button_component"
+  },
+  "schema_version": 1
+}

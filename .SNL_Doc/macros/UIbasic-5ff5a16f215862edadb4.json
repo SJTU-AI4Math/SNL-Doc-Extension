@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Open a panel with an entity already selected as its context.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "open #0 for #1"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "OpenPanelFor"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry-kind.initialize.preset",
+    "kind": "text-input",
+    "title": "Entry Kind Preset Selector",
+    "content": {
+      "snl": "%Chooses the Entry Kind preset applied to an empty catalog.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

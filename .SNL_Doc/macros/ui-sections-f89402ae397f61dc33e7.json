@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.infoview.libraries: Infoview Libraries Layer",
+    "source": {
+      "entries": [
+        "ui.section.infoview.libraries"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Infoview Libraries Layer}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.infoview.libraries"
+  },
+  "schema_version": 1
+}

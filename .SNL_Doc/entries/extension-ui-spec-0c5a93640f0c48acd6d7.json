@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.macro-kinds.initialize-list",
+    "kind": "button",
+    "title": "Initialize Macro Kinds Button (List View)",
+    "content": {
+      "snl": "ButtonDescription(%The empty-state AddBar.%,OpenPanel(Initialize_Macro_Kinds))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

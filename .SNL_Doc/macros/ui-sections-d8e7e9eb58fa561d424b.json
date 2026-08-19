@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.entry-kind.edit.preview: Entry Kind Color Preview (Edit)",
+    "source": {
+      "entries": [
+        "ui.section.entry-kind.edit.preview"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entry Kind Color Preview (Edit)}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.entry-kind.edit.preview"
+  },
+  "schema_version": 1
+}

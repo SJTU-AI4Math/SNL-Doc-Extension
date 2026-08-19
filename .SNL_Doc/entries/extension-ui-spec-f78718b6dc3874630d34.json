@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.infoview.img",
+    "kind": "image",
+    "title": "Infoview Image",
+    "content": {
+      "markdown": "![](assets/Infoview-Panel.png)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

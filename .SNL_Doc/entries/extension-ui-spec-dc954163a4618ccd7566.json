@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.macro.edit.sources",
+    "kind": "section",
+    "title": "Macro Sources Section (Edit)",
+    "content": {
+      "snl": "%Declares source Entries and URLs for this macro.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

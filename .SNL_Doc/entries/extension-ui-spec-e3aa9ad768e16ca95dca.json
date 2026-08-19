@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.shared.add-bar",
+    "kind": "button",
+    "title": "AddBar (dashed +)",
+    "content": {
+      "snl": "%Full-width dashed #0 bar at the end of a #1 list or an empty section. Hover flips to a solid focused border. Keyboard-activatable (#2/#3).%(Create_X,Dashboard,Shortcut_Enter,Shortcut_Space)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

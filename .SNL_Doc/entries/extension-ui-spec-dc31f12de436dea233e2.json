@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro.create.dynamic-arity",
+    "kind": "text-input",
+    "title": "Dynamic Arity Toggle (Create)",
+    "content": {
+      "snl": "%Marks the macro dynamic and replaces the ordinary template editor with left, separator, and right controls serialized around a real #0.%(Literal.hash_star)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

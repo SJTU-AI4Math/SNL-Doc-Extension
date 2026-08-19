@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.macro-package.row-delete",
+    "kind": "button",
+    "title": "Delete Macro Row Button",
+    "content": {
+      "snl": "ButtonDescription(%This bypasses multi-select and submits the existing batch-delete host message with one macro name.%,DeleteItemAfterConfirmation(%the macro in this package row%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

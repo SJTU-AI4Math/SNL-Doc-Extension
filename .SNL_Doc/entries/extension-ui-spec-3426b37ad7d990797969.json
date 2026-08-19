@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.counter.add-root",
+    "kind": "button",
+    "title": "Add Root Counter Button",
+    "content": {
+      "snl": "ButtonDescription(%This action is available when the Counter tree is non-empty.%,AddTreeRow(%another root Counter%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

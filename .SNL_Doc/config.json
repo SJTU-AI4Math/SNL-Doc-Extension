@@ -1,130 +1,340 @@
 {
-  "version": "0.0.3",
+  "version": "0.1.0",
   "entry_kinds": [
     {
       "id": "panel",
       "name": "Panel",
-      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        },
+        "dark": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "button",
       "name": "Button",
-      "coloring": { "stroke": "#ea580c", "background": "#ffedd5" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#ea580c",
+          "background": "#ffedd5"
+        },
+        "dark": {
+          "stroke": "#ea580c",
+          "background": "#ffedd5"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "text-input",
       "name": "TextInput",
-      "coloring": { "stroke": "#0891b2", "background": "#cffafe" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#0891b2",
+          "background": "#cffafe"
+        },
+        "dark": {
+          "stroke": "#0891b2",
+          "background": "#cffafe"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "textarea",
       "name": "Textarea",
-      "coloring": { "stroke": "#0d9488", "background": "#ccfbf1" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#0d9488",
+          "background": "#ccfbf1"
+        },
+        "dark": {
+          "stroke": "#0d9488",
+          "background": "#ccfbf1"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "select",
       "name": "Select",
-      "coloring": { "stroke": "#6366f1", "background": "#e0e7ff" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#6366f1",
+          "background": "#e0e7ff"
+        },
+        "dark": {
+          "stroke": "#6366f1",
+          "background": "#e0e7ff"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "checkbox",
       "name": "Checkbox",
-      "coloring": { "stroke": "#65a30d", "background": "#ecfccb" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#65a30d",
+          "background": "#ecfccb"
+        },
+        "dark": {
+          "stroke": "#65a30d",
+          "background": "#ecfccb"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "radio",
       "name": "Radio",
-      "coloring": { "stroke": "#84cc16", "background": "#f7fee7" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#84cc16",
+          "background": "#f7fee7"
+        },
+        "dark": {
+          "stroke": "#84cc16",
+          "background": "#f7fee7"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "tab",
       "name": "Tab",
-      "coloring": { "stroke": "#8b5cf6", "background": "#ede9fe" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#8b5cf6",
+          "background": "#ede9fe"
+        },
+        "dark": {
+          "stroke": "#8b5cf6",
+          "background": "#ede9fe"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "list-item",
       "name": "ListItem",
-      "coloring": { "stroke": "#ca8a04", "background": "#fef9c3" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#ca8a04",
+          "background": "#fef9c3"
+        },
+        "dark": {
+          "stroke": "#ca8a04",
+          "background": "#fef9c3"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "preview",
       "name": "Preview",
-      "coloring": { "stroke": "#db2777", "background": "#fce7f3" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#db2777",
+          "background": "#fce7f3"
+        },
+        "dark": {
+          "stroke": "#db2777",
+          "background": "#fce7f3"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "modal",
       "name": "Modal",
-      "coloring": { "stroke": "#e11d48", "background": "#ffe4e6" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#e11d48",
+          "background": "#ffe4e6"
+        },
+        "dark": {
+          "stroke": "#e11d48",
+          "background": "#ffe4e6"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "link",
       "name": "Link",
-      "coloring": { "stroke": "#2563eb", "background": "#dbeafe" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#2563eb",
+          "background": "#dbeafe"
+        },
+        "dark": {
+          "stroke": "#2563eb",
+          "background": "#dbeafe"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "canvas",
       "name": "Canvas",
-      "coloring": { "stroke": "#7c3aed", "background": "#f3e8ff" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#7c3aed",
+          "background": "#f3e8ff"
+        },
+        "dark": {
+          "stroke": "#7c3aed",
+          "background": "#f3e8ff"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "color-picker",
       "name": "ColorPicker",
-      "coloring": { "stroke": "#c026d3", "background": "#fae8ff" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#c026d3",
+          "background": "#fae8ff"
+        },
+        "dark": {
+          "stroke": "#c026d3",
+          "background": "#fae8ff"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "drag-handle",
       "name": "DragHandle",
-      "coloring": { "stroke": "#525252", "background": "#f5f5f5" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#525252",
+          "background": "#f5f5f5"
+        },
+        "dark": {
+          "stroke": "#525252",
+          "background": "#f5f5f5"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "text",
       "name": "Text",
-      "coloring": { "stroke": "#404040", "background": "#fafafa" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#404040",
+          "background": "#fafafa"
+        },
+        "dark": {
+          "stroke": "#404040",
+          "background": "#fafafa"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "command",
       "name": "Command",
-      "coloring": { "stroke": "#dc2626", "background": "#fee2e2" },
-      "numbering": "1",
-      "style": ""
+      "coloring": {
+        "light": {
+          "stroke": "#dc2626",
+          "background": "#fee2e2"
+        },
+        "dark": {
+          "stroke": "#dc2626",
+          "background": "#fee2e2"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
     },
     {
       "id": "message",
       "name": "HostMessage",
-      "coloring": { "stroke": "#9333ea", "background": "#f3e8ff" },
-      "numbering": "1",
+      "coloring": {
+        "light": {
+          "stroke": "#9333ea",
+          "background": "#f3e8ff"
+        },
+        "dark": {
+          "stroke": "#9333ea",
+          "background": "#f3e8ff"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "1"
+    },
+    {
+      "id": "section",
+      "name": "Section",
+      "coloring": {
+        "light": {
+          "stroke": "#546e7a",
+          "background": "#eceff1"
+        },
+        "dark": {
+          "stroke": "#546e7a",
+          "background": "#eceff1"
+        }
+      },
+      "defaultCounterName": "section",
+      "style": ""
+    },
+    {
+      "id": "concept",
+      "name": "Concept",
+      "coloring": {
+        "light": {
+          "stroke": "#6a1b9a",
+          "background": "#f3e5f5"
+        },
+        "dark": {
+          "stroke": "#6a1b9a",
+          "background": "#f3e5f5"
+        }
+      },
+      "defaultCounterName": "",
+      "style": ""
+    },
+    {
+      "id": "image",
+      "name": "Image",
+      "coloring": {
+        "light": {
+          "stroke": "#888888",
+          "background": "#eeeeee"
+        },
+        "dark": {
+          "stroke": "#888888",
+          "background": "#eeeeee"
+        }
+      },
+      "defaultCounterName": "1",
       "style": ""
     }
   ],
@@ -133,38 +343,222 @@
       "id": "Syntax",
       "name": "Syntax",
       "description": "SNL 语法/组合宏（非语义特化）。",
-      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" }
+      "coloring": {
+        "light": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        },
+        "dark": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        }
+      }
     },
     {
       "id": "ui-widget",
       "name": "UiWidget",
       "description": "指涉 Extension 面板里的一个 UI widget。",
-      "coloring": { "stroke": "#ea580c", "background": "#ffedd5" }
+      "coloring": {
+        "light": {
+          "stroke": "#ea580c",
+          "background": "#ffedd5"
+        },
+        "dark": {
+          "stroke": "#ea580c",
+          "background": "#ffedd5"
+        }
+      }
     },
     {
       "id": "ui-panel",
       "name": "UiPanel",
       "description": "指涉一个 webview 面板。",
-      "coloring": { "stroke": "#0078D4", "background": "#DDEEFF" }
+      "coloring": {
+        "light": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        },
+        "dark": {
+          "stroke": "#0078D4",
+          "background": "#DDEEFF"
+        }
+      }
     },
     {
       "id": "command",
       "name": "Command",
       "description": "指涉一个 VS Code `snlDoc.*` command。",
-      "coloring": { "stroke": "#dc2626", "background": "#fee2e2" }
+      "coloring": {
+        "light": {
+          "stroke": "#dc2626",
+          "background": "#fee2e2"
+        },
+        "dark": {
+          "stroke": "#dc2626",
+          "background": "#fee2e2"
+        }
+      }
     },
     {
       "id": "message",
       "name": "HostMessage",
       "description": "指涉一条 webview→host `postMessage` 消息类型。",
-      "coloring": { "stroke": "#9333ea", "background": "#f3e8ff" }
+      "coloring": {
+        "light": {
+          "stroke": "#9333ea",
+          "background": "#f3e8ff"
+        },
+        "dark": {
+          "stroke": "#9333ea",
+          "background": "#f3e8ff"
+        }
+      }
     },
     {
       "id": "const",
       "name": "Constant",
       "description": "字面/常量。",
-      "coloring": { "stroke": "#888888", "background": "#eeeeee" }
+      "coloring": {
+        "light": {
+          "stroke": "#888888",
+          "background": "#eeeeee"
+        },
+        "dark": {
+          "stroke": "#888888",
+          "background": "#eeeeee"
+        }
+      }
+    },
+    {
+      "id": "ui-section",
+      "name": "Section",
+      "description": "Macros denoting concrete UI Sections.",
+      "coloring": {
+        "light": {
+          "stroke": "#455a64",
+          "background": "#eceff1"
+        },
+        "dark": {
+          "stroke": "#455a64",
+          "background": "#eceff1"
+        }
+      }
+    },
+    {
+      "id": "ui-button",
+      "name": "Button",
+      "description": "Macros denoting concrete UI Buttons and actions.",
+      "coloring": {
+        "light": {
+          "stroke": "#2e7d32",
+          "background": "#e8f5e9"
+        },
+        "dark": {
+          "stroke": "#2e7d32",
+          "background": "#e8f5e9"
+        }
+      }
+    },
+    {
+      "id": "ui-input",
+      "name": "Text Input",
+      "description": "Macros denoting UI text/select inputs.",
+      "coloring": {
+        "light": {
+          "stroke": "#7b1fa2",
+          "background": "#f3e5f5"
+        },
+        "dark": {
+          "stroke": "#7b1fa2",
+          "background": "#f3e5f5"
+        }
+      }
+    },
+    {
+      "id": "snl-concept",
+      "name": "SNL Concept",
+      "description": "SNL-Doc schema, renderer, and Extension concepts.",
+      "coloring": {
+        "light": {
+          "stroke": "#6a1b9a",
+          "background": "#f3e5f5"
+        },
+        "dark": {
+          "stroke": "#6a1b9a",
+          "background": "#f3e5f5"
+        }
+      }
+    },
+    {
+      "id": "filesystem",
+      "name": "Filesystem",
+      "description": "Path composition, Folder, File, and JSON-key terms.",
+      "coloring": {
+        "light": {
+          "stroke": "#00695c",
+          "background": "#e0f2f1"
+        },
+        "dark": {
+          "stroke": "#00695c",
+          "background": "#e0f2f1"
+        }
+      }
+    },
+    {
+      "id": "computer-basics",
+      "name": "Computer Basics",
+      "description": "Keyboard shortcuts and general programming/computer terms.",
+      "coloring": {
+        "light": {
+          "stroke": "#37474f",
+          "background": "#eceff1"
+        },
+        "dark": {
+          "stroke": "#37474f",
+          "background": "#eceff1"
+        }
+      }
+    },
+    {
+      "id": "literal",
+      "name": "Literal",
+      "description": "Literal symbols, examples, statuses, and prose-only technical terms.",
+      "coloring": {
+        "light": {
+          "stroke": "#5d4037",
+          "background": "#efebe9"
+        },
+        "dark": {
+          "stroke": "#5d4037",
+          "background": "#efebe9"
+        }
+      }
     }
   ],
-  "active_macro_packages": []
+  "active_macro_packages": [
+    "UIbasic",
+    "commands",
+    "computer-basics",
+    "filesystem",
+    "literals",
+    "snl-concepts",
+    "ui-buttons",
+    "ui-inputs",
+    "ui-panels",
+    "ui-sections"
+  ],
+  "entity_storage": {
+    "version": 1,
+    "legacy_backup_version": "0.0.5",
+    "entry_default_package": "_unpackaged",
+    "receipt": {
+      "legacy_backup_present": false,
+      "legacy_entries_present": false,
+      "entry_count": 0,
+      "macro_package_count": 0,
+      "macro_count": 0,
+      "entries_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "macro_packages_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  }
 }

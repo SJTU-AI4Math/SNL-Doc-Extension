@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.macro-package.macros: Macro Package Macros Section",
+    "source": {
+      "entries": [
+        "ui.section.macro-package.macros"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Macro Package Macros Section}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.macro-package.macros"
+  },
+  "schema_version": 1
+}

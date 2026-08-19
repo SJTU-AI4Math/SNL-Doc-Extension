@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Move an item toward the default position.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "move #0 toward the default position"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "MoveItemTowardDefault"
+  },
+  "schema_version": 1
+}

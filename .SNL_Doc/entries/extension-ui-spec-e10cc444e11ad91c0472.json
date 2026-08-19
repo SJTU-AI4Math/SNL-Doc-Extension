@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.dashboard.entry-kinds",
+    "kind": "section",
+    "title": "Entry Kinds Section",
+    "content": {
+      "snl": "%#0 section listing declared EntryKinds. Empty → single #1 #2. Non-empty → table (name / stroke swatch / default counter name / edit-row) plus tail #3 #4.%(Dashboard,AddBar,ButtonLabel.initialize_entry_kinds,AddBar,ButtonLabel.create_entry_kind)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Initialize Macro Kinds",
+    "source": {
+      "entries": [
+        "ui.panel.macro-kind.initialize"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Initialize Macro Kinds}"
+        }
+      }
+    ],
+    "name": "Initialize_Macro_Kinds"
+  },
+  "schema_version": 1
+}

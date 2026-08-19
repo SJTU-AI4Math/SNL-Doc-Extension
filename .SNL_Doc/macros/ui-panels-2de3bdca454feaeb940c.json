@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Create Macro Kind",
+    "source": {
+      "entries": [
+        "ui.panel.macro-kind.create"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Create Macro Kind}"
+        }
+      }
+    ],
+    "name": "Create_Macro_Kind"
+  },
+  "schema_version": 1
+}

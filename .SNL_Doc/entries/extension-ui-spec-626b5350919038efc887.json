@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.library.edit",
+    "kind": "panel",
+    "title": "Edit Library",
+    "content": {
+      "snl": "PanelDescription(%The #0 detail/edit view. It retains the outline tree editor, Library counter tree, external-file synchronization, and Entry navigation; the outline now displays #1 beside SNL Entries and blocks invalid references before host submission.%(Library,Source_structure_metrics),%Contains #0, #1, slug/title inputs, title-update action, and an Infoview action.%(Outline_Section,Counters_Section),RunVSCodeCommand(CommandTitle.snlDoc.editLibrary),%Image%@ui.panel.library.edit.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

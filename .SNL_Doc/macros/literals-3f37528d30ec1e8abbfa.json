@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "literals",
+  "macro": {
+    "description": "Macro v8 dynamic-child placeholder #*.",
+    "source": {
+      "entries": [
+        "concept.extension.macro-v8"
+      ],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{\\#*}"
+        }
+      }
+    ],
+    "name": "Literal.hash_star"
+  },
+  "schema_version": 1
+}

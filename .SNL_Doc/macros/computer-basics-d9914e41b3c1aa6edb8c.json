@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "computer-basics",
+  "macro": {
+    "description": "Toolkit documentation term: Enter",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "computer-basics",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Enter}"
+        }
+      }
+    ],
+    "name": "Shortcut_Enter"
+  },
+  "schema_version": 1
+}

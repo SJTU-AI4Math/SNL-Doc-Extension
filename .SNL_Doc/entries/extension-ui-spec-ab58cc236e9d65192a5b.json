@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.counter.name",
+    "kind": "text-input",
+    "title": "Counter Name Input",
+    "content": {
+      "snl": "%Inline Counter name field; Entry Kinds match their default counter name here.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

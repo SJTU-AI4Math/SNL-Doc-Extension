@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.entries.create-list",
+    "kind": "button",
+    "title": "Create Entry Button (List View)",
+    "content": {
+      "snl": "ButtonDescription(%The full-width AddBar at the end of the Entries list.%,OpenPanel(Create_Entry))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

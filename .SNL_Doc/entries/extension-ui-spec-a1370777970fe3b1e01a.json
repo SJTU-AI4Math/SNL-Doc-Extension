@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "concept.snl.library",
+    "kind": "concept",
+    "title": "Library",
+    "content": {
+      "snl": "%Ordered tree of Entry references and Library-scoped Counters.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

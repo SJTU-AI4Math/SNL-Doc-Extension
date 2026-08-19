@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "commands",
+  "macro": {
+    "description": "Command Palette title for snlDoc.createEntryKind",
+    "source": {
+      "entries": [
+        "command.snlDoc.createEntryKind"
+      ],
+      "urls": []
+    },
+    "kind": "command",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{SNL: Create Entry Kind}"
+        }
+      }
+    ],
+    "name": "CommandTitle.snlDoc.createEntryKind"
+  },
+  "schema_version": 1
+}

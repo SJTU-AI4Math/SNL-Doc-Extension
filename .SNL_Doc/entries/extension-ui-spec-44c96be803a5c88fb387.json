@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.entry-kind.edit",
+    "kind": "panel",
+    "title": "Edit Entry Kind",
+    "content": {
+      "snl": "PanelDescription(%Edit-mode variant of #0, keyed by kind id. Same field set. Renaming the kind name does NOT rewrite existing entries that reference it by id.%(Create_Entry_Kind),%Contains #0, id/name/color/default-counter/style inputs, and a submit action.%(Entry.ui.section.entry-kind.edit.preview),RunVSCodeCommand(CommandTitle.snlDoc.editEntryKind),%Image%@ui.panel.entry-kind.edit.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

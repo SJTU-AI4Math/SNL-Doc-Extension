@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "filesystem",
+  "macro": {
+    "description": "Toolkit documentation term: macro_kinds",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "filesystem",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{macro\\_kinds}"
+        }
+      }
+    ],
+    "name": "JsonKey.macro_kinds"
+  },
+  "schema_version": 1
+}

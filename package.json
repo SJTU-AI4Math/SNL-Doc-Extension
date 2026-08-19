@@ -453,6 +453,7 @@
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
     "test": "node scripts/prepare-test-artifacts.mjs && vitest run",
+    "verify:ui-spec": "node scripts/verify-ui-spec-doc.mjs",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
     "test:entry-overflow": "node scripts/test-entry-overflow-geometry.mjs",
     "test:library-paint": "node scripts/test-library-row-paint-occlusion.mjs",

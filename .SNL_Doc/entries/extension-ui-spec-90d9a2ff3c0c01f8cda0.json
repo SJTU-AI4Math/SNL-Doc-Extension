@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.entry-kinds.initialize-list",
+    "kind": "button",
+    "title": "Initialize Entry Kinds Button (List View)",
+    "content": {
+      "snl": "ButtonDescription(%The empty-state AddBar.%,OpenPanel(Initialize_Entry_Kinds))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

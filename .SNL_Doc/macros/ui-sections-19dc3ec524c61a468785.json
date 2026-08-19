@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.entry.edit.content: Entry Content Section (Edit)",
+    "source": {
+      "entries": [
+        "ui.section.entry.edit.content"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entry Content Section (Edit)}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.entry.edit.content"
+  },
+  "schema_version": 1
+}

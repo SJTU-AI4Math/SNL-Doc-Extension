@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.library.outline.entry-id",
+    "kind": "text-input",
+    "title": "Library Entry Reference ID Input",
+    "content": {
+      "snl": "%Searches or types an Entry id to add to the Library outline.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

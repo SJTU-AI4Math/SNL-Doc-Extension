@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry.kind",
+    "kind": "text-input",
+    "title": "Entry Kind Selector",
+    "content": {
+      "snl": "%Selects the Entry Kind for the new Entry.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

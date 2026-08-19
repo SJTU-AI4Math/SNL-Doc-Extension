@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Catfood term for Macro v8.",
+    "source": {
+      "entries": [
+        "concept.extension.macro-v8"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{style\\_name}"
+        }
+      }
+    ],
+    "name": "style_name"
+  },
+  "schema_version": 1
+}

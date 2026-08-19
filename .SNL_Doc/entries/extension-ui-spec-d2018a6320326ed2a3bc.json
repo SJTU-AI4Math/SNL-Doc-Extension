@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.snoogl",
+    "kind": "panel",
+    "title": "SNoogL Search",
+    "content": {
+      "snl": "PanelDescription(%Full-text search over entries + macros + libraries. Opened via #0. Independent panel — not embedded in #1.%(SNL_Open_SNoogL_Search,Dashboard),%Contains #0, #1, #2, and #3.%(Entry.ui.section.snoogl.entry-results,Entry.ui.section.snoogl.macro-results,Entry.ui.section.snoogl.search,Entry.ui.section.snoogl.filters),RunVSCodeCommand(SNL_Open_SNoogL_Search),%Image%@ui.panel.snoogl.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

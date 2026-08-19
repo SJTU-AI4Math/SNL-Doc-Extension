@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.library.edit.slug",
+    "kind": "text-input",
+    "title": "Library Slug Input (Read Only)",
+    "content": {
+      "snl": "%Read-only Library slug shown in Edit Library.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

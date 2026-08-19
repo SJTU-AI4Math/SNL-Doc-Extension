@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro-package.create",
+    "kind": "panel",
+    "title": "Create Macro Package",
+    "content": {
+      "snl": "PanelDescription(%#0 to create a new Macro Package manifest and its initial (possibly empty) per-entity Macro set. Package id derived from title.%(Panel),%Contains Package id, name, and description inputs plus a submit action.%,RunVSCodeCommand(CommandTitle.snlDoc.createMacroPackage),%Image%@ui.panel.macro-package.create.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

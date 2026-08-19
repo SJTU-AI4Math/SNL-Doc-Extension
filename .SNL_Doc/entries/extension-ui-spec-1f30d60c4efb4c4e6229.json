@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.entry-kind.edit.preview",
+    "kind": "section",
+    "title": "Entry Kind Color Preview (Edit)",
+    "content": {
+      "snl": "%Previews edited stroke and background colors.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

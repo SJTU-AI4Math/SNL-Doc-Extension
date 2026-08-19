@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "description": "Switch a UI surface to another mode.",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "switch #0 to #1"
+        }
+      }
+    ],
+    "tags": [],
+    "name": "SetInterfaceMode"
+  },
+  "schema_version": 1
+}

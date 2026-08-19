@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry.id",
+    "kind": "text-input",
+    "title": "Entry ID Field",
+    "content": {
+      "snl": "%Manual-input text field for a new entry's id. Semantic ids recommended; use #0 for anonymous ones. Uniqueness in the shared pool enforced by the host on save.%(Generate_UUID)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

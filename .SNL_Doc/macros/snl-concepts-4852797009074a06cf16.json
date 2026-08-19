@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Catfood term for Recursive Hover Popovers.",
+    "source": {
+      "entries": [
+        "concept.extension.recursive-popovers"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{recursive hover popovers}"
+        }
+      }
+    ],
+    "name": "Recursive_hover_popovers"
+  },
+  "schema_version": 1
+}

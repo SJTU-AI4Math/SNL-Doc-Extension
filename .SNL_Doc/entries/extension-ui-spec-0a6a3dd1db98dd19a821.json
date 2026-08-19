@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.section.dashboard.entries",
+    "kind": "section",
+    "title": "Entries Section",
+    "content": {
+      "snl": "%#0 section listing all Entries in the shared pool with preview swatch, title, id, kind, populated formats, edit/delete/create actions, and #1 for SNL rows. Cross-Entry source references are included in the metric calculation.%(Dashboard,Source_structure_metrics)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

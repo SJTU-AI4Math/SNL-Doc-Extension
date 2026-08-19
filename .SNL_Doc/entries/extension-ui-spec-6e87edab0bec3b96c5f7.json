@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.entry-kind.create.name",
+    "kind": "text-input",
+    "title": "Entry Kind Name Input (Create)",
+    "content": {
+      "snl": "%Entry Kind display-name field.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro.edit.separator",
+    "kind": "text-input",
+    "title": "Dynamic Separator Input (Edit)",
+    "content": {
+      "snl": "%Edits the Macro v8 #0 value without replacing an explicit empty separator with a default.%(separator)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

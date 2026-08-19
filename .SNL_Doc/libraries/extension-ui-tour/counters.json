@@ -1,0 +1,24 @@
+{
+  "counters": [
+    {
+      "id": "070ec3ed-a4ad-42c9-a8ed-aeb5098b438a",
+      "name": "Panel",
+      "numbering": "1",
+      "children": [
+        {
+          "id": "abc8dd84-7ca1-4c07-91f9-2919e5105af5",
+          "name": "section",
+          "numbering": ".1",
+          "children": [
+            {
+              "id": "5f0f4742-bc6a-4dc5-8b72-890dfc4a8ae5",
+              "name": "function",
+              "numbering": ".1",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

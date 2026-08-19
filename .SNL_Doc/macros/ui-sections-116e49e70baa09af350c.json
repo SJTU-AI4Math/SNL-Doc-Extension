@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.snoogl.filters: SNoogL Filters Section",
+    "source": {
+      "entries": [
+        "ui.section.snoogl.filters"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{SNoogL Filters Section}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.snoogl.filters"
+  },
+  "schema_version": 1
+}

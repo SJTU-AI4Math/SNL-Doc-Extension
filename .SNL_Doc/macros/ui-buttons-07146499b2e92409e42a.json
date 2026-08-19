@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-buttons",
+  "macro": {
+    "description": "Toolkit documentation term: active toggle",
+    "source": {
+      "entries": [
+        "ui.button.dashboard.snl-macros.toggle-active"
+      ],
+      "urls": []
+    },
+    "kind": "ui-button",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{active toggle}"
+        }
+      }
+    ],
+    "name": "active_toggle"
+  },
+  "schema_version": 1
+}

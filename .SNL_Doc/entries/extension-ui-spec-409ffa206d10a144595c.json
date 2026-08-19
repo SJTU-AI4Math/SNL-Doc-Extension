@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro.edit.template-right",
+    "kind": "text-input",
+    "title": "Dynamic Template Right Input (Edit)",
+    "content": {
+      "snl": "%Edits the text after the existing #0 after legacy delimiter fields have crossed the migration boundary.%(Literal.hash_star)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

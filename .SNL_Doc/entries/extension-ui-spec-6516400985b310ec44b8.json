@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro.edit",
+    "kind": "panel",
+    "title": "Edit Macro",
+    "content": {
+      "snl": "PanelDescription(%Edit-mode variant of #0 with the same source, tag, style, backend, and GUI-inductive controls. Historical packages cross #1 before the form loads, save always writes strict #2, and the Tree v2 editor preserves literal SNL sigils.%(Create_Macro,Macro_migration_boundary,Macro_v8),%Contains #0, #1, #2, #3, #4, macro name/kind/description inputs, create-kind action, and submit action.%(Entry.ui.section.macro.edit.styles,Entry.ui.section.macro.edit.preview,Entry.ui.section.macro.edit.sources,Entry.ui.section.macro.edit.tags,Entry.ui.section.macro.edit.gui-inductive),RunVSCodeCommand(CommandTitle.snlDoc.editMacro),%Image%@ui.panel.macro.edit.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

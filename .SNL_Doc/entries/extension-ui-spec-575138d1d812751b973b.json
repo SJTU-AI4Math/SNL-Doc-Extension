@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.dashboard.libraries.create-list",
+    "kind": "button",
+    "title": "Create Library Button (List View)",
+    "content": {
+      "snl": "ButtonDescription(%The full-width AddBar at the end of the Libraries list.%,OpenPanel(Create_Library))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

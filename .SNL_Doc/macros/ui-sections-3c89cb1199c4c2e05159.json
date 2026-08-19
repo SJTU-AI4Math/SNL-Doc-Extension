@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "Toolkit documentation term: Entry Kinds Section",
+    "source": {
+      "entries": [
+        "ui.section.dashboard.entry-kinds"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Entry Kinds Section}"
+        }
+      }
+    ],
+    "name": "Entry_Kinds_Section"
+  },
+  "schema_version": 1
+}

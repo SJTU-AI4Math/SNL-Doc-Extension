@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.entry-kind.initialize.submit",
+    "kind": "button",
+    "title": "Initialize Entry Kinds Submit Button",
+    "content": {
+      "snl": "ButtonPress(ApplySelectedPreset(%Entry Kind%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-sections",
+  "macro": {
+    "description": "UI terminology backed by Entry ui.section.macro.create.tags: Macro Tags Section (Create)",
+    "source": {
+      "entries": [
+        "ui.section.macro.create.tags"
+      ],
+      "urls": []
+    },
+    "kind": "ui-section",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Macro Tags Section (Create)}"
+        }
+      }
+    ],
+    "name": "Entry.ui.section.macro.create.tags"
+  },
+  "schema_version": 1
+}

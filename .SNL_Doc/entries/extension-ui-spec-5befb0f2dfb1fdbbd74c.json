@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.entry.save",
+    "kind": "button",
+    "title": "Create Entry Submit Button",
+    "content": {
+      "snl": "ButtonPress(ValidateAndCreateEntity(%the Entry in the shared pool%))"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

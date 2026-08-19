@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "ui-panels",
+  "macro": {
+    "description": "Toolkit documentation term: Edit Macro",
+    "source": {
+      "entries": [
+        "ui.panel.macro.edit"
+      ],
+      "urls": []
+    },
+    "kind": "ui-panel",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{Edit Macro}"
+        }
+      }
+    ],
+    "name": "Edit_Macro"
+  },
+  "schema_version": 1
+}

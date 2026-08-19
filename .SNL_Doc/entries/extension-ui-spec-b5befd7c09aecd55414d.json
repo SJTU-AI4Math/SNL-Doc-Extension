@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro.edit.mode",
+    "kind": "text-input",
+    "title": "Macro Mode Selector (Edit)",
+    "content": {
+      "snl": "%Edits the active Macro v8 style mode after historical input has crossed the migration boundary.%"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

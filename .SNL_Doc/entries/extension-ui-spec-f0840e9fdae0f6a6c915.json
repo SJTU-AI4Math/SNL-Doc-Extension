@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.relationship-graph",
+    "kind": "panel",
+    "title": "Relationship Graph",
+    "content": {
+      "snl": "PanelDescription(%Visualization of the pool-wide (or library-scoped) semantic graph — entries as nodes, relationships as directed edges. Two scopes: #0 (whole pool) and #1 (single library).%(snlDoc.openInfoviewGraph,snlDoc.openInfoviewGraphForLibrary),%Contains #0.%(Entry.ui.section.relationship-graph.canvas),%#0 or #1.%(RunVSCodeCommand(CommandTitle.snlDoc.openInfoviewGraph),RunVSCodeCommand(CommandTitle.snlDoc.openInfoviewGraphForLibrary)),%Image%@ui.panel.relationship-graph.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

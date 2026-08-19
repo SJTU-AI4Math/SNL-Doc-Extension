@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.entry.create",
+    "kind": "panel",
+    "title": "Create Entry",
+    "content": {
+      "snl": "PanelDescription(%#0 to author a single entry: id (manual with #1 button), kind, title, and content across five format tabs (SNL, Typst, LaTeX, Markdown, plain). Persists to the shared #2 pool. When invoked from a #3 outline with a typed-but-unresolved id, seeds the id field so save-then-return resolves the stub.%(Panel,Generate_UUID,File.entries_json,Library),%Contains #0, #1, #2, #3, id/title/kind inputs, UUID generation, and save actions.%(Entry.ui.section.entry.create.preview,Entry.ui.section.entry.create.content,Entry.ui.section.entry.create.contributor,Entry.ui.section.entry.create.pointer),RunVSCodeCommand(CommandTitle.snlDoc.createEntry),%Image%@ui.panel.entry.create.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

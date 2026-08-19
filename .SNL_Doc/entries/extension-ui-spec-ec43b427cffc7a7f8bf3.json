@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.panel.macro-package",
+    "kind": "panel",
+    "title": "Package Panel",
+    "content": {
+      "snl": "PanelDescription(%The macro-package detail view for strict #0 packages. It retains activation, style expansion, source status, multi-select transfer/delete, package editing, and inline package creation; rows now add direct Delete and render Macro Kind-colored previews through #1.%(Macro_v8,MacroDataDriver),%Contains #0, #1, #2, package activation, and package-edit actions.%(Entry.ui.section.macro-package.macros,Entry.ui.section.macro-package.batch-actions,Entry.ui.section.macro-package.transfer-modal),RunVSCodeCommand(CommandTitle.snlDoc.openMacroPackage),%Image%@ui.panel.macro-package.img)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

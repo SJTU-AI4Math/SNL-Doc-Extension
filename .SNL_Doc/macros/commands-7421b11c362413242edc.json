@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "commands",
+  "macro": {
+    "description": "Toolkit documentation term: snlDoc.regenerateDependencies",
+    "source": {
+      "entries": [
+        "command.snlDoc.regenerateDependencies"
+      ],
+      "urls": []
+    },
+    "kind": "command",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{snlDoc.regenerateDependencies}"
+        }
+      }
+    ],
+    "name": "snlDoc.regenerateDependencies"
+  },
+  "schema_version": 1
+}

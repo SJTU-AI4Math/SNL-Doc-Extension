@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Toolkit documentation term: EntryRender",
+    "source": {
+      "entries": [
+        "concept.extension.entry-render"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{EntryRender}"
+        }
+      }
+    ],
+    "name": "EntryRender"
+  },
+  "schema_version": 1
+}

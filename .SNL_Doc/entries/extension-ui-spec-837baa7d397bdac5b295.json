@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.button.tree.delete",
+    "kind": "button",
+    "title": "Delete Row Toolbar Button",
+    "content": {
+      "snl": "ButtonDescription(%There is no confirmation modal because the tree state is source-controlled.%,DeleteTreeRow)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

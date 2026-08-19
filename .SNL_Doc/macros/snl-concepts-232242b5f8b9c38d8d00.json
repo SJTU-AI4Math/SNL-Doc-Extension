@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "snl-concepts",
+  "macro": {
+    "description": "Catfood term for EntrySurface.",
+    "source": {
+      "entries": [
+        "concept.extension.entry-surface"
+      ],
+      "urls": []
+    },
+    "kind": "snl-concept",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "\\texttt{EntrySurface}"
+        }
+      }
+    ],
+    "name": "EntrySurface"
+  },
+  "schema_version": 1
+}

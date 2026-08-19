@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "ui.input.macro.edit.style-name",
+    "kind": "text-input",
+    "title": "Macro Style Name Input (Edit)",
+    "content": {
+      "snl": "%Renames #0 for the selected style while preserving style order. Save writes only the Macro v8 field.%(style_name)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "extension-ui-spec"
+  }
+}

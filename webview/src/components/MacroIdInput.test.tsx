@@ -294,12 +294,14 @@ describe('MacroIdInput', () => {
   });
 
   it('gates autocomplete on real input and re-arms after Escape', () => {
+    const onKeyDown = vi.fn();
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('FO');
       return (
         <MacroIdInput
           value={value}
           onChange={setValue}
+          onKeyDown={onKeyDown}
           macroCandidates={['FOL.forall', 'Foo.bar', 'Add.add'].map((id) => ({ id, labels: [] }))}
           aria-label="Autocomplete Macro ID"
         />
@@ -312,7 +314,8 @@ describe('MacroIdInput', () => {
     expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
     fireEvent.change(input, { target: { value: 'Foo' } });
     expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
-    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false);
+    expect(onKeyDown).not.toHaveBeenCalled();
     expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
     fireEvent.blur(input);
     fireEvent.focus(input);
@@ -379,6 +382,42 @@ describe('MacroIdInput', () => {
     fireEvent.change(input, { target: { value: 'Fo' } });
     view.unmount();
     expect(onOwnershipChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not let an armed empty suggestion list consume Escape or Tab', () => {
+    const onKeyDown = vi.fn();
+    const onOwnershipChange = vi.fn();
+    const { rerender, ...view } = render(
+      <MacroIdInput
+        value="no-match"
+        onChange={() => undefined}
+        onKeyDown={onKeyDown}
+        onSuggestionTabOwnershipChange={onOwnershipChange}
+        macroCandidates={[{ id: 'Foo.one', labels: [] }]}
+        aria-label="Empty suggestions Macro ID"
+      />
+    );
+    const input = view.getByRole('textbox', { name: 'Empty suggestions Macro ID' });
+
+    fireEvent.change(input, { target: { value: 'still-no-match' } });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    expect(onOwnershipChange).not.toHaveBeenCalledWith(true);
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(true);
+    expect(onKeyDown).toHaveBeenCalledWith(expect.objectContaining({ key: 'Escape' }));
+    expect(onKeyDown).toHaveBeenCalledWith(expect.objectContaining({ key: 'Tab' }));
+
+    rerender(
+      <MacroIdInput
+        value="still-no-match"
+        onChange={() => undefined}
+        onKeyDown={onKeyDown}
+        onSuggestionTabOwnershipChange={onOwnershipChange}
+        macroCandidates={[{ id: 'still-no-match-result', labels: [] }]}
+        aria-label="Empty suggestions Macro ID"
+      />
+    );
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
   });
 
   it('does not open inline completion for composition input until composition ends', () => {

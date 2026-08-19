@@ -26,6 +26,27 @@ type JsonRecord = Record<string, any>;
 const isRecord = (value: unknown): value is JsonRecord =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);
+const ABSOLUTE_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+function validateAssetPath(value: string): string[] {
+  if (!value || value.length > 2048 || value.includes('\0') || value.includes('\\') ||
+      value.startsWith('/') || value.startsWith('//') || ABSOLUTE_SCHEME.test(value) ||
+      value.includes('?') || value.includes('#')) {
+    throw new Error(`Unsafe workspace asset path ${JSON.stringify(value)}.`);
+  }
+  const segments = value.split('/');
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new Error(`Unsafe workspace asset path ${JSON.stringify(value)}.`);
+  }
+  const extension = value.slice(value.lastIndexOf('.')).toLowerCase();
+  if (!IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error(`Unsupported workspace asset extension in ${JSON.stringify(value)}.`);
+  }
+  return segments;
+}
+
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await fs.readFile(path, 'utf8'));
 }
@@ -85,7 +106,13 @@ export async function verifyUiSpecWorkspace(workspaceRoot = process.cwd()): Prom
   const entryKinds = new Set((config.entry_kinds as JsonRecord[]).map((kind) => kind.id));
   const macroKinds = new Set((config.macro_kinds as JsonRecord[]).map((kind) => kind.id));
   const entries = new Map(snapshot.entries.map((record) => [record.entry.id, record.entry]));
-  const macros = new Map(snapshot.macros.map((record) => [record.macro.name, record.macro]));
+  const macros = new Map<string, (typeof snapshot.macros)[number]['macro']>();
+  for (const record of snapshot.macros) {
+    if (macros.has(record.macro.name)) {
+      throw new Error(`Duplicate active Macro name ${JSON.stringify(record.macro.name)} across Packages.`);
+    }
+    macros.set(record.macro.name, record.macro);
+  }
 
   for (const record of snapshot.entries) {
     if (!entryKinds.has(record.entry.kind)) {
@@ -151,11 +178,23 @@ export async function verifyUiSpecWorkspace(workspaceRoot = process.cwd()): Prom
     if (typeof content.markdown !== 'string') continue;
     for (const match of content.markdown.matchAll(/(?:^|[(/])assets\/([^\s)]+)/g)) {
       const authoredPath = match[1];
-      const path = resolve(assetsRoot, authoredPath);
-      if (!inside(assetsRoot, path)) throw new Error(`Entry ${entryId} has unsafe asset path assets/${authoredPath}.`);
+      let segments: string[];
+      try {
+        segments = validateAssetPath(authoredPath);
+      } catch (error) {
+        throw new Error(`Entry ${entryId} has unsafe asset path assets/${authoredPath}.`, { cause: error });
+      }
+      let path = assetsRoot;
+      for (const segment of ['', ...segments]) {
+        if (segment) path = resolve(path, segment);
+        const component = await fs.lstat(path);
+        if (component.isSymbolicLink()) {
+          throw new Error(`Entry ${entryId} asset ${authoredPath} contains a symbolic link.`);
+        }
+      }
       const stat = await fs.lstat(path);
-      if (!stat.isFile() || stat.isSymbolicLink()) {
-        throw new Error(`Entry ${entryId} asset ${authoredPath} must be a real file.`);
+      if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) {
+        throw new Error(`Entry ${entryId} asset ${authoredPath} must be a regular file no larger than 10 MiB.`);
       }
       const realPath = await fs.realpath(path);
       if (!inside(realAssetsRoot, realPath)) {

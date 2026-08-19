@@ -5,11 +5,13 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { macroEntityPath } from './entityStorage';
 import { verifyUiSpecWorkspace } from './uiSpecVerifier';
 
 let workspace: string;
@@ -114,6 +116,21 @@ describe('UI specification workspace verifier', () => {
     }, /unknown Macro Kind/);
   });
 
+  it('rejects duplicate active Macro names across owner Packages', async () => {
+    const source = JSON.parse(readFileSync(firstJson('macros'), 'utf8'));
+    const config = JSON.parse(readFileSync(join(workspace, '.SNL_Doc', 'config.json'), 'utf8'));
+    const owner = config.active_macro_packages.find((id: string) => id !== source.package);
+    if (!owner) throw new Error('A second active Macro Package fixture is required.');
+    source.package = owner;
+    const target = join(workspace, '.SNL_Doc', macroEntityPath(owner, source.macro.name));
+    writeFileSync(target, `${JSON.stringify(source, null, 2)}\n`);
+    try {
+      await expect(verifyUiSpecWorkspace(workspace)).rejects.toThrow(/Duplicate active Macro name/);
+    } finally {
+      rmSync(target, { force: true });
+    }
+  });
+
   it('rejects a noncanonical owner/hash entity path', async () => {
     const source = firstJson('entries');
     const target = join(workspace, '.SNL_Doc', 'entries', 'arbitrary.json');
@@ -125,18 +142,40 @@ describe('UI specification workspace verifier', () => {
     }
   });
 
-  it('rejects asset traversal before filesystem lookup', async () => {
+  function imageEntryPath(): string {
     const entryDirectory = join(workspace, '.SNL_Doc', 'entries');
-    const imagePath = readdirSync(entryDirectory)
+    const path = readdirSync(entryDirectory)
       .filter((name) => name.endsWith('.json'))
       .map((name) => join(entryDirectory, name))
-      .find((path) => readFileSync(path, 'utf8').includes('assets/Edit-Entry-Panel.png'));
-    if (!imagePath) throw new Error('Image Entry fixture not found.');
-    await rejectsMutation(imagePath, (envelope) => {
-      envelope.entry.content.markdown = envelope.entry.content.markdown.replace(
-        'assets/Edit-Entry-Panel.png',
-        'assets/../../Edit-Entry-Panel.png',
-      );
-    }, /unsafe asset path/);
+      .find((candidate) => readFileSync(candidate, 'utf8').includes('assets/Edit-Entry-Panel.png'));
+    if (!path) throw new Error('Image Entry fixture not found.');
+    return path;
+  }
+
+  it.each(['assets/../../Edit-Entry-Panel.png', 'assets/./Edit-Entry-Panel.png'])(
+    'rejects noncanonical asset reference %s before filesystem lookup',
+    async (replacement) => {
+      await rejectsMutation(imageEntryPath(), (envelope) => {
+        envelope.entry.content.markdown = envelope.entry.content.markdown.replace(
+          'assets/Edit-Entry-Panel.png',
+          replacement,
+        );
+      }, /unsafe asset path/);
+    },
+  );
+
+  it('rejects symlinks in intermediate asset path components', async () => {
+    const alias = join(workspace, '.SNL_Doc', 'assets', 'alias');
+    symlinkSync('.', alias, 'dir');
+    try {
+      await rejectsMutation(imageEntryPath(), (envelope) => {
+        envelope.entry.content.markdown = envelope.entry.content.markdown.replace(
+          'assets/Edit-Entry-Panel.png',
+          'assets/alias/Edit-Entry-Panel.png',
+        );
+      }, /symbolic link/);
+    } finally {
+      rmSync(alias, { force: true });
+    }
   });
 });

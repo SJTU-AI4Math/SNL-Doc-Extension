@@ -2184,6 +2184,7 @@ export function CreateEntryApp(): React.ReactElement {
               entryCandidates={existingIds}
               macroDataDriver={macroDataDriver}
               macroCandidates={macroCandidates}
+              registeredMacros={userMacros}
               macroOrigin={macroOrigin}
               kindPalette={kindPalette}
               onOpenMacroEditor={(payload) =>
@@ -5827,6 +5828,7 @@ export function GuiInductiveEditor({
   entryCandidates = [],
   macroDataDriver,
   macroCandidates,
+  registeredMacros,
   macroOrigin,
   kindPalette,
   onOpenMacroEditor,
@@ -5837,6 +5839,8 @@ export function GuiInductiveEditor({
   entryCandidates?: readonly EntryOption[];
   macroDataDriver: MacroDataDriver;
   macroCandidates: readonly SnooglSearchCandidate[];
+  /** Synchronous registry used to make structured Macro+Style+arity commits atomic. */
+  registeredMacros?: Readonly<Record<string, SnlMacro>>;
   macroOrigin: Record<string, string>;
   kindPalette?: KindPalette;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
@@ -6300,6 +6304,7 @@ export function GuiInductiveEditor({
         macroDataDriver={macroDataDriver}
         entryCandidates={entryCandidates}
         macroCandidates={macroCandidates}
+        registeredMacros={registeredMacros}
         macroOrigin={macroOrigin}
         kindPalette={kindPalette}
         onOpenMacroEditor={onOpenMacroEditor}
@@ -6676,6 +6681,7 @@ function InductiveNode({
   macroDataDriver,
   entryCandidates,
   macroCandidates,
+  registeredMacros,
   macroOrigin,
   kindPalette,
   onOpenMacroEditor,
@@ -6703,6 +6709,7 @@ function InductiveNode({
   macroDataDriver: MacroDataDriver;
   entryCandidates: readonly EntryOption[];
   macroCandidates: readonly SnooglSearchCandidate[];
+  registeredMacros?: Readonly<Record<string, SnlMacro>>;
   macroOrigin: Record<string, string>;
   kindPalette?: KindPalette;
   onOpenMacroEditor: (req: MacroOpenRequest) => void;
@@ -6774,9 +6781,20 @@ function InductiveNode({
     node.binder_explicit
   ]);
 
+  const macroEntry = useQueriedMacro(
+    macroDataDriver,
+    isTemporaryMacroNode(node) ? undefined : node.macro_name
+  );
+  /** Last authoritative Macro/Style/payload signature reconciled for this row.
+   * Child edits are intentionally absent, so manual Add persists until the next
+   * authority edge. */
+  const reconciledAuthorityRef = useRef<string | null>(null);
+  const reconciledMacroNameRef = useRef<string | null>(null);
+
   const commitMacroSurface = (
     nextRaw: string,
-    nextStyleName: string | undefined
+    nextStyleName: string | undefined,
+    synchronousAuthority?: InductiveArityAuthority
   ): void => {
     const leaf = parseLeafSource(nextRaw);
     const contextSurface = splitContextEntrySurface(leaf.macro_name);
@@ -6813,19 +6831,43 @@ function InductiveNode({
       mdata: withoutBindingMetadata(node.mdata),
       children: node.children
     };
-    onChange(
-      typedContext !== undefined
-        ? withContextEntryNode(nextNode, typedContext)
-        : nextNode
-    );
+    const contextualNode = typedContext !== undefined
+      ? withContextEntryNode(nextNode, typedContext)
+      : nextNode;
+    const requiredArity = synchronousAuthority
+      ? (synchronousAuthority.dynamic
+          ? Math.max(1, synchronousAuthority.count, contextualNode.children.length)
+          : synchronousAuthority.count)
+      : null;
+    onChange(requiredArity === null
+      ? contextualNode
+      : withArityAtPath(contextualNode, '', requiredArity));
   };
   const commitRaw = (nextRaw: string): void => {
     commitMacroSurface(nextRaw, node.style_name);
   };
   const commitStructuredMacro = (payload: MacroIdStructuredCommit): void => {
+    const selectedMacro = registeredMacros?.[payload.macroName] ??
+      (macroEntry?.name === payload.macroName ? macroEntry : undefined);
+    const selectedNode = {
+      ...node,
+      macro_name: payload.macroName,
+      style_name: payload.styleName
+    };
+    const synchronousAuthority = selectedMacro
+      ? inductiveArityAuthority(selectedNode, selectedMacro)
+      : undefined;
+    if (synchronousAuthority) {
+      // Claim the exact selected authority before publishing. The subsequent
+      // async query for this name must not turn the same selection into a
+      // second tree/undo operation.
+      reconciledAuthorityRef.current = synchronousAuthority.key;
+      reconciledMacroNameRef.current = payload.macroName;
+    }
     commitMacroSurface(
       replaceSurfaceRange(rawInput, payload.replacementRange, payload.macroName),
-      payload.styleName
+      payload.styleName,
+      synchronousAuthority
     );
   };
 
@@ -6851,15 +6893,7 @@ function InductiveNode({
 
   const hasKids = node.children.length > 0;
   const isCollapsed = collapsed.has(nodeId);
-  const macroEntry = useQueriedMacro(
-    macroDataDriver,
-    isTemporaryMacroNode(node) ? undefined : node.macro_name
-  );
   const arityAuthority = inductiveArityAuthority(node, macroEntry);
-  /** Last authoritative Macro/Style/payload signature reconciled for this row.
-   * Child edits are intentionally absent, so manual Add persists until the next
-   * authority edge. */
-  const reconciledAuthorityRef = useRef<string | null>(null);
   const effectiveKind = resolveRowKind(node, macroEntry);
   const palette = paletteFor(effectiveKind, kindPalette);
   const macroMatched = Boolean(macroEntry) || node.env_mode !== undefined;
@@ -6867,13 +6901,20 @@ function InductiveNode({
 
   useEffect(() => {
     if (!arityAuthority) {
-      reconciledAuthorityRef.current = null;
+      // A structured selection has already reconciled this name from the
+      // synchronous registry. Keep its claim while useQueriedMacro catches up;
+      // a raw edit to another key invalidates it immediately.
+      if (reconciledMacroNameRef.current !== node.macro_name) {
+        reconciledAuthorityRef.current = null;
+        reconciledMacroNameRef.current = null;
+      }
       return;
     }
     if (reconciledAuthorityRef.current === arityAuthority.key) return;
     // Mark the edge before publishing the functional tree update. This avoids a
     // child-count render from treating the same authority as a second edge.
     reconciledAuthorityRef.current = arityAuthority.key;
+    reconciledMacroNameRef.current = node.macro_name;
     const requiredArity = arityAuthority.dynamic
       ? Math.max(1, arityAuthority.count, node.children.length)
       : arityAuthority.count;
@@ -7255,6 +7296,7 @@ function InductiveNode({
                 macroDataDriver={macroDataDriver}
                 entryCandidates={entryCandidates}
                 macroCandidates={macroCandidates}
+                registeredMacros={registeredMacros}
                 macroOrigin={macroOrigin}
                 kindPalette={kindPalette}
                 onOpenMacroEditor={onOpenMacroEditor}

@@ -596,7 +596,7 @@ export const MacroIdInput = forwardRef<
     if (event.nativeEvent.isComposing &&
         (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
          event.key === 'ArrowRight' || event.key === 'Escape' ||
-         event.key === 'Enter' || event.key === 'Tab' ||
+         event.key === 'Enter' || event.key === 'Tab' || event.key === 'F10' ||
          event.key === 'ContextMenu')) {
       return;
     }
@@ -987,7 +987,7 @@ export const MacroIdInput = forwardRef<
           if (event.nativeEvent.isComposing &&
               (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
                event.key === 'ArrowRight' || event.key === 'Escape' ||
-               event.key === 'Enter' || event.key === 'Tab' ||
+               event.key === 'Enter' || event.key === 'Tab' || event.key === 'F10' ||
                event.key === 'ContextMenu')) {
             return;
           }

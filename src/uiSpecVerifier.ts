@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
@@ -40,7 +40,7 @@ function validateAssetPath(value: string): string[] {
   if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
     throw new Error(`Unsafe workspace asset path ${JSON.stringify(value)}.`);
   }
-  const extension = value.slice(value.lastIndexOf('.')).toLowerCase();
+  const extension = extname(value).toLowerCase();
   if (!IMAGE_EXTENSIONS.has(extension)) {
     throw new Error(`Unsupported workspace asset extension in ${JSON.stringify(value)}.`);
   }

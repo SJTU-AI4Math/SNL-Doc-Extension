@@ -152,7 +152,7 @@ describe('UI specification workspace verifier', () => {
     return path;
   }
 
-  it.each(['assets/../../Edit-Entry-Panel.png', 'assets/./Edit-Entry-Panel.png'])(
+  it.each(['assets/../../Edit-Entry-Panel.png', 'assets/./Edit-Entry-Panel.png', 'assets/.png'])(
     'rejects noncanonical asset reference %s before filesystem lookup',
     async (replacement) => {
       await rejectsMutation(imageEntryPath(), (envelope) => {

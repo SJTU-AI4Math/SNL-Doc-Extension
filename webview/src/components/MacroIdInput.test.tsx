@@ -1,6 +1,6 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   autoCloseLeadingDelimiter,
@@ -695,6 +695,173 @@ describe('MacroIdInput', () => {
     { id: 'Div.div', labels: [], styles: ['frac', 'inline', 'slash'] },
     { id: 'Add.add', labels: [], styles: ['plus'] }
   ];
+
+  it('emits structured default and nondefault picker commits with replacement ranges', async () => {
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onStructuredCommit={commits}
+          macroCandidates={styledCandidates}
+          aria-label="Structured Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Structured Macro ID' }) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Div[legacy]' } });
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(commits).toHaveBeenNthCalledWith(1, {
+      macroName: 'Div.div',
+      styleName: undefined,
+      replacementRange: { start: 0, end: 11 },
+      source: 'inline-tab'
+    });
+
+    fireEvent.change(input, { target: { value: 'Div' } });
+    fireEvent.contextMenu(await view.findByRole('option', { name: 'Div.div' }));
+    fireEvent.click(await view.findByRole('menuitem', { name: /slash/i }));
+    expect(commits).toHaveBeenNthCalledWith(2, {
+      macroName: 'Div.div',
+      styleName: 'slash',
+      replacementRange: { start: 0, end: 3 },
+      source: 'inline-style-click'
+    });
+  });
+
+  it('opens a style menu from inline contextmenu and keyboard, closes on outside/stale changes, and guards IME', async () => {
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <>
+          <MacroIdInput
+            value={value}
+            onChange={setValue}
+            onStructuredCommit={commits}
+            macroCandidates={styledCandidates}
+            aria-label="Inline style Macro ID"
+          />
+          <button type="button">Outside</button>
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Inline style Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Div' } });
+
+    const option = await view.findByRole('option', { name: 'Div.div' });
+    fireEvent.contextMenu(option);
+    await view.findByRole('menu', { name: 'Styles for Div.div' });
+    fireEvent.pointerDown(view.getByRole('button', { name: 'Outside' }));
+    await waitFor(() => expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull());
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.keyDown(input, { key: 'ArrowRight' });
+    await view.findByRole('menu', { name: 'Styles for Div.div' });
+    fireEvent.change(input, { target: { value: 'Add' } });
+    await waitFor(() => expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull());
+
+    fireEvent.change(input, { target: { value: 'Div' } });
+    fireEvent.compositionStart(input);
+    expect(fireEvent.keyDown(input, { key: 'ArrowRight', isComposing: true })).toBe(true);
+    expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+    fireEvent.compositionEnd(input);
+  });
+
+  it('opens a modal style menu from keyboard and returns focus to the search field on Escape', async () => {
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onStructuredCommit={commits}
+          macroCandidates={styledCandidates}
+          aria-label="Modal style Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Modal style Macro ID' }) as HTMLInputElement;
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = await view.findByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.change(search, { target: { value: 'Div' } });
+    fireEvent.keyDown(search, { key: 'ArrowRight' });
+    const menu = await view.findByRole('menu', { name: 'Styles for Div.div' });
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    await waitFor(() => expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull());
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('does not expose a style drilldown for ID-only consumers', async () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          macroCandidates={styledCandidates}
+          aria-label="Plain Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Plain Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Div' } });
+    const option = await view.findByRole('option', { name: 'Div.div' });
+    fireEvent.contextMenu(option);
+    fireEvent.keyDown(input, { key: 'ArrowRight' });
+    expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+  });
+
+  it('renders all style previews from one shared runtime in the style menu', async () => {
+    const runtime = createMacroPreviewRuntime({
+      macros: {
+        'Div.div': {
+          name: 'Div.div',
+          description: '',
+          source: { entries: [], urls: [] },
+          dynamic_arity: false,
+          styles: [
+            { style_name: 'frac', tags: [], template: { mode: 'formula_inline', body: '\\frac{#0}{#1}' } },
+            { style_name: 'inline', tags: [], template: { mode: 'formula_inline', body: '#0 / #1' } },
+            { style_name: 'slash', tags: [], template: { mode: 'formula_inline', body: '#0\\mathbin{/}#1' } }
+          ],
+          tags: []
+        }
+      },
+      language: 'en'
+    });
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onStructuredCommit={commits}
+          macroCandidates={styledCandidates}
+          macroPreviewRuntime={runtime}
+          aria-label="Preview style Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Preview style Macro ID' });
+    fireEvent.change(input, { target: { value: 'Div' } });
+    fireEvent.contextMenu(await view.findByRole('option', { name: 'Div.div' }));
+    await view.findByRole('menu', { name: 'Styles for Div.div' });
+    expect(document.querySelectorAll('[data-macro-style-menu] [data-macro-preview]')).toHaveLength(3);
+    expect(runtime.backendQueryCount()).toBeGreaterThan(0);
+    expect(runtime.backendQueryCount()).toBeLessThanOrEqual(3);
+    expect(runtime.macroDataDriver).toBe(runtime.macroDataDriver);
+  });
 
   it('offers only bare Macro ids even when candidates declare styles', async () => {
     function Harness(): React.ReactElement {

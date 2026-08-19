@@ -1914,7 +1914,7 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
   });
 
-  it('keeps Canvas editing active while embedded SNoogL fills the focused editor', async () => {
+  it('commits the focused Macro editor directly when embedded SNoogL picks a result', async () => {
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('root')]);
       return (
@@ -1935,11 +1935,12 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(canvas, { key: 'F2' });
     const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
     fireEvent.keyDown(editor, { key: 'f', ctrlKey: true });
-    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
     fireEvent.click(view.getByRole('option', { name: 'FOL.forall' }));
-    fireEvent.keyDown(search, { key: 'Tab' });
-    expect((view.getByRole('textbox', { name: 'Edit focused SNL' }) as HTMLTextAreaElement).value)
-      .toBe('FOL.forall');
+    await waitFor(() => expect(view.queryByRole('textbox', { name: 'Edit focused SNL' })).toBeNull());
+    await waitFor(() =>
+      expect(view.container.querySelector<HTMLElement>('[data-tree-path=""]')?.textContent)
+        .toBe('FOL.forall')
+    );
     expect(root.classList.contains('snl-canvas-focused')).toBe(true);
   });
 
@@ -2616,6 +2617,23 @@ describe('GuiCanvasEditor', () => {
       }
     }
   });
+  const styledCanvasDriver = new MacroDataDriver({
+    queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        if (macro_name === 'styled') {
+          return {
+            macro_name,
+            dynamic_arity: false,
+            styles: [
+              { style_name: 'default', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+              { style_name: 'wide', template: { mode: 'formula_inline', body: '#0 #1 #2' }, tags: [] }
+            ]
+          } as never;
+        }
+        return null;
+      }
+    }
+  });
 
   function VariadicHarness({ initial }: { initial: SnlSyntaxTree[] }): React.ReactElement {
     const [forest, setForest] = React.useState(initial);
@@ -2660,6 +2678,75 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.getByTestId('inserted-arity').textContent).toBe('1'));
     const second = view.container.querySelector<HTMLElement>('[data-canvas-root-index="1"]')!;
     expect(second.querySelectorAll('[data-kind="argPlaceholder"]')).toHaveLength(1);
+  });
+
+  it('commits a picked default Style from the focused Macro editor as one undoable change', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        { ...node('styled', [node('a'), node('b'), node('c')]), style_name: 'wide' }
+      ] as SnlSyntaxTree[]);
+      return (
+        <>
+          <output data-testid="focused-style">{forest[0]?.style_name ?? ''}</output>
+          <output data-testid="focused-arity">{forest[0]?.children.length ?? 0}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={styledCanvasDriver}
+            macroCandidates={[{ id: 'styled', labels: [], styles: ['default', 'wide'] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.click(view.container.querySelector<HTMLElement>('[data-tree-path=""]')!);
+    fireEvent.keyDown(canvas, { key: 'F2' });
+    const editor = await waitFor(() => view.getByRole('textbox', { name: 'Edit focused SNL' }));
+    fireEvent.keyDown(editor, { key: 'f', ctrlKey: true });
+    const search = await waitFor(() => view.getByRole('textbox', { name: 'Search macros in SNoogL' }));
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(view.getByTestId('focused-style').textContent).toBe(''));
+    expect(view.getByTestId('focused-arity').textContent).toBe('1');
+
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() => expect(view.getByTestId('focused-style').textContent).toBe('wide'));
+    expect(view.getByTestId('focused-arity').textContent).toBe('3');
+  });
+
+  it('commits a picked nondefault Style from the add-root editor and undoes it in one step', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([node('root')]);
+      return (
+        <>
+          <output data-testid="root-count">{forest.length}</output>
+          <output data-testid="inserted-style">{forest[1]?.style_name ?? ''}</output>
+          <output data-testid="inserted-arity">{forest[1]?.children.length ?? -1}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={styledCanvasDriver}
+            macroCandidates={[{ id: 'styled', labels: [], styles: ['default', 'wide'] }]}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const canvas = view.container.querySelector<HTMLElement>('[data-entry-gui-canvas]')!;
+    fireEvent.keyDown(canvas, { key: 'f', ctrlKey: true });
+    const search = await waitFor(() => view.getByRole('textbox', { name: 'Search macros in SNoogL' }));
+    fireEvent.keyDown(search, { key: 'ArrowRight' });
+    fireEvent.click(await view.findByRole('menuitem', { name: /wide/i }));
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
+    expect(view.getByTestId('inserted-style').textContent).toBe('wide');
+    expect(view.getByTestId('inserted-arity').textContent).toBe('3');
+
+    fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
+    await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
   });
 
   it('gives a variadic Macro inserted into a placeholder one child too', async () => {

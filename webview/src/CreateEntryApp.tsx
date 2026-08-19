@@ -83,7 +83,10 @@ import {
   TreeNodeActionDashboard,
   type TreeNodeActionCommand
 } from './components/TreeNodeActionDashboard';
-import { MacroIdInput } from './components/MacroIdInput';
+import {
+  MacroIdInput,
+  type MacroIdStructuredCommit
+} from './components/MacroIdInput';
 import { isEntityIdUnique } from './components/formValidation';
 import { ensureTreeIdentity, inheritTreeIdentity, treeIdentity } from './components/treeIdentity';
 import {
@@ -4162,6 +4165,7 @@ export function GuiCanvasEditor({
 
   const insideOpenEditor = (node: Node | null): boolean => {
     if (!node) return false;
+    if ((node as HTMLElement).closest?.('[data-macro-style-menu="true"]')) return true;
     // Both floating inputs count: the node editor AND the add-root input.
     // Missing the latter is how it used to survive clicks that should have
     // destroyed it (Cat 2026-07-26).
@@ -4425,7 +4429,8 @@ export function GuiCanvasEditor({
 
   /** Resolve whether an inserted Macro is fixed, variadic/temporary, or unknown. */
   const macroArityForNode = async (
-    node: SnlSyntaxTree
+    node: SnlSyntaxTree,
+    styleName: string | undefined = node.style_name
   ): Promise<number | 'dynamic' | null> => {
     // Delimited `%…%` / `$…$` / `$$…$$` nodes are temporary Macros. They
     // intentionally bypass the Macro DB, but remain structurally extensible;
@@ -4437,7 +4442,8 @@ export function GuiCanvasEditor({
       const macro = await macroDataDriver.query_macro({ macro_name: name });
       if (!macro) return null;
       if (macro.dynamic_arity === true) return 'dynamic';
-      return macroTemplateArity(macro);
+      const style = effectiveMacroStyle(macro, styleName);
+      return bodiesArity(style ? styleTemplateBodies(style) : []);
     } catch {
       return null;
     }
@@ -4566,77 +4572,68 @@ export function GuiCanvasEditor({
     canvasBounds.top
   ]);
 
-  const commitNodeEdit = async (): Promise<void> => {
-    if (!editingNode) return;
+  const buildCanvasMacroReplacement = (
+    previousNode: SnlSyntaxTree | undefined,
+    head: string,
+    styleName: string | undefined
+  ): SnlSyntaxTree | string => {
+    if (head.includes('(') || head.includes(',')) return t('macroEditSingleId');
+    const parsedHead = tryParseSnlSyntaxTree(head);
+    if (!parsedHead.ok) return parsedHead.error;
+    if (parsedHead.tree.style_name !== undefined) return t('macroEditNameOnly');
+    const base = previousNode ?? parsedHead.tree;
+    const replacement: SnlSyntaxTree = {
+      ...base,
+      macro_name: parsedHead.tree.macro_name,
+      kind: parsedHead.tree.kind,
+      env_mode: parsedHead.tree.env_mode,
+      binder_explicit: parsedHead.tree.binder_explicit,
+      scope: parsedHead.tree.binder_explicit ? parsedHead.tree.scope : base.scope,
+      mdata: parsedHead.tree.binder_explicit
+        ? {
+            ...((base.mdata && typeof base.mdata === 'object' && !Array.isArray(base.mdata))
+              ? base.mdata as Record<string, unknown>
+              : {}),
+            ...((parsedHead.tree.mdata &&
+                typeof parsedHead.tree.mdata === 'object' &&
+                !Array.isArray(parsedHead.tree.mdata))
+              ? parsedHead.tree.mdata as Record<string, unknown>
+              : {})
+          }
+        : withoutBindingMetadata(base.mdata),
+      style_name: styleName,
+      children: previousNode ? previousNode.children : parsedHead.tree.children
+    };
+    if (previousNode) inheritTreeIdentity(previousNode, replacement);
+    else ensureTreeIdentity(replacement);
+    return replacement;
+  };
+
+  const commitCanvasMacroHead = async (
+    activeEditingNode: NonNullable<typeof editingNode>,
+    nextHead: string,
+    styleName: string | undefined
+  ): Promise<void> => {
     const request = ++nodeEditRequestRef.current;
     const sourceForest = forestRef.current;
     const previousNode = getNodeAtPath(
-      sourceForest[editingNode.rootIndex],
-      editingNode.path.join('.')
+      sourceForest[activeEditingNode.rootIndex],
+      activeEditingNode.path.join('.')
     );
-    let replacement: SnlSyntaxTree;
-    if (editingNode.scope === 'macro') {
-      // Macro scope rewrites only the head; children stay exactly as they are.
-      const head = editingNode.value.trim();
-      if (head.includes('(') || head.includes(',')) {
-        setEditingNode((previous) => previous
-          ? { ...previous, error: t('macroEditSingleId') }
-          : null);
-        return;
-      }
-      const parsedHead = tryParseSnlSyntaxTree(head);
-      if (!parsedHead.ok) {
-        setEditingNode((previous) => previous ? { ...previous, error: parsedHead.error } : null);
-        return;
-      }
-      if (parsedHead.tree.style_name !== undefined) {
-        setEditingNode((previous) => previous
-          ? { ...previous, error: t('macroEditNameOnly') }
-          : null);
-        return;
-      }
-      const base = previousNode ?? parsedHead.tree;
-      replacement = {
-        ...base,
-        macro_name: parsedHead.tree.macro_name,
-        kind: parsedHead.tree.kind,
-        env_mode: parsedHead.tree.env_mode,
-        binder_explicit: parsedHead.tree.binder_explicit,
-        scope: parsedHead.tree.binder_explicit ? parsedHead.tree.scope : base.scope,
-        mdata: parsedHead.tree.binder_explicit
-          ? { ...((base.mdata && typeof base.mdata === 'object' && !Array.isArray(base.mdata))
-              ? base.mdata as Record<string, unknown>
-              : {}), ...((parsedHead.tree.mdata && typeof parsedHead.tree.mdata === 'object' && !Array.isArray(parsedHead.tree.mdata))
-              ? parsedHead.tree.mdata as Record<string, unknown>
-              : {}) }
-          : withoutBindingMetadata(base.mdata),
-        style_name: previousNode ? previousNode.style_name : undefined,
-        children: previousNode ? previousNode.children : parsedHead.tree.children
-      };
-      if (previousNode) inheritTreeIdentity(previousNode, replacement);
-      else ensureTreeIdentity(replacement);
-    } else {
-      const parsed = tryParseSnlSyntaxTree(editingNode.value.trim());
-      if (!parsed.ok) {
-        setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
-        return;
-      }
-      if (previousNode) inheritTreeIdentity(previousNode, parsed.tree);
-      else ensureTreeIdentity(parsed.tree);
-      replacement = parsed.tree;
+    const built = buildCanvasMacroReplacement(previousNode, nextHead.trim(), styleName);
+    if (typeof built === 'string') {
+      setEditingNode((previous) => previous ? { ...previous, error: built } : null);
+      return;
     }
+    const replacement = built;
     const replaced = replaceCanvasTarget(
       sourceForest,
-      editingNode.rootIndex,
-      editingNode.path,
+      activeEditingNode.rootIndex,
+      activeEditingNode.path,
       replacement
     );
     if (replaced === sourceForest) return;
-    // Cat 2026-07-25: the new Macro's arity decides what happens to the old
-    // children — surplus subtrees pop out as their own root blocks, missing
-    // slots become empty placeholders the author fills in manually. Never
-    // swallow a subtree and never resurrect one.
-    const arity = await macroArityForNode(replacement);
+    const arity = await macroArityForNode(replacement, styleName);
     if (
       request !== nodeEditRequestRef.current ||
       forestRef.current !== sourceForest
@@ -4654,15 +4651,117 @@ export function GuiCanvasEditor({
       ? replaced
       : reconcileCanvasArity(
           replaced,
-          editingNode.rootIndex,
-          editingNode.path,
+          activeEditingNode.rootIndex,
+          activeEditingNode.path,
           targetArity,
-          // Evicted subtrees become their own blocks; they must keep a stable
-          // identity so their canvas position is preserved rather than reset.
           ensureTreeIdentity
         );
     applyForestChange(next);
     setEditingNode(null);
+    restoreCanvasFocus();
+  };
+
+  const commitNodeEdit = async (): Promise<void> => {
+    if (!editingNode) return;
+    if (editingNode.scope === 'macro') {
+      await commitCanvasMacroHead(editingNode, editingNode.value, getNodeAtPath(
+        forestRef.current[editingNode.rootIndex],
+        editingNode.path.join('.')
+      )?.style_name);
+      return;
+    } else {
+      const request = ++nodeEditRequestRef.current;
+      const sourceForest = forestRef.current;
+      const previousNode = getNodeAtPath(
+        sourceForest[editingNode.rootIndex],
+        editingNode.path.join('.')
+      );
+      const parsed = tryParseSnlSyntaxTree(editingNode.value.trim());
+      if (!parsed.ok) {
+        setEditingNode((previous) => previous ? { ...previous, error: parsed.error } : null);
+        return;
+      }
+      let replacement: SnlSyntaxTree;
+      if (previousNode) inheritTreeIdentity(previousNode, parsed.tree);
+      else ensureTreeIdentity(parsed.tree);
+      replacement = parsed.tree;
+      const replaced = replaceCanvasTarget(
+        sourceForest,
+        editingNode.rootIndex,
+        editingNode.path,
+        replacement
+      );
+      if (replaced === sourceForest) return;
+      const arity = await macroArityForNode(replacement);
+      if (
+        request !== nodeEditRequestRef.current ||
+        forestRef.current !== sourceForest
+      ) return;
+      const isNewMacro =
+        !previousNode ||
+        isCanvasHole(previousNode) ||
+        previousNode.macro_name !== replacement.macro_name ||
+        previousNode.env_mode !== replacement.env_mode;
+      const targetArity: number | null =
+        arity === 'dynamic'
+          ? (isNewMacro && replacement.children.length === 0 ? 1 : null)
+          : arity;
+      const next = targetArity === null
+        ? replaced
+        : reconcileCanvasArity(
+            replaced,
+            editingNode.rootIndex,
+            editingNode.path,
+            targetArity,
+            ensureTreeIdentity
+          );
+      applyForestChange(next);
+      setEditingNode(null);
+      restoreCanvasFocus();
+    }
+  };
+
+  const commitCanvasRootInsertion = async (
+    baseTree: SnlSyntaxTree,
+    styleName: string | undefined = baseTree.style_name
+  ): Promise<void> => {
+    const request = ++addRootRequestRef.current;
+    const sourceForest = forestRef.current;
+    const inserted: SnlSyntaxTree = {
+      ...baseTree,
+      ...(styleName === undefined ? {} : { style_name: styleName })
+    };
+    ensureTreeIdentity(inserted);
+    const arity = await macroArityForNode(inserted, styleName);
+    if (
+      request !== addRootRequestRef.current ||
+      forestRef.current !== sourceForest
+    ) return;
+    const next = [...sourceForest, inserted];
+    const rootIndex = next.length - 1;
+    const targetArity: number | null =
+      arity === 'dynamic'
+        ? (inserted.children.length === 0 ? 1 : null)
+        : arity;
+    const reconciled = targetArity === null
+      ? next
+      : reconcileCanvasArity(
+          next,
+          rootIndex,
+          [],
+          targetArity,
+          ensureTreeIdentity
+        );
+    const insertedId = treeIdentity(inserted);
+    if (addingRootFromMacro) {
+      setPositions((previous) => ({
+        ...previous,
+        [insertedId]: addingRootFromMacro
+      }));
+    }
+    if (sourceForest.length === 0) centredRootRef.current = true;
+    setAddingRootFromMacro(null);
+    applyForestChange(reconciled, { rootIndex, path: [] });
     restoreCanvasFocus();
   };
 
@@ -4892,6 +4991,19 @@ export function GuiCanvasEditor({
             macroCandidates={macroCandidates}
             snooglInsertsMacroId={editingNode.scope === 'subtree'}
             value={editingNode.value}
+            onStructuredCommit={editingNode.scope === 'macro'
+              ? (payload) => {
+                  void commitCanvasMacroHead(
+                    editingNode,
+                    replaceSurfaceRange(
+                      editingNode.value,
+                      payload.replacementRange,
+                      payload.macroName
+                    ),
+                    payload.styleName
+                  );
+                }
+              : undefined}
             onChange={(value) => setEditingNode({
               ...editingNode,
               value,
@@ -4936,6 +5048,11 @@ export function GuiCanvasEditor({
             aria-label={t('insertCanvasRoot')}
             macroCandidates={macroCandidates}
             value=""
+            onStructuredCommit={(payload) => {
+              const parsed = tryParseSnlSyntaxTree(payload.macroName.trim());
+              if (!parsed.ok) return;
+              void commitCanvasRootInsertion(parsed.tree, payload.styleName);
+            }}
             onChange={(value) => {
               const parsed = tryParseSnlSyntaxTree(value.trim());
               if (!parsed.ok) return;
@@ -4945,38 +5062,7 @@ export function GuiCanvasEditor({
               // no placeholders. Resolve before publishing the new forest, so
               // the first observable frame already has the required slots.
               void (async () => {
-                const request = ++addRootRequestRef.current;
-                const sourceForest = forestRef.current;
-                ensureTreeIdentity(parsed.tree);
-                const arity = await macroArityForNode(parsed.tree);
-                if (
-                  request !== addRootRequestRef.current ||
-                  forestRef.current !== sourceForest
-                ) return;
-                const next = [...sourceForest, parsed.tree];
-                const rootIndex = next.length - 1;
-                const targetArity: number | null =
-                  arity === 'dynamic'
-                    ? (parsed.tree.children.length === 0 ? 1 : null)
-                    : arity;
-                const reconciled = targetArity === null
-                  ? next
-                  : reconcileCanvasArity(
-                      next,
-                      rootIndex,
-                      [],
-                      targetArity,
-                      ensureTreeIdentity
-                    );
-                const insertedId = treeIdentity(parsed.tree);
-                setPositions((previous) => ({
-                  ...previous,
-                  [insertedId]: addingRootFromMacro
-                }));
-                if (sourceForest.length === 0) centredRootRef.current = true;
-                setAddingRootFromMacro(null);
-                applyForestChange(reconciled, { rootIndex, path: [] });
-                restoreCanvasFocus();
+                await commitCanvasRootInsertion(parsed.tree);
               })();
             }}
             onKeyDown={(event) => {
@@ -5505,6 +5591,14 @@ function withoutBindingMetadata(mdata: SnlSyntaxTree['mdata']): SnlSyntaxTree['m
   const next = { ...(mdata as Record<string, unknown>) };
   delete next.bindRef;
   return Object.keys(next).length > 0 ? next : null;
+}
+
+function replaceSurfaceRange(
+  source: string,
+  range: { start: number; end: number },
+  replacement: string
+): string {
+  return `${source.slice(0, range.start)}${replacement}${source.slice(range.end)}`;
 }
 
 /**
@@ -6680,7 +6774,10 @@ function InductiveNode({
     node.binder_explicit
   ]);
 
-  const commitRaw = (nextRaw: string): void => {
+  const commitMacroSurface = (
+    nextRaw: string,
+    nextStyleName: string | undefined
+  ): void => {
     const leaf = parseLeafSource(nextRaw);
     const contextSurface = splitContextEntrySurface(leaf.macro_name);
     const typedContext = contextSurface?.contextEntryId;
@@ -6712,9 +6809,7 @@ function InductiveNode({
       binder_explicit: undefined,
       binder_name: undefined,
       scope: undefined,
-      // Macro text owns identity/env syntax only. Style is changed exclusively
-      // by the adjacent dropdown, so typing/pasting `id[style]` cannot mutate it.
-      style_name: node.style_name,
+      style_name: nextStyleName,
       mdata: withoutBindingMetadata(node.mdata),
       children: node.children
     };
@@ -6722,6 +6817,15 @@ function InductiveNode({
       typedContext !== undefined
         ? withContextEntryNode(nextNode, typedContext)
         : nextNode
+    );
+  };
+  const commitRaw = (nextRaw: string): void => {
+    commitMacroSurface(nextRaw, node.style_name);
+  };
+  const commitStructuredMacro = (payload: MacroIdStructuredCommit): void => {
+    commitMacroSurface(
+      replaceSurfaceRange(rawInput, payload.replacementRange, payload.macroName),
+      payload.styleName
     );
   };
 
@@ -6945,6 +7049,7 @@ function InductiveNode({
           macroCandidates={macroCandidates}
           onSuggestionTabOwnershipChange={handleSuggestionTabOwnershipChange}
           onChange={commitRaw}
+          onStructuredCommit={commitStructuredMacro}
           placeholder={depth === 0 ? t('rootMacroPlaceholder') : t('leafPlaceholder')}
           spellCheck={false}
           style={{

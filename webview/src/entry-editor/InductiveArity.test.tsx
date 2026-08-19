@@ -1,4 +1,4 @@
-
+import React from 'react';
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'react-dom';
@@ -966,6 +966,37 @@ describe('Inductive editor arity auto-fill', () => {
       target: { value: 'wide' }
     });
     await waitFor(() => expect(latest).toBe('styled-arity[wide](,,)'));
+  });
+
+  it('commits a picked default Style atomically and omits explicit default serialization', async () => {
+    const styledMacro = {
+      name: 'styled-arity', description: '', source: { entries: [], urls: [] }, tags: [],
+      dynamic_arity: false,
+      styles: [
+        { style_name: 'default', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+        { style_name: 'wide', template: { mode: 'formula_inline', body: '#0 #1 #2' }, tags: [] }
+      ]
+    } as never;
+    const styledDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) =>
+        macro_name === 'styled-arity' ? styledMacro : null
+    }});
+    let latest = 'styled-arity[wide](,,)';
+    const view = render(<GuiInductiveEditor
+      snl={latest}
+      macroDataDriver={styledDriver}
+      macroCandidates={[{ id: 'styled-arity', labels: [], styles: ['default', 'wide'] }]}
+      macroOrigin={{}}
+      onOpenMacroEditor={() => undefined}
+      onChange={(next) => { latest = next; }}
+    />);
+    const input = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = await waitFor(() => view.getByRole('textbox', { name: 'Search macros in SNoogL' }));
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(latest).toBe('styled-arity'));
+    expect((view.getByRole('combobox', { name: 'Macro style for styled-arity' }) as HTMLSelectElement).value)
+      .toBe('default');
   });
 
   it('uses every locale projection in the effective Style as one stable arity', async () => {

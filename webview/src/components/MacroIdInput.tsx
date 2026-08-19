@@ -8,6 +8,7 @@ import React, {
   useState,
   useId
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   createSnooglSearchDocument,
   SnooglSearchIndex,
@@ -30,7 +31,9 @@ const MESSAGES = defineUiMessages(
     search: 'Search macros in SNoogL',
     results: 'SNoogL macro results',
     hint: "Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes",
-    preview: 'Preview {id}'
+    preview: 'Preview {id}',
+    styleMenu: 'Styles for {id}',
+    styleDefault: '{name} (default)'
   },
   {
     suggestions: '宏 ID 建议',
@@ -39,13 +42,35 @@ const MESSAGES = defineUiMessages(
     search: '在 SNoogL 中搜索宏',
     results: 'SNoogL 宏搜索结果',
     hint: 'Tab 插入所选宏名 · 样式仍在编辑器的独立下拉框中设置 · Esc 关闭',
-    preview: '预览 {id}'
+    preview: '预览 {id}',
+    styleMenu: '{id} 的样式',
+    styleDefault: '{name}（默认）'
   }
 );
 
 const EMPTY_MACRO_CANDIDATES: readonly SnooglSearchCandidate[] = [];
 
 export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'binder' | 'context';
+
+export type MacroIdStructuredCommitSource =
+  | 'inline-click'
+  | 'inline-tab'
+  | 'inline-style-click'
+  | 'inline-style-enter'
+  | 'inline-style-tab'
+  | 'modal-click'
+  | 'modal-enter'
+  | 'modal-tab'
+  | 'modal-style-click'
+  | 'modal-style-enter'
+  | 'modal-style-tab';
+
+export interface MacroIdStructuredCommit {
+  macroName: string;
+  styleName?: string;
+  replacementRange: { start: number; end: number };
+  source: MacroIdStructuredCommitSource;
+}
 
 export interface MacroIdDslToken {
   text: string;
@@ -143,6 +168,7 @@ function macroTokenRange(value: string, caret: number): { start: number; end: nu
 interface MacroIdInputBaseProps {
   value: string;
   onChange: (value: string) => void;
+  onStructuredCommit?: (payload: MacroIdStructuredCommit) => void;
   autoSize?: boolean;
   macroCandidates?: readonly SnooglSearchCandidate[];
   /** Shared, surface-scoped preview runtime. Candidate metadata stays search-only. */
@@ -190,6 +216,7 @@ export const MacroIdInput = forwardRef<
     selectAllOnMount = false,
     acceptSuggestionOnTab = true,
     onSuggestionTabOwnershipChange,
+    onStructuredCommit,
     style,
     className,
     ...props
@@ -220,9 +247,11 @@ export const MacroIdInput = forwardRef<
     () => new Set()
   );
   const snooglSearchRef = useRef<HTMLInputElement | null>(null);
+  const inlineSuggestionRowsRef = useRef(new Map<string, HTMLElement>());
   const snooglPreviewRowsRef = useRef(new Map<string, HTMLElement>());
   const snooglObserverGenerationRef = useRef(0);
   const snooglRangeRef = useRef<{ start: number; end: number } | null>(null);
+  const styleMenuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const interactionDisabled = Boolean(
     (props as React.InputHTMLAttributes<HTMLInputElement>).readOnly ||
     (props as React.InputHTMLAttributes<HTMLInputElement>).disabled
@@ -241,6 +270,22 @@ export const MacroIdInput = forwardRef<
       labels: candidate.labels
     }))
   ), [searchCandidates]);
+  const candidateById = useMemo(
+    () => new Map(searchCandidates.map((candidate) => [candidate.id, candidate] as const)),
+    [searchCandidates]
+  );
+  const localeKey = document.documentElement.lang || 'en';
+  type StyleMenuOrigin = 'inline' | 'modal';
+  type StyleMenuState = {
+    candidateId: string;
+    replacementRange: { start: number; end: number };
+    anchorRect: DOMRect;
+    origin: StyleMenuOrigin;
+    resultsKey: string;
+  };
+  const [styleMenu, setStyleMenu] = useState<StyleMenuState | null>(null);
+  const [styleMenuFocusIndex, setStyleMenuFocusIndex] = useState(0);
+  const [styleMenuPosition, setStyleMenuPosition] = useState<{ left: number; top: number } | null>(null);
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
     const normalized = autoCloseLeadingDelimiter(value, next);
@@ -296,6 +341,10 @@ export const MacroIdInput = forwardRef<
   useEffect(() => {
     if (snooglOpen) snooglSearchRef.current?.focus();
   }, [snooglOpen]);
+  useEffect(() => {
+    if (!styleMenu) return;
+    styleMenuItemRefs.current[styleMenuFocusIndex]?.focus({ preventScroll: true });
+  }, [styleMenu, styleMenuFocusIndex]);
 
   useEffect(() => {
     if (!selectAllOnMount || interactionDisabled) return;
@@ -329,6 +378,19 @@ export const MacroIdInput = forwardRef<
       .slice(0, 8);
   };
   const suggestions = suggestionsOpen ? suggestionsAt(caretPosition) : [];
+  const suggestionsKey = suggestions.join('\u0000');
+  const canOpenStyleMenu = Boolean(onStructuredCommit);
+
+  const closeStyleMenu = (restoreFocus: boolean): void => {
+    setStyleMenu(null);
+    setStyleMenuPosition(null);
+    styleMenuItemRefs.current = [];
+    if (!restoreFocus) return;
+    window.setTimeout(() => {
+      if (snooglOpen) snooglSearchRef.current?.focus({ preventScroll: true });
+      else controlRef.current?.focus({ preventScroll: true });
+    }, 0);
+  };
 
   useEffect(() => {
     setHighlightedSuggestion((index) =>
@@ -338,6 +400,45 @@ export const MacroIdInput = forwardRef<
   useEffect(() => {
     if (suggestionsOpen && suggestions.length === 0) setSuggestionsOpen(false);
   }, [suggestionsOpen, suggestions.length]);
+  useEffect(() => {
+    if (!styleMenu) return;
+    const place = (): void => {
+      const width = Math.min(window.innerWidth - 16, 352);
+      const estimatedHeight = Math.min(window.innerHeight - 16, 320);
+      const fitsBelow = styleMenu.anchorRect.bottom + estimatedHeight <= window.innerHeight - 8;
+      const top = fitsBelow
+        ? styleMenu.anchorRect.bottom
+        : Math.max(8, styleMenu.anchorRect.top - estimatedHeight);
+      const left = Math.min(
+        Math.max(8, styleMenu.anchorRect.left),
+        Math.max(8, window.innerWidth - width - 8)
+      );
+      setStyleMenuPosition({ left, top });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [styleMenu]);
+  useEffect(() => {
+    if (!styleMenu) return;
+    const dismiss = (event: PointerEvent): void => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-macro-style-menu="true"]')) return;
+      if (
+        target &&
+        (controlRef.current?.contains(target) ||
+          snooglSearchRef.current?.contains(target) ||
+          target.closest('[role="listbox"]'))
+      ) return;
+      closeStyleMenu(true);
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    return () => document.removeEventListener('pointerdown', dismiss, true);
+  }, [styleMenu]);
 
   const suggestionsVisible = suggestionsOpen && suggestions.length > 0;
   const ownsSuggestionTab = acceptSuggestionOnTab && suggestionsVisible &&
@@ -360,6 +461,30 @@ export const MacroIdInput = forwardRef<
     : [];
 
   const snooglResultsKey = snooglResults.join('\u0000');
+  useEffect(() => {
+    if (!styleMenu) return;
+    const candidate = candidateById.get(styleMenu.candidateId);
+    const styles = candidate?.styles ?? [];
+    const currentResultsKey = styleMenu.origin === 'modal' ? snooglResultsKey : suggestionsKey;
+    const originStillOpen = styleMenu.origin === 'modal' ? snooglOpen : suggestionsOpen;
+    if (
+      !candidate ||
+      styles.length === 0 ||
+      !originStillOpen ||
+      currentResultsKey !== styleMenu.resultsKey
+    ) {
+      closeStyleMenu(false);
+    }
+  }, [
+    candidateById,
+    localeKey,
+    snooglOpen,
+    snooglQuery,
+    snooglResultsKey,
+    suggestionsOpen,
+    suggestionsKey,
+    styleMenu
+  ]);
   useEffect(() => {
     const generation = ++snooglObserverGenerationRef.current;
     setVisibleSnooglPreviewIds(new Set());
@@ -416,11 +541,51 @@ export const MacroIdInput = forwardRef<
     onChange(next);
   };
 
+  const emitStructuredCommit = (
+    id: string,
+    styleName: string | undefined,
+    replacementRange: { start: number; end: number },
+    source: MacroIdStructuredCommitSource
+  ): boolean => {
+    if (!onStructuredCommit) return false;
+    onStructuredCommit({ macroName: id, styleName, replacementRange, source });
+    setSuggestionsOpen(false);
+    setSnooglOpen(false);
+    closeStyleMenu(false);
+    return true;
+  };
+
   const applySuggestion = (id: string): void => {
     const currentCaret = controlRef.current?.selectionStart ?? value.length;
     const range = macroTokenRange(value, currentCaret);
+    if (emitStructuredCommit(id, undefined, range, 'inline-tab')) return;
     replaceRangeWithMacro(range, id);
     setSuggestionsOpen(false);
+  };
+  const clickSuggestion = (id: string): void => {
+    const currentCaret = controlRef.current?.selectionStart ?? value.length;
+    const range = macroTokenRange(value, currentCaret);
+    if (emitStructuredCommit(id, undefined, range, 'inline-click')) return;
+    replaceRangeWithMacro(range, id);
+    setSuggestionsOpen(false);
+  };
+  const openStyleMenuFor = (
+    origin: StyleMenuOrigin,
+    id: string,
+    replacementRange: { start: number; end: number },
+    anchor: HTMLElement | null,
+    resultsKey: string
+  ): void => {
+    const candidate = candidateById.get(id);
+    if (!canOpenStyleMenu || !candidate?.styles?.length || !anchor) return;
+    setStyleMenuFocusIndex(0);
+    setStyleMenu({
+      candidateId: id,
+      replacementRange,
+      anchorRect: anchor.getBoundingClientRect(),
+      origin,
+      resultsKey
+    });
   };
 
   const handleControlKeyDown = (
@@ -430,8 +595,18 @@ export const MacroIdInput = forwardRef<
     const selectionEnd = event.currentTarget.selectionEnd ?? currentCaret;
     if (event.nativeEvent.isComposing &&
         (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
-         event.key === 'Escape' || event.key === 'Tab')) {
+         event.key === 'ArrowRight' || event.key === 'Escape' ||
+         event.key === 'Enter' || event.key === 'Tab' ||
+         event.key === 'ContextMenu')) {
       return;
+    }
+    if (styleMenu) {
+      if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+        event.preventDefault();
+        closeStyleMenu(true);
+        return;
+      }
+      if (event.key === 'Tab' && event.shiftKey) return;
     }
     if (
       !interactionDisabled &&
@@ -480,9 +655,26 @@ export const MacroIdInput = forwardRef<
         );
         return;
       }
+      if (
+        canOpenStyleMenu &&
+        (event.key === 'ArrowRight' || event.key === 'ContextMenu' ||
+          (event.key === 'F10' && event.shiftKey))
+      ) {
+        event.preventDefault();
+        const id = currentSuggestions[highlightedSuggestion] ?? currentSuggestions[0];
+        openStyleMenuFor(
+          'inline',
+          id,
+          macroTokenRange(value, currentCaret),
+          inlineSuggestionRowsRef.current.get(id) ?? null,
+          suggestionsKey
+        );
+        return;
+      }
     }
     if (event.key === 'Escape' && suggestionsVisible) {
       event.preventDefault();
+      closeStyleMenu(false);
       setSuggestionsOpen(false);
       return;
     }
@@ -676,9 +868,25 @@ export const MacroIdInput = forwardRef<
               key={id}
               role="option"
               aria-selected={index === highlightedSuggestion}
+              ref={(element) => {
+                if (element) inlineSuggestionRowsRef.current.set(id, element);
+                else inlineSuggestionRowsRef.current.delete(id);
+              }}
               onMouseDown={(event) => {
                 event.preventDefault();
-                applySuggestion(id);
+                clickSuggestion(id);
+              }}
+              onContextMenu={(event) => {
+                if (!canOpenStyleMenu) return;
+                event.preventDefault();
+                const currentCaret = controlRef.current?.selectionStart ?? value.length;
+                openStyleMenuFor(
+                  'inline',
+                  id,
+                  macroTokenRange(value, currentCaret),
+                  event.currentTarget,
+                  suggestionsKey
+                );
               }}
               style={{
                 padding: '0.25rem 0.45rem',
@@ -723,11 +931,13 @@ export const MacroIdInput = forwardRef<
 
   const closeSnoogl = (): void => {
     setSnooglOpen(false);
+    closeStyleMenu(false);
     window.setTimeout(() => controlRef.current?.focus(), 0);
   };
   const commitSnooglResult = (id: string): void => {
     const range = snooglRangeRef.current;
     if (!range) return;
+    if (emitStructuredCommit(id, undefined, range, 'modal-click')) return;
     // In insert-only mode `range` is already the collapsed caret position, so
     // picking a Macro never wipes the surrounding SNL expression.
     replaceRangeWithMacro(range, id);
@@ -735,7 +945,10 @@ export const MacroIdInput = forwardRef<
   };
   const commitSnooglSelection = (): void => {
     const id = snooglResults[snooglSelection];
-    if (id) commitSnooglResult(id);
+    const range = snooglRangeRef.current;
+    if (!id || !range) return;
+    if (emitStructuredCommit(id, undefined, range, 'modal-tab')) return;
+    commitSnooglResult(id);
   };
   const snooglDialog = snooglOpen ? (
     <div
@@ -773,13 +986,31 @@ export const MacroIdInput = forwardRef<
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing &&
               (event.key === 'ArrowDown' || event.key === 'ArrowUp' ||
-               event.key === 'Escape' || event.key === 'Tab')) {
+               event.key === 'ArrowRight' || event.key === 'Escape' ||
+               event.key === 'Enter' || event.key === 'Tab' ||
+               event.key === 'ContextMenu')) {
             return;
+          }
+          if (styleMenu) {
+            if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+              event.preventDefault();
+              closeStyleMenu(true);
+              return;
+            }
+            if (event.key === 'Tab' && event.shiftKey) return;
           }
           if (event.key === 'Tab' && !event.shiftKey && snooglResults.length > 0) {
             event.preventDefault();
             event.stopPropagation();
             commitSnooglSelection();
+          } else if (event.key === 'Enter' && snooglResults.length > 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            const id = snooglResults[snooglSelection];
+            const range = snooglRangeRef.current;
+            if (!id || !range) return;
+            if (emitStructuredCommit(id, undefined, range, 'modal-enter')) return;
+            commitSnooglResult(id);
           } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
             if (snooglResults.length > 0) {
@@ -788,6 +1019,22 @@ export const MacroIdInput = forwardRef<
                 (index + delta + snooglResults.length) % snooglResults.length
               );
             }
+          } else if (
+            canOpenStyleMenu &&
+            (event.key === 'ArrowRight' || event.key === 'ContextMenu' ||
+              (event.key === 'F10' && event.shiftKey))
+          ) {
+            event.preventDefault();
+            const id = snooglResults[snooglSelection];
+            const range = snooglRangeRef.current;
+            if (!id || !range) return;
+            openStyleMenuFor(
+              'modal',
+              id,
+              range,
+              snooglPreviewRowsRef.current.get(id) ?? null,
+              snooglResultsKey
+            );
           } else if (event.key === 'Escape') {
             event.preventDefault();
             closeSnoogl();
@@ -824,6 +1071,13 @@ export const MacroIdInput = forwardRef<
             data-macro-preview-row={id}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commitSnooglResult(id)}
+            onContextMenu={(event) => {
+              if (!canOpenStyleMenu) return;
+              event.preventDefault();
+              const range = snooglRangeRef.current;
+              if (!range) return;
+              openStyleMenuFor('modal', id, range, event.currentTarget, snooglResultsKey);
+            }}
             style={{
               padding: '0.35rem 0.5rem',
               cursor: 'pointer',
@@ -856,6 +1110,131 @@ export const MacroIdInput = forwardRef<
       </div>
     </div>
   ) : null;
+  const styleMenuNode = styleMenu && styleMenuPosition ? (() => {
+    const candidate = candidateById.get(styleMenu.candidateId);
+    const styles = candidate?.styles ?? [];
+    if (!candidate || styles.length === 0) return null;
+    const previewMacro = macroPreviewRuntime?.macros[styleMenu.candidateId];
+    const items = styles.map((styleName, index) => ({
+      key: styleName,
+      label: index === 0 ? t('styleDefault', { name: styleName }) : styleName,
+      styleName: index === 0 ? undefined : styleName
+    }));
+    const commitStyle = (
+      styleName: string | undefined,
+      clickSource: 'inline-style-click' | 'modal-style-click',
+      keyboardSource: 'inline-style-enter' | 'inline-style-tab' | 'modal-style-enter' | 'modal-style-tab',
+      viaKeyboard: boolean
+    ): void => {
+      emitStructuredCommit(
+        styleMenu.candidateId,
+        styleName,
+        styleMenu.replacementRange,
+        viaKeyboard ? keyboardSource : clickSource
+      );
+    };
+    return createPortal(
+      <div
+        data-macro-style-menu="true"
+        role="menu"
+        aria-label={t('styleMenu', { id: styleMenu.candidateId })}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const delta = event.key === 'ArrowDown' ? 1 : -1;
+            setStyleMenuFocusIndex((index) => (index + delta + items.length) % items.length);
+          } else if (event.key === 'Home') {
+            event.preventDefault();
+            setStyleMenuFocusIndex(0);
+          } else if (event.key === 'End') {
+            event.preventDefault();
+            setStyleMenuFocusIndex(items.length - 1);
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            const item = items[styleMenuFocusIndex];
+            if (!item) return;
+            commitStyle(
+              item.styleName,
+              styleMenu.origin === 'modal' ? 'modal-style-click' : 'inline-style-click',
+              styleMenu.origin === 'modal' ? 'modal-style-enter' : 'inline-style-enter',
+              true
+            );
+          } else if (event.key === 'Tab' && !event.shiftKey) {
+            event.preventDefault();
+            const item = items[styleMenuFocusIndex];
+            if (!item) return;
+            commitStyle(
+              item.styleName,
+              styleMenu.origin === 'modal' ? 'modal-style-click' : 'inline-style-click',
+              styleMenu.origin === 'modal' ? 'modal-style-tab' : 'inline-style-tab',
+              true
+            );
+          } else if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+            event.preventDefault();
+            closeStyleMenu(true);
+          }
+        }}
+        style={{
+          position: 'fixed',
+          left: styleMenuPosition.left,
+          top: styleMenuPosition.top,
+          width: 'min(22rem, calc(100vw - 1rem))',
+          maxHeight: 'min(20rem, calc(100vh - 1rem))',
+          overflow: 'auto',
+          zIndex: 10001,
+          padding: '0.35rem',
+          border: '1px solid var(--vscode-widget-border, #555)',
+          borderRadius: '6px',
+          background: 'var(--vscode-editorWidget-background, #252526)',
+          boxShadow: '0 12px 36px rgba(0,0,0,0.45)'
+        }}
+      >
+        {items.map((item, index) => (
+          <button
+            key={item.key}
+            ref={(element) => { styleMenuItemRefs.current[index] = element; }}
+            type="button"
+            role="menuitem"
+            onClick={() => commitStyle(
+              item.styleName,
+              styleMenu.origin === 'modal' ? 'modal-style-click' : 'inline-style-click',
+              styleMenu.origin === 'modal' ? 'modal-style-enter' : 'inline-style-enter',
+              false
+            )}
+            style={{
+              width: '100%',
+              display: previewMacro ? 'grid' : 'block',
+              gridTemplateColumns: previewMacro ? 'minmax(6rem, 1fr) minmax(10rem, 2fr)' : undefined,
+              gap: previewMacro ? '0.6rem' : undefined,
+              alignItems: 'center',
+              padding: '0.35rem 0.45rem',
+              border: 'none',
+              color: 'var(--vscode-editorWidget-foreground, #ddd)',
+              background: index === styleMenuFocusIndex
+                ? 'var(--vscode-list-activeSelectionBackground, #094771)'
+                : 'transparent',
+              textAlign: 'left',
+              cursor: 'pointer'
+            }}
+          >
+            <span>{item.label}</span>
+            {previewMacro ? (
+              <span style={{ pointerEvents: 'none', minWidth: 0 }}>
+                <MacroPreview
+                  macro={previewMacro}
+                  styleName={item.styleName}
+                  runtime={macroPreviewRuntime}
+                  label={t('preview', { id: styleMenu.candidateId })}
+                />
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>,
+      document.body
+    );
+  })() : null;
 
   const viewportStyle: React.CSSProperties = {
     position: 'relative',
@@ -907,6 +1286,7 @@ export const MacroIdInput = forwardRef<
         </span>
         {suggestionList}
         {snooglDialog}
+        {styleMenuNode}
       </span>
     );
   }
@@ -951,6 +1331,7 @@ export const MacroIdInput = forwardRef<
       </span>
       {suggestionList}
       {snooglDialog}
+      {styleMenuNode}
     </span>
   );
 });

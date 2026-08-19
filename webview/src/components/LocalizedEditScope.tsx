@@ -61,8 +61,9 @@ export function LocalizedEditScope({
   }, [initialLanguage, resetKey]);
 
   useEffect(() => {
+    if (!manuallySelectedRef.current && language !== initialLanguage) return;
     onLanguageChange?.(language);
-  }, [language, onLanguageChange]);
+  }, [initialLanguage, language, onLanguageChange]);
 
   const setLanguage = useCallback((next: string): void => {
     manuallySelectedRef.current = true;

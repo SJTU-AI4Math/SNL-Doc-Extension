@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import React, { useState } from 'react';
+import React, { StrictMode, useCallback, useRef, useState } from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { I18n } from '@sjtu-ai4math/snl-basics/runtime';
 import {
   LOCALIZED_GENERAL_LANGUAGE,
@@ -17,7 +17,43 @@ function LanguageProbe({ name }: { name: string }): React.ReactElement {
   const local = useLocalizedEditLanguage();
   return <div>
     <output data-testid={`${name}-language`}>{local.language}</output>
+    <output data-testid={`${name}-follows`}>{String(local.followsOuterLanguage)}</output>
     <button type="button" onClick={() => local.setLanguage('en')}>{name} English</button>
+    <button type="button" onClick={() => local.setLanguage('zh-CN')}>{name} Chinese</button>
+    <button type="button" onClick={local.followOuterLanguage}>{name} Follow</button>
+  </div>;
+}
+
+function StyleSwitchHarness({ callbackBudget }: { callbackBudget: number }): React.ReactElement {
+  const [styles, setStyles] = useState([
+    { name: 'A', language: 'en' },
+    { name: 'B', language: 'zh-CN' }
+  ]);
+  const [activeStyle, setActiveStyle] = useState(0);
+  const callbackCount = useRef(0);
+  const current = styles[activeStyle];
+  const setActiveLanguage = useCallback((language: string): void => {
+    callbackCount.current += 1;
+    if (callbackCount.current > callbackBudget) {
+      throw new Error(`LocalizedEditScope callback budget exceeded: ${callbackCount.current}`);
+    }
+    setStyles((previous) => previous.map((style, index) =>
+      index === activeStyle && style.language !== language ? { ...style, language } : style));
+  }, [activeStyle, callbackBudget]);
+
+  return <div>
+    <button type="button" onClick={() => setActiveStyle(0)}>Style A</button>
+    <button type="button" onClick={() => setActiveStyle(1)}>Style B</button>
+    <output data-testid="style-languages">{styles.map((style) => style.language).join(',')}</output>
+    <output data-testid="callback-count">{callbackCount.current}</output>
+    <LocalizedEditScope
+      resetKey={activeStyle}
+      initialLanguage={current.language}
+      availableLanguages={['en', 'zh-CN']}
+      onLanguageChange={setActiveLanguage}
+    >
+      <LanguageProbe name="active" />
+    </LocalizedEditScope>
   </div>;
 }
 
@@ -49,6 +85,63 @@ describe('materializeLocalizedValueForSave', () => {
 });
 
 describe('LocalizedEditScope', () => {
+  it('switches repeatedly between targets without writing a stale language into the new target', () => {
+    const view = render(<StrictMode><StyleSwitchHarness callbackBudget={25} /></StrictMode>);
+
+    for (let index = 0; index < 20; index += 1) {
+      const target = index % 2 === 0 ? 'Style B' : 'Style A';
+      const expected = index % 2 === 0 ? 'zh-CN' : 'en';
+      fireEvent.click(view.getByRole('button', { name: target }));
+      expect(view.getByTestId('active-language').textContent).toBe(expected);
+      expect(view.getByTestId('style-languages').textContent).toBe('en,zh-CN');
+    }
+
+    expect(Number(view.getByTestId('callback-count').textContent)).toBeLessThanOrEqual(25);
+  });
+
+  it('notifies a manual selection even when it differs from the authoritative initial language', () => {
+    const onLanguageChange = vi.fn();
+    const view = render(
+      <LocalizedEditScope
+        initialLanguage="en"
+        availableLanguages={['en', 'zh-CN']}
+        onLanguageChange={onLanguageChange}
+      >
+        <LanguageProbe name="manual" />
+      </LocalizedEditScope>
+    );
+    onLanguageChange.mockClear();
+
+    fireEvent.click(view.getByRole('button', { name: 'manual Chinese' }));
+
+    expect(view.getByTestId('manual-language').textContent).toBe('zh-CN');
+    expect(onLanguageChange).toHaveBeenCalledWith('zh-CN');
+  });
+
+  it('preserves a same-language manual selection until follow outer language is requested', () => {
+    const onLanguageChange = vi.fn();
+    const scope = (initialLanguage: string): React.ReactElement => (
+      <LocalizedEditScope
+        initialLanguage={initialLanguage}
+        availableLanguages={['en', 'zh-CN']}
+        onLanguageChange={onLanguageChange}
+      >
+        <LanguageProbe name="manual" />
+      </LocalizedEditScope>
+    );
+    const view = render(scope('en'));
+
+    fireEvent.click(view.getByRole('button', { name: 'manual English' }));
+    expect(view.getByTestId('manual-follows').textContent).toBe('false');
+    view.rerender(scope('zh-CN'));
+    expect(view.getByTestId('manual-language').textContent).toBe('en');
+
+    fireEvent.click(view.getByRole('button', { name: 'manual Follow' }));
+    expect(view.getByTestId('manual-follows').textContent).toBe('true');
+    expect(view.getByTestId('manual-language').textContent).toBe('zh-CN');
+    expect(onLanguageChange).toHaveBeenLastCalledWith('zh-CN');
+  });
+
   it('changes only the wrapped component language and isolates nested scopes', () => {
     const view = render(
       <LocalizedEditScope initialLanguage="zh-CN" availableLanguages={['en', 'zh-CN']}>

@@ -4,13 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const posted: unknown[] = [];
 let webviewState: unknown;
+let stateWrites = 0;
 
 vi.mock('./vscodeApi', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./vscodeApi');
   const api = {
     postMessage: (message: unknown) => { posted.push(message); },
     getState: () => webviewState,
-    setState: (state: unknown) => { webviewState = state; }
+    setState: (state: unknown) => { webviewState = state; stateWrites += 1; }
   };
   return {
     ...actual,
@@ -26,10 +27,78 @@ afterEach(() => {
   cleanup();
   posted.length = 0;
   webviewState = undefined;
+  stateWrites = 0;
   document.documentElement.lang = 'en';
 });
 
 describe('Create Macro localization', () => {
+  it('keeps per-Style template languages stable across repeated Style switches', async () => {
+    document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'macro-style-language-switch', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [
+        { id: 'en', display_name: 'English' },
+        { id: 'zh-CN', display_name: '简体中文' }
+      ]
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['Style.localized'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
+      existing: {
+        name: 'Style.localized', description: '', source: { entries: [], urls: [] },
+        dynamic_arity: false, tags: [],
+        styles: [
+          {
+            style_name: 'default', tags: [],
+            template: {
+              type: 'i18n', default_language: 'en',
+              values: {
+                en: { mode: 'text', body: 'DEFAULT EN' },
+                'zh-CN': { mode: 'text', body: 'DEFAULT ZH' }
+              }
+            }
+          },
+          {
+            style_name: 'compact', tags: [],
+            template: {
+              type: 'i18n', default_language: 'zh-CN',
+              values: {
+                en: { mode: 'text', body: 'COMPACT EN' },
+                'zh-CN': { mode: 'text', body: 'COMPACT ZH' }
+              }
+            }
+          }
+        ]
+      }
+    } })));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Language: English/ })).toBeTruthy());
+    const writesBeforeSwitching = stateWrites;
+    const postsBeforeSwitching = posted.length;
+    for (let index = 0; index < 20; index += 1) {
+      const compact = index % 2 === 0;
+      fireEvent.click(screen.getByRole('button', { name: compact ? 'compact' : 'default' }));
+      expect(screen.getByRole('button', {
+        name: compact ? /Language: 简体中文/ : /Language: English/
+      })).toBeTruthy();
+      expect((screen.getAllByRole('textbox').find((element) =>
+        element.tagName === 'TEXTAREA') as HTMLTextAreaElement).value)
+        .toBe(compact ? 'COMPACT ZH' : 'DEFAULT EN');
+    }
+
+    expect(screen.getByRole('button', { name: 'default' }).getAttribute('aria-pressed')).toBe('true');
+    const name = screen.getByRole('textbox', { name: /^Name/ }) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: 'Style.localized.updated' } });
+    expect(name.value).toBe('Style.localized.updated');
+    expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/maximum update depth/i);
+    expect(posted.length - postsBeforeSwitching).toBeLessThanOrEqual(2);
+    expect(stateWrites - writesBeforeSwitching).toBeLessThanOrEqual(26);
+    consoleError.mockRestore();
+  });
+
   it('preserves localized workspace Macros through the released Basics 0.2.1 preview boundary', async () => {
     document.documentElement.lang = 'en';
     apply_preferences_snapshot({

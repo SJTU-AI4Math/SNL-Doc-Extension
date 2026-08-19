@@ -402,6 +402,111 @@ describe('Inductive node action dial', () => {
     expect(latest()).toBe('foXo@entry');
   });
 
+  it('prevents native Tab focus movement before the routed cyclic action arrives', async () => {
+    const styledDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) => ({
+          name: macro_name,
+          dynamic_arity: true,
+          styles: macro_name === 'a'
+            ? [
+                { style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                { style_name: 'compact', template: { mode: 'formula_inline', body: '#*' }, tags: [] }
+              ]
+            : []
+        } as never)
+      }
+    });
+    const view = render(
+      <GuiInductiveEditor
+        snl="root(a,b)"
+        macroDataDriver={styledDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const a = view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === 'a'
+    ) as HTMLTextAreaElement;
+    const styleA = rowForInput(a).querySelector('.snl-tree-style-select') as HTMLSelectElement;
+    styleA.focus();
+    expect(fireEvent.keyDown(styleA, { key: 'Tab', shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(styleA);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.previousField' }
+    }));
+    expect(document.activeElement).toBe(a);
+
+    expect(fireEvent.keyDown(a, { key: 'Tab' })).toBe(false);
+    expect(document.activeElement).toBe(a);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.openStyle' }
+    }));
+    expect(document.activeElement).toBe(styleA);
+  });
+
+  it('treats every Macro and multi-Style field as one cyclic Tab chain', async () => {
+    const styledDriver = new MacroDataDriver({
+      queries: {
+        query_macro: async ({ macro_name }: { macro_name: string }) => ({
+          name: macro_name,
+          dynamic_arity: true,
+          styles: macro_name === 'a'
+            ? [
+                { style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] },
+                { style_name: 'compact', template: { mode: 'formula_inline', body: '#*' }, tags: [] }
+              ]
+            : macro_name === 'b'
+              ? [{ style_name: 'default', template: { mode: 'formula_inline', body: '#*' }, tags: [] }]
+              : []
+        } as never)
+      }
+    });
+    const view = render(
+      <GuiInductiveEditor
+        snl="root(a,b,c)"
+        macroDataDriver={styledDriver}
+        macroCandidates={[]}
+        macroOrigin={{}}
+        onOpenMacroEditor={() => undefined}
+        onChange={() => undefined}
+      />
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const macros = ['root', 'a', 'b', 'c'].map((value) => view.getAllByRole('textbox').find(
+      (candidate) => (candidate as HTMLTextAreaElement).value === value
+    ) as HTMLTextAreaElement);
+    const styleA = rowForInput(macros[1]).querySelector('.snl-tree-style-select') as HTMLSelectElement;
+    const fields: HTMLElement[] = [macros[0], macros[1], styleA, macros[2], macros[3]];
+    const send = (action: string): void => window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action }
+    }));
+
+    for (let index = 0; index < fields.length; index += 1) {
+      fields[index].focus();
+      send('inductive.openStyle');
+      const expected = fields[(index + 1) % fields.length];
+      expect(document.activeElement).toBe(expected);
+      if (expected.matches('[data-snl-macro-input]')) {
+        const macro = expected as HTMLTextAreaElement;
+        expect([macro.selectionStart, macro.selectionEnd]).toEqual([0, macro.value.length]);
+      }
+    }
+    for (let index = 0; index < fields.length; index += 1) {
+      fields[index].focus();
+      send('inductive.previousField');
+      const expected = fields[(index - 1 + fields.length) % fields.length];
+      expect(document.activeElement).toBe(expected);
+      if (expected.matches('[data-snl-macro-input]')) {
+        const macro = expected as HTMLTextAreaElement;
+        expect([macro.selectionStart, macro.selectionEnd]).toEqual([0, macro.value.length]);
+      }
+    }
+  });
+
   it('uses an auto-sized multiline Macro editor and keeps Shift+Enter in the current row', () => {
     const { view, latest } = renderEditor('root(%first line%,b)');
     const editor = view.getAllByRole('textbox')[1] as HTMLTextAreaElement;

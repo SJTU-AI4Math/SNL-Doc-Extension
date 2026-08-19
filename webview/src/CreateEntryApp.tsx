@@ -6016,46 +6016,23 @@ export function GuiInductiveEditor({
       if (previous) propagate(previous, false);
       return;
     }
-    if (action === 'inductive.previousField') {
-      if (active?.matches('.snl-tree-style-select')) {
-        focusMacroField(row.querySelector<HTMLElement>('[data-snl-macro-input]') ?? undefined);
-        return;
-      }
-      const editors = Array.from<HTMLElement>(
-        editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
-      );
-      const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
-      const previous = current ? editors[editors.indexOf(current) - 1] : undefined;
-      const previousRow = previous?.closest<HTMLElement>('[data-snl-tree-node-id]');
-      const previousStyle = previousRow?.querySelector<HTMLSelectElement>(
-        '.snl-tree-style-select[data-snl-style-navigable="true"]:not(:disabled)'
-      );
-      if (previousStyle) previousStyle.focus();
-      else focusMacroField(previous);
-      return;
-    }
-    if (action === 'inductive.openStyle') {
-      if (active?.matches('.snl-tree-style-select')) {
-        const editors = Array.from<HTMLElement>(
-          editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
+    if (action === 'inductive.previousField' || action === 'inductive.openStyle') {
+      const fields = Array.from<HTMLElement>(
+        editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-tree-node-id]')
+      ).flatMap((candidateRow) => {
+        const macro = candidateRow.querySelector<HTMLElement>('[data-snl-macro-input]');
+        if (!macro) return [];
+        const style = candidateRow.querySelector<HTMLSelectElement>(
+          '.snl-tree-style-select[data-snl-style-navigable="true"]:not(:disabled)'
         );
-        const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
-        const next = current ? editors[editors.indexOf(current) + 1] : undefined;
-        focusMacroField(next);
-        return;
-      }
-      const style = row.querySelector<HTMLSelectElement>(
-        '.snl-tree-style-select[data-snl-style-navigable="true"]:not(:disabled)'
-      );
-      if (style) style.focus();
-      else {
-        const editors = Array.from<HTMLElement>(
-          editorRootRef.current.querySelectorAll<HTMLElement>('[data-snl-macro-input]')
-        );
-        const current = row.querySelector<HTMLElement>('[data-snl-macro-input]');
-        const next = current ? editors[editors.indexOf(current) + 1] : undefined;
-        focusMacroField(next);
-      }
+        return style ? [macro, style] : [macro];
+      });
+      const currentIndex = active ? fields.indexOf(active) : -1;
+      if (currentIndex < 0 || fields.length === 0) return;
+      const delta = action === 'inductive.openStyle' ? 1 : -1;
+      const target = fields[(currentIndex + delta + fields.length) % fields.length];
+      if (target.matches('[data-snl-macro-input]')) focusMacroField(target);
+      else target.focus();
       return;
     }
     if (action === 'inductive.nextNode') {
@@ -6170,6 +6147,18 @@ export function GuiInductiveEditor({
     <div
       ref={editorRootRef}
       className="snl-inductive-editor"
+      onKeyDownCapture={(event: React.KeyboardEvent<HTMLDivElement>) => {
+        const target = event.target as HTMLElement;
+        if (
+          event.key === 'Tab' &&
+          !event.nativeEvent.isComposing &&
+          target.matches('[data-snl-macro-input], .snl-tree-style-select')
+        ) {
+          // The host owns semantic traversal. Block the browser's native focus
+          // step so the later routed action advances exactly once.
+          event.preventDefault();
+        }
+      }}
       onFocusCapture={(event: React.FocusEvent<HTMLDivElement>) => {
         const target = event.target as HTMLElement;
         getVsCodeApi()?.postMessage({

@@ -733,6 +733,32 @@ describe('MacroIdInput', () => {
     });
   });
 
+  it('does not commit the default Macro before a secondary-button Style drilldown', async () => {
+    const commits = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          onStructuredCommit={commits}
+          macroCandidates={styledCandidates}
+          aria-label="Secondary click Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Secondary click Macro ID' });
+    fireEvent.change(input, { target: { value: 'Div' } });
+    const option = await view.findByRole('option', { name: 'Div.div' });
+
+    fireEvent.mouseDown(option, { button: 2 });
+    expect(commits).not.toHaveBeenCalled();
+    fireEvent.contextMenu(option, { button: 2 });
+    expect(commits).not.toHaveBeenCalled();
+    expect(await view.findByRole('menu', { name: 'Styles for Div.div' })).toBeTruthy();
+  });
+
   it('focuses the positioned style portal before keyboard navigation and Tab commit', async () => {
     const commits = vi.fn();
     function Harness(): React.ReactElement {

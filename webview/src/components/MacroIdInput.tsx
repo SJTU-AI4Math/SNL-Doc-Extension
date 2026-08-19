@@ -877,6 +877,7 @@ export const MacroIdInput = forwardRef<
                 else inlineSuggestionRowsRef.current.delete(id);
               }}
               onMouseDown={(event) => {
+                if (event.button !== 0) return;
                 event.preventDefault();
                 clickSuggestion(id);
               }}

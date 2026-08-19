@@ -2681,6 +2681,7 @@ describe('GuiCanvasEditor', () => {
   });
 
   it('commits a picked default Style from the focused Macro editor as one undoable change', async () => {
+    const published = vi.fn();
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([
         { ...node('styled', [node('a'), node('b'), node('c')]), style_name: 'wide' }
@@ -2694,7 +2695,7 @@ describe('GuiCanvasEditor', () => {
             macroDataDriver={styledCanvasDriver}
             macroCandidates={[{ id: 'styled', labels: [], styles: ['default', 'wide'] }]}
             kindPalette={undefined}
-            onForestChange={setForest}
+            onForestChange={(next) => { published(next); setForest(next); }}
             onResetFromSnl={() => undefined}
           />
         </>
@@ -2710,13 +2711,16 @@ describe('GuiCanvasEditor', () => {
     fireEvent.keyDown(search, { key: 'Enter' });
     await waitFor(() => expect(view.getByTestId('focused-style').textContent).toBe(''));
     expect(view.getByTestId('focused-arity').textContent).toBe('1');
+    expect(published).toHaveBeenCalledTimes(1);
 
     fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
     await waitFor(() => expect(view.getByTestId('focused-style').textContent).toBe('wide'));
     expect(view.getByTestId('focused-arity').textContent).toBe('3');
+    expect(published).toHaveBeenCalledTimes(2);
   });
 
   it('commits a picked nondefault Style from the add-root editor and undoes it in one step', async () => {
+    const published = vi.fn();
     function Harness(): React.ReactElement {
       const [forest, setForest] = React.useState([node('root')]);
       return (
@@ -2729,7 +2733,7 @@ describe('GuiCanvasEditor', () => {
             macroDataDriver={styledCanvasDriver}
             macroCandidates={[{ id: 'styled', labels: [], styles: ['default', 'wide'] }]}
             kindPalette={undefined}
-            onForestChange={setForest}
+            onForestChange={(next) => { published(next); setForest(next); }}
             onResetFromSnl={() => undefined}
           />
         </>
@@ -2744,9 +2748,11 @@ describe('GuiCanvasEditor', () => {
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('2'));
     expect(view.getByTestId('inserted-style').textContent).toBe('wide');
     expect(view.getByTestId('inserted-arity').textContent).toBe('3');
+    expect(published).toHaveBeenCalledTimes(1);
 
     fireEvent.keyDown(canvas, { key: 'z', ctrlKey: true });
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
+    expect(published).toHaveBeenCalledTimes(2);
   });
 
   it('gives a variadic Macro inserted into a placeholder one child too', async () => {

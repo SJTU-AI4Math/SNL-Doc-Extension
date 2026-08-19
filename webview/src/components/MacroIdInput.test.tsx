@@ -770,7 +770,17 @@ describe('MacroIdInput', () => {
     fireEvent.compositionStart(input);
     expect(fireEvent.keyDown(input, { key: 'ArrowRight', isComposing: true })).toBe(true);
     expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+    input.focus();
+    expect(fireEvent.keyDown(input, {
+      key: 'F10', shiftKey: true, isComposing: true
+    })).toBe(true);
+    expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+    expect(document.activeElement).toBe(input);
     fireEvent.compositionEnd(input);
+    expect(fireEvent.keyDown(input, {
+      key: 'F10', shiftKey: true, isComposing: false
+    })).toBe(false);
+    await view.findByRole('menu', { name: 'Styles for Div.div' });
   });
 
   it('opens a modal style menu from keyboard and returns focus to the search field on Escape', async () => {
@@ -797,6 +807,37 @@ describe('MacroIdInput', () => {
     fireEvent.keyDown(menu, { key: 'Escape' });
     await waitFor(() => expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull());
     expect(document.activeElement).toBe(search);
+  });
+
+  it('leaves modal Shift+F10 to the IME until composition ends', async () => {
+    const view = render(
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        onStructuredCommit={() => undefined}
+        macroCandidates={styledCandidates}
+        aria-label="Modal IME Macro ID"
+      />
+    );
+    const input = view.getByRole('textbox', { name: 'Modal IME Macro ID' });
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = await view.findByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.change(search, { target: { value: 'Div' } });
+    await view.findByRole('option', { name: 'Div.div' });
+    fireEvent.compositionStart(search);
+    search.focus();
+
+    expect(fireEvent.keyDown(search, {
+      key: 'F10', shiftKey: true, isComposing: true
+    })).toBe(true);
+    expect(view.queryByRole('menu', { name: 'Styles for Div.div' })).toBeNull();
+    expect(document.activeElement).toBe(search);
+
+    fireEvent.compositionEnd(search);
+    expect(fireEvent.keyDown(search, {
+      key: 'F10', shiftKey: true, isComposing: false
+    })).toBe(false);
+    await view.findByRole('menu', { name: 'Styles for Div.div' });
   });
 
   it('does not expose a style drilldown for ID-only consumers', async () => {

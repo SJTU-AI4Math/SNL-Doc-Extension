@@ -999,6 +999,100 @@ describe('Inductive editor arity auto-fill', () => {
       .toBe('default');
   });
 
+  it('publishes one reconciled tree and one undo step for a structured default Style pick', async () => {
+    const styledMacro = {
+      name: 'styled-arity', description: '', source: { entries: [], urls: [] }, tags: [],
+      dynamic_arity: false,
+      styles: [
+        { style_name: 'default', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+        { style_name: 'wide', template: { mode: 'formula_inline', body: '#0 #1 #2' }, tags: [] }
+      ]
+    } as never;
+    const styledDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        if (macro_name === 'old') {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return macro('old', false, '#0 #1 #2 #3 #4');
+        }
+        return macro_name === 'styled-arity' ? styledMacro : null;
+      }
+    }});
+    const changes: string[] = [];
+    const view = render(<GuiInductiveEditor
+      snl="old(required,,kept-a,,kept-b)"
+      macroDataDriver={styledDriver}
+      macroCandidates={[{ id: 'styled-arity', labels: [], styles: ['default', 'wide'] }]}
+      registeredMacros={{ 'styled-arity': styledMacro }}
+      macroOrigin={{}}
+      onOpenMacroEditor={() => undefined}
+      onChange={(next) => { changes.push(next); }}
+    />);
+    const input = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
+    expect(view.getAllByRole('textbox')).toHaveLength(6);
+
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = await view.findByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(changes).toEqual(['styled-arity(required,kept-a,kept-b)']));
+    // Let the superseded `old` lookup resolve; its stale authority must not publish.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(changes).toEqual(['styled-arity(required,kept-a,kept-b)']);
+
+    input.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.undo' }
+    }));
+    await waitFor(() => expect(changes).toEqual([
+      'styled-arity(required,kept-a,kept-b)', 'old(required,,kept-a,,kept-b)'
+    ]));
+  });
+
+  it('publishes one lossless reconciled tree and one undo step for an explicit Style pick', async () => {
+    const styledMacro = {
+      name: 'styled-arity', description: '', source: { entries: [], urls: [] }, tags: [],
+      dynamic_arity: false,
+      styles: [
+        { style_name: 'default', template: { mode: 'formula_inline', body: '#0' }, tags: [] },
+        { style_name: 'wide', template: { mode: 'formula_inline', body: '#0 #1 #2' }, tags: [] }
+      ]
+    } as never;
+    const styledDriver = new MacroDataDriver({ queries: {
+      query_macro: async ({ macro_name }: { macro_name: string }) => {
+        if (macro_name === 'old') {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return macro('old', false, '#0 #1 #2 #3 #4');
+        }
+        return macro_name === 'styled-arity' ? styledMacro : null;
+      }
+    }});
+    const changes: string[] = [];
+    const view = render(<GuiInductiveEditor
+      snl="old(seed)"
+      macroDataDriver={styledDriver}
+      macroCandidates={[{ id: 'styled-arity', labels: [], styles: ['default', 'wide'] }]}
+      registeredMacros={{ 'styled-arity': styledMacro }}
+      macroOrigin={{}}
+      onOpenMacroEditor={() => undefined}
+      onChange={(next) => { changes.push(next); }}
+    />);
+    const input = await waitFor(() => view.getAllByRole('textbox')[0] as HTMLInputElement);
+    fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
+    const search = await view.findByRole('textbox', { name: 'Search macros in SNoogL' });
+    fireEvent.keyDown(search, { key: 'F10', shiftKey: true });
+    fireEvent.click(await view.findByRole('menuitem', { name: /wide/i }));
+    await waitFor(() => expect(changes).toEqual(['styled-arity[wide](seed,,)']));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(changes).toEqual(['styled-arity[wide](seed,,)']);
+
+    input.focus();
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'shortcutAction', action: 'inductive.undo' }
+    }));
+    await waitFor(() => expect(changes).toEqual([
+      'styled-arity[wide](seed,,)', 'old(seed)'
+    ]));
+  });
+
   it('uses every locale projection in the effective Style as one stable arity', async () => {
     const localized = {
       name: 'localized', description: '', source: { entries: [], urls: [] }, tags: [],

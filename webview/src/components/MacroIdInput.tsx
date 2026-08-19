@@ -316,8 +316,12 @@ export const MacroIdInput = forwardRef<
       suggestions.length === 0 ? 0 : Math.min(index, suggestions.length - 1)
     );
   }, [suggestions.length]);
+  useEffect(() => {
+    if (suggestionsOpen && suggestions.length === 0) setSuggestionsOpen(false);
+  }, [suggestionsOpen, suggestions.length]);
 
-  const ownsSuggestionTab = acceptSuggestionOnTab && suggestionsOpen && suggestions.length > 0 &&
+  const suggestionsVisible = suggestionsOpen && suggestions.length > 0;
+  const ownsSuggestionTab = acceptSuggestionOnTab && suggestionsVisible &&
     !compositionActive && !snooglOpen;
   useEffect(() => {
     if (suggestionOwnershipRef.current === ownsSuggestionTab) return;
@@ -394,10 +398,10 @@ export const MacroIdInput = forwardRef<
       setSnooglOpen(true);
       return;
     }
-    const currentSuggestions = suggestionsOpen
+    const currentSuggestions = suggestionsVisible
       ? (currentCaret === caretPosition ? suggestions : suggestionsAt(currentCaret))
       : [];
-    if (suggestionsOpen && currentSuggestions.length > 0) {
+    if (suggestionsVisible && currentSuggestions.length > 0) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
         const delta = event.key === 'ArrowDown' ? 1 : -1;
@@ -414,7 +418,7 @@ export const MacroIdInput = forwardRef<
         return;
       }
     }
-    if (event.key === 'Escape' && suggestionsOpen) {
+    if (event.key === 'Escape' && suggestionsVisible) {
       event.preventDefault();
       setSuggestionsOpen(false);
       return;
@@ -581,7 +585,7 @@ export const MacroIdInput = forwardRef<
     </div>
   ) : null;
 
-  const suggestionList = suggestionsOpen && suggestions.length > 0 ? (
+  const suggestionList = suggestionsVisible ? (
     <div
       role="listbox"
       aria-label={t('suggestions')}

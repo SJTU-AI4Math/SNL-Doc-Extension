@@ -9,11 +9,12 @@ function source(relative: string): string {
 describe('authored Collapsible production scope wiring', () => {
   it('wraps Macro and Package previews in an explicit CollapsibleScope', () => {
     const macro = source('CreateMacroApp.tsx');
-    const pkg = source('PackagePanelApp.tsx');
+    const sharedPreview = source('render/MacroPreview.tsx');
     expect(macro).toContain('<CollapsibleScope');
     expect(macro).toMatch(/<CollapsibleScope[\s\S]*?<SnlSyntaxTreeView/);
-    expect(pkg).toContain('<CollapsibleScope');
-    expect(pkg).toMatch(/<CollapsibleScope[\s\S]*?<SnlSyntaxTreeView/);
+    expect(sharedPreview).toContain('<CollapsibleScope');
+    expect(sharedPreview).toMatch(/<CollapsibleScope[\s\S]*?\{view\}/);
+    expect(source('PackagePanelApp.tsx')).toContain('<MacroPreview');
   });
 
   it('uses one scope around the Canvas rather than one per recursive tree view', () => {

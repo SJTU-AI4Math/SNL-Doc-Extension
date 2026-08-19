@@ -73,6 +73,10 @@ import { extensionRenderers } from './render/blockRenderers';
 import { CollapsibleScope } from './render/CollapsibleScope';
 import { macroKindsToPalette } from './render/macroKindPalette';
 import {
+  MacroPreviewRuntimeProvider,
+  createMacroPreviewRuntime
+} from './render/MacroPreview';
+import {
   useVsCodeApiRef,
   PANEL_STYLE
 } from './vscodeApi';
@@ -1041,6 +1045,15 @@ export function CreateMacroApp(): React.ReactElement {
   const [macroCandidates, setMacroCandidates] = useState<SnooglSearchCandidate[]>([]);
   const [workspaceMacros, setWorkspaceMacros] = useState<Record<string, WireMacro>>({});
   const [macroKinds, setMacroKinds] = useState<MacroKind[]>([]);
+  const macroPreviewRuntime = useMemo(
+    () => createMacroPreviewRuntime({
+      macros: workspaceMacros,
+      macroKinds,
+      language: contentLanguage,
+      renderRevision: preferencesRevision
+    }),
+    [contentLanguage, macroKinds, preferencesRevision, workspaceMacros]
+  );
   // Shared entry pool for the source.entries picker (EntityIdSearchBox).
   // Populated by the host on ContextMsg / any subsequent 'entries' broadcast.
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
@@ -1764,10 +1777,11 @@ export function CreateMacroApp(): React.ReactElement {
   };
 
   return (
-    <main
-      style={PANEL_STYLE}
-      onInput={markFormDirty}
-    >
+    <MacroPreviewRuntimeProvider runtime={macroPreviewRuntime}>
+      <main
+        style={PANEL_STYLE}
+        onInput={markFormDirty}
+      >
       <PanelHeader
         vsApi={apiRef.current}
         title={t(panelMode === 'edit' ? 'editTitle' : 'createTitle', { package: titlePackage })}
@@ -2239,7 +2253,8 @@ export function CreateMacroApp(): React.ReactElement {
 
       {/* Persistent errors stay visible until dismissed (only successes auto-dismiss). */}
       <StatusLine status={status} />
-    </main>
+      </main>
+    </MacroPreviewRuntimeProvider>
   );
 }
 

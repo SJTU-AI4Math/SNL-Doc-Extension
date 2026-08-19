@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PackagePanelApp } from './PackagePanelApp';
 import type { VsCodeApi } from './vscodeApi';
@@ -10,6 +11,16 @@ describe('Macro package panel Chinese localization', () => {
   beforeEach(() => {
     document.documentElement.lang = 'zh-CN';
     (globalThis as { __snlApi?: VsCodeApi }).__snlApi = { postMessage };
+  });
+
+  describe('PackagePanel Macro preview migration', () => {
+    it('uses the shared production preview without changing the table contract', () => {
+      const source = readFileSync('webview/src/PackagePanelApp.tsx', 'utf8');
+      expect(source).toContain("from './render/MacroPreview'");
+      expect(source).not.toMatch(/function MacroPreview\s*\(/);
+      expect(source).toContain('<th style={{ ...HEAD, width: \'9rem\' }}>{t(\'colPreview\')}</th>');
+      expect(source).toContain('styleName={isDefault ? undefined : style.style_name}');
+    });
   });
 
   afterEach(() => {
@@ -72,5 +83,34 @@ describe('Macro package panel Chinese localization', () => {
     fireEvent.change(fileInput, { target: { value: 'bad name' } });
     expect(screen.getByText('只能使用字母、数字、连字符和下划线。')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '取消' })).toHaveLength(2);
+  });
+
+  it('keeps a real preview in the existing package table cell', async () => {
+    render(<PackagePanelApp />);
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        type: 'package',
+        pkg: { version: '9', name: '示例包', macros: {} },
+        file: 'sample',
+        macros: [{
+          name: 'visible', description: 'preview row',
+          source: { entries: [], urls: [] }, dynamic_arity: false,
+          styles: [{
+            style_name: 'default',
+            template: { mode: 'formula_inline', body: '\\mathrm{PACKAGE_PREVIEW}' },
+            tags: []
+          }],
+          tags: []
+        }],
+        workspaceMacros: {}, macroKinds: [], otherPackages: [],
+        active: true, entryPoolIds: []
+      }
+    }));
+
+    const preview = await screen.findByRole('img', { name: '宏预览 visible' });
+    expect(preview.closest('td')).toBeTruthy();
+    await waitFor(() => expect(preview.textContent).toContain('PACKAGE_PREVIEW'));
+    expect(screen.getByRole('columnheader', { name: '预览' })).toBeTruthy();
+    expect(screen.getByText('visible')).toBeTruthy();
   });
 });

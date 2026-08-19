@@ -22,13 +22,15 @@ describe('Macro Kind palette plumbing', () => {
       'webview/src/App.tsx',
       'webview/src/EntryInfoviewApp.tsx',
       'webview/src/CreateEntryApp.tsx',
-      'webview/src/SnlGraphApp.tsx',
-      'webview/src/PackagePanelApp.tsx'
+      'webview/src/SnlGraphApp.tsx'
     ]) {
       const text = source(webview);
       expect(text, webview).toContain('macroKindsToPalette');
       expect(text, webview).toContain('kindPalette=');
     }
+    expect(source('webview/src/PackagePanelApp.tsx')).toContain('macroKinds,');
+    expect(source('webview/src/render/MacroPreview.tsx')).toContain('macroKindsToPalette');
+    expect(source('webview/src/render/MacroPreview.tsx')).toContain('kindPalette=');
 
     expect(source('webview/src/render/HoverPopoverProvider.tsx')).toContain(
       'kindPalette={kindPalette}'

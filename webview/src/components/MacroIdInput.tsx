@@ -5,7 +5,8 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  useId
 } from 'react';
 import {
   createSnooglSearchDocument,
@@ -14,6 +15,11 @@ import {
 } from '../../../src/snooglSearch';
 import './MacroIdInput.css';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+import {
+  MacroPreview,
+  type MacroPreviewRuntime,
+  useProvidedMacroPreviewRuntime
+} from '../render/MacroPreview';
 
 const MESSAGES = defineUiMessages(
   'macroIdInput',
@@ -23,7 +29,8 @@ const MESSAGES = defineUiMessages(
     heading: 'SNoogL · Macro',
     search: 'Search macros in SNoogL',
     results: 'SNoogL macro results',
-    hint: "Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes"
+    hint: "Tab inserts the selected Macro name · Style stays in the editor's separate dropdown · Esc closes",
+    preview: 'Preview {id}'
   },
   {
     suggestions: '宏 ID 建议',
@@ -31,7 +38,8 @@ const MESSAGES = defineUiMessages(
     heading: 'SNoogL · 宏',
     search: '在 SNoogL 中搜索宏',
     results: 'SNoogL 宏搜索结果',
-    hint: 'Tab 插入所选宏名 · 样式仍在编辑器的独立下拉框中设置 · Esc 关闭'
+    hint: 'Tab 插入所选宏名 · 样式仍在编辑器的独立下拉框中设置 · Esc 关闭',
+    preview: '预览 {id}'
   }
 );
 
@@ -137,6 +145,8 @@ interface MacroIdInputBaseProps {
   onChange: (value: string) => void;
   autoSize?: boolean;
   macroCandidates?: readonly SnooglSearchCandidate[];
+  /** Shared, surface-scoped preview runtime. Candidate metadata stays search-only. */
+  macroPreviewRuntime?: MacroPreviewRuntime;
   /** Open the embedded SNoogL Macro picker as soon as this control mounts. */
   openSnooglOnMount?: boolean;
   /**
@@ -174,6 +184,7 @@ export const MacroIdInput = forwardRef<
     multiline = false,
     autoSize = false,
     macroCandidates = EMPTY_MACRO_CANDIDATES,
+    macroPreviewRuntime: suppliedMacroPreviewRuntime,
     openSnooglOnMount = false,
     snooglInsertsMacroId = false,
     selectAllOnMount = false,
@@ -186,6 +197,9 @@ export const MacroIdInput = forwardRef<
   forwardedRef
 ): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const providedMacroPreviewRuntime = useProvidedMacroPreviewRuntime();
+  const macroPreviewRuntime = suppliedMacroPreviewRuntime ?? providedMacroPreviewRuntime;
+  const instanceId = useId().replace(/:/g, '');
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const compositionActiveRef = useRef(false);
@@ -202,7 +216,12 @@ export const MacroIdInput = forwardRef<
   const [snooglOpen, setSnooglOpen] = useState(false);
   const [snooglQuery, setSnooglQuery] = useState('');
   const [snooglSelection, setSnooglSelection] = useState(0);
+  const [visibleSnooglPreviewIds, setVisibleSnooglPreviewIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const snooglSearchRef = useRef<HTMLInputElement | null>(null);
+  const snooglPreviewRowsRef = useRef(new Map<string, HTMLElement>());
+  const snooglObserverGenerationRef = useRef(0);
   const snooglRangeRef = useRef<{ start: number; end: number } | null>(null);
   const interactionDisabled = Boolean(
     (props as React.InputHTMLAttributes<HTMLInputElement>).readOnly ||
@@ -336,11 +355,55 @@ export const MacroIdInput = forwardRef<
         .slice(0, 30)
     : [];
 
+  const snooglResultsKey = snooglResults.join('\u0000');
+  useEffect(() => {
+    const generation = ++snooglObserverGenerationRef.current;
+    setVisibleSnooglPreviewIds(new Set());
+    if (!snooglOpen || !macroPreviewRuntime || snooglResults.length === 0) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisibleSnooglPreviewIds(new Set(snooglResults));
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (snooglObserverGenerationRef.current !== generation) return;
+      setVisibleSnooglPreviewIds((current) => {
+        const next = new Set(current);
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.macroPreviewRow;
+          if (!id) continue;
+          if (snooglPreviewRowsRef.current.get(id) !== entry.target) continue;
+          if (entry.isIntersecting) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+    });
+    for (const id of snooglResults) {
+      const row = snooglPreviewRowsRef.current.get(id);
+      if (row) observer.observe(row);
+    }
+    return () => {
+      if (snooglObserverGenerationRef.current === generation) {
+        snooglObserverGenerationRef.current += 1;
+      }
+      observer.disconnect();
+    };
+    // The joined key intentionally invalidates observation for a new ranked result set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [macroPreviewRuntime, snooglOpen, snooglResultsKey]);
+
   useEffect(() => {
     setSnooglSelection((index) =>
       snooglResults.length === 0 ? 0 : Math.min(index, snooglResults.length - 1)
     );
   }, [snooglResults.length]);
+
+  useEffect(() => {
+    if (!snooglOpen) return;
+    const id = snooglResults[snooglSelection];
+    if (!id) return;
+    snooglPreviewRowsRef.current.get(id)?.scrollIntoView?.({ block: 'nearest' });
+  }, [snooglOpen, snooglResultsKey, snooglSelection]);
 
   const replaceRangeWithMacro = (range: { start: number; end: number }, id: string): void => {
     const next = `${value.slice(0, range.start)}${id}${value.slice(range.end)}`;
@@ -414,7 +477,7 @@ export const MacroIdInput = forwardRef<
         return;
       }
     }
-    if (event.key === 'Escape' && suggestionsOpen) {
+    if (event.key === 'Escape' && suggestionsOpen && currentSuggestions.length > 0) {
       event.preventDefault();
       setSuggestionsOpen(false);
       return;
@@ -583,6 +646,7 @@ export const MacroIdInput = forwardRef<
 
   const suggestionList = suggestionsOpen && suggestions.length > 0 ? (
     <div
+      id={`${instanceId}-suggestions`}
       role="listbox"
       aria-label={t('suggestions')}
       style={{
@@ -590,36 +654,66 @@ export const MacroIdInput = forwardRef<
         top: '100%',
         left: 0,
         minWidth: '100%',
+        width: macroPreviewRuntime ? 'min(42rem, calc(100vw - 2rem))' : undefined,
+        maxWidth: 'calc(100vw - 2rem)',
         maxHeight: '12rem',
-        overflowY: 'auto',
+        overflow: 'hidden',
         zIndex: 1000,
         border: '1px solid var(--vscode-widget-border, #555)',
         background: 'var(--vscode-editorWidget-background, #252526)',
         boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
       }}
     >
-      {suggestions.map((id, index) => (
-        <div
-          key={id}
-          role="option"
-          aria-selected={index === highlightedSuggestion}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            applySuggestion(id);
-          }}
-          style={{
-            padding: '0.25rem 0.45rem',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            color: 'var(--vscode-editorWidget-foreground, #ddd)',
-            background: index === highlightedSuggestion
-              ? 'var(--vscode-list-activeSelectionBackground, #094771)'
-              : 'transparent'
-          }}
-        >
-          {id}
+      <div style={{ display: 'flex', minWidth: 0, maxHeight: '12rem' }}>
+        <div style={{ minWidth: 0, flex: '1 1 12rem', overflowY: 'auto' }}>
+          {suggestions.map((id, index) => (
+            <div
+              id={`${instanceId}-suggestion-${index}`}
+              key={id}
+              role="option"
+              aria-selected={index === highlightedSuggestion}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                applySuggestion(id);
+              }}
+              style={{
+                padding: '0.25rem 0.45rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                color: 'var(--vscode-editorWidget-foreground, #ddd)',
+                background: index === highlightedSuggestion
+                  ? 'var(--vscode-list-activeSelectionBackground, #094771)'
+                  : 'transparent'
+              }}
+            >
+              {id}
+            </div>
+          ))}
         </div>
-      ))}
+        {macroPreviewRuntime ? (
+          <div
+            data-macro-preview-pane="inline"
+            aria-live="polite"
+            style={{
+              flex: '1 1 18rem',
+              minWidth: '12rem',
+              maxWidth: '24rem',
+              overflow: 'auto',
+              padding: '0.5rem',
+              borderLeft: '1px solid var(--vscode-widget-border, #555)',
+              pointerEvents: 'none'
+            }}
+          >
+            {(() => {
+              const id = suggestions[highlightedSuggestion] ?? suggestions[0];
+              const macro = id ? macroPreviewRuntime.macros[id] : undefined;
+              return macro
+                ? <MacroPreview macro={macro} runtime={macroPreviewRuntime} label={t('preview', { id })} />
+                : null;
+            })()}
+          </div>
+        ) : null}
+      </div>
     </div>
   ) : null;
 
@@ -663,6 +757,10 @@ export const MacroIdInput = forwardRef<
       <input
         ref={snooglSearchRef}
         aria-label={t('search')}
+        aria-controls={`${instanceId}-snoogl-results`}
+        aria-activedescendant={snooglResults.length > 0
+          ? `${instanceId}-snoogl-result-${snooglSelection}`
+          : undefined}
         value={snooglQuery}
         onChange={(event) => {
           setSnooglQuery(event.target.value);
@@ -700,23 +798,52 @@ export const MacroIdInput = forwardRef<
           border: '1px solid var(--vscode-input-border, #555)'
         }}
       />
-      <div role="listbox" aria-label={t('results')} style={{ marginTop: '0.5rem', maxHeight: '48vh', overflowY: 'auto' }}>
+      <div
+        id={`${instanceId}-snoogl-results`}
+        role="listbox"
+        aria-label={t('results')}
+        aria-activedescendant={snooglResults.length > 0
+          ? `${instanceId}-snoogl-result-${snooglSelection}`
+          : undefined}
+        style={{ marginTop: '0.5rem', maxHeight: '48vh', overflowY: 'auto' }}
+      >
         {snooglResults.map((id, index) => (
           <div
+            id={`${instanceId}-snoogl-result-${index}`}
             key={id}
             role="option"
             aria-selected={index === snooglSelection}
+            ref={(element) => {
+              if (element) snooglPreviewRowsRef.current.set(id, element);
+              else snooglPreviewRowsRef.current.delete(id);
+            }}
+            data-macro-preview-row={id}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commitSnooglResult(id)}
             style={{
               padding: '0.35rem 0.5rem',
               cursor: 'pointer',
+              display: macroPreviewRuntime ? 'grid' : undefined,
+              gridTemplateColumns: macroPreviewRuntime ? 'minmax(8rem, 1fr) minmax(12rem, 2fr)' : undefined,
+              gap: macroPreviewRuntime ? '0.75rem' : undefined,
+              alignItems: 'center',
+              minHeight: macroPreviewRuntime ? '3rem' : undefined,
               background: index === snooglSelection
                 ? 'var(--vscode-list-activeSelectionBackground, #094771)'
                 : 'transparent'
             }}
           >
-            {id}
+            <span>{id}</span>
+            {macroPreviewRuntime && visibleSnooglPreviewIds.has(id) &&
+              macroPreviewRuntime.macros[id] ? (
+                <span style={{ pointerEvents: 'none', minWidth: 0 }}>
+                  <MacroPreview
+                    macro={macroPreviewRuntime.macros[id]}
+                    runtime={macroPreviewRuntime}
+                    label={t('preview', { id })}
+                  />
+                </span>
+              ) : null}
           </div>
         ))}
       </div>
@@ -746,6 +873,10 @@ export const MacroIdInput = forwardRef<
             ref={(element) => { controlRef.current = element; }}
             className={['snl-macro-id-native-control', className].filter(Boolean).join(' ')}
             value={value}
+             aria-controls={suggestions.length > 0 ? `${instanceId}-suggestions` : undefined}
+             aria-activedescendant={suggestions.length > 0
+               ? `${instanceId}-suggestion-${highlightedSuggestion}`
+               : undefined}
             rows={autoSize ? rows : undefined}
             onChange={(event) => handleValueChange(
               event.target.value,
@@ -786,6 +917,10 @@ export const MacroIdInput = forwardRef<
           ref={(element) => { controlRef.current = element; }}
           className={['snl-macro-id-native-control', className].filter(Boolean).join(' ')}
           value={value}
+          aria-controls={suggestions.length > 0 ? `${instanceId}-suggestions` : undefined}
+          aria-activedescendant={suggestions.length > 0
+            ? `${instanceId}-suggestion-${highlightedSuggestion}`
+            : undefined}
           onChange={(event) => handleValueChange(
             event.target.value,
             event.target.selectionStart

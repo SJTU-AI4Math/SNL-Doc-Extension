@@ -7,6 +7,8 @@ import {
   MacroIdInput,
   tokenizeMacroIdDsl
 } from './MacroIdInput';
+import { createMacroPreviewRuntime } from '../render/MacroPreview';
+import type { WireMacro } from '../render/macroWire';
 
 afterEach(() => {
   cleanup();
@@ -14,6 +16,204 @@ afterEach(() => {
 });
 
 describe('MacroIdInput', () => {
+  const previewMacro = (name: string, body: string): WireMacro => ({
+    name,
+    description: '',
+    source: { entries: [], urls: [] },
+    dynamic_arity: false,
+    styles: [{
+      style_name: 'default',
+      tags: [],
+      template: { mode: 'formula_inline', body }
+    }],
+    tags: []
+  });
+
+  it('renders exactly the highlighted inline preview and updates it for arrows and query', async () => {
+    const alpha = previewMacro('Alpha.one', '\\mathrm{ALPHA}');
+    const beta = previewMacro('Beta.two', '\\mathrm{BETA}');
+    const runtime = createMacroPreviewRuntime({
+      macros: { 'Alpha.one': alpha, 'Beta.two': beta },
+      language: 'en'
+    });
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return (
+        <MacroIdInput
+          value={value}
+          onChange={setValue}
+          macroCandidates={[
+            { id: 'Alpha.one', labels: ['common'] },
+            { id: 'Beta.two', labels: ['common'] }
+          ]}
+          macroPreviewRuntime={runtime}
+          aria-label="Preview Macro ID"
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Preview Macro ID' });
+    fireEvent.change(input, { target: { value: 'common' } });
+    await view.findByLabelText('Preview Alpha.one');
+    const firstOption = view.getByRole('option', { name: 'Alpha.one' });
+    expect(input.getAttribute('aria-activedescendant')).toBe(firstOption.id);
+    expect(input.getAttribute('aria-controls')).toBe(
+      firstOption.closest('[role="listbox"]')?.id
+    );
+    expect(view.container.querySelectorAll('[data-macro-preview]')).toHaveLength(1);
+    expect(view.container.querySelector('[data-macro-preview]')?.hasAttribute('inert')).toBe(true);
+    expect(view.container.querySelector('[data-macro-preview]')?.getAttribute('data-macro-preview'))
+      .toBe('Alpha.one');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await view.findByLabelText('Preview Beta.two');
+    expect(input.getAttribute('aria-activedescendant'))
+      .toBe(view.getByRole('option', { name: 'Beta.two' }).id);
+    expect(view.container.querySelectorAll('[data-macro-preview]')).toHaveLength(1);
+
+    fireEvent.change(input, { target: { value: 'Alpha' } });
+    await view.findByLabelText('Preview Alpha.one');
+    expect(view.queryByLabelText('Preview Beta.two')).toBeNull();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    expect(input.getAttribute('aria-controls')).toBeNull();
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+  });
+
+  it('keeps the compact inline layout when no preview runtime is supplied', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue}
+        macroCandidates={[{ id: 'Alpha.one', labels: [] }]} aria-label="Compact Macro ID" />;
+    }
+    const view = render(<Harness />);
+    fireEvent.change(view.getByRole('textbox', { name: 'Compact Macro ID' }), {
+      target: { value: 'Alpha' }
+    });
+    expect(view.getByRole('option', { name: 'Alpha.one' })).toBeTruthy();
+    expect(view.container.querySelector('[data-macro-preview-pane]')).toBeNull();
+  });
+
+  it('lazy-mounts only visible full-modal row previews from one shared runtime', async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    const observed: Element[] = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+      observe = (element: Element) => { observed.push(element); };
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = () => [];
+      root = null;
+      rootMargin = '0px';
+      thresholds = [0];
+    });
+    const macros = Object.fromEntries(['Alpha', 'Beta', 'Gamma'].map((name) => [
+      name,
+      previewMacro(name, `\\mathrm{${name}}`)
+    ]));
+    const runtime = createMacroPreviewRuntime({ macros, language: 'en' });
+    const view = render(
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        macroCandidates={Object.keys(macros).map((id) => ({ id, labels: [] }))}
+        macroPreviewRuntime={runtime}
+        aria-label="Lazy Macro ID"
+      />
+    );
+    fireEvent.keyDown(view.getByRole('textbox', { name: 'Lazy Macro ID' }), {
+      key: 'f', ctrlKey: true
+    });
+    const modalSearch = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    expect(modalSearch.getAttribute('aria-controls'))
+      .toBe(view.getByRole('listbox', { name: 'SNoogL macro results' }).id);
+    expect(observed).toHaveLength(3);
+    expect(view.container.querySelectorAll('[data-macro-preview]')).toHaveLength(0);
+
+    callbacks[0]?.([
+      { target: observed[0], isIntersecting: true },
+      { target: observed[1], isIntersecting: true }
+    ] as IntersectionObserverEntry[], {} as IntersectionObserver);
+    await view.findByLabelText('Preview Alpha');
+    await view.findByLabelText('Preview Beta');
+    expect(view.container.querySelectorAll('[data-macro-preview]')).toHaveLength(2);
+    expect(view.queryByLabelText('Preview Gamma')).toBeNull();
+    expect(runtime.macroDataDriver).toBe(runtime.macroDataDriver);
+  });
+
+  it('keeps an arrow-highlighted modal result scrolled into view', () => {
+    const view = render(
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        macroCandidates={[
+          { id: 'Alpha.one', labels: [] },
+          { id: 'Beta.two', labels: [] }
+        ]}
+        aria-label="Scrolling Macro ID"
+      />
+    );
+    fireEvent.keyDown(view.getByRole('textbox', { name: 'Scrolling Macro ID' }), {
+      key: 'f', ctrlKey: true
+    });
+    const search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    const beta = view.getByRole('option', { name: 'Beta.two' });
+    const scrollIntoView = vi.fn();
+    beta.scrollIntoView = scrollIntoView;
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('ignores stale lazy-preview observations after the preview runtime changes', async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
+    const observedByGeneration: Element[][] = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      private readonly generation: number;
+      constructor(callback: IntersectionObserverCallback) {
+        this.generation = callbacks.push(callback) - 1;
+        observedByGeneration[this.generation] = [];
+      }
+      observe = (element: Element) => { observedByGeneration[this.generation].push(element); };
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = () => [];
+      root = null;
+      rootMargin = '0px';
+      thresholds = [0];
+    });
+    const alpha = previewMacro('Alpha', '\\mathrm{ALPHA}');
+    const runtime = createMacroPreviewRuntime({ macros: { Alpha: alpha }, language: 'en' });
+    const element = (activeRuntime: typeof runtime) => (
+      <MacroIdInput
+        value=""
+        onChange={() => undefined}
+        macroCandidates={[{ id: 'Alpha', labels: [] }]}
+        macroPreviewRuntime={activeRuntime}
+        aria-label="Stale observer Macro ID"
+      />
+    );
+    const view = render(element(runtime));
+    fireEvent.keyDown(view.getByRole('textbox', { name: 'Stale observer Macro ID' }), {
+      key: 'f', ctrlKey: true
+    });
+    const oldAlphaRow = observedByGeneration[0][0];
+    const replacementRuntime = createMacroPreviewRuntime({
+      macros: { Alpha: previewMacro('Alpha', '\\mathrm{REPLACEMENT}') },
+      language: 'en'
+    });
+    view.rerender(element(replacementRuntime));
+    const currentAlphaRow = observedByGeneration[1][0];
+    callbacks[1]([
+      { target: currentAlphaRow, isIntersecting: true }
+    ] as IntersectionObserverEntry[], {} as IntersectionObserver);
+    await view.findByLabelText('Preview Alpha');
+    callbacks[0]([
+      { target: oldAlphaRow, isIntersecting: false }
+    ] as IntersectionObserverEntry[], {} as IntersectionObserver);
+    await view.findByLabelText('Preview Alpha');
+  });
+
   it('keeps syntax colors visible through native text selection', () => {
     const view = render(
       <MacroIdInput
@@ -514,6 +714,8 @@ describe('MacroIdInput', () => {
     const input = view.getByRole('textbox', { name: 'Modal keyboard Macro ID' }) as HTMLInputElement;
     fireEvent.keyDown(input, { key: 'f', ctrlKey: true });
     let search = view.getByRole('textbox', { name: 'Search macros in SNoogL' });
+    expect(search.getAttribute('aria-activedescendant'))
+      .toBe(view.getAllByRole('option')[0]?.id);
     expect(fireEvent.keyDown(search, { key: 'Tab', shiftKey: true })).toBe(true);
     expect(input.value).toBe('seed');
     fireEvent.change(search, { target: { value: 'no-match' } });

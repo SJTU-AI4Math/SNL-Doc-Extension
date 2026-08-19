@@ -18,28 +18,15 @@ import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
 import {
-  defaultRenderHooks,
-  SnlSyntaxTreeView,
   type Localized,
-  type MacroDataDriver,
-  type SnlSyntaxTree,
-  type SnlRenderHooks,
-  type KindPalette
 } from '@sjtu-ai4math/snl-basics';
 import {
-  createMacroDataDriver,
-  type MacroRecord
-} from './render/macroData';
-import {
   resolveWireTemplate,
-  wireMacroEntriesToRenderable,
+  type WireMacro,
   type WireMacroStyle,
   type WireMacroTemplate
 } from './render/macroWire';
 import {
-  MACRO_PREVIEW_ARGUMENTS,
-  MAX_MACRO_PREVIEW_ARGS,
-  macroPreviewArgumentNode,
   maxMacroTemplateChildIndex
 } from './render/macroPreviewPlaceholders';
 import {
@@ -52,9 +39,11 @@ import { IconButton } from './components/IconButton';
 import { EmptyAction } from './components/EmptyAction';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
-import { macroKindsToPalette } from './render/macroKindPalette';
-import { extensionRenderers } from './render/blockRenderers';
-import { CollapsibleScope } from './render/CollapsibleScope';
+import {
+  MacroPreview,
+  createMacroPreviewRuntime,
+  type MacroPreviewRuntime
+} from './render/MacroPreview';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import {
   use_preferences_revision,
@@ -173,8 +162,6 @@ type ActiveModal = 'transfer' | null;
 // Preview constants — mirror the CreateMacro Live Preview so a package row's
 // preview matches what the user sees while editing that macro.
 // ---------------------------------------------------------------------------
-
-const VARIADIC_PREVIEW_ARGS = 3;
 
 export function PackagePanelApp(): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
@@ -646,42 +633,23 @@ export function MacroTable({
     }
     return m;
   }, [macroKinds]);
-  const kindPalette = useMemo(
-    () => macroKindsToPalette(macroKinds),
-    [macroKinds]
-  );
-
-  // Build ONE preview macro record for the whole table: all active workspace
+  // Build ONE preview runtime for the whole table: all active workspace
   // packages, argument placeholders, then THIS package for deterministic local
   // precedence. This supports cross-package Macro composition.
-  // memoize by the macros array identity — parent's onMessage handler creates
+  // Memoize by catalog/preferences identity — parent's onMessage handler creates
   // a fresh array whenever the package file changes.
-  const previewMacroRecord: MacroRecord = useMemo(() => {
-    const packageMacros = wireMacroEntriesToRenderable([
+  const previewRuntime = useMemo(() => {
+    const catalog = Object.fromEntries([
       ...Object.entries(workspaceMacros),
       ...macros.map((macro) => [macro.name, macro] as const)
-    ], language);
-    return { ...packageMacros, ...MACRO_PREVIEW_ARGUMENTS };
-  }, [language, macros, preferencesRevision, workspaceMacros]);
-
-  const previewMacroDataDriver = useMemo(
-    () => createMacroDataDriver(previewMacroRecord),
-    [previewMacroRecord]
-  );
-
-  // Tooltip / hover pipeline is pointless in a compact row preview and only
-  // adds jitter. Suppress via renderTooltip → null.
-  const previewHooks: SnlRenderHooks = useMemo(
-    // `renderers` replaces the registry wholesale; `extensionRenderers` keeps
-    // the Basics defaults and adds `collapsible`, so a package macro using that
-    // preset previews correctly instead of falling back to a plain block.
-    () => ({
-      ...defaultRenderHooks,
-      renderTooltip: () => null,
-      renderers: extensionRenderers
-    }),
-    []
-  );
+    ]) as Record<string, WireMacro>;
+    return createMacroPreviewRuntime({
+      macros: catalog,
+      macroKinds,
+      language,
+      renderRevision: preferencesRevision
+    });
+  }, [language, macroKinds, macros, preferencesRevision, workspaceMacros]);
 
   return (
     <table
@@ -722,10 +690,8 @@ export function MacroTable({
             key={m.name}
             macro={m}
             kindById={kindById}
-            kindPalette={kindPalette}
             entryPoolIds={entryPoolIds}
-            previewMacroDataDriver={previewMacroDataDriver}
-            previewHooks={previewHooks}
+            previewRuntime={previewRuntime}
             onEdit={onEdit}
             onCopy={onCopy}
             onDelete={onDelete}
@@ -752,10 +718,8 @@ export function MacroTable({
 function MacroRowGroup({
   macro,
   kindById,
-  kindPalette,
   entryPoolIds,
-  previewMacroDataDriver,
-  previewHooks,
+  previewRuntime,
   onEdit,
   onCopy,
   onDelete,
@@ -765,10 +729,8 @@ function MacroRowGroup({
 }: {
   macro: MacroPackageEntry;
   kindById: Map<string, MacroKind>;
-  kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
-  previewMacroDataDriver: MacroDataDriver;
-  previewHooks: SnlRenderHooks;
+  previewRuntime: MacroPreviewRuntime;
   onEdit: (name: string) => void;
   onCopy?: (name: string) => void;
   onDelete: (name: string) => void;
@@ -803,10 +765,8 @@ function MacroRowGroup({
           canExpand ? () => setExpanded((v) => !v) : undefined
         }
         kindById={kindById}
-        kindPalette={kindPalette}
         entryPoolIds={entryPoolIds}
-        previewMacroDataDriver={previewMacroDataDriver}
-        previewHooks={previewHooks}
+        previewRuntime={previewRuntime}
         onEdit={onEdit}
         onCopy={onCopy}
         onDelete={onDelete}
@@ -826,10 +786,8 @@ function MacroRowGroup({
               canExpand={false}
               onToggleExpand={undefined}
               kindById={kindById}
-              kindPalette={kindPalette}
               entryPoolIds={entryPoolIds}
-              previewMacroDataDriver={previewMacroDataDriver}
-              previewHooks={previewHooks}
+              previewRuntime={previewRuntime}
               onEdit={onEdit}
               onCopy={onCopy}
               onDelete={onDelete}
@@ -862,10 +820,8 @@ function MacroStyleRow({
   canExpand,
   onToggleExpand,
   kindById,
-  kindPalette,
   entryPoolIds,
-  previewMacroDataDriver,
-  previewHooks,
+  previewRuntime,
   onEdit,
   onCopy,
   onDelete,
@@ -882,10 +838,8 @@ function MacroStyleRow({
   canExpand: boolean;
   onToggleExpand: (() => void) | undefined;
   kindById: Map<string, MacroKind>;
-  kindPalette: KindPalette | undefined;
   entryPoolIds: Set<string>;
-  previewMacroDataDriver: MacroDataDriver;
-  previewHooks: SnlRenderHooks;
+  previewRuntime: MacroPreviewRuntime;
   onEdit: (name: string) => void;
   onCopy?: (name: string) => void;
   onDelete: (name: string) => void;
@@ -1002,10 +956,9 @@ function MacroStyleRow({
           {style ? (
             <MacroPreview
               macro={macro}
-              styleTag={isDefault ? undefined : style.style_name}
-              macroDataDriver={previewMacroDataDriver}
-              hooks={previewHooks}
-              kindPalette={kindPalette}
+              styleName={isDefault ? undefined : style.style_name}
+              runtime={previewRuntime}
+              label={t('macroPreviewScope', { name: macro.name })}
             />
           ) : (
             <span style={{ opacity: 0.5 }}>—</span>
@@ -1242,105 +1195,6 @@ function KindCell({
       />
       {kind.name}
     </span>
-  );
-}
-
-/**
- * Real KaTeX preview of a macro applied to numbered argument placeholders.
- *
- * When `styleTag` is undefined the macro's language-default style is
- * used — the tree omits `[style]` and the render pipeline resolves the current
- * language, then English, then `styles[0]`. When `styleTag` is provided, the tree carries that
- * tag so the pipeline resolves to the matching non-default style. Arity is
- * derived from the RESOLVED style's template (max `#N` + 1); dynamic-arity
- * always uses VARIADIC_PREVIEW_ARGS. A macro with an empty template renders
- * as a soft `—` so a broken row doesn't show a phantom empty preview.
- *
- * A row-scoped try/catch (via a null template fallback) keeps a broken macro
- * from taking down the whole table.
- */
-function MacroPreview({
-  macro,
-  styleTag,
-  macroDataDriver,
-  hooks,
-  kindPalette
-}: {
-  macro: MacroPackageEntry;
-  /** Non-default style tag to preview. Undefined → use the language default. */
-  styleTag: string | undefined;
-  macroDataDriver: MacroDataDriver;
-  hooks: SnlRenderHooks;
-  kindPalette: KindPalette | undefined;
-}): React.ReactElement {
-  const t = useUiMessages(PACKAGE_MESSAGES);
-  const preferencesRevision = use_preferences_revision();
-  const language = webview_language_runtime.query_environment().language;
-  // Locate the specific style being previewed (fall back through language defaults).
-  const style = useMemo<MacroPackageStyle | undefined>(() => {
-    if (!Array.isArray(macro.styles) || macro.styles.length === 0)
-      return undefined;
-    if (styleTag == null) return defaultStyleForLanguage(macro, language);
-    return macro.styles.find((s) => s.style_name === styleTag) ?? macro.styles[0];
-  }, [macro, language, styleTag]);
-  const resolvedTemplate = useMemo(
-    () => style
-      ? resolveWireTemplate(style.template as WireMacroStyle['template'], language)
-      : undefined,
-    [language, style, preferencesRevision]
-  );
-
-  const argCount = useMemo(() => {
-    if (macro.dynamic_arity) {
-      return Math.min(VARIADIC_PREVIEW_ARGS, MAX_MACRO_PREVIEW_ARGS);
-    }
-    const derived = maxMacroTemplateChildIndex(resolvedTemplate?.body ?? '') + 1;
-    return Math.min(Math.max(derived, 0), MAX_MACRO_PREVIEW_ARGS);
-  }, [macro.dynamic_arity, resolvedTemplate]);
-
-  const tree: SnlSyntaxTree = useMemo(() => {
-    const children: SnlSyntaxTree[] = [];
-    for (let i = 0; i < argCount; i++) {
-      children.push(macroPreviewArgumentNode(i));
-    }
-    const node: SnlSyntaxTree = {
-      macro_name: macro.name,
-      kind: '',
-      mdata: null,
-      children
-    };
-    // Only stamp `style` when the caller asked for a non-default style;
-    // omission lets the render pipeline use the language default.
-    if (styleTag != null) node.style_name = styleTag;
-    return node;
-  }, [macro.name, argCount, styleTag]);
-
-  // A style with an empty template renders as nothing useful — bail to
-  // a soft "—" so the row doesn't show a phantom empty preview.
-  const template = resolvedTemplate?.body.trim() ?? '';
-  if (!template) {
-    return <span style={{ opacity: 0.5 }}>—</span>;
-  }
-
-  // No wrapper background / border: the SNL preview should be the outermost
-  // block. SnlSyntaxTreeView emits its own `.katex-panel > .katex-html` divs
-  // (structural but paint-nothing after the 2026-07-04 SNL-Basics fix), so
-  // adding a chip here would just re-introduce the "framed panel" look that
-  // 猫猫 called out.
-  return (
-    <CollapsibleScope
-      resetKey={`${macro.name}:${styleTag ?? 'default'}`}
-      label={t('macroPreviewScope', { name: macro.name })}
-    >
-      <SnlSyntaxTreeView
-        key={`preferences-${preferencesRevision}`}
-        tree={tree}
-        macro_data_driver={macroDataDriver}
-        reader_runtime={webview_language_runtime}
-        hooks={hooks}
-        kindPalette={kindPalette}
-      />
-    </CollapsibleScope>
   );
 }
 

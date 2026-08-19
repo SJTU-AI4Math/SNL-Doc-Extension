@@ -134,6 +134,10 @@ import {
   macroKindsToPalette,
   type MacroKindPaletteSource
 } from './render/macroKindPalette';
+import {
+  MacroPreviewRuntimeProvider,
+  createMacroPreviewRuntime
+} from './render/MacroPreview';
 import type { SnooglSearchCandidate } from '../../src/snooglSearch';
 import { defineUiMessages, useUiMessages, type UiTranslator } from './i18n/uiMessages';
 import { normalize_kind_label, resolve_localized_string } from '../../src/localizedContent';
@@ -782,6 +786,7 @@ export function CreateEntryApp(): React.ReactElement {
     DEFAULT_ENTRY_METRIC_THRESHOLDS
   );
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
+  const [macroPreviewKinds, setMacroPreviewKinds] = useState<MacroKindPaletteSource[]>([]);
   // Name → owning package (bare filename) for the row-side "open Macro
   // editor" button in the GUI editor. Pushed by the host on `context`.
   const [macroOrigin, setMacroOrigin] = useState<Record<string, string>>({});
@@ -795,6 +800,15 @@ export function CreateEntryApp(): React.ReactElement {
   const macroDataDriver = useMemo(
     () => createMacroDataDriver(userMacros),
     [userMacros]
+  );
+  const macroPreviewRuntime = useMemo(
+    () => createMacroPreviewRuntime({
+      macros: wireMacros,
+      macroKinds: macroPreviewKinds,
+      language: contentLanguage,
+      renderRevision: preferencesRevision
+    }),
+    [contentLanguage, macroPreviewKinds, preferencesRevision, wireMacros]
   );
   const macroCandidates = useMemo(
     () => {
@@ -1110,6 +1124,7 @@ export function CreateEntryApp(): React.ReactElement {
           );
           setMetricThresholds(msg.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS);
           setKindPalette(macroKindsToPalette(msg.macroKinds));
+          setMacroPreviewKinds(Array.isArray(msg.macroKinds) ? msg.macroKinds : []);
           setMacroOrigin(
             msg.macroOrigin && typeof msg.macroOrigin === 'object'
               ? msg.macroOrigin
@@ -1818,10 +1833,11 @@ export function CreateEntryApp(): React.ReactElement {
   }
 
   return (
-    <main
-      style={PANEL_STYLE}
-      onInput={() => { markFormDirty(true); }}
-    >
+    <MacroPreviewRuntimeProvider runtime={macroPreviewRuntime}>
+      <main
+        style={PANEL_STYLE}
+        onInput={() => { markFormDirty(true); }}
+      >
       {/* cat 2026-07-09: top nav — back to Dashboard; in edit mode also
           jump to this entry's per-entry Infoview. */}
       <PanelHeader
@@ -2357,7 +2373,8 @@ export function CreateEntryApp(): React.ReactElement {
 
         <StatusLine status={status} />
       </fieldset>
-    </main>
+      </main>
+    </MacroPreviewRuntimeProvider>
   );
 }
 

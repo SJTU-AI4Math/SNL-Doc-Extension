@@ -99,7 +99,9 @@ function createStage(doc: Document): HTMLElement {
 }
 
 function isSettled(host: HTMLElement, sinceStubGone: number | null): boolean {
-  if (host.querySelector('.snl-entry-loading,.snl-svg-template-loading')) return false;
+  if (host.querySelector('.snl-entry-loading,.snl-svg-template-loading,[data-snl-render-state="loading"],.snl-foreign-box[data-state="staging"]')) return false;
+  if (Array.from(host.querySelectorAll<HTMLElement>('.katex-panel')).some((panel) =>
+    panel.childElementCount === 0 && /^Loading (?:KaTeX|macro data) \.\.\.$/.test(panel.textContent?.trim() ?? ''))) return false;
   // Nothing rendered at all yet — React has not committed.
   if (!host.firstElementChild) return false;
   if (host.querySelector('[data-entry-body]')) return true;

@@ -146,6 +146,16 @@ describe('parameterized SVG export', () => {
     setTimeout(() => { root.innerHTML = '<svg class="snl-svg-template-artwork"/>'; }, 10);
     await expect(waiting).resolves.toBeUndefined();
   });
+
+  it('does not resolve in the pre-effect gap before async formula SVG work appears', async () => {
+    const root = el('<div class="katex-panel">initial formula</div>');
+    const waiting = waitForSettledSvgTemplates(root, 300);
+    setTimeout(() => { root.innerHTML = '<div class="katex-panel">Loading KaTeX ...</div>'; }, 10);
+    setTimeout(() => { root.innerHTML = '<div class="snl-foreign-box" data-state="staging"></div>'; }, 30);
+    setTimeout(() => { root.innerHTML = '<div class="snl-foreign-box" data-state="positioned"><svg/></div>'; }, 50);
+    await expect(waiting).resolves.toBeUndefined();
+    expect(root.querySelector('[data-state="positioned"] svg')).not.toBeNull();
+  });
 });
 
 describe('collapse structure survives the strip pass', () => {

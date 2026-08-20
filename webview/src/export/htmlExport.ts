@@ -90,25 +90,51 @@ export function waitForSettledSvgTemplates(
   root: HTMLElement,
   timeoutMs = 4000
 ): Promise<void> {
-  if (!root.querySelector('.snl-svg-template-loading')) return Promise.resolve();
+  const pendingSelector = [
+    '.snl-svg-template-loading',
+    '[data-snl-render-state="loading"]',
+    '.snl-foreign-box[data-state="staging"]'
+  ].join(',');
+  const quietMs = Math.min(50, Math.max(1, Math.floor(timeoutMs / 4)));
+  const hasPendingRenderer = (): boolean => {
+    if (root.querySelector(pendingSelector)) return true;
+    // Backward compatibility for Basics releases before the explicit render
+    // state attribute: these loading panels contain text only.
+    return Array.from(root.querySelectorAll<HTMLElement>('.katex-panel')).some((panel) =>
+      panel.childElementCount === 0 && /^Loading (?:KaTeX|macro data) \.\.\.$/.test(panel.textContent?.trim() ?? ''));
+  };
   return new Promise<void>((resolve, reject) => {
     let done = false;
-    const observer = new MutationObserver(() => finishIfSettled());
-    const timer = setTimeout(() => {
+    let quietTimer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new MutationObserver(() => schedule());
+    const deadline = setTimeout(() => finish(new Error('Timed out waiting for SVG templates to settle')), timeoutMs);
+    const finish = (error?: Error): void => {
       if (done) return;
       done = true;
+      clearTimeout(deadline);
+      if (quietTimer) clearTimeout(quietTimer);
       observer.disconnect();
-      reject(new Error('Timed out waiting for SVG templates to settle'));
-    }, timeoutMs);
-    const finishIfSettled = (): void => {
-      if (done || root.querySelector('.snl-svg-template-loading')) return;
-      done = true;
-      clearTimeout(timer);
-      observer.disconnect();
-      resolve();
+      if (error) reject(error);
+      else resolve();
+    };
+    const schedule = (): void => {
+      if (done) return;
+      if (quietTimer) {
+        clearTimeout(quietTimer);
+        quietTimer = undefined;
+      }
+      if (hasPendingRenderer()) return;
+      // Effects can start formula preparation just after an Export click. A
+      // quiet window makes that pre-effect gap observable instead of treating
+      // the absence of a spinner in this exact tick as settled output.
+      quietTimer = setTimeout(() => {
+        quietTimer = undefined;
+        if (!hasPendingRenderer()) finish();
+        else schedule();
+      }, quietMs);
     };
     observer.observe(root, { subtree: true, childList: true, attributes: true });
-    finishIfSettled();
+    schedule();
   });
 }
 

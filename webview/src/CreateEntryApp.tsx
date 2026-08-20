@@ -3061,6 +3061,8 @@ interface CanvasPendingDrag {
   startClientY: number;
   startPosition: CanvasBlockPosition;
   grabOffset: CanvasBlockPosition;
+  /** Visual-pixel offset from the detached root card to the dragged subtree centre. */
+  visualCenterOffset: CanvasBlockPosition;
   active: boolean;
 }
 
@@ -3190,6 +3192,37 @@ export function canvasLogicalViewportWidth(viewportWidth: number, zoom: number):
 
 export function canvasVisualDeltaToLogical(visualDelta: number, zoom: number): number {
   return Number.isFinite(zoom) && zoom > 0 ? visualDelta / zoom : visualDelta;
+}
+
+export function canvasDraggedVisualCenter(
+  pointer: CanvasBlockPosition,
+  logicalGrabOffset: CanvasBlockPosition,
+  visualCenterOffset: CanvasBlockPosition,
+  zoom: number
+): CanvasBlockPosition {
+  return {
+    x: pointer.x - logicalGrabOffset.x * zoom + visualCenterOffset.x,
+    y: pointer.y - logicalGrabOffset.y * zoom + visualCenterOffset.y
+  };
+}
+
+export function canvasCenteredSnapPosition(
+  canvasRect: Pick<DOMRect, 'left' | 'top'>,
+  bounds: Pick<CanvasBounds, 'left' | 'top'>,
+  targetRect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>,
+  visualCenterOffset: CanvasBlockPosition,
+  zoom: number
+): CanvasBlockPosition {
+  return {
+    x: bounds.left + canvasVisualDeltaToLogical(
+      targetRect.left + targetRect.width / 2 - visualCenterOffset.x - canvasRect.left,
+      zoom
+    ),
+    y: bounds.top + canvasVisualDeltaToLogical(
+      targetRect.top + targetRect.height / 2 - visualCenterOffset.y - canvasRect.top,
+      zoom
+    )
+  };
 }
 
 type CanvasStructuredTreeProps = React.ComponentProps<typeof SnlSyntaxTreeView> & {
@@ -3891,6 +3924,14 @@ export function GuiCanvasEditor({
         x: pointerWorld.x - startPosition.x,
         y: pointerWorld.y - startPosition.y
       },
+      visualCenterOffset: {
+        x: (resolved.path.length > 0 && resolvedRectUsable ? resolved.rect : blockRect).left +
+          (resolved.path.length > 0 && resolvedRectUsable ? resolved.rect : blockRect).width / 2 -
+          cardVisualLeft,
+        y: (resolved.path.length > 0 && resolvedRectUsable ? resolved.rect : blockRect).top +
+          (resolved.path.length > 0 && resolvedRectUsable ? resolved.rect : blockRect).height / 2 -
+          cardVisualTop
+      },
       active: false
     };
     // Cat 2026-07-25: a plain click must focus exactly the subtree that a
@@ -3957,9 +3998,15 @@ export function GuiCanvasEditor({
     }
 
     event.preventDefault();
+    const draggedCenter = canvasDraggedVisualCenter(
+      { x: event.clientX, y: event.clientY },
+      drag.grabOffset,
+      drag.visualCenterOffset,
+      canvasZoomRef.current
+    );
     const nextDropTarget = findDropTarget(
-      event.clientX,
-      event.clientY,
+      draggedCenter.x,
+      draggedCenter.y,
       drag.rootIndex
     );
     const canvas = canvasRef.current;
@@ -3969,16 +4016,13 @@ export function GuiCanvasEditor({
     const snappedPosition = targetElement && canvas && canvasRect
       ? (() => {
           const targetRect = targetElement.getBoundingClientRect();
-          return {
-            x: bounds.left + canvasVisualDeltaToLogical(
-              targetRect.left - canvasRect.left,
-              canvasZoomRef.current
-            ),
-            y: bounds.top + canvasVisualDeltaToLogical(
-              targetRect.top - canvasRect.top,
-              canvasZoomRef.current
-            )
-          };
+          return canvasCenteredSnapPosition(
+            canvasRect,
+            bounds,
+            targetRect,
+            drag.visualCenterOffset,
+            canvasZoomRef.current
+          );
         })()
       : null;
     const pointerWorld = canvas && canvasRect
@@ -4006,8 +4050,14 @@ export function GuiCanvasEditor({
   const endPointer = (event: React.PointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    const draggedCenter = canvasDraggedVisualCenter(
+      { x: event.clientX, y: event.clientY },
+      drag.grabOffset,
+      drag.visualCenterOffset,
+      canvasZoomRef.current
+    );
     const target = drag.active
-      ? findDropTarget(event.clientX, event.clientY, drag.rootIndex)
+      ? findDropTarget(draggedCenter.x, draggedCenter.y, drag.rootIndex)
       : null;
     if (drag.active && target) {
       const attached = attachCanvasRoot(

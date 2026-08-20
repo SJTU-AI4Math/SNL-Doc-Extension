@@ -5,6 +5,8 @@ import { MacroDataDriver, type SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import {
   GuiCanvasEditor,
   canvasBoundsForBlocks,
+  canvasCenteredSnapPosition,
+  canvasDraggedVisualCenter,
   canvasExtentForBlocks,
   canvasInitialPosition,
   canvasLogicalViewportWidth,
@@ -99,6 +101,23 @@ describe('GuiCanvasEditor', () => {
     expect(canvasLogicalViewportWidth(800, 0.5)).toBe(1600);
     expect(canvasVisualDeltaToLogical(80, 2)).toBe(40);
     expect(canvasVisualDeltaToLogical(80, 0.5)).toBe(160);
+  });
+
+  it('normalizes dragged and target centers before calculating a snap position', () => {
+    const draggedCenter = canvasDraggedVisualCenter(
+      { x: 300, y: 500 },
+      { x: 11, y: 11 },
+      { x: 172, y: 32 },
+      2
+    );
+    expect(draggedCenter).toEqual({ x: 450, y: 510 });
+    expect(canvasCenteredSnapPosition(
+      { left: -120, top: 40 },
+      { left: 0, top: 0 },
+      { left: 430, top: 460, width: 40, height: 100 },
+      { x: 172, y: 32 },
+      2
+    )).toEqual({ x: 199, y: 219 });
   });
 
   it('anchors zoom to the bordered viewport content box', async () => {
@@ -1622,8 +1641,8 @@ describe('GuiCanvasEditor', () => {
     fireEvent.pointerDown(blocks[1], { pointerId: 3, button: 0, clientX: 300, clientY: 200 });
     fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
     await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(true));
-    expect(blocks[1].style.left).toBe('500px');
-    expect(blocks[1].style.top).toBe('300px');
+    expect(blocks[1].style.left).toBe('515px');
+    expect(blocks[1].style.top).toBe('310px');
 
     fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 100, clientY: 100 });
     await waitFor(() => expect(hole.classList.contains('snl-canvas-drop-target')).toBe(false));
@@ -1631,12 +1650,91 @@ describe('GuiCanvasEditor', () => {
     expect(blocks[1].style.top).toBe('-76px');
 
     fireEvent.pointerMove(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
-    await waitFor(() => expect(blocks[1].style.left).toBe('500px'));
+    await waitFor(() => expect(blocks[1].style.left).toBe('515px'));
     fireEvent.pointerUp(blocks[1], { pointerId: 3, clientX: 320, clientY: 220 });
 
     await waitFor(() => expect(view.getByTestId('root-count').textContent).toBe('1'));
     expect(view.container.querySelector<HTMLElement>('[data-tree-path="0"]')?.textContent).toContain('detached');
     Reflect.deleteProperty(document, 'elementsFromPoint');
+  });
+
+  it('chooses and snaps to the destination under the dragged subtree center', async () => {
+    function Harness(): React.ReactElement {
+      const [forest, setForest] = React.useState([
+        node('left', [createCanvasHole(0)]),
+        node('right', [createCanvasHole(0)]),
+        node('source', [node('wide')])
+      ]);
+      return (
+        <>
+          <output data-testid="left-destination">{forest[0]?.children[0]?.macro_name}</output>
+          <output data-testid="right-destination">{forest[1]?.children[0]?.macro_name}</output>
+          <GuiCanvasEditor
+            forest={forest}
+            macroDataDriver={driver}
+            kindPalette={undefined}
+            onForestChange={setForest}
+            onResetFromSnl={() => undefined}
+          />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-entry-gui-canvas-viewport]'
+    )!;
+    Object.defineProperties(viewport, {
+      clientWidth: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 500 }
+    });
+    viewport.scrollLeft = 160;
+    viewport.scrollTop = 90;
+    const canvas = view.getByLabelText('GUI Editor canvas') as HTMLElement;
+    fireEvent(viewport, createEvent.wheel(viewport, {
+      deltaY: -1000, clientX: 240, clientY: 180, cancelable: true
+    }));
+    await waitFor(() => expect(Number(canvas.style.zoom)).toBe(2));
+    canvas.getBoundingClientRect = () => new DOMRect(-120, 40, 1600, 1024);
+
+    const blocks = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]');
+    const sourceBlock = blocks[2];
+    const sourceContent = sourceBlock.firstElementChild as HTMLElement;
+    const draggedSubtree = sourceBlock.querySelector<HTMLElement>('[data-tree-path="0"]')!;
+    const holes = view.container.querySelectorAll<HTMLElement>('[data-kind="argPlaceholder"]');
+    const leftHole = holes[0];
+    const rightHole = holes[1];
+    sourceBlock.getBoundingClientRect = () => new DOMRect(200, 300, 440, 120);
+    sourceContent.getBoundingClientRect = () => new DOMRect(212, 312, 416, 96);
+    draggedSubtree.getBoundingClientRect = () => new DOMRect(240, 330, 320, 40);
+    leftHole.getBoundingClientRect = () => new DOMRect(280, 460, 40, 100);
+    rightHole.getBoundingClientRect = () => new DOMRect(430, 460, 40, 100);
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: (x: number) => x < 400 ? [leftHole] : [rightHole]
+    });
+
+    fireEvent.pointerDown(draggedSubtree, {
+      pointerId: 303, button: 0, clientX: 250, clientY: 340
+    });
+    fireEvent.pointerMove(draggedSubtree, {
+      pointerId: 303, clientX: 300, clientY: 500
+    });
+
+    await waitFor(() => expect(rightHole.classList.contains('snl-canvas-drop-target')).toBe(true));
+    expect(leftHole.classList.contains('snl-canvas-drop-target')).toBe(false);
+    const detachedBlock = view.container.querySelectorAll<HTMLElement>('[data-canvas-root]')[3];
+    // The dragged subtree is 320×40 while the candidate is 40×100. Their
+    // visual centres coincide despite CSS zoom, viewport scroll, Canvas page
+    // offset, and the detached root card's 12px visual inset.
+    expect(detachedBlock.style.left).toBe('199px');
+    expect(detachedBlock.style.top).toBe('219px');
+
+    fireEvent.pointerUp(draggedSubtree, {
+      pointerId: 303, clientX: 300, clientY: 500
+    });
+    await waitFor(() => expect(view.getByTestId('right-destination').textContent).toBe('wide'));
+    expect(view.getByTestId('left-destination').textContent).not.toBe('wide');
   });
 
   it('does not absorb from a stale hover target or pointercancel', async () => {

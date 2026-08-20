@@ -35,11 +35,18 @@ describe('EXPORT_RUNTIME_WIRING_JS', () => {
     expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-snl-subtree');
   });
 
+  it('uses file-safe hash routes instead of server-dependent history routes', () => {
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain("#/node/");
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('hashchange');
+    expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-snl-route-id');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('pushState(');
+  });
+
   it('stays small enough to inline without thought', () => {
     // Raised from 8000 when hover popovers landed (2026-07-30). The cap exists
     // to catch a renderer accidentally being dragged in — React alone is 100x
     // this — not to police a few hundred bytes of new wiring.
-    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(16000);
+    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(22000);
   });
 });
 

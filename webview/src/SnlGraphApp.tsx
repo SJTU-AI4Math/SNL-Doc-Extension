@@ -654,36 +654,55 @@ interface Viewport {
   scale: number;
 }
 
+/** The edge router only needs node bounds, not the rest of the graph record. */
+type EdgeAnchorNode = Pick<LaidOutNode, 'x' | 'y' | 'w' | 'h'>;
+type EdgePoint = { x: number; y: number };
+
 /**
- * Compute an SVG path for an edge, routing through any waypoints
- * (dummy-node centres inserted at intermediate layers). Segments between
- * consecutive waypoints (or endpoint↔waypoint) are cubic beziers with
- * vertical control tangents so the overall path stays smooth.
+ * Compute an SVG path for an edge, routing through any dummy-node waypoints.
+ *
+ * The source and target tangents stay vertical, so edges leave and enter node
+ * boxes cleanly. Interior tangents instead follow the centred secant through
+ * the neighbouring points. The old router reset both controls to the waypoint
+ * x at every layer, which forced an extra vertical-looking section into the
+ * middle of every long curve.
  */
-function edgePath(
-  from: LaidOutNode,
-  to: LaidOutNode,
-  waypoints: { x: number; y: number }[]
+export function edgePath(
+  from: EdgeAnchorNode,
+  to: EdgeAnchorNode,
+  waypoints: EdgePoint[]
 ): { d: string; midX: number; midY: number } {
   const x1 = from.x + from.w / 2;
   const y1 = from.y + from.h;
   const x2 = to.x + to.w / 2;
   const y2 = to.y;
-  // Full point sequence: source-anchor, waypoints…, target-anchor.
-  const pts = [{ x: x1, y: y1 }, ...waypoints, { x: x2, y: y2 }];
+  const pts: EdgePoint[] = [{ x: x1, y: y1 }, ...waypoints, { x: x2, y: y2 }];
+  const last = pts.length - 1;
+  const tangents = pts.map((point, index): EdgePoint => {
+    if (index === 0) {
+      return { x: 0, y: (pts[1].y - point.y) * 1.5 };
+    }
+    if (index === last) {
+      return { x: 0, y: (point.y - pts[last - 1].y) * 1.5 };
+    }
+    return {
+      x: (pts[index + 1].x - pts[index - 1].x) * 0.5,
+      y: (pts[index + 1].y - pts[index - 1].y) * 0.5
+    };
+  });
+
   const segments: string[] = [`M ${pts[0].x} ${pts[0].y}`];
-  for (let i = 1; i < pts.length; i++) {
-    const p0 = pts[i - 1];
-    const p1 = pts[i];
-    const dy = p1.y - p0.y;
-    const c1y = p0.y + dy * 0.5;
-    const c2y = p1.y - dy * 0.5;
+  for (let index = 1; index < pts.length; index++) {
+    const start = pts[index - 1];
+    const end = pts[index];
+    const startTangent = tangents[index - 1];
+    const endTangent = tangents[index];
     segments.push(
-      `C ${p0.x} ${c1y}, ${p1.x} ${c2y}, ${p1.x} ${p1.y}`
+      `C ${start.x + startTangent.x / 3} ${start.y + startTangent.y / 3}, ` +
+      `${end.x - endTangent.x / 3} ${end.y - endTangent.y / 3}, ` +
+      `${end.x} ${end.y}`
     );
   }
-  // Label anchor: middle of the WHOLE run (endpoint-to-endpoint midpoint
-  // is fine even with waypoints, since we're hiding labels for now).
   return {
     d: segments.join(' '),
     midX: (x1 + x2) / 2,

@@ -726,7 +726,11 @@ function OutlineTreeNode({
         gap: '0.75rem'
       }}
     >
-      <div style={{ position: 'relative' }}>
+      <div
+        data-snl-route-id={node.nodeId}
+        data-snl-entry-id={node.entry?.id}
+        style={{ position: 'relative' }}
+      >
         {hasChildren ? (
           <CollapseToggle
             collapsed={isCollapsed}

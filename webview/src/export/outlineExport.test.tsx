@@ -10,6 +10,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 import { LibraryOutline, type OutlineNode } from '../App';
+import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
 import { harvestLibraryHtml } from './htmlExport';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -36,8 +37,12 @@ const branch = (id: string, children: OutlineNode[]): OutlineNode => ({
 });
 
 /** Render the outline, harvest it, wrap it, execute the runtime. */
-async function exportAndRun(nodes: OutlineNode[]): Promise<Document> {
-  const { container } = render(<LibraryOutline nodes={nodes} />);
+async function exportAndRun(nodes: OutlineNode[], hash = ''): Promise<Document> {
+  const { container } = render(
+    <HoverPopoverProvider postMessage={() => {}} entries={[]}>
+      <LibraryOutline nodes={nodes} />
+    </HoverPopoverProvider>
+  );
   const root = container.firstElementChild as HTMLElement;
   const { html } = harvestLibraryHtml(root, 'vscode-webview://x/assets');
   const doc = buildExportDocument({
@@ -46,7 +51,11 @@ async function exportAndRun(nodes: OutlineNode[]): Promise<Document> {
     body: html,
     script: EXPORT_RUNTIME_JS
   });
-  const dom = new JSDOM(doc, { runScripts: 'dangerously', pretendToBeVisual: true });
+  const dom = new JSDOM(doc, {
+    url: `https://export.invalid/${hash}`,
+    runScripts: 'dangerously',
+    pretendToBeVisual: true
+  });
   // The runtime installs on DOMContentLoaded. Without this wait the assertions
   // run against a document still in `readyState: 'loading'` and see zero
   // toggles — a false failure that looks exactly like the real bug.
@@ -85,6 +94,39 @@ describe('Library outline survives export with working collapse', () => {
     expect(host).not.toBeNull();
     expect(host!.getAttribute('data-snl-child-count')).toBe('2');
     expect(host!.querySelector(':scope > [data-snl-subtree]')).not.toBeNull();
+  });
+
+  it('preserves graph-node occurrence ids when two nodes share one Entry', async () => {
+    const sharedEntry = {
+      id: 'shared-entry',
+      kind: 'theorem',
+      title: 'Shared Entry',
+      content: { markdown: 'same Entry, distinct graph nodes' },
+      contribution_info: null,
+      pointer: null
+    } as never;
+    const occurrence = (nodeId: string): OutlineNode => ({
+      nodeId,
+      entry: sharedEntry,
+      kind: null,
+      counterLabel: nodeId,
+      children: []
+    });
+    const D = await exportAndRun(
+      [occurrence('first occurrence'), occurrence('second/occurrence')],
+      '#/node/second%2Foccurrence'
+    );
+    const routes = Array.from(D.querySelectorAll<HTMLElement>('[data-snl-route-id]'));
+    expect(routes.map((node) => node.dataset.snlRouteId)).toEqual([
+      'first occurrence', 'second/occurrence'
+    ]);
+    expect(routes.map((node) => node.dataset.snlEntryId)).toEqual([
+      'shared-entry', 'shared-entry'
+    ]);
+    expect(routes[0].hasAttribute('data-snl-route-current')).toBe(false);
+    expect(routes[1].hasAttribute('data-snl-route-current')).toBe(true);
+    expect(D.defaultView!.getComputedStyle(routes[0]).display).toBe('none');
+    expect(D.defaultView!.getComputedStyle(routes[1]).display).not.toBe('none');
   });
 
   it('rebuilds a working toggle for every parent row in the exported file', async () => {

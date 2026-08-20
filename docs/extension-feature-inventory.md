@@ -336,6 +336,8 @@ Macro 预设由 `resources/kind-presets/macro/*.json` 提供。目前只发布�
 | ExportOptions | Export | button | 执行 HTML 导出 | `runExport {shape,destination,interactive}` | busy 或路径为空时禁用 |
 | ExportOptions | Reveal in file manager | button | 在系统文件管理器中定位导出结果 | `revealExport` | 仅成功后显示 |
 
+交互式导出会为每个可路由 Entry/Library 节点生成 `#/node/<percent-encoded-id>` 永久链接。采用 hash route 是为了让单文件 `file://`、任意静态 base path、直接刷新和前进/后退都不依赖服务器 rewrite；普通 `/node/id` history route 仍要求静态主机配置 SPA fallback，或为节点预生成页面。
+
 ---
 
 *生成方法：并发扫 16 个 webview.tsx，逐个提取 `<button/input/select/textarea/…>` 并对应 `postMessage({type:...})` 调用。*

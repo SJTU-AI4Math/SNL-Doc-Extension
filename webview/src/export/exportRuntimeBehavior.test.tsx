@@ -346,6 +346,50 @@ describe('the exported runtime, executed', () => {
     }
   });
 
+  it('routes directly to a node panel with hash refresh, history, and unknown fallback', () => {
+    window.history.replaceState(null, '', '#/node/node%20alpha');
+    document.body.innerHTML = `
+      <main class="snl-export">
+        <section data-snl-route-id="node alpha"><article data-entry-id="entry-a">Alpha panel</article></section>
+        <section data-snl-route-id="node/beta"><article data-entry-id="entry-b">Beta panel</article></section>
+      </main>`;
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    const alpha = document.querySelector<HTMLElement>('[data-snl-route-id="node alpha"]')!;
+    const beta = document.querySelector<HTMLElement>('[data-snl-route-id="node/beta"]')!;
+    expect(document.documentElement.getAttribute('data-snl-entry-route')).toBe('node alpha');
+    expect(alpha.hasAttribute('data-snl-route-current')).toBe(true);
+    expect(beta.hasAttribute('data-snl-route-current')).toBe(false);
+    expect(alpha.querySelector<HTMLAnchorElement>(':scope > [data-snl-route-link]')?.hash)
+      .toBe('#/node/node%20alpha');
+    expect(alpha.querySelectorAll('[data-snl-route-link]')).toHaveLength(1);
+
+    window.history.pushState(null, '', '#/node/node%2Fbeta');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.documentElement.getAttribute('data-snl-entry-route')).toBe('node/beta');
+    expect(alpha.hasAttribute('data-snl-route-current')).toBe(false);
+    expect(beta.hasAttribute('data-snl-route-current')).toBe(true);
+
+    window.history.pushState(null, '', '#/node/missing');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.documentElement.hasAttribute('data-snl-entry-route')).toBe(false);
+    expect(document.querySelector('[data-snl-route-not-found]')?.textContent)
+      .toContain('missing');
+
+    window.history.pushState(null, '', '#/node/%E0%A4%A');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.documentElement.hasAttribute('data-snl-entry-route')).toBe(false);
+    expect(document.querySelector('[data-snl-route-not-found]')?.textContent)
+      .toContain('%E0%A4%A');
+
+    window.history.pushState(null, '', '#/');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.querySelector('[data-snl-route-not-found]')).toBeNull();
+    expect(alpha.hasAttribute('data-snl-route-current')).toBe(false);
+    expect(beta.hasAttribute('data-snl-route-current')).toBe(false);
+  });
+
   it('keeps current sub helpers and legacy partial helpers outside hover selection', () => {
     hover(byId('sub-helper'));
     expect(document.querySelectorAll('.snl-single-hover')).toHaveLength(0);

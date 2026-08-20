@@ -463,7 +463,110 @@ const RUNTIME_TEMPLATE = String.raw`
     }
   }
 
-  function init() { wireHighlighting(); wireCollapse(); wirePopovers(); }
+  /**
+   * Hash routing for standalone exports.
+   *
+   * A hash route survives file:// refresh and arbitrary static-host base paths;
+   * unlike a history route it needs no server fallback. Headless exporters can
+   * provide stable graph-node identities via data-snl-route-id. Older/live DOM
+   * snapshots fall back to their Entry id.
+   */
+  function wireRoutes() {
+    var main = document.querySelector('.snl-export');
+    if (!main) return;
+    var candidates = main.querySelectorAll('[data-snl-route-id], [data-entry-id]');
+    var surfaces = [];
+    for (var i = 0; i < candidates.length; i++) {
+      var surface = candidates[i];
+      if (surface.closest('.snl-export-popover')) continue;
+      if (!surface.hasAttribute('data-snl-route-id') && surface.closest('[data-snl-route-id]')) continue;
+      var identity = surface.getAttribute('data-snl-route-id') || surface.getAttribute('data-entry-id');
+      if (!identity) continue;
+      surface.setAttribute('data-snl-route-surface', '');
+      surfaces.push({ element: surface, identity: identity });
+      if (!surface.querySelector(':scope > [data-snl-route-link]')) {
+        var link = document.createElement('a');
+        link.setAttribute('data-snl-route-link', '');
+        link.className = 'snl-export-route-link';
+        link.href = '#/node/' + encodeURIComponent(identity);
+        link.textContent = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0
+          ? '此节点的永久链接'
+          : 'Permalink to this node';
+        surface.appendChild(link);
+      }
+    }
+
+    function clearStatus() {
+      var old = main.querySelector('[data-snl-route-not-found]');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    function showMissing(identity) {
+      clearStatus();
+      var status = document.createElement('p');
+      status.setAttribute('data-snl-route-not-found', '');
+      status.setAttribute('role', 'status');
+      status.className = 'snl-export-route-status';
+      status.textContent = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0
+        ? '找不到节点：' + identity
+        : 'Node not found: ' + identity;
+      main.insertBefore(status, main.firstChild);
+    }
+
+    function expandAncestors(element) {
+      var cursor = element.parentElement;
+      while (cursor && cursor !== main) {
+        if (cursor.hasAttribute('data-snl-collapsible')) {
+          var record = cursor.__snlExportCollapseRecord;
+          if (record && record.toggle.getAttribute('aria-expanded') !== 'true') {
+            record.toggle.click();
+          }
+        }
+        cursor = cursor.parentElement;
+      }
+    }
+
+    function applyRoute() {
+      document.documentElement.removeAttribute('data-snl-entry-route');
+      clearStatus();
+      for (var i = 0; i < surfaces.length; i++) {
+        surfaces[i].element.removeAttribute('data-snl-route-current');
+        surfaces[i].element.removeAttribute('aria-current');
+      }
+      var prefix = '#/node/';
+      if (window.location.hash.slice(0, prefix.length) !== prefix) return;
+      var encoded = window.location.hash.slice(prefix.length);
+      var identity;
+      try { identity = decodeURIComponent(encoded); }
+      catch (_) { showMissing(encoded); return; }
+      if (!identity) { showMissing(identity); return; }
+      var matches = [];
+      for (var j = 0; j < surfaces.length; j++) {
+        if (surfaces[j].identity === identity) matches.push(surfaces[j].element);
+      }
+      if (matches.length === 0) { showMissing(identity); return; }
+      document.documentElement.setAttribute('data-snl-entry-route', identity);
+      for (var k = 0; k < matches.length; k++) {
+        matches[k].setAttribute('data-snl-route-current', '');
+        matches[k].setAttribute('aria-current', 'location');
+        expandAncestors(matches[k]);
+      }
+      var target = matches[0];
+      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      if (target.focus) target.focus({ preventScroll: true });
+      if (target.scrollIntoView) target.scrollIntoView({ block: 'start' });
+    }
+
+    if (globalThis.__snlExportRouteCleanup) globalThis.__snlExportRouteCleanup();
+    window.addEventListener('hashchange', applyRoute);
+    globalThis.__snlExportRouteCleanup = function () {
+      window.removeEventListener('hashchange', applyRoute);
+      globalThis.__snlExportRouteCleanup = null;
+    };
+    applyRoute();
+  }
+
+  function init() { wireHighlighting(); wireCollapse(); wirePopovers(); wireRoutes(); }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -500,6 +603,24 @@ export const EXPORT_RUNTIME_CSS = `
 .snl-collapsible-scope__controls {
   display: flex; justify-content: flex-end; align-items: center;
   gap: .35rem; margin: 0 0 .4rem;
+}
+html[data-snl-entry-route] .snl-export [data-snl-route-surface]:not([data-snl-route-current]) {
+  display: none !important;
+}
+.snl-export-route-link {
+  display: block;
+  width: fit-content;
+  margin: .35rem .35rem .25rem auto;
+  font-size: .75rem;
+  opacity: .58;
+}
+.snl-export-route-link:hover,
+.snl-export-route-link:focus-visible { opacity: 1; }
+.snl-export-route-status {
+  padding: .65rem .8rem;
+  border: 1px solid #b91c1c;
+  color: #991b1b;
+  background: #fef2f2;
 }
 
 /* Collapse MUST beat the inline style on the row it hides.

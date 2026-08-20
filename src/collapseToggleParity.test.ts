@@ -95,8 +95,8 @@ describe('the exported runtime consumes the same contract', () => {
     expect(EXPORT_RUNTIME_CSS).toContain('padding-left');
     // The popover frame legitimately paints (background, shadow, fade), and
     // it is not a button — so scope this assertion to everything else.
-    const withoutPopover = EXPORT_RUNTIME_CSS.replace(
-      /\.snl-export-popover[^{]*\{[^}]*\}/g,
+    const withoutPopoverOrRoute = EXPORT_RUNTIME_CSS.replace(
+      /\.snl-export-(?:popover|route)[^{]*\{[^}]*\}/g,
       ''
     );
     // Assert the INTENT directly instead of proxying it through a byte count:
@@ -112,7 +112,7 @@ describe('the exported runtime consumes the same contract', () => {
       'opacity',
       'transition'
     ]) {
-      expect(withoutPopover).not.toContain(`${property}:`);
+      expect(withoutPopoverOrRoute).not.toContain(`${property}:`);
     }
   });
 

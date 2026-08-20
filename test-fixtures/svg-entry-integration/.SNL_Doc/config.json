@@ -1,0 +1,52 @@
+{
+  "version": "0.1.0",
+  "entry_kinds": [
+    {
+      "id": "example",
+      "name": {
+        "type": "i18n",
+        "default_language": "en",
+        "values": {
+          "en": "Example",
+          "zh-CN": "示例"
+        }
+      },
+      "coloring": {
+        "light": {
+          "stroke": "#2563eb",
+          "background": "#eff6ff"
+        },
+        "dark": {
+          "stroke": "#93c5fd",
+          "background": "#172554"
+        }
+      },
+      "style": "",
+      "defaultCounterName": "example"
+    }
+  ],
+  "macro_kinds": [
+    {
+      "id": "diagram",
+      "name": "Diagram",
+      "description": "Projection-driven SVG fixture",
+      "coloring": {
+        "light": {
+          "stroke": "#2563eb",
+          "background": "#eff6ff"
+        },
+        "dark": {
+          "stroke": "#93c5fd",
+          "background": "#172554"
+        }
+      }
+    }
+  ],
+  "active_macro_packages": [
+    "svg-fixture"
+  ],
+  "entity_storage": {
+    "version": 1,
+    "entry_default_package": "svg-fixture"
+  }
+}

@@ -79,6 +79,7 @@ describe('PreferencesHost language writes', () => {
     add(input: unknown): Promise<unknown>;
   }, assetService?: {
     resolve(path: string): Promise<string>;
+    readSvgSource?(identity: { source: string; baseIdentity: string; revision: string }): Promise<string>;
   }): {
     receive: (message: unknown) => void;
     postMessage: ReturnType<typeof vi.fn>;
@@ -170,6 +171,30 @@ describe('PreferencesHost language writes', () => {
       url: 'vscode-webview://trusted/figures/proof.png'
     }));
     expect(assetService.resolve).toHaveBeenCalledWith('figures/proof.png');
+    host.dispose();
+  });
+
+  it('returns raw SVG only through a fully correlated immutable identity', async () => {
+    const assetService = {
+      resolve: vi.fn(async () => 'unused'),
+      readSvgSource: vi.fn(async () => '<svg viewBox="0 0 1 1"/>')
+    };
+    const host = new PreferencesHost();
+    const webview = register(host, undefined, assetService);
+    webview.receive({
+      type: 'snl.assets/read-svg-source', request_id: 'svg-1',
+      source: 'diagrams/proof.svg', base_identity: 'workspace:.SNL_Doc/assets',
+      revision: 'sha256:abc'
+    });
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({
+      type: 'snl.assets/svg-source-result', request_id: 'svg-1',
+      source: 'diagrams/proof.svg', base_identity: 'workspace:.SNL_Doc/assets',
+      revision: 'sha256:abc', svg_source: '<svg viewBox="0 0 1 1"/>'
+    }));
+    expect(assetService.readSvgSource).toHaveBeenCalledWith({
+      request_id: 'svg-1', source: 'diagrams/proof.svg',
+      baseIdentity: 'workspace:.SNL_Doc/assets', revision: 'sha256:abc'
+    });
     host.dispose();
   });
 

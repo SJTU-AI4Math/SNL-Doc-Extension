@@ -99,7 +99,7 @@ function createStage(doc: Document): HTMLElement {
 }
 
 function isSettled(host: HTMLElement, sinceStubGone: number | null): boolean {
-  if (host.querySelector('.snl-entry-loading')) return false;
+  if (host.querySelector('.snl-entry-loading,.snl-svg-template-loading')) return false;
   // Nothing rendered at all yet — React has not committed.
   if (!host.firstElementChild) return false;
   if (host.querySelector('[data-entry-body]')) return true;

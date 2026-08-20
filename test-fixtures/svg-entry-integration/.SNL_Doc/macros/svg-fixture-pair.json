@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "svg-fixture",
+  "macro": {
+    "description": "Document pair for formula and referenced Entry",
+    "source": {
+      "entries": [
+        "svg-primary"
+      ],
+      "urls": []
+    },
+    "kind": "diagram",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "#0 #1"
+        }
+      }
+    ],
+    "name": "pair"
+  },
+  "schema_version": 1
+}

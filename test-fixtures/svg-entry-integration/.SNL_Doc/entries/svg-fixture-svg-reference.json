@@ -1,0 +1,16 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "svg-fixture",
+  "entry": {
+    "id": "svg-reference",
+    "kind": "example",
+    "title": "Referenced SVG entry",
+    "content": {
+      "snl": "diagram(B,A,Right,Left)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "svg-fixture"
+  }
+}

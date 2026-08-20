@@ -59,8 +59,10 @@ const WORKSPACE_ASSET_BROKER_DEBUG_LABELS = [
   'pendingResolutions:',
   'resolutions:',
   'requests:',
-  'epochs:',
-  'consumers:'
+  'epochs:'
+  // Do not match the generic `consumers:` property: SNL-Basics's bounded
+  // production SVG registry legitimately uses that internal field. The
+  // extension broker's namespaced hooks/labels above remain prohibited.
 ];
 
 const EXPECTED_PRODUCTION_OUTPUTS = [

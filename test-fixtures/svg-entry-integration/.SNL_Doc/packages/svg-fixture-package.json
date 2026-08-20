@@ -1,0 +1,12 @@
+{
+  "format": "snl-package",
+  "version": 1,
+  "id": "svg-fixture",
+  "name": "SVG Formula Fixture",
+  "description": "Real Task 9 packed-consumer workspace",
+  "schema_version": 2,
+  "entry_ids": [
+    "svg-primary",
+    "svg-reference"
+  ]
+}

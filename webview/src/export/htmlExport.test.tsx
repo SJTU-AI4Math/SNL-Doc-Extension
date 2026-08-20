@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from '@testing-library/react';
-import { harvestLibraryHtml } from './htmlExport';
+import { harvestLibraryHtml, waitForSettledSvgTemplates } from './htmlExport';
 import { EntrySurface } from '../render/EntrySurface';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
 import { resolveMarkdownAssetUrl } from '../render/markdownAssets';
@@ -124,6 +124,27 @@ describe('harvestLibraryHtml', () => {
     harvestLibraryHtml(source, BASE);
     expect(source.querySelector('button')).not.toBeNull();
     expect(source.querySelector('img')?.getAttribute('src')).toBe(`${BASE}/a.png`);
+  });
+});
+
+describe('parameterized SVG export', () => {
+  it('preserves sanitized inline SVG and foreign overlay DOM without exporting an asset', () => {
+    const { html, assets } = harvestLibraryHtml(el(
+      '<div class="snl-svg-template"><svg class="snl-svg-template-artwork" role="img"><defs><linearGradient id="scoped-g"><stop/></linearGradient></defs><path fill="url(#scoped-g)"/></svg>' +
+      '<div data-snl-foreign-box-host><span class="katex">x</span><span>label</span></div></div>'
+    ), BASE);
+    expect(html).toContain('snl-svg-template-artwork');
+    expect(html).toContain('url(#scoped-g)');
+    expect(html).toContain('data-snl-foreign-box-host');
+    expect(html).toContain('class="katex"');
+    expect(assets).toEqual([]);
+  });
+
+  it('waits until the live SVG loading marker is replaced', async () => {
+    const root = el('<div class="snl-svg-template-loading">loading</div>');
+    const waiting = waitForSettledSvgTemplates(root, 200);
+    setTimeout(() => { root.innerHTML = '<svg class="snl-svg-template-artwork"/>'; }, 10);
+    await expect(waiting).resolves.toBeUndefined();
   });
 });
 

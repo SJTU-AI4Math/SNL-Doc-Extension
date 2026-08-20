@@ -7,7 +7,7 @@ import { IconButton } from './components/IconButton';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { is_valid_i18n_string, resolve_localized_string } from '../../src/localizedContent';
-import { isEntryDataPayload, isEntryKindPayload } from './render/EntryRender';
+import { isEntryDataPayload, isEntryKindPayload } from './render/entryPayload';
 import { resolveWebviewKindColoring } from './render/kindColoring';
 import { use_content_language, use_preferences_revision } from './runtime/preferencesRuntime';
 import { PANEL_STYLE, useVsCodeApiRef } from './vscodeApi';

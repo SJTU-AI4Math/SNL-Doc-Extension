@@ -38,7 +38,7 @@ import {
 } from './render/macroKindPalette';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
-import { harvestLibraryHtml } from './export/htmlExport';
+import { harvestLibraryHtml, waitForSettledSvgTemplates } from './export/htmlExport';
 import { createEntryDetailLoader } from './export/entryDetailBridge';
 import { prerenderPopovers } from './export/popoverPrerender';
 import {
@@ -235,7 +235,9 @@ export function App(): React.ReactElement {
     const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
     if (!root) return;
-    const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
+    void waitForSettledSvgTemplates(root).then(() => {
+      if (generation !== exportGenerationRef.current) return;
+      const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
     const send = (
       popovers: Record<string, string>,
       extraAssets: typeof assets
@@ -291,8 +293,18 @@ export function App(): React.ReactElement {
         }
         send(popovers, extra);
       },
-      () => send({}, [])
-    );
+        () => send({}, [])
+      );
+    }).catch((error: unknown) => {
+      // A perpetually loading renderer is not portable output. Tell the host
+      // explicitly instead of silently turning the user's Export click into a
+      // no-op or snapshotting a spinner as if it were artwork.
+      if (generation !== exportGenerationRef.current) return;
+      postMessage({
+        type: 'exportLibraryHtmlError',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   };
   const markdownImageUrlTransform = React.useMemo(
     () => assetBaseUri

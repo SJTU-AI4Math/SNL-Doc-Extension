@@ -1,0 +1,27 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "svg-fixture",
+  "macro": {
+    "description": "Plain label left",
+    "source": {
+      "entries": [],
+      "urls": []
+    },
+    "kind": "diagram",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "L"
+        }
+      }
+    ],
+    "name": "Left"
+  },
+  "schema_version": 1
+}

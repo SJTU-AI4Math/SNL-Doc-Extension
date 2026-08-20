@@ -4,8 +4,12 @@ import { extname, relative, resolve, sep } from 'node:path';
 import * as vscode from 'vscode';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_SVG_SOURCE_BYTES = 1024 * 1024;
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);
 const ABSOLUTE_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+/** Stable consumer identity for the only raw-source asset namespace. */
+export const SVG_ASSET_BASE_IDENTITY = 'workspace:.SNL_Doc/assets';
 
 export interface CacheWorkspaceAssetOptions {
   workspaceRoot: vscode.Uri;
@@ -151,4 +155,40 @@ export async function readWorkspaceAsset(
     throw new Error('Workspace image must be no larger than 10 MiB.');
   }
   return bytes;
+}
+
+
+export interface ReadWorkspaceSvgSourceOptions extends ReadWorkspaceAssetOptions {
+  baseIdentity: string;
+  /** `sha256:<lowercase hex>` of the exact UTF-8 bytes. */
+  revision: string;
+}
+
+/** Read immutable SVG text through the same file-only/no-symlink boundary as
+ * images. The expected digest binds host bytes to the renderer projection. */
+export async function readWorkspaceSvgSource(
+  options: ReadWorkspaceSvgSourceOptions
+): Promise<string> {
+  if (options.baseIdentity !== SVG_ASSET_BASE_IDENTITY) {
+    throw new Error('Unknown SVG asset base identity.');
+  }
+  if (extname(options.relativePath).toLowerCase() !== '.svg') {
+    throw new Error('SVG template source must use the .svg extension.');
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(options.revision)) {
+    throw new Error('SVG template revision must be a sha256 digest.');
+  }
+  const bytes = await readWorkspaceAsset(options);
+  if (bytes.byteLength > MAX_SVG_SOURCE_BYTES) {
+    throw new Error('SVG template source must be no larger than 1 MiB.');
+  }
+  const actual = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  if (actual !== options.revision) {
+    throw new Error('SVG template source revision does not match workspace bytes.');
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('SVG template source must be valid UTF-8.');
+  }
 }

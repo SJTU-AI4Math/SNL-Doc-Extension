@@ -53,6 +53,11 @@ export interface WorkspaceLanguageService {
 
 export interface WorkspaceAssetService {
   resolve(path: string): Promise<string>;
+  readSvgSource?(identity: {
+    source: string;
+    baseIdentity: string;
+    revision: string;
+  }): Promise<string>;
 }
 
 export class PreferencesHost implements vscode.Disposable {
@@ -145,6 +150,22 @@ export class PreferencesHost implements vscode.Disposable {
         const target = ref.deref();
         if (target) void this.resolveAsset(target, assetService, asset.request_id, asset.path);
       }
+      const svg = message as {
+        type?: unknown; request_id?: unknown; source?: unknown;
+        base_identity?: unknown; revision?: unknown;
+      } | null;
+      if (svg?.type === 'snl.assets/read-svg-source' && assetService?.readSvgSource &&
+          typeof svg.request_id === 'string' && svg.request_id.length <= 128 &&
+          typeof svg.source === 'string' && typeof svg.base_identity === 'string' &&
+          typeof svg.revision === 'string') {
+        const target = ref.deref();
+        if (target) void this.resolveSvgSource(target, assetService, {
+          request_id: svg.request_id,
+          source: svg.source,
+          baseIdentity: svg.base_identity,
+          revision: svg.revision
+        });
+      }
     });
     this.webviewRefs.set(webview, { ref, listener });
     return {
@@ -174,6 +195,29 @@ export class PreferencesHost implements vscode.Disposable {
         type: 'snl.assets/resolved',
         request_id,
         path,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async resolveSvgSource(
+    webview: vscode.Webview,
+    service: WorkspaceAssetService,
+    request: { request_id: string; source: string; baseIdentity: string; revision: string }
+  ): Promise<void> {
+    const envelope = {
+      type: 'snl.assets/svg-source-result' as const,
+      request_id: request.request_id,
+      source: request.source,
+      base_identity: request.baseIdentity,
+      revision: request.revision
+    };
+    try {
+      const svg_source = await service.readSvgSource!(request);
+      await webview.postMessage({ ...envelope, svg_source });
+    } catch (error) {
+      await webview.postMessage({
+        ...envelope,
         error: error instanceof Error ? error.message : String(error)
       });
     }

@@ -49,6 +49,28 @@ describe('wireMacroToRenderable', () => {
     });
   });
 
+  it('preserves complete localized svg_template projections and style identity', () => {
+    const svg = {
+      asset: { source: 'diagrams/proof.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: 'sha256:abc', request_epoch: 7 },
+      generation: 4, producer_revision: 'renderer-v1', accessibility: { label: 'Proof diagram' },
+      formula_embed: { total_height_em: 2, baseline_ratio: 0.7, measurement: 'fixed' }
+    };
+    const rendered = wireMacroToRenderable({
+      name: 'diagram', description: '', source: { entries: ['ref'], urls: [] },
+      dynamic_arity: false, tags: [], styles: [
+        { style_name: 'compact', tags: [], template: { mode: 'block', body: '#0', block_template_name: 'svg_template', svg_template: svg } },
+        { style_name: 'localized', tags: [], template: { type: 'i18n', default_language: 'en', values: {
+          en: { mode: 'block', body: '#0', block_template_name: 'svg_template', svg_template: { ...svg, accessibility: { label: 'English diagram' } } },
+          'zh-CN': { mode: 'block', body: '#0', block_template_name: 'svg_template', svg_template: { ...svg, accessibility: { label: '中文图示' } } }
+        } } }
+      ]
+    }, 'zh-CN');
+    expect((rendered.styles[0].template as Record<string, unknown>).svg_template).toEqual(svg);
+    expect(rendered.styles[1].style_name).toBe('localized');
+    expect((rendered.styles[1].template as { values: Record<string, Record<string, unknown>> }).values['zh-CN'].svg_template)
+      .toMatchObject({ accessibility: { label: '中文图示' } });
+  });
+
   it('preserves prototype-sensitive Macro names as own render-map keys', () => {
     const macro = {
       name: '__proto__', description: '', source: { entries: [], urls: [] },

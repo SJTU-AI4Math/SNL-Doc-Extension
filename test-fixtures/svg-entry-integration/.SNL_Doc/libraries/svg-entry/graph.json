@@ -1,0 +1,19 @@
+{
+  "nodes": [
+    {
+      "id": "node.svg-primary",
+      "label": "Entry",
+      "props": {
+        "entryId": "svg-primary"
+      }
+    },
+    {
+      "id": "node.svg-reference",
+      "label": "Entry",
+      "props": {
+        "entryId": "svg-reference"
+      }
+    }
+  ],
+  "relationships": []
+}

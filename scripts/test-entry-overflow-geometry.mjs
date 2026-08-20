@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,6 +92,9 @@ const details = (fixture, selectedEntry, entries = []) => ({
   relatedEntries: []
 });
 
+const svgTemplateSource = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100" role="presentation"><rect x="2" y="2" width="236" height="96" rx="10" fill="none" stroke="#175cd3" stroke-width="4"/><path d="M55 40H185" stroke="currentColor" stroke-width="4"/><path d="M173 30L189 40L173 50Z" fill="currentColor"/><g data-snl-slot="0" transform="translate(18 18)"/><g data-snl-slot="1" transform="translate(198 18)"/><g data-snl-slot="2" transform="translate(70 54)"/><g data-snl-slot="3" transform="translate(145 54)"/></svg>';
+const svgTemplateRevision = 'sha256:7efed166abf9e86d0e063e852289598e40c9d749c33b31a9513b1ab76f86563b';
+
 const fixtures = {
   plain: details('plain', entry('fixture-plain', { text: long('PLAIN_SENTINEL') })),
   snl: {
@@ -129,6 +132,18 @@ const fixtures = {
       }
     }
   },
+  svg: {
+    ...details('svg', entry('fixture-svg', { snl: 'wrap(diagram(A,B,Left,Right))' })),
+    svgSource: svgTemplateSource,
+    macros: {
+      wrap: { name: 'wrap', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: 'x+#0=y' } }] },
+      diagram: { name: 'diagram', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'block', body: '#0#1#2#3', block_template_name: 'svg_template', svg_template: { asset: { source: 'commutative-square.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: svgTemplateRevision, request_epoch: 1 }, generation: 1, producer_revision: 'extension-browser-v1', accessibility: { label: 'Extension formula SVG' }, formula_embed: { total_height_em: 3.2, baseline_ratio: 0.72 } } } }] },
+      A: { name: 'A', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: 'A' } }] },
+      B: { name: 'B', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: 'B' } }] },
+      Left: { name: 'Left', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'text', body: 'L' } }] },
+      Right: { name: 'Right', description: '', source: { entries: [], urls: [] }, kind: 'fixture', dynamic_arity: false, tags: [], styles: [{ style_name: 'default', tags: [], template: { mode: 'text', body: 'R' } }] }
+    }
+  },
   hover: {
     ...details(
       'hover',
@@ -154,10 +169,10 @@ const popoverEntries = {
 };
 
 function htmlFor(mode) {
-  const fixture = fixtures[mode];
+  const fixture = fixtures[mode.replace(/-dark$/, '')];
   if (!fixture) return null;
-  const payload = JSON.stringify({ fixture, popoverEntries, kind });
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.__nativeEvents=[];for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,event=>window.__nativeEvents.push({type,src:event.target?.closest?.('[data-src]')?.getAttribute('data-src')??null}),true);window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body><div id="root"></div><button id="outside-target" aria-label="outside" style="position:fixed;right:1px;bottom:1px;width:4px;height:4px;opacity:0"></button><script src="/entryInfoview.js"></script></body></html>`;
+  const payload = JSON.stringify({ fixture, popoverEntries, kind, dark: mode.endsWith('-dark') });
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/entryInfoview.css"><style>html,body{margin:0;max-width:100%}body{font-family:sans-serif}</style><script>window.__geometry=${payload};window.__posted=[];window.__nativeEvents=[];for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,event=>window.__nativeEvents.push({type,src:event.target?.closest?.('[data-src]')?.getAttribute('data-src')??null}),true);window.acquireVsCodeApi=()=>({postMessage(message){window.__posted.push(message);if(message?.type==='snl.preferences/ready'){const data={type:'snl.preferences/snapshot',generation:'geometry',revision:1,preferences:{language:'en',color_scheme:window.__geometry.dark?'dark':'light',motion:'full'},supported_languages:[{id:'en',display_name:'English'}]};setTimeout(()=>dispatchEvent(new MessageEvent('message',{data})),0);return;}if(message?.type==='ready'){setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:window.__geometry.fixture})),0);return;}if(message?.type==='snl.assets/read-svg-source'){const data={type:'snl.assets/svg-source-result',request_id:message.request_id,source:message.source,base_identity:message.base_identity,revision:message.revision,svg_source:window.__geometry.fixture.svgSource};setTimeout(()=>dispatchEvent(new MessageEvent('message',{data})),0);return;}if(message?.type==='requestEntryDetails'){const selected=window.__geometry.popoverEntries[message.entryId];setTimeout(()=>dispatchEvent(new MessageEvent('message',{data:{type:'popoverEntryDetails',entryId:message.entryId,entryPackage:message.entryPackage,popoverRequestKey:message.popoverRequestKey,entry:selected??null,kind:selected?window.__geometry.kind:null}})),0);}},getState(){return undefined},setState(){}});</script></head><body class="${mode.endsWith('-dark') ? 'vscode-dark' : 'vscode-light'}"><div id="root"></div><button id="outside-target" aria-label="outside" style="position:fixed;right:1px;bottom:1px;width:4px;height:4px;opacity:0"></button><script src="/entryInfoview.js"></script></body></html>`;
 }
 
 async function waitFor(evaluate, expression, label, attempts = 240) {
@@ -166,7 +181,7 @@ async function waitFor(evaluate, expression, label, attempts = 240) {
     if (value) return value;
     await delay(25);
   }
-  const debug = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]');return {tail:b?.innerHTML?.slice(-1200),classes:[...b?.querySelectorAll('*')??[]].map(e=>e.className).filter(x=>typeof x==='string'&&x).slice(-30)}})()`);
+  const debug = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]');return {tail:b?.innerHTML?.slice(-1200),classes:[...b?.querySelectorAll('*')??[]].map(e=>e.className).filter(x=>typeof x==='string'&&x).slice(-30),posted:window.__posted}})()`);
   throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(debug)}`);
 }
 
@@ -197,7 +212,7 @@ async function openPage(browser, browserWs, mode, width, port, height = 700) {
   };
   await waitFor(
     evaluate,
-    `document.querySelector('[data-entry-id]')?.getAttribute('data-entry-id') === ${JSON.stringify(`fixture-${mode}`)}`,
+    `document.querySelector('[data-entry-id]')?.getAttribute('data-entry-id') === ${JSON.stringify(`fixture-${mode.replace(/-dark$/, '')}`)}`,
     `${mode} fixture sentinel at ${width}px`
   );
   // KaTeX font swaps can move live origins after content first appears. Native
@@ -274,7 +289,7 @@ try {
   const evidence = [];
 
   for (const width of widths) {
-    for (const mode of ['plain', 'snl', 'markdown', 'formula']) {
+    for (const mode of ['plain', 'snl', 'markdown', 'formula', 'svg', 'svg-dark']) {
       const opened = await openPage(browser, browserWs, mode, width, server.address().port);
       try {
         const { evaluate } = opened;
@@ -293,11 +308,24 @@ try {
           const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),p=b.querySelector('.snl-markdown-body p'),pre=b.querySelector('.snl-markdown-body pre');return{body:[b.clientWidth,b.scrollWidth],prose:[p.clientWidth,p.scrollWidth,getComputedStyle(p).overflowWrap,getComputedStyle(p).wordBreak],code:[pre.clientWidth,pre.scrollWidth,getComputedStyle(pre).overflowX,getComputedStyle(pre).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
           assert(measured.body[0] === measured.body[1] && measured.root[0] === measured.root[1] && measured.prose[1] <= measured.prose[0] && measured.code[1] > measured.code[0] && ['auto', 'scroll'].includes(measured.code[2]) && measured.code[3] !== 'pre-wrap', `MARKDOWN:${width}`, measured);
           evidence.push({ width, mode, measured });
-        } else {
+        } else if (mode === 'formula') {
           await waitFor(evaluate, `document.querySelector('.snl-latex-body .katex')?.textContent?.includes('FORMULA')`, 'KaTeX formula host');
           const measured = await evaluate(`(()=>{const b=document.querySelector('[data-entry-body]'),h=b.querySelector('.snl-latex-body'),k=h.querySelector('.katex');return{body:[b.clientWidth,b.scrollWidth,getComputedStyle(b).overflowX],host:[h.clientWidth,h.scrollWidth,getComputedStyle(h).overflowX],katex:[k.clientWidth,k.scrollWidth,getComputedStyle(k).whiteSpace],root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
           assert(measured.body[1] === measured.body[0] && measured.host[1] > measured.host[0] && ['auto', 'scroll'].includes(measured.host[2]) && measured.katex[2] !== 'pre-wrap' && measured.root[0] === measured.root[1], `FORMULA:${width}`, measured);
           evidence.push({ width, mode, measured });
+        } else {
+          await waitFor(evaluate, `document.querySelector('.snl-foreign-box[data-state="positioned"] .snl-formula-foreign-surface svg') && !document.querySelector('.snl-svg-template-loading')`, 'positioned formula SVG');
+          await delay(200);
+          await waitFor(evaluate, `document.querySelector('.snl-foreign-box[data-state="positioned"] .snl-formula-foreign-surface svg') && !document.querySelector('.snl-svg-template-loading')`, 'stable positioned formula SVG');
+          const measured = await evaluate(`(()=>{const surface=document.querySelector('.snl-formula-foreign-surface'),svg=surface.querySelector('svg'),marker=document.querySelector('.snlFormulaForeignMarker'),host=surface.closest('.snl-foreign-box'),sr=surface.getBoundingClientRect(),hr=host.getBoundingClientRect(),mr=marker.getBoundingClientRect();return{surface:[sr.left,sr.top,sr.right,sr.bottom],host:[hr.left,hr.top,hr.right,hr.bottom],marker:[mr.left,mr.top,mr.right,mr.bottom],slots:svg.querySelectorAll('[data-snl-slot]').length,label:svg.getAttribute('aria-label'),loading:!!document.querySelector('.snl-svg-template-loading'),errors:[...document.querySelectorAll('.snl-formula-foreign-error,.snl-svg-template-error')].map(e=>e.textContent),root:[document.documentElement.clientWidth,document.documentElement.scrollWidth]}})()`);
+          assert(measured.slots===4 && measured.label==='Extension formula SVG' && !measured.loading && measured.errors.length===0 && measured.root[0]===measured.root[1] && measured.surface[2]>measured.surface[0] && measured.surface[3]>measured.surface[1] && measured.marker[2]>measured.marker[0] && measured.marker[3]>measured.marker[1], `SVG-FORMULA:${width}`, measured);
+          evidence.push({ width, mode, measured });
+          if (width === 480 || width === 320) {
+            const screenshots = '/tmp/snl-extension-svg-task9';
+            mkdirSync(screenshots, { recursive: true });
+            const image = await opened.page.call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+            writeFileSync(resolve(screenshots, `entry-svg-${mode.endsWith('-dark') ? 'dark' : 'light'}-${width}.png`), Buffer.from(image.data, 'base64'));
+          }
         }
       } finally {
         await closePage(browser, opened);

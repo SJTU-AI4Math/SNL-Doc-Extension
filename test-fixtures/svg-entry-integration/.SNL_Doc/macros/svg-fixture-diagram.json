@@ -1,0 +1,75 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "svg-fixture",
+  "macro": {
+    "description": "Four-slot commutative-square SVG",
+    "source": {
+      "entries": [
+        "svg-primary"
+      ],
+      "urls": []
+    },
+    "kind": "diagram",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "type": "i18n",
+          "default_language": "en",
+          "values": {
+            "en": {
+              "mode": "block",
+              "body": "#0#1#2#3",
+              "block_template_name": "svg-fixture-square",
+              "svg_template": {
+                "asset": {
+                  "source": "commutative-square.svg",
+                  "base_identity": "workspace:.SNL_Doc/assets",
+                  "revision": "sha256:7efed166abf9e86d0e063e852289598e40c9d749c33b31a9513b1ab76f86563b",
+                  "request_epoch": 1
+                },
+                "generation": 1,
+                "producer_revision": "svg-entry-fixture-v1",
+                "accessibility": {
+                  "label": "Commutative square from A to B"
+                },
+                "formula_embed": {
+                  "total_height_em": 3.2,
+                  "baseline_ratio": 0.72
+                }
+              }
+            },
+            "zh-CN": {
+              "mode": "block",
+              "body": "#0#1#2#3",
+              "block_template_name": "svg-fixture-square",
+              "svg_template": {
+                "asset": {
+                  "source": "commutative-square.svg",
+                  "base_identity": "workspace:.SNL_Doc/assets",
+                  "revision": "sha256:7efed166abf9e86d0e063e852289598e40c9d749c33b31a9513b1ab76f86563b",
+                  "request_epoch": 1
+                },
+                "generation": 1,
+                "producer_revision": "svg-entry-fixture-v1",
+                "accessibility": {
+                  "label": "从 A 到 B 的交换图"
+                },
+                "formula_embed": {
+                  "total_height_em": 3.2,
+                  "baseline_ratio": 0.72
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "name": "diagram"
+  },
+  "schema_version": 1
+}

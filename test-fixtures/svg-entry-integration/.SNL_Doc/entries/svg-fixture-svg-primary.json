@@ -1,0 +1,23 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "package": "svg-fixture",
+  "entry": {
+    "id": "svg-primary",
+    "kind": "example",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Parameterized SVG in block and formula",
+        "zh-CN": "块与公式中的参数化 SVG"
+      }
+    },
+    "content": {
+      "snl": "pair(wrap(diagram(A,B,Left,Right)),ref@svg-reference)"
+    },
+    "contribution_info": null,
+    "pointer": null,
+    "package": "svg-fixture"
+  }
+}

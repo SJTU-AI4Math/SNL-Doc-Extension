@@ -83,6 +83,35 @@ function markCollapsibleRows(clone: HTMLElement): void {
   }
 }
 
+
+/** Wait until every Basics SVG renderer has left its asynchronous loading
+ * state. Export snapshots only settled artwork/fallback DOM, never a spinner. */
+export function waitForSettledSvgTemplates(
+  root: HTMLElement,
+  timeoutMs = 4000
+): Promise<void> {
+  if (!root.querySelector('.snl-svg-template-loading')) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let done = false;
+    const observer = new MutationObserver(() => finishIfSettled());
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      reject(new Error('Timed out waiting for SVG templates to settle'));
+    }, timeoutMs);
+    const finishIfSettled = (): void => {
+      if (done || root.querySelector('.snl-svg-template-loading')) return;
+      done = true;
+      clearTimeout(timer);
+      observer.disconnect();
+      resolve();
+    };
+    observer.observe(root, { subtree: true, childList: true, attributes: true });
+    finishIfSettled();
+  });
+}
+
 /**
  * Copy a rendered outline subtree into standalone markup.
  *

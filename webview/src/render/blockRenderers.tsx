@@ -21,7 +21,10 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  createSvgTemplateRenderer,
   defaultRenderers,
+  SvgTemplateAssetRegistry,
+  type SvgTemplateAssetLoader,
   type SnlBlockRenderer,
   type SnlRendererRegistry,
   type SnlSyntaxTree
@@ -34,6 +37,7 @@ import {
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { getVsCodeApi } from '../vscodeApi';
 import { parseBlockRendererSpec } from './blockRendererSpec';
+import { createWorkspaceSvgAssetLoader } from '../runtime/svgTemplateAssetBridge';
 import { useCollapsibleController } from './CollapsibleScope';
 
 const MESSAGES = defineUiMessages(
@@ -351,6 +355,24 @@ const MissingImageRenderer: SnlBlockRenderer = () => {
  * MUST spread `defaultRenderers` — see the module header. Dropping the spread
  * silently disables every SNL-Basics built-in block renderer.
  */
+let workspaceSvgLoader: SvgTemplateAssetLoader | undefined;
+let svgTemplateRenderer: SnlBlockRenderer | undefined;
+function getSvgTemplateRenderer(): SnlBlockRenderer {
+  if (svgTemplateRenderer) return svgTemplateRenderer;
+  const registry = new SvgTemplateAssetRegistry({
+    maxSettled: 32,
+    maxAuthorityHistory: 64,
+    loader: (identity, signal) => {
+      const api = getVsCodeApi();
+      if (!api) return Promise.reject(new Error('VS Code SVG source bridge is unavailable'));
+      workspaceSvgLoader ??= createWorkspaceSvgAssetLoader(api);
+      return workspaceSvgLoader(identity, signal);
+    }
+  });
+  svgTemplateRenderer = createSvgTemplateRenderer({ assetRegistry: registry });
+  return svgTemplateRenderer;
+}
+
 const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
   enumerate: EnumerateRenderer,
@@ -361,7 +383,17 @@ const baseExtensionRenderers: SnlRendererRegistry = {
 const parameterizedRendererCache = new Map<string, SnlBlockRenderer>();
 
 export const extensionRenderers: SnlRendererRegistry = new Proxy(baseExtensionRenderers, {
+  ownKeys(target): ArrayLike<string | symbol> {
+    return [...Reflect.ownKeys(target), 'svg_template'];
+  },
+  getOwnPropertyDescriptor(target, property): PropertyDescriptor | undefined {
+    if (property === 'svg_template') {
+      return { configurable: true, enumerable: true, get: getSvgTemplateRenderer };
+    }
+    return Reflect.getOwnPropertyDescriptor(target, property);
+  },
   get(target, property, receiver): unknown {
+    if (property === 'svg_template') return getSvgTemplateRenderer();
     const direct = Reflect.get(target, property, receiver);
     if (direct !== undefined || typeof property !== 'string' || !property.includes('?')) return direct;
     const cached = parameterizedRendererCache.get(property);

@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "package": "svg-fixture",
+  "macro": {
+    "description": "Formula context containing one opted-in SVG block",
+    "source": {
+      "entries": [
+        "svg-primary"
+      ],
+      "urls": []
+    },
+    "kind": "diagram",
+    "dynamic_arity": false,
+    "tags": [],
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "formula_inline",
+          "body": "x+#0=y"
+        }
+      }
+    ],
+    "name": "wrap"
+  },
+  "schema_version": 1
+}

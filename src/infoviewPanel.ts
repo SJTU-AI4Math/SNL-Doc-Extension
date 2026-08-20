@@ -6,10 +6,10 @@ import { resolve_localized_string } from './localizedContent';
 
 const MESSAGES = defineHostMessages(
   {
-    browserTitle: 'SNL Infoview', outputChannel: 'SNL Infoview', entryTitle: 'SNL — {id}', deleteMacro: 'Delete macro “{name}” from package “{file}”?', cannotUndo: 'This cannot be undone.', delete: 'Delete', deleteMacroFailed: 'Delete macro failed: {error}', listLibrariesFailed: 'SNL Infoview: failed to list libraries: {error}', loadLibraryFailed: 'SNL Infoview: failed to load library “{slug}”: {error}', counterMissing: 'Entry node “{nodeId}” pins counterId “{counterId}” which is not in the counter tree; falling back to the kind’s default counter', loadEntryFailed: 'SNL Infoview: failed to load entry: {error}', loadPopoverFailed: 'SNL Infoview: failed to load popover entry: {error}', noWorkspace: 'No workspace folder is open.', sharedEntryMissing: 'Entry “{entryId}” referenced by node “{nodeId}” not found in shared pool'
+    browserTitle: 'SNL Infoview', outputChannel: 'SNL Infoview', entryTitle: 'SNL — {id}', deleteMacro: 'Delete macro “{name}” from package “{file}”?', cannotUndo: 'This cannot be undone.', delete: 'Delete', deleteMacroFailed: 'Delete macro failed: {error}', listLibrariesFailed: 'SNL Infoview: failed to list libraries: {error}', loadLibraryFailed: 'SNL Infoview: failed to load library “{slug}”: {error}', counterMissing: 'Entry node “{nodeId}” pins counterId “{counterId}” which is not in the counter tree; falling back to the kind’s default counter', loadEntryFailed: 'SNL Infoview: failed to load entry: {error}', loadPopoverFailed: 'SNL Infoview: failed to load popover entry: {error}', noWorkspace: 'No workspace folder is open.', sharedEntryMissing: 'Entry “{entryId}” referenced by node “{nodeId}” not found in shared pool', exportFailed: 'Could not export the rendered Library: {error}'
   },
   {
-    browserTitle: 'SNL 信息视图', outputChannel: 'SNL 信息视图', entryTitle: 'SNL — {id}', deleteMacro: '要从包“{file}”中删除宏“{name}”吗？', cannotUndo: '此操作无法撤销。', delete: '删除', deleteMacroFailed: '删除宏失败：{error}', listLibrariesFailed: 'SNL 信息视图：无法列出库：{error}', loadLibraryFailed: 'SNL 信息视图：无法加载库“{slug}”：{error}', counterMissing: '条目节点“{nodeId}”指定的计数器 ID“{counterId}”不在计数器树中；将回退到该类型的默认计数器', loadEntryFailed: 'SNL 信息视图：无法加载条目：{error}', loadPopoverFailed: 'SNL 信息视图：无法加载弹出条目：{error}', noWorkspace: '未打开工作区文件夹。', sharedEntryMissing: '节点“{nodeId}”引用的条目“{entryId}”未在共享池中找到'
+    browserTitle: 'SNL 信息视图', outputChannel: 'SNL 信息视图', entryTitle: 'SNL — {id}', deleteMacro: '要从包“{file}”中删除宏“{name}”吗？', cannotUndo: '此操作无法撤销。', delete: '删除', deleteMacroFailed: '删除宏失败：{error}', listLibrariesFailed: 'SNL 信息视图：无法列出库：{error}', loadLibraryFailed: 'SNL 信息视图：无法加载库“{slug}”：{error}', counterMissing: '条目节点“{nodeId}”指定的计数器 ID“{counterId}”不在计数器树中；将回退到该类型的默认计数器', loadEntryFailed: 'SNL 信息视图：无法加载条目：{error}', loadPopoverFailed: 'SNL 信息视图：无法加载弹出条目：{error}', noWorkspace: '未打开工作区文件夹。', sharedEntryMissing: '节点“{nodeId}”引用的条目“{entryId}”未在共享池中找到', exportFailed: '无法导出已渲染的库：{error}'
   }
 );
 const hostText = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
@@ -427,6 +427,7 @@ export class InfoviewPanel {
           language?: string;
           level?: string;
           msg?: string;
+          error?: string;
         }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
@@ -608,6 +609,11 @@ export class InfoviewPanel {
         return;
       case 'exportLibraryHtml':
         this.exportLibraryHtml(msg as unknown as ExportPayload);
+        return;
+      case 'exportLibraryHtmlError':
+        void vscode.window.showErrorMessage(hostText()('exportFailed', {
+          error: typeof msg.error === 'string' ? msg.error : 'unknown error'
+        }));
         return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {

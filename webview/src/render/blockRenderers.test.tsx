@@ -88,6 +88,38 @@ describe('extensionRenderers', () => {
     expect(exported.assets).toEqual([]);
   });
 
+  it('delegates the plain table key to the native Basics 0.3 projection renderer', () => {
+    const Table = extensionRenderers.table!;
+    const { container } = render(
+      <Table
+        node={blockNode([node('first'), node('second')])}
+        macro_data_driver={{ read_context: () => ({ color_scheme: 'dark' }) } as never}
+        template={{
+          mode: 'block', body: '#*', block_template_name: 'table',
+          table: {
+            composition: 'cells',
+            css: {
+              light: { color: '#111111', background: '#ffffff', border: '#cccccc' },
+              dark: { color: '#eeeeee', background: '#222222', border: '#555555' }
+            }
+          }
+        }}
+        dynamicArity={true}
+        treePath="0"
+        childMode={() => 'text'}
+        childContainsBlock={() => false}
+        renderChild={renderChild}
+      />
+    );
+    const table = container.querySelector<HTMLTableElement>('table.snl-block-table')!;
+    expect(table.dataset.snlTableComposition).toBe('cells');
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(table.querySelectorAll('tbody td')).toHaveLength(2);
+    expect(table.style.color).toBe('rgb(238, 238, 238)');
+    expect(table.style.background).toBe('rgb(34, 34, 34)');
+    expect(table.style.getPropertyValue('--snl-table-border-color')).toBe('#555555');
+  });
+
   it('renders blocks → row and dark CSS through the 0.2 compatibility key', () => {
     const key = serializeTableRendererSpec({
       composition: 'cells',

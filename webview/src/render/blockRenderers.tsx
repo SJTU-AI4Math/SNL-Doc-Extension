@@ -312,7 +312,6 @@ function tableRenderer(options: TableTemplateOptions): SnlBlockRenderer {
   return TableRenderer;
 }
 
-const TableRenderer = tableRenderer({ composition: 'rows' });
 
 const MARKER_LIST_STYLE: Record<string, string> = {
   decimal: 'decimal',
@@ -417,7 +416,6 @@ function getSvgTemplateRenderer(): SnlBlockRenderer {
 const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
   enumerate: EnumerateRenderer,
-  table: TableRenderer,
   collapsible: CollapsibleRenderer,
   image: MissingImageRenderer
 };

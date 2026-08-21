@@ -125,7 +125,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
       accessibilityLabel: 'x', operations: []
     })).rejects.toThrow(/symbolic link/i);
   });
-  it('fails closed before linking when the SVG directory changes after a temporary file opens', async () => {
+  it('fails closed when the SVG directory changes after a destination file opens', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     const movedRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg-before-race');
@@ -135,22 +135,47 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     let swapped = false;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await originalOpen(path, flags, mode);
-      if (!swapped && String(path).endsWith('.next')) {
+      if (!swapped && String(path).includes('.source.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) !== 0) {
         swapped = true;
         await fs.rename(svgRoot, movedRoot);
         await fs.symlink(outside, svgRoot, process.platform === 'win32' ? 'junction' : 'dir');
       }
       return handle;
     });
-    const linkSpy = vi.spyOn(fs, 'link');
     await expect(writeWorkspaceSvgMacroAssets({
       workspaceRoot: root as never, slug: 'race', sourceSvg: source, templateSvg: template,
       accessibilityLabel: 'x', operations: []
-    })).rejects.toThrow(/changed|identity/i);
-    expect(linkSpy).not.toHaveBeenCalled();
+    })).rejects.toThrow(/changed|identity|preserved/i);
     expect(await fs.readdir(outside)).toEqual([]);
     await fs.unlink(svgRoot);
     await fs.rename(movedRoot, svgRoot);
+  });
+
+  it('quarantines rather than deletes a pathname replacement during rollback', async () => {
+    const root = await workspace();
+    const originalLstat = fs.lstat.bind(fs);
+    const originalRename = fs.rename.bind(fs);
+    let sourceChecks = 0;
+    let replaced = false;
+    vi.spyOn(fs, 'lstat').mockImplementation(async (path, options) => {
+      if (!replaced && String(path).includes('cleanup-race.source.')) {
+        sourceChecks += 1;
+        if (sourceChecks === 2) {
+          replaced = true;
+          await originalRename(path, `${String(path)}.owned-aside`);
+          await fs.writeFile(path, 'unrelated replacement', 'utf8');
+        }
+      }
+      return originalLstat(path, options as never);
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'cleanup-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/changed|quarantine|preserved/i);
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const entries = await fs.readdir(svgRoot);
+    const preserved = await Promise.all(entries.map(async (name) => ({ name, bytes: await fs.readFile(join(svgRoot, name), 'utf8') })));
+    expect(preserved.some((entry) => entry.name.startsWith('.snl-quarantine-') && entry.bytes === 'unrelated replacement')).toBe(true);
   });
 
   it('honors the shared workspace writer lock', async () => {
@@ -193,7 +218,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     let swapped = false;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await originalOpen(path, flags, mode);
-      if (!swapped && String(path).includes('.manifest.') && !String(path).endsWith('.next')) {
+      if (!swapped && String(path).includes('.manifest.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0) {
         swapped = true;
         await fs.rename(svgRoot, movedRoot);
         const basename = String(path).split(/[\\/]/).pop() as string;
@@ -206,23 +231,29 @@ describe('writeWorkspaceSvgMacroAssets', () => {
       workspaceRoot: root as never, slug: 'verify-race', sourceSvg: source, templateSvg: template,
       accessibilityLabel: 'x', operations: []
     })).rejects.toThrow(/changed|rollback/i);
-    expect(await fs.readdir(outside)).toEqual([]);
+    const preserved = await fs.readdir(outside);
+    expect(preserved).toHaveLength(1);
+    expect(preserved[0]).toMatch(/^\.snl-quarantine-/);
+    expect(await fs.readFile(join(outside, preserved[0]), 'utf8')).toContain('"version": 1');
     await fs.unlink(svgRoot);
     await fs.rename(movedRoot, svgRoot);
   });
 
   it('post-write verifies the manifest and rolls back a corrupted publication', async () => {
     const root = await workspace();
-    const originalLink = fs.link.bind(fs);
-    const linkSpy = vi.spyOn(fs, 'link').mockImplementation(async (from, to) => {
-      await originalLink(from, to);
-      if (String(to).includes('.manifest.')) await fs.writeFile(to, '{\"corrupt\":true}\n');
+    const originalOpen = fs.open.bind(fs);
+    let corrupted = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      if (!corrupted && String(path).includes('.manifest.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0) {
+        corrupted = true;
+        await fs.writeFile(path, '{"corrupt":true}\n');
+      }
+      return originalOpen(path, flags, mode);
     });
     await expect(writeWorkspaceSvgMacroAssets({
       workspaceRoot: root as never, slug: 'corrupt', sourceSvg: source, templateSvg: template,
       accessibilityLabel: 'x', operations: []
-    })).rejects.toThrow(/bytes|size|verification/i);
-    linkSpy.mockRestore();
+    })).rejects.toThrow(/bytes|size|verification|rollback/i);
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
     expect((await fs.readdir(svgRoot)).filter((name) => name.startsWith('corrupt.'))).toEqual([]);
   });

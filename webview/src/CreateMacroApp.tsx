@@ -1897,6 +1897,8 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Content tabs --------------------------------------------------- */}
       {current?.mode === 'block' && current.block_template_name === 'svg_template' ? (
         <SvgMacroEditor
+          key={`${draftKey}:${activeStyle}`}
+          editorIdentity={`${draftKey}:${activeStyle}`}
           initialProjection={current.template_extensions.svg_template as ExistingSvgProjection | undefined}
           onDirty={markFormDirty}
           onTemplateChange={() => markFormDirty()}

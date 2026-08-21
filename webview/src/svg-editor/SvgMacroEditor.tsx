@@ -19,6 +19,7 @@ export interface ExistingSvgProjection {
 
 export interface SvgMacroEditorProps {
   api?: Pick<VsCodeApi, 'postMessage'>;
+  editorIdentity?: string;
   initialProjection?: ExistingSvgProjection;
   onTemplateChange(template: string): void;
   onDirty?(): void;
@@ -27,7 +28,7 @@ export interface SvgMacroEditorProps {
 
 let requestSequence = 0;
 
-type PendingSave = { requestId: string; sourceSvg: string; templateSvg: string; requiredArity: number };
+type PendingSave = { requestId: string; editorIdentity?: string; sourceSvg: string; templateSvg: string; requiredArity: number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -269,7 +270,7 @@ function serialize(root: SVGSVGElement): string {
   return new window.XMLSerializer().serializeToString(clone);
 }
 
-export function SvgMacroEditor({ api, initialProjection, onTemplateChange, onDirty, onProjectionChange }: SvgMacroEditorProps): React.ReactElement {
+export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTemplateChange, onDirty, onProjectionChange }: SvgMacroEditorProps): React.ReactElement {
   const t = useUiMessages(SVG_EDITOR_MESSAGES);
   const [source, setSource] = useState('');
   const [loadedSource, setLoadedSource] = useState('');
@@ -348,7 +349,7 @@ export function SvgMacroEditor({ api, initialProjection, onTemplateChange, onDir
         return;
       }
       const currentTemplate = root ? serialize(root) : '';
-      if (source !== pending.sourceSvg || currentTemplate !== pending.templateSvg) {
+      if (editorIdentity !== pending.editorIdentity || source !== pending.sourceSvg || currentTemplate !== pending.templateSvg) {
         setError(t('changedWhileSaving'));
         return;
       }
@@ -358,7 +359,7 @@ export function SvgMacroEditor({ api, initialProjection, onTemplateChange, onDir
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [onProjectionChange, root, source, t]);
+  }, [editorIdentity, onProjectionChange, root, source, t]);
 
   useEffect(() => {
     const preview = previewRef.current;
@@ -597,7 +598,7 @@ export function SvgMacroEditor({ api, initialProjection, onTemplateChange, onDir
     const templateSvg = serialize(root);
     const parsed = parseSanitizedSvgTemplate(templateSvg);
     const requiredArity = Math.max(0, ...parsed.slots.map((slot) => slot.index + 1));
-    pendingRequest.current = { requestId, sourceSvg: source, templateSvg, requiredArity };
+    pendingRequest.current = { requestId, editorIdentity, sourceSvg: source, templateSvg, requiredArity };
     setSaved(false);
     setError('');
     host.postMessage({

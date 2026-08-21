@@ -210,6 +210,29 @@ describe('SvgMacroEditor', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/changed|again/i);
   });
 
+  it('does not adopt a pending save reply into a different style identity', () => {
+    const posted: Record<string, unknown>[] = [];
+    const onStyleA = vi.fn();
+    const onStyleB = vi.fn();
+    const view = render(<SvgMacroEditor editorIdentity="style-a" api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onStyleA} />);
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: RAW } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'diagram' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Diagram' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const requestId = posted.at(-1)?.requestId;
+    view.rerender(<SvgMacroEditor editorIdentity="style-b" api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onStyleB} />);
+    const projection = {
+      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
+      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
+      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
+    };
+    fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId, projection } }));
+    expect(onStyleA).not.toHaveBeenCalled();
+    expect(onStyleB).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/style|changed|again/i);
+  });
+
   it('hydrates existing raw source and runtime template through immutable asset identities', async () => {
     const postMessage = vi.fn();
     render(<SvgMacroEditor api={{ postMessage }} onTemplateChange={() => {}} initialProjection={{

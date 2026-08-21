@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
 import { SVG_ASSET_BASE_IDENTITY, readWorkspaceSvgSource } from './workspaceAssets';
 import { withWorkspaceDataLock } from './workspaceDataLock';
@@ -67,9 +67,13 @@ async function requireIdentity(path: string, expected: FileIdentity, label: stri
   }
 }
 
-async function unlinkOwned(path: string, expected: FileIdentity): Promise<void> {
-  await requireIdentity(path, expected, 'Owned SVG Asset entry');
-  await fs.unlink(path);
+async function quarantineOwned(path: string, expected: FileIdentity): Promise<void> {
+  const quarantine = join(dirname(path), `.snl-quarantine-${randomUUID()}`);
+  await fs.rename(path, quarantine);
+  const stat = await fs.lstat(quarantine, { bigint: true });
+  if (stat.isSymbolicLink() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
+    throw new Error(`Owned SVG Asset entry changed during quarantine; the ambiguous entry was preserved at ${quarantine}.`);
+  }
 }
 
 async function writeImmutable(
@@ -79,66 +83,33 @@ async function writeImmutable(
   directoryIdentity: FileIdentity
 ): Promise<FileIdentity | null> {
   await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-  const temporary = `${path}.${randomUUID()}.next`;
-  const handle = await fs.open(temporary, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
-  const tempStat = await handle.stat({ bigint: true });
-  const tempIdentity = { dev: tempStat.dev, ino: tempStat.ino };
-  let temporaryExists = true;
+  let handle;
+  try {
+    handle = await fs.open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+  } catch (reason) {
+    if ((reason as NodeJS.ErrnoException).code !== 'EEXIST') throw reason;
+    await verifyExactFile(path, value, directoryPath, directoryIdentity);
+    return null;
+  }
+
+  const stat = await handle.stat({ bigint: true });
+  const created = { dev: stat.dev, ino: stat.ino };
   try {
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-    await requireIdentity(temporary, tempIdentity, 'SVG Asset temporary file');
+    await requireIdentity(path, created, 'Published SVG Asset');
     await handle.writeFile(value);
     await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  let created: FileIdentity | null = null;
-  try {
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-    await requireIdentity(temporary, tempIdentity, 'SVG Asset temporary file');
-    try {
-      await fs.link(temporary, path);
-      created = tempIdentity;
-      const targetStat = await fs.lstat(path, { bigint: true });
-      if (!targetStat.isFile() || targetStat.isSymbolicLink() || targetStat.dev !== tempIdentity.dev || targetStat.ino !== tempIdentity.ino) {
-        throw new Error('Published SVG Asset identity does not match its flushed temporary inode.');
-      }
-      created = { dev: targetStat.dev, ino: targetStat.ino };
-    } catch (reason) {
-      const code = (reason as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST') throw reason;
-      const existingStat = await fs.lstat(path, { bigint: true });
-      if (existingStat.isSymbolicLink()) {
-        throw new Error('Content-addressed SVG Asset destination is a symbolic link.');
-      }
-      if (!existingStat.isFile()) {
-        throw new Error('Content-addressed SVG Asset destination must be a regular file.');
-      }
-      const existing = await fs.readFile(path);
-      if (!existing.equals(Buffer.from(value))) {
-        throw new Error('Content-addressed SVG Asset already exists with different bytes.');
-      }
-    }
+    await requireIdentity(path, created, 'Published SVG Asset');
+    await handle.close();
   } catch (reason) {
-    if (created) {
-      try {
-        await unlinkOwned(path, created);
-        created = null;
-      } catch (rollbackReason) {
-        throw new Error('SVG Asset publication failed and its newly linked destination could not be rolled back.', { cause: new AggregateError([reason, rollbackReason]) });
-      }
+    try {
+      await handle.close().catch(() => undefined);
+      await quarantineOwned(path, created);
+    } catch (quarantineReason) {
+      throw new Error('SVG Asset publication failed and its ambiguous destination was preserved.', { cause: new AggregateError([reason, quarantineReason]) });
     }
     throw reason;
-  } finally {
-    try {
-      await unlinkOwned(temporary, tempIdentity);
-      temporaryExists = false;
-    } catch (reason) {
-      if (created) {
-        try { await unlinkOwned(path, created); } catch { /* preserve the original identity failure */ }
-      }
-      if (temporaryExists) throw reason;
-    }
   }
   return created;
 }
@@ -271,7 +242,7 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     const rollbackFailures: string[] = [];
     for (const entry of createdPaths.reverse()) {
       try {
-        await unlinkOwned(entry.path, entry.identity);
+        await quarantineOwned(entry.path, entry.identity);
       } catch (rollbackReason) {
         rollbackFailures.push(`${entry.path}: ${rollbackReason instanceof Error ? rollbackReason.message : String(rollbackReason)}`);
       }

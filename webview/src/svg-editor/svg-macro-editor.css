@@ -1,0 +1,76 @@
+.snl-svg-macro-editor {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.7fr) minmax(18rem, 1.3fr);
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--vscode-panel-border, #555);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--vscode-editor-background, #313131) 94%, var(--vscode-focusBorder, #4f9eff));
+}
+
+.snl-svg-editor-controls {
+  display: grid;
+  min-width: 0;
+  gap: 0.55rem;
+  align-content: start;
+}
+
+.snl-svg-editor-controls > label {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.snl-svg-editor-controls > p {
+  margin: 0.3rem 0;
+}
+
+.snl-svg-macro-editor textarea {
+  min-height: 7rem;
+  resize: vertical;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.snl-svg-editor-preview-column {
+  min-width: 0;
+  display: grid;
+  align-items: stretch;
+}
+
+.snl-svg-macro-editor__preview {
+  min-height: 28rem;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--vscode-input-border, #666);
+  border-radius: 4px;
+  background:
+    linear-gradient(45deg, rgba(127, 127, 127, 0.1) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(127, 127, 127, 0.1) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(127, 127, 127, 0.1) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(127, 127, 127, 0.1) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.snl-svg-macro-editor__preview > svg {
+  display: block;
+  width: min(100%, 48rem);
+  height: auto;
+  max-height: 34rem;
+  color: var(--vscode-editor-foreground, #eee);
+}
+
+.snl-svg-macro-editor__preview [data-snl-editor-selected="true"] {
+  filter: drop-shadow(0 0 2px var(--vscode-focusBorder, #4f9eff)) drop-shadow(0 0 5px var(--vscode-focusBorder, #4f9eff));
+  cursor: crosshair;
+}
+
+@media (max-width: 760px) {
+  .snl-svg-macro-editor { grid-template-columns: minmax(0, 1fr); }
+  .snl-svg-macro-editor__preview { min-height: 13rem; }
+}

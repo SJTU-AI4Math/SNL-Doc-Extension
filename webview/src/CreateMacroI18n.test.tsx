@@ -258,6 +258,67 @@ describe('Create Macro localization', () => {
     expect(screen.queryByText('KaTeX template is required.')).toBeNull();
   });
 
+  it('opens the SVG Macro editor for the svg_template Block renderer', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null
+    } })));
+    const blockModes = screen.getAllByRole('button', { name: 'Block' });
+    fireEvent.click(blockModes[blockModes.length - 1]);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Render preset' }), {
+      target: { value: 'svg_template' }
+    });
+    expect(screen.getByRole('region', { name: 'SVG Macro editor' })).toBeTruthy();
+    expect(screen.getByLabelText('Import SVG file')).toBeTruthy();
+    expect(screen.getAllByRole('checkbox')[0]).toHaveProperty('disabled', true);
+  });
+
+  it('attaches a saved SVG projection and derives ordinary Macro arity from slots', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null
+    } })));
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'Diagram' } });
+    const blockModes = screen.getAllByRole('button', { name: 'Block' });
+    fireEvent.click(blockModes[blockModes.length - 1]);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Render preset' }), { target: { value: 'svg_template' } });
+    const raw = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path id="label" d="M0 0h2v2H0z"/></svg>';
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: raw } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    const path = screen.getByTestId('svg-macro-preview').querySelector('#label') as SVGGraphicsElement;
+    Object.defineProperty(path, 'getBBox', { configurable: true, value: () => ({ x: 0, y: 0, width: 2, height: 2 }) });
+    Object.defineProperty(path, 'getCTM', { configurable: true, value: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) });
+    fireEvent.click(path);
+    fireEvent.click(screen.getByRole('button', { name: 'Replace selection with slot' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'diagram' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Diagram' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const request = [...posted].reverse().find((value) =>
+      typeof value === 'object' && value !== null && (value as { type?: string }).type === 'svgMacro.writeAssets'
+    ) as { requestId: string };
+    const projection = {
+      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
+      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
+      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
+    };
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'svgMacro.assetsWritten', requestId: request.requestId, projection
+    } })));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Macro' }));
+    const mutation = [...posted].reverse().find((value) =>
+      typeof value === 'object' && value !== null && (value as { type?: string }).type === 'create'
+    ) as { macro?: { styles?: Array<{ template?: Record<string, unknown> }> } } | undefined;
+    expect(mutation?.macro?.styles?.[0]?.template).toMatchObject({
+      mode: 'block', body: '#0', block_template_name: 'svg_template', svg_template: projection
+    });
+  });
+
   it('restores an invalid visible image-path draft after the webview remounts', () => {
     document.documentElement.lang = 'en';
     const context = {

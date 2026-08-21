@@ -13,6 +13,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  *     Save button enabled.
  */
 
+const { writeSvgAssets } = vi.hoisted(() => ({ writeSvgAssets: vi.fn() }));
+vi.mock('./svgMacroAssets', () => ({ writeWorkspaceSvgMacroAssets: writeSvgAssets }));
+
 const created: Array<{ title: string; disposed: boolean }> = [];
 const posted: unknown[] = [];
 let revealCount = 0;
@@ -130,12 +133,35 @@ function reset(): void {
   revealCount = 0;
   macros.length = 0;
   watcherCount = 0;
+  writeSvgAssets.mockReset();
 }
 
 describe('macro panel create -> edit flip', () => {
   beforeEach(() => {
     reset();
     vi.resetModules();
+  });
+
+  it('writes SVG Macro Assets through the host and returns the immutable projection', async () => {
+    const projection = {
+      asset: { source: 'svg/diagram.template.abc.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: 'sha256:abc', request_epoch: 0 },
+      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' }
+    };
+    writeSvgAssets.mockResolvedValue({ sourcePath: 'svg/diagram.source.def.svg', manifestPath: 'svg/diagram.manifest.ghi.json', projection });
+    const { CreateMacroPanel } = await import('./createMacroPanel');
+    CreateMacroPanel.createOrShow(extUri, 'algebra.json');
+    await handlers[0]({
+      type: 'svgMacro.writeAssets', requestId: 'request-1', slug: 'diagram',
+      sourceSvg: '<svg/>', templateSvg: '<svg viewBox="0 0 1 1"/>',
+      accessibilityLabel: 'Diagram', operations: []
+    });
+    expect(writeSvgAssets).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceRoot: expect.objectContaining({ fsPath: '/ws' }), slug: 'diagram'
+    }));
+    expect(posted.at(-1)).toEqual({
+      type: 'svgMacro.assetsWritten', requestId: 'request-1',
+      sourcePath: 'svg/diagram.source.def.svg', manifestPath: 'svg/diagram.manifest.ghi.json', projection
+    });
   });
 
   it('installs the shared SNL document watcher once per panel', async () => {

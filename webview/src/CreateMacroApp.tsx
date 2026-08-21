@@ -110,6 +110,7 @@ import {
   parseBlockRendererSpec,
   serializeBlockRendererSpec
 } from './render/blockRendererSpec';
+import { SvgMacroEditor, type ExistingSvgProjection } from './svg-editor/SvgMacroEditor';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
   'createMacro',
@@ -214,6 +215,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetCenteredHint: 'Horizontally-centered block wrapper.',
     presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
     presetImageHint: 'Image — path is relative to .SNL_Doc/assets.',
+    presetSvgHint: 'SVG template — import artwork, create slots, and save a verified workspace Asset.',
     numbering: 'Numbering',
     numberingDecimal: '123',
     numberingLowerAlpha: 'abc',
@@ -345,6 +347,7 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     presetCenteredHint: '水平居中的块包装器。',
     presetCollapsibleHint: '折叠块 — 第一个子节点始终显示为摘要，其余内容可通过开关折叠。',
     presetImageHint: '图片 — 路径相对于 .SNL_Doc/assets。',
+    presetSvgHint: 'SVG 模板 — 导入图稿、创建 slot，并保存为验证过的工作区 Asset。',
     numbering: '编号样式',
     numberingDecimal: '123',
     numberingLowerAlpha: 'abc',
@@ -1082,6 +1085,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const current = styles[activeStyle] ?? styles[0];
+  const hasSvgRenderer = styles.some((style) => style.mode === 'block' && parseBlockRendererSpec(style.block_template_name).name === 'svg_template');
 
   function markFormDirty(): void {
     formDirtyRef.current = true;
@@ -1694,6 +1698,7 @@ export function CreateMacroApp(): React.ReactElement {
     !hasDupTag &&
     !hasInvalidTags &&
     !hasIncompleteImagePreset &&
+    !(hasSvgRenderer && dynamicArity) &&
     !hasInvalidTemplateContract &&
     areEntityReferencesResolved(sourceEntries, entryPool) &&
     status.kind !== 'creating';
@@ -1890,6 +1895,20 @@ export function CreateMacroApp(): React.ReactElement {
       />
 
       {/* --- Content tabs --------------------------------------------------- */}
+      {current?.mode === 'block' && current.block_template_name === 'svg_template' ? (
+        <SvgMacroEditor
+          initialProjection={current.template_extensions.svg_template as ExistingSvgProjection | undefined}
+          onDirty={markFormDirty}
+          onTemplateChange={() => markFormDirty()}
+          onProjectionChange={(projection, requiredArity) => {
+            const body = Array.from({ length: requiredArity }, (_, index) => `#${index}`).join(' ');
+            patchStyle({
+              template: body,
+              template_extensions: { ...current.template_extensions, svg_template: projection }
+            });
+          }} />
+      ) : null}
+
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
       {current ? (
         <LocalizedEditScope
@@ -2073,6 +2092,7 @@ export function CreateMacroApp(): React.ReactElement {
           <input
             type="checkbox"
             checked={dynamicArity}
+            disabled={hasSvgRenderer && !dynamicArity}
             onChange={(e) => {
               const next = e.target.checked;
               markFormDirty();
@@ -3145,7 +3165,7 @@ function StylesEditor({
  */
 const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   key: string;
-  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint' | 'presetImageHint';
+  hintKey: 'presetListHint' | 'presetEnumerateHint' | 'presetTableHint' | 'presetCenteredHint' | 'presetCollapsibleHint' | 'presetImageHint' | 'presetSvgHint';
 }> = [
   // Render preset keys are protocol tokens and remain language-invariant.
   { key: 'list', hintKey: 'presetListHint' },
@@ -3153,7 +3173,8 @@ const BLOCK_RENDERER_PRESETS: ReadonlyArray<{
   { key: 'table', hintKey: 'presetTableHint' },
   { key: 'centered', hintKey: 'presetCenteredHint' },
   { key: 'collapsible', hintKey: 'presetCollapsibleHint' },
-  { key: 'image', hintKey: 'presetImageHint' }
+  { key: 'image', hintKey: 'presetImageHint' },
+  { key: 'svg_template', hintKey: 'presetSvgHint' }
 ];
 const PRESET_KEYS = new Set(BLOCK_RENDERER_PRESETS.map((p) => p.key));
 

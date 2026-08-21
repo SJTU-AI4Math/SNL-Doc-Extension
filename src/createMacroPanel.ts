@@ -32,6 +32,7 @@ import {
 } from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
 import { stripJsonExt } from './macroPackageName';
+import { writeWorkspaceSvgMacroAssets } from './svgMacroAssets';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -339,7 +340,17 @@ export class CreateMacroPanel {
       return;
     }
     const msg = message as
-      | { type?: string; macro?: MacroPackageEntry; expectedRevision?: string }
+      | {
+          type?: string;
+          macro?: MacroPackageEntry;
+          expectedRevision?: string;
+          requestId?: unknown;
+          slug?: unknown;
+          sourceSvg?: unknown;
+          templateSvg?: unknown;
+          accessibilityLabel?: unknown;
+          operations?: unknown;
+        }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
@@ -369,6 +380,41 @@ export class CreateMacroPanel {
       });
       return;
     }
+    if (msg.type === 'svgMacro.writeAssets') {
+      const requestId = typeof msg.requestId === 'string' && msg.requestId.length <= 200
+        ? msg.requestId
+        : '';
+      try {
+        if (!requestId || typeof msg.slug !== 'string' || typeof msg.sourceSvg !== 'string' ||
+            typeof msg.templateSvg !== 'string' || typeof msg.accessibilityLabel !== 'string' ||
+            !Array.isArray(msg.operations)) {
+          throw new Error('Invalid SVG Macro Asset write request.');
+        }
+        const workspaceRoot = firstWorkspaceFolder();
+        if (!workspaceRoot) throw new Error(hostText()('noWorkspace'));
+        const result = await writeWorkspaceSvgMacroAssets({
+          workspaceRoot,
+          slug: msg.slug,
+          sourceSvg: msg.sourceSvg,
+          templateSvg: msg.templateSvg,
+          accessibilityLabel: msg.accessibilityLabel,
+          operations: msg.operations
+        });
+        void this.panel.webview.postMessage({
+          type: 'svgMacro.assetsWritten', requestId,
+          sourcePath: result.sourcePath,
+          manifestPath: result.manifestPath,
+          projection: result.projection
+        });
+      } catch (reason) {
+        void this.panel.webview.postMessage({
+          type: 'svgMacro.assetsError', requestId,
+          message: reason instanceof Error ? reason.message : String(reason)
+        });
+      }
+      return;
+    }
+
     if (msg.type !== 'create' && msg.type !== 'update') {
       return;
     }

@@ -6,6 +6,15 @@ import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { CollapsibleRenderer } from './blockRenderers';
 import { CollapsibleScope } from './CollapsibleScope';
 
+
+const rendererContractProps = {
+  template: { mode: 'block', body: '#*', block_template_name: 'list' } as never,
+  dynamicArity: true,
+  treePath: '0',
+  childMode: () => 'text' as const,
+  childContainsBlock: () => false
+};
+
 afterEach(cleanup);
 
 function leaf(name: string): SnlSyntaxTree {
@@ -26,6 +35,7 @@ function Tree({ tree }: { tree: SnlSyntaxTree }): React.ReactElement {
     <CollapsibleRenderer
       node={tree}
       macro_data_driver={{} as never}
+      {...rendererContractProps}
       renderChild={(child) => child.children.length > 0
         ? <Tree tree={child} />
         : <span>{child.macro_name}</span>}

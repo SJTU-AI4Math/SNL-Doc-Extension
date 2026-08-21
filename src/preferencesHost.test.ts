@@ -186,7 +186,7 @@ describe('PreferencesHost language writes', () => {
       request_id: 'svg-1',
       source: 'assets/figures/proof.svg',
       base_identity: 'Logic',
-      revision: 'sha256:abc',
+      revision: `sha256:${'a'.repeat(64)}`,
     });
 
     await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({
@@ -194,10 +194,13 @@ describe('PreferencesHost language writes', () => {
       request_id: 'svg-1',
       source: 'assets/figures/proof.svg',
       base_identity: 'Logic',
-      revision: 'sha256:abc',
+      revision: `sha256:${'a'.repeat(64)}`,
       value: '<svg data-path="figures/proof.svg"/>'
     }));
-    expect(assetService.readSvg).toHaveBeenCalledWith('figures/proof.svg');
+    expect(assetService.readSvg).toHaveBeenCalledWith(
+      'figures/proof.svg',
+      `sha256:${'a'.repeat(64)}`
+    );
     webview.receive({
       type: 'snl.assets/read-svg', request_id: 'svg-bad', source: 'assets/../secret.svg',
       base_identity: 'Logic', revision: 'r2'

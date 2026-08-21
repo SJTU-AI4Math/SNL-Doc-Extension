@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from '@testing-library/react';
-import { harvestLibraryHtml, waitForExportSurfaces } from './htmlExport';
+import { harvestLibraryHtml, hasPendingExportSurface, waitForExportSurfaces } from './htmlExport';
 import { EntrySurface } from '../render/EntrySurface';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
 import { resolveMarkdownAssetUrl } from '../render/markdownAssets';
@@ -287,6 +287,11 @@ describe('end-to-end: a real rendered Entry survives export', () => {
     loading.remove();
     await waiting;
     expect(resolved).toBe(true);
+  });
+
+  it('recognizes the Basics 0.3 KaTeX and macro loading contract', () => {
+    const root = el('<div class="katex-panel" data-snl-render-state="loading">Loading KaTeX ...</div>');
+    expect(hasPendingExportSurface(root)).toBe(true);
   });
 
   it('rejects rather than exporting permanently unsettled foreign geometry', async () => {

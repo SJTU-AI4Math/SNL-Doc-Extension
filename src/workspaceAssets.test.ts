@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { promises as nodeFs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -254,12 +255,27 @@ describe('readWorkspaceSvgSource', () => {
       const workspace = join(temp, 'workspace');
       const root = join(workspace, '.SNL_Doc', 'assets', 'figures');
       await nodeFs.mkdir(root, { recursive: true });
-      await nodeFs.writeFile(join(root, 'proof.svg'), '<svg viewBox="0 0 1 1"/>', 'utf8');
+      const svg = '<svg viewBox="0 0 1 1"/>';
+      const revision = `sha256:${createHash('sha256').update(svg).digest('hex')}`;
+      await nodeFs.writeFile(join(root, 'proof.svg'), svg, 'utf8');
       await expect(readWorkspaceSvgSource({
         workspaceRoot: uri(workspace, 'file') as never,
         relativePath: 'figures/proof.svg',
+        expectedRevision: revision,
         fsApi: followingNodeFs as never
-      })).resolves.toBe('<svg viewBox="0 0 1 1"/>');
+      })).resolves.toBe(svg);
+      await expect(readWorkspaceSvgSource({
+        workspaceRoot: uri(workspace, 'file') as never,
+        relativePath: 'figures/proof.svg',
+        expectedRevision: `sha256:${'0'.repeat(64)}`,
+        fsApi: followingNodeFs as never
+      })).rejects.toThrow(/declared revision/i);
+      await expect(readWorkspaceSvgSource({
+        workspaceRoot: uri(workspace, 'file') as never,
+        relativePath: 'figures/proof.svg',
+        expectedRevision: 'mutable-r1',
+        fsApi: followingNodeFs as never
+      })).rejects.toThrow(/content digest/i);
     } finally {
       await nodeFs.rm(temp, { recursive: true, force: true });
     }
@@ -275,11 +291,11 @@ describe('readWorkspaceSvgSource', () => {
       await nodeFs.writeFile(join(root, 'broken.svg'), new Uint8Array([0xc3, 0x28]));
       await expect(readWorkspaceSvgSource({
         workspaceRoot: uri(workspace, 'file') as never,
-        relativePath: 'wrong.png', fsApi: followingNodeFs as never
+        relativePath: 'wrong.png', expectedRevision: `sha256:${'0'.repeat(64)}`, fsApi: followingNodeFs as never
       })).rejects.toThrow(/\.svg/i);
       await expect(readWorkspaceSvgSource({
         workspaceRoot: uri(workspace, 'file') as never,
-        relativePath: 'broken.svg', fsApi: followingNodeFs as never
+        relativePath: 'broken.svg', expectedRevision: `sha256:${createHash('sha256').update(new Uint8Array([0xc3, 0x28])).digest('hex')}`, fsApi: followingNodeFs as never
       })).rejects.toThrow(/UTF-8/i);
     } finally {
       await nodeFs.rm(temp, { recursive: true, force: true });

@@ -8,6 +8,15 @@ import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
 import { serializeTableRendererSpec } from './blockRendererSpec';
 import { harvestLibraryHtml } from '../export/htmlExport';
 
+
+const rendererContractProps = {
+  template: { mode: 'block', body: '#*', block_template_name: 'list' } as never,
+  dynamicArity: true,
+  treePath: '0',
+  childMode: () => 'text' as const,
+  childContainsBlock: () => false
+};
+
 const assetPostMessage = vi.fn();
 (globalThis as { __snlApi?: unknown }).__snlApi = { postMessage: assetPostMessage };
 
@@ -37,6 +46,7 @@ function mount(tree: SnlSyntaxTree) {
     <CollapsibleRenderer
       node={tree}
       macro_data_driver={{} as never}
+      {...rendererContractProps}
       renderChild={renderChild}
     />
   );
@@ -63,7 +73,7 @@ describe('extensionRenderers', () => {
       template={{
         mode: 'block', body: '#0', block_template_name: 'svg_template',
         svg_template: {
-          asset: { source: 'assets/proof.svg', base_identity: 'Pkg', revision: 'r1', request_epoch: 1 },
+          asset: { source: 'assets/proof.svg', base_identity: 'Pkg', revision: 'sha256:5fca508b4d592eb2b652c14249cd20657f673844b79e1f444e706b5477ca08b0', request_epoch: 1 },
           generation: 1, producer_revision: 'projector-v1', accessibility: { label: 'Proof diagram' }
         }
       }}
@@ -133,6 +143,7 @@ describe('extensionRenderers', () => {
       <Table
         node={blockNode([node('first'), node('second')])}
         macro_data_driver={{ read_context: () => ({ color_scheme: 'dark' }) } as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );
@@ -154,6 +165,7 @@ describe('extensionRenderers', () => {
       <ParameterizedEnumerate
         node={blockNode([node('first')])}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );
@@ -171,6 +183,7 @@ describe('extensionRenderers', () => {
       <ParameterizedImage
         node={blockNode([])}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );
@@ -208,7 +221,7 @@ describe('extensionRenderers', () => {
         'snl-ext-preset:v1:image?src=figure.png&layout=inline&alt=figure'
       ]!;
       const rendered = render(
-        <Inline node={blockNode([])} macro_data_driver={{} as never} renderChild={renderChild} />
+        <Inline node={blockNode([])} macro_data_driver={{} as never} {...rendererContractProps} renderChild={renderChild} />
       );
       const request = assetPostMessage.mock.calls[0]?.[0] as {
         request_id: string; path: string;
@@ -240,6 +253,7 @@ describe('extensionRenderers', () => {
       <Enumerate
         node={tree}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={(child) => (
           <span style={{ display: 'inline-block' }}>
             {child.macro_name}<br />continued
@@ -266,6 +280,7 @@ describe('extensionRenderers', () => {
       <Enumerate
         node={blockNode([node('first')])}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );
@@ -288,6 +303,7 @@ describe('extensionRenderers', () => {
         <Enumerate
           node={blockNode([node('first')])}
           macro_data_driver={{} as never}
+      {...rendererContractProps}
           renderChild={(child) => (
             <span style={{ display: 'inline-block' }}>
               {child.macro_name}<br />continued
@@ -390,6 +406,7 @@ describe('CollapsibleRenderer', () => {
       <CollapsibleRenderer
         node={blockNode([node('summary'), node('body1'), node('body2')])}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );
@@ -406,6 +423,7 @@ describe('CollapsibleRenderer', () => {
       <CollapsibleRenderer
         node={blockNode([])}
         macro_data_driver={{} as never}
+      {...rendererContractProps}
         renderChild={renderChild}
       />
     );

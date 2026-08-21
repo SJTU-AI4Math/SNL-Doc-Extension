@@ -53,7 +53,7 @@ export interface WorkspaceLanguageService {
 
 export interface WorkspaceAssetService {
   resolve(path: string): Promise<string>;
-  readSvg?(path: string): Promise<string>;
+  readSvg?(path: string, revision: string): Promise<string>;
 }
 
 function svgAssetPath(source: string): string | undefined {
@@ -231,7 +231,7 @@ export class PreferencesHost implements vscode.Disposable {
       revision: request.revision
     };
     try {
-      const value = await service.readSvg!(request.path);
+      const value = await service.readSvg!(request.path, request.revision);
       await webview.postMessage({ ...envelope, value });
     } catch (error) {
       await webview.postMessage({

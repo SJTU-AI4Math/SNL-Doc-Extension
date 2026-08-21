@@ -155,13 +155,25 @@ export async function readWorkspaceAsset(
 
 
 /** Read immutable raw SVG source through the same contained, no-symlink asset boundary. */
+export interface ReadWorkspaceSvgSourceOptions extends ReadWorkspaceAssetOptions {
+  expectedRevision: string;
+}
+
 export async function readWorkspaceSvgSource(
-  options: ReadWorkspaceAssetOptions
+  options: ReadWorkspaceSvgSourceOptions
 ): Promise<string> {
   if (!/\.svg$/i.test(options.relativePath)) {
     throw new Error('SVG template source must use the .svg extension.');
   }
+  const revision = /^sha256:([0-9a-f]{64})$/i.exec(options.expectedRevision);
+  if (!revision) {
+    throw new Error('SVG template revision must be a sha256:<64-hex> content digest.');
+  }
   const bytes = await readWorkspaceAsset(options);
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual.toLowerCase() !== revision[1].toLowerCase()) {
+    throw new Error('SVG template source does not match its declared revision.');
+  }
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {

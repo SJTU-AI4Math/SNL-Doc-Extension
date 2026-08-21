@@ -91,6 +91,7 @@ export function hasPendingExportSurface(root: HTMLElement): boolean {
   return Boolean(
     root.querySelector('.snl-entry-loading') ||
     root.querySelector('.snl-svg-template-loading') ||
+    root.querySelector('[data-snl-render-state="loading"]') ||
     root.querySelector('.snl-foreign-box[data-state="staging"]')
   );
 }

@@ -211,7 +211,9 @@ export function assertTableRendererTransport(
   if (spec.name !== 'table') {
     throw new Error(`${path}.table is valid only for the built-in table renderer.`);
   }
-  if (Object.keys(spec.params).length === 0) return;
+  if (Object.keys(spec.params).length === 0) {
+    throw new Error(`${path}.table requires the versioned compatibility key while Basics 0.2.4 is installed.`);
+  }
   const transported = tableOptionsFromRendererParams(spec.params);
   if (JSON.stringify(transported) !== JSON.stringify(options)) {
     throw new Error(`${path}.table disagrees with its compatibility renderer key.`);

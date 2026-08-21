@@ -30,6 +30,12 @@ function readColors(value: unknown, path: string): TableCssColors {
       typeof value.border !== 'string') {
     throw new Error(`${path} must contain string color, background, and border fields.`);
   }
+  for (const token of [value.color, value.background, value.border]) {
+    if (token.length > 128 || /[;{}]/.test(token) || token.includes('\0') ||
+        token.includes('\n') || token.includes('\r') || /^\s*url\s*\(/i.test(token)) {
+      throw new Error(`${path} contains an invalid CSS color.`);
+    }
+  }
   return { color: value.color, background: value.background, border: value.border };
 }
 

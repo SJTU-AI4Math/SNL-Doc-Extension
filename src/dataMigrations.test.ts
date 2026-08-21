@@ -693,11 +693,24 @@ describe('workspace data migrations', () => {
       version: '11', macros: { X: divergent }
     }, '11')).toThrow(/disagrees/i);
 
-    const unsafeCss = structuredClone(valid);
-    unsafeCss.styles[0].template.table.css.light.background = 'url(https://example.test/pixel)';
-    expect(() => assertCanonicalMacroPackage('Logic.json', {
-      version: '11', macros: { X: unsafeCss }
-    }, '11')).toThrow(/CSS color/i);
+    for (const unsafe of [
+      'url(https://example.test/pixel)',
+      'linear-gradient(red, blue), url(https://example.test/pixel)',
+      'var(--fallback, url(https://example.test/pixel))',
+      'rgb(1 2 3\t/ 50%)',
+      'u\\72l(https://example.test/pixel)',
+    ]) {
+      expect(() => {
+        const unsafeCss = structuredClone(valid);
+        unsafeCss.styles[0].template.table.css.light.background = unsafe;
+        unsafeCss.styles[0].template.block_template_name = serializeTableRendererSpec(
+          unsafeCss.styles[0].template.table
+        );
+        assertCanonicalMacroPackage('Logic.json', {
+          version: '11', macros: { X: unsafeCss }
+        }, '11');
+      }).toThrow(/CSS color/i);
+    }
 
     const invalid = structuredClone(valid);
     delete invalid.styles[0].template.table.css.dark;

@@ -24,6 +24,30 @@ const TABLE_KEYS = new Set(['composition', 'css']);
 const THEME_KEYS = new Set(['light', 'dark']);
 const COLOR_KEYS = new Set(['color', 'background', 'border']);
 
+const SAFE_COLOR_FUNCTIONS = new Set([
+  'rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch',
+  'color', 'color-mix', 'light-dark', 'device-cmyk', 'var', 'calc', 'min',
+  'max', 'clamp',
+])
+
+export function isSafeCssColorToken(token: string): boolean {
+  const value = token.trim()
+  if (value === '') return true
+  if (value.length > 128 || /[\u0000-\u001f\u007f-\u009f;{}\\'"]/.test(value)) return false
+  if (/^#[0-9a-f]{3,4}$/i.test(value) || /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value)) return true
+  if (/^[a-z][a-z0-9-]*$/i.test(value)) return true
+  if (!/^[a-z0-9_#.%(),+*/\s-]+$/i.test(value)) return false
+  const functions = [...value.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)]
+  if (functions.length === 0 || functions[0].index !== 0 ||
+      functions.some((match) => !SAFE_COLOR_FUNCTIONS.has(match[1].toLowerCase()))) return false
+  let depth = 0
+  for (const char of value) {
+    if (char === '(') depth += 1
+    else if (char === ')' && --depth < 0) return false
+  }
+  return depth === 0
+}
+
 function readColors(value: unknown, path: string): TableCssColors {
   if (!isRecord(value) || Object.keys(value).some((key) => !COLOR_KEYS.has(key)) ||
       typeof value.color !== 'string' || typeof value.background !== 'string' ||
@@ -31,8 +55,7 @@ function readColors(value: unknown, path: string): TableCssColors {
     throw new Error(`${path} must contain string color, background, and border fields.`);
   }
   for (const token of [value.color, value.background, value.border]) {
-    if (token.length > 128 || /[;{}]/.test(token) || token.includes('\0') ||
-        token.includes('\n') || token.includes('\r') || /^\s*url\s*\(/i.test(token)) {
+    if (!isSafeCssColorToken(token)) {
       throw new Error(`${path} contains an invalid CSS color.`);
     }
   }

@@ -1,4 +1,5 @@
 import {
+  isSafeCssColorToken,
   readTableTemplateOptions,
   type TableTemplateOptions
 } from './tableTemplateOptions';
@@ -72,8 +73,7 @@ function normalizeParams(name: string, params: Record<string, string>): Record<s
     }
     for (const key of provided) {
       const value = params[key];
-      if (value.length > 128 || /[;{}]/.test(value) || value.includes('\0') ||
-          value.includes('\n') || value.includes('\r') || /^\s*url\s*\(/i.test(value)) {
+      if (!isSafeCssColorToken(value)) {
         throw new Error('invalid table CSS color');
       }
       normalized[key] = value;

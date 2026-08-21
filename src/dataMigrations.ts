@@ -1,3 +1,4 @@
+import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash } from 'node:crypto';
 import { analyzeLatexTemplatePlaceholders } from './snlBasicsHostCompat';
 import {
@@ -177,6 +178,7 @@ function assertMacroTemplateProjection(
       (projection.mode !== 'block' || typeof projection.block_template_name !== 'string')) {
     throw new Error(`${path}.block_template_name is invalid.`);
   }
+  assertTableRendererTransport(projection, path);
   if (projection.typst !== undefined) assertBackend(projection.typst, `${path}.typst`);
   if (projection.latex !== undefined) assertBackend(projection.latex, `${path}.latex`);
   if (projection.markdown !== undefined && typeof projection.markdown !== 'string') {

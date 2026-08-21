@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const editorSources = [
   ['CreateEntryApp.tsx', 3],
-  ['CreateMacroApp.tsx', 4]
+  ['CreateMacroApp.tsx', 5]
 ] as const;
 
 function jsxAttributes(source: string, tagName: string): string[][] {

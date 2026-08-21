@@ -1,3 +1,4 @@
+import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import * as vscode from 'vscode';
@@ -3386,6 +3387,14 @@ function validateMacro(macro: MacroPackageEntry): string | null {
       }
       if (projection.mode !== 'block' && projection.block_template_name !== undefined) {
         return `styles[${i}].template projection ${projectionIndex}.block_template_name is valid only in block mode`;
+      }
+      try {
+        assertTableRendererTransport(
+          projection,
+          `styles[${i}].template projection ${projectionIndex}`
+        );
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
       }
     }
   }

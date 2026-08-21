@@ -13,6 +13,21 @@ describe('parameterized block renderer specs', () => {
     });
   });
 
+  it('round-trips the 0.2 compatibility transport for table options', () => {
+    const params = {
+      composition: 'cells',
+      'light-color': '#112233',
+      'light-background': '#f1f2f3',
+      'light-border': '#a1a2a3',
+      'dark-color': '#ddeeff',
+      'dark-background': '#101820',
+      'dark-border': '#778899'
+    };
+    const encoded = serializeBlockRendererSpec('table', params);
+    expect(encoded).toContain('snl-ext-preset:v1:table?composition=cells');
+    expect(parseBlockRendererSpec(encoded)).toEqual({ name: 'table', params });
+  });
+
   it('normalizes image asset paths and preserves accessible alt text', () => {
     const encoded = serializeBlockRendererSpec('image', {
       src: './.SNL_Doc/assets/figures/plot one.png',

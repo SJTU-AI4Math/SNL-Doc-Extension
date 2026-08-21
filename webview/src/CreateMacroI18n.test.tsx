@@ -292,6 +292,83 @@ describe('Create Macro localization', () => {
     expect(screen.getByRole('button', { name: 'Create Macro' })).toHaveProperty('disabled', true);
   });
 
+  it('persists table composition and complete light/dark CSS through Create', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'create', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: [], macroCandidates: [], macroKinds: [], existing: null,
+      entries: [], prefill: null
+    } })));
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), {
+      target: { value: 'Data.table' }
+    });
+    const blockModes = screen.getAllByRole('button', { name: 'Block' });
+    fireEvent.click(blockModes.at(-1)!);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Render preset' }), {
+      target: { value: 'table' }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Table composition' }), {
+      target: { value: 'cells' }
+    });
+    const colors: Array<[string, string]> = [
+      ['Light text color value', '#112233'],
+      ['Light background color value', '#f1f2f3'],
+      ['Light border color value', '#a1a2a3'],
+      ['Dark text color value', '#ddeeff'],
+      ['Dark background color value', '#101820'],
+      ['Dark border color value', '#778899']
+    ];
+    for (const [name, value] of colors) {
+      fireEvent.change(screen.getByRole('textbox', { name }), { target: { value } });
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Create Macro' }));
+    const submission = posted.find((message) => (
+      typeof message === 'object' && message !== null &&
+      (message as { type?: string }).type === 'create'
+    )) as { macro: { styles: Array<{ template: Record<string, unknown> }> } };
+    expect(submission.macro.styles[0].template.table).toEqual({
+      composition: 'cells',
+      css: {
+        light: { color: '#112233', background: '#f1f2f3', border: '#a1a2a3' },
+        dark: { color: '#ddeeff', background: '#101820', border: '#778899' }
+      }
+    });
+  });
+
+  it('edits table composition and theme-aware CSS colors', () => {
+    document.documentElement.lang = 'en';
+    const onTableOptionsChange = vi.fn();
+    const tableOptions = {
+      composition: 'rows' as const,
+      css: {
+        light: { color: '#111111', background: '#ffffff', border: '#cccccc' },
+        dark: { color: '#eeeeee', background: '#222222', border: '#555555' }
+      }
+    };
+    const view = render(
+      <BlockRendererPresetControl
+        value="table"
+        onChange={() => undefined}
+        tableOptions={tableOptions}
+        onTableOptionsChange={onTableOptionsChange}
+      />
+    );
+    fireEvent.change(view.getByRole('combobox', { name: 'Table composition' }), {
+      target: { value: 'cells' }
+    });
+    expect(onTableOptionsChange).toHaveBeenLastCalledWith({
+      ...tableOptions, composition: 'cells'
+    });
+    fireEvent.change(view.getByRole('textbox', { name: 'Dark border color value' }), {
+      target: { value: '#778899' }
+    });
+    expect(onTableOptionsChange).toHaveBeenLastCalledWith({
+      ...tableOptions,
+      css: { ...tableOptions.css, dark: { ...tableOptions.css.dark, border: '#778899' } }
+    });
+  });
+
   it('edits preset-specific enumerate and image parameters', () => {
     document.documentElement.lang = 'en';
     const onEnumerate = vi.fn();

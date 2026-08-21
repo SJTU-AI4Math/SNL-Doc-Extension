@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { serializeTableRendererSpec } from './blockRendererSpec';
 import {
   WORKSPACE_DATA_MIGRATIONS,
   assertWorkspaceDataWritable,
@@ -660,6 +661,49 @@ describe('workspace data migrations', () => {
     expect(() => assertCanonicalMacroPackage('Logic.json', {
       version: '11', macros: { X: misplaced }
     }, '11')).toThrow(/outside the Macro v11 Style boundary/i);
+  });
+
+  it('validates the Basics 0.3 table renderer contract in v11 projections', () => {
+    const valid = canonicalEntry('11') as any;
+    valid.dynamic_arity = true;
+    valid.styles[0].template = {
+      mode: 'block', body: '#*', block_template_name: 'table',
+      table: {
+        composition: 'cells',
+        css: {
+          light: { color: '#111111', background: '#ffffff', border: '#cccccc' },
+          dark: { color: '#eeeeee', background: '#222222', border: '#555555' }
+        }
+      }
+    };
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: valid }
+    }, '11')).not.toThrow();
+
+    const compatible = structuredClone(valid);
+    compatible.styles[0].template.block_template_name = serializeTableRendererSpec(
+      compatible.styles[0].template.table
+    );
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: compatible }
+    }, '11')).not.toThrow();
+    const divergent = structuredClone(compatible);
+    divergent.styles[0].template.table.composition = 'rows';
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: divergent }
+    }, '11')).toThrow(/disagrees/i);
+
+    const invalid = structuredClone(valid);
+    delete invalid.styles[0].template.table.css.dark;
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: invalid }
+    }, '11')).toThrow(/light and dark/i);
+
+    const wrongRenderer = structuredClone(valid);
+    wrongRenderer.styles[0].template.block_template_name = 'list';
+    expect(() => assertCanonicalMacroPackage('Logic.json', {
+      version: '11', macros: { X: wrongRenderer }
+    }, '11')).toThrow(/built-in table renderer/i);
   });
 
   it('uses the renderer placeholder grammar for v11 variadic contracts', () => {

@@ -54,12 +54,16 @@ import {
   SnlSyntaxTreeView,
   type SnlMacro,
   type SnlMacroStyle,
-
   type SnlSyntaxTree,
   type SnlRenderHooks,
   type Localized
 } from '@sjtu-ai4math/snl-basics';
 import { analyzeLatexTemplatePlaceholders } from '../../src/templatePlaceholders';
+import {
+  readTableTemplateOptions,
+  type TableCssColors,
+  type TableTemplateOptions
+} from '../../src/tableTemplateOptions';
 import {
   wireMacroEntriesToRenderable,
   type WireMacro,
@@ -89,6 +93,7 @@ import { Disclosure } from './components/Disclosure';
 import { TabButton, TabList } from './components/Tabs';
 import { MacroIdInput } from './components/MacroIdInput';
 import { EntityIdSearchBox } from './components/EntityIdSearchBox';
+import { ColorField } from './components/KindFormFields';
 import type { EntryOption } from './render/EntryRender';
 import { areEntityReferencesResolved } from './components/formValidation';
 import {
@@ -108,7 +113,9 @@ import {
 } from './components/LocalizedEditScope';
 import {
   parseBlockRendererSpec,
-  serializeBlockRendererSpec
+  serializeBlockRendererSpec,
+  serializeTableRendererSpec,
+  tableOptionsFromRendererParams
 } from './render/blockRendererSpec';
 
 const CREATE_MACRO_MESSAGES = defineUiMessages(
@@ -210,7 +217,15 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     noRenderHint: 'No render preset. The block will render with plain default layout.',
     presetListHint: 'Unordered list — LaTeX \\begin{environment} → <ul><li>…',
     presetEnumerateHint: 'Ordered list — LaTeX \\begin{environment} → <ol><li>…',
-    presetTableHint: 'Table — variadic children are rows; the first child with kind="table-header" becomes <thead>.',
+    presetTableHint: 'Table — choose rows → table or blocks → one row. Cell merging is not configured here.',
+    tableComposition: 'Table composition',
+    tableRows: 'Rows → table',
+    tableCells: 'Blocks → row',
+    tableLight: 'Light',
+    tableDark: 'Dark',
+    tableTextColor: 'text',
+    tableBackgroundColor: 'background',
+    tableBorderColor: 'border',
     presetCenteredHint: 'Horizontally-centered block wrapper.',
     presetCollapsibleHint: 'Collapsible block — the first child is the always-visible summary; the rest fold behind a toggle.',
     presetImageHint: 'Image — path is relative to .SNL_Doc/assets.',
@@ -341,7 +356,15 @@ const CREATE_MACRO_MESSAGES = defineUiMessages(
     noRenderHint: '未设置渲染预设；该块将使用普通默认布局。',
     presetListHint: '无序列表 — LaTeX \\begin{environment} → <ul><li>…',
     presetEnumerateHint: '有序列表 — LaTeX \\begin{environment} → <ol><li>…',
-    presetTableHint: '表格 — 可变参数子节点作为行；kind="table-header" 的第一个子节点会成为 <thead>。',
+    presetTableHint: '表格 — 可选择“行拼表”或“块拼一行”；这里暂不配置单元格合并。',
+    tableComposition: '表格组合方式',
+    tableRows: '行 → 表格',
+    tableCells: '块 → 一行',
+    tableLight: '明亮',
+    tableDark: '暗色',
+    tableTextColor: '文字',
+    tableBackgroundColor: '背景',
+    tableBorderColor: '边框',
     presetCenteredHint: '水平居中的块包装器。',
     presetCollapsibleHint: '折叠块 — 第一个子节点始终显示为摘要，其余内容可通过开关折叠。',
     presetImageHint: '图片 — 路径相对于 .SNL_Doc/assets。',
@@ -478,6 +501,7 @@ interface TemplateProjectionDraft {
   separator: string;
   template_right: string;
   block_template_name: string;
+  table_options: TableTemplateOptions;
   image_path_draft: string;
   image_path_invalid: boolean;
   typst_extensions: Record<string, unknown>;
@@ -516,6 +540,14 @@ interface MacroEditorDraft {
   originalRevision?: string;
 }
 
+function defaultTableOptions(): TableTemplateOptions {
+  const colors = (): TableCssColors => ({ color: '', background: '', border: '' });
+  return {
+    composition: 'rows',
+    css: { light: colors(), dark: colors() }
+  };
+}
+
 function newTemplateProjection(): TemplateProjectionDraft {
   return {
     template_extensions: {},
@@ -529,6 +561,7 @@ function newTemplateProjection(): TemplateProjectionDraft {
     separator: '',
     template_right: '',
     block_template_name: '',
+    table_options: defaultTableOptions(),
     image_path_draft: '',
     image_path_invalid: false,
     typst_built_in: '',
@@ -613,7 +646,7 @@ function projectionFromStyle(style: StyleDraft): TemplateProjectionDraft {
   const {
     template_extensions,
     mode, template, text_template_draft, structural_template_drafts,
-    template_left, separator, template_right, block_template_name,
+    template_left, separator, template_right, block_template_name, table_options,
     image_path_draft, image_path_invalid,
     typst_extensions, typst_synthesis_extensions,
     latex_extensions, latex_synthesis_extensions,
@@ -624,7 +657,7 @@ function projectionFromStyle(style: StyleDraft): TemplateProjectionDraft {
   return {
     template_extensions,
     mode, template, text_template_draft, structural_template_drafts,
-    template_left, separator, template_right, block_template_name,
+    template_left, separator, template_right, block_template_name, table_options,
     image_path_draft, image_path_invalid,
     typst_extensions, typst_synthesis_extensions,
     latex_extensions, latex_synthesis_extensions,
@@ -722,13 +755,26 @@ function projectionToExtendedTemplate(
   const body = dynamicArity
     ? `${projection.template_left}#*${projection.template_right}`
     : projection.template;
+  let blockTemplateName = projection.block_template_name;
+  let tableRenderer = false;
+  if (projection.mode === 'block' && blockTemplateName) {
+    try {
+      tableRenderer = parseBlockRendererSpec(blockTemplateName).name === 'table';
+    } catch {
+      tableRenderer = false;
+    }
+    if (tableRenderer) blockTemplateName = serializeTableRendererSpec(projection.table_options);
+  }
   return {
     ...projection.template_extensions,
     mode: projection.mode,
     body,
     ...(dynamicArity ? { separator: projection.separator } : {}),
-    ...(projection.mode === 'block' && projection.block_template_name
-      ? { block_template_name: projection.block_template_name }
+    ...(projection.mode === 'block' && blockTemplateName
+      ? { block_template_name: blockTemplateName }
+      : {}),
+    ...(projection.mode === 'block' && tableRenderer
+      ? { table: projection.table_options }
       : {}),
     typst: {
       ...projection.typst_extensions,
@@ -831,7 +877,7 @@ function extendedTemplateToDraft(template: ExtendedTemplateSpec): TemplateProjec
   const raw = template as unknown as Record<string, unknown>;
   const {
     mode: _mode, body: _body, separator: _separator,
-    block_template_name: _blockTemplateName,
+    block_template_name: _blockTemplateName, table: _table,
     typst: _typst, latex: _latex, markdown: _markdown, text: _text,
     ...template_extensions
   } = raw;
@@ -849,11 +895,17 @@ function extendedTemplateToDraft(template: ExtendedTemplateSpec): TemplateProjec
   const { mode: _latexMode, macro: _latexMacro, ...latex_synthesis_extensions } = latexSynthesisRaw;
   const marker = template.body.indexOf('#*');
   let image_path_draft = '';
+  let table_options = defaultTableOptions();
   try {
     const renderer = parseBlockRendererSpec(template.block_template_name ?? '');
     if (renderer.name === 'image') image_path_draft = renderer.params.src ?? '';
+    if (renderer.name === 'table') {
+      table_options = template.table === undefined
+        ? tableOptionsFromRendererParams(renderer.params)
+        : readTableTemplateOptions(template as unknown as Record<string, unknown>, 'template');
+    }
   } catch {
-    // Unknown/custom renderers do not own an image-path draft.
+    // Unknown/custom renderers own neither image nor table editor state.
   }
   return {
     template_extensions,
@@ -863,6 +915,7 @@ function extendedTemplateToDraft(template: ExtendedTemplateSpec): TemplateProjec
     separator: template.separator ?? '',
     template_right: marker >= 0 ? template.body.slice(marker + 2) : '',
     block_template_name: template.block_template_name ?? '',
+    table_options,
     image_path_draft,
     image_path_invalid: false,
     typst_extensions,
@@ -3131,6 +3184,8 @@ function StylesEditor({
         image_path_draft: draft,
         image_path_invalid: invalid
       })}
+      tableOptions={current.table_options}
+      onTableOptionsChange={(table_options) => patchStyle({ table_options })}
     /> : null}
   </>;
 }
@@ -3170,13 +3225,17 @@ export function BlockRendererPresetControl({
   onChange,
   imagePathDraft: controlledImagePathDraft,
   imagePathInvalid: controlledImagePathInvalid = false,
-  onImagePathDraftChange
+  onImagePathDraftChange,
+  tableOptions: controlledTableOptions,
+  onTableOptionsChange
 }: {
   value: string;
   onChange: (v: string) => void;
   imagePathDraft?: string;
   imagePathInvalid?: boolean;
   onImagePathDraftChange?: (draft: string, invalid: boolean) => void;
+  tableOptions?: TableTemplateOptions;
+  onTableOptionsChange?: (options: TableTemplateOptions) => void;
 }): React.ReactElement {
   const t = useUiMessages(CREATE_MACRO_MESSAGES);
   let spec: { name: string; params: Record<string, string> };
@@ -3248,6 +3307,30 @@ export function BlockRendererPresetControl({
       alt: spec.params.alt ?? ''
     }));
   };
+  const emptyTableColors = (): TableCssColors => ({
+    color: '', background: '', border: ''
+  });
+  const tableOptions: TableTemplateOptions = controlledTableOptions ?? {
+    composition: 'rows',
+    css: { light: emptyTableColors(), dark: emptyTableColors() }
+  };
+  const tableCss = tableOptions.css ?? {
+    light: emptyTableColors(), dark: emptyTableColors()
+  };
+  const patchTableColor = (
+    scheme: 'light' | 'dark',
+    key: keyof TableCssColors,
+    color: string
+  ): void => {
+    onTableOptionsChange?.({
+      ...tableOptions,
+      css: {
+        ...tableCss,
+        [scheme]: { ...tableCss[scheme], [key]: color }
+      }
+    });
+  };
+
   const hint =
     mode === 'preset'
       ? (() => {
@@ -3309,6 +3392,54 @@ export function BlockRendererPresetControl({
             <option value="ellipsis">{t('numberingEllipsis')}</option>
           </select>
         </label>
+      ) : null}
+      {mode === 'preset' && spec.name === 'table' ? (
+        <div style={{ marginTop: '0.5rem' }}>
+          <label style={labelStyle}>
+            {t('tableComposition')}
+            <select
+              aria-label={t('tableComposition')}
+              value={tableOptions.composition}
+              onInput={(event) => onTableOptionsChange?.({
+                ...tableOptions,
+                composition: event.currentTarget.value === 'cells' ? 'cells' : 'rows'
+              })}
+              onChange={(event) => onTableOptionsChange?.({
+                ...tableOptions,
+                composition: event.currentTarget.value === 'cells' ? 'cells' : 'rows'
+              })}
+              style={{ ...inputStyle, display: 'block', marginTop: '0.25rem' }}
+            >
+              <option value="rows">{t('tableRows')}</option>
+              <option value="cells">{t('tableCells')}</option>
+            </select>
+          </label>
+          {(['light', 'dark'] as const).map((scheme) => (
+            <fieldset key={scheme} style={{
+              margin: '0.65rem 0 0', padding: '0.6rem',
+              border: '1px solid var(--vscode-panel-border, #555)'
+            }}>
+              <legend>{t(scheme === 'light' ? 'tableLight' : 'tableDark')}</legend>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: '0.5rem' }}>
+                <ColorField
+                  label={`${t(scheme === 'light' ? 'tableLight' : 'tableDark')} ${t('tableTextColor')}`}
+                  value={tableCss[scheme].color}
+                  onChange={(value) => patchTableColor(scheme, 'color', value)}
+                />
+                <ColorField
+                  label={`${t(scheme === 'light' ? 'tableLight' : 'tableDark')} ${t('tableBackgroundColor')}`}
+                  value={tableCss[scheme].background}
+                  onChange={(value) => patchTableColor(scheme, 'background', value)}
+                />
+                <ColorField
+                  label={`${t(scheme === 'light' ? 'tableLight' : 'tableDark')} ${t('tableBorderColor')}`}
+                  value={tableCss[scheme].border}
+                  onChange={(value) => patchTableColor(scheme, 'border', value)}
+                />
+              </div>
+            </fieldset>
+          ))}
+        </div>
       ) : null}
       {mode === 'preset' && spec.name === 'image' ? (
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>

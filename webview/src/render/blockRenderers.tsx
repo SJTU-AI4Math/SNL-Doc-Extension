@@ -33,8 +33,9 @@ import {
 } from '../../../src/collapseToggleContract';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { getVsCodeApi } from '../vscodeApi';
-import { parseBlockRendererSpec } from './blockRendererSpec';
+import { parseBlockRendererSpec, tableOptionsFromRendererParams } from './blockRendererSpec';
 import { useCollapsibleController } from './CollapsibleScope';
+import type { TableTemplateOptions } from '../../../src/tableTemplateOptions';
 
 const MESSAGES = defineUiMessages(
   'collapsibleBlock',
@@ -266,6 +267,50 @@ function renderEnumerate(
 
 export const EnumerateRenderer: SnlBlockRenderer = (props) => renderEnumerate(props);
 
+/** Compatibility implementation of the Basics 0.3 table contract.
+ * Options are closed over from the parameterized renderer key because the
+ * published Basics 0.2.4 renderer props do not expose the selected Template. */
+function tableRenderer(options: TableTemplateOptions): SnlBlockRenderer {
+  const TableRenderer: SnlBlockRenderer = ({ node, renderChild, macro_data_driver }) => {
+    const scheme = macro_data_driver.read_context().color_scheme;
+    const colors = options.css?.[scheme];
+    const style = colors ? {
+      color: colors.color || undefined,
+      background: colors.background || undefined,
+      '--snl-table-border-color': colors.border || undefined
+    } as React.CSSProperties : undefined;
+    const cellStyle = colors?.border ? { borderColor: colors.border } : undefined;
+    const children = Array.isArray(node.children) ? node.children : [];
+    const first = children[0];
+    const header = options.composition === 'rows' && first?.kind === 'table-header'
+      ? first : undefined;
+    const rows = header ? children.slice(1) : children;
+    const cells = (row: SnlSyntaxTree): SnlSyntaxTree[] =>
+      row.children.length > 0 ? row.children : [row];
+    return <table
+      className="snl-block snl-block-table"
+      data-snl-table-composition={options.composition}
+      data-snl-table-color-scheme={scheme}
+      style={style}
+    >
+      {header ? <thead><tr>{cells(header).map((cell, index) =>
+        <th key={index} style={cellStyle}>{renderChild(cell, index)}</th>)}</tr></thead> : null}
+      <tbody>
+        {options.composition === 'cells'
+          ? <tr>{children.map((cell, index) =>
+              <td key={index} style={cellStyle}>{renderChild(cell, index)}</td>)}</tr>
+          : rows.map((row, rowIndex) => <tr key={rowIndex}>
+              {cells(row).map((cell, index) =>
+                <td key={index} style={cellStyle}>{renderChild(cell, index)}</td>)}
+            </tr>)}
+      </tbody>
+    </table>;
+  };
+  return TableRenderer;
+}
+
+const TableRenderer = tableRenderer({ composition: 'rows' });
+
 const MARKER_LIST_STYLE: Record<string, string> = {
   decimal: 'decimal',
   'lower-alpha': 'lower-alpha',
@@ -354,6 +399,7 @@ const MissingImageRenderer: SnlBlockRenderer = () => {
 const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
   enumerate: EnumerateRenderer,
+  table: TableRenderer,
   collapsible: CollapsibleRenderer,
   image: MissingImageRenderer
 };
@@ -372,6 +418,8 @@ export const extensionRenderers: SnlRendererRegistry = new Proxy(baseExtensionRe
       if (spec.name === 'enumerate' && spec.params.marker) {
         const listStyle = MARKER_LIST_STYLE[spec.params.marker];
         if (listStyle) renderer = (props) => renderEnumerate(props, listStyle);
+      } else if (spec.name === 'table' && spec.params.composition) {
+        renderer = tableRenderer(tableOptionsFromRendererParams(spec.params));
       } else if (spec.name === 'image' && spec.params.src) {
         renderer = imageRenderer(
           spec.params.src,

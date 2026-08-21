@@ -5,6 +5,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { COLLAPSE_TOGGLE_GEOMETRY } from '../../../src/collapseToggleContract';
 import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
+import { serializeTableRendererSpec } from './blockRendererSpec';
 
 const assetPostMessage = vi.fn();
 (globalThis as { __snlApi?: unknown }).__snlApi = { postMessage: assetPostMessage };
@@ -49,6 +50,32 @@ describe('extensionRenderers', () => {
       expect(typeof extensionRenderers[key]).toBe('function');
     }
     expect(extensionRenderers.collapsible).toBe(CollapsibleRenderer);
+  });
+
+  it('renders blocks → row and dark CSS through the 0.2 compatibility key', () => {
+    const key = serializeTableRendererSpec({
+      composition: 'cells',
+      css: {
+        light: { color: '#111111', background: '#ffffff', border: '#cccccc' },
+        dark: { color: '#eeeeee', background: '#222222', border: '#555555' }
+      }
+    });
+    const Table = extensionRenderers[key]!;
+    const { container } = render(
+      <Table
+        node={blockNode([node('first'), node('second')])}
+        macro_data_driver={{ read_context: () => ({ color_scheme: 'dark' }) } as never}
+        renderChild={renderChild}
+      />
+    );
+    const table = container.querySelector<HTMLTableElement>('table.snl-block-table')!;
+    expect(table.dataset.snlTableComposition).toBe('cells');
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(table.querySelectorAll('tbody td')).toHaveLength(2);
+    expect(table.style.color).toBe('rgb(238, 238, 238)');
+    expect(table.style.background).toBe('rgb(34, 34, 34)');
+    expect(table.style.getPropertyValue('--snl-table-border-color')).toBe('#555555');
+    expect(table.querySelector<HTMLTableCellElement>('td')!.style.borderColor).toBe('rgb(85, 85, 85)');
   });
 
   it('resolves parameterized enumerate and host-brokered image renderer keys', async () => {

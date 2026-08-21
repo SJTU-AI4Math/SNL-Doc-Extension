@@ -94,6 +94,9 @@ function heldDirectoryPath(handle: Awaited<ReturnType<typeof fs.open>>, fallback
 }
 
 async function openSvgDirectoryAuthority(workspaceRoot: string): Promise<SvgDirectoryAuthority> {
+  if (process.platform !== 'linux') {
+    throw new Error('Secure SVG Macro Asset publication requires Linux descriptor-relative filesystem authority.');
+  }
   const handles: Array<Awaited<ReturnType<typeof fs.open>>> = [];
   try {
     const workspaceIdentity = await requireDirectoryWithoutSymlink(workspaceRoot, 'Workspace root');
@@ -230,7 +233,7 @@ async function verifyExactFiles(
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== BigInt(entries[index].expected.byteLength)) {
         throw new Error('Published SVG Asset has the wrong file type or size.');
       }
-      if ((stat.mode & 0o222n) !== 0n) throw new Error('Published SVG Asset must be read-only after publication.');
+      if ((stat.mode & 0o777n) !== 0o400n) throw new Error('Published SVG Asset must have exact mode 0400 after publication.');
       await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');
     }
     const actual = await Promise.all(handles.map((handle) => handle.readFile()));
@@ -240,7 +243,7 @@ async function verifyExactFiles(
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
     for (let index = 0; index < entries.length; index += 1) {
       const stat = await handles[index].stat({ bigint: true });
-      if (stat.dev !== identities[index].dev || stat.ino !== identities[index].ino || (stat.mode & 0o222n) !== 0n) {
+      if (stat.dev !== identities[index].dev || stat.ino !== identities[index].ino || (stat.mode & 0o777n) !== 0o400n) {
         throw new Error('Published SVG Asset inode changed during final verification.');
       }
       await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');

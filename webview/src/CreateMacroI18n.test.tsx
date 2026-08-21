@@ -1,10 +1,29 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
 
 
 const posted: unknown[] = [];
 let webviewState: unknown;
 let stateWrites = 0;
+
+function digest(value: string): string { return bytesToHex(sha256(new TextEncoder().encode(value))); }
+function projectionFor(request: Record<string, unknown>): Record<string, unknown> {
+  const slug = request.slug as string;
+  const sourceDigest = digest(request.sourceSvg as string);
+  const templateDigest = digest(request.templateSvg as string);
+  const source = `svg/${slug}.source.${sourceDigest}.svg`;
+  const template = `svg/${slug}.template.${templateDigest}.svg`;
+  const manifestText = `${JSON.stringify({ version: 1, compiler: 'snl-doc-extension-svg-editor:v1', source,
+    source_revision: `sha256:${sourceDigest}`, output: template, output_revision: `sha256:${templateDigest}`,
+    operations: request.operations }, null, 2)}\n`;
+  return {
+    asset: { source: template, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${templateDigest}`, request_epoch: 0 },
+    generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: request.accessibilityLabel },
+    editor: { source, source_revision: `sha256:${sourceDigest}`, manifest: `svg/${slug}.manifest.${digest(manifestText)}.json` }
+  };
+}
 
 vi.mock('./vscodeApi', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('./vscodeApi');
@@ -20,7 +39,7 @@ vi.mock('./vscodeApi', async () => {
   };
 });
 
-const { BlockRendererPresetControl, CreateMacroApp } = await import('./CreateMacroApp');
+const { BlockRendererPresetControl, CreateMacroApp, styleUsesSvgRenderer } = await import('./CreateMacroApp');
 const { apply_preferences_snapshot, set_content_language } = await import('./runtime/preferencesRuntime');
 
 afterEach(() => {
@@ -32,6 +51,10 @@ afterEach(() => {
 });
 
 describe('Create Macro localization', () => {
+  it('treats malformed custom renderer metadata as non-SVG without throwing during render capability checks', () => {
+    expect(() => styleUsesSvgRenderer({ mode: 'block', block_template_name: 'custom?x=1' })).not.toThrow();
+    expect(styleUsesSvgRenderer({ mode: 'block', block_template_name: 'custom?x=1' })).toBe(false);
+  });
   it('keeps per-Style template languages stable across repeated Style switches', async () => {
     document.documentElement.lang = 'en';
     apply_preferences_snapshot({
@@ -299,11 +322,7 @@ describe('Create Macro localization', () => {
     const request = [...posted].reverse().find((value) => typeof value === 'object' && value !== null
       && (value as { type?: string }).type === 'svgMacro.writeAssets') as { requestId: string };
     fireEvent.click(screen.getByRole('button', { name: 'Remove style default' }));
-    const projection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const projection = projectionFor(request as unknown as Record<string, unknown>);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId: request.requestId, projection } })));
     expect(screen.queryByText('SVG Macro Asset saved.')).toBeNull();
     expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe('');
@@ -335,11 +354,7 @@ describe('Create Macro localization', () => {
     const request = [...posted].reverse().find((value) =>
       typeof value === 'object' && value !== null && (value as { type?: string }).type === 'svgMacro.writeAssets'
     ) as { requestId: string };
-    const projection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const projection = projectionFor(request as unknown as Record<string, unknown>);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'svgMacro.assetsWritten', requestId: request.requestId, projection
     } })));

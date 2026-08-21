@@ -1,10 +1,34 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SvgMacroEditor } from './SvgMacroEditor';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
 
 afterEach(cleanup);
 
 const RAW = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60"><path id="label" d="M10 10h20v10H10z" fill="#000000"/><circle cx="70" cy="30" r="8" fill="#ffffff"/></svg>';
+
+function digest(value: string): string { return bytesToHex(sha256(new TextEncoder().encode(value))); }
+function projectionFor(request: Record<string, unknown>): Record<string, unknown> {
+  const slug = request.slug as string;
+  const sourceSvg = request.sourceSvg as string;
+  const templateSvg = request.templateSvg as string;
+  const operations = request.operations as unknown[];
+  const sourceDigest = digest(sourceSvg);
+  const templateDigest = digest(templateSvg);
+  const source = `svg/${slug}.source.${sourceDigest}.svg`;
+  const template = `svg/${slug}.template.${templateDigest}.svg`;
+  const manifestText = `${JSON.stringify({
+    version: 1, compiler: 'snl-doc-extension-svg-editor:v1', source,
+    source_revision: `sha256:${sourceDigest}`, output: template,
+    output_revision: `sha256:${templateDigest}`, operations
+  }, null, 2)}\n`;
+  return {
+    asset: { source: template, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${templateDigest}`, request_epoch: 0 },
+    generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: request.accessibilityLabel },
+    editor: { source, source_revision: `sha256:${sourceDigest}`, manifest: `svg/${slug}.manifest.${digest(manifestText)}.json` }
+  };
+}
 
 describe('SvgMacroEditor', () => {
   it('localizes the editor controls in Chinese', () => {
@@ -170,11 +194,7 @@ describe('SvgMacroEditor', () => {
       accessibilityLabel: 'Diagram', operations: []
     });
     const requestId = posted.at(-1)?.requestId;
-    const projection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const projection = projectionFor(posted.at(-1) as Record<string, unknown>);
     fireEvent(window, new MessageEvent('message', { data: {
       type: 'svgMacro.assetsWritten', requestId, projection,
       sourcePath: 'svg/diagram.source.def.svg', manifestPath: 'svg/diagram.manifest.ghi.json'
@@ -200,11 +220,7 @@ describe('SvgMacroEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
     const secondRequestId = posted.at(-1)?.requestId;
     fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: RAW.replace('#000000', '#ff0000') } });
-    const validProjection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const validProjection = projectionFor(posted.at(-1) as Record<string, unknown>);
     fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId: secondRequestId, projection: validProjection } }));
     expect(onProjectionChange).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toMatch(/changed|again/i);
@@ -222,11 +238,7 @@ describe('SvgMacroEditor', () => {
     const requestId = posted.at(-1)?.requestId;
     fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'renamed' } });
     fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Renamed diagram' } });
-    const projection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const projection = projectionFor(posted.at(-1) as Record<string, unknown>);
     fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId, projection } }));
     expect(onProjectionChange).not.toHaveBeenCalled();
     expect(screen.getByRole('alert').textContent).toMatch(/changed|again/i);
@@ -252,6 +264,30 @@ describe('SvgMacroEditor', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/invalid/i);
   });
 
+  it('rejects a self-consistent projection whose digests do not match the submitted bytes', () => {
+    const posted: Record<string, unknown>[] = [];
+    const onProjectionChange = vi.fn();
+    render(<SvgMacroEditor api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onProjectionChange} />);
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: RAW } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'diagram' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Diagram' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const request = posted.at(-1)!;
+    const forged = projectionFor(request) as {
+      asset: { source: string; revision: string };
+      editor: { source: string; source_revision: string; manifest: string };
+    };
+    forged.asset.source = `svg/diagram.template.${'d'.repeat(64)}.svg`;
+    forged.asset.revision = `sha256:${'d'.repeat(64)}`;
+    forged.editor.source = `svg/diagram.source.${'e'.repeat(64)}.svg`;
+    forged.editor.source_revision = `sha256:${'e'.repeat(64)}`;
+    forged.editor.manifest = `svg/diagram.manifest.${'f'.repeat(64)}.json`;
+    fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId: request.requestId, projection: forged } }));
+    expect(onProjectionChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/invalid/i);
+  });
+
   it('does not adopt a pending save reply into a different style identity', () => {
     const posted: Record<string, unknown>[] = [];
     const onStyleA = vi.fn();
@@ -264,11 +300,7 @@ describe('SvgMacroEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
     const requestId = posted.at(-1)?.requestId;
     view.rerender(<SvgMacroEditor editorIdentity="style-b" api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onStyleB} />);
-    const projection = {
-      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
-      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
-      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
-    };
+    const projection = projectionFor(posted.at(-1) as Record<string, unknown>);
     fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId, projection } }));
     expect(onStyleA).not.toHaveBeenCalled();
     expect(onStyleB).not.toHaveBeenCalled();

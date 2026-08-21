@@ -1027,6 +1027,15 @@ function canonicalMacroKindCatalog(kinds: readonly MacroKind[]): MacroKind[] {
 // Component
 // ---------------------------------------------------------------------------
 
+export function styleUsesSvgRenderer(style: Pick<StyleDraft, 'mode' | 'block_template_name'>): boolean {
+  if (style.mode !== 'block') return false;
+  try {
+    return parseBlockRendererSpec(style.block_template_name).name === 'svg_template';
+  } catch {
+    return false;
+  }
+}
+
 export function CreateMacroApp(): React.ReactElement {
   const preferencesRevision = use_preferences_revision();
   const contentLanguage = webview_language_runtime.query_environment().language;
@@ -1090,7 +1099,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const current = styles[activeStyle] ?? styles[0];
-  const hasSvgRenderer = styles.some((style) => style.mode === 'block' && parseBlockRendererSpec(style.block_template_name).name === 'svg_template');
+  const hasSvgRenderer = styles.some(styleUsesSvgRenderer);
 
   function markFormDirty(): void {
     formDirtyRef.current = true;

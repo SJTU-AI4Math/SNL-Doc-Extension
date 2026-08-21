@@ -310,6 +310,23 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(preserved).toContain('different source bytes');
   });
 
+  it('rejects mode 0444 instead of weakening the exact immutable 0400 contract', async () => {
+    const root = await workspace();
+    const originalOpen = fs.open.bind(fs);
+    let changed = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      if (!changed && String(path).includes('mode-race.source.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0) {
+        changed = true;
+        await fs.chmod(path, 0o444);
+      }
+      return originalOpen(path, flags, mode);
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'mode-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/0400|mode|rollback/i);
+  });
+
   it('post-write verifies the manifest and rolls back a corrupted publication', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);

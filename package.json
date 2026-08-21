@@ -465,6 +465,7 @@
     "smoke:vsix-host": "node scripts/smoke-vsix-host.mjs"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
     "@sjtu-ai4math/snl-basics": "0.2.4",
     "fuse.js": "^7.5.0",
     "katex": "^0.16.0",

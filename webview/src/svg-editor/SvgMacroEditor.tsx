@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { parseSanitizedSvgTemplate } from '@sjtu-ai4math/snl-basics';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
 import { getVsCodeApi, type VsCodeApi } from '../vscodeApi';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { createWorkspaceSvgAssetLoader } from '../runtime/svgTemplateAssetBridge';
@@ -28,7 +30,7 @@ export interface SvgMacroEditorProps {
 
 let requestSequence = 0;
 
-type PendingSave = { requestId: string; editorIdentity?: string; slug: string; label: string; operationsJson: string; sourceSvg: string; templateSvg: string; requiredArity: number };
+type PendingSave = { requestId: string; editorIdentity?: string; slug: string; label: string; operationsJson: string; sourceSvg: string; templateSvg: string; requiredArity: number; expected: { templatePath: string; templateRevision: string; sourcePath: string; sourceRevision: string; manifestPath: string } };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -60,17 +62,42 @@ function decodeWrittenProjection(value: unknown): Record<string, unknown> | null
   return value;
 }
 
+function digestText(value: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(value)));
+}
+
+function expectedProjectionIdentity(slug: string, sourceSvg: string, templateSvg: string, operations: unknown[]): PendingSave['expected'] {
+  const sourceDigest = digestText(sourceSvg);
+  const templateDigest = digestText(templateSvg);
+  const sourcePath = `svg/${slug}.source.${sourceDigest}.svg`;
+  const templatePath = `svg/${slug}.template.${templateDigest}.svg`;
+  const manifest = `${JSON.stringify({
+    version: 1,
+    compiler: 'snl-doc-extension-svg-editor:v1',
+    source: sourcePath,
+    source_revision: `sha256:${sourceDigest}`,
+    output: templatePath,
+    output_revision: `sha256:${templateDigest}`,
+    operations
+  }, null, 2)}\n`;
+  return {
+    templatePath,
+    templateRevision: `sha256:${templateDigest}`,
+    sourcePath,
+    sourceRevision: `sha256:${sourceDigest}`,
+    manifestPath: `svg/${slug}.manifest.${digestText(manifest)}.json`
+  };
+}
+
 function projectionMatchesPending(projection: Record<string, unknown>, pending: PendingSave): boolean {
   const asset = projection.asset as Record<string, unknown>;
   const editor = projection.editor as Record<string, unknown>;
   const accessibility = projection.accessibility as Record<string, unknown>;
-  const template = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.template\.([a-f0-9]{64})\.svg$/.exec(asset.source as string);
-  const source = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.source\.([a-f0-9]{64})\.svg$/.exec(editor.source as string);
-  const manifest = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.manifest\.[a-f0-9]{64}\.json$/.exec(editor.manifest as string);
-  return template !== null && source !== null && manifest !== null
-    && template[1] === pending.slug && source[1] === pending.slug && manifest[1] === pending.slug
-    && asset.revision === `sha256:${template[2]}`
-    && editor.source_revision === `sha256:${source[2]}`
+  return asset.source === pending.expected.templatePath
+    && asset.revision === pending.expected.templateRevision
+    && editor.source === pending.expected.sourcePath
+    && editor.source_revision === pending.expected.sourceRevision
+    && editor.manifest === pending.expected.manifestPath
     && accessibility.label === pending.label;
 }
 
@@ -616,7 +643,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
     const templateSvg = serialize(root);
     const parsed = parseSanitizedSvgTemplate(templateSvg);
     const requiredArity = Math.max(0, ...parsed.slots.map((slot) => slot.index + 1));
-    pendingRequest.current = { requestId, editorIdentity, slug, label, operationsJson: JSON.stringify(operations), sourceSvg: source, templateSvg, requiredArity };
+    pendingRequest.current = { requestId, editorIdentity, slug, label, operationsJson: JSON.stringify(operations), sourceSvg: source, templateSvg, requiredArity, expected: expectedProjectionIdentity(slug, source, templateSvg, operations) };
     setSaved(false);
     setError('');
     host.postMessage({

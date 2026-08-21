@@ -100,6 +100,15 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(directorySyncCalls).toBe(1);
   });
 
+  it('rejects oversized untrusted SVG bytes before parsing active markup', async () => {
+    const root = await workspace();
+    const oversized = `<svg xmlns="http://www.w3.org/2000/svg"><script/>${' '.repeat(1024 * 1024)}</svg>`;
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'oversized', sourceSvg: oversized,
+      templateSvg: template, accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/1024 KiB/);
+  });
+
   it('rejects unsafe names and active runtime template markup', async () => {
     const root = await workspace();
     await expect(writeWorkspaceSvgMacroAssets({

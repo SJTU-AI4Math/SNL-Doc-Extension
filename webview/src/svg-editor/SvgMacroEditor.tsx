@@ -326,6 +326,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
   const [operations, setOperations] = useState<unknown[]>([]);
   const [saved, setSaved] = useState(false);
   const pendingRequest = useRef<PendingSave | null>(null);
+  const localEditGeneration = useRef(0);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const runtimeSource = initialProjection?.asset?.source;
@@ -338,6 +339,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
     const host = api ?? getVsCodeApi();
     if (!host || typeof runtimeSource !== 'string' || typeof runtimeBaseIdentity !== 'string' || typeof runtimeRevision !== 'string') return;
     const controller = new AbortController();
+    const hydrationGeneration = localEditGeneration.current;
     const loader = createWorkspaceSvgAssetLoader(host);
     const rawRequest = typeof authoredSource === 'string' && typeof authoredRevision === 'string'
       ? loader({ source: authoredSource, baseIdentity: runtimeBaseIdentity, revision: authoredRevision }, controller.signal)
@@ -346,7 +348,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       rawRequest,
       loader({ source: runtimeSource, baseIdentity: runtimeBaseIdentity, revision: runtimeRevision }, controller.signal)
     ]).then(([raw, runtime]) => {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || localEditGeneration.current !== hydrationGeneration) return;
       const parsed = parseSanitizedSvgTemplate(runtime);
       setSource(raw ?? runtime);
       setLoadedSource(raw ?? runtime);
@@ -361,7 +363,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       setAssetName(inferredSlug);
       if (typeof initialAccessibilityLabel === 'string') setAccessibilityLabel(initialAccessibilityLabel);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(t('loadFailed'));
+      if (!controller.signal.aborted && localEditGeneration.current === hydrationGeneration) setError(t('loadFailed'));
     });
     return () => controller.abort();
   }, [api, authoredRevision, authoredSource, initialAccessibilityLabel, runtimeBaseIdentity, runtimeRevision, runtimeSource, t]);
@@ -431,7 +433,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
         return;
       }
       setSource(reader.result);
-      onDirty?.();
+      localEditGeneration.current += 1; onDirty?.();
       setSaved(false);
       setFileName(file.name);
       setError('');
@@ -484,6 +486,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       setOperations((previous) => [...previous, { type: 'map-exact-color-to-paper-knockout', color: exactColor }]);
       setSaved(false);
       setError('');
+      localEditGeneration.current += 1;
       onTemplateChange(template);
     } catch (reason) {
       setRoot(parseSanitizedSvgTemplate(before).root);
@@ -535,6 +538,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       setOperations((previous) => [...previous, { type: 'map-exact-color-to-foreground', color: exactColor }]);
       setSaved(false);
       setError('');
+      localEditGeneration.current += 1;
       onTemplateChange(template);
     } catch (reason) {
       setRoot(parseSanitizedSvgTemplate(before).root);
@@ -558,6 +562,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       setOperations((previous) => [...previous, { type: 'map-selected-paint-to-foreground' }]);
       setSaved(false);
       setError('');
+      localEditGeneration.current += 1;
       onTemplateChange(template);
     } catch (reason) {
       setRoot(parseSanitizedSvgTemplate(before).root);
@@ -618,6 +623,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       setSelected([]);
       setSaved(false);
       setError('');
+      localEditGeneration.current += 1;
       onTemplateChange(template);
     } catch (reason) {
       setRoot(parseSanitizedSvgTemplate(before).root);
@@ -660,14 +666,14 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
     </label>
     {fileName ? <span>{fileName}</span> : null}
     <label>{t('source')}
-      <textarea value={source} onChange={(event) => { setSource(event.target.value); onDirty?.(); setSaved(false); }} />
+      <textarea value={source} onChange={(event) => { setSource(event.target.value); localEditGeneration.current += 1; onDirty?.(); setSaved(false); }} />
     </label>
     <button type="button" onClick={load}>{t('load')}</button>
     {root && source !== loadedSource ? <p>{t('reloadRequired')}</p> : null}
     {error ? <p role="alert">{error}</p> : null}
     <p>{selected.length === 1 ? t('selectedOne') : t('selectedMany', { count: selected.length })}</p>
     <label>{t('slotIndex')}
-      <input type="number" min="0" step="1" value={slotIndex} onChange={(event) => { setSlotIndex(event.target.value); onDirty?.(); }} />
+      <input type="number" min="0" step="1" value={slotIndex} onChange={(event) => { setSlotIndex(event.target.value); localEditGeneration.current += 1; onDirty?.(); }} />
     </label>
     <button type="button" disabled={!root || selected.length === 0 || !selected.some((element) => element.parentElement?.localName === 'g')} onClick={selectParentGroups}>
       {t('selectGroup')}
@@ -679,7 +685,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       {t('selectedForeground')}
     </button>
     <label>{t('exactColor')}
-      <input value={exactColor} onChange={(event) => { setExactColor(event.target.value); onDirty?.(); }} />
+      <input value={exactColor} onChange={(event) => { setExactColor(event.target.value); localEditGeneration.current += 1; onDirty?.(); }} />
     </label>
     <button type="button" disabled={!root} onClick={mapExactColorToForeground}>
       {t('exactForeground')}
@@ -688,10 +694,10 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       {t('paperKnockout')}
     </button>
     <label>{t('assetName')}
-      <input value={assetName} onChange={(event) => { setAssetName(event.target.value); setSaved(false); onDirty?.(); }} />
+      <input value={assetName} onChange={(event) => { setAssetName(event.target.value); setSaved(false); localEditGeneration.current += 1; onDirty?.(); }} />
     </label>
     <label>{t('accessibility')}
-      <input value={accessibilityLabel} onChange={(event) => { setAccessibilityLabel(event.target.value); setSaved(false); onDirty?.(); }} />
+      <input value={accessibilityLabel} onChange={(event) => { setAccessibilityLabel(event.target.value); setSaved(false); localEditGeneration.current += 1; onDirty?.(); }} />
     </label>
     <button type="button" disabled={!root || source !== loadedSource} onClick={saveAssets}>{t('save')}</button>
     {saved ? <p role="status">{t('saved')}</p> : null}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SvgMacroEditor } from './SvgMacroEditor';
 import { sha256 } from '@noble/hashes/sha256';
@@ -329,6 +329,28 @@ describe('SvgMacroEditor', () => {
     expect((screen.getByLabelText('Accessibility label') as HTMLInputElement).value).toBe('Existing diagram');
     expect(screen.getByText('SVG Macro Asset saved.')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: `${RAW} ` } });
+    expect(screen.queryByText('SVG Macro Asset saved.')).toBeNull();
+  });
+
+  it('preserves a local source edit when deferred host hydration resolves', async () => {
+    const postMessage = vi.fn();
+    render(<SvgMacroEditor api={{ postMessage }} onTemplateChange={() => {}} initialProjection={{
+      asset: { source: 'svg/deferred.template.svg', base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'b'.repeat(64)}` },
+      editor: { source: `svg/deferred.source.${'a'.repeat(64)}.svg`, source_revision: `sha256:${'a'.repeat(64)}` },
+      accessibility: { label: 'Host label' }
+    }} />);
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: 'LOCAL' } });
+    for (const call of postMessage.mock.calls) {
+      const request = call[0] as Record<string, string>;
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'snl.assets/svg-source-result', request_id: request.request_id,
+        source: request.source, base_identity: request.base_identity, revision: request.revision,
+        svg_source: RAW
+      } }));
+    }
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe('LOCAL');
     expect(screen.queryByText('SVG Macro Asset saved.')).toBeNull();
   });
 

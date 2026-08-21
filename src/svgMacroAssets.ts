@@ -280,10 +280,10 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
   if (!options.accessibilityLabel.trim() || options.accessibilityLabel.length > 500) {
     throw new Error('SVG Macro accessibility label must be between 1 and 500 characters.');
   }
-  assertRuntimeTemplate(options.sourceSvg, 'Raw SVG source');
-  assertRuntimeTemplate(options.templateSvg, 'Runtime SVG template');
   const sourceBytes = bytes(options.sourceSvg, 'Raw SVG source', MAX_SVG_BYTES);
   const templateBytes = bytes(options.templateSvg, 'Runtime SVG template', MAX_SVG_BYTES);
+  assertRuntimeTemplate(options.sourceSvg, 'Raw SVG source');
+  assertRuntimeTemplate(options.templateSvg, 'Runtime SVG template');
   const sourceDigest = digest(sourceBytes);
   const templateDigest = digest(templateBytes);
 

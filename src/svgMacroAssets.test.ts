@@ -172,6 +172,60 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect((await fs.stat(join(root.fsPath, '.SNL_Doc', 'assets', result.sourcePath), { bigint: true })).ino).toBe(anonymousInode);
   });
 
+  it('revalidates all canonical files after the directory sync gap', async () => {
+    const root = await workspace();
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const sourceTarget = join(svgRoot, `sync-race.source.${createHash('sha256').update(source).digest('hex')}.svg`);
+    const originalOpen = fs.open.bind(fs);
+    let replaced = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if ((String(path) === svgRoot || String(path).endsWith('/svg')) &&
+          (Number(flags) & fs.constants.O_DIRECTORY) !== 0 && (Number(flags) & 0o20000000) === 0) {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          await originalSync();
+          if (!replaced) {
+            replaced = true;
+            await fs.rename(sourceTarget, `${sourceTarget}.attacker-preserved`);
+            await fs.writeFile(sourceTarget, source.replace('h1', 'h2'), { mode: 0o400 });
+          }
+        };
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'sync-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/bytes do not match|rollback/i);
+  });
+
+  it('retains rollback ownership when anonymous close fails after linking', async () => {
+    const root = await workspace();
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const sourceTarget = join(svgRoot, `close-owned.source.${createHash('sha256').update(source).digest('hex')}.svg`);
+    const originalOpen = fs.open.bind(fs);
+    let injected = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (!injected && (Number(flags) & 0o20000000) !== 0) {
+        injected = true;
+        const originalClose = handle.close.bind(handle);
+        handle.close = async () => {
+          await originalClose();
+          throw new Error('injected anonymous close failure after link');
+        };
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'close-owned', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/anonymous close failure|authority/i);
+    await expect(fs.lstat(sourceTarget)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await fs.readdir(svgRoot)).some((entry) => entry.startsWith('.snl-quarantine-'))).toBe(true);
+  });
+
   it('syncs the held SVG directory before acknowledging the manifest commit point', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');

@@ -71,7 +71,11 @@ async function openDirectoryAuthority(path: string, expected: FileIdentity): Pro
     await requireIdentity(path, expected, 'SVG Asset directory');
     return handle;
   } catch (reason) {
-    await handle.close();
+    try {
+      await handle.close();
+    } catch (closeReason) {
+      throw new AggregateError([reason, closeReason], 'SVG directory authority validation and close both failed.');
+    }
     throw reason;
   }
 }
@@ -90,6 +94,17 @@ async function closeHandlesStrict(handles: Array<Awaited<ReturnType<typeof fs.op
   const results = await Promise.allSettled(handles.map((handle) => handle.close()));
   const failures = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
   if (failures.length > 0) throw new AggregateError(failures, 'One or more SVG filesystem authority handles failed to close.');
+}
+
+async function closePreservingFailure(
+  close: () => Promise<void>, failed: boolean, failure: unknown, label: string
+): Promise<void> {
+  try {
+    await close();
+  } catch (closeFailure) {
+    if (failed) throw new AggregateError([failure, closeFailure], label);
+    throw closeFailure;
+  }
 }
 
 interface SvgDirectoryAuthority {
@@ -191,12 +206,14 @@ async function writeImmutable(
   value: Uint8Array,
   directoryPath: string,
   directoryIdentity: FileIdentity,
-  directoryHandle: { fd: number }
+  directoryHandle: { fd: number },
+  onCreated: (identity: FileIdentity) => void
 ): Promise<FileIdentity | null> {
   await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
   const handle = await fs.open(directoryPath, fsConstants.O_RDWR | O_TMPFILE, 0o600);
-  let linked = false;
   let created: FileIdentity | undefined;
+  let failed = false;
+  let failure: unknown;
   try {
     const initial = await handle.stat({ bigint: true });
     created = { dev: initial.dev, ino: initial.ino };
@@ -224,21 +241,16 @@ async function writeImmutable(
         throw verificationReason;
       }
     }
-    linked = true;
+    onCreated(created);
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
     await requireIdentity(path, created, 'Published SVG Asset');
     return created;
   } catch (reason) {
-    if (linked && created) {
-      try {
-        await quarantineOwned(path, created);
-      } catch (quarantineReason) {
-        throw new Error('SVG Asset publication failed and its ambiguous destination was preserved.', { cause: new AggregateError([reason, quarantineReason]) });
-      }
-    }
+    failed = true;
+    failure = reason;
     throw reason;
   } finally {
-    await handle.close();
+    await closePreservingFailure(() => handle.close(), failed, failure, 'SVG publication and anonymous inode close both failed.');
   }
 }
 
@@ -249,6 +261,8 @@ async function verifyExactFile(
   directoryIdentity: FileIdentity
 ): Promise<void> {
   const handle = await fs.open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  let failed = false;
+  let failure: unknown;
   try {
     const stat = await handle.stat({ bigint: true });
     const fileIdentity = { dev: stat.dev, ino: stat.ino };
@@ -259,8 +273,12 @@ async function verifyExactFile(
     if (!actual.equals(Buffer.from(expected))) throw new Error('Published SVG Asset bytes do not match the committed content.');
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
     await requireIdentity(path, fileIdentity, 'Published SVG Asset');
+  } catch (reason) {
+    failed = true;
+    failure = reason;
+    throw reason;
   } finally {
-    await handle.close();
+    await closePreservingFailure(() => handle.close(), failed, failure, 'SVG verification and file close both failed.');
   }
 }
 
@@ -270,6 +288,8 @@ async function verifyExactFiles(
   directoryIdentity: FileIdentity
 ): Promise<void> {
   const handles: Awaited<ReturnType<typeof fs.open>>[] = [];
+  let failed = false;
+  let failure: unknown;
   try {
     for (const entry of entries) handles.push(await fs.open(entry.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW));
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
@@ -295,8 +315,15 @@ async function verifyExactFiles(
       }
       await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');
     }
+  } catch (reason) {
+    failed = true;
+    failure = reason;
+    throw reason;
   } finally {
-    await closeHandlesStrict(handles);
+    await closePreservingFailure(
+      () => closeHandlesStrict(handles), failed, failure,
+      'SVG aggregate verification and file closes both failed.'
+    );
   }
 }
 
@@ -375,23 +402,22 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
   const authority = await openSvgDirectoryAuthority(options.workspaceRoot.fsPath);
   const { svgRoot, authorityRoot, svgIdentity: svgRootIdentity, svgHandle: directoryHandle } = authority;
   const createdPaths: Array<{ path: string; identity: FileIdentity }> = [];
+  let transactionFailed = false;
+  let transactionFailure: unknown;
   try {
     try {
       const sourceTarget = join(authorityRoot, sourceFile);
-      const sourceIdentity = await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity, directoryHandle);
-      if (sourceIdentity) createdPaths.push({ path: sourceTarget, identity: sourceIdentity });
+      await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity, directoryHandle, (identity) => createdPaths.push({ path: sourceTarget, identity }));
       const templateTarget = join(authorityRoot, templateFile);
-      const templateIdentity = await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity, directoryHandle);
-      if (templateIdentity) createdPaths.push({ path: templateTarget, identity: templateIdentity });
+      await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity, directoryHandle, (identity) => createdPaths.push({ path: templateTarget, identity }));
       const manifestTarget = join(authorityRoot, manifestFile);
-      const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity, directoryHandle);
-      if (manifestIdentity) createdPaths.push({ path: manifestTarget, identity: manifestIdentity });
+      await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity, directoryHandle, (identity) => createdPaths.push({ path: manifestTarget, identity }));
+      await syncDirectory(directoryHandle);
       await verifyExactFiles([
         { path: sourceTarget, expected: sourceBytes },
         { path: templateTarget, expected: templateBytes },
         { path: manifestTarget, expected: manifestBytes }
       ], svgRoot, svgRootIdentity);
-      await syncDirectory(directoryHandle);
       await requireIdentity(svgRoot, svgRootIdentity, 'SVG Asset directory');
       return { sourcePath, manifestPath, projection };
     } catch (reason) {
@@ -408,8 +434,15 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
       }
       throw reason;
     }
+  } catch (reason) {
+    transactionFailed = true;
+    transactionFailure = reason;
+    throw reason;
   } finally {
-    await closeHandlesStrict(authority.handles.reverse());
+    await closePreservingFailure(
+      () => closeHandlesStrict(authority.handles.reverse()), transactionFailed, transactionFailure,
+      'SVG transaction and authority handle closes both failed.'
+    );
   }
 
 }

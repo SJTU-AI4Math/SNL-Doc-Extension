@@ -299,6 +299,34 @@ describe('Create Macro localization', () => {
     expect(screen.getAllByRole('checkbox')[0]).toHaveProperty('disabled', true);
   });
 
+  it('assigns distinct pending-save identities to host-hydrated SVG styles', () => {
+    document.documentElement.lang = 'en';
+    render(<CreateMacroApp />);
+    const svgTemplate = { mode: 'block', body: '#0', block_template_name: 'svg_template' };
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['Hydrated'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
+      existing: { name: 'Hydrated', description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+        styles: [
+          { style_name: 'default', tags: [], template: svgTemplate },
+          { style_name: 'alternate', tags: [], template: svgTemplate }
+        ] }
+    } })));
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h2v2H0z"/></svg>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'hydrated' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Hydrated' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const request = [...posted].reverse().find((value) => typeof value === 'object' && value !== null
+      && (value as { type?: string }).type === 'svgMacro.writeAssets') as Record<string, unknown>;
+    fireEvent.click(screen.getByRole('button', { name: 'Remove style default' }));
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'svgMacro.assetsWritten', requestId: request.requestId, projection: projectionFor(request)
+    } })));
+    expect(screen.queryByText('SVG Macro Asset saved.')).toBeNull();
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe('');
+  });
+
   it('does not adopt an SVG save after the active style is removed and replaced at the same index', () => {
     document.documentElement.lang = 'en';
     render(<CreateMacroApp />);

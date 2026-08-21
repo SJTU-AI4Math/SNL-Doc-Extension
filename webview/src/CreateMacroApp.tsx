@@ -1301,6 +1301,7 @@ export function CreateMacroApp(): React.ReactElement {
             is_i18n(template_localized) ? template_localized.default_language : 'en'
           );
           return {
+            editor_identity: newStyleDraft(style.style_name || 'default').editor_identity,
             extensions,
             style_name: style.style_name || 'default',
             ...projection,

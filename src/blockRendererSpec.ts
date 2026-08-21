@@ -198,7 +198,7 @@ export function tableOptionsFromRendererParams(
 }
 
 
-/** Verify the temporary 0.2 renderer-key transport against canonical table data. */
+/** Accept the native Basics 0.3 table key; verify legacy 0.2 transport when present. */
 export function assertTableRendererTransport(
   projection: Record<string, unknown>,
   path: string
@@ -212,9 +212,7 @@ export function assertTableRendererTransport(
   if (spec.name !== 'table') {
     throw new Error(`${path}.table is valid only for the built-in table renderer.`);
   }
-  if (Object.keys(spec.params).length === 0) {
-    throw new Error(`${path}.table requires the versioned compatibility key while Basics 0.2.4 is installed.`);
-  }
+  if (Object.keys(spec.params).length === 0) return;
   const transported = tableOptionsFromRendererParams(spec.params);
   if (JSON.stringify(transported) !== JSON.stringify(options)) {
     throw new Error(`${path}.table disagrees with its compatibility renderer key.`);

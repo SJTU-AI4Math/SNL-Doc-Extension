@@ -21,7 +21,9 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  createSvgTemplateRenderer,
   defaultRenderers,
+  SvgTemplateAssetRegistry,
   type SnlBlockRenderer,
   type SnlRendererRegistry,
   type SnlSyntaxTree
@@ -35,6 +37,7 @@ import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
 import { getVsCodeApi } from '../vscodeApi';
 import { parseBlockRendererSpec, tableOptionsFromRendererParams } from './blockRendererSpec';
 import { useCollapsibleController } from './CollapsibleScope';
+import { createWorkspaceSvgAssetLoader } from './svgTemplateAssets';
 import type { TableTemplateOptions } from '../../../src/tableTemplateOptions';
 
 const MESSAGES = defineUiMessages(
@@ -396,6 +399,21 @@ const MissingImageRenderer: SnlBlockRenderer = () => {
  * MUST spread `defaultRenderers` — see the module header. Dropping the spread
  * silently disables every SNL-Basics built-in block renderer.
  */
+let svgTemplateRenderer: SnlBlockRenderer | undefined;
+function getSvgTemplateRenderer(): SnlBlockRenderer {
+  if (svgTemplateRenderer) return svgTemplateRenderer;
+  const loader = createWorkspaceSvgAssetLoader({
+    postMessage(message: unknown): void {
+      const api = getVsCodeApi();
+      if (!api) throw new Error('VS Code asset bridge is unavailable');
+      api.postMessage(message);
+    }
+  });
+  const assetRegistry = new SvgTemplateAssetRegistry({ loader, maxSettled: 32 });
+  svgTemplateRenderer = createSvgTemplateRenderer({ assetRegistry });
+  return svgTemplateRenderer;
+}
+
 const baseExtensionRenderers: SnlRendererRegistry = {
   ...defaultRenderers,
   enumerate: EnumerateRenderer,
@@ -408,6 +426,7 @@ const parameterizedRendererCache = new Map<string, SnlBlockRenderer>();
 
 export const extensionRenderers: SnlRendererRegistry = new Proxy(baseExtensionRenderers, {
   get(target, property, receiver): unknown {
+    if (property === 'svg_template') return getSvgTemplateRenderer();
     const direct = Reflect.get(target, property, receiver);
     if (direct !== undefined || typeof property !== 'string' || !property.includes('?')) return direct;
     const cached = parameterizedRendererCache.get(property);

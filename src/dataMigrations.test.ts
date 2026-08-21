@@ -678,7 +678,7 @@ describe('workspace data migrations', () => {
     };
     expect(() => assertCanonicalMacroPackage('Logic.json', {
       version: '11', macros: { X: valid }
-    }, '11')).toThrow(/versioned compatibility key/i);
+    }, '11')).not.toThrow();
 
     const compatible = structuredClone(valid);
     compatible.styles[0].template.block_template_name = serializeTableRendererSpec(

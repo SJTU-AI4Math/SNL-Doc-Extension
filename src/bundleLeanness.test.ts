@@ -59,8 +59,7 @@ const WORKSPACE_ASSET_BROKER_DEBUG_LABELS = [
   'pendingResolutions:',
   'resolutions:',
   'requests:',
-  'epochs:',
-  'consumers:'
+  'epochs:'
 ];
 
 const EXPECTED_PRODUCTION_OUTPUTS = [

@@ -38,7 +38,7 @@ import {
 } from './render/macroKindPalette';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
-import { harvestLibraryHtml } from './export/htmlExport';
+import { harvestLibraryHtml, waitForExportSurfaces } from './export/htmlExport';
 import { createEntryDetailLoader } from './export/entryDetailBridge';
 import { prerenderPopovers } from './export/popoverPrerender';
 import {
@@ -231,10 +231,12 @@ export function App(): React.ReactElement {
    * the subtree, so a collapsed branch is absent from the DOM and would be
    * silently dropped from the export.
    */
-  const exportHtml = (slug: string, title: string, entryCount: number): void => {
+  const exportHtml = async (slug: string, title: string, entryCount: number): Promise<void> => {
     const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
     if (!root) return;
+    await waitForExportSurfaces(root);
+    if (generation !== exportGenerationRef.current) return;
     const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
     const send = (
       popovers: Record<string, string>,

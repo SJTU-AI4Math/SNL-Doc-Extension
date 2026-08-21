@@ -53,6 +53,17 @@ export interface WorkspaceLanguageService {
 
 export interface WorkspaceAssetService {
   resolve(path: string): Promise<string>;
+  readSvg?(path: string): Promise<string>;
+}
+
+function svgAssetPath(source: string): string | undefined {
+  const path = source.startsWith('assets/') ? source.slice('assets/'.length) : source;
+  if (!path || path.includes('\\') || path.startsWith('/') ||
+      path.includes('?') || path.includes('#') ||
+      path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    return undefined;
+  }
+  return path;
 }
 
 export class PreferencesHost implements vscode.Disposable {
@@ -144,6 +155,31 @@ export class PreferencesHost implements vscode.Disposable {
           typeof asset.path === 'string') {
         const target = ref.deref();
         if (target) void this.resolveAsset(target, assetService, asset.request_id, asset.path);
+        return;
+      }
+      const svg = message as {
+        type?: unknown; request_id?: unknown; source?: unknown;
+        base_identity?: unknown; revision?: unknown;
+      } | null;
+      if (svg?.type === 'snl.assets/read-svg' && assetService?.readSvg &&
+          typeof svg.request_id === 'string' && svg.request_id.length <= 128 &&
+          typeof svg.source === 'string' && svg.source.length <= 1024 &&
+          typeof svg.base_identity === 'string' && svg.base_identity.length > 0 && svg.base_identity.length <= 512 &&
+          typeof svg.revision === 'string' && svg.revision.length > 0 && svg.revision.length <= 512) {
+        const path = svgAssetPath(svg.source);
+        const target = ref.deref();
+        if (!target) return;
+        const request = {
+          request_id: svg.request_id,
+          source: svg.source,
+          base_identity: svg.base_identity,
+          revision: svg.revision
+        };
+        if (path) void this.resolveSvgAsset(target, assetService, { ...request, path });
+        else void target.postMessage({
+          type: 'snl.assets/svg-source', ...request,
+          error: 'SVG template source must be a contained workspace asset path.'
+        });
       }
     });
     this.webviewRefs.set(webview, { ref, listener });
@@ -174,6 +210,32 @@ export class PreferencesHost implements vscode.Disposable {
         type: 'snl.assets/resolved',
         request_id,
         path,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async resolveSvgAsset(
+    webview: vscode.Webview,
+    service: WorkspaceAssetService,
+    request: {
+      request_id: string; source: string; base_identity: string;
+      revision: string; path: string;
+    }
+  ): Promise<void> {
+    const envelope = {
+      type: 'snl.assets/svg-source' as const,
+      request_id: request.request_id,
+      source: request.source,
+      base_identity: request.base_identity,
+      revision: request.revision
+    };
+    try {
+      const value = await service.readSvg!(request.path);
+      await webview.postMessage({ ...envelope, value });
+    } catch (error) {
+      await webview.postMessage({
+        ...envelope,
         error: error instanceof Error ? error.message : String(error)
       });
     }

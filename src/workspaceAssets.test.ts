@@ -40,7 +40,7 @@ function uri(fsPath: string, scheme = 'mem'): TestUri {
   return { path, fsPath, scheme, toString: () => `${scheme}:${path}` };
 }
 
-import { cacheWorkspaceAsset } from './workspaceAssets';
+import { cacheWorkspaceAsset, readWorkspaceSvgSource } from './workspaceAssets';
 
 function fixture(symlinks: string[] = []) {
   const files = new Map<string, Uint8Array>([
@@ -244,4 +244,45 @@ describe('cacheWorkspaceAsset', () => {
       expect(fsApi.readFile).not.toHaveBeenCalled();
     }
   );
+});
+
+
+describe('readWorkspaceSvgSource', () => {
+  it('reads a validated UTF-8 SVG without exposing a workspace URL', async () => {
+    const temp = await nodeFs.mkdtemp(join(tmpdir(), 'snl-svg-source-'));
+    try {
+      const workspace = join(temp, 'workspace');
+      const root = join(workspace, '.SNL_Doc', 'assets', 'figures');
+      await nodeFs.mkdir(root, { recursive: true });
+      await nodeFs.writeFile(join(root, 'proof.svg'), '<svg viewBox="0 0 1 1"/>', 'utf8');
+      await expect(readWorkspaceSvgSource({
+        workspaceRoot: uri(workspace, 'file') as never,
+        relativePath: 'figures/proof.svg',
+        fsApi: followingNodeFs as never
+      })).resolves.toBe('<svg viewBox="0 0 1 1"/>');
+    } finally {
+      await nodeFs.rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects non-SVG extensions and invalid UTF-8', async () => {
+    const temp = await nodeFs.mkdtemp(join(tmpdir(), 'snl-svg-invalid-'));
+    try {
+      const workspace = join(temp, 'workspace');
+      const root = join(workspace, '.SNL_Doc', 'assets');
+      await nodeFs.mkdir(root, { recursive: true });
+      await nodeFs.writeFile(join(root, 'wrong.png'), '<svg/>', 'utf8');
+      await nodeFs.writeFile(join(root, 'broken.svg'), new Uint8Array([0xc3, 0x28]));
+      await expect(readWorkspaceSvgSource({
+        workspaceRoot: uri(workspace, 'file') as never,
+        relativePath: 'wrong.png', fsApi: followingNodeFs as never
+      })).rejects.toThrow(/\.svg/i);
+      await expect(readWorkspaceSvgSource({
+        workspaceRoot: uri(workspace, 'file') as never,
+        relativePath: 'broken.svg', fsApi: followingNodeFs as never
+      })).rejects.toThrow(/UTF-8/i);
+    } finally {
+      await nodeFs.rm(temp, { recursive: true, force: true });
+    }
+  });
 });

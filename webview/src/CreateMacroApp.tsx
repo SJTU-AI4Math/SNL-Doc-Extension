@@ -114,7 +114,6 @@ import {
 import {
   parseBlockRendererSpec,
   serializeBlockRendererSpec,
-  serializeTableRendererSpec,
   tableOptionsFromRendererParams
 } from './render/blockRendererSpec';
 
@@ -763,7 +762,7 @@ function projectionToExtendedTemplate(
     } catch {
       tableRenderer = false;
     }
-    if (tableRenderer) blockTemplateName = serializeTableRendererSpec(projection.table_options);
+    if (tableRenderer) blockTemplateName = 'table';
   }
   return {
     ...projection.template_extensions,

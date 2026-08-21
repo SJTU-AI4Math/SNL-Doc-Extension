@@ -173,6 +173,42 @@ describe('PreferencesHost language writes', () => {
     host.dispose();
   });
 
+  it('returns immutable raw SVG source through the correlated asset bridge', async () => {
+    const assetService = {
+      resolve: vi.fn(),
+      readSvg: vi.fn(async (path: string) => `<svg data-path="${path}"/>`)
+    };
+    const host = new PreferencesHost();
+    const webview = register(host, undefined, assetService);
+
+    webview.receive({
+      type: 'snl.assets/read-svg',
+      request_id: 'svg-1',
+      source: 'assets/figures/proof.svg',
+      base_identity: 'Logic',
+      revision: 'sha256:abc',
+    });
+
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith({
+      type: 'snl.assets/svg-source',
+      request_id: 'svg-1',
+      source: 'assets/figures/proof.svg',
+      base_identity: 'Logic',
+      revision: 'sha256:abc',
+      value: '<svg data-path="figures/proof.svg"/>'
+    }));
+    expect(assetService.readSvg).toHaveBeenCalledWith('figures/proof.svg');
+    webview.receive({
+      type: 'snl.assets/read-svg', request_id: 'svg-bad', source: 'assets/../secret.svg',
+      base_identity: 'Logic', revision: 'r2'
+    });
+    await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'snl.assets/svg-source', request_id: 'svg-bad', error: expect.stringMatching(/contained/i)
+    })));
+    expect(assetService.readSvg).toHaveBeenCalledTimes(1);
+    host.dispose();
+  });
+
   it('writes at workspace scope when a workspace override is effective', async () => {
     mocks.inspect.mockReturnValue({ workspaceValue: 'auto' });
     const host = new PreferencesHost();

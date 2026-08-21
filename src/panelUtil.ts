@@ -6,7 +6,7 @@ import {
   get_preferences_asset_cache_root,
   register_preferences_webview
 } from './preferencesHost';
-import { cacheWorkspaceAsset } from './workspaceAssets';
+import { cacheWorkspaceAsset, readWorkspaceSvgSource } from './workspaceAssets';
 import {
   addWorkspaceSupportedLanguage,
   readWorkspaceSupportedLanguages
@@ -87,6 +87,10 @@ export function buildPanelHtml(
       cacheRoot: assetCacheRoot,
       relativePath: path,
       asWebviewUri: (target) => webview.asWebviewUri(target).toString()
+    }),
+    readSvg: (path: string) => readWorkspaceSvgSource({
+      workspaceRoot,
+      relativePath: path
     })
   } : undefined);
   ownerDisposables?.push(preferencesDisposable);

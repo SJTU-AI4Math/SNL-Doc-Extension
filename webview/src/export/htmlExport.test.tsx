@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, cleanup } from '@testing-library/react';
-import { harvestLibraryHtml } from './htmlExport';
+import { harvestLibraryHtml, waitForExportSurfaces } from './htmlExport';
 import { EntrySurface } from '../render/EntrySurface';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
 import { resolveMarkdownAssetUrl } from '../render/markdownAssets';
@@ -248,6 +248,30 @@ describe('end-to-end: a real rendered Entry survives export', () => {
 
     expect(html).toContain('src="assets/Dashboard-Panel.png"');
     expect(html).not.toContain('vscode-webview:');
+  });
+
+  it('preserves self-contained parameterized SVG and positioned foreign overlays', () => {
+    const root = el(`<div class="snl-foreign-box-host snl-svg-template">
+      <div class="snl-svg-template-canvas"><svg class="snl-svg-template-artwork" viewBox="0 0 100 50" role="img" aria-label="Proof">
+        <defs><clipPath id="snl-a-clip"><rect width="100" height="50"/></clipPath></defs>
+        <g data-snl-slot="0" clip-path="url(#snl-a-clip)"></g>
+      </svg></div>
+      <div class="snl-foreign-box-overlay"><div class="snl-foreign-box" data-state="positioned" style="transform:translate(12px, 4px)"><span>A</span></div></div>
+    </div>`);
+    const { html, assets } = harvestLibraryHtml(root, BASE);
+    expect(assets).toEqual([]);
+    expect(html).toContain('snl-svg-template-artwork');
+    expect(html).toContain('clip-path="url(#snl-a-clip)"');
+    expect(html).toContain('data-state="positioned"');
+    expect(html).toContain('translate(12px, 4px)');
+  });
+
+  it('waits for SVG loading and foreign-box staging before harvest', async () => {
+    const root = el('<div class="snl-svg-template-loading"></div><div class="snl-foreign-box" data-state="staging"></div>');
+    const waiting = waitForExportSurfaces(root, { timeoutMs: 1000 });
+    root.querySelector('.snl-svg-template-loading')?.remove();
+    root.querySelector('.snl-foreign-box')?.setAttribute('data-state', 'positioned');
+    await expect(waiting).resolves.toBeUndefined();
   });
 
   it('keeps inline Entry card styling so the export needs no card CSS', () => {

@@ -6,6 +6,7 @@ import type { SnlSyntaxTree } from '@sjtu-ai4math/snl-basics';
 import { COLLAPSE_TOGGLE_GEOMETRY } from '../../../src/collapseToggleContract';
 import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
 import { serializeTableRendererSpec } from './blockRendererSpec';
+import { harvestLibraryHtml } from '../export/htmlExport';
 
 const assetPostMessage = vi.fn();
 (globalThis as { __snlApi?: unknown }).__snlApi = { postMessage: assetPostMessage };
@@ -45,11 +46,46 @@ describe('extensionRenderers', () => {
   // Regression lock: the view SHALLOW-merges hooks, so passing `renderers`
   // replaces the whole registry. If someone drops the `...defaultRenderers`
   // spread, every built-in block renderer silently disappears.
-  it('keeps all four SNL-Basics built-ins alongside collapsible', () => {
+  it('keeps all SNL-Basics built-ins and the 0.3 SVG renderer alongside collapsible', () => {
     for (const key of ['list', 'enumerate', 'table', 'centered']) {
       expect(typeof extensionRenderers[key]).toBe('function');
     }
     expect(extensionRenderers.collapsible).toBe(CollapsibleRenderer);
+    expect(typeof extensionRenderers.svg_template).toBe('function');
+  });
+
+  it('loads and instantiates a 0.3 SVG template through the host asset bridge', async () => {
+    const SvgTemplate = extensionRenderers.svg_template!;
+    const tree = blockNode([node('A')]);
+    render(<SvgTemplate
+      node={tree}
+      macro_data_driver={{} as never}
+      template={{
+        mode: 'block', body: '#0', block_template_name: 'svg_template',
+        svg_template: {
+          asset: { source: 'assets/proof.svg', base_identity: 'Pkg', revision: 'r1', request_epoch: 1 },
+          generation: 1, producer_revision: 'projector-v1', accessibility: { label: 'Proof diagram' }
+        }
+      }}
+      dynamicArity={false}
+      treePath="0"
+      childMode={() => 'text'}
+      childContainsBlock={() => false}
+      renderChild={renderChild}
+    />);
+    await waitFor(() => expect(assetPostMessage).toHaveBeenCalled());
+    const request = assetPostMessage.mock.calls[0][0];
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      ...request, type: 'snl.assets/svg-source',
+      value: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><g data-snl-slot="0"/></svg>'
+    } }));
+    await waitFor(() => expect(document.querySelector('.snl-svg-template-artwork')).not.toBeNull());
+    expect(document.querySelector('[data-snl-slot="0"]')).not.toBeNull();
+    expect(screen.getAllByTestId('child-A').length).toBeGreaterThan(0);
+    const exported = harvestLibraryHtml(document.body, 'vscode-webview://assets');
+    expect(exported.html).toContain('snl-svg-template-artwork');
+    expect(exported.html).toContain('data-snl-slot="0"');
+    expect(exported.assets).toEqual([]);
   });
 
   it('renders blocks → row and dark CSS through the 0.2 compatibility key', () => {

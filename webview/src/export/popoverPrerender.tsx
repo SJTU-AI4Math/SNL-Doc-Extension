@@ -36,6 +36,7 @@ import { EntrySurface, type EntryOption } from '../render/EntrySurface';
 import type { MacroRecord } from '../render/macroData';
 import { buildPopoverClosure, type ClosureResult } from './popoverClosure';
 import type { EntryDetail } from './entryDetailBridge';
+import { hasPendingExportSurface } from './htmlExport';
 import { resolve_localized_string } from '../../../src/localizedContent';
 import { get_content_language } from '../runtime/preferencesRuntime';
 
@@ -99,7 +100,7 @@ function createStage(doc: Document): HTMLElement {
 }
 
 function isSettled(host: HTMLElement, sinceStubGone: number | null): boolean {
-  if (host.querySelector('.snl-entry-loading')) return false;
+  if (host.querySelector('.snl-entry-loading') || hasPendingExportSurface(host)) return false;
   // Nothing rendered at all yet — React has not committed.
   if (!host.firstElementChild) return false;
   if (host.querySelector('[data-entry-body]')) return true;

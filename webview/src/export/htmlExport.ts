@@ -83,6 +83,41 @@ function markCollapsibleRows(clone: HTMLElement): void {
   }
 }
 
+export interface ExportSurfaceWaitOptions {
+  timeoutMs?: number;
+}
+
+export function hasPendingExportSurface(root: HTMLElement): boolean {
+  return Boolean(
+    root.querySelector('.snl-svg-template-loading') ||
+    root.querySelector('.snl-foreign-box[data-state="staging"]')
+  );
+}
+
+/** Wait for async SVG assets and foreign-box geometry before cloning the live DOM. */
+export function waitForExportSurfaces(
+  root: HTMLElement,
+  options: ExportSurfaceWaitOptions = {}
+): Promise<void> {
+  if (!hasPendingExportSurface(root)) return Promise.resolve();
+  const timeoutMs = options.timeoutMs ?? 5000;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve();
+    };
+    const check = (): void => { if (!hasPendingExportSurface(root)) finish(); };
+    const observer = new MutationObserver(check);
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state', 'class'] });
+    const timer = setTimeout(finish, Math.max(0, timeoutMs));
+    check();
+  });
+}
+
 /**
  * Copy a rendered outline subtree into standalone markup.
  *

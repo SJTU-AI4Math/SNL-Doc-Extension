@@ -152,3 +152,19 @@ export async function readWorkspaceAsset(
   }
   return bytes;
 }
+
+
+/** Read immutable raw SVG source through the same contained, no-symlink asset boundary. */
+export async function readWorkspaceSvgSource(
+  options: ReadWorkspaceAssetOptions
+): Promise<string> {
+  if (!/\.svg$/i.test(options.relativePath)) {
+    throw new Error('SVG template source must use the .svg extension.');
+  }
+  const bytes = await readWorkspaceAsset(options);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('SVG template source must be valid UTF-8.');
+  }
+}

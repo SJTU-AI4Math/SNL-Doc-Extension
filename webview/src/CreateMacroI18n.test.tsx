@@ -327,6 +327,7 @@ describe('Create Macro localization', () => {
       typeof message === 'object' && message !== null &&
       (message as { type?: string }).type === 'create'
     )) as { macro: { styles: Array<{ template: Record<string, unknown> }> } };
+    expect(submission.macro.styles[0].template.block_template_name).toBe('table');
     expect(submission.macro.styles[0].template.table).toEqual({
       composition: 'cells',
       css: {

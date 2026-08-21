@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
-import { SVG_ASSET_BASE_IDENTITY, readWorkspaceSvgSource } from './workspaceAssets';
+import { SVG_ASSET_BASE_IDENTITY } from './workspaceAssets';
 import { withWorkspaceDataLock } from './workspaceDataLock';
 import { validateSvgTemplateForPersistence } from './svgTemplateHostValidation';
 
@@ -99,6 +99,8 @@ async function writeImmutable(
     await requireIdentity(path, created, 'Published SVG Asset');
     await handle.writeFile(value);
     await handle.sync();
+    await handle.chmod(0o400);
+    await handle.sync();
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
     await requireIdentity(path, created, 'Published SVG Asset');
     await handle.close();
@@ -133,6 +135,42 @@ async function verifyExactFile(
     await requireIdentity(path, fileIdentity, 'Published SVG Asset');
   } finally {
     await handle.close();
+  }
+}
+
+async function verifyExactFiles(
+  entries: Array<{ path: string; expected: Uint8Array }>,
+  directoryPath: string,
+  directoryIdentity: FileIdentity
+): Promise<void> {
+  const handles: Awaited<ReturnType<typeof fs.open>>[] = [];
+  try {
+    for (const entry of entries) handles.push(await fs.open(entry.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW));
+    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
+    const stats = await Promise.all(handles.map((handle) => handle.stat({ bigint: true })));
+    const identities = stats.map((stat) => ({ dev: stat.dev, ino: stat.ino }));
+    for (let index = 0; index < entries.length; index += 1) {
+      const stat = stats[index];
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== BigInt(entries[index].expected.byteLength)) {
+        throw new Error('Published SVG Asset has the wrong file type or size.');
+      }
+      if ((stat.mode & 0o222n) !== 0n) throw new Error('Published SVG Asset must be read-only after publication.');
+      await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');
+    }
+    const actual = await Promise.all(handles.map((handle) => handle.readFile()));
+    actual.forEach((value, index) => {
+      if (!value.equals(Buffer.from(entries[index].expected))) throw new Error('Published SVG Asset bytes do not match the committed content.');
+    });
+    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
+    for (let index = 0; index < entries.length; index += 1) {
+      const stat = await handles[index].stat({ bigint: true });
+      if (stat.dev !== identities[index].dev || stat.ino !== identities[index].ino || (stat.mode & 0o222n) !== 0n) {
+        throw new Error('Published SVG Asset inode changed during final verification.');
+      }
+      await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');
+    }
+  } finally {
+    await Promise.allSettled(handles.map((handle) => handle.close()));
   }
 }
 
@@ -228,15 +266,11 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     const manifestTarget = join(svgRoot, manifestFile);
     const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
     if (manifestIdentity) createdPaths.push({ path: manifestTarget, identity: manifestIdentity });
-    await requireIdentity(svgRoot, svgRootIdentity, 'SVG Asset directory');
-    const [verifiedSource, verifiedTemplate] = await Promise.all([
-      readWorkspaceSvgSource({ workspaceRoot: options.workspaceRoot, relativePath: sourcePath, baseIdentity: SVG_ASSET_BASE_IDENTITY, revision: `sha256:${sourceDigest}` }),
-      readWorkspaceSvgSource({ workspaceRoot: options.workspaceRoot, relativePath: templatePath, baseIdentity: SVG_ASSET_BASE_IDENTITY, revision: outputRevision })
-    ]);
-    await verifyExactFile(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
-    if (verifiedSource !== options.sourceSvg || verifiedTemplate !== options.templateSvg) {
-      throw new Error('Published SVG Macro Asset verification changed the exact UTF-8 text.');
-    }
+    await verifyExactFiles([
+      { path: sourceTarget, expected: sourceBytes },
+      { path: templateTarget, expected: templateBytes },
+      { path: manifestTarget, expected: manifestBytes }
+    ], svgRoot, svgRootIdentity);
     return { sourcePath, manifestPath, projection };
   } catch (reason) {
     const rollbackFailures: string[] = [];

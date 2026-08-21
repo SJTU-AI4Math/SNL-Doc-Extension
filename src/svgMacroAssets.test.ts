@@ -75,6 +75,9 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     expect(await fs.readFile(join(assetRoot, result.sourcePath), 'utf8')).toBe(source);
     const manifest = JSON.parse(await fs.readFile(join(assetRoot, result.manifestPath), 'utf8'));
     expect(manifest).toMatchObject({ version: 1, source: result.sourcePath, output: result.projection.asset.source });
+    for (const relativePath of [result.sourcePath, result.projection.asset.source, result.manifestPath]) {
+      expect((await fs.stat(join(assetRoot, relativePath))).mode & 0o222).toBe(0);
+    }
   });
 
   it('rejects unsafe names and active runtime template markup', async () => {
@@ -239,6 +242,30 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     await fs.rename(movedRoot, svgRoot);
   });
 
+  it('rejects a source pathname replacement during the final three-file authority pass', async () => {
+    const root = await workspace();
+    const originalOpen = fs.open.bind(fs);
+    const originalRename = fs.rename.bind(fs);
+    let replaced = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (!replaced && String(path).includes('final-race.source.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0) {
+        replaced = true;
+        await originalRename(path, `${String(path)}.verified-aside`);
+        await fs.writeFile(path, 'different source bytes', 'utf8');
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'final-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/changed|verification|rollback|preserved/i);
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const entries = await fs.readdir(svgRoot);
+    const preserved = await Promise.all(entries.filter((name) => name.startsWith('.snl-quarantine-')).map((name) => fs.readFile(join(svgRoot, name), 'utf8')));
+    expect(preserved).toContain('different source bytes');
+  });
+
   it('post-write verifies the manifest and rolls back a corrupted publication', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);
@@ -246,7 +273,9 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       if (!corrupted && String(path).includes('.manifest.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) === 0) {
         corrupted = true;
+        await fs.chmod(path, 0o600);
         await fs.writeFile(path, '{"corrupt":true}\n');
+        await fs.chmod(path, 0o400);
       }
       return originalOpen(path, flags, mode);
     });

@@ -20,8 +20,8 @@ import {
   type GraphNodeDto,
   type GraphRelationshipDto
 } from './snlDoc';
-import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
-  installSnlDocWatcher
+import { buildPanelHtml, classifyLibraryEditorWatchPath, firstWorkspaceFolder,
+  handlePanelNavMessage, installSnlDocWatcher
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
 import { moveGraphSibling } from './graphSiblingOrder';
@@ -257,7 +257,14 @@ export class CreateLibraryPanel {
       this.disposables
     );
 
-    installSnlDocWatcher(this.disposables, () => this.pushContext());
+    installSnlDocWatcher(this.disposables, (uris) => {
+      const targets = uris?.map((uri) =>
+        classifyLibraryEditorWatchPath(uri.path, this.slug)
+      ) ?? ['context'];
+      if (targets.includes('context')) return this.pushContext();
+      if (targets.includes('counters')) return this.pushCounters('countersPushed');
+      return undefined;
+    });
     this.disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (this.mode === 'edit' && event.affectsConfiguration('snlDoc.metrics')) {

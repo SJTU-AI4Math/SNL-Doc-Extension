@@ -6,7 +6,8 @@ vi.mock('vscode', () => ({
   Uri: { joinPath: (...parts: any[]) => parts.join('/') },
   workspace: {
     fs: { stat: vi.fn(async () => ({ type: 2 })) },
-    getConfiguration: vi.fn(() => ({ get: vi.fn(() => undefined) }))
+    getConfiguration: vi.fn(() => ({ get: vi.fn(() => undefined) })),
+    onDidChangeConfiguration: vi.fn(() => ({ dispose: () => undefined }))
   },
   window: { showInformationMessage: vi.fn(), showWarningMessage: vi.fn(), showErrorMessage: vi.fn() }
 }));
@@ -20,6 +21,7 @@ let operationCounterMode = false;
 let operationCounters: any[] = [];
 let operationEntries: any[] = [];
 let createResult: any = { status: 'created', slug: 'new-library', title: 'New Library' };
+let workspaceRefresh: ((uris?: readonly { path: string }[]) => void | Promise<void>) | undefined;
 function deferred(queue: Array<{ resolve: (value: any) => void; promise: Promise<any> }>): Promise<any> {
   let resolve!: (value: any) => void;
   const promise = new Promise<any>((done) => { resolve = done; });
@@ -111,10 +113,19 @@ vi.mock('./snlDoc', () => ({
   readEntries: async () => structuredClone(operationEntries),
   readEntryKinds: async () => [], readAllMacros: async () => ({})
 }));
-vi.mock('./panelUtil', () => ({
-  buildPanelHtml: () => '', firstWorkspaceFolder: () => ({ path: '/workspace' }),
-  handlePanelNavMessage: async () => false, installSnlDocWatcher: () => undefined
-}));
+vi.mock('./panelUtil', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./panelUtil')>();
+  return {
+    ...actual,
+    buildPanelHtml: () => '', firstWorkspaceFolder: () => ({ path: '/workspace' }),
+    handlePanelNavMessage: async () => false,
+    installSnlDocWatcher: (
+      _disposables: unknown[],
+      refresh: (uris?: readonly { path: string }[]) => void | Promise<void>
+    ) => { workspaceRefresh = refresh; }
+  };
+});
+vi.mock('./preferencesHost', () => ({ bind_preferences_panel_title: () => undefined }));
 vi.mock('./entryMetricSettings', () => ({ readEntryMetricThresholds: () => ({}) }));
 vi.mock('./preferences', () => ({
   extension_preferences_runtime: { query_environment: () => ({ language: 'en' }) }
@@ -139,6 +150,43 @@ describe('CreateLibraryPanel refresh ordering', () => {
     operationCounters = [];
     operationEntries = [];
     createResult = { status: 'created', slug: 'new-library', title: 'New Library' };
+    workspaceRefresh = undefined;
+  });
+
+  it('targets own Counter watcher events without reloading the full Library context', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    const panel = {
+      title: '', active: true,
+      webview: {
+        html: '',
+        postMessage: vi.fn(async () => true),
+        onDidReceiveMessage: vi.fn(() => ({ dispose: () => undefined }))
+      },
+      onDidChangeViewState: vi.fn(() => ({ dispose: () => undefined })),
+      onDidDispose: vi.fn(() => ({ dispose: () => undefined })),
+      dispose: vi.fn()
+    };
+    const instance = new (CreateLibraryPanel as any)(panel, { path: '/extension' }, 'edit', 'lib');
+    instance.pushContext = vi.fn(async () => undefined);
+    instance.pushCounters = vi.fn(async () => undefined);
+
+    await workspaceRefresh!([{ path: '/workspace/.SNL_Doc/libraries/lib/counters.json' }]);
+    expect(instance.pushCounters).toHaveBeenCalledWith('countersPushed');
+    expect(instance.pushContext).not.toHaveBeenCalled();
+
+    await workspaceRefresh!([{ path: '/workspace/.SNL_Doc/libraries/other/counters.json' }]);
+    expect(instance.pushCounters).toHaveBeenCalledTimes(1);
+    expect(instance.pushContext).not.toHaveBeenCalled();
+
+    await workspaceRefresh!([{ path: '/workspace/.SNL_Doc/libraries/lib/graph.json' }]);
+    expect(instance.pushContext).toHaveBeenCalledTimes(1);
+
+    await workspaceRefresh!([
+      { path: '/workspace/.SNL_Doc/config.json' },
+      { path: '/workspace/.SNL_Doc/libraries/lib/counters.json' }
+    ]);
+    expect(instance.pushContext).toHaveBeenCalledTimes(2);
+    expect(instance.pushCounters).toHaveBeenCalledTimes(1);
   });
 
   it('lets only the latest graph refresh publish', async () => {

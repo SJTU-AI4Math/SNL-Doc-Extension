@@ -181,7 +181,7 @@ export function firstWorkspaceFolder(): vscode.Uri | undefined {
  */
 export function installSnlDocWatcher(
   disposables: vscode.Disposable[],
-  refresh: () => void | Promise<void>,
+  refresh: (uris?: readonly vscode.Uri[]) => void | Promise<void>,
   pathFilter: RegExp = SNL_DOC_WATCHED_PATH
 ): void {
   const root = firstWorkspaceFolder();
@@ -194,14 +194,18 @@ export function installSnlDocWatcher(
   // made panels feel sluggish while editing.
   // Cat 2026-07-25: "各个 Panel 开起来都非常慢".
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const pendingUris = new Map<string, vscode.Uri>();
   const fire = (uri: vscode.Uri): void => {
     // Ignore churn we never read: only the entry pool, macro packages and
     // config feed panel state.
     if (!pathFilter.test(uri.path)) return;
+    pendingUris.set(uri.path, uri);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      void refresh();
+      const changedUris = [...pendingUris.values()];
+      pendingUris.clear();
+      void refresh(changedUris);
     }, SNL_DOC_WATCH_DEBOUNCE_MS);
   };
   watcher.onDidCreate(fire, null, disposables);
@@ -213,6 +217,21 @@ export function installSnlDocWatcher(
       if (timer) clearTimeout(timer);
     }
   });
+}
+
+
+export type LibraryEditorRefreshTarget = 'counters' | 'context' | 'ignore';
+
+/** Route counter-file events without turning one small Counter mutation into
+ * a full Library graph/pool refresh. Counter files from sibling Libraries do
+ * not affect the editor currently open on `slug`. */
+export function classifyLibraryEditorWatchPath(
+  path: string,
+  slug: string
+): LibraryEditorRefreshTarget {
+  const match = /\.SNL_Doc\/libraries\/([^/]+)\/counters\.json$/i.exec(path);
+  if (!match) return 'context';
+  return match[1] === slug ? 'counters' : 'ignore';
 }
 
 /** How long to coalesce a burst of `.SNL_Doc` writes before refreshing. */

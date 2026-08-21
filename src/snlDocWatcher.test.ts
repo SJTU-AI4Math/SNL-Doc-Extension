@@ -14,7 +14,7 @@ vi.mock('vscode', () => ({
     })
   }
 }));
-import { SNL_DOC_WATCHED_PATH, SNL_DOC_WATCH_DEBOUNCE_MS } from './panelUtil';
+import { classifyLibraryEditorWatchPath, SNL_DOC_WATCHED_PATH, SNL_DOC_WATCH_DEBOUNCE_MS } from './panelUtil';
 
 /**
  * The `.SNL_Doc` watcher used to refresh on EVERY event under `.SNL_Doc/**`
@@ -68,13 +68,33 @@ describe('SNL_DOC_WATCHED_PATH', () => {
   });
 });
 
+describe('classifyLibraryEditorWatchPath', () => {
+  it('routes only this Library counter file to a targeted counter refresh', () => {
+    expect(classifyLibraryEditorWatchPath(
+      '/ws/.SNL_Doc/libraries/algebra/counters.json', 'algebra'
+    )).toBe('counters');
+    expect(classifyLibraryEditorWatchPath(
+      '/ws/.SNL_Doc/libraries/analysis/counters.json', 'algebra'
+    )).toBe('ignore');
+    expect(classifyLibraryEditorWatchPath(
+      '/ws/.SNL_Doc/libraries/algebra/graph.json', 'algebra'
+    )).toBe('context');
+    expect(classifyLibraryEditorWatchPath('/ws/.SNL_Doc/config.json', 'algebra'))
+      .toBe('context');
+  });
+});
+
 describe('installSnlDocWatcher', () => {
   it('collapses a multi-file save into ONE refresh', async () => {
     const { installSnlDocWatcher } = await import('./panelUtil');
     handlers.length = 0;
     let refreshes = 0;
+    let refreshedPaths: string[] = [];
     const disposables: Array<{ dispose: () => void }> = [];
-    installSnlDocWatcher(disposables as never, () => { refreshes += 1; });
+    installSnlDocWatcher(disposables as never, (uris) => {
+      refreshes += 1;
+      refreshedPaths = uris?.map((uri) => uri.path) ?? [];
+    });
 
     // One save rewrites several files in quick succession.
     const fire = (path: string): void => {
@@ -87,6 +107,11 @@ describe('installSnlDocWatcher', () => {
 
     await new Promise((resolve) => setTimeout(resolve, SNL_DOC_WATCH_DEBOUNCE_MS + 60));
     expect(refreshes).toBe(1); // …and the burst collapses to one re-read
+    expect(refreshedPaths).toEqual([
+      '/ws/.SNL_Doc/entries.json',
+      '/ws/.SNL_Doc/term_macros/core.json',
+      '/ws/.SNL_Doc/config.json'
+    ]);
 
     for (const disposable of disposables) disposable.dispose();
   });

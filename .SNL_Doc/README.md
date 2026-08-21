@@ -25,3 +25,11 @@ Run the closure verifier after every change:
 ```bash
 npm run verify:ui-spec
 ```
+
+## Collaboration
+
+Treat a Library as single-writer across active branches: avoid modifying the same Library from multiple branches at once. The current Relationship pool is aggregate, so branches that both edit Relationships may still need a semantic merge even when their visible Library work differs.
+
+When concurrent edits are unavoidable, merge records by stable Entry, Macro, Relationship, and graph-node identities. Do not resolve structured-data conflicts by blindly choosing `ours`/`theirs` or by using `merge=union`; ask an Agent to perform and validate the semantic merge instead.
+
+Projects that require frequent, high-volume concurrent graph authoring should use a graph database such as Neo4j as the collaboration authority, then import reviewed snapshots into `.SNL_Doc` rather than treating Git JSON files as a multi-writer graph database.

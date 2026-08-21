@@ -28,7 +28,7 @@ export interface SvgMacroEditorProps {
 
 let requestSequence = 0;
 
-type PendingSave = { requestId: string; editorIdentity?: string; sourceSvg: string; templateSvg: string; requiredArity: number };
+type PendingSave = { requestId: string; editorIdentity?: string; slug: string; label: string; operationsJson: string; sourceSvg: string; templateSvg: string; requiredArity: number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -58,6 +58,20 @@ function decodeWrittenProjection(value: unknown): Record<string, unknown> | null
       || typeof editor.source_revision !== 'string' || !digest.test(editor.source_revision)
       || typeof editor.manifest !== 'string' || !manifestPath.test(editor.manifest)) return null;
   return value;
+}
+
+function projectionMatchesPending(projection: Record<string, unknown>, pending: PendingSave): boolean {
+  const asset = projection.asset as Record<string, unknown>;
+  const editor = projection.editor as Record<string, unknown>;
+  const accessibility = projection.accessibility as Record<string, unknown>;
+  const template = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.template\.([a-f0-9]{64})\.svg$/.exec(asset.source as string);
+  const source = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.source\.([a-f0-9]{64})\.svg$/.exec(editor.source as string);
+  const manifest = /^svg\/([A-Za-z0-9][A-Za-z0-9._-]*)\.manifest\.[a-f0-9]{64}\.json$/.exec(editor.manifest as string);
+  return template !== null && source !== null && manifest !== null
+    && template[1] === pending.slug && source[1] === pending.slug && manifest[1] === pending.slug
+    && asset.revision === `sha256:${template[2]}`
+    && editor.source_revision === `sha256:${source[2]}`
+    && accessibility.label === pending.label;
 }
 
 const SVG_EDITOR_MESSAGES = defineUiMessages(
@@ -344,12 +358,16 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       if (message.type !== 'svgMacro.assetsWritten') return;
       pendingRequest.current = null;
       const projection = decodeWrittenProjection(message.projection);
-      if (!projection) {
+      if (!projection || !projectionMatchesPending(projection, pending)) {
         setError(t('invalidReply'));
         return;
       }
       const currentTemplate = root ? serialize(root) : '';
-      if (editorIdentity !== pending.editorIdentity || source !== pending.sourceSvg || currentTemplate !== pending.templateSvg) {
+      if (editorIdentity !== pending.editorIdentity
+          || assetName.trim() !== pending.slug
+          || accessibilityLabel.trim() !== pending.label
+          || JSON.stringify(operations) !== pending.operationsJson
+          || source !== pending.sourceSvg || currentTemplate !== pending.templateSvg) {
         setError(t('changedWhileSaving'));
         return;
       }
@@ -359,7 +377,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [editorIdentity, onProjectionChange, root, source, t]);
+  }, [accessibilityLabel, assetName, editorIdentity, onProjectionChange, operations, root, source, t]);
 
   useEffect(() => {
     const preview = previewRef.current;
@@ -598,7 +616,7 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
     const templateSvg = serialize(root);
     const parsed = parseSanitizedSvgTemplate(templateSvg);
     const requiredArity = Math.max(0, ...parsed.slots.map((slot) => slot.index + 1));
-    pendingRequest.current = { requestId, editorIdentity, sourceSvg: source, templateSvg, requiredArity };
+    pendingRequest.current = { requestId, editorIdentity, slug, label, operationsJson: JSON.stringify(operations), sourceSvg: source, templateSvg, requiredArity };
     setSaved(false);
     setError('');
     host.postMessage({
@@ -643,10 +661,10 @@ export function SvgMacroEditor({ api, editorIdentity, initialProjection, onTempl
       {t('paperKnockout')}
     </button>
     <label>{t('assetName')}
-      <input value={assetName} onChange={(event) => { setAssetName(event.target.value); onDirty?.(); }} />
+      <input value={assetName} onChange={(event) => { setAssetName(event.target.value); setSaved(false); onDirty?.(); }} />
     </label>
     <label>{t('accessibility')}
-      <input value={accessibilityLabel} onChange={(event) => { setAccessibilityLabel(event.target.value); onDirty?.(); }} />
+      <input value={accessibilityLabel} onChange={(event) => { setAccessibilityLabel(event.target.value); setSaved(false); onDirty?.(); }} />
     </label>
     <button type="button" disabled={!root || source !== loadedSource} onClick={saveAssets}>{t('save')}</button>
     {saved ? <p role="status">{t('saved')}</p> : null}

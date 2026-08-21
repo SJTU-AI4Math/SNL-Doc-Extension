@@ -210,6 +210,48 @@ describe('SvgMacroEditor', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/changed|again/i);
   });
 
+  it('does not adopt a save after projection-affecting controls change', () => {
+    const posted: Record<string, unknown>[] = [];
+    const onProjectionChange = vi.fn();
+    render(<SvgMacroEditor api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onProjectionChange} />);
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: RAW } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'diagram' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Diagram' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const requestId = posted.at(-1)?.requestId;
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'renamed' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Renamed diagram' } });
+    const projection = {
+      asset: { source: `svg/diagram.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'a'.repeat(64)}`, request_epoch: 0 },
+      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Diagram' },
+      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'b'.repeat(64)}`, manifest: `svg/diagram.manifest.${'c'.repeat(64)}.json` }
+    };
+    fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId, projection } }));
+    expect(onProjectionChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/changed|again/i);
+  });
+
+  it('rejects internally inconsistent projection identities', () => {
+    const posted: Record<string, unknown>[] = [];
+    const onProjectionChange = vi.fn();
+    render(<SvgMacroEditor api={{ postMessage: (message) => posted.push(message as Record<string, unknown>) }} onTemplateChange={() => {}} onProjectionChange={onProjectionChange} />);
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: RAW } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'diagram' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Diagram' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const requestId = posted.at(-1)?.requestId;
+    const inconsistent = {
+      asset: { source: `svg/other.template.${'a'.repeat(64)}.svg`, base_identity: 'workspace:.SNL_Doc/assets', revision: `sha256:${'d'.repeat(64)}`, request_epoch: 0 },
+      generation: 1, producer_revision: 'snl-doc-extension-svg-editor:v1', accessibility: { label: 'Wrong' },
+      editor: { source: `svg/diagram.source.${'b'.repeat(64)}.svg`, source_revision: `sha256:${'e'.repeat(64)}`, manifest: `svg/third.manifest.${'c'.repeat(64)}.json` }
+    };
+    fireEvent(window, new MessageEvent('message', { data: { type: 'svgMacro.assetsWritten', requestId, projection: inconsistent } }));
+    expect(onProjectionChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/invalid/i);
+  });
+
   it('does not adopt a pending save reply into a different style identity', () => {
     const posted: Record<string, unknown>[] = [];
     const onStyleA = vi.fn();

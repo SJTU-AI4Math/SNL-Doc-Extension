@@ -60,6 +60,27 @@ async function requireDirectoryWithoutSymlink(path: string, label: string): Prom
   return { dev: stat.dev, ino: stat.ino };
 }
 
+async function openDirectoryAuthority(path: string, expected: FileIdentity): Promise<Awaited<ReturnType<typeof fs.open>>> {
+  const handle = await fs.open(path, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  const stat = await handle.stat({ bigint: true });
+  if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
+    await handle.close();
+    throw new Error('SVG Asset directory changed before its authority handle was acquired.');
+  }
+  await requireIdentity(path, expected, 'SVG Asset directory');
+  return handle;
+}
+
+async function syncDirectory(handle: Awaited<ReturnType<typeof fs.open>>): Promise<void> {
+  try {
+    await handle.sync();
+  } catch (reason) {
+    const code = (reason as NodeJS.ErrnoException).code;
+    if (process.platform === 'win32' && (code === 'EINVAL' || code === 'ENOTSUP' || code === 'EPERM')) return;
+    throw reason;
+  }
+}
+
 async function requireIdentity(path: string, expected: FileIdentity, label: string): Promise<void> {
   const stat = await fs.lstat(path, { bigint: true });
   if (stat.isSymbolicLink() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
@@ -255,37 +276,46 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     editor: { source: sourcePath, source_revision: `sha256:${sourceDigest}`, manifest: manifestPath }
   };
 
+  const directoryHandle = await openDirectoryAuthority(svgRoot, svgRootIdentity);
+  const authorityRoot = process.platform === 'linux' ? `/proc/self/fd/${directoryHandle.fd}` : svgRoot;
   const createdPaths: Array<{ path: string; identity: FileIdentity }> = [];
   try {
-    const sourceTarget = join(svgRoot, sourceFile);
-    const sourceIdentity = await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity);
-    if (sourceIdentity) createdPaths.push({ path: sourceTarget, identity: sourceIdentity });
-    const templateTarget = join(svgRoot, templateFile);
-    const templateIdentity = await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity);
-    if (templateIdentity) createdPaths.push({ path: templateTarget, identity: templateIdentity });
-    const manifestTarget = join(svgRoot, manifestFile);
-    const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
-    if (manifestIdentity) createdPaths.push({ path: manifestTarget, identity: manifestIdentity });
-    await verifyExactFiles([
-      { path: sourceTarget, expected: sourceBytes },
-      { path: templateTarget, expected: templateBytes },
-      { path: manifestTarget, expected: manifestBytes }
-    ], svgRoot, svgRootIdentity);
-    return { sourcePath, manifestPath, projection };
-  } catch (reason) {
-    const rollbackFailures: string[] = [];
-    for (const entry of createdPaths.reverse()) {
-      try {
-        await quarantineOwned(entry.path, entry.identity);
-      } catch (rollbackReason) {
-        rollbackFailures.push(`${entry.path}: ${rollbackReason instanceof Error ? rollbackReason.message : String(rollbackReason)}`);
+    try {
+      const sourceTarget = join(authorityRoot, sourceFile);
+      const sourceIdentity = await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity);
+      if (sourceIdentity) createdPaths.push({ path: sourceTarget, identity: sourceIdentity });
+      const templateTarget = join(authorityRoot, templateFile);
+      const templateIdentity = await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity);
+      if (templateIdentity) createdPaths.push({ path: templateTarget, identity: templateIdentity });
+      const manifestTarget = join(authorityRoot, manifestFile);
+      const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
+      if (manifestIdentity) createdPaths.push({ path: manifestTarget, identity: manifestIdentity });
+      await verifyExactFiles([
+        { path: sourceTarget, expected: sourceBytes },
+        { path: templateTarget, expected: templateBytes },
+        { path: manifestTarget, expected: manifestBytes }
+      ], svgRoot, svgRootIdentity);
+      await syncDirectory(directoryHandle);
+      await requireIdentity(svgRoot, svgRootIdentity, 'SVG Asset directory');
+      return { sourcePath, manifestPath, projection };
+    } catch (reason) {
+      const rollbackFailures: string[] = [];
+      for (const entry of createdPaths.reverse()) {
+        try {
+          await quarantineOwned(entry.path, entry.identity);
+        } catch (rollbackReason) {
+          rollbackFailures.push(`${entry.path}: ${rollbackReason instanceof Error ? rollbackReason.message : String(rollbackReason)}`);
+        }
       }
+      if (rollbackFailures.length > 0) {
+        throw new Error(`SVG Macro Asset publication failed and rollback was incomplete: ${rollbackFailures.join('; ')}`, { cause: reason });
+      }
+      throw reason;
     }
-    if (rollbackFailures.length > 0) {
-      throw new Error(`SVG Macro Asset publication failed and rollback was incomplete: ${rollbackFailures.join('; ')}`, { cause: reason });
-    }
-    throw reason;
+  } finally {
+    await directoryHandle.close();
   }
+
 }
 
 export async function writeWorkspaceSvgMacroAssets(

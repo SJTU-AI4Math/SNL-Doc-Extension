@@ -80,6 +80,26 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     }
   });
 
+  it('syncs the held SVG directory before acknowledging the manifest commit point', async () => {
+    const root = await workspace();
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const originalOpen = fs.open.bind(fs);
+    let directorySyncCalls = 0;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (String(path) === svgRoot && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+        const originalSync = handle.sync.bind(handle);
+        handle.sync = async () => { directorySyncCalls += 1; await originalSync(); };
+      }
+      return handle;
+    });
+    await writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'durable', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    });
+    expect(directorySyncCalls).toBe(1);
+  });
+
   it('rejects unsafe names and active runtime template markup', async () => {
     const root = await workspace();
     await expect(writeWorkspaceSvgMacroAssets({
@@ -137,13 +157,12 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     const originalOpen = fs.open.bind(fs);
     let swapped = false;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
-      const handle = await originalOpen(path, flags, mode);
       if (!swapped && String(path).includes('.source.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) !== 0) {
         swapped = true;
         await fs.rename(svgRoot, movedRoot);
         await fs.symlink(outside, svgRoot, process.platform === 'win32' ? 'junction' : 'dir');
       }
-      return handle;
+      return originalOpen(path, flags, mode);
     });
     await expect(writeWorkspaceSvgMacroAssets({
       workspaceRoot: root as never, slug: 'race', sourceSvg: source, templateSvg: template,
@@ -236,7 +255,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/changed|rollback/i);
     const preserved = await fs.readdir(outside);
     expect(preserved).toHaveLength(1);
-    expect(preserved[0]).toMatch(/^\.snl-quarantine-/);
+    expect(preserved[0]).toMatch(/^verify-race\.manifest\./);
     expect(await fs.readFile(join(outside, preserved[0]), 'utf8')).toContain('"version": 1');
     await fs.unlink(svgRoot);
     await fs.rename(movedRoot, svgRoot);

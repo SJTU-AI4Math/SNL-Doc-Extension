@@ -698,6 +698,12 @@ describe('workspace data migrations', () => {
       'linear-gradient(red, blue), url(https://example.test/pixel)',
       'var(--fallback, url(https://example.test/pixel))',
       'rgb(1 2 3\t/ 50%)',
+      '\tred',
+      'red\n',
+      '\u000bred',
+      `${' '.repeat(200)}red`,
+      'rgb()',
+      'rgb(/*)',
       'u\\72l(https://example.test/pixel)',
     ]) {
       expect(() => {

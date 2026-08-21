@@ -110,9 +110,10 @@ export function serializeBlockRendererSpec(
   params: Record<string, string>
 ): string {
   const normalized = normalizeParams(name, params);
-  const query = (PARAMETER_ORDER[name] ?? Object.keys(normalized)).map((key) =>
-    `${encodeURIComponent(key)}=${encodeURIComponent(normalized[key])}`
-  ).join('&');
+  const query = (PARAMETER_ORDER[name] ?? Object.keys(normalized))
+    .filter((key) => Object.hasOwn(normalized, key))
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(normalized[key])}`)
+    .join('&');
   const encoded = `${BLOCK_RENDERER_SPEC_PREFIX}${name}?${query}`;
   if (encoded.length > MAX_SPEC_LENGTH) throw new Error('block renderer spec is too long');
   return encoded;

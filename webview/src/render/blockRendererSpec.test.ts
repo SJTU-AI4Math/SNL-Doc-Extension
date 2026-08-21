@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertTableRendererTransport,
+  BLOCK_RENDERER_SPEC_PREFIX,
   parseBlockRendererSpec,
-  serializeBlockRendererSpec
+  serializeBlockRendererSpec,
+  serializeTableRendererSpec,
 } from './blockRendererSpec';
 
 describe('parameterized block renderer specs', () => {
@@ -69,4 +72,15 @@ describe('parameterized block renderer specs', () => {
     expect(() => parseBlockRendererSpec('snl-ext-preset:v2:enumerate?marker=decimal'))
       .toThrow(/version/i);
   });
+
+  it('round-trips a table with omitted CSS without undefined parameters', () => {
+    const key = serializeTableRendererSpec({ composition: 'rows' })
+    expect(key).toBe(`${BLOCK_RENDERER_SPEC_PREFIX}table?composition=rows`)
+    const projection = {
+      mode: 'block', body: '#*', block_template_name: key,
+      table: { composition: 'rows' },
+    }
+    expect(() => assertTableRendererTransport(projection, 'template')).not.toThrow()
+  })
+
 });

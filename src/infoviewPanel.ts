@@ -427,6 +427,7 @@ export class InfoviewPanel {
           language?: string;
           level?: string;
           msg?: string;
+          error?: string;
         }
       | undefined;
     if (!msg || typeof msg.type !== 'string') {
@@ -608,6 +609,11 @@ export class InfoviewPanel {
         return;
       case 'exportLibraryHtml':
         this.exportLibraryHtml(msg as unknown as ExportPayload);
+        return;
+      case 'exportLibraryHtmlError':
+        if (typeof msg.error === 'string' && msg.error.length <= 1000) {
+          void vscode.window.showErrorMessage(`HTML export failed: ${msg.error}`);
+        }
         return;
       case 'requestEntryDetails':
         if (typeof msg.entryId === 'string' && msg.entryId.trim()) {

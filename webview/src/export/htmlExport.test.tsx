@@ -274,6 +274,26 @@ describe('end-to-end: a real rendered Entry survives export', () => {
     await expect(waiting).resolves.toBeUndefined();
   });
 
+  it('does not accept an initially quiet root until post-paint work stays quiet', async () => {
+    const root = el('<div data-entry-body></div>');
+    let resolved = false;
+    const waiting = waitForExportSurfaces(root, { timeoutMs: 1000 }).then(() => { resolved = true; });
+    await Promise.resolve();
+    const loading = document.createElement('div');
+    loading.className = 'snl-entry-loading';
+    root.appendChild(loading);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(resolved).toBe(false);
+    loading.remove();
+    await waiting;
+    expect(resolved).toBe(true);
+  });
+
+  it('rejects rather than exporting permanently unsettled foreign geometry', async () => {
+    const root = el('<div class="snl-foreign-box" data-state="staging"></div>');
+    await expect(waitForExportSurfaces(root, { timeoutMs: 20 })).rejects.toThrow(/timed out/i);
+  });
+
   it('keeps inline Entry card styling so the export needs no card CSS', () => {
     const { container } = renderEntry({
       id: 'x',

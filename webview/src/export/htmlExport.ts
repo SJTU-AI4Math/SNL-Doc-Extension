@@ -89,32 +89,60 @@ export interface ExportSurfaceWaitOptions {
 
 export function hasPendingExportSurface(root: HTMLElement): boolean {
   return Boolean(
+    root.querySelector('.snl-entry-loading') ||
     root.querySelector('.snl-svg-template-loading') ||
     root.querySelector('.snl-foreign-box[data-state="staging"]')
   );
 }
 
-/** Wait for async SVG assets and foreign-box geometry before cloning the live DOM. */
+/**
+ * Wait for two quiet paint frames before cloning. The quiet window catches
+ * React layout/passive effects that introduce SVG, formula, or KaTeX work only
+ * after the click. A deadline is a hard failure: incomplete geometry must
+ * never be silently published as a successful export.
+ */
 export function waitForExportSurfaces(
   root: HTMLElement,
   options: ExportSurfaceWaitOptions = {}
 ): Promise<void> {
-  if (!hasPendingExportSurface(root)) return Promise.resolve();
   const timeoutMs = options.timeoutMs ?? 5000;
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
+  const frame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame
+    : (callback: FrameRequestCallback): number => setTimeout(() => callback(Date.now()), 16) as unknown as number;
+  const cancelFrame = typeof cancelAnimationFrame === 'function'
+    ? cancelAnimationFrame
+    : (handle: number): void => clearTimeout(handle);
+  return new Promise((resolve, reject) => {
+    let quietFrames = 0;
+    let frameHandle = 0;
+    let finished = false;
+    const cleanup = (): void => {
       observer.disconnect();
+      cancelFrame(frameHandle);
       clearTimeout(timer);
-      resolve();
     };
-    const check = (): void => { if (!hasPendingExportSurface(root)) finish(); };
-    const observer = new MutationObserver(check);
-    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state', 'class'] });
-    const timer = setTimeout(finish, Math.max(0, timeoutMs));
-    check();
+    const fail = (): void => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(new Error('Timed out waiting for rendered SVG, formula, or Entry surfaces to settle.'));
+    };
+    const tick = (): void => {
+      if (finished) return;
+      if (hasPendingExportSurface(root)) quietFrames = 0;
+      else quietFrames += 1;
+      if (quietFrames >= 2) {
+        finished = true;
+        cleanup();
+        resolve();
+        return;
+      }
+      frameHandle = frame(tick);
+    };
+    const observer = new MutationObserver(() => { quietFrames = 0; });
+    observer.observe(root, { subtree: true, childList: true, attributes: true });
+    const timer = setTimeout(fail, Math.max(0, timeoutMs));
+    frameHandle = frame(tick);
   });
 }
 

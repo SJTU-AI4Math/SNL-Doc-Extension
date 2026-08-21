@@ -235,7 +235,17 @@ export function App(): React.ReactElement {
     const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
     if (!root) return;
-    await waitForExportSurfaces(root);
+    try {
+      await waitForExportSurfaces(root);
+    } catch (error) {
+      if (generation === exportGenerationRef.current) {
+        postMessage({
+          type: 'exportLibraryHtmlError',
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      return;
+    }
     if (generation !== exportGenerationRef.current) return;
     const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
     const send = (

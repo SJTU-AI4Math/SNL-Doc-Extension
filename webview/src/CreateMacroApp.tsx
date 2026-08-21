@@ -499,6 +499,8 @@ interface TemplateProjectionDraft {
 
 /** Editable style identity plus a full localized Template projection map. */
 interface StyleDraft extends TemplateProjectionDraft {
+  /** Webview-session identity; never projected into the persisted Macro. */
+  editor_identity: string;
   extensions: Record<string, unknown>;
   style_name: string;
   template_localized: Localized<string, TemplateProjectionDraft>;
@@ -545,9 +547,12 @@ function newTemplateProjection(): TemplateProjectionDraft {
   };
 }
 
+let styleDraftIdentitySequence = 0;
+
 function newStyleDraft(styleName: string): StyleDraft {
   const projection = newTemplateProjection();
   return {
+    editor_identity: `style-draft-${styleDraftIdentitySequence += 1}`,
     extensions: {},
     style_name: styleName,
     ...projection,
@@ -562,7 +567,7 @@ function normalizeRestoredStyleDraft(input: unknown): StyleDraft {
     ? input as Record<string, unknown>
     : {};
   const base = newStyleDraft(typeof raw.style_name === 'string' ? raw.style_name : 'default');
-  const merged = { ...base, ...raw } as StyleDraft;
+  const merged = { ...base, ...raw, editor_identity: base.editor_identity } as StyleDraft;
   if (raw.template_localized !== undefined) {
     const source = raw.template_localized as Localized<string, TemplateProjectionDraft>;
     const language = typeof raw.template_edit_language === 'string'
@@ -1897,8 +1902,8 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Content tabs --------------------------------------------------- */}
       {current?.mode === 'block' && current.block_template_name === 'svg_template' ? (
         <SvgMacroEditor
-          key={`${draftKey}:${activeStyle}`}
-          editorIdentity={`${draftKey}:${activeStyle}`}
+          key={`${draftKey}:${current.editor_identity}`}
+          editorIdentity={`${draftKey}:${current.editor_identity}`}
           initialProjection={current.template_extensions.svg_template as ExistingSvgProjection | undefined}
           onDirty={markFormDirty}
           onTemplateChange={() => markFormDirty()}
@@ -3121,7 +3126,7 @@ function StylesEditor({
     <SectionHeader title={t('styles')} />
     <div role="group" aria-label={t('styles')}
       style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-      {styles.map((style, index) => <div key={index}
+      {styles.map((style, index) => <div key={style.editor_identity}
         style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
         <StyleSwitch
           tag={style.style_name}

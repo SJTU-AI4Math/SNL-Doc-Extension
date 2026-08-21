@@ -63,13 +63,17 @@ async function requireDirectoryWithoutSymlink(path: string, label: string): Prom
 
 async function openDirectoryAuthority(path: string, expected: FileIdentity): Promise<Awaited<ReturnType<typeof fs.open>>> {
   const handle = await fs.open(path, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-  const stat = await handle.stat({ bigint: true });
-  if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
+  try {
+    const stat = await handle.stat({ bigint: true });
+    if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
+      throw new Error('SVG Asset directory changed before its authority handle was acquired.');
+    }
+    await requireIdentity(path, expected, 'SVG Asset directory');
+    return handle;
+  } catch (reason) {
     await handle.close();
-    throw new Error('SVG Asset directory changed before its authority handle was acquired.');
+    throw reason;
   }
-  await requireIdentity(path, expected, 'SVG Asset directory');
-  return handle;
 }
 
 async function syncDirectory(handle: Awaited<ReturnType<typeof fs.open>>): Promise<void> {
@@ -182,9 +186,10 @@ async function writeImmutable(
   await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
   const handle = await fs.open(directoryPath, fsConstants.O_RDWR | O_TMPFILE, 0o600);
   let linked = false;
-  const initial = await handle.stat({ bigint: true });
-  const created = { dev: initial.dev, ino: initial.ino };
+  let created: FileIdentity | undefined;
   try {
+    const initial = await handle.stat({ bigint: true });
+    created = { dev: initial.dev, ino: initial.ino };
     await handle.writeFile(value);
     await handle.sync();
     await handle.chmod(0o400);
@@ -214,7 +219,7 @@ async function writeImmutable(
     await requireIdentity(path, created, 'Published SVG Asset');
     return created;
   } catch (reason) {
-    if (linked) {
+    if (linked && created) {
       try {
         await quarantineOwned(path, created);
       } catch (quarantineReason) {
@@ -223,7 +228,7 @@ async function writeImmutable(
     }
     throw reason;
   } finally {
-    await handle.close().catch(() => undefined);
+    await handle.close();
   }
 }
 

@@ -80,6 +80,48 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     }
   });
 
+  it('closes a directory authority handle when its first fstat fails', async () => {
+    const root = await workspace();
+    const originalOpen = fs.open.bind(fs);
+    let closed = false;
+    let injected = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (!injected && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+        injected = true;
+        const originalClose = handle.close.bind(handle);
+        handle.stat = async () => { throw new Error('injected first directory fstat failure'); };
+        handle.close = async () => { closed = true; await originalClose(); };
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'dir-stat-fail', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/first directory fstat failure/);
+    expect(closed).toBe(true);
+  });
+
+  it('closes an anonymous publication handle when its first fstat fails', async () => {
+    const root = await workspace();
+    const originalOpen = fs.open.bind(fs);
+    let closed = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if ((Number(flags) & 0o20000000) !== 0) {
+        const originalClose = handle.close.bind(handle);
+        handle.stat = async () => { throw new Error('injected first anonymous fstat failure'); };
+        handle.close = async () => { closed = true; await originalClose(); };
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'file-stat-fail', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/first anonymous fstat failure/);
+    expect(closed).toBe(true);
+  });
+
   it('keeps the writable inode anonymous until atomic no-replace installation', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');

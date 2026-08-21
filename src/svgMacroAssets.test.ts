@@ -183,6 +183,34 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     })).rejects.toThrow(/symbolic link/i);
   });
 
+  it('fails closed if the SVG directory changes while the manifest handle is verified', async () => {
+    const root = await workspace();
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const movedRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg-during-verify');
+    const outside = await fs.mkdtemp(join(tmpdir(), 'snl-svg-verify-race-'));
+    roots.push(outside);
+    const originalOpen = fs.open.bind(fs);
+    let swapped = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (!swapped && String(path).includes('.manifest.') && !String(path).endsWith('.next')) {
+        swapped = true;
+        await fs.rename(svgRoot, movedRoot);
+        const basename = String(path).split(/[\\/]/).pop() as string;
+        await fs.link(join(movedRoot, basename), join(outside, basename));
+        await fs.symlink(outside, svgRoot, process.platform === 'win32' ? 'junction' : 'dir');
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'verify-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/changed|rollback/i);
+    expect(await fs.readdir(outside)).toEqual([]);
+    await fs.unlink(svgRoot);
+    await fs.rename(movedRoot, svgRoot);
+  });
+
   it('post-write verifies the manifest and rolls back a corrupted publication', async () => {
     const root = await workspace();
     const originalLink = fs.link.bind(fs);

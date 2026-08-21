@@ -143,13 +143,23 @@ async function writeImmutable(
   return created;
 }
 
-async function verifyExactFile(path: string, expected: Uint8Array): Promise<void> {
+async function verifyExactFile(
+  path: string,
+  expected: Uint8Array,
+  directoryPath: string,
+  directoryIdentity: FileIdentity
+): Promise<void> {
   const handle = await fs.open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size !== expected.byteLength) throw new Error('Published SVG Asset has the wrong file type or size.');
+    const stat = await handle.stat({ bigint: true });
+    const fileIdentity = { dev: stat.dev, ino: stat.ino };
+    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
+    await requireIdentity(path, fileIdentity, 'Published SVG Asset');
+    if (!stat.isFile() || stat.size !== BigInt(expected.byteLength)) throw new Error('Published SVG Asset has the wrong file type or size.');
     const actual = await handle.readFile();
     if (!actual.equals(Buffer.from(expected))) throw new Error('Published SVG Asset bytes do not match the committed content.');
+    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
+    await requireIdentity(path, fileIdentity, 'Published SVG Asset');
   } finally {
     await handle.close();
   }
@@ -252,7 +262,7 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
       readWorkspaceSvgSource({ workspaceRoot: options.workspaceRoot, relativePath: sourcePath, baseIdentity: SVG_ASSET_BASE_IDENTITY, revision: `sha256:${sourceDigest}` }),
       readWorkspaceSvgSource({ workspaceRoot: options.workspaceRoot, relativePath: templatePath, baseIdentity: SVG_ASSET_BASE_IDENTITY, revision: outputRevision })
     ]);
-    await verifyExactFile(manifestTarget, manifestBytes);
+    await verifyExactFile(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
     if (verifiedSource !== options.sourceSvg || verifiedTemplate !== options.templateSvg) {
       throw new Error('Published SVG Macro Asset verification changed the exact UTF-8 text.');
     }

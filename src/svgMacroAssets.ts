@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type * as vscode from 'vscode';
@@ -155,44 +156,75 @@ async function quarantineOwned(path: string, expected: FileIdentity): Promise<vo
   }
 }
 
+const O_TMPFILE = 0o20200000;
+
+function linkAnonymousFile(handle: { fd: number }, directoryHandle: { fd: number }, fileName: string): { ok: boolean; detail: string } {
+  const linker = '/bin/ln';
+  const result = spawnSync(linker, [
+    '-L', '-T', '/proc/self/fd/3', `/proc/self/fd/4/${fileName}`
+  ], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe', handle.fd, directoryHandle.fd]
+  });
+  return {
+    ok: result.status === 0,
+    detail: result.error?.message ?? result.stderr ?? `linker exited ${String(result.status)}`
+  };
+}
+
 async function writeImmutable(
   path: string,
   value: Uint8Array,
   directoryPath: string,
-  directoryIdentity: FileIdentity
+  directoryIdentity: FileIdentity,
+  directoryHandle: { fd: number }
 ): Promise<FileIdentity | null> {
   await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-  let handle;
+  const handle = await fs.open(directoryPath, fsConstants.O_RDWR | O_TMPFILE, 0o600);
+  let linked = false;
+  const initial = await handle.stat({ bigint: true });
+  const created = { dev: initial.dev, ino: initial.ino };
   try {
-    handle = await fs.open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
-  } catch (reason) {
-    if ((reason as NodeJS.ErrnoException).code !== 'EEXIST') throw reason;
-    await verifyExactFile(path, value, directoryPath, directoryIdentity);
-    return null;
-  }
-
-  const stat = await handle.stat({ bigint: true });
-  const created = { dev: stat.dev, ino: stat.ino };
-  try {
-    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
-    await requireIdentity(path, created, 'Published SVG Asset');
     await handle.writeFile(value);
     await handle.sync();
     await handle.chmod(0o400);
     await handle.sync();
+    const sealed = await handle.stat({ bigint: true });
+    if (!sealed.isFile() || sealed.size !== BigInt(value.byteLength) || (sealed.mode & 0o777n) !== 0o400n) {
+      throw new Error('Private SVG Asset inode was not sealed exactly before publication.');
+    }
+    const actual = Buffer.alloc(value.byteLength);
+    const read = await handle.read(actual, 0, value.byteLength, 0);
+    if (read.bytesRead !== value.byteLength || !actual.equals(Buffer.from(value))) {
+      throw new Error('Private SVG Asset inode bytes changed before publication.');
+    }
+    await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
+    const link = linkAnonymousFile(handle, directoryHandle, path.split('/').pop() ?? '');
+    if (!link.ok) {
+      try {
+        await verifyExactFile(path, value, directoryPath, directoryIdentity);
+        return null;
+      } catch (verificationReason) {
+        if (link.detail) void link.detail;
+        throw verificationReason;
+      }
+    }
+    linked = true;
     await requireIdentity(directoryPath, directoryIdentity, 'SVG Asset directory');
     await requireIdentity(path, created, 'Published SVG Asset');
-    await handle.close();
+    return created;
   } catch (reason) {
-    try {
-      await handle.close().catch(() => undefined);
-      await quarantineOwned(path, created);
-    } catch (quarantineReason) {
-      throw new Error('SVG Asset publication failed and its ambiguous destination was preserved.', { cause: new AggregateError([reason, quarantineReason]) });
+    if (linked) {
+      try {
+        await quarantineOwned(path, created);
+      } catch (quarantineReason) {
+        throw new Error('SVG Asset publication failed and its ambiguous destination was preserved.', { cause: new AggregateError([reason, quarantineReason]) });
+      }
     }
     throw reason;
+  } finally {
+    await handle.close().catch(() => undefined);
   }
-  return created;
 }
 
 async function verifyExactFile(
@@ -331,13 +363,13 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
   try {
     try {
       const sourceTarget = join(authorityRoot, sourceFile);
-      const sourceIdentity = await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity);
+      const sourceIdentity = await writeImmutable(sourceTarget, sourceBytes, svgRoot, svgRootIdentity, directoryHandle);
       if (sourceIdentity) createdPaths.push({ path: sourceTarget, identity: sourceIdentity });
       const templateTarget = join(authorityRoot, templateFile);
-      const templateIdentity = await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity);
+      const templateIdentity = await writeImmutable(templateTarget, templateBytes, svgRoot, svgRootIdentity, directoryHandle);
       if (templateIdentity) createdPaths.push({ path: templateTarget, identity: templateIdentity });
       const manifestTarget = join(authorityRoot, manifestFile);
-      const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity);
+      const manifestIdentity = await writeImmutable(manifestTarget, manifestBytes, svgRoot, svgRootIdentity, directoryHandle);
       if (manifestIdentity) createdPaths.push({ path: manifestTarget, identity: manifestIdentity });
       await verifyExactFiles([
         { path: sourceTarget, expected: sourceBytes },

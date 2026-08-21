@@ -80,6 +80,34 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     }
   });
 
+  it('keeps the writable inode anonymous until atomic no-replace installation', async () => {
+    const root = await workspace();
+    const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
+    const sourceTarget = join(svgRoot, `anonymous.source.${createHash('sha256').update(source).digest('hex')}.svg`);
+    const originalOpen = fs.open.bind(fs);
+    let anonymousInode: bigint | undefined;
+    let absentDuringWrite = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (anonymousInode === undefined && (Number(flags) & 0o20000000) !== 0) {
+        anonymousInode = (await handle.stat({ bigint: true })).ino;
+        const originalWriteFile = handle.writeFile.bind(handle);
+        handle.writeFile = async (...args: Parameters<typeof handle.writeFile>) => {
+          await expect(fs.lstat(sourceTarget)).rejects.toMatchObject({ code: 'ENOENT' });
+          absentDuringWrite = true;
+          return originalWriteFile(...args);
+        };
+      }
+      return handle;
+    });
+    const result = await writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'anonymous', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    });
+    expect(absentDuringWrite).toBe(true);
+    expect((await fs.stat(join(root.fsPath, '.SNL_Doc', 'assets', result.sourcePath), { bigint: true })).ino).toBe(anonymousInode);
+  });
+
   it('syncs the held SVG directory before acknowledging the manifest commit point', async () => {
     const root = await workspace();
     const svgRoot = join(root.fsPath, '.SNL_Doc', 'assets', 'svg');
@@ -87,7 +115,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     let directorySyncCalls = 0;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await originalOpen(path, flags, mode);
-      if ((String(path) === svgRoot || String(path).endsWith('/svg')) && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+      if ((String(path) === svgRoot || String(path).endsWith('/svg')) && (Number(flags) & fs.constants.O_DIRECTORY) !== 0 && (Number(flags) & 0o20000000) === 0) {
         const originalSync = handle.sync.bind(handle);
         handle.sync = async () => { directorySyncCalls += 1; await originalSync(); };
       }
@@ -191,12 +219,13 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     const originalOpen = fs.open.bind(fs);
     let swapped = false;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
-      if (!swapped && String(path).includes('.source.') && (Number(flags) & (fs.constants.O_WRONLY | fs.constants.O_RDWR)) !== 0) {
+      const handle = await originalOpen(path, flags, mode);
+      if (!swapped && (Number(flags) & 0o20000000) !== 0) {
         swapped = true;
         await fs.rename(svgRoot, movedRoot);
         await fs.symlink(outside, svgRoot, process.platform === 'win32' ? 'junction' : 'dir');
       }
-      return originalOpen(path, flags, mode);
+      return handle;
     });
     await expect(writeWorkspaceSvgMacroAssets({
       workspaceRoot: root as never, slug: 'race', sourceSvg: source, templateSvg: template,

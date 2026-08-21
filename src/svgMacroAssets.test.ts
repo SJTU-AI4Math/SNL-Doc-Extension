@@ -80,6 +80,28 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     }
   });
 
+  it('surfaces authority close failures instead of silently discarding them', async () => {
+    const root = await workspace();
+    const originalOpen = fs.open.bind(fs);
+    let injected = false;
+    vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
+      const handle = await originalOpen(path, flags, mode);
+      if (!injected && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+        injected = true;
+        const originalClose = handle.close.bind(handle);
+        handle.close = async () => {
+          await originalClose();
+          throw new Error('injected authority close failure');
+        };
+      }
+      return handle;
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'close-fail', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/authority handles failed to close/);
+  });
+
   it('closes a directory authority handle when its first fstat fails', async () => {
     const root = await workspace();
     const originalOpen = fs.open.bind(fs);

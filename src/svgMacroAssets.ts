@@ -86,6 +86,12 @@ async function syncDirectory(handle: Awaited<ReturnType<typeof fs.open>>): Promi
   }
 }
 
+async function closeHandlesStrict(handles: Array<Awaited<ReturnType<typeof fs.open>>>): Promise<void> {
+  const results = await Promise.allSettled(handles.map((handle) => handle.close()));
+  const failures = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
+  if (failures.length > 0) throw new AggregateError(failures, 'One or more SVG filesystem authority handles failed to close.');
+}
+
 interface SvgDirectoryAuthority {
   svgRoot: string;
   authorityRoot: string;
@@ -139,7 +145,11 @@ async function openSvgDirectoryAuthority(workspaceRoot: string): Promise<SvgDire
       handles
     };
   } catch (reason) {
-    await Promise.allSettled(handles.reverse().map((handle) => handle.close()));
+    try {
+      await closeHandlesStrict(handles.reverse());
+    } catch (closeReason) {
+      throw new AggregateError([reason, closeReason], 'SVG directory authority acquisition and cleanup both failed.');
+    }
     throw reason;
   }
 }
@@ -286,7 +296,7 @@ async function verifyExactFiles(
       await requireIdentity(entries[index].path, identities[index], 'Published SVG Asset');
     }
   } finally {
-    await Promise.allSettled(handles.map((handle) => handle.close()));
+    await closeHandlesStrict(handles);
   }
 }
 
@@ -399,7 +409,7 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
       throw reason;
     }
   } finally {
-    await Promise.allSettled(authority.handles.reverse().map((handle) => handle.close()));
+    await closeHandlesStrict(authority.handles.reverse());
   }
 
 }

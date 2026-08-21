@@ -39,7 +39,7 @@ vi.mock('./vscodeApi', async () => {
   };
 });
 
-const { BlockRendererPresetControl, CreateMacroApp, styleUsesSvgRenderer } = await import('./CreateMacroApp');
+const { BlockRendererPresetControl, CreateMacroApp, styleUsesSvgRenderer, styleHasAnySvgRenderer } = await import('./CreateMacroApp');
 const { apply_preferences_snapshot, set_content_language } = await import('./runtime/preferencesRuntime');
 
 afterEach(() => {
@@ -55,6 +55,64 @@ describe('Create Macro localization', () => {
     expect(() => styleUsesSvgRenderer({ mode: 'block', block_template_name: 'custom?x=1' })).not.toThrow();
     expect(styleUsesSvgRenderer({ mode: 'block', block_template_name: 'custom?x=1' })).toBe(false);
   });
+  it('detects SVG renderers in inactive localized projections for fixed-arity gating', () => {
+    expect(styleHasAnySvgRenderer({
+      mode: 'formula_inline', block_template_name: '',
+      template_localized: {
+        type: 'i18n', default_language: 'en', values: {
+          en: { mode: 'formula_inline', block_template_name: '' },
+          'zh-CN': { mode: 'block', block_template_name: 'svg_template' }
+        }
+      }
+    } as never)).toBe(true);
+    render(<CreateMacroApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['Inactive.svg'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
+      existing: { name: 'Inactive.svg', description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', tags: [], template: {
+          type: 'i18n', default_language: 'en', values: {
+            en: { mode: 'formula_inline', body: '#0' },
+            'zh-CN': { mode: 'block', body: '#0', block_template_name: 'svg_template' }
+          }
+        } }] }
+    } })));
+    expect(screen.getByRole('checkbox', { name: 'Dynamic Arity' })).toHaveProperty('disabled', true);
+  });
+
+  it('invalidates a pending SVG save when the localized projection changes', () => {
+    document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'svg-locale-authority', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [{ id: 'en', display_name: 'English' }, { id: 'zh-CN', display_name: '简体中文' }]
+    });
+    render(<CreateMacroApp />);
+    const svg = { mode: 'block', body: '#0', block_template_name: 'svg_template' };
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'context', mode: 'edit', file: 'algebra.json', packageName: 'Algebra',
+      existingNames: ['Localized.svg'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
+      existing: { name: 'Localized.svg', description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
+        styles: [{ style_name: 'default', tags: [], template: {
+          type: 'i18n', default_language: 'en', values: { en: svg, 'zh-CN': svg }
+        } }] }
+    } })));
+    fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h2v2H0z"/></svg>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load SVG preview' }));
+    fireEvent.change(screen.getByLabelText('Asset name'), { target: { value: 'localized' } });
+    fireEvent.change(screen.getByLabelText('Accessibility label'), { target: { value: 'Localized' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save SVG Macro Asset' }));
+    const request = [...posted].reverse().find((value) => typeof value === 'object' && value !== null
+      && (value as { type?: string }).type === 'svgMacro.writeAssets') as Record<string, unknown>;
+    fireEvent.click(screen.getByRole('button', { name: /Language: English/ }));
+    fireEvent.click(screen.getByRole('option', { name: /简体中文/ }));
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'svgMacro.assetsWritten', requestId: request.requestId, projection: projectionFor(request)
+    } })));
+    expect(screen.queryByText('SVG Macro Asset saved.')).toBeNull();
+    expect((screen.getByLabelText('SVG source') as HTMLTextAreaElement).value).toBe('');
+  });
+
   it('keeps per-Style template languages stable across repeated Style switches', async () => {
     document.documentElement.lang = 'en';
     apply_preferences_snapshot({

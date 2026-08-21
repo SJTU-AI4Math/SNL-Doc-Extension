@@ -1027,13 +1027,21 @@ function canonicalMacroKindCatalog(kinds: readonly MacroKind[]): MacroKind[] {
 // Component
 // ---------------------------------------------------------------------------
 
-export function styleUsesSvgRenderer(style: Pick<StyleDraft, 'mode' | 'block_template_name'>): boolean {
-  if (style.mode !== 'block') return false;
+export function styleUsesSvgRenderer(style: Pick<TemplateProjectionDraft, 'mode' | 'block_template_name'> | undefined): boolean {
+  if (!style || style.mode !== 'block') return false;
   try {
     return parseBlockRendererSpec(style.block_template_name).name === 'svg_template';
   } catch {
     return false;
   }
+}
+
+export function styleHasAnySvgRenderer(style: StyleDraft): boolean {
+  if (styleUsesSvgRenderer(style)) return true;
+  if (is_i18n(style.template_localized)) {
+    return Object.values(style.template_localized.values).some((projection) => styleUsesSvgRenderer(projection));
+  }
+  return styleUsesSvgRenderer(style.template_localized);
 }
 
 export function CreateMacroApp(): React.ReactElement {
@@ -1099,7 +1107,7 @@ export function CreateMacroApp(): React.ReactElement {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const current = styles[activeStyle] ?? styles[0];
-  const hasSvgRenderer = styles.some(styleUsesSvgRenderer);
+  const hasSvgRenderer = styles.some(styleHasAnySvgRenderer);
 
   function markFormDirty(): void {
     formDirtyRef.current = true;
@@ -1912,8 +1920,8 @@ export function CreateMacroApp(): React.ReactElement {
       {/* --- Content tabs --------------------------------------------------- */}
       {current?.mode === 'block' && current.block_template_name === 'svg_template' ? (
         <SvgMacroEditor
-          key={`${draftKey}:${current.editor_identity}`}
-          editorIdentity={`${draftKey}:${current.editor_identity}`}
+          key={`${draftKey}:${current.editor_identity}:${current.template_edit_language}`}
+          editorIdentity={`${draftKey}:${current.editor_identity}:${current.template_edit_language}`}
           initialProjection={current.template_extensions.svg_template as ExistingSvgProjection | undefined}
           onDirty={markFormDirty}
           onTemplateChange={() => markFormDirty()}

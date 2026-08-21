@@ -87,7 +87,7 @@ describe('writeWorkspaceSvgMacroAssets', () => {
     let directorySyncCalls = 0;
     vi.spyOn(fs, 'open').mockImplementation(async (path, flags, mode) => {
       const handle = await originalOpen(path, flags, mode);
-      if (String(path) === svgRoot && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
+      if ((String(path) === svgRoot || String(path).endsWith('/svg')) && (Number(flags) & fs.constants.O_DIRECTORY) !== 0) {
         const originalSync = handle.sync.bind(handle);
         handle.sync = async () => { directorySyncCalls += 1; await originalSync(); };
       }
@@ -135,6 +135,31 @@ describe('writeWorkspaceSvgMacroAssets', () => {
       templateSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><g data-snl-slot="0"><!--not empty--></g></svg>',
       accessibilityLabel: 'x', operations: []
     })).rejects.toThrow(/slot|empty/i);
+  });
+
+  it('keeps descendant creation on the held .SNL_Doc inode after an ancestor swap', async () => {
+    const root = await workspace();
+    const snlDoc = join(root.fsPath, '.SNL_Doc');
+    const movedSnlDoc = join(root.fsPath, '.SNL_Doc-held');
+    const outside = await fs.mkdtemp(join(tmpdir(), 'snl-svg-ancestor-race-'));
+    roots.push(outside);
+    const originalMkdir = fs.mkdir.bind(fs);
+    let swapped = false;
+    vi.spyOn(fs, 'mkdir').mockImplementation(async (path, options) => {
+      if (!swapped && String(path).endsWith('/assets')) {
+        swapped = true;
+        await fs.rename(snlDoc, movedSnlDoc);
+        await fs.symlink(outside, snlDoc, process.platform === 'win32' ? 'junction' : 'dir');
+      }
+      return originalMkdir(path, options as never);
+    });
+    await expect(writeWorkspaceSvgMacroAssets({
+      workspaceRoot: root as never, slug: 'ancestor-race', sourceSvg: source, templateSvg: template,
+      accessibilityLabel: 'x', operations: []
+    })).rejects.toThrow(/changed|publication|rollback|preserved|ENOENT|no such/i);
+    expect(await fs.readdir(outside)).toEqual([]);
+    await fs.unlink(snlDoc);
+    await fs.rename(movedSnlDoc, snlDoc);
   });
 
   it('refuses a symlinked SVG asset directory', async () => {

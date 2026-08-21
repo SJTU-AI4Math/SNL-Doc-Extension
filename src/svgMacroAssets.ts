@@ -81,6 +81,61 @@ async function syncDirectory(handle: Awaited<ReturnType<typeof fs.open>>): Promi
   }
 }
 
+interface SvgDirectoryAuthority {
+  svgRoot: string;
+  authorityRoot: string;
+  svgIdentity: FileIdentity;
+  svgHandle: Awaited<ReturnType<typeof fs.open>>;
+  handles: Array<Awaited<ReturnType<typeof fs.open>>>;
+}
+
+function heldDirectoryPath(handle: Awaited<ReturnType<typeof fs.open>>, fallback: string): string {
+  return process.platform === 'linux' ? `/proc/self/fd/${handle.fd}` : fallback;
+}
+
+async function openSvgDirectoryAuthority(workspaceRoot: string): Promise<SvgDirectoryAuthority> {
+  const handles: Array<Awaited<ReturnType<typeof fs.open>>> = [];
+  try {
+    const workspaceIdentity = await requireDirectoryWithoutSymlink(workspaceRoot, 'Workspace root');
+    const workspaceHandle = await openDirectoryAuthority(workspaceRoot, workspaceIdentity);
+    handles.push(workspaceHandle);
+    const heldWorkspace = heldDirectoryPath(workspaceHandle, workspaceRoot);
+
+    const snlDocHeld = join(heldWorkspace, '.SNL_Doc');
+    const snlDocIdentity = await requireDirectoryWithoutSymlink(snlDocHeld, '.SNL_Doc');
+    const snlDocHandle = await openDirectoryAuthority(snlDocHeld, snlDocIdentity);
+    handles.push(snlDocHandle);
+    const heldSnlDoc = heldDirectoryPath(snlDocHandle, join(workspaceRoot, '.SNL_Doc'));
+
+    const assetsHeld = join(heldSnlDoc, 'assets');
+    await fs.mkdir(assetsHeld).catch((reason: NodeJS.ErrnoException) => {
+      if (reason.code !== 'EEXIST') throw reason;
+    });
+    const assetsIdentity = await requireDirectoryWithoutSymlink(assetsHeld, '.SNL_Doc/assets');
+    const assetsHandle = await openDirectoryAuthority(assetsHeld, assetsIdentity);
+    handles.push(assetsHandle);
+    const heldAssets = heldDirectoryPath(assetsHandle, join(workspaceRoot, '.SNL_Doc', 'assets'));
+
+    const svgHeld = join(heldAssets, 'svg');
+    await fs.mkdir(svgHeld).catch((reason: NodeJS.ErrnoException) => {
+      if (reason.code !== 'EEXIST') throw reason;
+    });
+    const svgIdentity = await requireDirectoryWithoutSymlink(svgHeld, '.SNL_Doc/assets/svg');
+    const svgHandle = await openDirectoryAuthority(svgHeld, svgIdentity);
+    handles.push(svgHandle);
+    return {
+      svgRoot: join(workspaceRoot, '.SNL_Doc', 'assets', 'svg'),
+      authorityRoot: heldDirectoryPath(svgHandle, join(workspaceRoot, '.SNL_Doc', 'assets', 'svg')),
+      svgIdentity,
+      svgHandle,
+      handles
+    };
+  } catch (reason) {
+    await Promise.allSettled(handles.reverse().map((handle) => handle.close()));
+    throw reason;
+  }
+}
+
 async function requireIdentity(path: string, expected: FileIdentity, label: string): Promise<void> {
   const stat = await fs.lstat(path, { bigint: true });
   if (stat.isSymbolicLink() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
@@ -229,15 +284,6 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
   const sourceDigest = digest(sourceBytes);
   const templateDigest = digest(templateBytes);
 
-  const snlDocRoot = join(options.workspaceRoot.fsPath, '.SNL_Doc');
-  await requireDirectoryWithoutSymlink(snlDocRoot, '.SNL_Doc');
-  const assetsRoot = join(snlDocRoot, 'assets');
-  await fs.mkdir(assetsRoot, { recursive: true });
-  await requireDirectoryWithoutSymlink(assetsRoot, '.SNL_Doc/assets');
-  const svgRoot = join(assetsRoot, 'svg');
-  await fs.mkdir(svgRoot, { recursive: true });
-  const svgRootIdentity = await requireDirectoryWithoutSymlink(svgRoot, '.SNL_Doc/assets/svg');
-
   const sourceFile = `${options.slug}.source.${sourceDigest}.svg`;
   const templateFile = `${options.slug}.template.${templateDigest}.svg`;
   const sourcePath = `svg/${sourceFile}`;
@@ -276,8 +322,8 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
     editor: { source: sourcePath, source_revision: `sha256:${sourceDigest}`, manifest: manifestPath }
   };
 
-  const directoryHandle = await openDirectoryAuthority(svgRoot, svgRootIdentity);
-  const authorityRoot = process.platform === 'linux' ? `/proc/self/fd/${directoryHandle.fd}` : svgRoot;
+  const authority = await openSvgDirectoryAuthority(options.workspaceRoot.fsPath);
+  const { svgRoot, authorityRoot, svgIdentity: svgRootIdentity, svgHandle: directoryHandle } = authority;
   const createdPaths: Array<{ path: string; identity: FileIdentity }> = [];
   try {
     try {
@@ -313,7 +359,7 @@ async function writeWorkspaceSvgMacroAssetsUnlocked(
       throw reason;
     }
   } finally {
-    await directoryHandle.close();
+    await Promise.allSettled(authority.handles.reverse().map((handle) => handle.close()));
   }
 
 }

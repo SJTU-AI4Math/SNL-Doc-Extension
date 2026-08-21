@@ -1937,7 +1937,7 @@ export function CreateMacroApp(): React.ReactElement {
       <SectionHeader title={t('contentStyle', { style: current?.style_name || 'default' })} />
       {current ? (
         <LocalizedEditScope
-          resetKey={`${draftKey}:${activeStyle}`}
+          resetKey={`${draftKey}:${current.editor_identity}`}
           initialLanguage={current.template_edit_language}
           availableLanguages={[...new Set([
             LOCALIZED_GENERAL_LANGUAGE,

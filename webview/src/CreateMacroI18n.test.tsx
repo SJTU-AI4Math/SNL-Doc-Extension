@@ -359,6 +359,11 @@ describe('Create Macro localization', () => {
 
   it('assigns distinct pending-save identities to host-hydrated SVG styles', () => {
     document.documentElement.lang = 'en';
+    apply_preferences_snapshot({
+      type: 'snl.preferences/snapshot', generation: 'hydrated-svg-style-identity', revision: 1,
+      preferences: { language: 'en', color_scheme: 'dark', motion: 'full' },
+      supported_languages: [{ id: 'en', display_name: 'English' }, { id: 'zh-CN', display_name: '简体中文' }]
+    });
     render(<CreateMacroApp />);
     const svgTemplate = { mode: 'block', body: '#0', block_template_name: 'svg_template' };
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -366,8 +371,8 @@ describe('Create Macro localization', () => {
       existingNames: ['Hydrated'], macroCandidates: [], macroKinds: [], entries: [], prefill: null,
       existing: { name: 'Hydrated', description: '', source: { entries: [], urls: [] }, dynamic_arity: false, tags: [],
         styles: [
-          { style_name: 'default', tags: [], template: svgTemplate },
-          { style_name: 'alternate', tags: [], template: svgTemplate }
+          { style_name: 'default', tags: [], template: { type: 'i18n', default_language: 'en', values: { en: svgTemplate } } },
+          { style_name: 'alternate', tags: [], template: { type: 'i18n', default_language: 'zh-CN', values: { 'zh-CN': svgTemplate } } }
         ] }
     } })));
     fireEvent.change(screen.getByLabelText('SVG source'), { target: { value: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h2v2H0z"/></svg>' } });
@@ -378,6 +383,7 @@ describe('Create Macro localization', () => {
     const request = [...posted].reverse().find((value) => typeof value === 'object' && value !== null
       && (value as { type?: string }).type === 'svgMacro.writeAssets') as Record<string, unknown>;
     fireEvent.click(screen.getByRole('button', { name: 'Remove style default' }));
+    expect(screen.getByRole('button', { name: /Language: 简体中文/ })).toBeTruthy();
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'svgMacro.assetsWritten', requestId: request.requestId, projection: projectionFor(request)
     } })));

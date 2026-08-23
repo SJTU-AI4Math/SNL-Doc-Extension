@@ -65,9 +65,9 @@ describe('EntrySurface horizontal overflow', () => {
     );
   });
 
-  it('draws semantic highlight frames inward so scrollport edges cannot clip them', () => {
-    expect(entrySurfaceCss).toMatch(
-      /\.snl-single-hover\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px color-mix\(in srgb, currentColor 50%, transparent\)\s*!important/s
+  it('leaves semantic highlight frame ownership to SNL Basics', () => {
+    expect(entrySurfaceCss).not.toMatch(
+      /\.snl-single-hover[^}]*\{[^}]*box-shadow\s*:/s
     );
   });
 

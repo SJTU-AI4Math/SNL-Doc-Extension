@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildExportPayloadScript,
   buildPopoverScript,
   encodePopoverJson,
   POPOVER_GLOBAL,
-  POPOVER_SCRIPT_PATH
+  POPOVER_SCRIPT_PATH,
+  VARIANTS_GLOBAL
 } from './exportPopoverPayload';
 import { buildExportDocument } from './exportHtmlDocument';
 import { buildExportPlan, inlineScripts } from './exportDocument';
@@ -119,5 +121,25 @@ describe('inlineScripts', () => {
 describe('buildPopoverScript', () => {
   it('assigns to the global the runtime reads', () => {
     expect(buildPopoverScript({ a: '<b/>' })).toContain(`window.${POPOVER_GLOBAL} =`);
+  });
+
+  it('round-trips hostile locale/theme variant markup without script breakout', () => {
+    const variants = {
+      initialLocale: 'en',
+      initialColorScheme: 'light' as const,
+      variants: [{
+        locale: 'en', languageLabel: 'English', colorScheme: 'light' as const,
+        title: 'T', body: '</script><script>window.pwned=1</script>',
+        popovers: { x: '<!-- unsafe spelling -->' }
+      }]
+    };
+    const source = buildExportPayloadScript({}, variants);
+    expect(source).not.toContain('</script>');
+    expect(source).not.toContain('<!--');
+    const scope: Record<string, unknown> = {};
+    // eslint-disable-next-line no-new-func
+    new Function('window', source)(scope);
+    expect(scope[VARIANTS_GLOBAL]).toEqual(variants);
+    expect(scope).not.toHaveProperty('pwned');
   });
 });

@@ -128,6 +128,8 @@ describe('the exported runtime, executed', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     document.documentElement.lang = 'en';
+    delete document.documentElement.dataset.snlColorScheme;
+    delete (globalThis as Record<string, unknown>).__SNL_EXPORT_VARIANTS__;
   });
 
   it('builds a toggle for every collapsible host, on both surfaces', () => {
@@ -388,6 +390,84 @@ describe('the exported runtime, executed', () => {
     expect(document.querySelector('[data-snl-route-not-found]')).toBeNull();
     expect(alpha.hasAttribute('data-snl-route-current')).toBe(false);
     expect(beta.hasAttribute('data-snl-route-current')).toBe(false);
+  });
+
+  it('extracts a deeply nested route into a flat single-node outlet and restores the outline', () => {
+    window.history.replaceState(null, '', '#/node/child');
+    document.body.innerHTML = `
+      <main class="snl-export">
+        <h1>Library</h1>
+        <div data-snl-export-body>
+          <div id="ancestor" data-snl-collapsible="" data-snl-child-count="1">
+            <div data-snl-route-id="parent"><article data-entry-id="parent-entry">Parent</article></div>
+            <div data-snl-subtree style="display:flex;flex-direction:column;gap:.75rem">
+              <div id="indented-child" style="margin-left:40px;display:flex;gap:.75rem">
+                <div data-snl-route-id="child"><article data-entry-id="child-entry">Child</article></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>`;
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    const body = document.querySelector<HTMLElement>('[data-snl-export-body]')!;
+    const outlet = document.querySelector<HTMLElement>('[data-snl-route-outlet]')!;
+    const child = document.querySelector<HTMLElement>('[data-snl-route-id="child"]')!;
+    expect(body.hidden).toBe(true);
+    expect(outlet.hidden).toBe(false);
+    expect(child.parentElement).toBe(outlet);
+    expect(child.hasAttribute('data-snl-route-current')).toBe(true);
+    expect(outlet.querySelector('#indented-child')).toBeNull();
+    expect(outlet.querySelector('#ancestor')).toBeNull();
+
+    window.history.pushState(null, '', '#/');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(body.hidden).toBe(false);
+    expect(outlet.hidden).toBe(true);
+    expect(document.querySelector('#indented-child > [data-snl-route-id="child"]')).toBe(child);
+  });
+
+  it('switches captured locale/theme variants from two top-right controls', () => {
+    window.history.replaceState(null, '', '#/');
+    document.body.innerHTML = `
+      <main class="snl-export">
+        <h1 data-snl-export-title>English title</h1>
+        <p data-snl-export-subtitle>English subtitle</p>
+        <div data-snl-export-body><section id="en-light">EN light</section></div>
+      </main>`;
+    (globalThis as Record<string, unknown>).__SNL_EXPORT_VARIANTS__ = {
+      initialLocale: 'en',
+      initialColorScheme: 'light',
+      variants: [
+        { locale: 'en', languageLabel: 'English', colorScheme: 'light', title: 'English title', subtitle: 'English subtitle', body: '<section id="en-light">EN light</section>', popovers: {} },
+        { locale: 'en', languageLabel: 'English', colorScheme: 'dark', title: 'English title', subtitle: 'English subtitle', body: '<section id="en-dark">EN dark</section>', popovers: {} },
+        { locale: 'zh-CN', languageLabel: '简体中文', colorScheme: 'light', title: '中文标题', subtitle: '中文副标题', body: '<section id="zh-light">中文浅色</section>', popovers: {} },
+        { locale: 'zh-CN', languageLabel: '简体中文', colorScheme: 'dark', title: '中文标题', subtitle: '中文副标题', body: '<section id="zh-dark">中文深色</section>', popovers: {} }
+      ]
+    };
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    const toolbar = document.querySelector<HTMLElement>('[data-snl-export-toolbar]')!;
+    expect(toolbar).not.toBeNull();
+    const theme = toolbar.querySelector<HTMLButtonElement>('[data-snl-theme-toggle]')!;
+    const language = toolbar.querySelector<HTMLButtonElement>('[data-snl-language-trigger]')!;
+    expect(theme.getAttribute('aria-label')).toBe('Switch to dark mode');
+    expect(language.getAttribute('aria-label')).toBe('Language: English');
+
+    click(theme);
+    expect(document.documentElement.dataset.snlColorScheme).toBe('dark');
+    expect(document.querySelector('#en-dark')).not.toBeNull();
+
+    click(language);
+    const zh = toolbar.querySelector<HTMLButtonElement>('[data-snl-language="zh-CN"]')!;
+    expect(zh).not.toBeNull();
+    click(zh);
+    expect(document.documentElement.lang).toBe('zh-CN');
+    expect(document.querySelector('#zh-dark')).not.toBeNull();
+    expect(document.querySelector('[data-snl-export-title]')?.textContent).toBe('中文标题');
+    expect(theme.getAttribute('aria-label')).toBe('切换到浅色模式');
   });
 
   it('keeps current sub helpers and legacy partial helpers outside hover selection', () => {

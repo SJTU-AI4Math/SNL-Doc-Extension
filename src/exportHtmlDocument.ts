@@ -9,6 +9,8 @@ export interface DocumentOptions {
   title: string;
   /** BCP-47 document/UI locale captured from the exporting Webview. */
   locale?: string;
+  /** Initial standalone palette; interactive exports may switch it later. */
+  colorScheme?: 'light' | 'dark';
   /** Concatenated CSS. Always inlined — it is small and avoids a fetch. */
   css: string;
   /** Body markup harvested from the rendered Infoview. */
@@ -52,14 +54,16 @@ export const SNL_BASICS_URL = 'https://github.com/SJTU-AI4Math/SNL-Basics';
  */
 export function buildExportDocument(options: DocumentOptions): string {
   const { title, css, body, subtitle, script, scriptSources = [] } = options;
-  const locale = options.locale?.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
-  const watermarkLabel = locale === 'zh-CN' ? 'GitHub 上的 SNL-Basics' : 'SNL-Basics on GitHub';
-  const watermarkCopy = locale === 'zh-CN'
+  const locale = options.locale?.trim() || 'en';
+  const isZh = locale.toLowerCase().startsWith('zh');
+  const colorScheme = options.colorScheme === 'dark' ? 'dark' : 'light';
+  const watermarkLabel = isZh ? 'GitHub 上的 SNL-Basics' : 'SNL-Basics on GitHub';
+  const watermarkCopy = isZh
     ? '由上海交通大学 AI4Math 团队 Fulcrum 的 SNL 提供交互式公式支持'
     : 'Interactive formulae powered by SNL by Fulcrum@SJTU AI4Math Team';
   const heading = subtitle
-    ? `<h1>${escapeHtml(title)}</h1>\n<p class="snl-export-subtitle">${escapeHtml(subtitle)}</p>`
-    : `<h1>${escapeHtml(title)}</h1>`;
+    ? `<h1 data-snl-export-title>${escapeHtml(title)}</h1>\n<p data-snl-export-subtitle class="snl-export-subtitle">${escapeHtml(subtitle)}</p>`
+    : `<h1 data-snl-export-title>${escapeHtml(title)}</h1>`;
   const sidecarTags = scriptSources
     .map((src) => `<script src="${escapeHtml(src)}"></script>\n`)
     .join('');
@@ -69,7 +73,7 @@ export function buildExportDocument(options: DocumentOptions): string {
     : '';
 
   return `<!DOCTYPE html>
-<html lang="${locale}">
+<html lang="${escapeHtml(locale)}" data-snl-color-scheme="${colorScheme}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -82,7 +86,7 @@ ${css}
 <body>
 <main class="snl-export">
 ${heading}
-${body}
+<div data-snl-export-body>${body}</div>
 </main>
 <a class="snl-export-watermark" href="${SNL_BASICS_URL}" target="_blank" rel="noopener noreferrer" aria-label="${watermarkLabel}">
   <img src="${EXPORT_WATERMARK_LOGO_PATH}" alt="SJTU AI4Math" />
@@ -95,11 +99,39 @@ ${sidecarTags}${scriptTag}</body>
 
 /** Baseline page chrome. Entry cards bring their own inline styles. */
 export const EXPORT_BASE_CSS = `
+:root {
+  color-scheme: light;
+  --snl-export-background: #ffffff;
+  --snl-export-foreground: #111111;
+  --vscode-editor-background: #ffffff;
+  --vscode-editor-foreground: #111111;
+  --vscode-widget-border: rgba(31, 41, 55, 0.24);
+  --vscode-focusBorder: #0969da;
+  --vscode-toolbar-hoverBackground: rgba(127, 127, 127, 0.15);
+  --vscode-input-background: #ffffff;
+  --vscode-input-foreground: #111111;
+  --vscode-menu-background: #ffffff;
+  --vscode-menu-foreground: #111111;
+}
+:root[data-snl-color-scheme="dark"] {
+  color-scheme: dark;
+  --snl-export-background: #1e1e1e;
+  --snl-export-foreground: #cccccc;
+  --vscode-editor-background: #1e1e1e;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-widget-border: rgba(255, 255, 255, 0.2);
+  --vscode-focusBorder: #007fd4;
+  --vscode-toolbar-hoverBackground: rgba(255, 255, 255, 0.12);
+  --vscode-input-background: #2a2a2a;
+  --vscode-input-foreground: #dddddd;
+  --vscode-menu-background: #252526;
+  --vscode-menu-foreground: #dddddd;
+}
 body {
   margin: 0;
   padding: 2rem 1rem;
-  background: #ffffff;
-  color: #111111;
+  background: var(--snl-export-background);
+  color: var(--snl-export-foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.6;
 }
@@ -136,4 +168,5 @@ body {
   height: 2rem;
   flex: 0 0 auto;
 }
+:root[data-snl-color-scheme="dark"] .snl-export-watermark img { filter: invert(1); }
 `.trim();

@@ -93,26 +93,14 @@ describe('the exported runtime consumes the same contract', () => {
     // that has to outrank the outline's inline `display` (see EXPORT_RUNTIME_CSS).
     expect(EXPORT_RUNTIME_CSS).not.toContain('snl-export-toggle');
     expect(EXPORT_RUNTIME_CSS).toContain('padding-left');
-    // The popover frame legitimately paints (background, shadow, fade), and
-    // it is not a button — so scope this assertion to everything else.
-    const withoutPopoverOrRoute = EXPORT_RUNTIME_CSS.replace(
-      /\.snl-export-(?:popover|route)[^{]*\{[^}]*\}/g,
-      ''
-    );
-    // Assert the INTENT directly instead of proxying it through a byte count:
-    // no button appearance is restyled here. A length cap would just have to be
-    // re-raised every time a legitimate rule is added (it already blocked the
-    // 2026-07-29 collapse fix).
-    for (const property of [
-      'background',
-      'border',
-      'border-radius',
-      'color',
-      'font-size',
-      'opacity',
-      'transition'
-    ]) {
-      expect(withoutPopoverOrRoute).not.toContain(`${property}:`);
+    // Assert the intent against selectors that can actually style the toggle.
+    // Popovers, route icons, and the standalone language/theme toolbar are
+    // independent controls and legitimately own their own paint.
+    const toggleRules = [...EXPORT_RUNTIME_CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector]) => selector.includes('.snl-collapse-toggle'));
+    expect(toggleRules.length).toBeGreaterThan(0); // route view hides its orphan toggle
+    for (const [, , declarations] of toggleRules) {
+      expect(declarations.replace(/display:\s*none\s*!important\s*;?/g, '').trim()).toBe('');
     }
   });
 

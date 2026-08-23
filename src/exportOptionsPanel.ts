@@ -34,6 +34,8 @@ export interface ExportPayload {
   assets: { path: string; sourceUrl: string }[];
   /** entryId → pre-rendered popover markup (see the webview's prerender). */
   popovers?: Record<string, string>;
+  /** Locale/theme variants used by the standalone top-right controls. */
+  variants?: import('./exportPopoverPayload').ExportDocumentVariants;
 }
 
 /**
@@ -248,7 +250,8 @@ export class ExportOptionsPanel {
       // A static export promises no JavaScript. Do not merely hide the tag:
       // otherwise directory mode still writes an orphan popovers.js and counts
       // it as an exported file even though nothing can load it.
-      popovers: interactive ? this.payload.popovers : undefined
+      popovers: interactive ? this.payload.popovers : undefined,
+      variants: interactive ? this.payload.variants : undefined
     };
 
     // The interactive runtime is generated at build time (see

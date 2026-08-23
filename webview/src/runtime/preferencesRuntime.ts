@@ -118,7 +118,32 @@ export function get_kind_color_scheme(): 'light' | 'dark' {
 }
 
 export function set_content_language(language: string): void {
+  const previous = contentLanguageStore.get();
   contentLanguageStore.set(language);
+  if (contentLanguageStore.get() !== previous) {
+    getVsCodeApi()?.postMessage({
+      type: 'snl.content-language/changed',
+      language: contentLanguageStore.get()
+    });
+  }
+}
+
+/**
+ * Temporarily project the live reader into one export locale/theme combination.
+ * This does not write Preferences or notify the host; the exporter restores the
+ * original pair after harvesting every deterministic standalone variant.
+ */
+export function set_transient_export_preferences(
+  language: string,
+  colorScheme: string
+): void {
+  documentRoot.dataset.snlColorScheme = colorScheme;
+  if (contentLanguageStore.get() !== language) {
+    contentLanguageStore.set(language);
+    return;
+  }
+  renderRevision += 1;
+  for (const subscriber of subscribers) subscriber();
 }
 
 function effective_motion(value: string): string {
@@ -248,12 +273,6 @@ if (typeof window !== 'undefined') {
   }
   const api = getVsCodeApi();
   if (api) {
-    contentLanguageStore.subscribe(() => {
-      api.postMessage({
-        type: 'snl.content-language/changed',
-        language: contentLanguageStore.get()
-      });
-    });
     installWorkspaceAssetBroker(api);
     api.postMessage({ type: 'snl.preferences/ready' });
   }

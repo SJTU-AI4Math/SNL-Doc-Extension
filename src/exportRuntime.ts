@@ -105,10 +105,12 @@ const RUNTIME_TEMPLATE = String.raw`
    * several levels at once.
    */
   function wirePopovers() {
+    if (globalThis.__snlExportPopoverCleanup) globalThis.__snlExportPopoverCleanup();
     var data = popoverData();
     if (!data) return;
 
     var stack = [];        // { el, depth, anchor }
+    var bindings = [];     // delegated listeners on persistent export surfaces
     var closeTimer = null;
     var openTimer = null;
     var pendingAnchor = null;
@@ -133,7 +135,11 @@ const RUNTIME_TEMPLATE = String.raw`
 
     function scheduleClose(depth) {
       if (closeTimer) clearTimeout(closeTimer);
-      closeTimer = setTimeout(function () { disposeFrom(depth); }, POPOVER_CLOSE_MS);
+      closeTimer = setTimeout(function () {
+        var closeDepth = depth;
+        while (closeDepth < stack.length && stack[closeDepth].pinned) closeDepth += 1;
+        disposeFrom(closeDepth);
+      }, POPOVER_CLOSE_MS);
     }
 
     function keepOpen() {
@@ -157,7 +163,7 @@ const RUNTIME_TEMPLATE = String.raw`
       el.style.top = top + 'px';
     }
 
-    function openPopover(entryId, depth, x, y, anchor) {
+    function openPopover(entryId, depth, x, y, anchor, pinned) {
       var html = Object.prototype.hasOwnProperty.call(data, entryId)
         ? data[entryId]
         : null;
@@ -168,6 +174,7 @@ const RUNTIME_TEMPLATE = String.raw`
       el.className = 'snl-export-popover';
       el.setAttribute('data-snl-popover', entryId);
       el.setAttribute('data-snl-popover-depth', String(depth));
+      if (pinned) el.setAttribute('data-snl-popover-pinned', 'true');
       el.style.opacity = '0';
       el.innerHTML = html;
       // EntrySurface cards carry inline width:100% with content-box sizing.
@@ -181,7 +188,7 @@ const RUNTIME_TEMPLATE = String.raw`
       wireCollapse(el);
       place(el, x, y);
 
-      var layer = { el: el, depth: depth, anchor: anchor };
+      var layer = { el: el, depth: depth, anchor: anchor, pinned: !!pinned };
       stack.push(layer);
 
       el.addEventListener('mouseenter', keepOpen);
@@ -207,7 +214,7 @@ const RUNTIME_TEMPLATE = String.raw`
         }
         return null;
       }
-      container.addEventListener('mouseover', function (event) {
+      function onMouseOver(event) {
         var node = referenceAncestor(event.target);
         if (!node) return;
         var entryId = node.getAttribute('data-src');
@@ -223,10 +230,10 @@ const RUNTIME_TEMPLATE = String.raw`
         openTimer = setTimeout(function () {
           openTimer = null;
           pendingAnchor = null;
-          openPopover(entryId, depth, x, y, node);
+          openPopover(entryId, depth, x, y, node, false);
         }, POPOVER_DELAY_MS);
-      });
-      container.addEventListener('mouseout', function (event) {
+      }
+      function onMouseOut(event) {
         // Delegating at the whole Entry/popover container must not turn that
         // whole region into the anchor's hitbox. Leaving a [data-src] for an
         // ordinary sibling is a real leave: cancel a not-yet-open timer and
@@ -239,11 +246,81 @@ const RUNTIME_TEMPLATE = String.raw`
         if (to && anchor.contains(to)) return;
         cancelOpen();
         scheduleClose(depth);
+      }
+      function onClick(event) {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+        var node = referenceAncestor(event.target);
+        if (!node) return;
+        var entryId = node.getAttribute('data-src');
+        if (!entryId || !Object.prototype.hasOwnProperty.call(data, entryId)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancelOpen();
+        keepOpen();
+        for (var i = 0; i < depth && i < stack.length; i++) {
+          stack[i].pinned = true;
+          stack[i].el.setAttribute('data-snl-popover-pinned', 'true');
+        }
+        openPopover(entryId, depth, event.clientX, event.clientY, node, true);
+      }
+      function onKeyDown(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        var node = referenceAncestor(event.target);
+        if (!node || node.getAttribute('data-snl-keyboard-activation') !== 'true') return;
+        event.preventDefault();
+        node.click();
+      }
+      container.addEventListener('mouseover', onMouseOver);
+      container.addEventListener('mouseout', onMouseOut);
+      container.addEventListener('click', onClick);
+      container.addEventListener('keydown', onKeyDown);
+      bindings.push({
+        container: container,
+        mouseover: onMouseOver,
+        mouseout: onMouseOut,
+        click: onClick,
+        keydown: onKeyDown
       });
     }
 
     var main = document.querySelector('.snl-export') || document.body;
     bind(main, 0);
+    function dismissPinned(event) {
+      var target = event.target;
+      if (target && target.closest) {
+        if (target.closest('.snl-export-popover')) return;
+        var reference = target.closest('[data-src]');
+        if (reference) {
+          var entryId = reference.getAttribute('data-src');
+          if (entryId && Object.prototype.hasOwnProperty.call(data, entryId)) return;
+        }
+      }
+      cancelOpen();
+      disposeFrom(0);
+    }
+    document.addEventListener('click', dismissPinned);
+    function dismissOnEscape(event) {
+      if (event.key !== 'Escape') return;
+      cancelOpen();
+      disposeFrom(0);
+    }
+    document.addEventListener('keydown', dismissOnEscape);
+    globalThis.__snlExportPopoverCleanup = function () {
+      document.removeEventListener('click', dismissPinned);
+      document.removeEventListener('keydown', dismissOnEscape);
+      for (var i = 0; i < bindings.length; i++) {
+        var binding = bindings[i];
+        binding.container.removeEventListener('mouseover', binding.mouseover);
+        binding.container.removeEventListener('mouseout', binding.mouseout);
+        binding.container.removeEventListener('click', binding.click);
+        binding.container.removeEventListener('keydown', binding.keydown);
+      }
+      bindings = [];
+      cancelOpen();
+      if (closeTimer) clearTimeout(closeTimer);
+      disposeFrom(0);
+      globalThis.__snlExportPopoverCleanup = null;
+    };
   }
 
   /**
@@ -475,6 +552,13 @@ const RUNTIME_TEMPLATE = String.raw`
     var main = document.querySelector('.snl-export');
     if (!main) return;
     var candidates = main.querySelectorAll('[data-snl-route-id], [data-entry-id]');
+    var routeBody = main.querySelector('[data-snl-export-body]');
+    var outlet = document.createElement('div');
+    outlet.setAttribute('data-snl-route-outlet', '');
+    outlet.className = 'snl-export-route-outlet';
+    outlet.hidden = true;
+    main.appendChild(outlet);
+    var moved = [];
     var surfaces = [];
     for (var i = 0; i < candidates.length; i++) {
       var surface = candidates[i];
@@ -489,9 +573,12 @@ const RUNTIME_TEMPLATE = String.raw`
         link.setAttribute('data-snl-route-link', '');
         link.className = 'snl-export-route-link';
         link.href = '#/node/' + encodeURIComponent(identity);
-        link.textContent = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0
+        var linkLabel = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0
           ? '此节点的永久链接'
           : 'Permalink to this node';
+        link.setAttribute('aria-label', linkLabel);
+        link.title = linkLabel;
+        link.innerHTML = '<svg aria-hidden="true" viewBox="0 0 20 20"><path d="M8.1 11.9a3 3 0 0 0 4.2 0l3-3a3 3 0 1 0-4.2-4.2L9.8 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11.9 8.1a3 3 0 0 0-4.2 0l-3 3a3 3 0 1 0 4.2 4.2l1.3-1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
         surface.appendChild(link);
       }
     }
@@ -526,7 +613,37 @@ const RUNTIME_TEMPLATE = String.raw`
       }
     }
 
+    function restoreMoved() {
+      while (moved.length) {
+        var placement = moved.pop();
+        if (placement.marker.parentNode) {
+          placement.marker.parentNode.insertBefore(placement.element, placement.marker.nextSibling);
+          placement.marker.parentNode.removeChild(placement.marker);
+        }
+      }
+      if (routeBody) routeBody.hidden = false;
+      outlet.hidden = true;
+    }
+
+    function showInOutlet(matches) {
+      if (!routeBody) {
+        for (var i = 0; i < matches.length; i++) expandAncestors(matches[i]);
+        return;
+      }
+      for (var i = 0; i < matches.length; i++) {
+        var target = matches[i];
+        if (!target.parentNode) continue;
+        var marker = document.createComment('snl-route-origin');
+        target.parentNode.insertBefore(marker, target);
+        moved.push({ element: target, marker: marker });
+        outlet.appendChild(target);
+      }
+      routeBody.hidden = true;
+      outlet.hidden = false;
+    }
+
     function applyRoute() {
+      restoreMoved();
       document.documentElement.removeAttribute('data-snl-entry-route');
       clearStatus();
       for (var i = 0; i < surfaces.length; i++) {
@@ -549,8 +666,8 @@ const RUNTIME_TEMPLATE = String.raw`
       for (var k = 0; k < matches.length; k++) {
         matches[k].setAttribute('data-snl-route-current', '');
         matches[k].setAttribute('aria-current', 'location');
-        expandAncestors(matches[k]);
       }
+      showInOutlet(matches);
       var target = matches[0];
       if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
       if (target.focus) target.focus({ preventScroll: true });
@@ -561,12 +678,171 @@ const RUNTIME_TEMPLATE = String.raw`
     window.addEventListener('hashchange', applyRoute);
     globalThis.__snlExportRouteCleanup = function () {
       window.removeEventListener('hashchange', applyRoute);
+      restoreMoved();
+      if (outlet.parentNode) outlet.parentNode.removeChild(outlet);
       globalThis.__snlExportRouteCleanup = null;
     };
     applyRoute();
   }
 
-  function init() { wireHighlighting(); wireCollapse(); wirePopovers(); wireRoutes(); }
+  function wireSurface() {
+    wireHighlighting();
+    wireCollapse();
+    wirePopovers();
+    wireRoutes();
+  }
+
+  /** Top-right language and theme controls for captured live-render variants. */
+  function wireVariantControls() {
+    var bundle = globalThis.__SNL_EXPORT_VARIANTS__;
+    if (!bundle || !Array.isArray(bundle.variants) || bundle.variants.length === 0) return false;
+    if (globalThis.__snlExportControlsCleanup) globalThis.__snlExportControlsCleanup();
+
+    var variants = bundle.variants.filter(function (variant) {
+      return variant && typeof variant.locale === 'string' &&
+        (variant.colorScheme === 'light' || variant.colorScheme === 'dark') &&
+        typeof variant.body === 'string';
+    });
+    if (!variants.length) return false;
+
+    var locales = [];
+    for (var i = 0; i < variants.length; i++) {
+      if (!locales.some(function (item) { return item.id === variants[i].locale; })) {
+        locales.push({ id: variants[i].locale, label: variants[i].languageLabel || variants[i].locale });
+      }
+    }
+    var currentLocale = bundle.initialLocale || variants[0].locale;
+    var currentScheme = bundle.initialColorScheme === 'dark' ? 'dark' : 'light';
+    var toolbar = document.createElement('div');
+    toolbar.className = 'snl-export-toolbar';
+    toolbar.setAttribute('data-snl-export-toolbar', '');
+    toolbar.setAttribute('role', 'toolbar');
+    var languageWrap = document.createElement('div');
+    languageWrap.className = 'snl-export-language';
+    var languageButton = document.createElement('button');
+    languageButton.type = 'button';
+    languageButton.className = 'snl-export-tool-button';
+    languageButton.setAttribute('data-snl-language-trigger', '');
+    languageButton.setAttribute('aria-haspopup', 'menu');
+    languageButton.setAttribute('aria-expanded', 'false');
+    var menu = document.createElement('div');
+    menu.className = 'snl-export-language-menu';
+    menu.setAttribute('role', 'menu');
+    menu.hidden = true;
+    var themeButton = document.createElement('button');
+    themeButton.type = 'button';
+    themeButton.className = 'snl-export-tool-button';
+    themeButton.setAttribute('data-snl-theme-toggle', '');
+    languageWrap.appendChild(languageButton);
+    languageWrap.appendChild(menu);
+    toolbar.appendChild(languageWrap);
+    toolbar.appendChild(themeButton);
+    document.body.appendChild(toolbar);
+
+    function isZh() { return currentLocale.toLowerCase().indexOf('zh') === 0; }
+    function languageIcon(locale) {
+      if (locale === 'zh-CN') return '<svg aria-hidden="true" viewBox="0 0 20 14"><rect width="20" height="14" rx="1" fill="#DE2910"/><polygon points="4,2 4.65,3.35 6.1,3.55 5.05,4.55 5.3,6 4,5.3 2.7,6 2.95,4.55 1.9,3.55 3.35,3.35" fill="#FFDE00"/></svg>';
+      if (locale === 'en') return '<svg aria-hidden="true" viewBox="0 0 20 14"><rect width="20" height="14" rx="1" fill="#fff"/><path stroke="#B22234" stroke-width="1.1" d="M0 1h20M0 3h20M0 5h20M0 7h20M0 9h20M0 11h20M0 13h20"/><rect width="9" height="7.5" fill="#3C3B6E"/></svg>';
+      return '<svg aria-hidden="true" viewBox="0 0 20 14"><circle cx="10" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.8 7h10.4M10 1.5c2.7 2.8 2.7 8.2 0 11M10 1.5c-2.7 2.8-2.7 8.2 0 11" fill="none" stroke="currentColor"/></svg>';
+    }
+    function themeIcon() {
+      return currentScheme === 'dark'
+        ? '<svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 3v2m0 10v2M3 10h2m10 0h2M5 5l1.4 1.4M13.6 13.6 15 15M15 5l-1.4 1.4M6.4 13.6 5 15" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>'
+        : '<svg aria-hidden="true" viewBox="0 0 20 20"><path d="M15.5 12.8A6 6 0 0 1 7.2 4.5 6 6 0 1 0 15.5 12.8Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+    }
+    function findVariant(locale, scheme) {
+      for (var i = 0; i < variants.length; i++) {
+        if (variants[i].locale === locale && variants[i].colorScheme === scheme) return variants[i];
+      }
+      return null;
+    }
+    function updateLabels() {
+      var language = locales.find(function (item) { return item.id === currentLocale; }) || { label: currentLocale };
+      languageButton.innerHTML = languageIcon(currentLocale);
+      languageButton.setAttribute('aria-label', (isZh() ? '语言：' : 'Language: ') + language.label);
+      themeButton.innerHTML = themeIcon();
+      themeButton.setAttribute('aria-label', currentScheme === 'dark'
+        ? (isZh() ? '切换到浅色模式' : 'Switch to light mode')
+        : (isZh() ? '切换到深色模式' : 'Switch to dark mode'));
+      for (var i = 0; i < menu.children.length; i++) {
+        var item = menu.children[i];
+        item.setAttribute('aria-checked', item.getAttribute('data-snl-language') === currentLocale ? 'true' : 'false');
+        var check = item.querySelector('[data-snl-language-check]');
+        if (check) check.textContent = item.getAttribute('data-snl-language') === currentLocale ? '✓' : '';
+      }
+    }
+    function applyVariant(locale, scheme) {
+      var variant = findVariant(locale, scheme) || findVariant(locale, currentScheme) ||
+        findVariant(currentLocale, scheme);
+      if (!variant) return;
+      if (globalThis.__snlExportRouteCleanup) globalThis.__snlExportRouteCleanup();
+      if (globalThis.__snlExportPopoverCleanup) globalThis.__snlExportPopoverCleanup();
+      currentLocale = variant.locale;
+      currentScheme = variant.colorScheme;
+      document.documentElement.lang = currentLocale;
+      document.documentElement.dataset.snlColorScheme = currentScheme;
+      document.title = variant.title || document.title;
+      var title = document.querySelector('[data-snl-export-title]');
+      if (title && typeof variant.title === 'string') title.textContent = variant.title;
+      var subtitle = document.querySelector('[data-snl-export-subtitle]');
+      if (subtitle) {
+        subtitle.textContent = variant.subtitle || '';
+        subtitle.hidden = !variant.subtitle;
+      }
+      var body = document.querySelector('[data-snl-export-body]');
+      if (body) body.innerHTML = variant.body;
+      globalThis.__SNL_POPOVERS__ = variant.popovers || {};
+      menu.hidden = true;
+      languageButton.setAttribute('aria-expanded', 'false');
+      updateLabels();
+      wireSurface();
+    }
+
+    for (var j = 0; j < locales.length; j++) {
+      (function (language) {
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'snl-export-language-item';
+        item.setAttribute('role', 'menuitemradio');
+        item.setAttribute('data-snl-language', language.id);
+        item.innerHTML = languageIcon(language.id) + '<span></span><span data-snl-language-check></span>';
+        item.children[1].textContent = language.label;
+        item.addEventListener('click', function (event) {
+          event.stopPropagation();
+          applyVariant(language.id, currentScheme);
+          languageButton.focus();
+        });
+        menu.appendChild(item);
+      })(locales[j]);
+    }
+    languageButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      menu.hidden = !menu.hidden;
+      languageButton.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+    });
+    themeButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      applyVariant(currentLocale, currentScheme === 'dark' ? 'light' : 'dark');
+    });
+    function closeMenu(event) {
+      if (!toolbar.contains(event.target)) {
+        menu.hidden = true;
+        languageButton.setAttribute('aria-expanded', 'false');
+      }
+    }
+    document.addEventListener('click', closeMenu);
+    globalThis.__snlExportControlsCleanup = function () {
+      document.removeEventListener('click', closeMenu);
+      if (toolbar.parentNode) toolbar.parentNode.removeChild(toolbar);
+      globalThis.__snlExportControlsCleanup = null;
+    };
+    applyVariant(currentLocale, currentScheme);
+    return true;
+  }
+
+  function init() {
+    if (!wireVariantControls()) wireSurface();
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -604,24 +880,112 @@ export const EXPORT_RUNTIME_CSS = `
   display: flex; justify-content: flex-end; align-items: center;
   gap: .35rem; margin: 0 0 .4rem;
 }
+.snl-export-route-outlet { width: 100%; margin: 0; }
+.snl-export-route-outlet > [data-snl-route-surface] {
+  width: 100%;
+  margin: 0 !important;
+}
+.snl-export-route-outlet > [data-snl-route-surface] > .snl-collapse-toggle {
+  display: none !important;
+}
 html[data-snl-entry-route] .snl-export [data-snl-route-surface]:not([data-snl-route-current]) {
   display: none !important;
 }
 .snl-export-route-link {
-  display: block;
-  width: fit-content;
-  margin: .35rem .35rem .25rem auto;
-  font-size: .75rem;
-  opacity: .58;
+  position: absolute;
+  z-index: 2;
+  top: .35rem;
+  right: .45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  color: inherit;
+  opacity: .48;
 }
+.snl-export-route-link svg { width: 17px; height: 17px; }
+[data-snl-route-surface] .snl-entry-header { padding-right: 2.75rem !important; }
 .snl-export-route-link:hover,
-.snl-export-route-link:focus-visible { opacity: 1; }
+.snl-export-route-link:focus-visible {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.15));
+}
 .snl-export-route-status {
   padding: .65rem .8rem;
   border: 1px solid #b91c1c;
   color: #991b1b;
   background: #fef2f2;
 }
+.snl-export-toolbar {
+  position: fixed;
+  z-index: 2147483000;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--snl-export-foreground, inherit);
+}
+.snl-export-language { position: relative; display: flex; }
+.snl-export-tool-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  min-height: 28px;
+  padding: .3rem .28rem;
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.28));
+  border-radius: 2px;
+  color: var(--vscode-input-foreground, inherit);
+  background: var(--vscode-input-background, var(--snl-export-background, #fff));
+  cursor: pointer;
+}
+.snl-export-tool-button:hover,
+.snl-export-tool-button[aria-expanded="true"] {
+  background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.15));
+}
+.snl-export-tool-button:focus-visible,
+.snl-export-language-item:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #0969da);
+  outline-offset: 1px;
+}
+.snl-export-tool-button svg { width: 20px; height: 18px; }
+.snl-export-language-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  min-width: min(17rem, calc(100vw - 1rem));
+  max-width: calc(100vw - 1rem);
+  padding: 4px;
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.28));
+  border-radius: 4px;
+  color: var(--vscode-menu-foreground, var(--snl-export-foreground, inherit));
+  background: var(--vscode-menu-background, var(--snl-export-background, #fff));
+  box-shadow: 0 4px 14px rgba(0,0,0,.24);
+}
+.snl-export-language-item {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 22px 1fr 18px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.snl-export-language-item:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.15));
+}
+.snl-export-language-item svg { width: 20px; height: 14px; }
+[data-snl-language-check] { text-align: center; }
 
 /* Collapse MUST beat the inline style on the row it hides.
  *
@@ -649,8 +1013,8 @@ html[data-snl-entry-route] .snl-export [data-snl-route-surface]:not([data-snl-ro
   box-sizing: border-box;
   max-width: min(720px, calc(100vw - 16px));
   width: max-content;
-  background: #ffffff;
-  color: #111111;
+  background: var(--snl-export-background, #ffffff);
+  color: var(--snl-export-foreground, #111111);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   overflow-x: hidden;
   overflow-y: auto;

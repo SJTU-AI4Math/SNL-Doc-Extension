@@ -37,8 +37,39 @@ export interface HarvestResult {
 const STRIPPED_SELECTORS = [
   '[data-export-strip]',
   'button',
-  '[role="button"]'
+  '[role="button"]:not([data-snl-keyboard-activation="true"])'
 ].join(',');
+
+/** Project source metadata that lives in the live Basics interaction context. */
+export function projectMacroEntrySources(root: HTMLElement, macros?: MacroRecord): void {
+  if (!macros) return;
+  for (const node of Array.from(root.querySelectorAll<HTMLElement>('[data-name]'))) {
+    if (node.hasAttribute('data-src')) continue;
+    const name = node.getAttribute('data-name') ?? '';
+    const source = Object.hasOwn(macros, name)
+      ? macros[name]?.source?.entries?.[0]
+      : undefined;
+    if (typeof source === 'string' && source) node.setAttribute('data-src', source);
+  }
+}
+
+/** Remove host controls without deleting Basics 0.3 semantic content nodes. */
+export function stripExportControls(root: HTMLElement): void {
+  for (const node of Array.from(root.querySelectorAll(STRIPPED_SELECTORS))) {
+    node.remove();
+  }
+  // A retained Basics node is only an exported button when it has an Entry
+  // target. Keep its visible math either way, but do not advertise a dead
+  // keyboard control when no static interaction can be wired.
+  for (const node of Array.from(
+    root.querySelectorAll<HTMLElement>('[data-snl-keyboard-activation="true"]')
+  )) {
+    if (node.hasAttribute('data-src')) continue;
+    node.removeAttribute('role');
+    node.removeAttribute('tabindex');
+    node.removeAttribute('data-snl-keyboard-activation');
+  }
+}
 
 /**
  * Normalise the collapse structure so the exported runtime can rebuild it.
@@ -173,22 +204,11 @@ export function harvestLibraryHtml(
   // as `Set` otherwise lose the Entry popover that works in the panel, whereas
   // bvars happen to keep working because context resolution already painted
   // data-src onto them.
-  if (macros) {
-    for (const node of Array.from(clone.querySelectorAll<HTMLElement>('[data-name]'))) {
-      if (node.hasAttribute('data-src')) continue;
-      const name = node.getAttribute('data-name') ?? '';
-      const source = Object.hasOwn(macros, name)
-        ? macros[name]?.source?.entries?.[0]
-        : undefined;
-      if (typeof source === 'string' && source) node.setAttribute('data-src', source);
-    }
-  }
+  projectMacroEntrySources(clone, macros);
 
   markCollapsibleRows(clone);
 
-  for (const node of Array.from(clone.querySelectorAll(STRIPPED_SELECTORS))) {
-    node.remove();
-  }
+  stripExportControls(clone);
 
   const base = assetBaseUri.replace(/\/$/, '');
   const assets = new Map<string, ExportedAsset>();

@@ -31,7 +31,13 @@ import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import type { MacroRecord } from './render/macroData';
 import { wireMacroEntriesToRenderable, type WireMacro } from './render/macroWire';
-import { use_content_language } from './runtime/preferencesRuntime';
+import {
+  get_content_language,
+  get_kind_color_scheme,
+  get_supported_languages,
+  set_transient_export_preferences,
+  use_content_language
+} from './runtime/preferencesRuntime';
 import {
   macroKindsToPalette,
   type MacroKindPaletteSource
@@ -135,7 +141,6 @@ type View =
     };
 
 export function App(): React.ReactElement {
-  const t = useUiMessages(MESSAGES);
   const contentLanguage = use_content_language();
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [wireUserMacros, setWireUserMacros] = useState<Record<string, WireMacro> | undefined>(undefined);
@@ -216,6 +221,7 @@ export function App(): React.ReactElement {
   };
 
   const exportGenerationRef = useRef(0);
+  const exportInFlightRef = useRef(false);
 
   /**
    * Export the Library the reader is currently looking at.
@@ -232,11 +238,81 @@ export function App(): React.ReactElement {
    * silently dropped from the export.
    */
   const exportHtml = async (slug: string, title: string, entryCount: number): Promise<void> => {
-    const generation = ++exportGenerationRef.current;
     const root = outlineRef.current;
-    if (!root) return;
+    if (!root || exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    const generation = ++exportGenerationRef.current;
+    const originalLocale = get_content_language();
+    const originalDocumentScheme = document.documentElement.dataset.snlColorScheme || 'light';
+    const originalScheme = get_kind_color_scheme();
+    const catalog = get_supported_languages();
+    const languages = catalog.some((language) => language.id === originalLocale)
+      ? catalog
+      : [{ id: originalLocale, display_name: originalLocale }, ...catalog];
+    const variants: import('../../src/exportPopoverPayload').ExportDocumentVariant[] = [];
+    const mergedAssets = new Map<string, { path: string; sourceUrl: string }>();
+
+    const localSubtitle = (locale: string): string => locale.toLowerCase().startsWith('zh')
+      ? `${entryCount} 个条目 · ${slug}`
+      : `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} · ${slug}`;
+
+    const harvestPopovers = async (
+      body: string,
+      localizedMacros: MacroRecord | undefined
+    ): Promise<Record<string, string>> => {
+      try {
+        const closure = await prerenderPopovers(body, {
+          loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool, entryPackages }),
+          entries: entryPool,
+          userMacros: localizedMacros,
+          kindPalette,
+          markdownImageUrlTransform: assetBaseUri
+            ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
+            : undefined,
+          isCancelled: () => generation !== exportGenerationRef.current,
+          maxEntries: 1000
+        });
+        const popovers = Object.create(null) as Record<string, string>;
+        for (const [entryId, fragment] of Object.entries(closure.fragments)) {
+          const holder = document.createElement('div');
+          holder.innerHTML = fragment;
+          const harvested = harvestLibraryHtml(holder, assetBaseUri, localizedMacros);
+          popovers[entryId] = harvested.html;
+          for (const asset of harvested.assets) {
+            if (!mergedAssets.has(asset.path)) mergedAssets.set(asset.path, asset);
+          }
+        }
+        return popovers;
+      } catch {
+        return {};
+      }
+    };
+
     try {
-      await waitForExportSurfaces(root);
+      for (const language of languages) {
+        for (const colorScheme of ['light', 'dark'] as const) {
+          if (generation !== exportGenerationRef.current) return;
+          set_transient_export_preferences(language.id, colorScheme);
+          await waitForExportSurfaces(root);
+          if (generation !== exportGenerationRef.current) return;
+          const localizedMacros = wireUserMacros
+            ? wireMacroEntriesToRenderable(Object.entries(wireUserMacros), language.id)
+            : undefined;
+          const harvested = harvestLibraryHtml(root, assetBaseUri, localizedMacros);
+          for (const asset of harvested.assets) {
+            if (!mergedAssets.has(asset.path)) mergedAssets.set(asset.path, asset);
+          }
+          variants.push({
+            locale: language.id,
+            languageLabel: language.display_name,
+            colorScheme,
+            title,
+            subtitle: localSubtitle(language.id),
+            body: harvested.html,
+            popovers: await harvestPopovers(harvested.html, localizedMacros)
+          });
+        }
+      }
     } catch (error) {
       if (generation === exportGenerationRef.current) {
         postMessage({
@@ -245,66 +321,32 @@ export function App(): React.ReactElement {
         });
       }
       return;
+    } finally {
+      set_transient_export_preferences(originalLocale, originalDocumentScheme);
+      try { await waitForExportSurfaces(root); } catch { /* restoration is best effort */ }
+      exportInFlightRef.current = false;
     }
-    if (generation !== exportGenerationRef.current) return;
-    const { html, assets } = harvestLibraryHtml(root, assetBaseUri, userMacros);
-    const send = (
-      popovers: Record<string, string>,
-      extraAssets: typeof assets
-    ): void => {
-      // A later click or navigation owns the export panel now. The old async
-      // closure may finish, but it must not overwrite the newer payload.
-      if (generation !== exportGenerationRef.current) return;
-      const merged = new Map(assets.map((a) => [a.path, a] as const));
-      for (const asset of extraAssets) if (!merged.has(asset.path)) merged.set(asset.path, asset);
-      postMessage({
-        type: 'exportLibraryHtml',
-        locale: document.documentElement.lang || 'en',
-        slug,
-        title,
-        subtitle: `${t('entries', { count: entryCount })} · ${slug}`,
-        body: html,
-        assets: [...merged.values()],
-        popovers
-      });
-    };
 
-    // Popovers are pre-rendered HERE rather than shipped as a renderer,
-    // because an Entry body needs React + KaTeX and the webview already has
-    // both loaded (see export/popoverPrerender.tsx). This is asynchronous —
-    // each Entry must settle — so the export message is sent afterwards. A
-    // failure degrades to a popover-less document instead of aborting.
-    void prerenderPopovers(html, {
-      loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool, entryPackages }),
-      entries: entryPool,
-      userMacros,
-      kindPalette,
-      markdownImageUrlTransform: assetBaseUri
-        ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
-        : undefined,
-      isCancelled: () => generation !== exportGenerationRef.current,
-      // A corrupt or machine-generated graph must not make Export disappear
-      // for hours. This cap is deliberately high enough for real documents;
-      // the closure remains transitive within it.
-      maxEntries: 1000
-    }).then(
-      (closure) => {
-        // Fragments can embed workspace images too. Reuse the harvest so
-        // their srcs are rewritten and their assets collected exactly like
-        // the body's, rather than a second near-copy of that logic.
-        const popovers = Object.create(null) as Record<string, string>;
-        const extra: typeof assets = [];
-        for (const [entryId, fragment] of Object.entries(closure.fragments)) {
-          const holder = document.createElement('div');
-          holder.innerHTML = fragment;
-          const harvested = harvestLibraryHtml(holder, assetBaseUri, userMacros);
-          popovers[entryId] = harvested.html;
-          extra.push(...harvested.assets);
-        }
-        send(popovers, extra);
-      },
-      () => send({}, [])
-    );
+    if (generation !== exportGenerationRef.current) return;
+    const initial = variants.find((variant) =>
+      variant.locale === originalLocale && variant.colorScheme === originalScheme
+    ) ?? variants[0];
+    if (!initial) return;
+    postMessage({
+      type: 'exportLibraryHtml',
+      locale: initial.locale,
+      slug,
+      title: initial.title,
+      subtitle: initial.subtitle,
+      body: initial.body,
+      assets: [...mergedAssets.values()],
+      popovers: initial.popovers,
+      variants: {
+        initialLocale: initial.locale,
+        initialColorScheme: initial.colorScheme,
+        variants
+      }
+    });
   };
   const markdownImageUrlTransform = React.useMemo(
     () => assetBaseUri

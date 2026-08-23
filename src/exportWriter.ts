@@ -8,7 +8,8 @@ import {
 } from './exportDocument';
 import { EXPORT_WATERMARK_LOGO_PATH } from './exportHtmlDocument';
 import {
-  buildPopoverScript,
+  buildExportPayloadScript,
+  type ExportDocumentVariants,
   POPOVER_SCRIPT_PATH
 } from './exportPopoverPayload';
 import {
@@ -32,6 +33,8 @@ export interface ExportRequest {
    * (merely poorer) export rather than an error.
    */
   popovers?: Record<string, string>;
+  /** Alternate locale/theme renderings captured from the live reader. */
+  variants?: ExportDocumentVariants;
 }
 
 const WEBVIEW_CSS = 'main.css';
@@ -123,6 +126,7 @@ export interface ExportDeps {
   buildDocument: (input: {
     title: string;
     subtitle?: string;
+    colorScheme?: 'light' | 'dark';
     css: string;
     body: string;
     scriptSources: string[];
@@ -174,13 +178,17 @@ export async function writeExport(
   // single-file shape. Never a fetch() — under file:// that is a blocked
   // cross-origin request.
   const texts: TextAsset[] =
-    request.popovers && Object.keys(request.popovers).length > 0
-      ? [{ path: POPOVER_SCRIPT_PATH, source: buildPopoverScript(request.popovers) }]
+    (request.popovers && Object.keys(request.popovers).length > 0) || request.variants
+      ? [{
+          path: POPOVER_SCRIPT_PATH,
+          source: buildExportPayloadScript(request.popovers ?? {}, request.variants)
+        }]
       : [];
 
   const html = deps.buildDocument({
     title: request.title,
     subtitle: request.subtitle,
+    colorScheme: request.variants?.initialColorScheme,
     css,
     body: request.body,
     scriptSources: texts.map((t) => t.path)

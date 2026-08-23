@@ -43,4 +43,41 @@ describe('popover pre-render macro settling', () => {
     expect(html).toContain('}{T} : \\htmlData');
     expect(html).not.toContain('Type.judge(\\htmlData');
   });
+
+  it('keeps source-backed Basics semantic nodes so recursive Entry references are discovered', async () => {
+    const refMacro: SnlMacro = {
+      name: 'Ref', description: 'Entry reference',
+      source: { entries: ['grandchild'], urls: [] },
+      kind: 'const', dynamic_arity: false, tags: [],
+      styles: [{ style_name: 'default', tags: [], template: { mode: 'formula_inline', body: '#0' } }]
+    };
+    const result = await prerenderPopovers('<span data-src="child">child</span>', {
+      loadDetail: async (entryId) => entryId === 'child'
+        ? {
+            entry: {
+              id: 'child', kind: 'definition', title: 'Child',
+              content: { snl: 'Ref(x)' }, contribution_info: null, pointer: null
+            },
+            kind: null
+          }
+        : {
+            entry: {
+              id: 'grandchild', kind: 'definition', title: 'Grandchild',
+              content: { text: 'Grandchild body' }, contribution_info: null, pointer: null
+            },
+            kind: null
+          },
+      entries: [
+        { id: 'child', title: 'Child', hasContent: true, snl: 'Ref(x)' },
+        { id: 'grandchild', title: 'Grandchild', hasContent: true }
+      ],
+      userMacros: { Ref: refMacro },
+      timeoutMs: 1500
+    });
+
+    expect(Object.keys(result.fragments)).toEqual(['child', 'grandchild']);
+    expect(result.fragments.child).toContain('data-src="grandchild"');
+    expect(result.fragments.child).toContain('data-snl-keyboard-activation="true"');
+    expect(result.fragments.grandchild).toContain('Grandchild body');
+  });
 });

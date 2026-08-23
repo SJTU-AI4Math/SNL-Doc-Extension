@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
-import { render, cleanup } from '@testing-library/react';
+import { render, cleanup, waitFor } from '@testing-library/react';
 import { harvestLibraryHtml, hasPendingExportSurface, waitForExportSurfaces } from './htmlExport';
 import { EntrySurface } from '../render/EntrySurface';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
@@ -119,6 +119,17 @@ describe('harvestLibraryHtml', () => {
     expect(html).toContain('keep');
   });
 
+  it('keeps Basics keyboard-activation content without assuming data-name or data-kind', () => {
+    const { html } = harvestLibraryHtml(
+      el('<span role="button" tabindex="0" data-snl-keyboard-activation="true" data-tree-path="0">visible math</span>'),
+      BASE
+    );
+    expect(html).toContain('visible math');
+    expect(html).toContain('data-tree-path="0"');
+    expect(html).not.toContain('role="button"');
+    expect(html).not.toContain('data-snl-keyboard-activation');
+  });
+
   it('does not mutate the live DOM it harvests from', () => {
     const source = el(`<img src="${BASE}/a.png"><button>Edit</button>`);
     harvestLibraryHtml(source, BASE);
@@ -225,6 +236,38 @@ describe('end-to-end: a real rendered Entry survives export', () => {
       )
     );
   }
+
+  it('retains a real Basics source-backed semantic button and projects its Entry source', async () => {
+    const refMacro = {
+      name: 'Ref',
+      description: 'Entry reference',
+      source: { entries: ['target-entry'], urls: [] },
+      kind: 'const',
+      dynamic_arity: false,
+      tags: [],
+      styles: [{
+        style_name: 'default', tags: [],
+        template: { mode: 'formula_inline', body: '#0' }
+      }]
+    };
+    const { container } = renderEntry({
+      id: 'source-entry', kind: 'definition', title: 'Source',
+      content: { snl: 'Ref(x)' }, contribution_info: null, pointer: null
+    }, { userMacros: { Ref: refMacro } });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-name="Ref"]')).not.toBeNull();
+    });
+    const live = container.querySelector<HTMLElement>('[data-name="Ref"]');
+    expect(live?.getAttribute('role')).toBe('button');
+    expect(live?.getAttribute('data-snl-keyboard-activation')).toBe('true');
+
+    const { html } = harvestLibraryHtml(container, BASE, { Ref: refMacro } as never);
+    const exported = el(html).querySelector<HTMLElement>('[data-name="Ref"]');
+    expect(exported?.getAttribute('data-src')).toBe('target-entry');
+    expect(exported?.getAttribute('role')).toBe('button');
+    expect(exported?.textContent).not.toBe('');
+  });
 
   it('carries a Markdown image Entry through to a portable document', () => {
     const { container } = renderEntry(

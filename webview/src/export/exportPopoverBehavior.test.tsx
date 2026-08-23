@@ -21,7 +21,7 @@ const BODY = `
 <main class="snl-export">
   <section data-entry-id="root">
     <div data-entry-body="snl">
-      <span id="ref-a" data-src="entry-a">A</span>
+      <span id="ref-a" data-src="entry-a" role="button" tabindex="0" data-snl-keyboard-activation="true">A</span>
       <span id="ref-missing" data-src="entry-absent">?</span>
     </div>
   </section>
@@ -64,6 +64,14 @@ function mouseout(el: Element, related: Element | null = null): void {
   Object.defineProperty(event, 'relatedTarget', { value: related });
   el.dispatchEvent(event);
 }
+function click(el: Element, x = 40, y = 40): void {
+  el.dispatchEvent(new MouseEvent('click', {
+    bubbles: true,
+    button: 0,
+    clientX: x,
+    clientY: y
+  }));
+}
 
 const panels = (): HTMLElement[] =>
   Array.from(document.querySelectorAll<HTMLElement>('.snl-export-popover'));
@@ -86,6 +94,40 @@ describe('exported document popovers, executed', () => {
     expect(panels()).toHaveLength(1);
     expect(panels()[0].querySelector('#a-body')?.textContent).toBe('body of A');
     expect(panels()[0].getAttribute('data-snl-popover')).toBe('entry-a');
+  });
+
+  it('pins immediately on primary click and dismisses the pinned stack on outside click', () => {
+    boot(POPOVERS);
+    const anchor = byId('ref-a');
+    click(anchor);
+    expect(panels()).toHaveLength(1);
+    expect(panels()[0].getAttribute('data-snl-popover-pinned')).toBe('true');
+
+    mouseout(anchor, byId('ref-missing'));
+    vi.advanceTimersByTime(2000);
+    expect(panels()).toHaveLength(1);
+
+    click(byId('ref-missing'));
+    vi.runOnlyPendingTimers();
+    expect(panels()).toHaveLength(0);
+
+    click(anchor);
+    expect(panels()).toHaveLength(1);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    vi.runOnlyPendingTimers();
+    expect(panels()).toHaveLength(0);
+  });
+
+  it('pins a retained Basics semantic reference with Enter and Space', () => {
+    boot(POPOVERS);
+    const anchor = byId('ref-a');
+    anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(panels()).toHaveLength(1);
+    expect(panels()[0].getAttribute('data-snl-popover-pinned')).toBe('true');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    vi.runOnlyPendingTimers();
+    anchor.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(panels()).toHaveLength(1);
   });
 
   it('opens nothing for a reference the payload does not carry', () => {

@@ -36,7 +36,11 @@ import { EntrySurface, type EntryOption } from '../render/EntrySurface';
 import type { MacroRecord } from '../render/macroData';
 import { buildPopoverClosure, type ClosureResult } from './popoverClosure';
 import type { EntryDetail } from './entryDetailBridge';
-import { hasPendingExportSurface } from './htmlExport';
+import {
+  hasPendingExportSurface,
+  projectMacroEntrySources,
+  stripExportControls
+} from './htmlExport';
 import { resolve_localized_string } from '../../../src/localizedContent';
 import { get_content_language } from '../runtime/preferencesRuntime';
 
@@ -108,13 +112,10 @@ function isSettled(host: HTMLElement, sinceStubGone: number | null): boolean {
 }
 
 /** Strip what makes no sense inside a static popover, mirroring the harvest. */
-function harvestFragment(host: HTMLElement): string {
+function harvestFragment(host: HTMLElement, macros?: MacroRecord): string {
   const clone = host.cloneNode(true) as HTMLElement;
-  for (const node of Array.from(
-    clone.querySelectorAll('button,[role="button"],[data-export-strip]')
-  )) {
-    node.remove();
-  }
+  projectMacroEntrySources(clone, macros);
+  stripExportControls(clone);
   return clone.innerHTML;
 }
 
@@ -215,7 +216,7 @@ export async function prerenderPopovers(
         }
 
         const html = settled
-          ? harvestFragment(host)
+          ? harvestFragment(host, deps.userMacros)
           : fallbackFragment(
               entryId,
               resolve_localized_string(detail.entry.title, get_content_language())

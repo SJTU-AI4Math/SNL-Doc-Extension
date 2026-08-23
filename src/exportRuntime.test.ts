@@ -42,11 +42,11 @@ describe('EXPORT_RUNTIME_WIRING_JS', () => {
     expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('pushState(');
   });
 
-  it('stays small enough to inline without thought', () => {
-    // Raised from 8000 when hover popovers landed (2026-07-30). The cap exists
-    // to catch a renderer accidentally being dragged in — React alone is 100x
-    // this — not to police a few hundred bytes of new wiring.
-    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(22000);
+  it('stays bounded without bundling a renderer', () => {
+    // Includes collapse, recursive pin-capable popovers, hash-route extraction,
+    // and locale/theme variant controls. The cap still catches accidentally
+    // dragging React or the Entry renderer into this dependency-free runtime.
+    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(36000);
   });
 });
 

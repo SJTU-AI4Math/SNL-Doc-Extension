@@ -19,16 +19,16 @@ const MESSAGES = defineUiMessages('exportOptions', {
   loading: 'Loading export context…', entries: { arg: 'count', one: '{count} entry', other: '{count} entries' },
   images: { arg: 'count', one: '{count} image', other: '{count} images' }, outputShape: 'Output shape',
   destination: 'Destination', browse: 'Browse…', options: 'Options', export: 'Export',
-  reveal: 'Reveal in file manager', interactive: 'Keep interaction (hover highlight, collapse)',
-  interactiveHint: 'Inlines a small script that restores SNL hover highlighting and outline collapse. Uncheck for a document with no JavaScript at all.',
+  reveal: 'Reveal in file manager', interactive: 'Keep interaction (hover, popovers, routes, language, theme)',
+  interactiveHint: 'Adds the standalone runtime for SNL highlighting, click-pinned Entry previews, outline collapse, node routes, and the top-right language/theme controls. Uncheck for a document with no JavaScript at all.',
   folder: 'Folder', folderDescription: 'index.html plus assets/ and fonts/. Smaller; good for hosting.',
   single: 'Single file', singleDescription: 'One .html with images and fonts inlined. Good for sending to someone.'
 }, {
   title: '导出 HTML', infoview: '← 信息视图', backTitle: '返回文档库信息视图', loading: '正在加载导出上下文……',
   entries: '{count} 个条目', images: '{count} 张图片', outputShape: '输出形态', destination: '导出位置',
   browse: '浏览……', options: '选项', export: '导出', reveal: '在文件管理器中显示',
-  interactive: '保留交互（悬停高亮、折叠）',
-  interactiveHint: '内联一小段脚本，恢复 SNL 悬停高亮与大纲折叠。取消勾选则导出完全不含 JavaScript 的文档。',
+  interactive: '保留交互（悬停、Entry 预览、路由、语言、主题）',
+  interactiveHint: '加入独立运行时，恢复 SNL 高亮、点击固定的 Entry 预览、大纲折叠、节点路由，以及右上角语言和明暗模式按钮。取消勾选则导出完全不含 JavaScript 的文档。',
   folder: '文件夹', folderDescription: 'index.html 加 assets/ 和 fonts/。体积更小，适合托管。',
   single: '单个文件', singleDescription: '一个内联图片和字体的 .html 文件，适合发送给他人。'
 });

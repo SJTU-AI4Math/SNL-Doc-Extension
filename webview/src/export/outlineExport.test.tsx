@@ -129,6 +129,22 @@ describe('Library outline survives export with working collapse', () => {
     expect(D.defaultView!.getComputedStyle(routes[1]).display).not.toBe('none');
   });
 
+  it('extracts a nested graph occurrence into a flat single-node route view', async () => {
+    const D = await exportAndRun(
+      [branch('parent', [branch('middle', [leaf('child')])])],
+      '#/node/child'
+    );
+    const body = D.querySelector<HTMLElement>('[data-snl-export-body]')!;
+    const outlet = D.querySelector<HTMLElement>('[data-snl-route-outlet]')!;
+    const child = outlet.querySelector<HTMLElement>('[data-snl-route-id="child"]');
+    expect(body.hidden).toBe(true);
+    expect(outlet.hidden).toBe(false);
+    expect(child).not.toBeNull();
+    expect(outlet.querySelector('[data-snl-route-id="parent"]')).toBeNull();
+    expect(outlet.querySelector('[data-snl-route-id="middle"]')).toBeNull();
+    expect(child?.parentElement).toBe(outlet);
+  });
+
   it('rebuilds a working toggle for every parent row in the exported file', async () => {
     const D = await exportAndRun([
       branch('sec', [branch('sub', [leaf('leaf1'), leaf('leaf2')]), leaf('other')])

@@ -11,6 +11,9 @@
 /** Global the exported runtime reads its popover fragments from. */
 export const POPOVER_GLOBAL = '__SNL_POPOVERS__';
 
+/** Global carrying every locale/theme rendering for an interactive export. */
+export const VARIANTS_GLOBAL = '__SNL_EXPORT_VARIANTS__';
+
 /** Filename used by the directory shape. */
 export const POPOVER_SCRIPT_PATH = 'popovers.js';
 
@@ -30,15 +33,45 @@ export const POPOVER_SCRIPT_PATH = 'popovers.js';
  * Escaping every `<` and `>` covers the first two without having to reason
  * about which spellings a parser accepts.
  */
-export function encodePopoverJson(fragments: Record<string, string>): string {
-  return JSON.stringify(fragments)
+function encodeScriptJson(value: unknown): string {
+  return JSON.stringify(value)
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
 }
 
+export function encodePopoverJson(fragments: Record<string, string>): string {
+  return encodeScriptJson(fragments);
+}
+
+export interface ExportDocumentVariant {
+  locale: string;
+  languageLabel: string;
+  colorScheme: 'light' | 'dark';
+  title: string;
+  subtitle?: string;
+  body: string;
+  popovers: Record<string, string>;
+}
+
+/** All renderings captured from the live Extension surface. */
+export interface ExportDocumentVariants {
+  initialLocale: string;
+  initialColorScheme: 'light' | 'dark';
+  variants: ExportDocumentVariant[];
+}
+
 /** The complete script source assigning the payload to its global. */
 export function buildPopoverScript(fragments: Record<string, string>): string {
   return `window.${POPOVER_GLOBAL} = ${encodePopoverJson(fragments)};\n`;
+}
+
+/** One file-safe sidecar initializes both default popovers and render variants. */
+export function buildExportPayloadScript(
+  fragments: Record<string, string>,
+  variants?: ExportDocumentVariants
+): string {
+  return `window.${POPOVER_GLOBAL} = ${encodeScriptJson(fragments)};\n` +
+    `window.${VARIANTS_GLOBAL} = ${variants ? encodeScriptJson(variants) : 'null'};\n`;
 }

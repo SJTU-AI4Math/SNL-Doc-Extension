@@ -95,6 +95,8 @@ describe('reader panel Chinese UI', () => {
     });
     expect(view.getByRole('heading', { name: '上下文 · 传出' })).toBeTruthy();
     expect(view.getByRole('heading', { name: '依赖项 · 传出' })).toBeTruthy();
+    fireEvent.click(view.getByRole('button', { name: '上下文 · 传出' }));
+    fireEvent.click(view.getByRole('button', { name: '依赖项 · 传出' }));
     expect(view.getByText('（无标题）')).toBeTruthy();
     expect(view.getByText('原子').getAttribute('title')).toBe('原子依赖项——条目池中不存在更短的组合路径。');
     const editEntry = view.getByRole('button', { name: '在“编辑条目”面板中打开此条目' });

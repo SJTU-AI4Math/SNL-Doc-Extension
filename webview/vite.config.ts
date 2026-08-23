@@ -50,6 +50,10 @@ export default defineConfig({
   },
   build: {
     outDir: resolve(__dirname, '../media/webview'),
+    // Keep even tiny font subsets as files. The export pipeline rewrites and
+    // copies font URLs; Vite's default base64 inlining would strand Noto data
+    // URLs in every captured locale/theme variant.
+    assetsInlineLimit: 0,
     // Only the first pass clears the dir; subsequent passes append.
     emptyOutDir: entry.name === 'main',
     // Emit a single self-contained file per entry (no shared/vendor chunk),

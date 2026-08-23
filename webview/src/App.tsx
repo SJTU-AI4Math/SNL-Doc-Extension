@@ -45,8 +45,9 @@ import {
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { harvestLibraryHtml, waitForExportSurfaces } from './export/htmlExport';
-import { createEntryDetailLoader } from './export/entryDetailBridge';
 import { prerenderPopovers } from './export/popoverPrerender';
+import type { RelationshipData } from '../../src/snlDoc';
+import { resolve_localized_string } from '../../src/localizedContent';
 import {
   COLLAPSE_GLYPH,
   COLLAPSE_TOGGLE_STYLE
@@ -117,6 +118,9 @@ type Incoming =
       title: string;
       description?: string;
       entries: EntryOption[];
+      entryRecords?: EntryData[];
+      entryKinds?: EntryKind[];
+      relationships?: RelationshipData[];
       entryPackages?: Record<string, string>;
       outline: OutlineNode[];
       macros?: Record<string, WireMacro>;
@@ -146,6 +150,9 @@ export function App(): React.ReactElement {
   const [wireUserMacros, setWireUserMacros] = useState<Record<string, WireMacro> | undefined>(undefined);
   const [kindPalette, setKindPalette] = useState<KindPalette | undefined>(undefined);
   const [entryPool, setEntryPool] = useState<EntryOption[]>([]);
+  const [entryRecords, setEntryRecords] = useState<EntryData[]>([]);
+  const [entryKinds, setEntryKinds] = useState<EntryKind[]>([]);
+  const [relationships, setRelationships] = useState<RelationshipData[]>([]);
   const [entryPackages, setEntryPackages] = useState<Record<string, string>>({});
   const [assetBaseUri, setAssetBaseUri] = useState('');
   const apiRef = useVsCodeApiRef();
@@ -185,6 +192,9 @@ export function App(): React.ReactElement {
           if (Array.isArray(msg.entries)) {
             setEntryPool(msg.entries);
           }
+          setEntryRecords(Array.isArray(msg.entryRecords) ? msg.entryRecords : []);
+          setEntryKinds(Array.isArray(msg.entryKinds) ? msg.entryKinds : []);
+          setRelationships(Array.isArray(msg.relationships) ? msg.relationships : []);
           setEntryPackages(msg.entryPackages && typeof msg.entryPackages === 'object'
             ? msg.entryPackages
             : {});
@@ -251,6 +261,8 @@ export function App(): React.ReactElement {
       : [{ id: originalLocale, display_name: originalLocale }, ...catalog];
     const variants: import('../../src/exportPopoverPayload').ExportDocumentVariant[] = [];
     const mergedAssets = new Map<string, { path: string; sourceUrl: string }>();
+    const recordsById = new Map(entryRecords.map((entry) => [entry.id, entry]));
+    const kindsById = new Map(entryKinds.map((entryKind) => [entryKind.id, entryKind]));
 
     const localSubtitle = (locale: string): string => locale.toLowerCase().startsWith('zh')
       ? `${entryCount} 个条目 · ${slug}`
@@ -261,8 +273,22 @@ export function App(): React.ReactElement {
       localizedMacros: MacroRecord | undefined
     ): Promise<Record<string, string>> => {
       try {
-        const closure = await prerenderPopovers(body, {
-          loadDetail: createEntryDetailLoader({ postMessage, entries: entryPool, entryPackages }),
+        const seed = document.createElement('div');
+        seed.innerHTML = body;
+        // The standalone document carries one rendered Entry index for the
+        // whole data layer. Relationship sections are assembled from this map
+        // at route time rather than serialized once per route.
+        for (const entry of entryRecords) {
+          const reference = document.createElement('span');
+          reference.setAttribute('data-src', entry.id);
+          seed.appendChild(reference);
+        }
+        const closure = await prerenderPopovers(seed.innerHTML, {
+          loadDetail: async (entryId) => {
+            const entry = recordsById.get(entryId);
+            if (!entry) return { entry: null, kind: null };
+            return { entry, kind: kindsById.get(entry.kind) ?? null };
+          },
           entries: entryPool,
           userMacros: localizedMacros,
           kindPalette,
@@ -270,7 +296,7 @@ export function App(): React.ReactElement {
             ? (source: string) => resolveMarkdownAssetUrl(source, assetBaseUri)
             : undefined,
           isCancelled: () => generation !== exportGenerationRef.current,
-          maxEntries: 1000
+          maxEntries: Math.max(1000, entryRecords.length + 100)
         });
         const popovers = Object.create(null) as Record<string, string>;
         for (const [entryId, fragment] of Object.entries(closure.fragments)) {
@@ -309,6 +335,10 @@ export function App(): React.ReactElement {
             title,
             subtitle: localSubtitle(language.id),
             body: harvested.html,
+            entryTitles: Object.fromEntries(entryRecords.map((entry) => [
+              entry.id,
+              resolve_localized_string(entry.title, language.id)
+            ])),
             popovers: await harvestPopovers(harvested.html, localizedMacros)
           });
         }
@@ -344,6 +374,7 @@ export function App(): React.ReactElement {
       variants: {
         initialLocale: initial.locale,
         initialColorScheme: initial.colorScheme,
+        relationships,
         variants
       }
     });
@@ -773,6 +804,8 @@ function OutlineTreeNode({
     <div
       data-snl-collapsible={hasChildren ? '' : undefined}
       data-snl-child-count={hasChildren ? countNodes(node.children) : undefined}
+      data-snl-collapsed={hasChildren && isCollapsed ? 'true' : undefined}
+      data-snl-initial-collapsed={hasChildren ? 'true' : undefined}
       style={{
         marginLeft: depth === 0 ? 0 : INDENT_PER_LEVEL,
         display: 'flex',

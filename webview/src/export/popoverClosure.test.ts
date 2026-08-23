@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { buildPopoverClosure, collectEntryRefs } from './popoverClosure';
 
@@ -26,6 +27,13 @@ describe('collectEntryRefs', () => {
 
   it('ignores empty references', () => {
     expect(collectEntryRefs('<i data-src=""></i>')).toEqual([]);
+  });
+
+  it('decodes exact attribute values and ignores markup-shaped text', () => {
+    const span = document.createElement('span');
+    span.setAttribute('data-src', 'a"b&c');
+    expect(collectEntryRefs(span.outerHTML)).toEqual(['a"b&c']);
+    expect(collectEntryRefs('<code>&lt;span data-src="outside"&gt;</code>')).toEqual([]);
   });
 });
 

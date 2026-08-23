@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe('EntryInfoview relationship availability', () => {
-  it('preserves v11 workspace Macros for the Basics 0.2.1 Entry renderer and reacts to language', async () => {
+  it('preserves v11 workspace Macros for the registry Basics Entry renderer and reacts to language', async () => {
     set_content_language('zh-CN');
     render(<EntryInfoviewApp />);
     push({
@@ -116,6 +116,9 @@ describe('EntryInfoview relationship availability', () => {
     });
 
     expect(screen.getByRole('heading', { level: 1, name: '条目一' })).toBeTruthy();
+    const relationships = screen.getByRole('button', { name: 'Dependencies · Outgoing' });
+    expect(relationships.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(relationships);
     expect(screen.getByRole('button', { name: /Open Infoview for 条目二/ })).toBeTruthy();
     const edit = screen.getByRole('button', { name: 'Open this entry in the Edit Entry panel' });
     expect(edit.querySelector('svg[data-snl-icon="edit"]')).toBeTruthy();
@@ -212,12 +215,40 @@ describe('EntryInfoview relationship availability', () => {
     const customDisclosure = screen.getByRole('button', { name: 'custom label · Outgoing' });
     const controlledId = customDisclosure.getAttribute('aria-controls') ?? '';
     expect(controlledId).not.toMatch(/\s/);
+    expect(document.getElementById(controlledId)).toBeNull();
+    fireEvent.click(customDisclosure);
     expect(document.getElementById(controlledId)).toBeTruthy();
     api.postMessage.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Dependencies · Incoming' }));
     fireEvent.click(screen.getByRole('button', { name: /Open Infoview for Entry Two/ }));
     expect(api.postMessage).toHaveBeenCalledWith({
       type: 'navigateEntry', entryId: 'entry-2', entryPackage: 'logic'
     });
+  });
+
+  it('resets same-named Relationship Sections when navigation loads another Entry', () => {
+    render(<EntryInfoviewApp />);
+    const sections = [{
+      label: 'uses_context', direction: 'outgoing',
+      rows: [{ id: 'entry-2', package: 'logic', title: 'Entry Two', relationshipId: 'r-a', metadata: null }]
+    }];
+    push({ ...base, relationshipSections: sections, returnRoute: { kind: 'root' } });
+    const firstDisclosure = screen.getByRole('button', { name: 'Context · Outgoing' });
+    fireEvent.click(firstDisclosure);
+    expect(firstDisclosure.getAttribute('aria-expanded')).toBe('true');
+
+    push({
+      ...base,
+      entry: { ...entry, id: 'entry-2', title: 'Entry Two' },
+      relationshipSections: [{
+        ...sections[0],
+        rows: [{ id: 'entry-1', package: 'logic', title: 'Entry One', relationshipId: 'r-b', metadata: null }]
+      }],
+      returnRoute: { kind: 'entry', entryId: 'entry-1', entryPackage: 'logic' }
+    });
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Entry Two' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Context · Outgoing' }).getAttribute('aria-expanded')).toBe('false');
   });
 
   it('renders each related Entry as a full Entry block instead of a text row', async () => {
@@ -251,6 +282,7 @@ describe('EntryInfoview relationship availability', () => {
       returnRoute: { kind: 'root' }
     });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Context · Outgoing' }));
     const relatedBlock = view.container.querySelector('section[data-entry-id="entry-2"]');
     expect(relatedBlock).toBeTruthy();
     await waitFor(() => expect(relatedBlock?.textContent).toContain('RelatedContent'));

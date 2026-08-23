@@ -103,13 +103,23 @@ function markCollapsibleRows(clone: HTMLElement): void {
   for (const host of Array.from(
     clone.querySelectorAll<HTMLElement>('[data-snl-collapsible]')
   )) {
-    if (!ownedSubtree(host)) {
+    const subtree = ownedSubtree(host);
+    if (!subtree) {
       host.removeAttribute('data-snl-collapsible');
       host.removeAttribute('data-snl-child-count');
       host.removeAttribute('data-snl-collapse-noun');
       host.removeAttribute('data-snl-collapsed');
       host.removeAttribute('data-snl-initial-collapsed');
       host.removeAttribute('data-snl-collapse-level');
+      host.removeAttribute('data-snl-export-collapsed');
+      continue;
+    }
+    // Authored Collapsible blocks keep their body mounted, so preserve the
+    // reader's current fold state. Library outline branches are temporarily
+    // expanded solely for harvesting and intentionally keep their closed
+    // initial default instead.
+    if (host.classList.contains('snl-collapsible')) {
+      host.setAttribute('data-snl-export-collapsed', subtree.hidden ? 'true' : 'false');
     }
   }
 }

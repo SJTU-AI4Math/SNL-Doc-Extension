@@ -34,7 +34,7 @@ import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
 import { EntrySurface, type EntryOption } from '../render/EntrySurface';
 import type { MacroRecord } from '../render/macroData';
-import { buildPopoverClosure, type ClosureResult } from './popoverClosure';
+import { buildPopoverClosure, collectEntryRefs, type ClosureResult } from './popoverClosure';
 import type { EntryDetail } from './entryDetailBridge';
 import {
   hasPendingExportSurface,
@@ -161,6 +161,7 @@ export async function prerenderPopovers(
     return await buildPopoverClosure(seedHtml, {
       isCancelled: deps.isCancelled,
       maxEntries: deps.maxEntries,
+      collectRefs: (html) => collectEntryRefs(html, doc),
       renderEntry: async (entryId) => {
         const detail = await deps.loadDetail(entryId);
         if (!detail.entry) return null;

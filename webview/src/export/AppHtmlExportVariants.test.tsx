@@ -33,6 +33,7 @@ const childEntry: EntryData = {
   contribution_info: null,
   pointer: null
 };
+
 const kind: EntryKind = {
   id: 'definition',
   name: { type: 'i18n' as const, default_language: 'en', values: { en: 'Definition', 'zh-CN': '定义' } },
@@ -89,12 +90,6 @@ afterEach(() => {
 describe('Infoview HTML export variants', () => {
   it('captures every supported content language and theme, including real popover bodies', async () => {
     (globalThis as { __snlApi?: VsCodeApi }).__snlApi = api;
-    postMessage.mockImplementation((message: any) => {
-      if (message?.type !== 'requestEntryDetails' || message.entryId !== 'child') return;
-      queueMicrotask(() => window.dispatchEvent(new MessageEvent('message', { data: {
-        type: 'popoverEntryDetails', entryId: 'child', entry: childEntry, kind
-      } })));
-    });
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
       generation: `export-variants-${Date.now()}`,
@@ -112,12 +107,18 @@ describe('Infoview HTML export variants', () => {
       title: 'Demo',
       entries: [
         { id: 'entry-parent', title: parentEntry.title, hasContent: true, snl: 'Ref(x)' },
-        { id: 'child', title: childEntry.title, hasContent: true, snl: '@x' }
+        { id: 'child', title: childEntry.title, hasContent: true, snl: '@x' },
+        { id: 'outside', title: 'Outside Library', hasContent: true }
       ],
+      entryRecords: [parentEntry, childEntry],
+      entryKinds: [kind],
+      relationships: [{
+        id: 'rel-1', from: 'entry-parent', to: 'child', label: 'uses_context', metadata: null
+      }],
       macros: {
         Ref: {
           name: 'Ref', description: 'Entry reference',
-          source: { entries: ['child'], urls: [] },
+          source: { entries: ['outside'], urls: [] },
           kind: 'const', dynamic_arity: false, tags: [],
           styles: [{
             style_name: 'default', tags: [],
@@ -141,11 +142,14 @@ describe('Infoview HTML export variants', () => {
     expect(payload.variants.initialLocale).toBe('en');
     expect(payload.variants.initialColorScheme).toBe('light');
     expect(payload.variants.variants).toHaveLength(4);
+    expect(payload.variants.relationships).toEqual([{
+      id: 'rel-1', from: 'entry-parent', to: 'child', label: 'uses_context', metadata: null
+    }]);
     const byKey = new Map(payload.variants.variants.map((variant: { locale: string; colorScheme: string }) => [
       `${variant.locale}:${variant.colorScheme}`, variant
     ]));
     expect((byKey.get('en:light') as { body: string }).body).toContain('Parent Entry');
-    expect((byKey.get('en:light') as { body: string }).body).toContain('data-src="child"');
+    expect((byKey.get('en:light') as { body: string }).body).toContain('data-src="outside"');
     expect((byKey.get('en:light') as { body: string }).body)
       .toContain('data-snl-keyboard-activation="true"');
     expect((byKey.get('zh-CN:light') as { body: string }).body).toContain('父条目');
@@ -155,6 +159,10 @@ describe('Infoview HTML export variants', () => {
       .toContain('English child body');
     expect((byKey.get('zh-CN:dark') as { popovers: Record<string, string> }).popovers.child)
       .toContain('中文子条目正文');
+    expect((byKey.get('en:light') as { popovers: Record<string, string> }).popovers.outside)
+      .toBeUndefined();
+
+    expect(postMessage.mock.calls.some(([message]) => message?.type === 'requestEntryDetails')).toBe(false);
     expect(postMessage.mock.calls
       .map(([message]) => message)
       .filter((message) => message?.type === 'snl.content-language/changed')).toEqual([]);

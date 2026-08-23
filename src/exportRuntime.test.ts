@@ -40,13 +40,15 @@ describe('EXPORT_RUNTIME_WIRING_JS', () => {
     expect(EXPORT_RUNTIME_WIRING_JS).toContain('hashchange');
     expect(EXPORT_RUNTIME_WIRING_JS).toContain('data-snl-route-id');
     expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('pushState(');
+    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('data-snl-route-link');
   });
 
   it('stays bounded without bundling a renderer', () => {
     // Includes collapse, recursive pin-capable popovers, hash-route extraction,
-    // and locale/theme variant controls. The cap still catches accidentally
-    // dragging React or the Entry renderer into this dependency-free runtime.
-    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(36000);
+    // an indexed relationship-section assembler, and locale/theme variant
+    // controls. The cap still catches accidentally dragging React or the Entry
+    // renderer into this dependency-free runtime.
+    expect(EXPORT_RUNTIME_WIRING_JS.length).toBeLessThan(48000);
   });
 });
 

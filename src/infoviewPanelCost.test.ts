@@ -371,6 +371,20 @@ describe('infoview panel read cost', () => {
     expect(posted.some((message) => message.type === 'entryDetailsError')).toBe(false);
   });
 
+  it('keeps a Library outline exportable when relationships are malformed', async () => {
+    const send = await openBrowser();
+    reset();
+    malformedRelationships = true;
+    await send({ type: 'selectLibrary', slug: LIBRARY });
+    expect(posted).toContainEqual(expect.objectContaining({
+      type: 'libraryEntries',
+      slug: LIBRARY,
+      outline: expect.any(Array),
+      relationships: [],
+      warnings: expect.arrayContaining([expect.stringMatching(/Relationships unavailable/i)])
+    }));
+  });
+
   it('owns an in-panel Entry stack and Back restores the prior Entry', async () => {
     const { InfoviewPanel } = await loadPanel();
     InfoviewPanel.panels.clear();
@@ -411,6 +425,18 @@ describe('infoview panel read cost', () => {
     await send({ type: 'ready' });
     expect(posted.some((message) => message.type === 'libraries')).toBe(true);
     expect(posted.some((message) => message.type === 'libraryEntries')).toBe(false);
+  });
+
+  it('exports only the Library-induced Entry and relationship data layer', async () => {
+    const send = await openBrowser();
+    reset();
+    await send({ type: 'selectLibrary', slug: LIBRARY });
+
+    const message = posted.find((item) => item.type === 'libraryEntries');
+    expect(message?.entryRecords).toEqual([
+      expect.objectContaining({ id: 'e1', content: { snl: 'x' } })
+    ]);
+    expect(message?.relationships).toEqual([]);
   });
 
   it('reads no file twice when pushing a library outline', async () => {
@@ -502,7 +528,7 @@ describe('infoview panel read cost', () => {
     expect(directoryReadCounts['/ws/.SNL_Doc/packages'] ?? 0).toBe(0);
   });
 
-  it('ships package identity for current-storage Entries outside the Library outline', async () => {
+  it('keeps package lookup pool-wide while scoping export records to the Library', async () => {
     const send = await openBrowser();
     reset();
     entityMode = true;
@@ -511,8 +537,12 @@ describe('infoview panel read cost', () => {
 
     expect(posted).toContainEqual(expect.objectContaining({
       type: 'libraryEntries',
-      // e2 is in the shared pool but deliberately absent from graph.json.
-      entryPackages: { e1: 'logic', e2: 'logic' }
+      // e2 stays available to live cross-Entry syntax/package lookup but is
+      // absent from graph.json, so its body and edge are not exportable.
+      entryPackages: { e1: 'logic', e2: 'logic' },
+      entries: expect.arrayContaining([expect.objectContaining({ id: 'e2' })]),
+      entryRecords: [expect.objectContaining({ id: 'e1', title: 'First' })],
+      relationships: []
     }));
   });
 

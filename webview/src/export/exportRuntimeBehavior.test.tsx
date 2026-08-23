@@ -48,7 +48,8 @@ const HARVESTED = `
   <div class="snl-collapsible__body" data-snl-subtree="">
     <div class="snl-collapsible__part">part1</div>
     <div id="nested" class="snl-collapsible" data-snl-collapsible="" data-snl-collapse-level="1"
-         data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-initial-collapsed="false">
+         data-snl-child-count="1" data-snl-collapse-noun="part" data-snl-initial-collapsed="true"
+         data-snl-export-collapsed="false">
       <div class="snl-collapsible__summary"><section>nested-summary</section></div>
       <div class="snl-collapsible__body" data-snl-subtree=""><div>nested-part</div></div>
     </div>
@@ -140,11 +141,11 @@ describe('the exported runtime, executed', () => {
   it('collapses and re-expands an Entry outline row', () => {
     const host = byId('outline');
     const subtree = ownSubtree(host);
-    expect(subtree.hidden).toBe(false);
-    click(toggleOf(host));
     expect(subtree.hidden).toBe(true);
     click(toggleOf(host));
     expect(subtree.hidden).toBe(false);
+    click(toggleOf(host));
+    expect(subtree.hidden).toBe(true);
   });
 
   it('finds the body of a collapsible BLOCK, whose subtree is not a direct child', () => {
@@ -166,13 +167,14 @@ describe('the exported runtime, executed', () => {
 
   it('honours the fold state the reader exported', () => {
     expect(ownSubtree(byId('block')).hidden).toBe(true);
-    expect(ownSubtree(byId('outline')).hidden).toBe(false);
+    expect(ownSubtree(byId('outline')).hidden).toBe(true);
+    expect(ownSubtree(byId('nested')).hidden).toBe(false);
   });
 
   it('uses the noun the markup carries, not a hardcoded "sub-entries"', () => {
     expect(toggleOf(byId('block')).title).toBe('Expand 2 parts');
     expect(toggleOf(byId('nested')).title).toBe('Collapse 1 part');
-    expect(toggleOf(byId('outline')).title).toBe('Collapse 2 sub-entries');
+    expect(toggleOf(byId('outline')).title).toBe('Expand 2 sub-entries');
   });
 
   it('localizes generated toggle titles and accessibility names from the exported document locale', () => {
@@ -185,8 +187,8 @@ describe('the exported runtime, executed', () => {
 
     expect(toggleOf(byId('block')).title).toBe('展开 2 个部分');
     expect(toggleOf(byId('block')).getAttribute('aria-label')).toBe('展开可折叠块 block-summary');
-    expect(toggleOf(byId('outline')).title).toBe('收起 2 个子条目');
-    expect(toggleOf(byId('outline')).getAttribute('aria-label')).toBe('收起');
+    expect(toggleOf(byId('outline')).title).toBe('展开 2 个子条目');
+    expect(toggleOf(byId('outline')).getAttribute('aria-label')).toBe('展开');
   });
 
   it('keeps a nested collapsible independent of its parent', () => {
@@ -342,7 +344,41 @@ describe('the exported runtime, executed', () => {
       hide(popover);
       expect(document.querySelectorAll('[data-snl-popover]')).toHaveLength(0);
     } finally {
-      delete globalThis.__SNL_POPOVERS__;
+      delete (globalThis as Record<string, unknown>).__SNL_POPOVERS__;
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let binder/bvar interaction tunnel through to a source-backed parent', () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML = `
+        <main class="snl-export">
+          <div data-entry-body>
+            <span id="source-parent" data-tree-path="0" data-src="parent-entry">
+              parent(<span id="nested-binder" data-tree-path="0.0" data-kind="binder" data-name="x">x</span>,
+              <span id="nested-bvar" data-tree-path="0.1" data-kind="bvar" data-name="x" data-bindref="b1">x</span>)
+            </span>
+          </div>
+        </main>`;
+      globalThis.__SNL_POPOVERS__ = {
+        'parent-entry': '<section data-entry-id="parent-entry">Parent preview</section>'
+      };
+      // eslint-disable-next-line no-eval
+      (0, eval)(EXPORT_RUNTIME_JS);
+
+      byId('nested-binder').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('[data-snl-popover]')).toBeNull();
+      click(byId('nested-bvar'));
+      expect(document.querySelector('[data-snl-popover]')).toBeNull();
+
+      byId('source-parent').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(1000);
+      expect(document.querySelector('[data-snl-popover="parent-entry"]')).not.toBeNull();
+    } finally {
+      delete (globalThis as Record<string, unknown>).__SNL_POPOVERS__;
       vi.runOnlyPendingTimers();
       vi.useRealTimers();
     }
@@ -354,6 +390,7 @@ describe('the exported runtime, executed', () => {
       <main class="snl-export">
         <section data-snl-route-id="node alpha"><article data-entry-id="entry-a">Alpha panel</article></section>
         <section data-snl-route-id="node/beta"><article data-entry-id="entry-b">Beta panel</article></section>
+        <section id="fallback-entry" data-entry-id="entry-only">Legacy Entry surface</section>
       </main>`;
     // eslint-disable-next-line no-eval
     (0, eval)(EXPORT_RUNTIME_JS);
@@ -363,15 +400,19 @@ describe('the exported runtime, executed', () => {
     expect(document.documentElement.getAttribute('data-snl-entry-route')).toBe('node alpha');
     expect(alpha.hasAttribute('data-snl-route-current')).toBe(true);
     expect(beta.hasAttribute('data-snl-route-current')).toBe(false);
-    expect(alpha.querySelector<HTMLAnchorElement>(':scope > [data-snl-route-link]')?.hash)
-      .toBe('#/node/node%20alpha');
-    expect(alpha.querySelectorAll('[data-snl-route-link]')).toHaveLength(1);
+    expect(alpha.querySelectorAll('[data-snl-route-link]')).toHaveLength(0);
 
     window.history.pushState(null, '', '#/node/node%2Fbeta');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     expect(document.documentElement.getAttribute('data-snl-entry-route')).toBe('node/beta');
     expect(alpha.hasAttribute('data-snl-route-current')).toBe(false);
     expect(beta.hasAttribute('data-snl-route-current')).toBe(true);
+
+    window.history.pushState(null, '', '#/node/entry-only');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(byId('fallback-entry').hasAttribute('data-snl-route-current')).toBe(false);
+    expect(document.querySelector('[data-snl-route-not-found]')?.textContent)
+      .toContain('entry-only');
 
     window.history.pushState(null, '', '#/node/missing');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
@@ -390,6 +431,126 @@ describe('the exported runtime, executed', () => {
     expect(document.querySelector('[data-snl-route-not-found]')).toBeNull();
     expect(alpha.hasAttribute('data-snl-route-current')).toBe(false);
     expect(beta.hasAttribute('data-snl-route-current')).toBe(false);
+  });
+
+  it('uses Entry hover and Ctrl+Click for routes without letting binder/bvar targets bubble', () => {
+    window.history.replaceState(null, '', '#/');
+    document.body.innerHTML = `
+      <main class="snl-export">
+        <div data-snl-export-body>
+          <div data-snl-route-id="node-alpha">
+            <section id="entry-alpha" class="snl-entry-surface" data-entry-id="entry-a"
+                     style="border-left:5px solid rgb(12, 34, 56);background:rgb(240, 240, 240);box-shadow:none">
+              <header id="entry-alpha-header">Alpha</header>
+              <div data-entry-body>
+                <span id="binder-target" data-tree-path="0" data-kind="binder" data-name="x" data-bindref="b1">x</span>
+                <span id="bvar-target" data-tree-path="1" data-kind="bvar" data-name="x" data-bindref="b1">x</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>`;
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    const entry = byId('entry-alpha');
+    entry.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(entry.dataset.snlEntryHover).toBe('true');
+    expect(entry.style.boxShadow).toContain('inset 0 0 0 5px');
+
+    click(byId('binder-target'), { ctrlKey: true });
+    expect(window.location.hash).toBe('#/');
+    click(byId('bvar-target'), { ctrlKey: true });
+    expect(window.location.hash).toBe('#/');
+
+    click(byId('entry-alpha-header'));
+    expect(window.location.hash).toBe('#/');
+    click(byId('entry-alpha-header'), { ctrlKey: true });
+    expect(window.location.hash).toBe('#/node/node-alpha');
+
+    entry.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(entry.hasAttribute('data-snl-entry-hover')).toBe(false);
+    expect(entry.style.boxShadow).toBe('none');
+  });
+
+  it('derives collapsed Relationship Sections from one in-memory graph and Entry index', () => {
+    window.history.replaceState(null, '', '#/node/parent-node');
+    document.body.innerHTML = `
+      <main class="snl-export">
+        <div data-snl-export-body>
+          <div data-snl-route-id="parent-node" data-snl-entry-id="parent">
+            <section class="snl-entry-surface" data-entry-id="parent"><header>Parent</header></section>
+          </div>
+          <div data-snl-route-id="related-b" data-snl-entry-id="related-b">
+            <section class="snl-entry-surface" data-entry-id="related-b"><header>Same Entry in outline</header></section>
+          </div>
+        </div>
+      </main>`;
+    (globalThis as Record<string, unknown>).__SNL_EXPORT_VARIANTS__ = {
+      initialLocale: 'en',
+      initialColorScheme: 'light',
+      relationships: [
+        { id: 'r-out', from: 'parent', to: 'related-a', label: 'uses_context', metadata: { isAtomic: true } },
+        { id: 'r-in', from: 'related-b', to: 'parent', label: 'uses_context', metadata: null },
+        { id: 'r-fanin', from: 'related-b', to: 'parent', label: 'depends', metadata: null }
+      ],
+      variants: [{
+        locale: 'en', languageLabel: 'English', colorScheme: 'light', title: 'Library', body: document.querySelector('[data-snl-export-body]')!.innerHTML,
+        entryTitles: { parent: 'Parent', 'related-a': 'Alpha', 'related-b': 'Beta' },
+        popovers: {
+          parent: '<section class="snl-entry-surface" data-entry-id="parent"><header>Parent</header></section>',
+          'related-a': '<section class="snl-entry-surface" data-entry-id="related-a"><header>Alpha</header></section>',
+          'related-b': '<section class="snl-entry-surface" data-entry-id="related-b"><header>Beta</header></section>'
+        }
+      }]
+    };
+    // eslint-disable-next-line no-eval
+    (0, eval)(EXPORT_RUNTIME_JS);
+
+    const region = document.querySelector<HTMLElement>('[data-snl-route-relationships]')!;
+    expect(region).not.toBeNull();
+    const sections = Array.from(region.querySelectorAll<HTMLElement>('[data-snl-relationship-section]'));
+    expect(sections.map((section) => section.dataset.snlRelationshipSection)).toEqual([
+      'uses_context:incoming', 'uses_context:outgoing'
+    ]);
+    expect(region.querySelector('[data-relationship-id="r-fanin"]')).toBeNull();
+    expect(region.querySelectorAll('[data-entry-id="related-a"]')).toHaveLength(1);
+    expect(region.querySelectorAll('[data-entry-id="related-b"]')).toHaveLength(1);
+    for (const section of sections) {
+      expect(ownSubtree(section).hidden).toBe(true);
+      expect(toggleOf(section).getAttribute('aria-expanded')).toBe('false');
+    }
+    click(toggleOf(sections[0]));
+    expect(ownSubtree(sections[0]).hidden).toBe(false);
+
+    const relatedHeader = region.querySelector<HTMLElement>('[data-entry-id="related-b"] header')!;
+    click(relatedHeader, { ctrlKey: true });
+    expect(window.location.hash).toBe('#/entry/related-b');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.querySelector('[data-snl-route-current][data-snl-entry-id="related-b"]')).not.toBeNull();
+    expect(document.querySelector('[data-snl-route-current][data-snl-route-id="related-b"]')).toBeNull();
+    expect(document.querySelector('[data-snl-route-relationships="related-b"]')).not.toBeNull();
+    expect(document.querySelector('[data-snl-relationship-section="uses_context:outgoing"]')).not.toBeNull();
+
+    const dynamicHeader = document.querySelector<HTMLElement>(
+      '[data-snl-route-current][data-snl-entry-id="related-b"] header'
+    )!;
+    click(dynamicHeader, { ctrlKey: true });
+    expect(window.location.hash).toBe('#/entry/related-b');
+
+    window.location.hash = '#/entry/parent';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    const indexedParentHeader = document.querySelector<HTMLElement>(
+      '[data-snl-route-current][data-snl-entry-id="parent"] header'
+    )!;
+    click(indexedParentHeader, { ctrlKey: true });
+    expect(window.location.hash).toBe('#/entry/parent');
+    expect(document.querySelector('[data-snl-route-current][data-snl-route-id="parent-node"]')).toBeNull();
+
+    window.location.hash = '#/node/related-a';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(document.querySelector('[data-snl-route-current][data-snl-entry-id="related-a"]')).toBeNull();
+    expect(document.querySelector('[data-snl-route-not-found]')?.textContent).toContain('related-a');
   });
 
   it('extracts a deeply nested route into a flat single-node outlet and restores the outline', () => {

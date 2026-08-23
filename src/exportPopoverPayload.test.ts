@@ -72,6 +72,22 @@ describe('the popover payload inside a real document', () => {
     expect(plan.html.match(/<script/g)).toHaveLength(2);
   });
 
+  it('preserves prototype-shaped Entry ids as own payload keys', () => {
+    const prototypeEntry = Object.create(null) as Record<string, string>;
+    prototypeEntry.__proto__ = '<section>Prototype Entry</section>';
+    const html = buildExportDocument({
+      title: 'T', css: '', body: '', script: 'void 0;',
+      scriptSources: [POPOVER_SCRIPT_PATH]
+    });
+    const plan = buildExportPlan({
+      html, binaries: [], inline: true,
+      texts: [{ path: POPOVER_SCRIPT_PATH, source: buildPopoverScript(prototypeEntry) }]
+    });
+    const restored = evalDocumentScripts(plan.html)!;
+    expect(Object.hasOwn(restored, '__proto__')).toBe(true);
+    expect(restored.__proto__).toBe('<section>Prototype Entry</section>');
+  });
+
   it('emits the payload BEFORE the runtime that reads it', () => {
     const html = buildExportDocument({
       title: 'T',
@@ -127,9 +143,13 @@ describe('buildPopoverScript', () => {
     const variants = {
       initialLocale: 'en',
       initialColorScheme: 'light' as const,
+      relationships: [{
+        id: 'r</script>', from: 'a', to: 'b', label: '<!-- relation -->', metadata: { isAtomic: true }
+      }],
       variants: [{
         locale: 'en', languageLabel: 'English', colorScheme: 'light' as const,
         title: 'T', body: '</script><script>window.pwned=1</script>',
+        entryTitles: { b: 'B</script>' },
         popovers: { x: '<!-- unsafe spelling -->' }
       }]
     };

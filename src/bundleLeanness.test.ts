@@ -142,6 +142,11 @@ describe('webview bundle leanness', () => {
     expect(missing).toEqual([]);
   });
 
+  it.skipIf(!existsSync(resolve(MEDIA, 'main.css')))('emits Noto font assets instead of base64 copies in exportable CSS', () => {
+    const css = readFileSync(resolve(MEDIA, 'main.css'), 'utf8');
+    expect(css).not.toMatch(/font-family:SNL Noto Serif SC[^}]*data:font\//);
+  });
+
   it('keeps workspace asset broker introspection out of production bundles', () => {
     const { missing, offenders } = inspectWorkspaceAssetBrokerBundles(MEDIA);
     expect(missing).toEqual([]);

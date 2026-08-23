@@ -210,6 +210,10 @@ const RUNTIME_TEMPLATE = String.raw`
         var node = start;
         while (node && node !== container && node.nodeType === 1) {
           if (node.hasAttribute && node.hasAttribute('data-src')) return node;
+          // The nearest semantic node owns the interaction. A binder/bvar
+          // without its own source must not tunnel through to a source-backed
+          // parent Macro merely because DOM events bubble.
+          if (node.hasAttribute && node.hasAttribute('data-tree-path')) return null;
           node = node.parentNode;
         }
         return null;
@@ -360,6 +364,126 @@ const RUNTIME_TEMPLATE = String.raw`
     }
   }
 
+  /**
+   * Restore the host-independent part of Basics EntrySurface interaction.
+   * React handlers do not survive DOM harvesting, so the standalone reader
+   * owns hover paint and Ctrl+Click routing. Semantic descendants keep their
+   * own interaction: binder/bvar/tree targets must never fall through to the
+   * enclosing Entry route.
+   */
+  function wireEntrySurfaces() {
+    if (globalThis.__snlExportEntryCleanup) globalThis.__snlExportEntryCleanup();
+    var hovered = null;
+    var ctrlDown = false;
+
+    function isDark() {
+      return document.documentElement.getAttribute('data-snl-color-scheme') === 'dark';
+    }
+    function paint(entry) {
+      if (!entry.__snlExportEntryPaint) {
+        entry.__snlExportEntryPaint = {
+          background: entry.style.background,
+          boxShadow: entry.style.boxShadow
+        };
+      }
+      var border = getComputedStyle(entry).borderLeftColor || 'currentColor';
+      entry.setAttribute('data-snl-entry-hover', 'true');
+      entry.style.background = isDark()
+        ? (ctrlDown ? '#374151' : '#1f2937')
+        : (ctrlDown ? '#f3f4f6' : '#ffffff');
+      entry.style.boxShadow = 'inset 0 0 0 5px ' + border;
+    }
+    function restore(entry) {
+      var saved = entry && entry.__snlExportEntryPaint;
+      if (!entry || !saved) return;
+      entry.removeAttribute('data-snl-entry-hover');
+      entry.style.background = saved.background;
+      entry.style.boxShadow = saved.boxShadow;
+      entry.__snlExportEntryPaint = null;
+    }
+    function entryFrom(target) {
+      return target && target.closest ? target.closest('.snl-entry-surface') : null;
+    }
+    function onMouseOver(event) {
+      var entry = entryFrom(event.target);
+      if (!entry || entry === hovered) return;
+      if (hovered) restore(hovered);
+      hovered = entry;
+      paint(entry);
+    }
+    function onMouseOut(event) {
+      var entry = entryFrom(event.target);
+      if (!entry || entry !== hovered) return;
+      var related = event.relatedTarget;
+      if (related && entry.contains(related)) return;
+      restore(entry);
+      hovered = null;
+    }
+    function routeTarget(entry) {
+      var indexedRoute = entry.closest('[data-snl-entry-route]');
+      if (indexedRoute) {
+        var indexedId = indexedRoute.getAttribute('data-snl-entry-id');
+        if (indexedId) return { kind: 'entry', identity: indexedId };
+      }
+      var direct = entry.closest('[data-snl-route-id]');
+      if (direct) return { kind: 'node', identity: direct.getAttribute('data-snl-route-id') };
+      var entryId = entry.getAttribute('data-entry-id');
+      if (!entryId) return null;
+      var data = popoverData();
+      return data && Object.prototype.hasOwnProperty.call(data, entryId) &&
+        typeof data[entryId] === 'string' ? { kind: 'entry', identity: entryId } : null;
+    }
+    function ownsSemanticTarget(entry, target) {
+      if (!target || !target.closest) return false;
+      var boundary = target.closest(
+        'button, a, [data-tree-path], [role="button"], [data-snl-interaction-boundary]'
+      );
+      return !!boundary && entry.contains(boundary);
+    }
+    function onClick(event) {
+      if (event.button !== 0 || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      var entry = entryFrom(event.target);
+      if (!entry || ownsSemanticTarget(entry, event.target)) return;
+      var route = routeTarget(entry);
+      if (!route || !route.identity) return;
+      event.preventDefault();
+      event.stopPropagation();
+      window.location.hash = '#/' + route.kind + '/' + encodeURIComponent(route.identity);
+    }
+    function onKeyDown(event) {
+      if (event.key !== 'Control' || ctrlDown) return;
+      ctrlDown = true;
+      if (hovered) paint(hovered);
+    }
+    function onKeyUp(event) {
+      if (event.key !== 'Control' || !ctrlDown) return;
+      ctrlDown = false;
+      if (hovered) paint(hovered);
+    }
+    function onBlur() {
+      ctrlDown = false;
+      if (hovered) paint(hovered);
+    }
+
+    document.addEventListener('mouseover', onMouseOver);
+    document.addEventListener('mouseout', onMouseOut);
+    document.addEventListener('click', onClick);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    globalThis.__snlExportEntryCleanup = function () {
+      document.removeEventListener('mouseover', onMouseOver);
+      document.removeEventListener('mouseout', onMouseOut);
+      document.removeEventListener('click', onClick);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      if (hovered) restore(hovered);
+      hovered = null;
+      globalThis.__snlExportEntryCleanup = null;
+    };
+  }
+
   /** Restore stripped toggles from exporter markers. */
   function wireCollapse(root) {
     var boundary = root || document;
@@ -447,10 +571,15 @@ const RUNTIME_TEMPLATE = String.raw`
         var bodyId = subtree.id || 'snl-export-collapse-' + index;
         subtree.id = bodyId;
         toggle.setAttribute('aria-controls', bodyId);
-        toggle.setAttribute(
-          'aria-expanded',
-          host.getAttribute('data-snl-collapsed') === 'true' ? 'false' : 'true'
-        );
+        var initial = host.getAttribute('data-snl-initial-collapsed');
+        var exported = host.getAttribute('data-snl-export-collapsed');
+        // Authored blocks preserve the live fold state captured by the
+        // exporter. Other hosts use the closed-by-default contract; explicit
+        // authored initial=false remains the only default-open override.
+        var startsCollapsed = exported === 'true'
+          ? true
+          : exported === 'false' ? false : initial !== 'false';
+        toggle.setAttribute('aria-expanded', startsCollapsed ? 'false' : 'true');
         var row = host.querySelector(':scope > .snl-collapsible__summary');
         var mount = row || host;
         var record = {
@@ -540,6 +669,141 @@ const RUNTIME_TEMPLATE = String.raw`
     }
   }
 
+  var relationshipIndexSource = null;
+  var relationshipIndex = null;
+
+  /** Build one adjacency index for the whole exported data layer. */
+  function getRelationshipIndex() {
+    var bundle = globalThis.__SNL_EXPORT_VARIANTS__;
+    var source = bundle && Array.isArray(bundle.relationships) ? bundle.relationships : [];
+    if (relationshipIndex && relationshipIndexSource === source) return relationshipIndex;
+    var index = new Map();
+    for (var i = 0; i < source.length; i++) {
+      var rel = source[i];
+      if (!rel || typeof rel.id !== 'string' || typeof rel.from !== 'string' ||
+          typeof rel.to !== 'string' || typeof rel.label !== 'string') continue;
+      if (!index.has(rel.from)) index.set(rel.from, []);
+      if (!index.has(rel.to)) index.set(rel.to, []);
+      index.get(rel.from).push(rel);
+      if (rel.to !== rel.from) index.get(rel.to).push(rel);
+    }
+    relationshipIndexSource = source;
+    relationshipIndex = index;
+    return index;
+  }
+
+  function renderRelationshipSections(routeTarget, outlet) {
+    var stale = outlet.querySelector('[data-snl-route-relationships]');
+    if (stale && stale.parentNode) stale.parentNode.removeChild(stale);
+    var entryId = routeTarget.getAttribute('data-snl-entry-id');
+    if (!entryId) {
+      var entry = routeTarget.querySelector('[data-entry-id]');
+      entryId = entry && entry.getAttribute('data-entry-id');
+    }
+    if (!entryId) return;
+    var data = popoverData();
+    if (!data) return;
+    var active = globalThis.__SNL_ACTIVE_EXPORT_VARIANT__ || {};
+    var titles = active.entryTitles && typeof active.entryTitles === 'object'
+      ? active.entryTitles
+      : {};
+    var edges = getRelationshipIndex().get(entryId) || [];
+    var grouped = new Map();
+    for (var i = 0; i < edges.length; i++) {
+      var rel = edges[i];
+      var direction = rel.from === entryId ? 'outgoing' : rel.to === entryId ? 'incoming' : null;
+      if (!direction || (rel.label === 'depends' && direction === 'incoming')) continue;
+      var counterpart = direction === 'outgoing' ? rel.to : rel.from;
+      if (!Object.prototype.hasOwnProperty.call(data, counterpart) ||
+          typeof data[counterpart] !== 'string') continue;
+      var key = rel.label + '\u0000' + direction;
+      if (!grouped.has(key)) grouped.set(key, { label: rel.label, direction: direction, rows: [] });
+      grouped.get(key).rows.push({ relationship: rel, counterpart: counterpart });
+    }
+    var groups = Array.from(grouped.values());
+    groups.sort(function (left, right) {
+      return left.label.localeCompare(right.label) || left.direction.localeCompare(right.direction);
+    });
+    for (var g = 0; g < groups.length; g++) {
+      groups[g].rows.sort(function (left, right) {
+        return String(titles[left.counterpart] || left.counterpart).localeCompare(
+          String(titles[right.counterpart] || right.counterpart)
+        ) || left.counterpart.localeCompare(right.counterpart) ||
+          left.relationship.id.localeCompare(right.relationship.id);
+      });
+    }
+
+    var zh = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0;
+    var region = document.createElement('section');
+    region.setAttribute('data-snl-route-relationships', entryId);
+    region.setAttribute('aria-label', zh ? '关系' : 'Relationships');
+    region.className = 'snl-export-relationships';
+    if (!groups.length) {
+      var heading = document.createElement('h2');
+      heading.textContent = zh ? '关系' : 'Relationships';
+      var empty = document.createElement('p');
+      empty.textContent = zh ? '没有涉及此条目的关系。' : 'No relationships involve this Entry.';
+      region.appendChild(heading);
+      region.appendChild(empty);
+      outlet.appendChild(region);
+      return;
+    }
+    for (var s = 0; s < groups.length; s++) {
+      var group = groups[s];
+      var section = document.createElement('section');
+      section.className = 'snl-export-relationship-section';
+      section.setAttribute('data-snl-relationship-section', group.label + ':' + group.direction);
+      section.setAttribute('data-snl-collapsible', '');
+      section.setAttribute('data-snl-child-count', String(group.rows.length));
+      section.setAttribute('data-snl-collapse-level', '0');
+      section.setAttribute('data-snl-collapse-noun', zh ? '个条目' : (group.rows.length === 1 ? 'entry' : 'entries'));
+      section.setAttribute('data-snl-initial-collapsed', 'true');
+      var summary = document.createElement('div');
+      summary.className = 'snl-collapsible__summary';
+      var title = document.createElement('span');
+      title.setAttribute('role', 'heading');
+      title.setAttribute('aria-level', '2');
+      var label = group.label === 'depends'
+        ? (zh ? '依赖项' : 'Dependencies')
+        : group.label === 'uses_context'
+          ? (zh ? '上下文' : 'Context')
+          : group.label;
+      title.textContent = label + ' · ' + (group.direction === 'incoming'
+        ? (zh ? '传入' : 'Incoming')
+        : (zh ? '传出' : 'Outgoing'));
+      var count = document.createElement('span');
+      count.className = 'snl-export-relationship-count';
+      count.textContent = '(' + group.rows.length + ')';
+      summary.appendChild(title);
+      summary.appendChild(count);
+      var body = document.createElement('div');
+      body.className = 'snl-collapsible__body snl-export-relationship-body';
+      body.setAttribute('data-snl-subtree', '');
+      for (var r = 0; r < group.rows.length; r++) {
+        var row = document.createElement('div');
+        row.className = 'snl-export-relationship-row';
+        row.setAttribute('data-relationship-id', group.rows[r].relationship.id);
+        var metadata = group.rows[r].relationship.metadata;
+        if (metadata && typeof metadata === 'object' && typeof metadata.isAtomic === 'boolean') {
+          var meta = document.createElement('div');
+          meta.className = 'snl-export-relationship-meta';
+          meta.textContent = metadata.isAtomic ? (zh ? '原子关系' : 'Atomic') : (zh ? '复合关系' : 'Composite');
+          row.appendChild(meta);
+        }
+        var holder = document.createElement('div');
+        holder.innerHTML = data[group.rows[r].counterpart];
+        while (holder.firstChild) row.appendChild(holder.firstChild);
+        body.appendChild(row);
+      }
+      section.appendChild(summary);
+      section.appendChild(body);
+      region.appendChild(section);
+    }
+    outlet.appendChild(region);
+    wireCollapse(region);
+    wireHighlightingIn(region);
+  }
+
   /**
    * Hash routing for standalone exports.
    *
@@ -559,28 +823,19 @@ const RUNTIME_TEMPLATE = String.raw`
     outlet.hidden = true;
     main.appendChild(outlet);
     var moved = [];
+    var dynamicSurface = null;
     var surfaces = [];
     for (var i = 0; i < candidates.length; i++) {
       var surface = candidates[i];
       if (surface.closest('.snl-export-popover')) continue;
       if (!surface.hasAttribute('data-snl-route-id') && surface.closest('[data-snl-route-id]')) continue;
-      var identity = surface.getAttribute('data-snl-route-id') || surface.getAttribute('data-entry-id');
+      var surfaceKind = surface.hasAttribute('data-snl-route-id') ? 'node' : 'entry';
+      var identity = surfaceKind === 'node'
+        ? surface.getAttribute('data-snl-route-id')
+        : surface.getAttribute('data-entry-id');
       if (!identity) continue;
       surface.setAttribute('data-snl-route-surface', '');
-      surfaces.push({ element: surface, identity: identity });
-      if (!surface.querySelector(':scope > [data-snl-route-link]')) {
-        var link = document.createElement('a');
-        link.setAttribute('data-snl-route-link', '');
-        link.className = 'snl-export-route-link';
-        link.href = '#/node/' + encodeURIComponent(identity);
-        var linkLabel = (document.documentElement.lang || '').toLowerCase().indexOf('zh') === 0
-          ? '此节点的永久链接'
-          : 'Permalink to this node';
-        link.setAttribute('aria-label', linkLabel);
-        link.title = linkLabel;
-        link.innerHTML = '<svg aria-hidden="true" viewBox="0 0 20 20"><path d="M8.1 11.9a3 3 0 0 0 4.2 0l3-3a3 3 0 1 0-4.2-4.2L9.8 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11.9 8.1a3 3 0 0 0-4.2 0l-3 3a3 3 0 1 0 4.2 4.2l1.3-1.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
-        surface.appendChild(link);
-      }
+      surfaces.push({ element: surface, identity: identity, kind: surfaceKind });
     }
 
     function clearStatus() {
@@ -614,6 +869,10 @@ const RUNTIME_TEMPLATE = String.raw`
     }
 
     function restoreMoved() {
+      var relationships = outlet.querySelector('[data-snl-route-relationships]');
+      if (relationships && relationships.parentNode) relationships.parentNode.removeChild(relationships);
+      if (dynamicSurface && dynamicSurface.parentNode) dynamicSurface.parentNode.removeChild(dynamicSurface);
+      dynamicSurface = null;
       while (moved.length) {
         var placement = moved.pop();
         if (placement.marker.parentNode) {
@@ -632,7 +891,10 @@ const RUNTIME_TEMPLATE = String.raw`
       }
       for (var i = 0; i < matches.length; i++) {
         var target = matches[i];
-        if (!target.parentNode) continue;
+        if (!target.parentNode) {
+          outlet.appendChild(target);
+          continue;
+        }
         var marker = document.createComment('snl-route-origin');
         target.parentNode.insertBefore(marker, target);
         moved.push({ element: target, marker: marker });
@@ -650,24 +912,47 @@ const RUNTIME_TEMPLATE = String.raw`
         surfaces[i].element.removeAttribute('data-snl-route-current');
         surfaces[i].element.removeAttribute('aria-current');
       }
-      var prefix = '#/node/';
-      if (window.location.hash.slice(0, prefix.length) !== prefix) return;
+      var kind = window.location.hash.slice(0, 8) === '#/entry/'
+        ? 'entry'
+        : window.location.hash.slice(0, 7) === '#/node/' ? 'node' : null;
+      if (!kind) return;
+      var prefix = '#/' + kind + '/';
       var encoded = window.location.hash.slice(prefix.length);
       var identity;
       try { identity = decodeURIComponent(encoded); }
       catch (_) { showMissing(encoded); return; }
       if (!identity) { showMissing(identity); return; }
       var matches = [];
-      for (var j = 0; j < surfaces.length; j++) {
-        if (surfaces[j].identity === identity) matches.push(surfaces[j].element);
+      if (kind === 'node') {
+        for (var j = 0; j < surfaces.length; j++) {
+          if (surfaces[j].kind === 'node' && surfaces[j].identity === identity) {
+            matches.push(surfaces[j].element);
+          }
+        }
       }
-      if (matches.length === 0) { showMissing(identity); return; }
+      if (matches.length === 0) {
+        if (kind !== 'entry') { showMissing(identity); return; }
+        var indexedEntries = popoverData();
+        var html = indexedEntries && Object.prototype.hasOwnProperty.call(indexedEntries, identity)
+          ? indexedEntries[identity]
+          : null;
+        if (typeof html !== 'string') { showMissing(identity); return; }
+        dynamicSurface = document.createElement('div');
+        dynamicSurface.setAttribute('data-snl-entry-route', '');
+        dynamicSurface.setAttribute('data-snl-entry-id', identity);
+        dynamicSurface.setAttribute('data-snl-route-surface', '');
+        dynamicSurface.innerHTML = html;
+        matches.push(dynamicSurface);
+        wireCollapse(dynamicSurface);
+        wireHighlightingIn(dynamicSurface);
+      }
       document.documentElement.setAttribute('data-snl-entry-route', identity);
       for (var k = 0; k < matches.length; k++) {
         matches[k].setAttribute('data-snl-route-current', '');
         matches[k].setAttribute('aria-current', 'location');
       }
       showInOutlet(matches);
+      if (routeBody) renderRelationshipSections(matches[0], outlet);
       var target = matches[0];
       if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
       if (target.focus) target.focus({ preventScroll: true });
@@ -689,6 +974,7 @@ const RUNTIME_TEMPLATE = String.raw`
     wireHighlighting();
     wireCollapse();
     wirePopovers();
+    wireEntrySurfaces();
     wireRoutes();
   }
 
@@ -792,6 +1078,7 @@ const RUNTIME_TEMPLATE = String.raw`
       var body = document.querySelector('[data-snl-export-body]');
       if (body) body.innerHTML = variant.body;
       globalThis.__SNL_POPOVERS__ = variant.popovers || {};
+      globalThis.__SNL_ACTIVE_EXPORT_VARIANT__ = variant;
       menu.hidden = true;
       languageButton.setAttribute('aria-expanded', 'false');
       updateLabels();
@@ -891,27 +1178,20 @@ export const EXPORT_RUNTIME_CSS = `
 html[data-snl-entry-route] .snl-export [data-snl-route-surface]:not([data-snl-route-current]) {
   display: none !important;
 }
-.snl-export-route-link {
-  position: absolute;
-  z-index: 2;
-  top: .35rem;
-  right: .45rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  color: inherit;
-  opacity: .48;
+.snl-export-relationships { margin-top: 1.25rem; }
+.snl-export-relationship-section {
+  margin-top: 1rem;
+  padding-top: .4rem;
+  border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,.35));
 }
-.snl-export-route-link svg { width: 17px; height: 17px; }
-[data-snl-route-surface] .snl-entry-header { padding-right: 2.75rem !important; }
-.snl-export-route-link:hover,
-.snl-export-route-link:focus-visible {
-  opacity: 1;
-  background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,.15));
+.snl-export-relationship-section > .snl-collapsible__summary {
+  display: flex; align-items: baseline; gap: .6rem; min-height: 1.5rem;
 }
+.snl-export-relationship-section [role="heading"] { font-size: 1rem; font-weight: 600; }
+.snl-export-relationship-count,
+.snl-export-relationship-meta { opacity: .65; font-size: .8rem; }
+.snl-export-relationship-body { padding: .35rem 0 .4rem 1.6em; }
+.snl-export-relationship-row + .snl-export-relationship-row { margin-top: 1rem; }
 .snl-export-route-status {
   padding: .65rem .8rem;
   border: 1px solid #b91c1c;

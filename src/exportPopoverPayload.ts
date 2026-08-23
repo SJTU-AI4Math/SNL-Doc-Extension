@@ -45,6 +45,11 @@ export function encodePopoverJson(fragments: Record<string, string>): string {
   return encodeScriptJson(fragments);
 }
 
+/** Parse JSON text so prototype-shaped keys remain ordinary own properties. */
+function parsedJsonExpression(value: unknown): string {
+  return `JSON.parse(${encodeScriptJson(encodeScriptJson(value))})`;
+}
+
 export interface ExportDocumentVariant {
   locale: string;
   languageLabel: string;
@@ -52,19 +57,31 @@ export interface ExportDocumentVariant {
   title: string;
   subtitle?: string;
   body: string;
+  /** Localized titles for the in-memory Entry index used by route sections. */
+  entryTitles?: Record<string, string>;
   popovers: Record<string, string>;
+}
+
+export interface ExportRelationshipData {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  metadata: unknown;
 }
 
 /** All renderings captured from the live Extension surface. */
 export interface ExportDocumentVariants {
   initialLocale: string;
   initialColorScheme: 'light' | 'dark';
+  /** One shared graph; sections are derived by Entry id at route time. */
+  relationships?: ExportRelationshipData[];
   variants: ExportDocumentVariant[];
 }
 
 /** The complete script source assigning the payload to its global. */
 export function buildPopoverScript(fragments: Record<string, string>): string {
-  return `window.${POPOVER_GLOBAL} = ${encodePopoverJson(fragments)};\n`;
+  return `window.${POPOVER_GLOBAL} = ${parsedJsonExpression(fragments)};\n`;
 }
 
 /** One file-safe sidecar initializes both default popovers and render variants. */
@@ -72,6 +89,6 @@ export function buildExportPayloadScript(
   fragments: Record<string, string>,
   variants?: ExportDocumentVariants
 ): string {
-  return `window.${POPOVER_GLOBAL} = ${encodeScriptJson(fragments)};\n` +
-    `window.${VARIANTS_GLOBAL} = ${variants ? encodeScriptJson(variants) : 'null'};\n`;
+  return `window.${POPOVER_GLOBAL} = ${parsedJsonExpression(fragments)};\n` +
+    `window.${VARIANTS_GLOBAL} = ${variants ? parsedJsonExpression(variants) : 'null'};\n`;
 }

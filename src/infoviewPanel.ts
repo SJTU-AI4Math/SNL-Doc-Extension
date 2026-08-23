@@ -710,14 +710,24 @@ export class InfoviewPanel {
       // other, and hand the pool to `readLibraryGraph` so it does not read
       // `entries.json` a second time for its dangling-id check.
       // Cat 2026-07-25: panels felt slow.
-      const [entryPool, kinds, counters] = await Promise.all([
+      const [entryPool, kinds, counters, relationshipRead] = await Promise.all([
         readEntries(root),
         readEntryKinds(root),
-        readLibraryCounters(root, slug)
+        readLibraryCounters(root, slug),
+        readRelationships(root).then(
+          (relationships) => ({ relationships, error: null as string | null }),
+          (error: unknown) => ({
+            relationships: [],
+            error: error instanceof Error ? error.message : String(error)
+          })
+        )
       ]);
 
       const graphResult = await readLibraryGraph(root, slug, { entryPool });
       const warnings: string[] = [];
+      if (relationshipRead.error) {
+        warnings.push(`Relationships unavailable: ${relationshipRead.error}`);
+      }
       let graph: LibraryGraph = { nodes: [], relationships: [] };
       if (graphResult.status === 'ok') {
         warnings.push(...graphResult.result.warnings);
@@ -767,12 +777,7 @@ export class InfoviewPanel {
         hasContent: boolean;
         snl?: string;
       }[] = [];
-      for (const node of graph.nodes) {
-        if (node.label !== 'Entry') continue;
-        const entryId = node.props?.entryId;
-        if (typeof entryId !== 'string' || !entryId) continue;
-        const e = entriesById.get(entryId);
-        if (!e) continue;
+      for (const e of entryPool) {
         const snl = typeof e.content?.snl === 'string' ? e.content.snl : '';
         flatEntries.push({
           id: e.id,
@@ -810,6 +815,23 @@ export class InfoviewPanel {
         warnings
       );
 
+      // The reader may need the workspace pool for cross-Entry syntax lookup,
+      // but an exported Library owns only the induced relationship subgraph
+      // over Entry ids that actually occur in its graph. Keep unrelated Entry
+      // bodies out of the standalone payload.
+      const libraryEntryIds = new Set(
+        graph.nodes.flatMap((node) =>
+          node.label === 'Entry' && typeof node.props?.entryId === 'string'
+            ? [node.props.entryId]
+            : []
+        )
+      );
+      const exportEntryRecords = entryPool.filter((entry) => libraryEntryIds.has(entry.id));
+      const exportRelationships = relationshipRead.relationships.filter(
+        (relationship) =>
+          libraryEntryIds.has(relationship.from) && libraryEntryIds.has(relationship.to)
+      );
+
       const [macros, macroKinds] = await Promise.all([
         this.readMacroDb(),
         readMacroKinds(root)
@@ -822,6 +844,9 @@ export class InfoviewPanel {
         title: displayTitle,
         description,
         entries: flatEntries,
+        entryRecords: exportEntryRecords,
+        entryKinds: kinds,
+        relationships: exportRelationships,
         entryPackages: entryPackageIdentities(entryPool),
         outline,
         macros,

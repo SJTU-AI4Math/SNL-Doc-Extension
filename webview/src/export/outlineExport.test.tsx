@@ -160,15 +160,15 @@ describe('Library outline survives export with working collapse', () => {
       const subtree = host.querySelector<HTMLElement>(':scope > [data-snl-subtree]');
       expect(toggle).not.toBeNull();
       expect(subtree).not.toBeNull();
-      expect(isVisuallyCollapsed(subtree!)).toBe(false);
-      click(toggle!);
       expect(isVisuallyCollapsed(subtree!)).toBe(true);
       click(toggle!);
       expect(isVisuallyCollapsed(subtree!)).toBe(false);
+      click(toggle!);
+      expect(isVisuallyCollapsed(subtree!)).toBe(true);
     }
   });
 
-  it('collapses a child row without touching its parent', async () => {
+  it('opens a child row without touching its collapsed parent', async () => {
     const D = await exportAndRun([branch('sec', [branch('sub', [leaf('leaf1')])])]);
     const [outer, inner] = Array.from(
       D.querySelectorAll<HTMLElement>('[data-snl-collapsible]')
@@ -177,7 +177,7 @@ describe('Library outline survives export with working collapse', () => {
     const outerSub = outer.querySelector<HTMLElement>(':scope > [data-snl-subtree]')!;
 
     click(inner.querySelector(':scope > button')!);
-    expect(isVisuallyCollapsed(innerSub)).toBe(true);
-    expect(isVisuallyCollapsed(outerSub)).toBe(false);
+    expect(isVisuallyCollapsed(innerSub)).toBe(false);
+    expect(isVisuallyCollapsed(outerSub)).toBe(true);
   });
 });

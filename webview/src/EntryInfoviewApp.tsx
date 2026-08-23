@@ -284,6 +284,7 @@ export function EntryInfoviewApp(): React.ReactElement {
               postMessage={postMessage}
             />
             <RelationshipsRegion
+              entryId={state.entry.id}
               sections={state.relationshipSections}
               relatedEntries={state.relatedEntries}
               entries={state.entries}
@@ -323,6 +324,7 @@ export function EntryInfoviewApp(): React.ReactElement {
  * Entry title navigates within the current Infoview stack.
  */
 function RelationshipsRegion({
+  entryId,
   sections,
   relatedEntries,
   entries,
@@ -332,6 +334,7 @@ function RelationshipsRegion({
   error,
   postMessage
 }: {
+  entryId: string;
   sections: EntryRelationshipSection[] | null;
   relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }>;
   entries: EntryOption[];
@@ -375,7 +378,7 @@ function RelationshipsRegion({
     <section aria-label={t('relationships')}>
       {sections.map((section, index) => (
         <RelatedSection
-          key={`${section.label}:${section.direction}`}
+          key={`${entryId}:${section.label}:${section.direction}`}
           id={`relationship-section-${index}`}
           title={`${sectionLabel(section.label)} · ${t(section.direction)}`}
           rows={section.rows}
@@ -420,7 +423,7 @@ function RelatedSection({
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const contentLanguage = use_content_language();
-  const [open, setOpen] = useState<boolean>(true);
+  const [open, setOpen] = useState<boolean>(false);
   const count = rows.length;
   const panelId = `related-${id}`;
   return (

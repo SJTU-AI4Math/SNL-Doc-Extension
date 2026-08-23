@@ -172,8 +172,22 @@ describe('collapse structure survives the strip pass', () => {
     );
     expect(html).toContain('data-snl-collapsible');
     expect(html).toContain('data-snl-collapse-noun="parts"');
+    expect(html).toContain('data-snl-export-collapsed="false"');
     expect(html).toContain('data-snl-subtree');
     expect(html).not.toContain('<button');
+  });
+
+  it('records the current hidden state of an authored Collapsible body', () => {
+    const { html } = harvestLibraryHtml(
+      el(
+        '<div class="snl-collapsible" data-snl-collapsible="" data-snl-initial-collapsed="false">' +
+          '<div class="snl-collapsible__summary"><button>t</button></div>' +
+          '<div data-snl-subtree hidden><div>part</div></div>' +
+          '</div>'
+      ),
+      BASE
+    );
+    expect(html).toContain('data-snl-export-collapsed="true"');
   });
 
   it('does not let a parent adopt a nested collapsible\'s subtree', () => {

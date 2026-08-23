@@ -9,20 +9,18 @@
 // reference" is only knowable from E's RENDERED markup — SNL macros expand to
 // references that do not exist in the stored source. So discovery and
 // rendering interleave: render one Entry, scan its output, enqueue whatever it
-// revealed. This module owns the fixed-point loop and stays free of React and
-// of the DOM renderer, so the loop itself is testable with a fake renderer.
+// revealed. This module owns the fixed-point loop and stays free of React; its
+// HTML-aware scanner uses a detached template so escaped ids round-trip exactly
+// and markup-shaped text is never mistaken for a real attribute.
 
 /** Extract every `data-src` reference from a markup fragment. */
-export function collectEntryRefs(html: string): string[] {
+export function collectEntryRefs(html: string, doc: Document = document): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
-  // A regex rather than DOM parsing: this runs over fragments we produced
-  // ourselves, and the closure loop must also work in the `node` test project
-  // where there is no document.
-  const pattern = /\sdata-src\s*=\s*("([^"]*)"|'([^']*)')/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html)) !== null) {
-    const id = (match[2] ?? match[3] ?? '').trim();
+  const template = doc.createElement('template');
+  template.innerHTML = html;
+  for (const element of template.content.querySelectorAll<HTMLElement>('[data-src]')) {
+    const id = (element.getAttribute('data-src') ?? '').trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
     ids.push(id);
@@ -42,6 +40,8 @@ export interface ClosureOptions {
   isCancelled?: () => boolean;
   /** Safety valve against a pathological library; 0 means unlimited. */
   maxEntries?: number;
+  /** HTML-aware reference reader; injectable for documents from another realm. */
+  collectRefs?: (html: string) => string[];
 }
 
 export interface ClosureResult {
@@ -63,7 +63,12 @@ export async function buildPopoverClosure(
   seedHtml: string,
   options: ClosureOptions
 ): Promise<ClosureResult> {
-  const { renderEntry, maxEntries = 0, isCancelled = () => false } = options;
+  const {
+    renderEntry,
+    maxEntries = 0,
+    isCancelled = () => false,
+    collectRefs = collectEntryRefs
+  } = options;
 
   const fragments = Object.create(null) as Record<string, string>;
   const missing: string[] = [];
@@ -80,7 +85,7 @@ export async function buildPopoverClosure(
     }
   };
 
-  enqueue(collectEntryRefs(seedHtml));
+  enqueue(collectRefs(seedHtml));
 
   while (queue.length > 0) {
     if (isCancelled()) {
@@ -105,7 +110,7 @@ export async function buildPopoverClosure(
     }
     fragments[entryId] = html;
     // The newly rendered markup is the ONLY place the next hop is visible.
-    enqueue(collectEntryRefs(html));
+    enqueue(collectRefs(html));
   }
 
   return { fragments, missing, truncated };

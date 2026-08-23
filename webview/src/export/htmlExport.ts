@@ -207,6 +207,15 @@ export function harvestLibraryHtml(
 ): HarvestResult {
   const clone = root.cloneNode(true) as HTMLElement;
 
+  // Static exports deliberately carry no JavaScript, so preserve the Entry
+  // Kind stroke as a CSS custom property for their :hover feedback. The
+  // interactive runtime uses the same visual contract and continues to own
+  // Ctrl-hover and routing.
+  for (const entry of Array.from(clone.querySelectorAll<HTMLElement>('.snl-entry-surface'))) {
+    const stroke = entry.style.borderLeftColor.trim();
+    if (stroke) entry.style.setProperty('--snl-entry-stroke', stroke);
+  }
+
   // The live EntryRender resolves a reference as
   // `context.macro?.source.entries[0] ?? target.dataset.src`. A static DOM has
   // no interaction context or macro driver, so project that exact first source

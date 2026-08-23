@@ -73,7 +73,7 @@ export function buildExportDocument(options: DocumentOptions): string {
     : '';
 
   return `<!DOCTYPE html>
-<html lang="${escapeHtml(locale)}" data-snl-color-scheme="${colorScheme}">
+<html lang="${escapeHtml(locale)}" data-snl-color-scheme="${colorScheme}" data-snl-interactive="${script ? 'true' : 'false'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -145,6 +145,13 @@ body {
 }
 .snl-export img { max-width: 100%; height: auto; }
 .snl-export section { margin-bottom: 1rem; }
+:root[data-snl-interactive="false"] .snl-entry-surface:hover {
+  background: #ffffff !important;
+  box-shadow: inset 0 0 0 5px var(--snl-entry-stroke, currentColor) !important;
+}
+:root[data-snl-interactive="false"][data-snl-color-scheme="dark"] .snl-entry-surface:hover {
+  background: #1f2937 !important;
+}
 .snl-export-watermark {
   display: flex;
   align-items: center;

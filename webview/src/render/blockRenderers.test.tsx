@@ -57,11 +57,35 @@ describe('extensionRenderers', () => {
   // replaces the whole registry. If someone drops the `...defaultRenderers`
   // spread, every built-in block renderer silently disappears.
   it('keeps all SNL-Basics built-ins and the 0.3 SVG renderer alongside collapsible', () => {
-    for (const key of ['list', 'enumerate', 'table', 'centered']) {
+    for (const key of ['list', 'enumerate', 'table', 'centered', 'right']) {
       expect(typeof extensionRenderers[key]).toBe('function');
     }
     expect(extensionRenderers.collapsible).toBe(CollapsibleRenderer);
     expect(typeof extensionRenderers.svg_template).toBe('function');
+  });
+
+  it('preserves the native 0.3.2 right renderer in exported HTML', () => {
+    const Right = extensionRenderers.right!;
+    const { container } = render(
+      <Right
+        node={blockNode([node('first'), node('second')])}
+        macro_data_driver={{} as never}
+        template={{ mode: 'block', body: '#*', block_template_name: 'right' }}
+        dynamicArity={true}
+        treePath="0"
+        childMode={() => 'text'}
+        childContainsBlock={() => false}
+        renderChild={renderChild}
+      />
+    );
+    const right = container.querySelector<HTMLElement>('.snl-block-right')!;
+    expect(right).not.toBeNull();
+    expect(right.style.textAlign).toBe('right');
+    expect(Array.from(right.children).map((child) => child.textContent)).toEqual(['first', 'second']);
+
+    const exported = harvestLibraryHtml(container, 'vscode-webview://assets');
+    expect(exported.html).toContain('snl-block-right');
+    expect(exported.html).toMatch(/text-align:\s*right/);
   });
 
   it('loads and instantiates a 0.3 SVG template through the host asset bridge', async () => {

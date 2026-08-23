@@ -19,7 +19,7 @@ const parentEntry: EntryData = {
   id: 'entry-parent',
   kind: 'definition',
   title: { type: 'i18n' as const, default_language: 'en', values: { en: 'Parent Entry', 'zh-CN': '父条目' } },
-  content: { snl: 'Ref(x)' },
+  content: { snl: 'Right(Ref(x), Ref(y))' },
   contribution_info: null,
   pointer: null
 };
@@ -30,6 +30,14 @@ const childEntry: EntryData = {
   content: {
     text: { type: 'i18n' as const, default_language: 'en', values: { en: 'English child body', 'zh-CN': '中文子条目正文' } }
   },
+  contribution_info: null,
+  pointer: null
+};
+const formulaEntry: EntryData = {
+  id: 'formula-child',
+  kind: 'definition',
+  title: 'Formula child',
+  content: { snl: 'Ref(z)' },
   contribution_info: null,
   pointer: null
 };
@@ -46,6 +54,8 @@ const kind: EntryKind = {
 const outline: OutlineNode[] = [{
   nodeId: 'parent-node', entry: parentEntry, kind, counterLabel: '1', children: [{
     nodeId: 'child-node', entry: childEntry, kind, counterLabel: '1.1', children: []
+  }, {
+    nodeId: 'formula-node', entry: formulaEntry, kind, counterLabel: '1.2', children: []
   }]
 }];
 
@@ -106,11 +116,12 @@ describe('Infoview HTML export variants', () => {
       slug: 'demo',
       title: 'Demo',
       entries: [
-        { id: 'entry-parent', title: parentEntry.title, hasContent: true, snl: 'Ref(x)' },
+        { id: 'entry-parent', title: parentEntry.title, hasContent: true, snl: 'Right(Ref(x), Ref(y))' },
         { id: 'child', title: childEntry.title, hasContent: true, snl: '@x' },
+        { id: 'formula-child', title: formulaEntry.title, hasContent: true, snl: 'Ref(z)' },
         { id: 'outside', title: 'Outside Library', hasContent: true }
       ],
-      entryRecords: [parentEntry, childEntry],
+      entryRecords: [parentEntry, childEntry, formulaEntry],
       entryKinds: [kind],
       relationships: [{
         id: 'rel-1', from: 'entry-parent', to: 'child', label: 'uses_context', metadata: null
@@ -123,6 +134,15 @@ describe('Infoview HTML export variants', () => {
           styles: [{
             style_name: 'default', tags: [],
             template: { mode: 'formula_inline', body: '#0' }
+          }]
+        },
+        Right: {
+          name: 'Right', description: 'Right-aligned block',
+          source: { entries: [], urls: [] },
+          kind: 'const', dynamic_arity: true, tags: [],
+          styles: [{
+            style_name: 'default', tags: [],
+            template: { mode: 'block', body: '#*', block_template_name: 'right' }
           }]
         }
       },
@@ -149,11 +169,16 @@ describe('Infoview HTML export variants', () => {
       `${variant.locale}:${variant.colorScheme}`, variant
     ]));
     expect((byKey.get('en:light') as { body: string }).body).toContain('Parent Entry');
+    for (const variant of byKey.values() as Iterable<{ body: string }>) {
+      expect(variant.body).toContain('snl-block-right');
+      expect(variant.body).toMatch(/text-align:\s*right/);
+    }
     expect((byKey.get('en:light') as { body: string }).body).toContain('data-src="outside"');
     expect((byKey.get('en:light') as { body: string }).body)
       .toContain('data-snl-keyboard-activation="true"');
     expect((byKey.get('zh-CN:light') as { body: string }).body).toContain('父条目');
     expect((byKey.get('en:light') as { body: string }).body).toContain('rgb(237, 244, 255)');
+    expect((byKey.get('en:light') as { body: string }).body).toMatch(/--snl-entry-stroke:\s*rgb\(18, 52, 86\)/);
     expect((byKey.get('en:dark') as { body: string }).body).toContain('rgb(26, 36, 51)');
     expect((byKey.get('en:light') as { popovers: Record<string, string> }).popovers.child)
       .toContain('English child body');

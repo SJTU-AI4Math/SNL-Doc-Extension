@@ -136,6 +136,15 @@ describe('harvestLibraryHtml', () => {
     expect(source.querySelector('button')).not.toBeNull();
     expect(source.querySelector('img')?.getAttribute('src')).toBe(`${BASE}/a.png`);
   });
+
+  it('projects the Entry stroke needed by script-free block hover feedback', () => {
+    const { html } = harvestLibraryHtml(
+      el('<section class="snl-entry-surface" style="border-left:5px solid rgb(18, 52, 86);background:rgb(237, 244, 255)">Entry</section>'),
+      BASE
+    );
+    const exported = el(html).querySelector<HTMLElement>('.snl-entry-surface')!;
+    expect(exported.style.getPropertyValue('--snl-entry-stroke')).toBe('rgb(18, 52, 86)');
+  });
 });
 
 describe('collapse structure survives the strip pass', () => {

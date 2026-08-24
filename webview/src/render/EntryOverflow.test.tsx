@@ -56,6 +56,12 @@ describe('EntrySurface horizontal overflow', () => {
     expect(entrySurfaceCss).toContain('::-webkit-scrollbar');
   });
 
+  it('preserves the renderer-owned fixed SVG canvas for local body scrolling', () => {
+    expect(entrySurfaceCss).toMatch(
+      /\[data-entry-body\]\s+\.snl-svg-template\s*\{[^}]*max-width:\s*none[^}]*flex-shrink:\s*0/s
+    );
+  });
+
   it('does not make the Entry body or SNL root a vertical scroll owner', () => {
     expect(entrySurfaceCss).toMatch(
       /\[data-entry-body\]\s*\{[^}]*overflow-x:\s*auto[^}]*overflow-y:\s*hidden/s

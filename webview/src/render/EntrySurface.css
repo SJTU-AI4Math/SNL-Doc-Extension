@@ -24,6 +24,13 @@
   -ms-overflow-style: none;
 }
 
+/* SVG templates own a fixed intrinsic canvas in Basics. Preserve that width
+   and let the Entry body above provide the narrow-host horizontal scroller. */
+.snl-entry-overflow-surface [data-entry-body] .snl-svg-template {
+  max-width: none;
+  flex-shrink: 0;
+}
+
 /* SNL-Basics 0.2.4 gives the root KaTeX panel horizontal overflow, which
    turns it into a two-axis clip and cuts the 1px semantic highlight shadow at
    the panel edge. The outer Entry body owns horizontal containment; keep the

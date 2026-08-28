@@ -42,13 +42,21 @@ describe('identity-scoped editor draft persistence', () => {
       type: 'context', mode: 'edit', slug: 'analysis', libraryRevision: 'library-rev-original',
       existing: { slug: 'analysis', title: 'Host title' }
     });
+    send({
+      type: 'graph', graphRevision: 'graph-rev-original', nodes: [], relationships: [],
+      entries: [], kinds: [], metricMacroSources: {}, metricThresholds: {}, warnings: []
+    });
+    send({ type: 'countersLoaded', countersRevision: 'counter-rev-original', counters: [] });
     const title = await first.findByLabelText('Library title');
     fireEvent.change(title, { target: { value: 'Unsaved library title' } });
 
     const key = editorDraftKey('library', 'edit', 'analysis');
     await waitFor(() => expect(loadDraft(api, key)).toEqual({
       title: 'Unsaved library title',
-      expectedRevision: 'library-rev-original'
+      graph: { nodes: [], relationships: [] }, counters: [],
+      expectedRevisions: {
+        meta: 'library-rev-original', graph: 'graph-rev-original', counters: 'counter-rev-original'
+      }
     }));
     first.unmount();
 
@@ -57,16 +65,27 @@ describe('identity-scoped editor draft persistence', () => {
       type: 'context', mode: 'edit', slug: 'analysis', libraryRevision: 'library-rev-new',
       existing: { slug: 'analysis', title: 'Refreshed host title' }
     });
+    send({
+      type: 'graph', graphRevision: 'graph-rev-new', nodes: [], relationships: [],
+      entries: [], kinds: [], metricMacroSources: {}, metricThresholds: {}, warnings: []
+    });
+    send({ type: 'countersLoaded', countersRevision: 'counter-rev-new', counters: [] });
     const restored = await second.findByLabelText('Library title') as HTMLInputElement;
     await waitFor(() => expect(restored.value).toBe('Unsaved library title'));
-    fireEvent.click(second.getByRole('button', { name: 'Update Title' }));
+    fireEvent.click(second.getByRole('button', { name: 'Save Changes' }));
 
-    await waitFor(() => expect(submission()).toMatchObject({
+    await waitFor(() => expect(submission('saveLibraryDraft')).toMatchObject({
       title: 'Unsaved library title',
-      expectedRevision: 'library-rev-original'
+      expectedRevisions: {
+        meta: 'library-rev-original', graph: 'graph-rev-original', counters: 'counter-rev-original'
+      }
     }));
     expect(loadDraft(api, key)).toBeTruthy();
-    send({ type: 'updated', slug: 'analysis', title: 'Unsaved library title' });
+    const requestId = submission('saveLibraryDraft')?.requestId;
+    send({
+      type: 'libraryDraftSaved', requestId, slug: 'analysis', title: 'Unsaved library title',
+      revisions: { meta: 'library-rev-saved', graph: 'graph-rev-saved', counters: 'counter-rev-saved' }
+    });
     await waitFor(() => expect(loadDraft(api, key)).toBeUndefined());
   });
 

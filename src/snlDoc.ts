@@ -317,7 +317,8 @@ async function writeWorkspaceFile(
   bytes: Uint8Array,
   expectedOriginal: unknown | typeof NO_EXPECTED_SNAPSHOT = NO_EXPECTED_SNAPSHOT,
   validateTopology = true,
-  validateEntityOutput = true
+  validateEntityOutput = true,
+  onWriteAttempt?: () => void
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `write ${uri.fsPath}`, async () => {
     const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
@@ -365,6 +366,7 @@ async function writeWorkspaceFile(
         assertCurrentEntityFile(relative, nextEntity);
       }
     }
+    onWriteAttempt?.();
     await vscode.workspace.fs.writeFile(uri, bytes);
   });
 }
@@ -373,12 +375,14 @@ async function deleteWorkspaceJsonFile(
   workspaceRoot: vscode.Uri,
   uri: vscode.Uri,
   expectedOriginal: unknown,
-  validateTopology = true
+  validateTopology = true,
+  onDeleteAttempt?: () => void
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, `delete ${uri.fsPath}`, async () => {
     await assertWorkspaceWritableOnDisk(workspaceRoot, validateTopology);
     const current = await readJson<unknown>(uri);
     assertJsonSnapshotUnchanged(expectedOriginal, current, uri.fsPath);
+    onDeleteAttempt?.();
     await vscode.workspace.fs.delete(uri, { recursive: false, useTrash: false });
   });
 }
@@ -405,31 +409,69 @@ async function applyJsonFileOperations(
 ): Promise<void> {
   await withExtensionWriterLock(workspaceRoot, purpose, async () => {
     await assertWorkspaceWritableOnDisk(workspaceRoot);
-    const completed: JsonFileOperation[] = [];
+    const attempted: Array<{
+      operation: JsonFileOperation;
+      completed: boolean;
+      ioStarted: boolean;
+      originalBytes: Uint8Array | null;
+    }> = [];
     try {
       for (const operation of operations) {
+        const originalBytes = operation.expected === null
+          ? null
+          : new Uint8Array(await vscode.workspace.fs.readFile(operation.uri));
+        const attempt = { operation, completed: false, ioStarted: false, originalBytes };
+        attempted.push(attempt);
         if (operation.kind === 'write') {
           await writeWorkspaceFile(
             workspaceRoot,
             operation.uri,
             jsonBytes(operation.value),
             operation.expected,
-            false
+            false,
+            true,
+            () => { attempt.ioStarted = true; }
           );
         } else {
           await deleteWorkspaceJsonFile(
             workspaceRoot,
             operation.uri,
             operation.expected,
-            false
+            false,
+            () => { attempt.ioStarted = true; }
           );
         }
-        completed.push(operation);
+        attempt.completed = true;
       }
     } catch (error) {
       const rollbackErrors: string[] = [];
-      for (const operation of completed.reverse()) {
+      for (const { operation, completed, ioStarted, originalBytes } of attempted.reverse()) {
         try {
+          if (!completed) {
+            if (!ioStarted) continue;
+            // The CAS gate completed and filesystem I/O started. A backend may
+            // then truncate/persist bytes before rejecting, so compensate with
+            // the exact pre-write bytes while still under the writer lock.
+            const librariesPath = librariesDirUri(workspaceRoot).path.replace(/\/+$/, '');
+            if (operation.uri.path === librariesPath || operation.uri.path.startsWith(`${librariesPath}/`)) {
+              await assertOwnedLibraryPath(workspaceRoot, operation.uri);
+            }
+            if (originalBytes === null) {
+              if (await exists(operation.uri)) {
+                await vscode.workspace.fs.delete(operation.uri, { recursive: false, useTrash: false });
+              }
+            } else {
+              await writeWorkspaceFile(
+                workspaceRoot,
+                operation.uri,
+                originalBytes,
+                NO_EXPECTED_SNAPSHOT,
+                false,
+                false
+              );
+            }
+            continue;
+          }
           if (operation.kind === 'write') {
             if (operation.expected === null) {
               await deleteWorkspaceJsonFile(
@@ -442,7 +484,7 @@ async function applyJsonFileOperations(
               await writeWorkspaceFile(
                 workspaceRoot,
                 operation.uri,
-                jsonBytes(operation.expected),
+                originalBytes!,
                 operation.value,
                 false,
                 false
@@ -452,7 +494,7 @@ async function applyJsonFileOperations(
             await writeWorkspaceFile(
               workspaceRoot,
               operation.uri,
-              jsonBytes(operation.expected),
+              originalBytes!,
               null,
               false,
               false
@@ -4720,6 +4762,239 @@ export async function updateLibrary(
   return { status: 'updated', slug: targetSlug, title };
 }
 
+export interface LibraryDraftUpdateInput {
+  title: string;
+  graph: {
+    nodes: GraphNodeDto[];
+    relationships: Array<GraphRelationshipDto & { _draftKey?: string }>;
+  };
+  counters: CounterNode[];
+  expectedRevisions: { meta?: string; graph?: string; counters?: string };
+}
+
+export type UpdateLibraryDraftResult =
+  | { status: 'updated'; slug: string; title: string; revisions: { meta: string; graph: string; counters: string } }
+  | { status: 'conflict'; id: string }
+  | { status: 'notFound'; id: string }
+  | { status: 'noSnlDoc' }
+  | { status: 'invalid'; message: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Commit the complete editable Library draft under one writer lock. The three
+ * revisions are checked together before any write, and the existing raw
+ * envelopes are used as merge bases so webview DTOs cannot erase extensions.
+ */
+export async function updateLibraryDraft(
+  workspaceRoot: vscode.Uri,
+  slug: string,
+  input: LibraryDraftUpdateInput
+): Promise<UpdateLibraryDraftResult> {
+  if (!(await exists(snlRootUri(workspaceRoot)))) return { status: 'noSnlDoc' };
+  const targetSlug = (slug ?? '').trim();
+  if (!targetSlug || targetSlug !== slug || slugify(targetSlug) !== targetSlug) {
+    return { status: 'invalid', message: 'slug must be one canonical Library path segment' };
+  }
+  const title = typeof input?.title === 'string' ? input.title.trim() : '';
+  if (!title) return { status: 'invalid', message: 'title is required' };
+
+  return withExtensionWriterLock(workspaceRoot, 'save complete Library draft', async () => {
+    if (!(await exists(libraryDirUri(workspaceRoot, targetSlug)))) {
+      return { status: 'notFound', id: targetSlug } as const;
+    }
+    try {
+      const metaUri = libraryMetaUri(workspaceRoot, targetSlug);
+      const graphUri = libraryGraphUri(workspaceRoot, targetSlug);
+      const countersUri = libraryCountersUri(workspaceRoot, targetSlug);
+      const readOptionalJson = async (uri: vscode.Uri): Promise<unknown | null> => {
+        try {
+          return await readJson<unknown>(uri);
+        } catch (error) {
+          const code = error && typeof error === 'object' && 'code' in error
+            ? (error as { code?: unknown }).code
+            : undefined;
+          if (code === 'FileNotFound' || code === 'ENOENT') return null;
+          throw error;
+        }
+      };
+      const [rawMeta, rawGraphValue, rawCountersValue] = await Promise.all([
+        readJson<unknown>(metaUri), readOptionalJson(graphUri), readOptionalJson(countersUri)
+      ]);
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        !!value && typeof value === 'object' && !Array.isArray(value);
+      const hasOnlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean => {
+        const keys = new Set(allowed);
+        return Object.keys(value).every((key) => keys.has(key));
+      };
+      if (!isRecord(input) || !hasOnlyKeys(input, ['title', 'graph', 'counters', 'expectedRevisions']) ||
+          !isRecord(input.graph) || !hasOnlyKeys(input.graph, ['nodes', 'relationships']) ||
+          !isRecord(input.expectedRevisions) ||
+          !hasOnlyKeys(input.expectedRevisions, ['meta', 'graph', 'counters'])) {
+        return { status: 'invalid', message: 'Complete Library draft payload has unknown or malformed fields.' } as const;
+      }
+      if (!isRecord(rawMeta) || (rawGraphValue !== null && !isRecord(rawGraphValue)) ||
+          (rawCountersValue !== null && !isRecord(rawCountersValue))) {
+        return { status: 'invalid', message: 'Library meta, graph, and counters must be JSON objects.' } as const;
+      }
+      const rawGraph = rawGraphValue ?? { nodes: [], relationships: [] };
+      const rawCounters = rawCountersValue ?? { counters: [] };
+      const expected = input.expectedRevisions ?? {};
+      if (typeof expected.meta !== 'string' || typeof expected.graph !== 'string' ||
+          typeof expected.counters !== 'string' ||
+          entityRevision(rawMeta) !== expected.meta || entityRevision(rawGraphValue) !== expected.graph ||
+          entityRevision(rawCountersValue) !== expected.counters) {
+        return { status: 'conflict', id: targetSlug } as const;
+      }
+      if (!input.graph || !Array.isArray(input.graph.nodes) || !Array.isArray(input.graph.relationships) ||
+          !Array.isArray(input.counters)) {
+        return { status: 'invalid', message: 'Complete graph and counter arrays are required.' } as const;
+      }
+      if (!Array.isArray(rawGraph.nodes) || !Array.isArray(rawGraph.relationships) ||
+          !Array.isArray(rawCounters.counters)) {
+        return { status: 'invalid', message: 'Persisted Library graph or counters are malformed.' } as const;
+      }
+      const rawGraphRelationships = rawGraph.relationships;
+
+      const nodeIds = new Set<string>();
+      for (const node of input.graph.nodes) {
+        if (!isRecord(node) || !hasOnlyKeys(node, ['id', 'label', 'props']) ||
+            typeof node.id !== 'string' || !node.id || nodeIds.has(node.id) ||
+            typeof node.label !== 'string' || !node.label || !isRecord(node.props) ||
+            !hasOnlyKeys(node.props, ['entryId', 'counterId']) ||
+            (node.props.entryId !== undefined && typeof node.props.entryId !== 'string') ||
+            (node.props.counterId !== undefined && typeof node.props.counterId !== 'string')) {
+          return { status: 'invalid', message: 'Library graph contains a malformed, duplicate, or open-ended node.' } as const;
+        }
+        nodeIds.add(node.id);
+      }
+      const branchParent = new Map<string, string>();
+      const claimedRelationshipKeys = new Set<string>();
+      for (const relationship of input.graph.relationships) {
+        if (!isRecord(relationship) ||
+            !hasOnlyKeys(relationship, ['from', 'to', 'label', '_draftKey']) ||
+            typeof relationship.from !== 'string' ||
+            typeof relationship.to !== 'string' || typeof relationship.label !== 'string' ||
+            !nodeIds.has(relationship.from) || !nodeIds.has(relationship.to)) {
+          return { status: 'invalid', message: 'Library graph contains a malformed or dangling relationship.' } as const;
+        }
+        if (relationship._draftKey !== undefined) {
+          if (!/^(0|[1-9]\d*)$/u.test(relationship._draftKey) ||
+              Number(relationship._draftKey) >= rawGraphRelationships.length ||
+              claimedRelationshipKeys.has(relationship._draftKey)) {
+            return { status: 'invalid', message: 'Library graph contains an invalid or duplicate draft relationship identity.' } as const;
+          }
+          claimedRelationshipKeys.add(relationship._draftKey);
+        }
+        if (relationship.label === 'branch') {
+          if (relationship.from === relationship.to || branchParent.has(relationship.to)) {
+            return { status: 'invalid', message: 'Library branch graph must be a forest.' } as const;
+          }
+          branchParent.set(relationship.to, relationship.from);
+        }
+      }
+      for (const id of nodeIds) {
+        const seen = new Set<string>();
+        let cursor: string | undefined = id;
+        while (cursor !== undefined) {
+          if (seen.has(cursor)) return { status: 'invalid', message: 'Library branch graph contains a cycle.' } as const;
+          seen.add(cursor);
+          cursor = branchParent.get(cursor);
+        }
+      }
+
+      const counterIds = new Set<string>();
+      const validateCounters = (nodes: CounterNode[]): boolean => {
+        for (const node of nodes) {
+          if (!isRecord(node) || !hasOnlyKeys(node, ['id', 'name', 'numbering', 'children']) ||
+              typeof node.id !== 'string' || !node.id || counterIds.has(node.id) ||
+              typeof node.name !== 'string' || typeof node.numbering !== 'string' || !Array.isArray(node.children)) return false;
+          counterIds.add(node.id);
+          if (!validateCounters(node.children)) return false;
+        }
+        return true;
+      };
+      if (!validateCounters(input.counters)) {
+        return { status: 'invalid', message: 'Library counters contain a malformed or duplicate node.' } as const;
+      }
+      for (const node of input.graph.nodes) {
+        const counterId = node.props.counterId;
+        if (counterId !== undefined && (typeof counterId !== 'string' || !counterIds.has(counterId))) {
+          return { status: 'invalid', message: `Graph node ${JSON.stringify(node.id)} references an unknown counterId.` } as const;
+        }
+      }
+
+      const rawNodes = new Map<string, Record<string, unknown>>();
+      for (const value of rawGraph.nodes) if (isRecord(value) && typeof value.id === 'string') rawNodes.set(value.id, value);
+      const rawRelationships = new Map<string, Record<string, unknown>[]>();
+      for (const value of rawGraphRelationships) {
+        if (!isRecord(value)) continue;
+        const key = `${String(value.from)}\u0000${String(value.to)}\u0000${String(value.label)}`;
+        const bucket = rawRelationships.get(key) ?? [];
+        bucket.push(value); rawRelationships.set(key, bucket);
+      }
+      const nextGraph = {
+        ...rawGraph,
+        nodes: input.graph.nodes.map((node) => {
+          const rawNode = rawNodes.get(node.id) ?? {};
+          const rawProps = isRecord(rawNode.props) ? rawNode.props : {};
+          const { entryId: _rawEntryId, counterId: _rawCounterId, ...rawPropExtensions } = rawProps;
+          return {
+            ...rawNode,
+            id: node.id,
+            label: node.label,
+            props: { ...rawPropExtensions, ...node.props }
+          };
+        }),
+        relationships: input.graph.relationships.map((relationship) => {
+          const key = `${relationship.from}\u0000${relationship.to}\u0000${relationship.label}`;
+          const identified = relationship._draftKey === undefined
+            ? undefined
+            : rawGraphRelationships[Number(relationship._draftKey)];
+          const original = isRecord(identified)
+            ? identified
+            : rawRelationships.get(key)?.shift();
+          return {
+            ...(original ?? {}),
+            from: relationship.from,
+            to: relationship.to,
+            label: relationship.label
+          };
+        })
+      };
+
+      const rawCounterById = new Map<string, Record<string, unknown>>();
+      const collectRawCounters = (values: unknown[]): void => {
+        for (const value of values) if (isRecord(value)) {
+          if (typeof value.id === 'string') rawCounterById.set(value.id, value);
+          if (Array.isArray(value.children)) collectRawCounters(value.children);
+        }
+      };
+      collectRawCounters(rawCounters.counters);
+      const mergeCounter = (node: CounterNode): Record<string, unknown> => ({
+        ...(rawCounterById.get(node.id) ?? {}), id: node.id, name: node.name,
+        numbering: node.numbering, children: node.children.map(mergeCounter)
+      });
+      const nextCounters = { ...rawCounters, counters: input.counters.map(mergeCounter) };
+      const nextMeta = { ...rawMeta, title };
+
+      await applyJsonFileOperations(workspaceRoot, 'commit complete Library draft', [
+        { kind: 'write', uri: metaUri, value: nextMeta, expected: rawMeta },
+        { kind: 'write', uri: graphUri, value: nextGraph, expected: rawGraphValue },
+        { kind: 'write', uri: countersUri, value: nextCounters, expected: rawCountersValue }
+      ]);
+      return {
+        status: 'updated', slug: targetSlug, title,
+        revisions: {
+          meta: entityRevision(nextMeta), graph: entityRevision(nextGraph),
+          counters: entityRevision(nextCounters)
+        }
+      } as const;
+    } catch (error) {
+      return { status: 'error', message: error instanceof Error ? error.message : String(error) } as const;
+    }
+  });
+}
+
 export type UpdateEntryResult = UpdateResult<
   { status: 'updated'; id: string; revision: string },
   { status: 'unknownKind'; kind: string }
@@ -5732,7 +6007,10 @@ export interface GraphRelationshipDto {
  *  skipped and named in `warnings`. */
 export interface ReadLibraryGraphResult {
   graph: { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] };
+  /** Raw array positions corresponding to the normalized relationships. */
+  relationshipRawIndices: number[];
   warnings: string[];
+  revision: string;
 }
 
 /**
@@ -5793,7 +6071,12 @@ export async function readLibraryGraph(
   if (!raw || typeof raw !== 'object') {
     return {
       status: 'ok',
-      result: { graph: { nodes: [], relationships: [] }, warnings: ['graph file is not a JSON object'] }
+      result: {
+        graph: { nodes: [], relationships: [] },
+        relationshipRawIndices: [],
+        warnings: ['graph file is not a JSON object'],
+        revision: entityRevision(raw)
+      }
     };
   }
   const rawObj = raw as Record<string, unknown>;
@@ -5873,6 +6156,7 @@ export async function readLibraryGraph(
   }
 
   const relationships: GraphRelationshipDto[] = [];
+  const relationshipRawIndices: number[] = [];
   for (let i = 0; i < rawRels.length; i++) {
     const r = rawRels[i];
     if (!r || typeof r !== 'object') {
@@ -5901,11 +6185,15 @@ export async function readLibraryGraph(
       );
     }
     relationships.push({ from, to, label });
+    relationshipRawIndices.push(i);
   }
 
   return {
     status: 'ok',
-    result: { graph: { nodes, relationships }, warnings }
+    result: {
+      graph: { nodes, relationships }, relationshipRawIndices,
+      warnings, revision: entityRevision(raw)
+    }
   };
 }
 
@@ -6224,25 +6512,34 @@ function normalizeCounterNode(raw: unknown): CounterNode | null {
  * Missing file / malformed JSON / wrong shape all degrade to `[]` (never
  * throws) — counters are an optional sidecar.
  */
-export async function readLibraryCounters(
+export async function readLibraryCountersSnapshot(
   workspaceRoot: vscode.Uri,
   slug: string
-): Promise<CounterNode[]> {
+): Promise<{ counters: CounterNode[]; revision: string }> {
   let raw: unknown;
   try {
     raw = await readJson<unknown>(libraryCountersUri(workspaceRoot, slug));
   } catch {
-    return [];
+    return { counters: [], revision: entityRevision(null) };
   }
-  if (!raw || typeof raw !== 'object') return [];
-  const rawCounters = (raw as Record<string, unknown>).counters;
-  if (!Array.isArray(rawCounters)) return [];
   const out: CounterNode[] = [];
-  for (const c of rawCounters) {
-    const node = normalizeCounterNode(c);
-    if (node) out.push(node);
+  if (raw && typeof raw === 'object') {
+    const rawCounters = (raw as Record<string, unknown>).counters;
+    if (Array.isArray(rawCounters)) {
+      for (const value of rawCounters) {
+        const node = normalizeCounterNode(value);
+        if (node) out.push(node);
+      }
+    }
   }
-  return out;
+  return { counters: out, revision: entityRevision(raw) };
+}
+
+export async function readLibraryCounters(
+  workspaceRoot: vscode.Uri,
+  slug: string
+): Promise<CounterNode[]> {
+  return (await readLibraryCountersSnapshot(workspaceRoot, slug)).counters;
 }
 
 /**

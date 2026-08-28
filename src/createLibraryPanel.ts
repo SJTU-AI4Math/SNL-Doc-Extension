@@ -9,11 +9,12 @@ import {
   readAllMacros,
   readEntries,
   readEntryKinds,
-  readLibraryCounters,
+  readLibraryCountersSnapshot,
   readLibraryGraph,
   readLibraryMeta,
   updateLibraryGraphNodeEntryId,
   updateLibrary,
+  updateLibraryDraft,
   wrapLibraryGraphNodeWithParent,
   mutateLibraryGraph,
   type CounterNode,
@@ -73,7 +74,8 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     updateNodeEntryInvalid: 'Entry ID must be non-empty, have no surrounding whitespace, and contain no control characters.',
     updateNodeEntryNotFound: 'Outline node "{node}" no longer exists.',
     updateNodeEntryConflict: 'Outline node "{node}" changed on disk. Refresh and retry.',
-    unknownGraphOp: 'unknown graphOp: {op}'
+    unknownGraphOp: 'unknown graphOp: {op}',
+    invalidLibraryDraftSave: 'The complete Library draft save request is malformed or targets another Library.'
   },
   {
     createTitle: 'SNL 创建库',
@@ -118,7 +120,8 @@ const LIBRARY_HOST_MESSAGES = defineHostMessages(
     updateNodeEntryInvalid: '条目 ID 不能为空、不能包含首尾空白或控制字符。',
     updateNodeEntryNotFound: '大纲节点“{node}”已不存在。',
     updateNodeEntryConflict: '大纲节点“{node}”已在磁盘上变更。请刷新后重试。',
-    unknownGraphOp: '未知 graphOp：{op}'
+    unknownGraphOp: '未知 graphOp：{op}',
+    invalidLibraryDraftSave: '完整文库草稿保存请求格式错误，或指向了另一个文库。'
   }
 );
 
@@ -390,8 +393,20 @@ export class CreateLibraryPanel {
       let relationships: GraphRelationshipDto[] = [];
       let warnings: string[] = [];
       if (gResult.status === 'ok') {
-        nodes = gResult.result.graph.nodes;
-        relationships = gResult.result.graph.relationships;
+        nodes = gResult.result.graph.nodes.map((node) => ({
+          id: node.id,
+          label: node.label,
+          props: {
+            ...(typeof node.props.entryId === 'string' ? { entryId: node.props.entryId } : {}),
+            ...(typeof node.props.counterId === 'string' ? { counterId: node.props.counterId } : {})
+          }
+        }));
+        relationships = gResult.result.graph.relationships.map((relationship, index) => {
+          const rawIndex = gResult.result.relationshipRawIndices?.[index];
+          return rawIndex === undefined
+            ? relationship
+            : { ...relationship, _draftKey: String(rawIndex) };
+        });
         warnings = gResult.result.warnings;
       } else if (gResult.status === 'noFile') {
         // No graph.json → treat as empty graph so the outline editor can
@@ -422,7 +437,10 @@ export class CreateLibraryPanel {
         kinds,
         metricMacroSources,
         metricThresholds: readEntryMetricThresholds(),
-        warnings
+        warnings,
+        graphRevision: gResult.status === 'ok'
+          ? gResult.result.revision
+          : entityRevision(null)
       });
     } catch (err) {
       if (isStale()) return;
@@ -448,9 +466,7 @@ export class CreateLibraryPanel {
     if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
-    const msg = message as
-      | { type?: string; title?: string; op?: unknown; expectedRevision?: string }
-      | undefined;
+    const msg = message as { type?: string; [key: string]: unknown } | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;
     }
@@ -468,6 +484,56 @@ export class CreateLibraryPanel {
     }
     if (msg.type === 'counterOp') {
       await this.enqueueMutation(() => this.handleCounterOp(msg.op));
+      return;
+    }
+    if (msg.type === 'saveLibraryDraft') {
+      await this.enqueueMutation(async () => {
+        const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+        const requestedSlug = typeof msg.slug === 'string' ? msg.slug : '';
+        const root = firstWorkspaceFolder();
+        if (!requestId || this.mode !== 'edit' || requestedSlug !== this.slug || !root ||
+            typeof msg.title !== 'string' || !msg.graph || typeof msg.graph !== 'object' ||
+            !Array.isArray(msg.counters) || !msg.expectedRevisions ||
+            typeof msg.expectedRevisions !== 'object') {
+          void this.panel.webview.postMessage({
+            type: 'libraryDraftSaveError',
+            requestId,
+            message: libraryT()('invalidLibraryDraftSave')
+          });
+          return;
+        }
+        const result = await updateLibraryDraft(root, this.slug, {
+          title: msg.title,
+          graph: msg.graph as { nodes: GraphNodeDto[]; relationships: GraphRelationshipDto[] },
+          counters: msg.counters as CounterNode[],
+          expectedRevisions: msg.expectedRevisions as {
+            meta?: string; graph?: string; counters?: string;
+          }
+        });
+        if (result.status === 'updated') {
+          vscode.window.showInformationMessage(
+            libraryT()('libraryUpdated', { slug: result.slug, title: result.title })
+          );
+          await this.panel.webview.postMessage({
+            type: 'libraryDraftSaved',
+            requestId,
+            slug: result.slug,
+            title: result.title,
+            revisions: result.revisions
+          });
+          return;
+        }
+        const messageText = result.status === 'conflict'
+          ? libraryT()('libraryConflict', { slug: result.id })
+          : result.status === 'notFound'
+            ? libraryT()('libraryNotFound', { slug: result.id })
+            : result.status === 'noSnlDoc'
+              ? libraryT()('noSnlDoc')
+              : result.message;
+        void this.panel.webview.postMessage({
+          type: 'libraryDraftSaveError', requestId, message: messageText
+        });
+      });
       return;
     }
     if (msg.type === 'openCreateEntry') {
@@ -519,7 +585,7 @@ export class CreateLibraryPanel {
           workspaceRoot,
           this.slug,
           { title },
-          msg.expectedRevision
+          typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined
         );
         switch (result.status) {
           case 'updated':
@@ -1176,13 +1242,17 @@ export class CreateLibraryPanel {
     const root = firstWorkspaceFolder();
     if (!root) return;
     try {
-      const counters = await readLibraryCounters(root, this.slug);
+      const snapshot = await readLibraryCountersSnapshot(root, this.slug);
       if (isStale()) return;
-      void this.panel.webview.postMessage({ type, counters });
+      void this.panel.webview.postMessage({
+        type,
+        counters: snapshot.counters,
+        countersRevision: snapshot.revision
+      });
     } catch {
-      // readLibraryCounters already tolerates missing/malformed files by
-      // returning []; a throw here would be an unexpected fs error — swallow
-      // so a transient read failure doesn't wedge the panel.
+      // Snapshot reads tolerate a missing optional counter sidecar. A throw here
+      // is an unexpected filesystem or malformed-JSON failure; keep the panel
+      // alive and let the next watcher/manual refresh retry.
     }
   }
 

@@ -79,14 +79,8 @@ describe('Create Library feedback', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand counters' }));
     const counterRow = screen.getByDisplayValue('theorem').closest<HTMLElement>('.snl-outline-row')!;
     fireEvent.click(within(counterRow).getByRole('button', { name: 'Add parent node' }));
-    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
-      type: 'counterOp',
-      op: {
-        op: 'wrapParent',
-        id: 'counter-1',
-        seed: { name: 'counter', numbering: '1' }
-      }
-    }));
+    await waitFor(() => expect(screen.getByDisplayValue('counter')).toBeTruthy());
+    expect(postMessage.mock.calls.some(([message]) => message?.type === 'counterOp')).toBe(false);
 
     const entryInput = screen.getByRole('combobox', { name: 'Entry id' });
     const entryRow = entryInput.closest<HTMLElement>('.snl-outline-row')!;
@@ -157,7 +151,8 @@ describe('Create Library feedback', () => {
     expect(screen.getByRole('heading', { name: 'Edit Library' })).toBeTruthy();
     expect(screen.getByDisplayValue('real-analysis')).toBeTruthy();
     expect(screen.getByDisplayValue('Real Analysis')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Update Title' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Update Title' })).toBeNull();
   });
 
   it('clears both the completed create draft and the destination edit draft', async () => {
@@ -230,18 +225,8 @@ describe('Create Library feedback', () => {
     )).toBe(false);
     fireEvent.keyDown(entryId, { key: 'Enter' });
 
-    expect(postMessage).toHaveBeenCalledWith({
-      type: 'graphOp',
-      op: {
-        op: 'setNodeEntryId',
-        nodeId: 'n_1',
-        expectedEntryId: 'entry-one',
-        entryId: 'entry-two'
-      }
-    });
-    expect(postMessage.mock.calls.filter(([message]) =>
-      message?.type === 'graphOp' && message?.op?.op === 'setNodeEntryId'
-    )).toHaveLength(1);
+    expect(entryId.value).toBe('entry-two');
+    expect(postMessage.mock.calls.filter(([message]) => message?.type === 'graphOp')).toHaveLength(0);
     expect(postMessage.mock.calls.some(([message]) =>
       message?.type === 'graphOp' && message?.op?.op === 'renameNode'
     )).toBe(false);
@@ -309,12 +294,9 @@ describe('Create Library feedback', () => {
     fireEvent.mouseEnter(counter);
     const counterSelect = within(counter).getByRole('combobox', { name: 'Counter' });
     fireEvent.change(counterSelect, { target: { value: 'counter-alt' } });
-    expect(postMessage).toHaveBeenCalledWith({
-      type: 'graphOp',
-      op: { op: 'updateNodeProps', nodeId: 'n_1', counterId: 'counter-alt' }
-    });
+    expect(postMessage.mock.calls.some(([message]) => message?.type === 'graphOp')).toBe(false);
     fireEvent.mouseLeave(counter);
-    expect(within(counter).getByText('【1.2.3】')).not.toBeNull();
+    expect(within(counter).getByText('【I】')).not.toBeNull();
 
     expect(counter.tabIndex).toBe(0);
     fireEvent.focus(counter);
@@ -322,7 +304,7 @@ describe('Create Library feedback', () => {
     fireEvent.mouseLeave(counter);
     expect(within(counter).getByRole('combobox', { name: 'Counter' })).toBe(keyboardSelect);
     fireEvent.blur(keyboardSelect, { relatedTarget: null });
-    expect(within(counter).getByText('【1.2.3】')).not.toBeNull();
+    expect(within(counter).getByText('【I】')).not.toBeNull();
 
     fireEvent.pointerDown(counter, { pointerType: 'touch' });
     fireEvent.click(counter);

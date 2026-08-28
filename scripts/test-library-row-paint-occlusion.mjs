@@ -83,7 +83,7 @@ const fixture = {
     libraryRevision: 'probe-revision', existing: { slug: 'paint-probe', title: 'Paint Probe' }
   },
   graph: {
-    type: 'graph', nodes, relationships, entries,
+    type: 'graph', graphRevision: 'probe-graph-revision', nodes, relationships, entries,
     kinds: [{
       id: 'definition', name: localized('Definition'),
       description: localized('Definition kind'), defaultCounterName: 'section'
@@ -94,6 +94,7 @@ const fixture = {
   },
   counters: {
     type: 'countersLoaded',
+    countersRevision: 'probe-counters-revision',
     counters: [{ id: 'counter-1', name: 'section', numbering: '1', children: [] }]
   }
 };
@@ -233,7 +234,10 @@ await page.call('Log.enable');
 
 async function evaluate(expression) {
   const result = await page.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? 'browser evaluation failed');
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.exception?.description ??
+      result.exceptionDetails.text ?? 'browser evaluation failed');
+  }
   return result.result.value;
 }
 async function waitFor(expression) {
@@ -366,6 +370,54 @@ function assert(condition, message, value) {
 
 try {
   await waitFor(`document.querySelectorAll('.snl-library-outline-row').length >= 3`);
+  const saveEvidenceStart = await evaluate(`(() => {
+    const mutationTypes = new Set(['update', 'graphOp', 'counterOp', 'saveLibraryDraft']);
+    const before = window.__snlPosted.filter((message) => mutationTypes.has(message?.type));
+    const headings = [...document.querySelectorAll('h2')];
+    const outline = headings.find((heading) => heading.textContent?.trim() === 'Outline');
+    const save = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Save Changes');
+    const updateTitle = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Update Title');
+    const title = document.querySelector('#snl-library-title');
+    const expandCounters = document.querySelector('button[aria-label="Expand counters"]');
+    const outdent = document.querySelectorAll('.snl-library-outline-row')[1]?.querySelector('button[aria-label="Outdent"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(title, 'Local Browser Draft');
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+    outdent.click();
+    expandCounters.click();
+    return {
+      beforeCount: before.length,
+      saveAfterOutline: Boolean(outline && save && (outline.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      updateTitlePresent: Boolean(updateTitle)
+    };
+  })()`);
+  await waitFor(`document.querySelector('input[aria-label="Counter name"]') !== null`);
+  const saveEvidence = await evaluate(`(() => {
+    const mutationTypes = new Set(['update', 'graphOp', 'counterOp', 'saveLibraryDraft']);
+    const counterName = document.querySelector('input[aria-label="Counter name"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(counterName, 'local-section');
+    counterName.dispatchEvent(new Event('input', { bubbles: true }));
+    const localMutations = window.__snlPosted.filter((message) => mutationTypes.has(message?.type));
+    const save = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Save Changes');
+    save.click();
+    return {
+      ...${JSON.stringify(saveEvidenceStart)},
+      localCount: localMutations.length,
+      after: window.__snlPosted.filter((message) => mutationTypes.has(message?.type)),
+      counterValue: counterName.value
+    };
+  })()`);
+  assert(saveEvidence.beforeCount === 0 && saveEvidence.localCount === 0,
+    'title, counter, and graph edits must remain local before Save', saveEvidence);
+  assert(saveEvidence.after.length === 1 && saveEvidence.after[0]?.type === 'saveLibraryDraft',
+    'Save must emit exactly one complete Library draft mutation', saveEvidence);
+  assert(saveEvidence.after[0].title === 'Local Browser Draft' &&
+    saveEvidence.after[0].counters?.[0]?.name === 'local-section' &&
+    saveEvidence.after[0].graph?.relationships?.length === relationships.length - 1,
+    'bulk save must contain all three locally edited surfaces', saveEvidence.after[0]);
+  assert(saveEvidence.saveAfterOutline && !saveEvidence.updateTitlePresent,
+    'the only save button must follow Outline with no Update Title action above', saveEvidence);
   const schemes = ['light', 'dark', 'high-contrast-light', 'high-contrast'];
   const matrix = [];
   for (const scheme of schemes) {
@@ -439,7 +491,7 @@ try {
   );
   assert(browserErrors.length === 0, 'production browser emitted errors', browserErrors);
   assert(matrix.length >= 21, 'realistic production matrix must retain at least 21 cases', matrix.length);
-  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryContentWidths: [959, 960, 961], coarse: true, artifactBuild }, null, 2));
+  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryContentWidths: [959, 960, 961], coarse: true, saveEvidence, artifactBuild }, null, 2));
 } finally {
   pageSocket.close();
   browserSocket.close();

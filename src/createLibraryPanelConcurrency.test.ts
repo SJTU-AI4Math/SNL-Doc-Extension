@@ -40,6 +40,10 @@ vi.mock('./snlDoc', () => ({
     return { status: 'ok', id };
   }),
   createLibrary: vi.fn(async () => createResult), entityRevision: vi.fn(() => 'revision'), updateLibrary: vi.fn(),
+  updateLibraryDraft: vi.fn(async (_root: unknown, slug: string, input: any) => ({
+    status: 'updated', slug, title: input.title,
+    revisions: { meta: 'meta-r2', graph: 'graph-r2', counters: 'counters-r2' }
+  })),
   writeLibraryCounters: vi.fn(async (_root: unknown, _slug: string, counters: any[]) => {
     operationCounters = structuredClone(counters);
   }),
@@ -99,6 +103,9 @@ vi.mock('./snlDoc', () => ({
   readLibraryCounters: vi.fn(() => operationCounterMode
     ? Promise.resolve(structuredClone(operationCounters))
     : deferred(counterReads)),
+  readLibraryCountersSnapshot: vi.fn(() => operationCounterMode
+    ? Promise.resolve({ counters: structuredClone(operationCounters), revision: 'counter-revision' })
+    : deferred(counterReads).then((counters) => ({ counters, revision: 'counter-revision' }))),
   mutateLibraryCounters: vi.fn(async (
     _root: unknown,
     _slug: string,
@@ -153,6 +160,33 @@ describe('CreateLibraryPanel refresh ordering', () => {
     workspaceRefresh = undefined;
   });
 
+  it('commits one complete Library draft and returns the correlated revisions', async () => {
+    const snlDoc = await import('./snlDoc');
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    const draft = {
+      type: 'saveLibraryDraft', requestId: 'save-1', slug: 'lib', title: 'Local title',
+      graph: { nodes: [], relationships: [] }, counters: [],
+      expectedRevisions: { meta: 'meta-r1', graph: 'graph-r1', counters: 'counters-r1' }
+    };
+
+    await panel.handleMessage(draft);
+
+    expect(snlDoc.updateLibraryDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/workspace' }),
+      'lib',
+      expect.objectContaining({
+        title: 'Local title', graph: draft.graph, counters: draft.counters,
+        expectedRevisions: draft.expectedRevisions
+      })
+    );
+    expect(posted).toContainEqual({
+      type: 'libraryDraftSaved', requestId: 'save-1', slug: 'lib', title: 'Local title',
+      revisions: { meta: 'meta-r2', graph: 'graph-r2', counters: 'counters-r2' }
+    });
+  });
+
   it('targets own Counter watcher events without reloading the full Library context', async () => {
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     const panel = {
@@ -203,6 +237,31 @@ describe('CreateLibraryPanel refresh ordering', () => {
     expect(posted.map((message) => message.type)).toEqual(['graph']);
   });
 
+  it('uses the raw relationship index supplied by the tolerant graph reader', async () => {
+    const { CreateLibraryPanel } = await import('./createLibraryPanel');
+    const posted: any[] = [];
+    const panel = panelHarness(CreateLibraryPanel.prototype, posted);
+    const pushing = panel.pushGraph();
+    await vi.waitFor(() => expect(graphReads).toHaveLength(1));
+    graphReads[0].resolve({
+      status: 'ok',
+      result: {
+        graph: {
+          nodes: [
+            { id: 'a', label: 'Entry', props: { entryId: 'a' } },
+            { id: 'b', label: 'Entry', props: { entryId: 'b' } }
+          ],
+          relationships: [{ from: 'a', to: 'b', label: 'reference' }]
+        },
+        relationshipRawIndices: [3], warnings: [], revision: 'graph-r1'
+      }
+    });
+    await pushing;
+    expect(posted[0].relationships).toEqual([
+      { from: 'a', to: 'b', label: 'reference', _draftKey: '3' }
+    ]);
+  });
+
   it('lets only the latest counter refresh publish', async () => {
     const { CreateLibraryPanel } = await import('./createLibraryPanel');
     const posted: any[] = [];
@@ -214,7 +273,9 @@ describe('CreateLibraryPanel refresh ordering', () => {
     await newer;
     counterReads[0].resolve([{ id: 'old' }]);
     await older;
-    expect(posted).toEqual([{ type: 'countersPushed', counters: [{ id: 'new' }] }]);
+    expect(posted).toEqual([{
+      type: 'countersPushed', counters: [{ id: 'new' }], countersRevision: 'counter-revision'
+    }]);
   });
 
   it('does not let a stale context cancel an independent counter refresh', async () => {
@@ -230,7 +291,9 @@ describe('CreateLibraryPanel refresh ordering', () => {
 
     counterReads[0].resolve([{ id: 'independent' }]);
     await independent;
-    expect(posted).toEqual([{ type: 'countersPushed', counters: [{ id: 'independent' }] }]);
+    expect(posted).toEqual([{
+      type: 'countersPushed', counters: [{ id: 'independent' }], countersRevision: 'counter-revision'
+    }]);
   });
 
   it('serializes rapid graph operations so both mutations survive', async () => {

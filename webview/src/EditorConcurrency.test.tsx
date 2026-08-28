@@ -22,6 +22,14 @@ function send(data: unknown): void {
   window.dispatchEvent(new MessageEvent('message', { data }));
 }
 
+function sendLibrarySidecars(graphRevision: string, countersRevision: string): void {
+  send({
+    type: 'graph', graphRevision, nodes: [], relationships: [], entries: [], kinds: [],
+    metricMacroSources: {}, metricThresholds: {}, warnings: []
+  });
+  send({ type: 'countersLoaded', countersRevision, counters: [] });
+}
+
 describe('editor optimistic concurrency', () => {
   it('preserves a dirty Relationship draft and its original revision', async () => {
     const view = render(<CreateRelationshipApp />);
@@ -55,6 +63,7 @@ describe('editor optimistic concurrency', () => {
       type: 'context', mode: 'edit', slug: 'logic', libraryRevision: 'revision-1',
       existing: { slug: 'logic', title: 'Logic' }
     });
+    sendLibrarySidecars('graph-1', 'counters-1');
     await waitFor(() => expect(
       (view.getByLabelText('Library title') as HTMLInputElement).value
     ).toBe('Logic'));
@@ -66,9 +75,10 @@ describe('editor optimistic concurrency', () => {
     });
     expect((view.getByLabelText('Library title') as HTMLInputElement).value)
       .toBe('External library');
-    fireEvent.click(view.getByRole('button', { name: 'Update Title' }));
+    fireEvent.click(view.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
-      type: 'update', title: 'External library', expectedRevision: 'revision-2'
+      type: 'saveLibraryDraft', title: 'External library',
+      expectedRevisions: { meta: 'revision-2', graph: 'graph-1', counters: 'counters-1' }
     })));
   });
 
@@ -78,6 +88,7 @@ describe('editor optimistic concurrency', () => {
       type: 'context', mode: 'edit', slug: 'logic', libraryRevision: 'revision-1',
       existing: { slug: 'logic', title: 'Logic' }
     });
+    sendLibrarySidecars('graph-1', 'counters-1');
     await waitFor(() => expect(
       (view.getByLabelText('Library title') as HTMLInputElement).value
     ).toBe('Logic'));
@@ -90,9 +101,10 @@ describe('editor optimistic concurrency', () => {
       });
     });
     expect(title.value).toBe('Unsaved library');
-    fireEvent.click(view.getByRole('button', { name: 'Update Title' }));
+    fireEvent.click(view.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(posted).toContainEqual(expect.objectContaining({
-      type: 'update', title: 'Unsaved library', expectedRevision: 'revision-1'
+      type: 'saveLibraryDraft', title: 'Unsaved library',
+      expectedRevisions: { meta: 'revision-1', graph: 'graph-1', counters: 'counters-1' }
     })));
   });
 

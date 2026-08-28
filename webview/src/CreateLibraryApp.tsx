@@ -45,6 +45,11 @@ import type { EntryOption } from './render/EntryRender';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { resolve_localized_string } from '../../src/localizedContent';
 import { use_content_language } from './runtime/preferencesRuntime';
+import {
+  applyLibraryCounterDraftOp,
+  applyLibraryGraphDraftOp,
+  type LibraryDraftGraph
+} from '../../src/libraryDraftOperations';
 
 const LIBRARY_MESSAGES = defineUiMessages(
   'libraryEditor',
@@ -56,7 +61,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     createHelp: 'Add a new library to the existing .SNL_Doc/. The title is written to libraries/<slug>/meta.json; the slug (directory name) is derived from the title.',
     slugReadonly: 'Slug (readonly)', slugImmutable: 'The library slug is immutable; delete + recreate the library to rename it',
     libraryTitle: 'Library title', titlePlaceholder: 'e.g. Real Analysis', updating: 'Updating…',
-    creating: 'Creating…', updateTitle: 'Update Title',
+    creating: 'Creating…', updateTitle: 'Update Title', saveChanges: 'Save Changes', saving: 'Saving…',
     expandCounters: 'Expand counters', collapseCounters: 'Collapse counters', expand: 'Expand', collapse: 'Collapse',
     counters: 'Counters ({count})', addFirstCounter: '+ Add first counter', addRootCounter: '+ Add root counter',
     counterName: 'Counter name', counterNamePlaceholder: 'name', counterDsl: 'Counter numbering DSL',
@@ -72,6 +77,9 @@ const LIBRARY_MESSAGES = defineUiMessages(
     entryPlaceholder: 'Search existing entry, or type a new id and click Create', counter: 'Counter', reference: 'Reference', create: 'Create',
     referenceStatus: 'Reference: "{title}" — kind: {kind}', noMatchStatus: 'No entry with id "{id}" — Create will add a new one',
     emptyStatus: 'Empty — Create will open the Create Entry panel', cancel: 'Cancel',
+    removeOutlineTitle: 'Remove outline entry?',
+    removeOutlineDetail: 'This removes only the Library outline node. The shared Entry is not deleted.',
+    removeFromOutline: 'Remove from outline',
     graphWarnings: { arg: 'count', one: '⚠️ {count} graph warning', other: '⚠️ {count} graph warnings' },
     moreWarnings: '… {count} more', counterUpdateFailed: 'Counter update failed: {message}'
   },
@@ -81,7 +89,7 @@ const LIBRARY_MESSAGES = defineUiMessages(
     editHelp: '更新此文库的显示标题和大纲。标识（目录名）不可更改；如需重命名，请删除后重新创建。',
     createHelp: '向现有 .SNL_Doc/ 添加新文库。标题将写入 libraries/<slug>/meta.json；标识（目录名）根据标题生成。',
     slugReadonly: '标识（只读）', slugImmutable: '文库标识不可更改；如需重命名文库，请删除后重新创建',
-    libraryTitle: '文库标题', titlePlaceholder: '例如：实分析', updating: '正在更新…', creating: '正在创建…', updateTitle: '更新标题',
+    libraryTitle: '文库标题', titlePlaceholder: '例如：实分析', updating: '正在更新…', creating: '正在创建…', updateTitle: '更新标题', saveChanges: '保存更改', saving: '正在保存…',
     expandCounters: '展开计数器', collapseCounters: '折叠计数器', expand: '展开', collapse: '折叠',
     counters: '计数器（{count}）', addFirstCounter: '+ 添加第一个计数器', addRootCounter: '+ 添加根计数器',
     counterName: '计数器名称', counterNamePlaceholder: '名称', counterDsl: '计数器编号 DSL', counterDslPlaceholder: '编号规则',
@@ -96,6 +104,9 @@ const LIBRARY_MESSAGES = defineUiMessages(
     entryPlaceholder: '搜索现有条目，或输入新 ID 后点击“创建”',
     counter: '计数器', reference: '引用', create: '创建', referenceStatus: '引用：“{title}” — 类型：{kind}',
     noMatchStatus: '没有 ID 为“{id}”的条目 — “创建”将添加新条目', emptyStatus: '留空 — “创建”将打开“创建条目”面板', cancel: '取消',
+    removeOutlineTitle: '移除大纲条目？',
+    removeOutlineDetail: '这只会移除文库大纲节点，不会删除共享条目。',
+    removeFromOutline: '从大纲移除',
     graphWarnings: '⚠️ {count} 条图警告', moreWarnings: '… 另有 {count} 条', counterUpdateFailed: '计数器更新失败：{message}'
   }
 );
@@ -133,6 +144,36 @@ interface GraphRelationship {
   from: string;
   to: string;
   label: string;
+  _draftKey?: string;
+}
+
+function rebaseRelationshipDraftKeys(
+  current: GraphRelationship[],
+  submitted: GraphRelationship[]
+): GraphRelationship[] {
+  const persistedIndexByOldKey = new Map<string, number>();
+  const persistedIndicesByTuple = new Map<string, number[]>();
+  const tuple = (relationship: GraphRelationship): string =>
+    `${relationship.from}\u0000${relationship.to}\u0000${relationship.label}`;
+  submitted.forEach((relationship, index) => {
+    if (relationship._draftKey !== undefined) {
+      persistedIndexByOldKey.set(relationship._draftKey, index);
+      return;
+    }
+    const key = tuple(relationship);
+    const indices = persistedIndicesByTuple.get(key) ?? [];
+    indices.push(index);
+    persistedIndicesByTuple.set(key, indices);
+  });
+  return current.map((relationship) => {
+    const { _draftKey, ...managed } = relationship;
+    const persistedIndex = _draftKey === undefined
+      ? persistedIndicesByTuple.get(tuple(relationship))?.shift()
+      : persistedIndexByOldKey.get(_draftKey);
+    return persistedIndex === undefined
+      ? managed
+      : { ...managed, _draftKey: String(persistedIndex) };
+  });
 }
 
 interface EntryPoolItem {
@@ -158,6 +199,14 @@ interface GraphState {
   metricMacroSources: SnlMacroSourceLookup;
   metricThresholds: EntryMetricThresholds;
   warnings: string[];
+}
+
+interface LibraryDraftRevisions { meta?: string; graph?: string; counters?: string }
+interface PersistedLibraryDraft {
+  title: string;
+  graph: { nodes: GraphNode[]; relationships: GraphRelationship[] };
+  counters: CounterNode[];
+  expectedRevisions: LibraryDraftRevisions;
 }
 
 /**
@@ -194,35 +243,68 @@ export function CreateLibraryApp(): React.ReactElement {
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [graph, setGraph] = useState<GraphState | null>(null);
+  const graphRef = useRef<GraphState | null>(null);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [counters, setCounters] = useState<CounterNode[]>([]);
   const [counterError, setCounterError] = useState<string | null>(null);
+  const [pendingGraphDelete, setPendingGraphDelete] = useState<string | null>(null);
   const [contextReady, setContextReady] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const apiRef = useVsCodeApiRef();
   const titleDirtyRef = useRef(false);
   const libraryRevisionRef = useRef<string | undefined>(undefined);
+  const revisionsRef = useRef<LibraryDraftRevisions>({});
+  const formDirtyRef = useRef(false);
+  const pendingSaveRef = useRef<string | null>(null);
+  const pendingSaveGenerationRef = useRef<number | null>(null);
+  const pendingSaveRelationshipsRef = useRef<GraphRelationship[] | null>(null);
+  const draftGenerationRef = useRef(0);
+  const activeSlugRef = useRef('');
+  const graphHydratedRef = useRef(false);
+  const countersHydratedRef = useRef(false);
+
+  const markDirty = (): void => {
+    draftGenerationRef.current += 1;
+    titleDirtyRef.current = true;
+    formDirtyRef.current = true;
+    setFormDirty(true);
+    setStatus({ kind: 'idle' });
+  };
 
   const draftKey = editorDraftKey('library', mode, mode === 'edit' ? slug : '');
   useEffect(() => {
     if (!contextReady) return;
-    const restored = loadDraft<{ title: string; expectedRevision?: string }>(
-      apiRef.current,
-      draftKey
-    );
-    if (!restored) return;
+    const restored = loadDraft<PersistedLibraryDraft>(apiRef.current, draftKey);
+    if (!restored?.graph || !Array.isArray(restored.counters)) return;
     titleDirtyRef.current = true;
+    formDirtyRef.current = true;
+    draftGenerationRef.current = Math.max(1, draftGenerationRef.current);
     setFormDirty(true);
-    libraryRevisionRef.current = restored.expectedRevision;
+    revisionsRef.current = { ...restored.expectedRevisions };
+    libraryRevisionRef.current = restored.expectedRevisions.meta;
+    graphHydratedRef.current = true;
+    countersHydratedRef.current = true;
     setTitle(restored.title);
+    setGraph((current) => {
+      const restoredGraph = {
+        nodes: restored.graph.nodes, relationships: restored.graph.relationships,
+        entries: current?.entries ?? [], kinds: current?.kinds ?? [],
+        metricMacroSources: current?.metricMacroSources ?? {},
+        metricThresholds: current?.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS,
+        warnings: current?.warnings ?? []
+      };
+      graphRef.current = restoredGraph;
+      return restoredGraph;
+    });
+    setCounters(restored.counters);
   }, [contextReady, draftKey]);
 
   usePersistedDraft(
     apiRef.current,
     draftKey,
     {
-      title,
-      expectedRevision: mode === 'edit' ? libraryRevisionRef.current : undefined
+      title, graph: { nodes: graph?.nodes ?? [], relationships: graph?.relationships ?? [] },
+      counters, expectedRevisions: revisionsRef.current
     },
     contextReady && formDirty && status.kind !== 'created' && status.kind !== 'updated'
   );
@@ -241,11 +323,14 @@ export function CreateLibraryApp(): React.ReactElement {
             mode: Mode;
             targetState?: 'found' | 'notFound';
             slug?: string;
+            requestId?: string;
             libraryRevision?: string;
             existing?: ExistingLibrary | null;
           }
         | { type: 'created'; slug: string; title: string }
         | { type: 'updated'; slug: string; title: string }
+        | { type: 'libraryDraftSaved'; requestId: string; slug: string; title: string; revisions: LibraryDraftRevisions }
+        | { type: 'libraryDraftSaveError'; requestId: string; message: string }
         | { type: 'duplicate'; slug: string; message: string }
         | { type: 'notFound' | 'conflict'; slug: string; message: string }
         | { type: 'noSnlDoc'; message: string }
@@ -254,6 +339,8 @@ export function CreateLibraryApp(): React.ReactElement {
         | { type: 'error'; message: string }
         | {
             type: 'graph';
+            requestId?: string;
+            graphRevision?: string;
             nodes: GraphNode[];
             relationships: GraphRelationship[];
             entries: EntryPoolItem[];
@@ -263,8 +350,8 @@ export function CreateLibraryApp(): React.ReactElement {
             warnings: string[];
           }
         | { type: 'graphError'; message: string }
-        | { type: 'countersLoaded'; counters: CounterNode[] }
-        | { type: 'countersPushed'; counters: CounterNode[] }
+        | { type: 'countersLoaded'; requestId?: string; countersRevision?: string; counters: CounterNode[] }
+        | { type: 'countersPushed'; requestId?: string; countersRevision?: string; counters: CounterNode[] }
         | { type: 'countersError'; message: string }
         | undefined;
       if (!msg || typeof msg.type !== 'string') {
@@ -276,19 +363,36 @@ export function CreateLibraryApp(): React.ReactElement {
           setTargetState(msg.mode === 'edit' && msg.targetState === 'notFound' ? 'notFound' : 'found');
           setContextReady(true);
           if (msg.mode === 'edit') {
-            setSlug(msg.slug ?? '');
-            if (msg.existing && !titleDirtyRef.current) {
+            const incomingSlug = msg.slug ?? '';
+            if (activeSlugRef.current && activeSlugRef.current !== incomingSlug) {
+              pendingSaveRef.current = null;
+              pendingSaveGenerationRef.current = null;
+              pendingSaveRelationshipsRef.current = null;
+              draftGenerationRef.current = 0;
+              formDirtyRef.current = false;
+              titleDirtyRef.current = false;
+              graphHydratedRef.current = false;
+              countersHydratedRef.current = false;
+              setFormDirty(false);
+            }
+            activeSlugRef.current = incomingSlug;
+            setSlug(incomingSlug);
+            if (msg.existing && !formDirtyRef.current) {
               libraryRevisionRef.current = msg.libraryRevision;
+              revisionsRef.current.meta = msg.libraryRevision;
               setTitle(msg.existing.title);
             }
           }
           break;
         case 'created':
           titleDirtyRef.current = false;
+          formDirtyRef.current = false;
+          draftGenerationRef.current = 0;
           setFormDirty(false);
           saveDraft(apiRef.current, editorDraftKey('library', 'create', ''), undefined);
           saveDraft(apiRef.current, editorDraftKey('library', 'edit', msg.slug), undefined);
           setMode('edit');
+          activeSlugRef.current = msg.slug;
           setSlug(msg.slug);
           setTargetState('found');
           setStatus({ kind: 'created', slug: msg.slug, title: msg.title });
@@ -296,8 +400,49 @@ export function CreateLibraryApp(): React.ReactElement {
           break;
         case 'updated':
           titleDirtyRef.current = false;
+          formDirtyRef.current = false;
           setFormDirty(false);
           setStatus({ kind: 'updated', slug: msg.slug, title: msg.title });
+          break;
+        case 'libraryDraftSaved':
+          if (pendingSaveRef.current !== msg.requestId || msg.slug !== activeSlugRef.current) break;
+          {
+          const submittedGeneration = pendingSaveGenerationRef.current;
+          const submittedRelationships = pendingSaveRelationshipsRef.current;
+          pendingSaveRef.current = null;
+          pendingSaveGenerationRef.current = null;
+          pendingSaveRelationshipsRef.current = null;
+          revisionsRef.current = { ...msg.revisions };
+          libraryRevisionRef.current = msg.revisions.meta;
+          if (submittedRelationships && graphRef.current) {
+            const rebasedGraph = {
+              ...graphRef.current,
+              relationships: rebaseRelationshipDraftKeys(
+                graphRef.current.relationships,
+                submittedRelationships
+              )
+            };
+            graphRef.current = rebasedGraph;
+            setGraph(rebasedGraph);
+          }
+          if (submittedGeneration !== draftGenerationRef.current) {
+            setStatus({ kind: 'idle' });
+            break;
+          }
+          titleDirtyRef.current = false;
+          formDirtyRef.current = false;
+          draftGenerationRef.current = 0;
+          setFormDirty(false);
+          saveDraft(apiRef.current, editorDraftKey('library', 'edit', msg.slug), undefined);
+          setStatus({ kind: 'updated', slug: msg.slug, title: msg.title });
+          break;
+          }
+        case 'libraryDraftSaveError':
+          if (pendingSaveRef.current !== msg.requestId) break;
+          pendingSaveRef.current = null;
+          pendingSaveGenerationRef.current = null;
+          pendingSaveRelationshipsRef.current = null;
+          setStatus({ kind: 'error', message: msg.message });
           break;
         case 'duplicate':
           setStatus({
@@ -330,24 +475,36 @@ export function CreateLibraryApp(): React.ReactElement {
           setStatus({ kind: 'error', message: msg.message });
           break;
         case 'graph':
-          setGraph({
-            nodes: msg.nodes,
-            relationships: msg.relationships,
+          {
+          const preserveDraftGraph = formDirtyRef.current && graphHydratedRef.current;
+          if (!preserveDraftGraph) revisionsRef.current.graph = msg.graphRevision;
+          const currentGraph = graphRef.current;
+          const nextGraph = {
+            nodes: preserveDraftGraph && currentGraph ? currentGraph.nodes : msg.nodes,
+            relationships: preserveDraftGraph && currentGraph ? currentGraph.relationships : msg.relationships,
             entries: msg.entries,
             kinds: msg.kinds,
             metricMacroSources: msg.metricMacroSources ?? {},
             metricThresholds:
               msg.metricThresholds ?? DEFAULT_ENTRY_METRIC_THRESHOLDS,
             warnings: msg.warnings
-          });
+          };
+          graphRef.current = nextGraph;
+          setGraph(nextGraph);
+          graphHydratedRef.current = true;
           setGraphError(null);
           break;
+          }
         case 'graphError':
           setGraphError(msg.message);
           break;
         case 'countersLoaded':
         case 'countersPushed':
-          setCounters(Array.isArray(msg.counters) ? msg.counters : []);
+          if (!formDirtyRef.current || !countersHydratedRef.current) {
+            revisionsRef.current.counters = msg.countersRevision;
+            setCounters(Array.isArray(msg.counters) ? msg.counters : []);
+          }
+          countersHydratedRef.current = true;
           setCounterError(null);
           break;
         case 'countersError':
@@ -366,7 +523,14 @@ export function CreateLibraryApp(): React.ReactElement {
   const trimmed = title.trim();
   // Edit mode allows empty title changes? No — updateLibrary requires a
   // non-empty title, so keep the same gate.
-  const canSubmit = targetState !== 'notFound' && trimmed.length > 0 && status.kind !== 'creating';
+  const editDraftReady = mode !== 'edit' || (
+    graphHydratedRef.current && countersHydratedRef.current && graph !== null &&
+    typeof revisionsRef.current.meta === 'string' &&
+    typeof revisionsRef.current.graph === 'string' &&
+    typeof revisionsRef.current.counters === 'string'
+  );
+  const canSubmit = targetState !== 'notFound' && trimmed.length > 0 &&
+    status.kind !== 'creating' && pendingSaveRef.current === null && editDraftReady;
 
   // Ctrl/Cmd+S is the same action as the Create/Update button.
   useSaveShortcut(() => handleSubmit(), canSubmit);
@@ -376,19 +540,59 @@ export function CreateLibraryApp(): React.ReactElement {
       return;
     }
     setStatus({ kind: 'creating' });
-    apiRef.current?.postMessage({
-      type: mode === 'edit' ? 'update' : 'create',
-      title: trimmed,
-      expectedRevision: mode === 'edit' ? libraryRevisionRef.current : undefined
-    });
+    if (mode === 'edit') {
+      const currentGraph = graphRef.current;
+      if (!currentGraph) return;
+      const requestId = globalThis.crypto?.randomUUID?.() ?? `save-${Date.now()}-${Math.random()}`;
+      pendingSaveRef.current = requestId;
+      pendingSaveGenerationRef.current = draftGenerationRef.current;
+      pendingSaveRelationshipsRef.current = currentGraph.relationships.map((relationship) => ({
+        ...relationship
+      }));
+      apiRef.current?.postMessage({
+        type: 'saveLibraryDraft', requestId, slug, title: trimmed,
+        graph: { nodes: currentGraph.nodes, relationships: currentGraph.relationships }, counters,
+        expectedRevisions: revisionsRef.current
+      });
+    } else {
+      apiRef.current?.postMessage({ type: 'create', title: trimmed });
+    }
   }
 
   const postGraphOp = (op: Record<string, unknown>): void => {
-    apiRef.current?.postMessage({ type: 'graphOp', op });
+    if (op.op === 'deleteNode' && typeof op.nodeId === 'string') {
+      setPendingGraphDelete(op.nodeId);
+      return;
+    }
+    const currentGraph = graphRef.current;
+    if (!currentGraph) return;
+    const next = applyLibraryGraphDraftOp(currentGraph as LibraryDraftGraph, op);
+    if (!next) return;
+    const nextGraph = { ...currentGraph, ...next };
+    graphRef.current = nextGraph;
+    setGraph(nextGraph);
+    markDirty();
   };
 
   const postCounterOp = (op: Record<string, unknown>): void => {
-    apiRef.current?.postMessage({ type: 'counterOp', op });
+    const next = applyLibraryCounterDraftOp(counters, op);
+    if (!next) return;
+    setCounters(next);
+    markDirty();
+  };
+
+  const confirmGraphDelete = (): void => {
+    const currentGraph = graphRef.current;
+    if (!pendingGraphDelete || !currentGraph) return;
+    const next = applyLibraryGraphDraftOp(currentGraph as LibraryDraftGraph, {
+      op: 'deleteNode', nodeId: pendingGraphDelete
+    });
+    setPendingGraphDelete(null);
+    if (!next) return;
+    const nextGraph = { ...currentGraph, ...next };
+    graphRef.current = nextGraph;
+    setGraph(nextGraph);
+    markDirty();
   };
 
   if (mode === 'edit' && targetState === 'notFound') {
@@ -492,7 +696,7 @@ export function CreateLibraryApp(): React.ReactElement {
               type="text"
               value={title}
               placeholder={t('titlePlaceholder')}
-              onChange={(e) => { titleDirtyRef.current = true; setFormDirty(true); setTitle(e.target.value); }}
+              onChange={(e) => { markDirty(); setTitle(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   handleSubmit();
@@ -532,7 +736,7 @@ export function CreateLibraryApp(): React.ReactElement {
             type="text"
             value={title}
             placeholder={t('titlePlaceholder')}
-            onChange={(e) => { titleDirtyRef.current = true; setFormDirty(true); setTitle(e.target.value); }}
+            onChange={(e) => { markDirty(); setTitle(e.target.value); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 handleSubmit();
@@ -555,15 +759,11 @@ export function CreateLibraryApp(): React.ReactElement {
         </>
       )}
 
-      <Button
-        variant="primary"
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-      >
-        {status.kind === 'creating'
-          ? mode === 'edit' ? t('updating') : t('creating')
-          : mode === 'edit' ? t('updateTitle') : t('createLibrary')}
-      </Button>
+      {mode === 'create' ? (
+        <Button variant="primary" onClick={handleSubmit} disabled={!canSubmit}>
+          {status.kind === 'creating' ? t('creating') : t('createLibrary')}
+        </Button>
+      ) : null}
 
       <StatusLine status={status} />
 
@@ -590,6 +790,43 @@ export function CreateLibraryApp(): React.ReactElement {
           }
           counters={counters}
         />
+      ) : null}
+
+      {mode === 'edit' && pendingGraphDelete ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('removeOutlineTitle')}
+          style={{
+            marginTop: '1rem',
+            padding: '0.9rem',
+            border: '1px solid var(--vscode-inputValidation-warningBorder, #b89500)',
+            borderRadius: '4px',
+            background: 'var(--vscode-editorWidget-background, #252526)'
+          }}
+        >
+          <strong>{t('removeOutlineTitle')}</strong>
+          <p style={{ margin: '0.4rem 0 0.8rem' }}>{t('removeOutlineDetail')}</p>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+            <Button variant="secondary" onClick={() => setPendingGraphDelete(null)}>
+              {t('cancel')}
+            </Button>
+            <Button variant="primary" onClick={confirmGraphDelete}>
+              {t('removeFromOutline')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {mode === 'edit' ? (
+        <Button
+          variant="primary"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={{ marginTop: '1.5rem', width: '100%' }}
+        >
+          {status.kind === 'creating' ? t('saving') : t('saveChanges')}
+        </Button>
       ) : null}
     </main>
   );
@@ -846,7 +1083,11 @@ function CounterRowContent({
         value={name}
         aria-label={t('counterName')}
         placeholder={t('counterNamePlaceholder')}
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => {
+          const next = e.target.value;
+          setName(next);
+          onUpdateFields({ name: next });
+        }}
         onBlur={commitName}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();
@@ -859,7 +1100,11 @@ function CounterRowContent({
         value={numbering}
         aria-label={t('counterDsl')}
         placeholder={t('counterDslPlaceholder')}
-        onChange={(e) => setNumbering(e.target.value)}
+        onChange={(e) => {
+          const next = e.target.value;
+          setNumbering(next);
+          onUpdateFields({ numbering: next });
+        }}
         onBlur={commitNumbering}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur();

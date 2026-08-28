@@ -98,10 +98,12 @@ describe('CreateEntryApp localization', () => {
     expect(view.getByLabelText('条目包').tagName).toBe('INPUT');
     const kindPicker = view.getByRole('combobox', { name: '条目类别：定理' });
     fireEvent.click(kindPicker);
-    expect(view.getByText(/数学陈述。/)).toBeTruthy();
+    expect(view.queryByText(/数学陈述。/)).toBeNull();
+    expect(view.queryByText(/stroke|background|#888/i)).toBeNull();
+    expect(view.container.querySelectorAll('[data-kind-preview="true"]').length).toBeGreaterThanOrEqual(2);
     act(() => set_content_language('en'));
     await waitFor(() => expect(view.getByRole('combobox', { name: '条目类别：Theorem' })).toBeTruthy());
-    expect(view.getByText(/A mathematical statement\./)).toBeTruthy();
+    expect(view.queryByText(/A mathematical statement\./)).toBeNull();
     expect(view.queryByText('宏包')).toBeNull();
     expect(view.queryByText('种类')).toBeNull();
     expect(view.getByRole('button', { name: '创建条目' })).toBeTruthy();

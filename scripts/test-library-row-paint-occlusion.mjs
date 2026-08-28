@@ -86,7 +86,11 @@ const fixture = {
     type: 'graph', graphRevision: 'probe-graph-revision', nodes, relationships, entries,
     kinds: [{
       id: 'definition', name: localized('Definition'),
-      description: localized('Definition kind'), defaultCounterName: 'section'
+      description: localized('Definition kind'), defaultCounterName: 'section',
+      coloring: {
+        light: { stroke: '#123456', background: '#abcdef' },
+        dark: { stroke: '#fedcba', background: '#654321' }
+      }
     }],
     metricMacroSources: {},
     metricThresholds: { structuralIndexRedBelow: 60, structuralIndexGreenAtLeast: 80 },
@@ -370,6 +374,55 @@ function assert(condition, message, value) {
 
 try {
   await waitFor(`document.querySelectorAll('.snl-library-outline-row').length >= 3`);
+  const kindPreviewEvidence = {};
+  for (const scheme of ['light', 'dark']) {
+    await evaluate(`(() => {
+      document.body.className=${JSON.stringify(scheme === 'dark' ? 'vscode-dark' : 'vscode-light')};
+      document.documentElement.dataset.snlColorScheme=${JSON.stringify(scheme)};
+    })()`);
+    const center = await evaluate(`(() => {
+      const preview = document.querySelector('[data-kind-preview="true"][data-kind-id="definition"]');
+      const rect = preview.getBoundingClientRect();
+      return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 };
+    })()`);
+    await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: center.x, y: center.y });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 180));
+    const hover = await evaluate(`(() => {
+      const preview = document.querySelector('[data-kind-preview="true"][data-kind-id="definition"]');
+      const style = getComputedStyle(preview);
+      return { backgroundColor: style.backgroundColor, boxShadow: style.boxShadow, cursor: style.cursor };
+    })()`);
+    await page.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17, modifiers: 2 });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 180));
+    const ctrlHover = await evaluate(`(() => {
+      const preview = document.querySelector('[data-kind-preview="true"][data-kind-id="definition"]');
+      const style = getComputedStyle(preview);
+      return { backgroundColor: style.backgroundColor, boxShadow: style.boxShadow, cursor: style.cursor };
+    })()`);
+    kindPreviewEvidence[scheme] = { hover, ctrlHover };
+    const expected = scheme === 'dark'
+      ? { hover: 'rgb(31, 41, 55)', ctrl: 'rgb(55, 65, 81)', shadowChannels: '254, 220, 186' }
+      : { hover: 'rgb(255, 255, 255)', ctrl: 'rgb(243, 244, 246)', shadowChannels: '18, 52, 86' };
+    assert(hover.backgroundColor === expected.hover && ctrlHover.backgroundColor === expected.ctrl,
+      `${scheme} Kind preview hover backgrounds must match`, kindPreviewEvidence[scheme]);
+    assert(hover.boxShadow.includes('inset') && hover.boxShadow.includes(expected.shadowChannels) &&
+      ctrlHover.boxShadow.includes('inset') && ctrlHover.boxShadow.includes(expected.shadowChannels) &&
+      ctrlHover.cursor === 'pointer',
+      `${scheme} Kind preview must retain inset shadow and Ctrl cursor`, kindPreviewEvidence[scheme]);
+    await page.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17 });
+    await page.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 });
+  }
+  const kindClickEvidence = await evaluate(`(() => {
+    const preview = document.querySelector('[data-kind-preview="true"][data-kind-id="definition"]');
+    const count = () => window.__snlPosted.filter((message) => message?.type === 'editEntryKind').length;
+    const before = count();
+    preview.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const ordinary = count() - before;
+    preview.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    return { ordinary, ctrl: count() - before - ordinary };
+  })()`);
+  assert(kindClickEvidence.ordinary === 0 && kindClickEvidence.ctrl === 1,
+    'ordinary Kind preview click must route zero times and Ctrl-click exactly once', kindClickEvidence);
   const saveEvidenceStart = await evaluate(`(() => {
     const mutationTypes = new Set(['update', 'graphOp', 'counterOp', 'saveLibraryDraft']);
     const before = window.__snlPosted.filter((message) => mutationTypes.has(message?.type));
@@ -491,7 +544,7 @@ try {
   );
   assert(browserErrors.length === 0, 'production browser emitted errors', browserErrors);
   assert(matrix.length >= 21, 'realistic production matrix must retain at least 21 cases', matrix.length);
-  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryContentWidths: [959, 960, 961], coarse: true, saveEvidence, artifactBuild }, null, 2));
+  console.log(JSON.stringify({ cases: matrix.length, schemes, boundaryContentWidths: [959, 960, 961], coarse: true, kindPreviewEvidence, kindClickEvidence, saveEvidence, artifactBuild }, null, 2));
 } finally {
   pageSocket.close();
   browserSocket.close();

@@ -26,12 +26,12 @@
 import React, { useEffect, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
-import { resolveWebviewKindColoring } from './render/kindColoring';
 import { Button } from './components/Button';
 import { IconButton } from './components/IconButton';
 import { Icon } from './components/Icon';
 import { EmptyAction } from './components/EmptyAction';
 import { PanelHeader } from './components/PanelHeader';
+import { KindPreview } from './components/KindPreview';
 import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { shouldStopRowActivation } from './components/interactionModel';
 import {
@@ -47,7 +47,7 @@ const DASHBOARD_MESSAGES = defineUiMessages(
   'dashboard',
   {
     title: 'SNL Dashboard', loading: 'Loading project overview…', overviewLoadError: 'Could not load project overview: {message}', setupIntroBefore: 'This workspace does not have an', setupIntroAfter: 'folder yet. Create the skeleton alone, or initialize a standard Kind catalog as part of setup.',
-    runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
+    runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', entryKindPreset: 'Entry Kind preset', macroKindPreset: 'Macro Kind preset', emptyPreset: 'Empty', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
     viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
     dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
     libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
@@ -61,7 +61,7 @@ const DASHBOARD_MESSAGES = defineUiMessages(
   },
   {
     title: 'SNL 仪表板', loading: '正在加载项目概览…', overviewLoadError: '无法加载项目概览：{message}', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
-    runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
+    runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', entryKindPreset: '条目类别预设', macroKindPreset: '宏类别预设', emptyPreset: '空', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
     dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
     libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
@@ -177,7 +177,11 @@ interface SnlOverview {
   macroKinds: MacroKind[];
   relationships: RelationshipData[];
   dataStatus: DataStatusSummary;
+  entryKindPresets?: KindPresetChoice[];
+  macroKindPresets?: KindPresetChoice[];
 }
+
+interface KindPresetChoice { id: string; label: string; description: string; count: number }
 
 const EMPTY: SnlOverview = {
   hasSnlDoc: false,
@@ -250,11 +254,11 @@ export function DashboardApp(): React.ReactElement {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  const startSetup = (type: SetupMessageType): void => {
+  const startSetup = (type: SetupMessageType, choices?: { entryKindPresetId: string; macroKindPresetId: string }): void => {
     const api = apiRef.current;
     if (!api) return;
     setSetupBusy(true);
-    api.postMessage({ type });
+    api.postMessage({ type, ...choices });
   };
 
   if (!loaded) {
@@ -280,6 +284,7 @@ export function DashboardApp(): React.ReactElement {
   if (!overview.hasSnlDoc) {
     return (
       <NotInitialized
+        overview={overview}
         api={apiRef.current}
         busy={setupBusy}
         onStart={startSetup}
@@ -300,24 +305,44 @@ export function DashboardApp(): React.ReactElement {
 
 /** Placeholder shown when `.SNL_Doc/` is missing. */
 function NotInitialized({
+  overview,
   api,
   busy,
   onStart
 }: {
+  overview: SnlOverview;
   api: VsCodeApi | undefined;
   busy: boolean;
-  onStart: (type: SetupMessageType) => void;
+  onStart: (type: SetupMessageType, choices?: { entryKindPresetId: string; macroKindPresetId: string }) => void;
 }): React.ReactElement {
   const t = useUiMessages(DASHBOARD_MESSAGES);
+  const [entryKindPresetId, setEntryKindPresetId] = useState('');
+  const [macroKindPresetId, setMacroKindPresetId] = useState('');
   return (
     <main style={PANEL_STYLE} aria-busy={busy}>
       <PanelHeader vsApi={api} title={t('title')} />
       <p style={{ margin: '0 0 1rem', opacity: 0.85 }}>
         {t('setupIntroBefore')} <code>.SNL_Doc/</code> {t('setupIntroAfter')}
       </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(14rem, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+        <label>{t('entryKindPreset')}
+          <select className="snl-control" aria-label={t('entryKindPreset')} value={entryKindPresetId}
+            disabled={busy} onChange={(event) => setEntryKindPresetId(event.target.value)} style={{ display: 'block', width: '100%' }}>
+            <option value="">{t('emptyPreset')}</option>
+            {(overview.entryKindPresets ?? []).map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+          </select>
+        </label>
+        <label>{t('macroKindPreset')}
+          <select className="snl-control" aria-label={t('macroKindPreset')} value={macroKindPresetId}
+            disabled={busy} onChange={(event) => setMacroKindPresetId(event.target.value)} style={{ display: 'block', width: '100%' }}>
+            <option value="">{t('emptyPreset')}</option>
+            {(overview.macroKindPresets ?? []).map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+          </select>
+        </label>
+      </div>
       <Button
         type="button"
-        onClick={() => onStart('init')}
+        onClick={() => onStart('init', { entryKindPresetId, macroKindPresetId })}
         disabled={busy}
         variant="primary"
       >
@@ -1057,7 +1082,13 @@ function EntryKindsTable({
             primaryCellIndex={1}
           >
             <td style={CELL}>
-              <ThemedKindPreview coloring={kind.coloring} />
+              <KindPreview
+                coloring={kind.coloring}
+                kindId={kind.id}
+                onEditKind={onOpen}
+                compact
+                width="3.5rem"
+              />
             </td>
             <td style={CELL}>{resolve_localized_string(kind.name, contentLanguage)}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
@@ -1117,7 +1148,13 @@ function MacroKindsTable({
             primaryCellIndex={1}
           >
             <td style={CELL}>
-              <ThemedKindPreview coloring={kind.coloring} />
+              <KindPreview
+                coloring={kind.coloring}
+                kindId={kind.id}
+                onEditKind={onOpen}
+                compact
+                width="3.5rem"
+              />
             </td>
             <td style={CELL}>{kind.name}</td>
             <td style={{ ...CELL, ...MONO }}>{kind.id}</td>
@@ -1131,38 +1168,6 @@ function MacroKindsTable({
       </tbody>
     </table>
   );
-}
-
-/** Compact box preview showing stroke + background together. */
-function KindPreview({
-  stroke,
-  background,
-  width = '3.5rem'
-}: {
-  stroke: string;
-  background: string;
-  width?: string;
-}): React.ReactElement {
-  const t = useUiMessages(DASHBOARD_MESSAGES);
-  return (
-    <span
-      title={t('colorTitle', { stroke, background })}
-      style={{
-        display: 'inline-block',
-        width,
-        height: '1.25rem',
-        borderRadius: '3px',
-        background,
-        border: `2px solid ${stroke}`,
-        verticalAlign: 'middle'
-      }}
-    />
-  );
-}
-
-function ThemedKindPreview({ coloring, width }: { coloring: ThemedKindColoring; width?: string }): React.ReactElement {
-  const resolved = resolveWebviewKindColoring(coloring);
-  return <KindPreview stroke={resolved.stroke} background={resolved.background} width={width} />;
 }
 
 function EntryPackagesTable({ packages, onOpen }: { packages: EntryPackageSummary[]; onOpen: (packageId: string) => void }): React.ReactElement {

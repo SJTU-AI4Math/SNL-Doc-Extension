@@ -8,7 +8,7 @@ import { RowPrimaryButton } from './components/RowPrimaryButton';
 import { defineUiMessages, useUiMessages } from './i18n/uiMessages';
 import { is_valid_i18n_string, resolve_localized_string } from '../../src/localizedContent';
 import { isEntryDataPayload, isEntryKindPayload } from './render/entryPayloadValidation';
-import { resolveWebviewKindColoring } from './render/kindColoring';
+import { KindPreview } from './components/KindPreview';
 import { use_content_language, use_preferences_revision } from './runtime/preferencesRuntime';
 import { PANEL_STYLE, useVsCodeApiRef } from './vscodeApi';
 
@@ -148,9 +148,13 @@ function EntriesTable({ model }: { model: Extract<Model, { kind: 'package' }> })
     const title = resolve_localized_string(entry.title, language);
     const kind = model.entryKinds.find((item) => item.id === entry.kind);
     return <tr key={entry.id}>
-      <td style={CELL}><span aria-hidden="true" style={{ display: 'inline-block', width: '2rem', height: '1rem', borderRadius: '3px',
-        background: kind ? resolveWebviewKindColoring(kind.coloring).background : '#888888',
-        border: `1px solid ${kind ? resolveWebviewKindColoring(kind.coloring).stroke : '#666666'}` }} /></td>
+      <td style={CELL}>{kind ? <KindPreview
+        coloring={kind.coloring}
+        kindId={kind.id}
+        onEditKind={(id) => apiRef.current?.postMessage({ type: 'editEntryKind', id })}
+        compact
+        width="2rem"
+      /> : <span aria-hidden="true" style={{ display: 'inline-block', width: '2rem', height: '1rem', borderRadius: '3px', background: '#888888', border: '1px solid #666666' }} />}</td>
       <td style={CELL}><RowPrimaryButton label={t('editEntry', { title })} onActivate={() => apiRef.current?.postMessage({ type: 'editEntry', id: entry.id })}>{title}</RowPrimaryButton></td>
       <td style={{ ...CELL, ...MONO }}>{entry.id}</td>
       <td style={CELL}>{kind ? resolve_localized_string(kind.name, language) : <span title={t('unknownKindTitle', { kind: entry.kind })}>{t('unknownKind')}</span>}</td>

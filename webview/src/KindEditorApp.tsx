@@ -9,7 +9,8 @@ import {
 } from './components/draftState';
 import { Button } from './components/Button';
 import { Alert, FormField, Select } from './components/FormControls';
-import { ColorField, ColorPreview, KindTextField } from './components/KindFormFields';
+import { ColorField, KindTextField } from './components/KindFormFields';
+import { KindPreview } from './components/KindPreview';
 import { EntityIdSearchBox, ENTRY_VALIDATE_RULES } from './components/EntityIdSearchBox';
 import { isEntityIdUnique } from './components/formValidation';
 import { PanelHeader } from './components/PanelHeader';
@@ -403,7 +404,11 @@ function KindColorThemeFields({ title, strokeLabel, backgroundLabel, stroke, bac
       <ColorField label={strokeLabel} value={stroke} onChange={onStroke} />
       <ColorField label={backgroundLabel} value={background} onChange={onBackground} />
     </div>
-    <ColorPreview stroke={stroke} background={background} name={`${title} ${name}`} />
+    <KindPreview
+      coloring={{ light: { stroke, background }, dark: { stroke, background } }}
+      name={`${title} ${name}`}
+      style={{ marginBottom: '.9rem', padding: '.55rem .75rem', width: '100%', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '.9rem' }}
+    />
   </section>;
 }
 

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { handleEditKindMessage } from './editKindMessage';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { entryBelongsToPackage, readEntryPackagePanelSnapshot } from './snlDoc';
 import { packageManifestPath } from './entityStorage';
@@ -98,6 +99,8 @@ export class EntryPackagePanel {
     const msg = message as { type?: unknown; id?: unknown } | undefined;
     if (!msg || typeof msg.type !== 'string') return;
     if (await handlePanelNavMessage(message, () => this.pushPackage())) return;
+    if (msg.type === 'editEntryKind' &&
+        await handleEditKindMessage(message, 'entry', (command, id) => vscode.commands.executeCommand(command, id))) return;
     if (msg.type === 'ready') await this.pushPackage();
     else if (msg.type === 'createEntry') {
       await vscode.commands.executeCommand('snlDoc.createEntry', undefined, this.packageId);

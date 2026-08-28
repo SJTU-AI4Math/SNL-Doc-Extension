@@ -2,9 +2,13 @@ import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   initSnlDoc,
+  ENTRY_KIND_PRESETS,
+  MACRO_KIND_PRESETS,
   setMacroPackageActive,
+  type InitKindPresetChoices,
   type InitResult
 } from './snlDoc';
+import { projectKindPresets } from './initKindsPanelController';
 import {
   buildPanelHtml,
   firstWorkspaceFolder,
@@ -15,6 +19,7 @@ import { readDashboardWorkspaceData } from './vscodeDataMigration';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
+import { handleEditKindMessage } from './editKindMessage';
 
 const DASHBOARD_HOST_MESSAGES = defineHostMessages(
   {
@@ -27,6 +32,7 @@ const DASHBOARD_HOST_MESSAGES = defineHostMessages(
     alreadyExists: '.SNL_Doc already exists — use "SNL: Create Library" to add libraries.',
     initialized: 'SNL Doc skeleton initialized. Use "SNL: Create Library" to add your first library.',
     initFailed: 'SNL Init failed: {error}',
+    concurrentInitChoices: 'Initialization is already running with different Kind preset choices.',
     activePackagesFailed: 'SNL Dashboard: failed to update active packages: {error}'
   },
   {
@@ -39,6 +45,7 @@ const DASHBOARD_HOST_MESSAGES = defineHostMessages(
     alreadyExists: '.SNL_Doc 已存在——请使用“SNL：创建文档库”添加库。',
     initialized: 'SNL Doc 框架已初始化。请使用“SNL：创建文档库”添加第一个库。',
     initFailed: 'SNL 初始化失败：{error}',
+    concurrentInitChoices: '初始化正在使用另一组类型预设运行。',
     activePackagesFailed: 'SNL 仪表板：更新活动包失败：{error}'
   }
 );
@@ -89,7 +96,7 @@ export class DashboardPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private overviewGeneration = 0;
-  private skeletonInitialization: Promise<InitResult> | undefined;
+  private skeletonInitialization: { choiceKey: string; promise: Promise<InitResult> } | undefined;
   private setupOperationCount = 0;
 
   public static createOrShow(extensionUri: vscode.Uri): void {
@@ -227,6 +234,10 @@ export class DashboardPanel {
         type: 'overview',
         overview: {
           ...overview,
+          ...(!overview.hasSnlDoc ? {
+            entryKindPresets: projectKindPresets('entry', extension_preferences_runtime.query_environment().language, ENTRY_KIND_PRESETS),
+            macroKindPresets: projectKindPresets('macro', extension_preferences_runtime.query_environment().language, MACRO_KIND_PRESETS)
+          } : {}),
           metricThresholds: readEntryMetricThresholds(),
           dataStatus: {
             status: inspection.status,
@@ -282,10 +293,11 @@ export class DashboardPanel {
         await vscode.commands.executeCommand('snlDoc.createEntryKind');
         return;
       case 'editEntryKind': {
-        const id = (msg as { id?: unknown }).id;
-        if (typeof id === 'string' && id) {
-          await vscode.commands.executeCommand('snlDoc.editEntryKind', id);
-        }
+        await handleEditKindMessage(
+          msg,
+          'entry',
+          (command, id) => vscode.commands.executeCommand(command, id)
+        );
         return;
       }
       case 'initMacroKinds':
@@ -297,10 +309,11 @@ export class DashboardPanel {
         await vscode.commands.executeCommand('snlDoc.createMacroKind');
         return;
       case 'editMacroKind': {
-        const id = (msg as { id?: unknown }).id;
-        if (typeof id === 'string' && id) {
-          await vscode.commands.executeCommand('snlDoc.editMacroKind', id);
-        }
+        await handleEditKindMessage(
+          msg,
+          'macro',
+          (command, id) => vscode.commands.executeCommand(command, id)
+        );
         return;
       }
       case 'createEntry':
@@ -340,9 +353,13 @@ export class DashboardPanel {
         }
         return;
       }
-      case 'init':
-        await this.runSetupOperation(() => this.runDashboardInit());
+      case 'init': {
+        const raw = msg as { entryKindPresetId?: unknown; macroKindPresetId?: unknown };
+        const choices = this.validateInitChoices(raw.entryKindPresetId, raw.macroKindPresetId);
+        if (!choices) return;
+        await this.runSetupOperation(() => this.runDashboardInit(choices));
         return;
+      }
       case 'openSnoogL': {
         // Cat 2026-07-13: Dashboard headers now carry TWO SNoogL entry
         // points — Entries row → entry search, SNL Macros row → macro
@@ -453,34 +470,55 @@ export class DashboardPanel {
     }
   }
 
-  private initializeSkeleton(root: vscode.Uri): Promise<InitResult> {
-    if (!this.skeletonInitialization) {
-      const pending = initSnlDoc(root);
-      this.skeletonInitialization = pending;
+  private initializeSkeleton(root: vscode.Uri, choices?: InitKindPresetChoices): Promise<InitResult> {
+    const normalizedChoices = choices ?? { entryKindPresetId: '', macroKindPresetId: '' };
+    const choiceKey = JSON.stringify([
+      normalizedChoices.entryKindPresetId,
+      normalizedChoices.macroKindPresetId
+    ]);
+    if (this.skeletonInitialization) {
+      if (this.skeletonInitialization.choiceKey !== choiceKey) {
+        return Promise.reject(new Error(dashboardT()('concurrentInitChoices')));
+      }
+      return this.skeletonInitialization.promise;
+    }
+    {
+      const pending = initSnlDoc(root, normalizedChoices);
+      this.skeletonInitialization = { choiceKey, promise: pending };
       void pending.then(
         () => {
-          if (this.skeletonInitialization === pending) {
+          if (this.skeletonInitialization?.promise === pending) {
             this.skeletonInitialization = undefined;
           }
         },
         () => {
-          if (this.skeletonInitialization === pending) {
+          if (this.skeletonInitialization?.promise === pending) {
             this.skeletonInitialization = undefined;
           }
         }
       );
     }
-    return this.skeletonInitialization;
+    return this.skeletonInitialization.promise;
   }
 
-  private async runDashboardInit(): Promise<void> {
+  private validateInitChoices(entry: unknown, macro: unknown): InitKindPresetChoices | undefined {
+    if (typeof entry !== 'string' || typeof macro !== 'string' ||
+        (entry !== '' && !ENTRY_KIND_PRESETS.some((preset) => preset.id === entry)) ||
+        (macro !== '' && !MACRO_KIND_PRESETS.some((preset) => preset.id === macro))) {
+      vscode.window.showErrorMessage(dashboardT()('initFailed', { error: 'Invalid Kind preset choice.' }));
+      return undefined;
+    }
+    return { entryKindPresetId: entry, macroKindPresetId: macro };
+  }
+
+  private async runDashboardInit(choices: InitKindPresetChoices): Promise<void> {
     const root = firstWorkspaceFolder();
     if (!root) {
       vscode.window.showErrorMessage(dashboardT()('initRequiresWorkspace'));
       return;
     }
     try {
-      const result = await this.initializeSkeleton(root);
+      const result = await this.initializeSkeleton(root, choices);
       if (result.status === 'exists') {
         vscode.window.showWarningMessage(
           dashboardT()('alreadyExists')

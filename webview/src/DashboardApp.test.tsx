@@ -47,25 +47,63 @@ describe('Dashboard library actions', () => {
     expect(screen.getByText('已经证明的结果。')).toBeTruthy();
   });
 
-  it('offers exactly one initialization action before the workspace is initialized', async () => {
+  it('routes Kind previews only on Ctrl-click without activating the surrounding row', async () => {
+    render(<DashboardApp />);
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'overview', overview: {
+        hasSnlDoc: true, totalEntryCount: 0, entries: [], entryPackages: [], libraries: [],
+        macroPackages: [], allMacros: [], metricMacroSources: {}, relationships: [], macroKinds: [],
+        entryKinds: [{
+          id: 'theorem', name: 'Theorem', description: '',
+          coloring: { light: { stroke: '#111111', background: '#eeeeee' }, dark: { stroke: '#dddddd', background: '#222222' } },
+          defaultCounterName: 'theorem', style: ''
+        }]
+      }
+    }}));
+    await screen.findByText('Entry Kinds');
+    fireEvent.click(screen.getByText('Entry Kinds').closest('button') as HTMLButtonElement);
+    const preview = document.querySelector<HTMLElement>('[data-kind-preview="true"][data-kind-id="theorem"]');
+    expect(preview).toBeTruthy();
+
+    postMessage.mockClear();
+    fireEvent.click(preview!);
+    expect(postMessage).not.toHaveBeenCalled();
+    fireEvent.mouseEnter(preview!);
+    fireEvent.keyDown(document, { key: 'Control', ctrlKey: true });
+    fireEvent.click(preview!, { ctrlKey: true });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith({ type: 'editEntryKind', id: 'theorem' });
+  });
+
+  it('offers localized Entry and Macro Kind preset selects and submits both choices once', async () => {
     render(<DashboardApp />);
 
     window.dispatchEvent(new MessageEvent('message', {
       data: {
         type: 'overview',
-        overview: { hasSnlDoc: false }
+        overview: {
+          hasSnlDoc: false,
+          entryKindPresets: [{ id: 'mathematics', label: 'Mathematics', description: 'Math kinds', count: 12 }],
+          macroKindPresets: [{ id: 'basics', label: 'SNL-Basics defaults', description: 'Macro kinds', count: 6 }]
+        }
       }
     }));
 
-    const init = await screen.findByRole('button', { name: 'Run SNL: Init' });
-    expect(screen.queryByRole('button', { name: 'Initialize Entry Kinds' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Initialize Macro Kinds' })).toBeNull();
+    const entryPreset = await screen.findByRole('combobox', { name: 'Entry Kind preset' });
+    const macroPreset = screen.getByRole('combobox', { name: 'Macro Kind preset' });
+    expect(screen.getAllByRole('option', { name: 'Empty' })).toHaveLength(2);
+    fireEvent.change(entryPreset, { target: { value: 'mathematics' } });
+    fireEvent.change(macroPreset, { target: { value: '' } });
 
+    const init = screen.getByRole('button', { name: 'Run SNL: Init' });
     fireEvent.click(init);
     expect((init as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole('status', { name: 'SNL setup status' }).textContent).toContain('Initializing SNL workspace');
 
-    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'init' }));
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith({
+      type: 'init', entryKindPresetId: 'mathematics', macroKindPresetId: ''
+    }));
+    expect(postMessage.mock.calls.filter(([message]) => message.type === 'init')).toHaveLength(1);
   });
 
   it('offers Create as well as Initialize when both Kind catalogs are empty', async () => {

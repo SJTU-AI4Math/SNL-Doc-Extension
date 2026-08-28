@@ -14,6 +14,7 @@ import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   webviewLocalResourceRoots } from './panelUtil';
 import { packageManifestPath } from './entityStorage';
 import { stripJsonExt } from './macroPackageName';
+import { handleEditKindMessage } from './editKindMessage';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
 
@@ -273,6 +274,8 @@ export class PackagePanel {
     if (await handlePanelNavMessage(message, () => this.pushPackage())) {
       return;
     }
+    if (msg.type === 'editMacroKind' &&
+        await handleEditKindMessage(message, 'macro', (command, id) => vscode.commands.executeCommand(command, id))) return;
         switch (msg.type) {
       case 'ready':
         await this.pushPackage();

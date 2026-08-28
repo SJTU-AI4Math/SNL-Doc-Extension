@@ -837,7 +837,15 @@ export interface LibraryGraphFile {
 /** Init / Create results returned to panels for UI feedback. */
 export type InitResult = { status: 'created' } | { status: 'exists' };
 
-const initializationInFlight = new Map<string, Promise<InitResult>>();
+export interface InitKindPresetChoices {
+  entryKindPresetId: string;
+  macroKindPresetId: string;
+}
+
+const initializationInFlight = new Map<string, {
+  choiceKey: string;
+  promise: Promise<InitResult>;
+}>();
 
 export type CreateLibraryResult =
   | { status: 'created'; slug: string; title: string }
@@ -1102,21 +1110,55 @@ function normalizeEntryKind(raw: unknown): EntryKind {
  * `{ status: 'exists' }`.
  */
 export async function initSnlDoc(
-  workspaceRoot: vscode.Uri
+  workspaceRoot: vscode.Uri,
+  choices?: InitKindPresetChoices
 ): Promise<InitResult> {
+  const normalizedChoices = normalizeInitializationPresetChoices(choices);
+  const choiceKey = JSON.stringify(normalizedChoices);
   const key = workspaceWriterIdentity(workspaceRoot);
   const active = initializationInFlight.get(key);
-  if (active) return active;
-  const pending = initializeSnlDocSkeleton(workspaceRoot);
-  initializationInFlight.set(key, pending);
+  if (active) {
+    if (active.choiceKey !== choiceKey) {
+      throw new Error('Initialization is already running with different Kind preset choices.');
+    }
+    return active.promise;
+  }
+  const pending = initializeSnlDocSkeleton(workspaceRoot, normalizedChoices);
+  initializationInFlight.set(key, { choiceKey, promise: pending });
   try {
     return await pending;
   } finally {
-    if (initializationInFlight.get(key) === pending) initializationInFlight.delete(key);
+    if (initializationInFlight.get(key)?.promise === pending) initializationInFlight.delete(key);
   }
 }
 
-async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<InitResult> {
+function normalizeInitializationPresetChoices(
+  choices?: InitKindPresetChoices
+): InitKindPresetChoices {
+  if (choices === undefined) return { entryKindPresetId: '', macroKindPresetId: '' };
+  if (!choices || typeof choices.entryKindPresetId !== 'string' ||
+      typeof choices.macroKindPresetId !== 'string') {
+    throw new Error('Kind preset choices must be strings.');
+  }
+  const normalized = {
+    entryKindPresetId: choices.entryKindPresetId,
+    macroKindPresetId: choices.macroKindPresetId
+  };
+  if (normalized.entryKindPresetId &&
+      !ENTRY_KIND_PRESETS.some((preset) => preset.id === normalized.entryKindPresetId)) {
+    throw new Error(`Unknown Entry Kind preset: ${normalized.entryKindPresetId}`);
+  }
+  if (normalized.macroKindPresetId &&
+      !MACRO_KIND_PRESETS.some((preset) => preset.id === normalized.macroKindPresetId)) {
+    throw new Error(`Unknown Macro Kind preset: ${normalized.macroKindPresetId}`);
+  }
+  return normalized;
+}
+
+async function initializeSnlDocSkeleton(
+  workspaceRoot: vscode.Uri,
+  choices: InitKindPresetChoices
+): Promise<InitResult> {
   const fsApi = vscode.workspace.fs;
   const root = snlRootUri(workspaceRoot);
   const configTarget = configUri(workspaceRoot);
@@ -1244,10 +1286,16 @@ async function initializeSnlDocSkeleton(workspaceRoot: vscode.Uri): Promise<Init
       }
     };
 
+    const entryKinds = choices.entryKindPresetId
+      ? structuredClone(ENTRY_KIND_PRESETS.find((preset) => preset.id === choices.entryKindPresetId)!.kinds)
+      : [];
+    const macroKinds = choices.macroKindPresetId
+      ? structuredClone(MACRO_KIND_PRESETS.find((preset) => preset.id === choices.macroKindPresetId)!.kinds)
+      : [];
     const config: SnlConfig = {
       version: CURRENT_DATA_VERSION,
-      entry_kinds: [],
-      macro_kinds: [],
+      entry_kinds: entryKinds,
+      macro_kinds: macroKinds,
       entity_storage: {
         version: 1,
         legacy_backup_version: '0.0.5',

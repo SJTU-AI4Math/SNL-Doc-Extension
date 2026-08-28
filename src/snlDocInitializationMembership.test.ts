@@ -174,4 +174,39 @@ describe('fresh initialization membership publication', () => {
     });
     expect(getJson(configPath)).toMatchObject({ version: '0.1.0' });
   });
+
+  it('publishes both selected Kind catalogs in the one config rename', async () => {
+    const { initSnlDoc } = await import('./snlDoc');
+    await expect(initSnlDoc(root, {
+      entryKindPresetId: 'fulcrum-math-notes',
+      macroKindPresetId: 'snl-basics-defaults'
+    })).resolves.toEqual({ status: 'created' });
+
+    const config = getJson(configPath) as { entry_kinds: Array<{ id: string }>; macro_kinds: Array<{ id: string }> };
+    expect(config.entry_kinds.map(({ id }) => id)).toContain('theorem');
+    expect(config.macro_kinds.map(({ id }) => id)).toContain('rule');
+    expect(state.renames.filter(([, to]) => to === configPath)).toHaveLength(1);
+  });
+
+  it('rejects unknown or wrong-domain preset choices before any filesystem write', async () => {
+    const { initSnlDoc } = await import('./snlDoc');
+    for (const choices of [
+      { entryKindPresetId: 'missing', macroKindPresetId: '' },
+      { entryKindPresetId: 'snl-basics-defaults', macroKindPresetId: '' },
+      { entryKindPresetId: '', macroKindPresetId: 'fulcrum-math-notes' }
+    ]) {
+      await expect(initSnlDoc(root, choices)).rejects.toThrow(/preset/i);
+      expect(state.files.size).toBe(0);
+      expect(state.directories).toEqual(new Set(['/workspace', '/']));
+    }
+  });
+
+  it('rejects concurrent initialization with a different choice identity', async () => {
+    const { initSnlDoc } = await import('./snlDoc');
+    const first = initSnlDoc(root, { entryKindPresetId: '', macroKindPresetId: '' });
+    await expect(initSnlDoc(root, {
+      entryKindPresetId: 'fulcrum-math-notes', macroKindPresetId: ''
+    })).rejects.toThrow(/different.*preset|choices/i);
+    await expect(first).resolves.toEqual({ status: 'created' });
+  });
 });

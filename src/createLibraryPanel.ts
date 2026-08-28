@@ -29,6 +29,7 @@ import { moveGraphSibling } from './graphSiblingOrder';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
 import { wrapNestedNodeWithParent } from './treeWrapParent';
+import { handleEditKindMessage } from './editKindMessage';
 
 const LIBRARY_HOST_MESSAGES = defineHostMessages(
   {
@@ -466,6 +467,8 @@ export class CreateLibraryPanel {
     if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
+    if ((message as { type?: unknown } | undefined)?.type === 'editEntryKind' &&
+        await handleEditKindMessage(message, 'entry', (command, id) => vscode.commands.executeCommand(command, id))) return;
     const msg = message as { type?: string; [key: string]: unknown } | undefined;
     if (!msg || typeof msg.type !== 'string') {
       return;

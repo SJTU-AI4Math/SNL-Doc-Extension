@@ -25,7 +25,7 @@ vi.mock('vscode', () => ({
   RelativePattern: class {},
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   env: { language: 'en' },
-  commands: { executeCommand: async () => undefined },
+  commands: { executeCommand: vi.fn(async () => undefined) },
   window: {
     activeColorTheme: { kind: 2 },
     onDidChangeActiveColorTheme: () => ({ dispose: () => undefined }),
@@ -147,6 +147,20 @@ describe('CreateEntryPanel create -> edit flip', () => {
     delayUpdateEntry = false;
     releaseUpdateEntry = undefined;
     updateEntryFailure = undefined;
+  });
+
+  it('routes a shared Entry Kind preview request to the Kind editor command', async () => {
+    const vscode = await import('vscode');
+    const executeCommand = vi.mocked(vscode.commands.executeCommand);
+    executeCommand.mockClear();
+    const { CreateEntryPanel } = await import('./createEntryPanel');
+    CreateEntryPanel.createOrShow(extUri);
+    expect(messageHandler).toBeTruthy();
+
+    await messageHandler!({ type: 'editEntryKind', id: 'theorem' });
+
+    expect(executeCommand).toHaveBeenCalledTimes(1);
+    expect(executeCommand).toHaveBeenCalledWith('snlDoc.editEntryKind', 'theorem');
   });
 
   it('flips mode/id/title and pushes an edit context after a successful create', async () => {

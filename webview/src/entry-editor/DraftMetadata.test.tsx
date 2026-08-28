@@ -123,10 +123,11 @@ describe('restored draft in edit mode', () => {
     expect(view.queryByRole('button', { name: 'Create Entry Package' })).toBeNull();
 
     const kind = metadata?.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Entry kind: Theorem"]');
-    expect(kind).toBeTruthy();
-    expect(kind?.textContent).toBe('Theorem');
-    expect(kind?.style.borderColor).toBe('rgb(136, 136, 136)');
-    expect(kind?.style.background).toBe('rgb(34, 34, 34)');
+    const kindPreview = kind?.querySelector<HTMLElement>('[data-kind-preview="true"]');
+    expect(kindPreview).toBeTruthy();
+    expect(kindPreview?.textContent).toBe('Theorem');
+    expect(kindPreview?.style.borderColor).toBe('rgb(136, 136, 136)');
+    expect(kindPreview?.style.backgroundColor).toBe('rgb(34, 34, 34)');
     fireEvent.click(kind!);
     const kindMenu = view.container.querySelector<HTMLElement>('[role="listbox"]');
     expect(kindMenu?.style.left).toBe('auto');
@@ -135,7 +136,8 @@ describe('restored draft in edit mode', () => {
     expect(kindMenu?.style.maxWidth).toBe('20rem');
     expect(kindMenu?.style.minWidth).toBe('');
     const option = view.container.querySelector<HTMLElement>('[role="option"]');
-    expect(option?.textContent).toMatch(/Theorem.*theorem.*#888.*#222/s);
+    expect(option?.textContent).toBe('Theorem');
+    expect(option?.textContent).not.toMatch(/#888|#222|·/i);
 
     const formatButton = (name: string): HTMLButtonElement =>
       [...view.container.querySelectorAll<HTMLButtonElement>('[data-segmented-button="true"]')]

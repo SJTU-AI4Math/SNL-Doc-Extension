@@ -32,6 +32,7 @@ import {
 } from './panelUtil';
 import type { SnooglSearchCandidate } from './snooglSearch';
 import { stripJsonExt } from './macroPackageName';
+import { handleEditKindMessage } from './editKindMessage';
 
 /**
  * Compact projection of {@link EntryData} sent to the webview's entry
@@ -338,6 +339,8 @@ export class CreateMacroPanel {
     if (await handlePanelNavMessage(message, () => this.pushContext())) {
       return;
     }
+    if ((message as { type?: unknown } | undefined)?.type === 'editMacroKind' &&
+        await handleEditKindMessage(message, 'macro', (command, id) => vscode.commands.executeCommand(command, id))) return;
     const msg = message as
       | { type?: string; macro?: MacroPackageEntry; expectedRevision?: string }
       | undefined;

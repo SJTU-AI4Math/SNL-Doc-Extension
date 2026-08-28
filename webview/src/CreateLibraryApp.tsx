@@ -14,7 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
 import type { ThemedKindColoring } from '../../src/kindColoring';
-import { resolveWebviewKindColoring } from './render/kindColoring';
+import { KindPreview } from './components/KindPreview';
 import {
   editorDraftKey,
   loadDraft,
@@ -1617,6 +1617,7 @@ function OutlineRowContent({
 }: OutlineRowContentProps): React.ReactElement {
   const t = useUiMessages(LIBRARY_MESSAGES);
   const contentLanguage = use_content_language();
+  const apiRef = useVsCodeApiRef();
   const entry = node.props.entryId
     ? entriesById.get(node.props.entryId)
     : undefined;
@@ -1652,7 +1653,17 @@ function OutlineRowContent({
         onChange={(counterId) => onUpdateNodeCounter(node.id, counterId)}
       />
 
-      {kind ? <KindBadge kind={kind} /> : null}
+      {kind?.coloring ? <KindPreview
+        coloring={kind.coloring}
+        name={resolve_localized_string(kind.name, contentLanguage)}
+        kindId={kind.id}
+        onEditKind={(id) => apiRef.current?.postMessage({ type: 'editEntryKind', id })}
+        title={kind.description
+          ? resolve_localized_string(kind.description, contentLanguage)
+          : resolve_localized_string(kind.name, contentLanguage)}
+        className="snl-library-outline-kind"
+        style={{ fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}
+      /> : null}
 
       <div className="snl-library-outline-entry-id" data-testid="outline-entry-id-slot">
         <OutlineEntryTargetEditor
@@ -1879,37 +1890,6 @@ function OutlineEntryTargetEditor({
   );
 }
 
-function KindBadge({ kind }: { kind: KindItem }): React.ReactElement {
-  const contentLanguage = use_content_language();
-  const color = kind.coloring ? resolveWebviewKindColoring(kind.coloring) : null;
-  const name = resolve_localized_string(kind.name, contentLanguage);
-  const description = kind.description
-    ? resolve_localized_string(kind.description, contentLanguage)
-    : '';
-  return (
-    <span
-      className="snl-library-outline-kind"
-      title={description || name}
-      style={{
-        display: 'inline-block',
-        padding: '0.1rem 0.45rem',
-        fontSize: '0.75rem',
-        borderRadius: '3px',
-        border: color ? `1px solid ${color.stroke}` : '1px solid #666',
-        background: color ? color.background : 'transparent',
-        color: color ? color.stroke : 'inherit',
-        fontWeight: 600,
-        flexShrink: 0,
-        boxSizing: 'border-box',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap'
-      }}
-    >
-      {name}
-    </span>
-  );
-}
 
 function AddNodeForm({
   depth,

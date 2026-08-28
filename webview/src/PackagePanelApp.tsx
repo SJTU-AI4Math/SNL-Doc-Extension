@@ -13,7 +13,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemedKindColoring } from '../../src/kindColoring';
-import { resolveWebviewKindColoring } from './render/kindColoring';
+import { KindPreview } from './components/KindPreview';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
@@ -1166,6 +1166,7 @@ function KindCell({
   kind?: MacroKind;
 }): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
+  const apiRef = useVsCodeApiRef();
   if (!kindId) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
@@ -1179,23 +1180,12 @@ function KindCell({
       </span>
     );
   }
-  const colors = resolveWebviewKindColoring(kind.coloring);
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-      <span
-        title={t('colorTitle', { stroke: colors.stroke, background: colors.background })}
-        style={{
-          display: 'inline-block',
-          width: '1.2rem',
-          height: '1rem',
-          borderRadius: '3px',
-          background: colors.background,
-          border: `2px solid ${colors.stroke}`
-        }}
-      />
-      {kind.name}
-    </span>
-  );
+  return <KindPreview
+    coloring={kind.coloring}
+    name={kind.name}
+    kindId={kind.id}
+    onEditKind={(id) => apiRef.current?.postMessage({ type: 'editMacroKind', id })}
+  />;
 }
 
 // ---------------------------------------------------------------------------

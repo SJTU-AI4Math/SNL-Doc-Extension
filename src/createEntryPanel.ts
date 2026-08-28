@@ -35,6 +35,7 @@ import {
 import { buildPanelHtml, firstWorkspaceFolder, handlePanelNavMessage,
   installSnlDocWatcher, webviewLocalResourceRoots
 } from './panelUtil';
+import { handleEditKindMessage } from './editKindMessage';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import { readPopoverEntry } from './popoverEntryReader';
 import { resolve_localized_string } from './localizedContent';
@@ -611,6 +612,8 @@ export class CreateEntryPanel {
       await this.pushContext();
       return;
     }
+    if (msg.type === 'editEntryKind' &&
+        await handleEditKindMessage(message, 'entry', (command, id) => vscode.commands.executeCommand(command, id))) return;
     if (msg.type === 'requestEntryDetails') {
       const request = message as {
         entryId?: unknown;

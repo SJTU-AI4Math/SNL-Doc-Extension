@@ -35,7 +35,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemedKindColoring } from '../../src/kindColoring';
-import { resolveWebviewKindColoring } from './render/kindColoring';
+import { KindPreview } from './components/KindPreview';
 import {
   editorDraftKey,
   loadDraft,
@@ -1891,19 +1891,13 @@ export function CreateMacroApp(): React.ReactElement {
               ? (() => {
                   const sel = macroKinds.find((k) => k.id === kind);
                   if (!sel) return null;
-                  const colors = resolveWebviewKindColoring(sel.coloring);
                   return (
-                    <span
-                      title={t('colorPreview', { stroke: colors.stroke, background: colors.background })}
-                      style={{
-                        display: 'inline-block',
-                        width: '1.4rem',
-                        height: '1.1rem',
-                        borderRadius: '3px',
-                        background: colors.background,
-                        border: `2px solid ${colors.stroke}`,
-                        flex: '0 0 auto'
-                      }}
+                    <KindPreview
+                      coloring={sel.coloring}
+                      name={sel.name}
+                      kindId={sel.id}
+                      onEditKind={(id) => apiRef.current?.postMessage({ type: 'editMacroKind', id })}
+                      style={{ flex: '0 1 auto' }}
                     />
                   );
                 })()

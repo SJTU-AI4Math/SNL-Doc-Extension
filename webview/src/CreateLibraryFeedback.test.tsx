@@ -284,7 +284,7 @@ describe('Create Library feedback', () => {
     expect(row.style.paddingRight).toBe('0px');
     expect(getComputedStyle(main).gridTemplateColumns).not.toBe('');
     expect(kind.style.borderColor).toBe('rgb(0, 255, 0)');
-    expect(kind.style.background).toBe('rgb(255, 0, 0)');
+    expect(kind.style.backgroundColor).toBe('rgb(255, 0, 0)');
     expect(kind.style.color).toBe('rgb(0, 255, 0)');
     expect(kind.getAttribute('title')).toBe('Definition');
     expect(kind.style.overflow).toBe('hidden');

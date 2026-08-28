@@ -55,6 +55,8 @@ vi.mock('vscode', () => ({
 
 vi.mock('./snlDoc', () => ({
   initSnlDoc: mocks.initSnlDoc,
+  ENTRY_KIND_PRESETS: [{ id: 'entry-one', copyKeys: { label: 'fulcrumLabel', description: 'fulcrumDescription' }, kinds: [{ id: 'e' }] }],
+  MACRO_KIND_PRESETS: [{ id: 'macro-one', copyKeys: { label: 'basicsLabel', description: 'basicsDescription' }, kinds: [{ id: 'm' }] }],
   readOverview: mocks.readOverview,
   resolveActiveMacroPackages: vi.fn(async () => []),
   setActiveMacroPackages: vi.fn(async () => undefined)
@@ -95,6 +97,33 @@ describe('Dashboard data migration host routing', () => {
     ]);
   });
 
+  it('projects localized preset catalogs before .SNL_Doc exists', async () => {
+    mocks.readOverview.mockResolvedValueOnce({ hasSnlDoc: false } as never);
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'ready' });
+    expect(mocks.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'overview',
+      overview: expect.objectContaining({
+        entryKindPresets: [expect.objectContaining({ id: 'entry-one', count: 1 })],
+        macroKindPresets: [expect.objectContaining({ id: 'macro-one', count: 1 })]
+      })
+    }));
+  });
+
+  it('validates both init choices and forwards one atomic initialization call', async () => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'init', entryKindPresetId: 'entry-one', macroKindPresetId: 'macro-one' });
+    expect(mocks.initSnlDoc).toHaveBeenCalledWith(expect.anything(), {
+      entryKindPresetId: 'entry-one', macroKindPresetId: 'macro-one'
+    });
+
+    mocks.initSnlDoc.mockClear();
+    await mocks.receive?.({ type: 'init', entryKindPresetId: 'missing', macroKindPresetId: '' });
+    await mocks.receive?.({ type: 'init', entryKindPresetId: '', macroKindPresetId: 3 });
+    expect(mocks.initSnlDoc).not.toHaveBeenCalled();
+    expect(mocks.showErrorMessage).toHaveBeenCalled();
+  });
+
   it.each([
     ['initEntryKinds', 'snlDoc.initEntryKinds'],
     ['initMacroKinds', 'snlDoc.initMacroKinds']
@@ -117,7 +146,7 @@ describe('Dashboard data migration host routing', () => {
     DashboardPanel.createOrShow({ path: '/ext' } as never);
 
     const entrySetup = mocks.receive?.({ type: 'initEntryKinds' });
-    const plainSetup = mocks.receive?.({ type: 'init' });
+    const plainSetup = mocks.receive?.({ type: 'init', entryKindPresetId: '', macroKindPresetId: '' });
     const macroSetup = mocks.receive?.({ type: 'initMacroKinds' });
     await Promise.resolve();
 
@@ -136,6 +165,45 @@ describe('Dashboard data migration host routing', () => {
     ).toEqual([
       { type: 'setupStatus', status: 'running' },
       { type: 'setupStatus', status: 'idle' }
+    ]);
+  });
+
+  it('rejects a concurrent initialization with different Kind preset choices', async () => {
+    let releaseInit!: () => void;
+    mocks.initSnlDoc.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseInit = () => resolve({ status: 'created' as const });
+    }));
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+
+    const first = mocks.receive?.({
+      type: 'init', entryKindPresetId: 'entry-one', macroKindPresetId: ''
+    });
+    await vi.waitFor(() => expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1));
+    const conflicting = mocks.receive?.({
+      type: 'init', entryKindPresetId: '', macroKindPresetId: 'macro-one'
+    });
+    await conflicting;
+
+    expect(mocks.initSnlDoc).toHaveBeenCalledTimes(1);
+    expect(mocks.showErrorMessage).toHaveBeenCalledWith(
+      expect.stringContaining('different Kind preset choices')
+    );
+    releaseInit();
+    await Promise.all([first, conflicting]);
+    expect(mocks.showInformationMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects blank Dashboard Kind edit ids while routing valid ids', async () => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+
+    await mocks.receive?.({ type: 'editEntryKind', id: '   ' });
+    await mocks.receive?.({ type: 'editMacroKind', id: '' });
+    await mocks.receive?.({ type: 'editEntryKind', id: 'entry-kind' });
+    await mocks.receive?.({ type: 'editMacroKind', id: 'macro-kind' });
+
+    expect(mocks.executeCommand.mock.calls).toEqual([
+      ['snlDoc.editEntryKind', 'entry-kind'],
+      ['snlDoc.editMacroKind', 'macro-kind']
     ]);
   });
 

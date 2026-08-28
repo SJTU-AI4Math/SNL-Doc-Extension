@@ -25,7 +25,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { analyzeLatexTemplatePlaceholders } from '../../src/templatePlaceholders';
-import { resolveWebviewKindColoring } from './render/kindColoring';
 import { flushSync } from 'react-dom';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
@@ -68,6 +67,7 @@ import {
 } from './components/LocalizedEditScope';
 import { MissingEditorTarget } from './components/MissingEditorTarget';
 import { Button } from './components/Button';
+import { KindPreview } from './components/KindPreview';
 import { StructuralTreeControls } from './components/StructuralTreeControls';
 import {
   describeStructuralTree, initialStructuralCollapse, reconcileStructuralCollapse,
@@ -2016,14 +2016,7 @@ export function CreateEntryApp(): React.ReactElement {
               selectedId={selectedKind}
               label={t('kind')}
               selectionLabel={(item) => t('kindSelection', { name: item.name })}
-              details={(item) => {
-                const technical = t('kindDetails', {
-                  id: item.id,
-                  stroke: resolveWebviewKindColoring(item.coloring).stroke,
-                  background: resolveWebviewKindColoring(item.coloring).background
-                });
-                return item.description ? `${item.description} · ${technical}` : technical;
-              }}
+              onEditKind={(id) => apiRef.current?.postMessage({ type: 'editEntryKind', id })}
               onSelect={(next) => {
                 markFormDirty(true);
                 setSelectedKind(next);
@@ -2700,14 +2693,14 @@ function EntryKindPicker({
   selectedId,
   label,
   selectionLabel,
-  details,
+  onEditKind,
   onSelect
 }: {
   kinds: ResolvedEntryKindOption[];
   selectedId: string;
   label: string;
   selectionLabel: (kind: ResolvedEntryKindOption) => string;
-  details: (kind: ResolvedEntryKindOption) => string;
+  onEditKind: (id: string) => void;
   onSelect: (id: string) => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
@@ -2772,18 +2765,18 @@ function EntryKindPicker({
             setOpen(true);
           }
         }}
-        style={{
-          width: '100%',
-          justifyContent: 'flex-start',
-          background: selected ? resolveWebviewKindColoring(selected.coloring).background : undefined,
-          color: selected ? resolveWebviewKindColoring(selected.coloring).stroke : undefined,
-          borderColor: selected ? resolveWebviewKindColoring(selected.coloring).stroke : undefined,
-          borderWidth: '2px'
-        }}
+        style={{ width: '100%', justifyContent: 'flex-start', padding: '0.15rem 0.25rem' }}
       >
-        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {selected?.name ?? ''}
-        </span>
+        {selected ? (
+          <KindPreview
+            coloring={selected.coloring}
+            name={<span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selected.name}</span>}
+            kindId={selected.id}
+            onEditKind={onEditKind}
+            allowOrdinaryClickThrough
+            style={{ flex: 1, minWidth: 0 }}
+          />
+        ) : null}
         <Icon name="chevron-down" size={14} />
       </Button>
       {open ? (
@@ -2823,24 +2816,25 @@ function EntryKindPicker({
                 requestAnimationFrame(() => triggerRef.current?.focus());
               }}
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(7rem, 1fr) minmax(0, 1.5fr)',
-                gap: '0.55rem',
-                alignItems: 'center',
-                padding: '0.45rem 0.55rem',
-                border: `2px solid ${resolveWebviewKindColoring(item.coloring).stroke}`,
+                display: 'block',
+                padding: 0,
+                border: 0,
                 borderRadius: '4px',
-                background: resolveWebviewKindColoring(item.coloring).background,
-                color: resolveWebviewKindColoring(item.coloring).stroke,
+                background: 'transparent',
+                color: 'inherit',
                 font: 'inherit',
                 textAlign: 'left',
                 cursor: 'pointer'
               }}
             >
-              <strong>{item.name}</strong>
-              <span style={{ fontSize: '0.75rem', opacity: 0.85 }}>
-                {details(item)}
-              </span>
+              <KindPreview
+                coloring={item.coloring}
+                name={<strong>{item.name}</strong>}
+                kindId={item.id}
+                onEditKind={onEditKind}
+                allowOrdinaryClickThrough
+                style={{ width: '100%' }}
+              />
             </button>
           ))}
         </div>

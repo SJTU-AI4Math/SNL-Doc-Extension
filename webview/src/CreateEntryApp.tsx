@@ -7069,6 +7069,7 @@ function InductiveNode({
           multiline
           autoSize
           data-snl-macro-input
+          pairOuterDelimiters
           value={rawInput}
           macroCandidates={macroCandidates}
           onSuggestionTabOwnershipChange={handleSuggestionTabOwnershipChange}

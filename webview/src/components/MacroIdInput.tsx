@@ -50,7 +50,7 @@ const MESSAGES = defineUiMessages(
 
 const EMPTY_MACRO_CANDIDATES: readonly SnooglSearchCandidate[] = [];
 
-export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'binder' | 'context';
+export type MacroIdDslTone = 'plain' | 'formula' | 'text' | 'code' | 'binder' | 'context';
 
 export type MacroIdStructuredCommitSource =
   | 'inline-click'
@@ -77,6 +77,181 @@ export interface MacroIdDslToken {
   tone: MacroIdDslTone;
 }
 
+export type MacroIdDelimiterKind =
+  | 'none'
+  | 'backtick'
+  | 'percent'
+  | 'dollar'
+  | 'double-dollar';
+
+const DELIMITER_TEXT: Record<Exclude<MacroIdDelimiterKind, 'none'>, string> = {
+  backtick: '`',
+  percent: '%',
+  dollar: '$',
+  'double-dollar': '$$'
+};
+
+function isEscapedAt(value: string, index: number): boolean {
+  let slashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) slashes += 1;
+  return slashes % 2 === 1;
+}
+
+function leadingDelimiter(value: string): MacroIdDelimiterKind {
+  if (value.startsWith('$$')) return 'double-dollar';
+  if (value.startsWith('$')) return 'dollar';
+  if (value.startsWith('%')) return 'percent';
+  if (value.startsWith('`')) return 'backtick';
+  return 'none';
+}
+
+function trailingDelimiter(value: string): MacroIdDelimiterKind {
+  const last = value.length - 1;
+  if (last < 0 || isEscapedAt(value, last)) return 'none';
+  if (value[last] === '$') {
+    return last > 0 && value[last - 1] === '$' && !isEscapedAt(value, last - 1)
+      ? 'double-dollar'
+      : 'dollar';
+  }
+  if (value[last] === '%') return 'percent';
+  if (value[last] === '`') return 'backtick';
+  return 'none';
+}
+
+function delimitedContextSuffixStart(value: string, left: MacroIdDelimiterKind): number | null {
+  if (left === 'none') return null;
+  const delimiter = delimiterText(left);
+  for (let index = delimiter.length; index <= value.length - delimiter.length; index += 1) {
+    if (!value.startsWith(delimiter, index)) continue;
+    if (isEscapedAt(value, index)) continue;
+    if (delimiter.length === 2 && isEscapedAt(value, index + 1)) continue;
+    const suffixStart = index + delimiter.length;
+    if (value[suffixStart] === '@') return suffixStart;
+  }
+  return null;
+}
+
+export function classifyOuterDelimiters(value: string): {
+  left: MacroIdDelimiterKind;
+  right: MacroIdDelimiterKind;
+} {
+  const left = leadingDelimiter(value);
+  const trailing = trailingDelimiter(value);
+  if (trailing !== 'none') return { left, right: trailing };
+  return {
+    left,
+    right: delimitedContextSuffixStart(value, left) === null ? 'none' : left
+  };
+}
+
+function hasUnescapedDelimiter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if ((value[index] === '`' || value[index] === '%' || value[index] === '$') &&
+        !isEscapedAt(value, index)) return true;
+  }
+  return false;
+}
+
+function delimiterText(kind: MacroIdDelimiterKind): string {
+  return kind === 'none' ? '' : DELIMITER_TEXT[kind];
+}
+
+/** Reconcile only the outer boundary that the native edit actually touched. */
+export function reconcileOuterDelimiters(
+  previous: string,
+  next: string,
+  nextCaret: number | null
+): { value: string; caret: number | null } {
+  if (previous === next) return { value: next, caret: nextCaret };
+  for (const delimiter of ['$$', '$', '%', '`'] as const) {
+    const pair = delimiter + delimiter;
+    if (!previous.startsWith(pair + '@')) continue;
+    const contextSuffix = previous.slice(pair.length);
+    if (next !== delimiter + contextSuffix) continue;
+    return {
+      value: contextSuffix,
+      caret: nextCaret === null ? null : Math.max(0, nextCaret - delimiter.length)
+    };
+  }
+  let prefix = 0;
+  while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  while (
+    suffix < previous.length - prefix &&
+    suffix < next.length - prefix &&
+    previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]
+  ) suffix += 1;
+
+  const before = classifyOuterDelimiters(previous);
+  const after = classifyOuterDelimiters(next);
+  const beforeLeftLength = delimiterText(before.left).length;
+  const beforeRightLength = delimiterText(before.right).length;
+  const previousContextStart = delimitedContextSuffixStart(previous, before.left);
+  const previousSurfaceEnd = previousContextStart ?? previous.length;
+  const previousContextSuffix = previousContextStart === null
+    ? ''
+    : previous.slice(previousContextStart);
+  const previousDelimiter = delimiterText(before.left);
+  const previousSurface = previous.slice(0, previousSurfaceEnd);
+  const emptyPairDelimiter = previousSurface === '$$' ? '$' : previousDelimiter;
+  if (
+    before.left !== 'none' &&
+    before.left === before.right &&
+    previousSurface === emptyPairDelimiter + emptyPairDelimiter &&
+    next === emptyPairDelimiter + previousContextSuffix
+  ) {
+    return {
+      value: previousContextSuffix,
+      caret: nextCaret === null ? null : Math.max(0, nextCaret - emptyPairDelimiter.length)
+    };
+  }
+  const oldEditEnd = previous.length - suffix;
+  const insertion = oldEditEnd === prefix;
+  const leftTouched = prefix < beforeLeftLength ||
+    (insertion && prefix <= beforeLeftLength) ||
+    (beforeLeftLength === 0 && prefix === 0);
+  const rightStart = previousSurfaceEnd - beforeRightLength;
+  const rightTouched = (prefix < previousSurfaceEnd && oldEditEnd > rightStart) ||
+    (insertion && prefix === previousSurfaceEnd) ||
+    (before.right !== after.right && prefix < previousSurfaceEnd);
+  if (!leftTouched && !rightTouched) return { value: next, caret: nextCaret };
+
+  // A whole-value/empty edit touches both mathematical ends. The caret tells
+  // us which native boundary initiated it; ties default to the left boundary.
+  const editedLeft = leftTouched && (
+    !rightTouched ||
+    (after.left !== 'none' && after.right === 'none') ||
+    (nextCaret ?? 0) <= next.length / 2
+  );
+  const detectedContextStart = delimitedContextSuffixStart(next, after.left);
+  const contextSuffixStart = detectedContextStart ?? (
+    previousContextSuffix !== '' && next.endsWith(previousContextSuffix)
+      ? next.length - previousContextSuffix.length
+      : null
+  );
+  const surfaceEnd = contextSuffixStart ?? next.length;
+  const contextSuffix = contextSuffixStart === null ? '' : next.slice(contextSuffixStart);
+  const surface = next.slice(0, surfaceEnd);
+  const surfaceLeft = leadingDelimiter(surface);
+  const surfaceRight = trailingDelimiter(surface);
+  const nextLeftLength = delimiterText(surfaceLeft).length;
+  const nextRightLength = delimiterText(surfaceRight).length;
+  if (editedLeft) {
+    const desired = delimiterText(surfaceLeft);
+    const bodyEnd = surfaceEnd - nextRightLength;
+    const body = next.slice(nextLeftLength, Math.max(nextLeftLength, bodyEnd));
+    return { value: `${desired}${body}${desired}${contextSuffix}`, caret: nextCaret };
+  }
+
+  const desired = delimiterText(surfaceRight);
+  const bodyEnd = surfaceEnd - nextRightLength;
+  const body = next.slice(nextLeftLength, Math.max(nextLeftLength, bodyEnd));
+  const caret = nextCaret === null ? null : Math.max(0, nextCaret + desired.length - nextLeftLength);
+  return { value: `${desired}${body}${desired}${contextSuffix}`, caret };
+}
+
 export function autoCloseLeadingDelimiter(
   previous: string,
   next: string
@@ -88,7 +263,7 @@ export function autoCloseLeadingDelimiter(
 }
 
 /** Lightweight lexical projection of the parser's delimiter/binder roles. */
-export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
+function tokenizeLegacyMacroIdDsl(value: string): MacroIdDslToken[] {
   const tokens: MacroIdDslToken[] = [];
   let atNodeStart = true;
   let inTextDelimiter = false;
@@ -103,9 +278,52 @@ export function tokenizeMacroIdDsl(value: string): MacroIdDslToken[] {
       inTextDelimiter = !inTextDelimiter;
       atNodeStart = false;
     } else if (inTextDelimiter) {
-      // `%…%` is one parser-owned literal Text leaf. Do not present any
-      // interior `$`, `@`, comma, or bracket as active SNL structure.
       push(char, 'plain');
+    } else if (char === '$') {
+      push(char, 'formula');
+      atNodeStart = false;
+    } else if (char === '@') {
+      push(char, atNodeStart ? 'binder' : 'context');
+      atNodeStart = false;
+    } else {
+      push(char, 'plain');
+      if (char === '(' || char === ',') atNodeStart = true;
+      else if (!/\s/.test(char)) atNodeStart = false;
+    }
+  }
+  return tokens;
+}
+
+export function tokenizeMacroIdDsl(
+  value: string,
+  escapeAwareDelimiters = false
+): MacroIdDslToken[] {
+  if (!escapeAwareDelimiters) return tokenizeLegacyMacroIdDsl(value);
+  const tokens: MacroIdDslToken[] = [];
+  let atNodeStart = true;
+  let literalDelimiter: '%' | '`' | null = null;
+  const push = (text: string, tone: MacroIdDslTone): void => {
+    const previous = tokens.at(-1);
+    if (previous?.tone === tone) previous.text += text;
+    else tokens.push({ text, tone });
+  };
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '\\' && index + 1 < value.length) {
+      push(char + value[index + 1], 'plain');
+      index += 1;
+      atNodeStart = false;
+    } else if (literalDelimiter) {
+      if (char === literalDelimiter) {
+        push(char, literalDelimiter === '%' ? 'text' : 'code');
+        literalDelimiter = null;
+      } else {
+        push(char, 'plain');
+      }
+    } else if (char === '%' || char === '`') {
+      push(char, char === '%' ? 'text' : 'code');
+      literalDelimiter = char;
+      atNodeStart = false;
     } else if (char === '$') {
       push(char, 'formula');
       atNodeStart = false;
@@ -185,6 +403,8 @@ interface MacroIdInputBaseProps {
   selectAllOnMount?: boolean;
   /** Let this control consume Tab for autocomplete. */
   acceptSuggestionOnTab?: boolean;
+  /** Inductive-only escape-aware synchronization for matching outer delimiters. */
+  pairOuterDelimiters?: boolean;
   /** Reports whether this control currently owns unshifted Tab for a visible suggestion. */
   onSuggestionTabOwnershipChange?: (ownsTab: boolean) => void;
 }
@@ -215,6 +435,7 @@ export const MacroIdInput = forwardRef<
     snooglInsertsMacroId = false,
     selectAllOnMount = false,
     acceptSuggestionOnTab = true,
+    pairOuterDelimiters = false,
     onSuggestionTabOwnershipChange,
     onStructuredCommit,
     style,
@@ -230,6 +451,11 @@ export const MacroIdInput = forwardRef<
   const controlRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const compositionActiveRef = useRef(false);
+  const compositionStartValueRef = useRef('');
+  const compositionCommitRef = useRef<{
+    raw: string;
+    normalized: { value: string; caret: number | null };
+  } | null>(null);
   const inputDuringCompositionRef = useRef(false);
   const suggestionOwnershipRef = useRef(false);
   const [compositionActive, setCompositionActive] = useState(false);
@@ -288,7 +514,19 @@ export const MacroIdInput = forwardRef<
   const [styleMenuPosition, setStyleMenuPosition] = useState<{ left: number; top: number } | null>(null);
 
   const handleValueChange = (next: string, nextCaret: number | null): void => {
-    const normalized = autoCloseLeadingDelimiter(value, next);
+    const pendingCompositionCommit = compositionCommitRef.current;
+    let normalized: { value: string; caret: number | null };
+    if (!compositionActiveRef.current && pendingCompositionCommit?.raw === next) {
+      normalized = pendingCompositionCommit.normalized;
+      compositionCommitRef.current = null;
+    } else {
+      if (!compositionActiveRef.current) compositionCommitRef.current = null;
+      normalized = pairOuterDelimiters && compositionActiveRef.current
+        ? { value: next, caret: nextCaret }
+        : pairOuterDelimiters
+          ? reconcileOuterDelimiters(value, next, nextCaret)
+          : autoCloseLeadingDelimiter(value, next);
+    }
     // A parent may project one typed surface into separate fields (for
     // example `foo@entry` becomes Macro `foo` plus a context picker). React
     // then writes a value different from the browser's native edit and moves
@@ -304,7 +542,7 @@ export const MacroIdInput = forwardRef<
     onChange(normalized.value);
     if (!interactionDisabled) {
       if (compositionActiveRef.current) inputDuringCompositionRef.current = true;
-      else setSuggestionsOpen(true);
+      else setSuggestionsOpen(!pairOuterDelimiters || !hasUnescapedDelimiter(normalized.value));
     }
   };
 
@@ -321,17 +559,37 @@ export const MacroIdInput = forwardRef<
 
   const beginComposition = (): void => {
     compositionActiveRef.current = true;
+    compositionStartValueRef.current = value;
+    compositionCommitRef.current = null;
     inputDuringCompositionRef.current = false;
     setCompositionActive(true);
     pendingCaretRef.current = null;
   };
-  const endComposition = (): void => {
+  const endComposition = (finalValue: string, finalCaret: number | null): void => {
     compositionActiveRef.current = false;
     setCompositionActive(false);
+    if (pairOuterDelimiters && inputDuringCompositionRef.current) {
+      const normalized = reconcileOuterDelimiters(
+        compositionStartValueRef.current,
+        finalValue,
+        finalCaret
+      );
+      if (normalized.value !== finalValue) {
+        const commit = { raw: finalValue, normalized };
+        compositionCommitRef.current = commit;
+        window.setTimeout(() => {
+          if (compositionCommitRef.current === commit) compositionCommitRef.current = null;
+        }, 0);
+        pendingCaretRef.current = normalized.caret ?? finalCaret;
+        setCaretPosition(normalized.caret ?? finalCaret ?? normalized.value.length);
+        onChange(normalized.value);
+      }
+    }
     if (inputDuringCompositionRef.current && !interactionDisabled) {
       inputDuringCompositionRef.current = false;
       setHighlightedSuggestion(0);
-      setSuggestionsOpen(true);
+      const committedValue = compositionCommitRef.current?.normalized.value ?? finalValue;
+      setSuggestionsOpen(!pairOuterDelimiters || !hasUnescapedDelimiter(committedValue));
     }
     if (pendingCaretRef.current !== null) {
       setSelectionEpoch((epoch) => epoch + 1);
@@ -377,7 +635,8 @@ export const MacroIdInput = forwardRef<
       .filter((id) => id.toLowerCase() !== token.toLowerCase())
       .slice(0, 8);
   };
-  const suggestions = suggestionsOpen ? suggestionsAt(caretPosition) : [];
+  const inlineSuggestionsAllowed = !pairOuterDelimiters || !hasUnescapedDelimiter(value);
+  const suggestions = suggestionsOpen && inlineSuggestionsAllowed ? suggestionsAt(caretPosition) : [];
   const suggestionsKey = suggestions.join('\u0000');
   const canOpenStyleMenu = Boolean(onStructuredCommit);
 
@@ -611,6 +870,7 @@ export const MacroIdInput = forwardRef<
     }
     if (
       !interactionDisabled &&
+      !pairOuterDelimiters &&
       !event.nativeEvent.isComposing &&
       (event.key === '$' || event.key === '%') &&
       currentCaret === 0
@@ -811,6 +1071,7 @@ export const MacroIdInput = forwardRef<
     plain: style?.color?.toString() ?? 'var(--vscode-input-foreground, #ddd)',
     formula: '#f14c4c',
     text: '#4ec9b0',
+    code: '#dcdcaa',
     binder: '#ce9178',
     context: '#c586c0'
   };
@@ -835,7 +1096,7 @@ export const MacroIdInput = forwardRef<
           transform: `translate(${-scroll.left}px, ${-scroll.top}px)`
         }}
       >
-        {tokenizeMacroIdDsl(value).map((token, index) => (
+        {tokenizeMacroIdDsl(value, pairOuterDelimiters).map((token, index) => (
           <span key={index} data-tone={token.tone} style={{ color: tokenColors[token.tone] }}>
             {token.text}
           </span>
@@ -1277,7 +1538,7 @@ export const MacroIdInput = forwardRef<
             }}
             onCompositionEnd={(event) => {
               textareaProps.onCompositionEnd?.(event);
-              endComposition();
+              endComposition(event.currentTarget.value, event.currentTarget.selectionStart);
             }}
             onKeyDown={handleControlKeyDown}
             onFocus={handleControlFocus}
@@ -1321,7 +1582,7 @@ export const MacroIdInput = forwardRef<
           }}
           onCompositionEnd={(event) => {
             inputProps.onCompositionEnd?.(event);
-            endComposition();
+            endComposition(event.currentTarget.value, event.currentTarget.selectionStart);
           }}
           onKeyDown={handleControlKeyDown}
           onFocus={handleControlFocus}

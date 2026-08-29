@@ -87,5 +87,9 @@ describe('CreateEntryApp Inductive Macro Kind coloring', () => {
     const row = macroInput.closest<HTMLElement>('.snl-tree-row')!;
     expect(row.style.borderColor).toBe('rgb(254, 220, 186)');
     expect(row.style.background).toBe('rgba(101, 67, 33, 0.18)');
+
+    fireEvent.change(macroInput, { target: { value: '`', selectionStart: 1 } });
+    await waitFor(() => expect(macroInput.value).toBe('``'));
+    expect(macroInput.selectionStart).toBe(1);
   });
 });

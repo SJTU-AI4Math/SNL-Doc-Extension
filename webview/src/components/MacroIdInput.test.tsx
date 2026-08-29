@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   autoCloseLeadingDelimiter,
+  classifyOuterDelimiters,
   MacroIdInput,
+  reconcileOuterDelimiters,
   tokenizeMacroIdDsl
 } from './MacroIdInput';
 import { createMacroPreviewRuntime } from '../render/MacroPreview';
@@ -236,6 +238,86 @@ describe('MacroIdInput', () => {
     expect(selectionRule).toMatch(/(?:^|\n)\s*background:[^;]*color-mix\(/s);
   });
 
+  it('classifies only unescaped outer delimiters across all five kinds', () => {
+    expect(classifyOuterDelimiters('plain')).toEqual({ left: 'none', right: 'none' });
+    expect(classifyOuterDelimiters('`code`')).toEqual({ left: 'backtick', right: 'backtick' });
+    expect(classifyOuterDelimiters('%text%')).toEqual({ left: 'percent', right: 'percent' });
+    expect(classifyOuterDelimiters('$x$')).toEqual({ left: 'dollar', right: 'dollar' });
+    expect(classifyOuterDelimiters('$$x$$')).toEqual({ left: 'double-dollar', right: 'double-dollar' });
+    expect(classifyOuterDelimiters('\\%text\\%')).toEqual({ left: 'none', right: 'none' });
+    expect(classifyOuterDelimiters('\\\\$x$')).toEqual({ left: 'none', right: 'dollar' });
+    expect(classifyOuterDelimiters('$x\\$')).toEqual({ left: 'dollar', right: 'none' });
+    expect(classifyOuterDelimiters('$x\\\\$')).toEqual({ left: 'dollar', right: 'dollar' });
+  });
+
+  it.each([
+    ['', '$', 1, '$$', 1],
+    ['', '%', 1, '%%', 1],
+    ['', '`', 1, '``', 1],
+    ['plain', '%', 1, '%%', 1],
+    ['x', 'x$', 2, '$x$', 3],
+    ['x$', '$x$', 1, '$x$', 1],
+    ['$x$', '$$x$', 2, '$$x$$', 2],
+    ['$x$', '$x$$', 4, '$$x$$', 5],
+    ['$$x$$', '$x$$', 1, '$x$', 1],
+    ['$$x$$', '$$x$', 4, '$x$', 3],
+    ['$x$', 'x$', 0, 'x', 0],
+    ['$$x$$', '%x$$', 1, '%x%', 1],
+    ['%x%', '%x`', 3, '`x`', 3],
+    ['$x$', '$x', 2, 'x', 1],
+    ['$x$', '$x%', 3, '%x%', 3],
+    ['$$x$$', '$$x$', 3, '$x$', 2],
+    ['$$x$$', '$$x%', 4, '%x%', 3]
+  ] as const)('reconciles symmetric boundary edit %s -> %s', (previous, next, caret, value, expectedCaret) => {
+    expect(reconcileOuterDelimiters(previous, next, caret)).toEqual({ value, caret: expectedCaret });
+  });
+
+  it('does not mistake escaped or interior edits for delimiter boundary edits', () => {
+    expect(reconcileOuterDelimiters('foo', 'fo$o', 3)).toEqual({ value: 'fo$o', caret: 3 });
+    expect(reconcileOuterDelimiters('\\$x', '\\$xy', 4)).toEqual({ value: '\\$xy', caret: 4 });
+    expect(reconcileOuterDelimiters('$x$', '$x\\$$', 4)).toEqual({ value: '$x\\$$', caret: 4 });
+  });
+
+  it('preserves a context suffix outside the pair when either delimiter is replaced', () => {
+    expect(reconcileOuterDelimiters('%x%@ctx', '`x%@ctx', 1))
+      .toEqual({ value: '`x`@ctx', caret: 1 });
+    expect(reconcileOuterDelimiters('%x%@ctx', '%x`@ctx', 3))
+      .toEqual({ value: '`x`@ctx', caret: 3 });
+    expect(reconcileOuterDelimiters('$$x$$@ctx', '$x$$@ctx', 1))
+      .toEqual({ value: '$x$@ctx', caret: 1 });
+  });
+
+  it('does not treat edits after a paired delimiter as edits to that delimiter', () => {
+    expect(reconcileOuterDelimiters('%x%@ctx', '%x%ctx', 3))
+      .toEqual({ value: '%x%ctx', caret: 3 });
+    expect(reconcileOuterDelimiters('%x%@ctx', '%x%@cty', 7))
+      .toEqual({ value: '%x%@cty', caret: 7 });
+  });
+
+  it('synchronizes a right delimiter when escaping or unescaping its glyph', () => {
+    expect(reconcileOuterDelimiters('$x$', '$x\\$', 3))
+      .toEqual({ value: 'x\\$', caret: 2 });
+    expect(reconcileOuterDelimiters('x\\$', 'x$', 1))
+      .toEqual({ value: '$x$', caret: 2 });
+  });
+
+  it.each([
+    ['``', '`'],
+    ['%%', '%'],
+    ['$$', '$'],
+    ['$$$$', '$$']
+  ] as const)('lets either side of an empty %s pair be deleted', (pair, oneSide) => {
+    expect(reconcileOuterDelimiters(pair, oneSide, 0)).toEqual({ value: '', caret: 0 });
+    expect(reconcileOuterDelimiters(pair, oneSide, oneSide.length)).toEqual({ value: '', caret: 0 });
+  });
+
+  it('disambiguates an empty single-dollar pair before a context suffix', () => {
+    expect(reconcileOuterDelimiters('$$@ctx', '$@ctx', 0))
+      .toEqual({ value: '@ctx', caret: 0 });
+    expect(reconcileOuterDelimiters('$$@ctx', '$@ctx', 1))
+      .toEqual({ value: '@ctx', caret: 0 });
+  });
+
   it('auto-closes a leading formula or text delimiter', () => {
     expect(autoCloseLeadingDelimiter('', '$')).toEqual({ value: '$$', caret: 1 });
     expect(autoCloseLeadingDelimiter('', '%')).toEqual({ value: '%%', caret: 1 });
@@ -275,6 +357,42 @@ describe('MacroIdInput', () => {
     ]);
   });
 
+  it('colors backtick and complete dollar delimiters but never escaped glyphs in Inductive mode', () => {
+    expect(tokenizeMacroIdDsl('`code` $$x$$ $y$', true)).toEqual([
+      { text: '`', tone: 'code' },
+      { text: 'code', tone: 'plain' },
+      { text: '`', tone: 'code' },
+      { text: ' ', tone: 'plain' },
+      { text: '$$', tone: 'formula' },
+      { text: 'x', tone: 'plain' },
+      { text: '$$', tone: 'formula' },
+      { text: ' ', tone: 'plain' },
+      { text: '$', tone: 'formula' },
+      { text: 'y', tone: 'plain' },
+      { text: '$', tone: 'formula' }
+    ]);
+    expect(tokenizeMacroIdDsl('\\` \\% \\$ \\\\$', true)).toEqual([
+      { text: '\\` \\% \\$ \\\\', tone: 'plain' },
+      { text: '$', tone: 'formula' }
+    ]);
+  });
+
+  it('keeps the historical tokenizer unchanged outside Inductive mode', () => {
+    expect(tokenizeMacroIdDsl('`x` \\%')).toEqual([
+      { text: '`x` \\', tone: 'plain' },
+      { text: '%', tone: 'text' }
+    ]);
+  });
+
+  it('scopes escape-aware backtick coloring to paired Inductive controls', () => {
+    const view = render(<MacroIdInput value={'`x` \\%'} onChange={vi.fn()} aria-label="Scoped color" />);
+    expect(view.container.querySelectorAll('[data-tone="code"]')).toHaveLength(0);
+    expect(view.container.querySelectorAll('[data-tone="text"]')).toHaveLength(1);
+    view.rerender(<MacroIdInput value={'`x` \\%'} onChange={vi.fn()} pairOuterDelimiters aria-label="Scoped color" />);
+    expect(view.container.querySelectorAll('[data-tone="code"]')).toHaveLength(2);
+    expect(view.container.querySelectorAll('[data-tone="text"]')).toHaveLength(0);
+  });
+
   it('auto-closes delimiters in the control and renders parser-aware colors', async () => {
     function Harness(): React.ReactElement {
       const [value, setValue] = React.useState('');
@@ -291,6 +409,88 @@ describe('MacroIdInput', () => {
     expect(view.container.querySelectorAll('[data-tone="binder"]')).toHaveLength(1);
     expect(view.container.querySelectorAll('[data-tone="formula"]')).toHaveLength(2);
     expect(view.container.querySelectorAll('[data-tone="context"]')).toHaveLength(1);
+  });
+
+  it('reconciles Inductive boundary pairs through a real controlled input with stable carets', async () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue} pairOuterDelimiters aria-label="Paired Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Paired Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '`', selectionStart: 1 } });
+    expect(input.value).toBe('``');
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+    fireEvent.change(input, { target: { value: '`x`', selectionStart: 2 } });
+    fireEvent.change(input, { target: { value: '%x`', selectionStart: 1 } });
+    expect(input.value).toBe('%x%');
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+    fireEvent.change(input, { target: { value: '%x', selectionStart: 2 } });
+    expect(input.value).toBe('x');
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+  });
+
+  it('defers Inductive delimiter pairing until an IME composition commits', async () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue} pairOuterDelimiters aria-label="IME paired Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'IME paired Macro ID' }) as HTMLInputElement;
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: '`', selectionStart: 1 } });
+    expect(input.value).toBe('`');
+    fireEvent.compositionEnd(input, { target: { value: '`', selectionStart: 1 } });
+    expect(input.value).toBe('``');
+    fireEvent.change(input, { target: { value: '`', selectionStart: 1 } });
+    expect(input.value).toBe('``');
+    await waitFor(() => expect(input.selectionStart).toBe(1));
+
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: '%', selectionStart: 1 } });
+    expect(input.value).toBe('%');
+    fireEvent.compositionEnd(input, { target: { value: '%', selectionStart: 1 } });
+    expect(input.value).toBe('%%');
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    fireEvent.change(input, { target: { value: '%', selectionStart: 1 } });
+    expect(input.value).toBe('');
+  });
+
+  it('suppresses inline autocomplete for an interior unescaped delimiter but not an escaped glyph', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue} pairOuterDelimiters
+        macroCandidates={[{ id: 'Foo.one', labels: [] }]}
+        aria-label="Any delimiter gate" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Any delimiter gate' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Fo%o', selectionStart: 2 } });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    fireEvent.change(input, { target: { value: 'Fo\\%o', selectionStart: 3 } });
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+  });
+
+  it('suppresses inline autocomplete and Tab for any outer delimiter, then rearms after removal', () => {
+    const ownership = vi.fn();
+    function Harness(): React.ReactElement {
+      const [value, setValue] = React.useState('');
+      return <MacroIdInput value={value} onChange={setValue} pairOuterDelimiters
+        onSuggestionTabOwnershipChange={ownership}
+        macroCandidates={[{ id: 'Foo.one', labels: [] }]}
+        aria-label="Delimiter-gated Macro ID" />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole('textbox', { name: 'Delimiter-gated Macro ID' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '$Fo', selectionStart: 3 } });
+    expect(view.queryByRole('listbox', { name: 'Macro ID suggestions' })).toBeNull();
+    expect(ownership).not.toHaveBeenCalledWith(true);
+    expect(fireEvent.keyDown(input, { key: 'Tab' })).toBe(true);
+    expect(input.value).toBe('$Fo$');
+    fireEvent.change(input, { target: { value: 'Fo$', selectionStart: 0 } });
+    expect(input.value).toBe('Fo');
+    expect(view.getByRole('listbox', { name: 'Macro ID suggestions' })).toBeTruthy();
+    expect(ownership).toHaveBeenLastCalledWith(true);
   });
 
   it('gates autocomplete on real input and re-arms after Escape', () => {

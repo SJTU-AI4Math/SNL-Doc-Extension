@@ -388,6 +388,77 @@ try {
   })()`);
   await waitFor(`document.querySelectorAll('.snl-inductive-editor .snl-tree-row').length >= 3`);
 
+  const selectWholeDelimiterInput = async () => evaluate(`(() => {
+    const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1];
+    if (!input) return false;
+    input.focus(); input.setSelectionRange(0,input.value.length); return true;
+  })()`);
+  const emptyBacktickPair = JSON.stringify(String.fromCharCode(96, 96));
+  const filledBacktickPair = JSON.stringify(`${String.fromCharCode(96)}code${String.fromCharCode(96)}`);
+  assert(await selectWholeDelimiterInput(), 'production Inductive delimiter input must exist', null);
+  const delimiterImeSeed = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {length:input.value.length,start:input.selectionStart,end:input.selectionEnd}; })()`);
+  await page.call('Input.imeSetComposition', {
+    text: '`', selectionStart: 1, selectionEnd: 1,
+    replacementStart: 0, replacementEnd: delimiterImeSeed.length
+  });
+  const delimiterImeDuring = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {value:input.value,start:input.selectionStart}; })()`);
+  assert(delimiterImeDuring.value === '`', 'Inductive delimiter pairing must not rewrite active IME preedit text', delimiterImeDuring);
+  await page.call('Input.insertText', { text: '`' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === ${emptyBacktickPair}`);
+  const delimiterImeAfter = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {value:input.value,start:input.selectionStart}; })()`);
+  assert(delimiterImeAfter.start === 1, 'committed IME delimiter pair must restore the inner caret', delimiterImeAfter);
+
+  await selectWholeDelimiterInput();
+  await page.call('Input.insertText', { text: '%' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '%%'`);
+  await page.call('Input.insertText', { text: 'Fo' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '%Fo%'`);
+  const percentEvidence = await evaluate(`(() => {
+    const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1];
+    const host=input.closest('[data-macro-id-control]');
+    const tones=[...host.querySelectorAll('[data-macro-id-highlight-content] [data-tone]')].map(node=>({tone:node.dataset.tone,text:node.textContent,color:getComputedStyle(node).color}));
+    return {value:input.value,start:input.selectionStart,tones,suggestions:Boolean(host.querySelector('[role="listbox"]'))};
+  })()`);
+  assert(percentEvidence.value === '%Fo%' && percentEvidence.start === 3 &&
+    percentEvidence.tones.filter(({tone,text,color}) => tone === 'text' && text === '%' && color === 'rgb(78, 201, 176)').length === 2 &&
+    !percentEvidence.suggestions,
+  'production percent pair must preserve caret, color both delimiters, and suppress autocomplete', percentEvidence);
+
+  await selectWholeDelimiterInput();
+  await page.call('Input.insertText', { text: '$' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '$$'`);
+  await page.call('Input.insertText', { text: 'x' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '$x$'`);
+  await evaluate(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1].setSelectionRange(1,1)`);
+  await page.call('Input.insertText', { text: '$' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '$$x$$'`);
+  const doubleDollarEvidence = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {value:input.value,start:input.selectionStart}; })()`);
+  assert(doubleDollarEvidence.start === 2, 'single-dollar to double-dollar transition must retain the authored-side caret', doubleDollarEvidence);
+  await page.call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+  await page.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === '$x$'`);
+
+  await selectWholeDelimiterInput();
+  await page.call('Input.insertText', { text: '`' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === ${emptyBacktickPair}`);
+  await page.call('Input.insertText', { text: 'code' });
+  await waitFor(`document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.value === ${filledBacktickPair}`);
+  const backtickEvidence = await evaluate(`(() => {
+    const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1];
+    const code=[...input.closest('[data-macro-id-control]').querySelectorAll('[data-tone="code"]')];
+    return {value:input.value,colors:code.map(node=>getComputedStyle(node).color),texts:code.map(node=>node.textContent)};
+  })()`);
+  assert(backtickEvidence.texts.length === 2 && backtickEvidence.texts.every(text=>text === '`') &&
+    backtickEvidence.colors.every(color=>color === 'rgb(220, 220, 170)'),
+  'production backtick pair must color both delimiter glyphs', backtickEvidence);
+
+  await selectWholeDelimiterInput();
+  await page.call('Input.insertText', { text: 'Fo' });
+  await waitFor(`Boolean(document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]?.closest('[data-macro-id-control]')?.querySelector('[role="listbox"]'))`);
+  const rearmEvidence = await evaluate(`(() => { const input=document.querySelectorAll(${JSON.stringify('.snl-inductive-editor .snl-tree-row textarea[data-snl-macro-input]')})[1]; return {value:input.value,start:input.selectionStart,suggestions:Boolean(input.closest('[data-macro-id-control]').querySelector('[role="listbox"]'))}; })()`);
+  assert(rearmEvidence.value === 'Fo' && rearmEvidence.suggestions,
+    'removing all delimiters must let the next real input re-arm autocomplete', rearmEvidence);
+
   await waitFor(`Boolean(document.querySelector('.snl-tree-style-select:not(:disabled)')?.querySelector('option[value="compact"]'))`);
   const firstStyleSelection = await evaluate(`(() => {
     const select=document.querySelector('.snl-tree-style-select:not(:disabled)');
@@ -586,7 +657,17 @@ try {
     namedContainerWidths: [479, 480, 481, 959, 960, 961],
     states: ['idle', 'row-hover', 'toolbar-hover', 'focus-within', 'narrow-row-hover', 'coarse'],
     coarse: true,
-    interactions: { caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, imeDuring, imeAfter, entryIdCaret },
+    interactions: {
+      delimiter: {
+        imeDuring: delimiterImeDuring,
+        imeAfter: delimiterImeAfter,
+        percent: percentEvidence,
+        doubleDollar: doubleDollarEvidence,
+        backtick: backtickEvidence,
+        rearm: rearmEvidence
+      },
+      caret: caretResult, snoogl: snooglResult, firstStyle: firstStyleResult, imeDuring, imeAfter, entryIdCaret
+    },
     artifactBuild
   }, null, 2));
 } finally {

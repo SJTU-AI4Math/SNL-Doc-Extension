@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.macro.edit.sources"
+    "name": "Entry.ui.section.macro.edit.sources",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

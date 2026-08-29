@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "Shortcut_Space"
+    "name": "Shortcut_Space",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

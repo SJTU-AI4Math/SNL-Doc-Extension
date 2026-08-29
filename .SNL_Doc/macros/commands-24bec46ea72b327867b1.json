@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "CommandTitle.snlDoc.editEntry"
+    "name": "CommandTitle.snlDoc.editEntry",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

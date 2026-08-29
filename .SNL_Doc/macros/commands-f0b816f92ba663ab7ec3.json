@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "snlDoc.openInfoviewGraphForLibrary"
+    "name": "snlDoc.openInfoviewGraphForLibrary",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

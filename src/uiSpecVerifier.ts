@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';
+import { parseSnlSyntaxTree } from './snlBasicsHostCompat';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import {
   assertCurrentEntityStorageMetadata,

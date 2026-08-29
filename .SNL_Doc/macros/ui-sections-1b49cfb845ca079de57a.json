@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.entry.edit.pointer"
+    "name": "Entry.ui.section.entry.edit.pointer",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

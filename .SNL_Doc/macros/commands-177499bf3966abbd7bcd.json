@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "snlDoc.createMacro"
+    "name": "snlDoc.createMacro",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

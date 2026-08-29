@@ -4171,6 +4171,8 @@ export async function listMacroKinds(
  */
 export interface EntryData {
   id: string;
+  /** Schema 2 reserved root. Persisted current Entries always carry the empty string. */
+  uuid?: '';
   /** Immutable Package identity for per-entity storage; defaults to `_unpackaged`. */
   package?: string;
   kind: string;

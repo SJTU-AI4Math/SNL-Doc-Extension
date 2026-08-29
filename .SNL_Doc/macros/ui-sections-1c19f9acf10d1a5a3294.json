@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.entry.create.content"
+    "name": "Entry.ui.section.entry.create.content",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

@@ -7,8 +7,8 @@ const outfile = fileURLToPath(new URL('../out/snl-basics-host.cjs', import.meta.
 await build({
   stdin: {
     contents: [
-      "export { migrateMacroDocument, migrateMacroV7toV8 } from '@sjtu-ai4math/snl-basics';",
-      "export { isSnlIdentifier } from '@sjtu-ai4math/snl-basics/core';"
+      "export { migrateMacroDocument, migrateMacroV7toV8, readSnlTableRenderOptions } from '@sjtu-ai4math/snl-basics';",
+      "export { isSnlIdentifier, parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';"
     ].join('\n'),
     loader: 'js',
     resolveDir: root

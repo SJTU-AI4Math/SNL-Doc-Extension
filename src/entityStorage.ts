@@ -5,8 +5,8 @@ export const PACKAGE_STORAGE_VERSION = 1 as const;
 export const ENTRY_STORAGE_VERSION = 1 as const;
 export const MACRO_STORAGE_VERSION = 1 as const;
 export const CURRENT_PACKAGE_SCHEMA_VERSION = 2 as const;
-export const CURRENT_ENTRY_SCHEMA_VERSION = 1 as const;
-export const CURRENT_MACRO_SCHEMA_VERSION = 1 as const;
+export const CURRENT_ENTRY_SCHEMA_VERSION = 2 as const;
+export const CURRENT_MACRO_SCHEMA_VERSION = 2 as const;
 export const UNPACKAGED_PACKAGE_ID = '_unpackaged' as const;
 
 export type EntityIdentityKind = 'package' | 'entry' | 'macro';
@@ -107,28 +107,28 @@ export function makePackageManifest(
 export function makeEntryEnvelope<T extends Record<string, unknown>>(
   packageId: string,
   entry: T
-): EntryEnvelope<T> {
+): EntryEnvelope<T & { uuid: '' }> {
   assertPackageId(packageId);
   return {
     format: 'snl-entry',
     version: ENTRY_STORAGE_VERSION,
     schema_version: CURRENT_ENTRY_SCHEMA_VERSION,
     package: packageId,
-    entry
+    entry: { ...entry, uuid: '' }
   };
 }
 
 export function makeMacroEnvelope<T extends Record<string, unknown>>(
   packageId: string,
   macro: T
-): MacroEnvelope<T> {
+): MacroEnvelope<T & { uuid: '' }> {
   assertPackageId(packageId);
   return {
     format: 'snl-macro',
     version: MACRO_STORAGE_VERSION,
     schema_version: CURRENT_MACRO_SCHEMA_VERSION,
     package: packageId,
-    macro
+    macro: { ...macro, uuid: '' }
   };
 }
 
@@ -166,11 +166,52 @@ export function upgradePackageManifestSchema<T extends Record<string, unknown>>(
 export function upgradeEntryEnvelopeSchema<T extends Record<string, unknown>>(
   value: T
 ): T & { schema_version: typeof CURRENT_ENTRY_SCHEMA_VERSION } {
-  return upgradeSchemaMarker(value, CURRENT_ENTRY_SCHEMA_VERSION, 'Entry envelope');
+  return upgradeEntityPayloadSchema(value, 'entry', CURRENT_ENTRY_SCHEMA_VERSION, 'Entry envelope');
 }
 
 export function upgradeMacroEnvelopeSchema<T extends Record<string, unknown>>(
   value: T
 ): T & { schema_version: typeof CURRENT_MACRO_SCHEMA_VERSION } {
-  return upgradeSchemaMarker(value, CURRENT_MACRO_SCHEMA_VERSION, 'Macro envelope');
+  return upgradeEntityPayloadSchema(value, 'macro', CURRENT_MACRO_SCHEMA_VERSION, 'Macro envelope');
+}
+
+function upgradeEntityPayloadSchema<T extends Record<string, unknown>, V extends number>(
+  value: T,
+  payloadKey: 'entry' | 'macro',
+  current: V,
+  label: string
+): T & { schema_version: V } {
+  const rawVersion = Object.hasOwn(value, 'schema_version') ? value.schema_version : 1;
+  if (!Number.isInteger(rawVersion) || (rawVersion as number) < 1) {
+    throw new Error(`${label} schema_version must be a positive integer.`);
+  }
+  if ((rawVersion as number) > current) {
+    throw new Error(
+      `${label} schema version ${String(rawVersion)} is newer than this Extension supports (${current}).`
+    );
+  }
+  if (rawVersion !== 1 && rawVersion !== current) {
+    throw new Error(`${label} schema_version ${String(rawVersion)} has no registered migration to ${current}.`);
+  }
+  const payload = value[payloadKey];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(`${label} must contain an object ${payloadKey} payload.`);
+  }
+  const clonedPayload = structuredClone(payload) as Record<string, unknown>;
+  if (rawVersion === 1) {
+    if (Object.hasOwn(clonedPayload, 'uuid') && clonedPayload.uuid !== '') {
+      throw new Error(`${label} schema_version 1 has a conflicting reserved uuid field.`);
+    }
+    clonedPayload.uuid = '';
+  } else if (clonedPayload.uuid !== '') {
+    throw new Error(`${label} schema_version ${current} requires an empty uuid field.`);
+  }
+  const { format, version, ...rest } = structuredClone(value);
+  return {
+    format,
+    version,
+    ...rest,
+    schema_version: current,
+    [payloadKey]: clonedPayload
+  } as unknown as T & { schema_version: V };
 }

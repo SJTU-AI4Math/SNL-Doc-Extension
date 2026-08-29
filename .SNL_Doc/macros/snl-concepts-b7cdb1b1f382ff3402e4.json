@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "style_name"
+    "name": "style_name",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

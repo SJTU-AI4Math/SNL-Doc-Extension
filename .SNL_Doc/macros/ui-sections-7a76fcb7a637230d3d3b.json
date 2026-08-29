@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.snoogl.entry-results"
+    "name": "Entry.ui.section.snoogl.entry-results",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

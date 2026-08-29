@@ -63,7 +63,7 @@ beforeEach(() => {
   truncateThenFailWritePath = null;
   files.clear();
   files.set('/ws/.SNL_Doc/config.json', enc.encode(JSON.stringify({
-    version: '0.1.0', entry_kinds: [], macro_kinds: []
+    version: '0.2.0', entry_kinds: [], macro_kinds: []
   })));
   files.set(metaPath, enc.encode(JSON.stringify({ title: 'Old', metaExtension: { keep: true } })));
   files.set(graphPath, enc.encode(JSON.stringify({

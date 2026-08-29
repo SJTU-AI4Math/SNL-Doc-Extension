@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "CommandTitle.snlDoc.initEntryKinds"
+    "name": "CommandTitle.snlDoc.initEntryKinds",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

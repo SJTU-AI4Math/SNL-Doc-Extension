@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "JsonKey.macro_kinds"
+    "name": "JsonKey.macro_kinds",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "ButtonLabel.initialize_entry_kinds"
+    "name": "ButtonLabel.initialize_entry_kinds",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

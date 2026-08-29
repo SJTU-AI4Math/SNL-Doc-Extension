@@ -13,12 +13,50 @@ import {
 
 describe('per-file entity schema versions', () => {
   it('stamps every newly-created split-storage file with its current payload schema version', () => {
-    expect(CURRENT_ENTRY_SCHEMA_VERSION).toBe(1);
-    expect(CURRENT_MACRO_SCHEMA_VERSION).toBe(1);
+    expect(CURRENT_ENTRY_SCHEMA_VERSION).toBe(2);
+    expect(CURRENT_MACRO_SCHEMA_VERSION).toBe(2);
     expect(CURRENT_PACKAGE_SCHEMA_VERSION).toBe(2);
-    expect(makeEntryEnvelope('logic', { id: 'entry-1' }).schema_version).toBe(1);
-    expect(makeMacroEnvelope('logic', { name: 'Eq' }).schema_version).toBe(1);
+    expect(makeEntryEnvelope('logic', { id: 'entry-1' })).toMatchObject({
+      schema_version: 2,
+      entry: { id: 'entry-1', uuid: '' }
+    });
+    expect(makeMacroEnvelope('logic', { name: 'Eq' })).toMatchObject({
+      schema_version: 2,
+      macro: { name: 'Eq', uuid: '' }
+    });
     expect(makePackageManifest('logic', 'Logic', '').schema_version).toBe(2);
+  });
+
+  it('upgrades schema-1 Entry and Macro payloads with independent inert uuid roots', () => {
+    const entry = {
+      format: 'snl-entry' as const,
+      version: 1 as const,
+      schema_version: 1,
+      package: 'logic',
+      vendor_extension: { keep: true },
+      entry: { id: 'entry-1', vendor_payload: 'keep' }
+    };
+    const macro = {
+      format: 'snl-macro' as const,
+      version: 1 as const,
+      schema_version: 1,
+      package: 'logic',
+      vendor_extension: ['keep'],
+      macro: { name: 'Eq', vendor_payload: 'keep' }
+    };
+
+    expect(upgradeEntryEnvelopeSchema(entry)).toEqual({
+      ...entry,
+      schema_version: 2,
+      entry: { ...entry.entry, uuid: '' }
+    });
+    expect(upgradeMacroEnvelopeSchema(macro)).toEqual({
+      ...macro,
+      schema_version: 2,
+      macro: { ...macro.macro, uuid: '' }
+    });
+    expect(entry.entry).not.toHaveProperty('uuid');
+    expect(macro.macro).not.toHaveProperty('uuid');
   });
 
   it('upgrades legacy files that predate per-file schema versions without mutating their read snapshot', () => {
@@ -47,11 +85,13 @@ describe('per-file entity schema versions', () => {
 
     expect(upgradeEntryEnvelopeSchema(entry)).toEqual({
       ...entry,
-      schema_version: CURRENT_ENTRY_SCHEMA_VERSION
+      schema_version: CURRENT_ENTRY_SCHEMA_VERSION,
+      entry: { ...entry.entry, uuid: '' }
     });
     expect(upgradeMacroEnvelopeSchema(macro)).toEqual({
       ...macro,
-      schema_version: CURRENT_MACRO_SCHEMA_VERSION
+      schema_version: CURRENT_MACRO_SCHEMA_VERSION,
+      macro: { ...macro.macro, uuid: '' }
     });
     expect(upgradePackageManifestSchema(manifest)).toEqual({
       ...manifest,
@@ -69,7 +109,7 @@ describe('per-file entity schema versions', () => {
   ] as const)('rejects malformed and future %s schema markers instead of guessing', (_label, upgrade, base) => {
     expect(() => upgrade({ ...base, schema_version: 0 })).toThrow(/schema_version.*positive integer/i);
     expect(() => upgrade({ ...base, schema_version: '1' })).toThrow(/schema_version.*positive integer/i);
-    const future = _label === 'Package' ? 3 : 2;
+    const future = 3;
     expect(() => upgrade({ ...base, schema_version: future })).toThrow(/newer.*supports/i);
   });
 });

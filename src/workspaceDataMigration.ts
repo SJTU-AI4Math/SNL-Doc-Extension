@@ -54,7 +54,12 @@ export async function readStoredWorkspaceDataSnapshot(
   const hasEntityTopology = typeof versionInspection.currentVersion === 'string' &&
     usesCurrentEntityStorageDataVersion(versionInspection.currentVersion);
   if (!hasEntityTopology) return Object.freeze({ config });
-  const entities = await readEntityStorageSnapshot(storage);
+  const entities = await readEntityStorageSnapshot(
+    storage,
+    '11',
+    false,
+    versionInspection.currentVersion !== CURRENT_DATA_VERSION
+  );
   return Object.freeze({ config, entities });
 }
 
@@ -132,6 +137,7 @@ export async function inspectStoredWorkspaceData(
         await readEntityStorageSnapshot(
           storage,
           macroSchemaVersion,
+          inspection.status === 'needsMigration',
           inspection.status === 'needsMigration'
         );
       const packageIds = new Set(packages.map(({ manifest }) => manifest.id));

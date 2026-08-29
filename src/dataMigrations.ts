@@ -10,6 +10,7 @@ import {
   type DataMigrationReport
 } from './dataMigrationCore';
 import {
+  ENTRY_STORAGE_VERSION,
   MACRO_STORAGE_VERSION,
   UNPACKAGED_PACKAGE_ID,
   assertPackageId,
@@ -847,6 +848,27 @@ function migrate0010To0011PackageMembership(context: WorkspaceMigrationContext):
   }
 }
 
+function migrate010To020UuidRoots(context: WorkspaceMigrationContext): void {
+  for (const [path, envelope] of context.data.entryEntities) {
+    const upgraded = upgradeEntryEnvelopeSchema(envelope) as unknown as EntryEnvelope;
+    if (upgraded.format !== 'snl-entry' || upgraded.version !== ENTRY_STORAGE_VERSION ||
+        typeof upgraded.package !== 'string' || !isRecord(upgraded.entry) ||
+        typeof upgraded.entry.id !== 'string' || !upgraded.entry.id ||
+        upgraded.entry.package !== upgraded.package || upgraded.entry.uuid !== '') {
+      throw new Error(`${path} is not a valid Entry envelope for the 0.2.0 uuid migration.`);
+    }
+    context.data.entryEntities.set(path, upgraded);
+  }
+  for (const [path, envelope] of context.data.macroEntities) {
+    const upgraded = upgradeMacroEnvelopeSchema(envelope) as unknown as MacroEnvelope;
+    assertCurrentMacroEnvelope(path, upgraded);
+    if (!isRecord(upgraded.macro) || upgraded.macro.uuid !== '') {
+      throw new Error(`${path} is not a valid Macro envelope for the 0.2.0 uuid migration.`);
+    }
+    context.data.macroEntities.set(path, upgraded);
+  }
+}
+
 export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigrationContext>[] = [
   {
     from: '0.0.1',
@@ -930,6 +952,12 @@ export const WORKSPACE_DATA_MIGRATIONS: readonly DataMigration<WorkspaceMigratio
       // published over a config that current readers reject.
       assertThemedKindCatalogs(context.data.config);
     }
+  },
+  {
+    from: '0.1.0',
+    to: '0.2.0',
+    description: 'Add independent inert uuid roots to every Entry and Macro.',
+    migrate: async (context) => { migrate010To020UuidRoots(context); }
   }
 ];
 

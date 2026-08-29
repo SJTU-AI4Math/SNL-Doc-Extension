@@ -19,7 +19,7 @@ and select the downloaded file.
 You can also install it from a terminal:
 
 ```bash
-code --install-extension snl-doc-extension-0.1.0.vsix
+code --install-extension snl-doc-extension-0.2.0.vsix
 ```
 
 ## Build from source

@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.entry-kind.edit.preview"
+    "name": "Entry.ui.section.entry-kind.edit.preview",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

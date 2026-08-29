@@ -57,8 +57,8 @@ vi.mock('vscode', () => {
             return encoder.encode(JSON.stringify(state.malformedEntry
               ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id: 'e1', package: 'logic' } }
               : {
-                  format: 'snl-entry', version: 1, package: 'logic',
-                  entry: { id: 'e1', package: 'logic', title: 'First', kind: 'k1', content: { snl: 'x' }, pointer: null }
+                  format: 'snl-entry', version: 1, schema_version: 2, package: 'logic',
+                  entry: { id: 'e1', uuid: '', package: 'logic', title: 'First', kind: 'k1', content: { snl: 'x' }, pointer: null }
                 }));
           }
           if (uri.path.includes('/packages/')) {

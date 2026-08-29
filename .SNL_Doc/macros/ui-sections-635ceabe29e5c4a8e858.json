@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.macro.edit.gui-inductive"
+    "name": "Entry.ui.section.macro.edit.gui-inductive",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

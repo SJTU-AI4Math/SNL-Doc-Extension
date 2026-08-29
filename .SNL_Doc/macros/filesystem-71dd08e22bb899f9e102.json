@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "File.relationships_json"
+    "name": "File.relationships_json",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

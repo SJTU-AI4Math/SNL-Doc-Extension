@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "SNL_Open_Dashboard"
+    "name": "SNL_Open_Dashboard",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

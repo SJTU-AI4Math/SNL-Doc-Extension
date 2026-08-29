@@ -131,8 +131,8 @@ vi.mock('vscode', () => {
           return JSON.stringify(malformedEntityEnvelope
             ? { format: 'snl-entry', version: 999, package: 'logic', entry: { id, package: 'logic' } }
             : {
-                format: 'snl-entry', version: 1, package: 'logic',
-                entry: { id, package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' }, pointer: null }
+                format: 'snl-entry', version: 1, schema_version: 2, package: 'logic',
+                entry: { id, uuid: '', package: 'logic', title: id === 'e1' ? 'First' : 'Second', kind: 'k1', content: { snl: id === 'e1' ? 'x' : emptySecondEntitySnl ? '' : 'y' }, pointer: null }
               });
         }
         if (path.includes('/packages/')) {

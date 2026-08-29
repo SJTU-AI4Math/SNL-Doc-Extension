@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.macro-package.batch-actions"
+    "name": "Entry.ui.section.macro-package.batch-actions",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

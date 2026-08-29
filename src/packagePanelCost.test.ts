@@ -26,7 +26,7 @@ function seedCurrentTopology(): void {
     }));
   }
   jsonByPath.set('config.json', {
-    version: '0.1.0',
+    version: '0.2.0',
     entry_kinds: [],    macro_kinds: [],
     active_macro_packages: packageIds
   });
@@ -181,7 +181,7 @@ const extensionUri = { path: '/ext' } as never;
 
 function entryKindConfig(): Record<string, unknown> {
   return {
-    version: '0.1.0',
+    version: '0.2.0',
     entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: {
       light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' }
     } }],
@@ -260,7 +260,7 @@ describe('PackagePanel read cost', () => {
   it('enumerates exactly the selected Package Entry ids without catalog or Macro reads', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.1.0', entry_kinds: [], macro_kinds: [],
+      version: '0.2.0', entry_kinds: [], macro_kinds: [],
       active_macro_packages: []
     });
     const selectedIds = ['logic.first', 'logic.second'];
@@ -319,7 +319,7 @@ describe('PackagePanel read cost', () => {
   it('rejects Entry creation from a malformed Package manifest before any write', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.1.0', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
+      version: '0.2.0', entry_kinds: [], macro_kinds: [], active_macro_packages: [],
       entity_storage: {
         version: 1, legacy_backup_version: '0.0.5', entry_default_package: '_unpackaged',
         receipt: {
@@ -357,7 +357,7 @@ describe('PackagePanel read cost', () => {
 
   it('rolls back create membership when the manifest CAS write fails', async () => {
     jsonByPath.clear();
-    jsonByPath.set('config.json', { version: '0.1.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    jsonByPath.set('config.json', { version: '0.2.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
     const manifestPath = packageManifestPath('logic');
     jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', []));
     state.failOnceAt = manifestPath;
@@ -375,7 +375,7 @@ describe('PackagePanel read cost', () => {
 
   it('rolls back a cross-Package move after an injected membership failure', async () => {
     jsonByPath.clear();
-    jsonByPath.set('config.json', { version: '0.1.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    jsonByPath.set('config.json', { version: '0.2.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
     const id = 'logic.move';
     const sourcePath = packageManifestPath('source');
     const destinationPath = packageManifestPath('destination');
@@ -423,7 +423,7 @@ describe('PackagePanel read cost', () => {
 
   it('rolls back delete membership when Entry deletion fails', async () => {
     jsonByPath.clear();
-    jsonByPath.set('config.json', { version: '0.1.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    jsonByPath.set('config.json', { version: '0.2.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
     const id = 'logic.delete';
     const manifestPath = packageManifestPath('logic');
     const entityPath = entryEntityPath('logic', id);
@@ -571,7 +571,7 @@ describe('PackagePanel read cost', () => {
 
   it('rejects stale Entry revisions and stale listed membership before publish', async () => {
     jsonByPath.clear();
-    jsonByPath.set('config.json', { version: '0.1.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
+    jsonByPath.set('config.json', { version: '0.2.0', entry_kinds: [{ id: 'definition', name: 'Definition', defaultCounterName: '', style: '', coloring: { light: { stroke: '#888', background: '#888' }, dark: { stroke: '#888', background: '#888' } } }], macro_kinds: [], active_macro_packages: [] });
     const manifestPath = packageManifestPath('logic');
     jsonByPath.set(manifestPath, makePackageManifest('logic', 'Logic', '', ['missing.entry']));
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
@@ -640,7 +640,7 @@ describe('PackagePanel read cost', () => {
   it('folds collisions deterministically in file order and exposes the winning origin', async () => {
     jsonByPath.clear();
     jsonByPath.set('config.json', {
-      version: '0.1.0', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']    });
+      version: '0.2.0', entry_kinds: [], macro_kinds: [], active_macro_packages: ['core', 'core-extra']    });
     for (const id of ['core', 'core-extra']) {
       jsonByPath.set(`packages/${packageManifestPath(id).slice('packages/'.length)}`, makePackageManifest(id, id, ''));
       jsonByPath.set(`macros/${macroEntityPath(id, 'Shared.name').slice('macros/'.length)}`, makeMacroEnvelope(id, {
@@ -724,7 +724,7 @@ describe('PackagePanel read cost', () => {
 
   it('fails closed when a configured active package has no manifest', async () => {
     jsonByPath.set('config.json', {
-      version: '0.1.0',
+      version: '0.2.0',
       entry_kinds: [],      macro_kinds: [],
       active_macro_packages: [...packageIds, 'missing-active']
     });

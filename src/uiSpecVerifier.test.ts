@@ -51,7 +51,7 @@ describe('UI specification workspace verifier', () => {
 
   it('accepts the committed specification workspace', async () => {
     await expect(verifyUiSpecWorkspace(workspace)).resolves.toMatchObject({
-      dataVersion: '0.1.0', entries: 332, macros: 207, usedMacros: 207,
+      dataVersion: '0.2.0', entries: 332, macros: 207, usedMacros: 207,
     });
   });
 
@@ -66,9 +66,10 @@ describe('UI specification workspace verifier', () => {
   });
 
   it.each([
-    ['format', 'not-snl-entry'],
-    ['version', false],
-    ['schema_version', 2],
+    ['format', 'snl-entry-future'],
+    ['version', 2],
+    ['schema_version', 3],
+    ['schema_version', 1],
   ])('rejects an invalid Entry %s literal independently', async (field, replacement) => {
     await rejectsMutation(firstJson('entries'), (envelope) => {
       envelope[field] = replacement;
@@ -78,7 +79,8 @@ describe('UI specification workspace verifier', () => {
   it.each([
     ['format', 'not-snl-macro'],
     ['version', false],
-    ['schema_version', 2],
+    ['schema_version', 3],
+    ['schema_version', 1],
   ])('rejects an invalid Macro %s literal independently', async (field, replacement) => {
     await rejectsMutation(firstJson('macros'), (envelope) => {
       envelope[field] = replacement;
@@ -95,6 +97,17 @@ describe('UI specification workspace verifier', () => {
     await rejectsMutation(firstJson('macros'), (envelope) => {
       delete envelope.macro[field];
     }, /Macro|canonical/i);
+  });
+
+  it.each(['entries', 'macros'] as const)('rejects a missing or non-empty %s uuid root', async (directory) => {
+    const payloadKey = directory === 'entries' ? 'entry' : 'macro';
+    const pattern = /requires an empty uuid field/i;
+    await rejectsMutation(firstJson(directory), (envelope) => {
+      delete envelope[payloadKey].uuid;
+    }, pattern);
+    await rejectsMutation(firstJson(directory), (envelope) => {
+      envelope[payloadKey].uuid = 'not-active-yet';
+    }, pattern);
   });
 
   it('rejects incomplete Kind metadata and blank themed colors independently', async () => {

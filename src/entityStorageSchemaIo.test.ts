@@ -96,13 +96,15 @@ describe('legacy split-file schema compatibility', () => {
     ]);
     const storage = mapStorage(values);
 
-    const entryRecord = await readEntryEntityRecord(storage, 'logic', entry.id);
-    const macroRecords = await readMacroEntityRecords(storage);
+    const entryRecord = await readEntryEntityRecord(storage, 'logic', entry.id, true);
+    const macroRecords = await readMacroEntityRecords(storage, '11', true);
     await expect(readPackageManifestRecord(storage, 'logic'))
       .rejects.toThrow(/schema_version|schema version/i);
 
-    expect(entryRecord?.envelope.schema_version).toBe(1);
-    expect(macroRecords[0].envelope.schema_version).toBe(1);
+    expect(entryRecord?.envelope.schema_version).toBe(2);
+    expect(macroRecords[0].envelope.schema_version).toBe(2);
+    expect(entryRecord?.entry.uuid).toBe('');
+    expect(macroRecords[0].macro.uuid).toBe('');
     expect(entryRecord?.rawEnvelope).toBe(legacyEntry);
     expect(macroRecords[0].rawEnvelope).toBe(legacyMacro);
     ((entryRecord!.envelope.entry.content as Record<string, unknown>)).snl = 'mutated projection';
@@ -121,11 +123,11 @@ describe('legacy split-file schema compatibility', () => {
     const path = entryEntityPath('logic', entry.id);
     const storage = mapStorage(new Map<string, unknown>([[path, {
       ...makeEntryEnvelope('logic', entry),
-      schema_version: 2
+      schema_version: 3
     }]]));
 
     await expect(readEntryEntityRecord(storage, 'logic', entry.id))
-      .rejects.toThrow(/schema version 2 is newer/i);
+      .rejects.toThrow(/current Entry schema_version 2|schema version 3 is newer/i);
   });
 
   it('requires complete current envelopes at the ordinary entity write barrier', () => {
@@ -139,7 +141,7 @@ describe('legacy split-file schema compatibility', () => {
       .toThrow(/current schema_version/i);
     expect(() => assertCurrentEntityFile(path, {
       ...current,
-      entry: { ...entry, content: { snl: 1 } }
+      entry: { ...current.entry, content: { snl: 1 } }
     })).toThrow(/content\.snl/i);
   });
 
@@ -150,7 +152,8 @@ describe('legacy split-file schema compatibility', () => {
       .resolves.toHaveLength(1);
     await expect(readMacroEntityRecords(
       mapStorage(new Map([[path, withoutSchemaVersion(current)]])),
-      '8'
+      '8',
+      true
     )).rejects.toThrow(/styles\[0\]\.mode|canonical v8/i);
   });
 
@@ -175,8 +178,8 @@ describe('legacy split-file schema compatibility', () => {
       [macroEntityPath('logic', macro.name), legacyMacro],
       [packageManifestPath('logic'), legacyPackage]
     ]));
-    const entryRecord = (await readEntryEntityRecord(storage, 'logic', entry.id))!;
-    const macroRecord = (await readMacroEntityRecords(storage))[0];
+    const entryRecord = (await readEntryEntityRecord(storage, 'logic', entry.id, true))!;
+    const macroRecord = (await readMacroEntityRecords(storage, '11', true))[0];
     const packageRecord = (await readPackageManifestRecord(storage, 'logic'))!;
 
     expect(entityFileRewriteChanges(
@@ -200,8 +203,16 @@ describe('legacy split-file schema compatibility', () => {
     expect(entryRewrite.expected).toBe(legacyEntry);
     expect(macroRewrite.expected).toBe(legacyMacro);
     expect(packageRewrite.expected).toBe(legacyPackage);
-    expect(entryRewrite.value).toMatchObject({ schema_version: 1, vendor_extension: { keep: 'entry' } });
-    expect(macroRewrite.value).toMatchObject({ schema_version: 1, vendor_extension: { keep: 'macro' } });
+    expect(entryRewrite.value).toMatchObject({
+      schema_version: 2,
+      vendor_extension: { keep: 'entry' },
+      entry: { uuid: '' }
+    });
+    expect(macroRewrite.value).toMatchObject({
+      schema_version: 2,
+      vendor_extension: { keep: 'macro' },
+      macro: { uuid: '' }
+    });
     expect(packageRewrite.value).toMatchObject({
       schema_version: 2,
       name: 'Changed',

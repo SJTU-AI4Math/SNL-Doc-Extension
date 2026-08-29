@@ -64,7 +64,7 @@ describe('entity storage reads', () => {
     const record = await readEntryEntityRecord(storage, entry.package, entry.id);
 
     expect(reads).toEqual([expectedPath]);
-    expect(record?.entry).toEqual(entry);
+    expect(record?.entry).toEqual({ ...entry, uuid: '' });
     expect(record?.path).toBe(expectedPath);
   });
 

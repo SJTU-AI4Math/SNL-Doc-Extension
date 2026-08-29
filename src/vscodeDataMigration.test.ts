@@ -183,8 +183,8 @@ describe('VS Code workspace data migration adapter', () => {
         }
       }
     }));
-    expect(report.to).toBe('0.1.0');
-    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.1.0' });
+    expect(report.to).toBe('0.2.0');
+    expect(get('/ws/.SNL_Doc/config.json')).toMatchObject({ version: '0.2.0' });
     expect(get('/ws/.SNL_Doc/term_macros/Logic.json')).toMatchObject({ version: '8' });
   });
 

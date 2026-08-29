@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "Folder.packages"
+    "name": "Folder.packages",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

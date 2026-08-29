@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.entry.edit.contributor"
+    "name": "Entry.ui.section.entry.edit.contributor",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

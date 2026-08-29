@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "SNL_Open_SNoogL_Search"
+    "name": "SNL_Open_SNoogL_Search",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

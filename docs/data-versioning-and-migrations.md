@@ -4,9 +4,9 @@
 
 SNL Doc has intentionally separate version domains:
 
-- **Extension release**: `package.json#version` (currently `0.1.0`). This is the VS Code Marketplace/package release and never drives workspace migration.
-- **Workspace topology schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.1.0`; it plans coordinated cross-file migrations.
-- **Split-file payload schema**: every `snl-package`, `snl-entry`, and `snl-macro` file carries a numeric `schema_version` independent of its envelope `version`. The current Package generation is `2`; Entry and Macro remain at generation `1`. Files created before `0.0.10` have no marker and are the unique implicit legacy generation. Package schema `2` adds the authoritative, exact `entry_ids` membership index and is reached only through the coordinated workspace `0.0.10 -> 0.0.11` migration, not by an isolated lazy Package-file rewrite.
+- **Extension release**: `package.json#version` (currently `0.2.0`). This is the VS Code Marketplace/package release and never drives workspace migration.
+- **Workspace topology schema**: `.SNL_Doc/config.json#version`, a strict `major.minor.patch` SemVer string. The current version is `0.2.0`; it plans coordinated cross-file migrations.
+- **Split-file payload schema**: every `snl-package`, `snl-entry`, and `snl-macro` file carries a numeric `schema_version` independent of its envelope `version`. Package, Entry, and Macro are currently at generation `2`. Files created before `0.0.10` have no marker and are the unique implicit legacy generation. Package schema `2` adds the authoritative, exact `entry_ids` membership index. Entry and Macro schema `2` each add an independent root `uuid` field whose only valid current value is the empty string; it has no identity, reference, lookup, or rendering semantics yet.
 - **Macro package format**: each Macro package's `version` (currently string generation `"11"`). This is a subordinate file-format generation. A workspace migration may rewrite it, but it is not compared with the workspace SemVer.
 - **Relationships file format**: `relationships.json#version` (currently numeric generation `1`). It is likewise subordinate to the workspace data version.
 - Library `meta.json`, `graph.json`, `counters.json`, and the legacy aggregate `entries.json` currently have no independent version field. Their supported shapes are determined by the workspace data version.
@@ -44,6 +44,7 @@ The registry is intentionally explicit; SemVer arithmetic does not invent missin
 - `0.0.9 -> 0.0.10`: enable per-file payload schema migration without eagerly rewriting existing split files. An absent `schema_version` remains readable as the single legacy generation.
 - `0.0.10 -> 0.0.11`: derive exact Entry ownership from all Entry envelopes, publish sorted `entry_ids` in every Package manifest, and advance Package payload schema `1 -> 2`. This is a cross-file membership migration: Package manifests and Entry envelopes are validated together before the workspace version is committed.
 - `0.0.11 -> 0.1.0`: align the workspace topology version with Extension `0.1.0`. Payload schemas remain unchanged; the migration advances only `config.json#version` after the existing current-schema validation gates pass.
+- `0.1.0 -> 0.2.0`: add `uuid: ""` at the root of every Entry and Macro payload and advance both per-file payload schemas from `1` to `2`. The field is reserved and inert in this release; existing `id` and `name` remain the sole identities.
 
 All three direct edges compose every transformation omitted between their source
 and `0.0.9`. Macro v11 localizes a complete TemplateSpec rather than only a text
@@ -53,7 +54,7 @@ one-sided themed compatibility record copies its surviving side before commit.
 
 Unknown future versions are rejected by migration and treated as read-only by ordinary data writers, preventing an older Extension from rewriting a newer schema.
 
-Entry and Macro split-file reads validate and migrate the single implicit legacy generation into their current in-memory schema without writing it. A later modification rewrites that complete file with the current `schema_version`, preserves unknown envelope extensions, and compares against the exact pre-migration disk snapshot; unmodified files remain byte-identical. Package schema `2` is deliberately outside that lazy boundary because `entry_ids` is cross-file membership metadata: a `0.0.10` Package schema `1` manifest must be upgraded by the registered workspace migration that inspects the complete Entry set. Cross-file identity, topology, receipt, membership, and reference changes must continue to use a workspace migration rather than independent lazy file rewrites.
+Entry and Macro split-file reads before workspace `0.2.0` retain their historical schema behavior. The `0.1.0 -> 0.2.0` workspace migration eagerly rewrites every Entry and Macro entity to schema `2`, adds the inert empty `uuid` root, preserves unknown envelope and payload extensions, and commits `config.json#version` last. Package schema `2` remains outside the earlier lazy boundary because `entry_ids` is cross-file membership metadata: a `0.0.10` Package schema `1` manifest must be upgraded by the registered workspace migration that inspects the complete Entry set. Cross-file identity, topology, receipt, membership, and reference changes must continue to use a workspace migration rather than independent lazy file rewrites.
 
 ## Commands
 

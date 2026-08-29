@@ -11,6 +11,8 @@
     },
     "contribution_info": null,
     "pointer": null,
-    "package": "extension-ui-spec"
-  }
+    "package": "extension-ui-spec",
+    "uuid": ""
+  },
+  "schema_version": 2
 }

@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "Entry.ui.section.dashboard.relationships"
+    "name": "Entry.ui.section.dashboard.relationships",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

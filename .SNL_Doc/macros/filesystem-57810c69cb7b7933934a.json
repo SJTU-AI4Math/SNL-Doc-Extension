@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "File.entries_json"
+    "name": "File.entries_json",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

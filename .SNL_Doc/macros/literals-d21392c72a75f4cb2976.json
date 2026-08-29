@@ -21,7 +21,8 @@
         }
       }
     ],
-    "name": "Literal.example_A"
+    "name": "Literal.example_A",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

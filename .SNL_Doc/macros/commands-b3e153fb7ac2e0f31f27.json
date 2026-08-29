@@ -23,7 +23,8 @@
         }
       }
     ],
-    "name": "CommandTitle.snlDoc.createMacroKind"
+    "name": "CommandTitle.snlDoc.createMacroKind",
+    "uuid": ""
   },
-  "schema_version": 1
+  "schema_version": 2
 }

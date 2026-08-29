@@ -238,13 +238,17 @@ function assertCanonicalEntryPayload(path: string, entry: Record<string, unknown
 function validateEntryEntity(
   path: string,
   value: unknown,
-  expectedIdentity?: { package: string; id: string }
+  expectedIdentity?: { package: string; id: string },
+  allowPredecessorSchema = false
 ): EntryEntityRecord {
   if (!isRecord(value) || value.format !== 'snl-entry' ||
       value.version !== ENTRY_STORAGE_VERSION || typeof value.package !== 'string' ||
       !isRecord(value.entry) || typeof value.entry.id !== 'string' || !value.entry.id ||
       value.entry.id !== value.entry.id.trim() || typeof value.entry.package !== 'string') {
     throw new Error(`${path} is not a valid SNL Entry envelope.`);
+  }
+  if (!allowPredecessorSchema && value.schema_version !== CURRENT_ENTRY_SCHEMA_VERSION) {
+    throw new Error(`${path} must carry the current Entry schema_version ${CURRENT_ENTRY_SCHEMA_VERSION}.`);
   }
   const envelope = upgradeEntryEnvelopeSchema(value) as unknown as EntryEnvelope<
     Record<string, unknown> & { id: string; package: string }
@@ -270,23 +274,27 @@ function validateEntryEntity(
 export async function readEntryEntityRecord(
   storage: EntityReadStorage,
   packageId: string,
-  entryId: string
+  entryId: string,
+  allowPredecessorSchema = false
 ): Promise<EntryEntityRecord | null> {
   const path = entryEntityPath(packageId, entryId);
   const value = await storage.readJson(path);
   if (value === null) return null;
   try {
-    return validateEntryEntity(path, value, { package: packageId, id: entryId });
+    return validateEntryEntity(path, value, { package: packageId, id: entryId }, allowPredecessorSchema);
   } catch (error) {
     throw new EntityStorageValidationError(error instanceof Error ? error.message : String(error));
   }
 }
 
-export async function readEntryEntityRecords(storage: EntityReadStorage): Promise<EntryEntityRecord[]> {
+export async function readEntryEntityRecords(
+  storage: EntityReadStorage,
+  allowPredecessorSchema = false
+): Promise<EntryEntityRecord[]> {
   const records: EntryEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'entries')) {
-    const record = validateEntryEntity(path, value);
+    const record = validateEntryEntity(path, value, undefined, allowPredecessorSchema);
     if (ids.has(record.entry.id)) throw new Error(`Duplicate Entry identity ${JSON.stringify(record.entry.id)}.`);
     ids.add(record.entry.id);
     records.push(record);
@@ -436,12 +444,16 @@ async function readHistoricalPackageManifestRecords(
 function validateMacroEntity(
   path: string,
   value: unknown,
-  schemaVersion: '8' | '9' | '10' | '11' = '11'
+  schemaVersion: '8' | '9' | '10' | '11' = '11',
+  allowPredecessorSchema = false
 ): MacroEntityRecord {
   if (!isRecord(value) || value.format !== 'snl-macro' || value.version !== MACRO_STORAGE_VERSION ||
       typeof value.package !== 'string' || !isRecord(value.macro) || typeof value.macro.name !== 'string' ||
       !value.macro.name || value.macro.name !== value.macro.name.trim()) {
     throw new Error(`${path} is not a valid SNL Macro envelope.`);
+  }
+  if (!allowPredecessorSchema && value.schema_version !== CURRENT_MACRO_SCHEMA_VERSION) {
+    throw new Error(`${path} must carry the current Macro schema_version ${CURRENT_MACRO_SCHEMA_VERSION}.`);
   }
   const declaredSchema = Object.hasOwn(value, 'schema_version');
   const envelope = upgradeMacroEnvelopeSchema(value) as unknown as MacroEnvelope<
@@ -490,12 +502,13 @@ export function assertCurrentEntityFile(path: string, value: unknown): void {
 
 export async function readMacroEntityRecords(
   storage: EntityReadStorage,
-  schemaVersion: '8' | '9' | '10' | '11' = '11'
+  schemaVersion: '8' | '9' | '10' | '11' = '11',
+  allowPredecessorSchema = false
 ): Promise<MacroEntityRecord[]> {
   const records: MacroEntityRecord[] = [];
   const ids = new Set<string>();
   for (const { path, value } of await readDirectory(storage, 'macros')) {
-    const record = validateMacroEntity(path, value, schemaVersion);
+    const record = validateMacroEntity(path, value, schemaVersion, allowPredecessorSchema);
     const identity = `${record.envelope.package}\0${record.macro.name}`;
     if (ids.has(identity)) throw new Error(`Duplicate Macro identity ${JSON.stringify(identity)}.`);
     ids.add(identity);
@@ -507,14 +520,15 @@ export async function readMacroEntityRecords(
 export async function readEntityStorageSnapshot(
   storage: EntityReadStorage,
   macroSchemaVersion: '8' | '9' | '10' | '11' = '11',
-  allowPredecessorMembership = false
+  allowPredecessorMembership = false,
+  allowPredecessorEntitySchemas = false
 ): Promise<EntityStorageSnapshot> {
   const [packages, entries, macros] = await Promise.all([
     allowPredecessorMembership
       ? readHistoricalPackageManifestRecords(storage)
       : readPackageManifestRecords(storage),
-    readEntryEntityRecords(storage),
-    readMacroEntityRecords(storage, macroSchemaVersion)
+    readEntryEntityRecords(storage, allowPredecessorEntitySchemas),
+    readMacroEntityRecords(storage, macroSchemaVersion, allowPredecessorEntitySchemas)
   ]);
   return Object.freeze({
     packages: Object.freeze(packages),

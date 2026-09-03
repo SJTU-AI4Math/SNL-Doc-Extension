@@ -185,6 +185,12 @@ describe('workspace asset broker bundle gate coverage', () => {
     );
   });
 
+  it('declares a packaged PNG extension icon', () => {
+    expect((packageJson as { icon?: string }).icon).toBe('media/icons/SNL_logo.png');
+    const bytes = readFileSync(resolve(__dirname, '..', 'media', 'icons', 'SNL_logo.png'));
+    expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
   it('fails when any affected production bundle is missing', () => {
     const dir = completeFixture();
     rmSync(resolve(dir, 'dashboard.js'));

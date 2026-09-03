@@ -1,10 +1,10 @@
-import {
-  readSnlTableRenderOptions,
-  type SnlBlockMacroTemplate,
-  type SnlTableComposition,
-  type SnlTableCssColors,
-  type SnlTableCssThemes,
-  type SnlTableRenderOptions
+import { readSnlTableRenderOptions } from './snlBasicsHostCompat';
+import type {
+  SnlBlockMacroTemplate,
+  SnlTableComposition,
+  SnlTableCssColors,
+  SnlTableCssThemes,
+  SnlTableRenderOptions
 } from '@sjtu-ai4math/snl-basics';
 
 export type TableComposition = SnlTableComposition;
@@ -52,7 +52,9 @@ export function readTableTemplateOptions(
     throw new Error(`${path}.table is valid only in block mode.`);
   }
   try {
-    return readSnlTableRenderOptions(projection as unknown as SnlBlockMacroTemplate);
+    return readSnlTableRenderOptions(
+      projection as unknown as SnlBlockMacroTemplate
+    ) as TableTemplateOptions;
   } catch (error) {
     throw new Error(`${path}.table is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -17,6 +17,8 @@ export type Localized<_Language extends string, T> = T | I18nValue<T>;
 
 interface HostBridge {
   isSnlIdentifier(value: string): boolean;
+  parseSnlSyntaxTree(value: string): unknown;
+  readSnlTableRenderOptions(value: Record<string, unknown>): unknown;
   migrateMacroDocument(
     document: Record<string, Record<string, unknown>>,
     options?: Record<string, unknown>
@@ -31,6 +33,8 @@ interface HostBridge {
 const bridge = require('../out/snl-basics-host.cjs') as HostBridge;
 
 export const isSnlIdentifier = bridge.isSnlIdentifier;
+export const parseSnlSyntaxTree = bridge.parseSnlSyntaxTree;
+export const readSnlTableRenderOptions = bridge.readSnlTableRenderOptions;
 export const migrateMacroDocument = bridge.migrateMacroDocument;
 export const migrateMacroV7toV8 = bridge.migrateMacroV7toV8;
 

@@ -181,7 +181,7 @@ describe('workspace asset broker bundle gate coverage', () => {
       'node scripts/build-webviews.mjs'
     );
     expect(packageJson.scripts.test).toBe(
-      'node scripts/prepare-test-artifacts.mjs && vitest run'
+      'node scripts/prepare-test-artifacts.mjs && vitest run --pool=forks --maxWorkers=1 --minWorkers=1'
     );
   });
 

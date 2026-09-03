@@ -3,7 +3,7 @@
   "displayName": "%snlDoc.displayName%",
   "description": "%snlDoc.description%",
   "publisher": "sjtu-ai4math",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension.git"
@@ -452,7 +452,7 @@
     "build:webview": "node scripts/build-webviews.mjs",
     "dev:webview": "vite --config webview/vite.config.ts",
     "smoke": "npm run compile && node scripts/smoke.mjs",
-    "test": "node scripts/prepare-test-artifacts.mjs && vitest run",
+    "test": "node scripts/prepare-test-artifacts.mjs && vitest run --pool=forks --maxWorkers=1 --minWorkers=1",
     "verify:ui-spec": "npm run compile --silent && node out/uiSpecVerifier.js",
     "test:metrics": "vitest run webview/src/components/EntryMetrics.test.ts --environment node",
     "test:entry-overflow": "node scripts/test-entry-overflow-geometry.mjs",

@@ -4,6 +4,7 @@
   "description": "%snlDoc.description%",
   "publisher": "sjtu-ai4math",
   "version": "0.1.1",
+  "icon": "media/icons/SNL_logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension.git"

@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.contract",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Extension Data Schema read contract",
+        "zh-CN": "Extension 数据 Schema 读取契约"
+      }
+    },
+    "content": {
+      "markdown": "This Library records the observed read contract of SNL-Doc-Extension at baseline `12a9377c46966ffdf88b50793bd09d01011a65dc`. Its normative scope is the behavior of the named Extension reader APIs, not a generic SNL ideal.\n\nEvery MUST below describes a current acceptance or rejection boundary. Tolerant behavior and omitted checks are stated explicitly so a later Extension–Toolkit comparison cannot silently upgrade them into guarantees. A behavior change MUST update this Library and its conformance fixtures in the same change.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

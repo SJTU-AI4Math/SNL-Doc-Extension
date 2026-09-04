@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.section.outcomes",
+    "package": "data-schema-spec",
+    "kind": "section",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Outcomes and conformance",
+        "zh-CN": "结果与一致性测试"
+      }
+    },
+    "content": {
+      "markdown": "This section fixes status/error boundaries, explicit non-guarantees, and the minimum differential fixture matrix.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

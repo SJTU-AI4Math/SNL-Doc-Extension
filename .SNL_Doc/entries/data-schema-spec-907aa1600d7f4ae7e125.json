@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.pipelines",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Distinct read pipelines",
+        "zh-CN": "不同的读取管线"
+      }
+    },
+    "content": {
+      "markdown": "`inspectWorkspaceDataVersion` delegates to `inspectStoredWorkspaceData` and returns migration status. `readStoredWorkspaceDataSnapshot` captures config and, for `0.0.11` through `0.1.0`, the Package/Entry/Macro records; it can throw before an inspection status exists. `readDashboardWorkspaceData` builds this snapshot once, runs `readOverview` and `inspectStoredWorkspaceData` concurrently, and throws after both only when inspection is `invalid`.\n\n`readOverview` performs Dashboard config, relationship, and Library work. `readLibraryMeta`, `readLibraryGraph`, and `readLibraryCountersSnapshot` have independent tagged-result and tolerance policies. Direct entity reads can use a different filesystem adapter from migration inspection.\n\nA `current` migration inspection MUST NOT be interpreted as proof that every Dashboard or Library read succeeds. A `future` inspection is not itself thrown by `readDashboardWorkspaceData` and can be returned with an overview if that overview succeeds. Conversely, a tolerant Library read MUST NOT be interpreted as workspace-schema validity.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

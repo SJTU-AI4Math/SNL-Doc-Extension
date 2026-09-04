@@ -536,16 +536,17 @@
     }
   ],
   "active_macro_packages": [
-    "UIbasic",
     "commands",
     "computer-basics",
+    "data-schema-spec",
     "filesystem",
     "literals",
     "snl-concepts",
     "ui-buttons",
     "ui-inputs",
     "ui-panels",
-    "ui-sections"
+    "ui-sections",
+    "UIbasic"
   ],
   "entity_storage": {
     "version": 1,

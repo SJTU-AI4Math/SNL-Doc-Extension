@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.entries",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Entry envelope requirements",
+        "zh-CN": "Entry envelope 要求"
+      }
+    },
+    "content": {
+      "markdown": "Every Entry file MUST contain an object envelope with `format: \"snl-entry\"`, storage `version: 1`, string owner `package`, and an object `entry`. `entry.id` MUST be a non-empty whitespace-canonical string; `entry.package` MUST be a string equal to the envelope owner. The deterministic filename MUST match owner Package plus Entry ID. Entry IDs MUST be globally unique across the complete pool.\n\nThe payload MUST have non-empty string `kind`; `title` MUST be a string or valid I18N string; `content` MUST be an object; and `pointer` MUST be present. `content.snl`, when present, MUST be a string. `typst`, `latex`, `markdown`, and `text`, when present, MUST be strings or valid I18N strings.\n\nAn absent Entry `schema_version` is currently accepted and normalized in memory to `1`; a present marker MUST be the positive supported value `1`. This differs from a writer that requires the marker on disk.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

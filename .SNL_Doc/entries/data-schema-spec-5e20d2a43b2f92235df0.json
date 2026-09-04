@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.ownership",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Cross-entity ownership and exact membership",
+        "zh-CN": "跨实体所有权与精确成员关系"
+      }
+    },
+    "content": {
+      "markdown": "Every Entry and Macro envelope owner MUST resolve to a Package manifest. Every configured active Macro Package MUST also resolve.\n\nFor current entity-storage versions, each Package `entry_ids` MUST equal exactly the sorted set of all Entry IDs whose envelope owner is that Package. Missing members, extra members, wrong-owner members, duplicates, or order drift are fatal. Point reads additionally require the requested Entry to be indexed by its owner manifest.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

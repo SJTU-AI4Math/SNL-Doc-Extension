@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.library-discovery",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Library discovery and metadata",
+        "zh-CN": "Library 发现与元数据"
+      }
+    },
+    "content": {
+      "markdown": "Library existence is derived from non-hidden immediate directories under `.SNL_Doc/libraries/`; `config.json#libraries` is not authoritative. Missing or unreadable Library root yields an empty list. Non-directories and dot-prefixed directories are skipped. Results are sorted by slug.\n\nDashboard discovery reads `meta.json` best-effort: missing, malformed, or unreadable metadata falls back to slug title with `hasMeta: false`. `readLibraryMeta` is only strict about the top level being an object; it returns `noFile` for absence and `error` for malformed or unreadable data, without requiring title or description fields.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

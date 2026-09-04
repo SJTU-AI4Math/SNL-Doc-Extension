@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.macros",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Macro envelope requirements",
+        "zh-CN": "Macro envelope 要求"
+      }
+    },
+    "content": {
+      "markdown": "Each Macro file MUST be a `snl-macro` storage-version-1 envelope with canonical Package ID, trimmed nonempty Macro name, deterministic hashed path, and absent or current marker `schema_version: 1`. Duplicate `(package, name)` identities are rejected.\n\nA declared envelope marker forces v11 payload validation even while inspecting predecessor workspace data. Only a markerless envelope uses the workspace-version fallback: v8 for `0.0.6`, v9 for `0.0.7`, v10 for `0.0.8`, and v11 otherwise. This distinction permits resumed migrations containing already-published marked v11 Macro entities.\n\nThe selected payload MUST pass `assertCanonicalMacroPackage`: valid SNL Macro name, required description/dynamic-arity/source/tags/styles fields, unique valid style names, version-appropriate fields, and template/backend/arity contracts. At v11 each Style is restricted to `style_name`, `tags`, and `template`; retired transport fields are rejected. Unknown Macro-level fields not explicitly rejected by that validator remain accepted. Macro Kind existence in config is not cross-checked here.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

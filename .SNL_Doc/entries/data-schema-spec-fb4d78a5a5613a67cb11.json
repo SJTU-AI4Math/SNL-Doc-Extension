@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.section.boundaries",
+    "package": "data-schema-spec",
+    "kind": "section",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Authority and reader boundaries",
+        "zh-CN": "权威与读取边界"
+      }
+    },
+    "content": {
+      "markdown": "This section pins the implementation authority and separates migration inspection, Dashboard overview, and Library sidecar readers.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

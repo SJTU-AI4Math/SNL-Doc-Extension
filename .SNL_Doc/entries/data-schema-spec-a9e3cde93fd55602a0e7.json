@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.active-packages",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Active Macro Package references",
+        "zh-CN": "激活的 Macro Package 引用"
+      }
+    },
+    "content": {
+      "markdown": "`active_macro_packages` is optional. When present during topology inspection it MUST be an array of strings. Every value MUST be whitespace-canonical, satisfy the Package ID grammar, differ from the reserved `_unpackaged` ID, and resolve to an existing Package manifest.\n\nThe current inspector does not require this array to be duplicate-free. The Dashboard normalizer validates the string and Package-ID shape but relies on topology inspection for the reserved-ID and existence checks.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

@@ -1,0 +1,301 @@
+{
+  "nodes": [
+    {
+      "id": "node.schema.read.contract",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.contract"
+      }
+    },
+    {
+      "id": "node.schema.read.section.boundaries",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.boundaries"
+      }
+    },
+    {
+      "id": "node.schema.read.baseline",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.baseline"
+      }
+    },
+    {
+      "id": "node.schema.read.pipelines",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.pipelines"
+      }
+    },
+    {
+      "id": "node.schema.read.section.config",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.config"
+      }
+    },
+    {
+      "id": "node.schema.read.config-version",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.config-version"
+      }
+    },
+    {
+      "id": "node.schema.read.kind-catalogs",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.kind-catalogs"
+      }
+    },
+    {
+      "id": "node.schema.read.active-packages",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.active-packages"
+      }
+    },
+    {
+      "id": "node.schema.read.section.topology",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.topology"
+      }
+    },
+    {
+      "id": "node.schema.read.directories",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.directories"
+      }
+    },
+    {
+      "id": "node.schema.read.enumeration",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.enumeration"
+      }
+    },
+    {
+      "id": "node.schema.read.receipt",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.receipt"
+      }
+    },
+    {
+      "id": "node.schema.read.section.entities",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.entities"
+      }
+    },
+    {
+      "id": "node.schema.read.packages",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.packages"
+      }
+    },
+    {
+      "id": "node.schema.read.entries",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.entries"
+      }
+    },
+    {
+      "id": "node.schema.read.macros",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.macros"
+      }
+    },
+    {
+      "id": "node.schema.read.ownership",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.ownership"
+      }
+    },
+    {
+      "id": "node.schema.read.section.ancillary",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.ancillary"
+      }
+    },
+    {
+      "id": "node.schema.read.relationships",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.relationships"
+      }
+    },
+    {
+      "id": "node.schema.read.library-discovery",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.library-discovery"
+      }
+    },
+    {
+      "id": "node.schema.read.library-sidecars",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.library-sidecars"
+      }
+    },
+    {
+      "id": "node.schema.read.section.outcomes",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.outcomes"
+      }
+    },
+    {
+      "id": "node.schema.read.failure-semantics",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.failure-semantics"
+      }
+    },
+    {
+      "id": "node.schema.read.non-guarantees",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.non-guarantees"
+      }
+    },
+    {
+      "id": "node.schema.read.conformance",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.conformance"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.boundaries",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.config",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.topology",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.entities",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.ancillary",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.outcomes",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.boundaries",
+      "to": "node.schema.read.baseline",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.boundaries",
+      "to": "node.schema.read.pipelines",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.config-version",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.kind-catalogs",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.active-packages",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.directories",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.enumeration",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.receipt",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.packages",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.entries",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.macros",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.ownership",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.relationships",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.library-discovery",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.library-sidecars",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.failure-semantics",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.non-guarantees",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.conformance",
+      "label": "branch"
+    }
+  ]
+}

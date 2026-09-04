@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.conformance",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Minimum differential conformance matrix",
+        "zh-CN": "最小差分一致性矩阵"
+      }
+    },
+    "content": {
+      "markdown": "Extension and Toolkit comparison fixtures MUST cover at least: missing `.SNL_Doc`; missing, malformed, scalar, legacy, current, and future config; missing each entity directory; file-vs-directory and symlink substitutions; adapter-specific `.json`/`.JSON` regular files and JSON-suffixed non-files; malformed UTF-8, duplicate keys, malformed JSON, and disappearing files; receipt drift; missing `_unpackaged`; Package case-fold collisions; deterministic path mismatch; orphan Entry/Macro; exact `entry_ids` drift; markerless and future entity schema markers; malformed Relationships; missing Library root; malformed meta; malformed graph rows and dangling references; malformed counters; and unreadable Entry pool during graph validation.\n\nEach fixture MUST record the exact API under test, expected status or thrown error class, stable message fragment, and whether data was normalized, warned, skipped, or rejected. A whole-workspace green result cannot substitute for API-specific expectations.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

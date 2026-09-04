@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.receipt",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Entity-storage metadata and frozen-backup receipt",
+        "zh-CN": "实体存储元数据与冻结备份收据"
+      }
+    },
+    "content": {
+      "markdown": "Current topology inspection MUST find object `config.entity_storage` with `version: 1`, `legacy_backup_version: \"0.0.5\"`, `entry_default_package: \"_unpackaged\"`, and an object receipt.\n\nInspection recomputes the receipt from `entries.json` and case-insensitively discovered `term_macros/*.json`, including presence flags, counts, and SHA-256 digests over native `JSON.stringify` output. Both the digests and the final receipt comparison are property-order-sensitive; objects with the same members in a different insertion order can differ. The stored receipt MUST have `JSON.stringify` output exactly equal to that recomputation. A disappeared backup file or any receipt drift is fatal.\n\nThe stricter metadata helper additionally requires exactly seven receipt keys with boolean, non-negative integer, and string types, but does not itself check digest syntax or backup equality. Ordinary Package, Entry, and Macro readers do not invoke either receipt gate. Receipt validity is established by the workspace inspection pipeline, not by a successful point read or entity snapshot alone.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

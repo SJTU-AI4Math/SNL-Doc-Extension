@@ -51,7 +51,7 @@ describe('UI specification workspace verifier', () => {
 
   it('accepts the committed specification workspace', async () => {
     await expect(verifyUiSpecWorkspace(workspace)).resolves.toMatchObject({
-      dataVersion: '0.1.0', entries: 332, macros: 207, usedMacros: 207,
+      dataVersion: '0.1.0', entries: 357, macros: 207, usedMacros: 207,
     });
   });
 

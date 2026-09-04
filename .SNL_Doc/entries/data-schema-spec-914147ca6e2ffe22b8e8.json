@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.failure-semantics",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Inspection and failure semantics",
+        "zh-CN": "检查与失败语义"
+      }
+    },
+    "content": {
+      "markdown": "`inspectStoredWorkspaceData` catches config, topology, receipt, and entity failures and returns `status: \"invalid\"`, `currentVersion: null`, target `0.1.0`, and a message prefixed `Could not read config.json:` even when the underlying failure is not config parsing. Callers MUST inspect the status rather than infer the failing layer from that prefix.\n\nThe VS Code adapter's `exists` helper catches every `stat` failure and reports absence, so permission and transient stat errors can be classified as missing before a later operation fails differently. JSON is decoded with a non-fatal UTF-8 decoder and native `JSON.parse`.\n\n`readStoredWorkspaceDataSnapshot`, `readOverview`, and direct entity readers can throw instead of returning migration status. `readDashboardWorkspaceData` explicitly throws only `invalid` inspection after concurrent reads; `future` can be returned, while other component failures can still reject the operation. Library meta/graph APIs return tagged `ok`, `noFile`, or `error`; Library graph structural defects can still be `ok` with warnings. Error surfaces are API-specific.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

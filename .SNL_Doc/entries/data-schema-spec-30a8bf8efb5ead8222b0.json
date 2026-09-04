@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.library-sidecars",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Library graph and counter tolerance",
+        "zh-CN": "Library graph 与计数器的宽容读取"
+      }
+    },
+    "content": {
+      "markdown": "`readLibraryGraph` is a tolerant reader. Missing file returns `noFile`; I/O or JSON parse failure returns `error`, and a noncanonical Library slug can also return `error` during path construction before file I/O; non-object roots, missing arrays, malformed/duplicate nodes, unsupported labels, malformed or dangling relationships, and unsupported relationship labels produce an `ok` result with warnings, skipped rows, or retained-but-ignored rows as implemented.\n\nAn Entry node gets a missing-Entry warning only when the Entry pool was read successfully **and contains at least one ID**. If pool reading fails, or succeeds with an empty pool, dangling `props.entryId` validation is skipped without a warning. Missing or non-string `props.entryId` is also not itself warned by this reader. Graph reading does not reject cycles, multi-parent structures, or multiple roots.\n\n`readLibraryCountersSnapshot` treats missing, unreadable, malformed, and structurally invalid counters as an empty list. It keeps only recursively normalized nodes with nonempty IDs. `name` and `numbering` each default to the empty string when absent or non-string; the returned node shape contains only `id`, `name`, `numbering`, and normalized `children`. Fields such as `prefix`, `suffix`, and `initial` are not read or returned. These are current tolerance semantics, not strict validity guarantees.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

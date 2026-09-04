@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.config-version",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Config JSON and data version",
+        "zh-CN": "配置 JSON 与数据版本"
+      }
+    },
+    "content": {
+      "markdown": "Missing `config.json` yields migration status `missing`. A present file MUST parse as JSON; the inspection value MUST be an object rather than an array or scalar. An absent `version` is interpreted as legacy `0.0.1`; a present version MUST be a string matching strict numeric `major.minor.patch` SemVer with no prerelease or build suffix.\n\nThe current target is `0.1.0`. A greater version yields `future`. A lower version yields `needsMigration` only when exactly one registered forward chain reaches `0.1.0` without cycles, gaps, branches, or overshoot; otherwise it is `invalid`.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

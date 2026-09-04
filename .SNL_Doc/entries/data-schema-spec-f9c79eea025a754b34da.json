@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.packages",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Package manifest requirements",
+        "zh-CN": "Package manifest 要求"
+      }
+    },
+    "content": {
+      "markdown": "Every current Package manifest MUST be an object with `format: \"snl-package\"`, storage `version: 1`, `schema_version: 2`, string `id`, `name`, and `description`, and present `entry_ids`.\n\nIts filename MUST equal the deterministic hash-derived path for its ID. Package IDs MUST satisfy the Extension grammar and Windows-device-name restriction. Identities MUST be unique under case-folding. `entry_ids` MUST be sorted by locale-independent UTF-16 code-unit order, duplicate-free, and contain only non-empty whitespace-canonical strings. A manifest for `_unpackaged` MUST exist.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

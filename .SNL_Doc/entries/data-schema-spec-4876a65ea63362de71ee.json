@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.kind-catalogs",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Current Kind catalog validation",
+        "zh-CN": "当前 Kind 目录校验"
+      }
+    },
+    "content": {
+      "markdown": "For current entity-storage versions, `readOverview` via `normalizeConfig` MUST require `entry_kinds` and `macro_kinds` arrays. Records MUST be objects with unique, non-empty, whitespace-canonical string IDs.\n\nCurrent Entry Kinds MUST carry valid names, string `defaultCounterName` and `style`, optional valid descriptions, and themed `coloring.light` and `coloring.dark`, each with non-empty string `stroke` and `background`; legacy flat colors MUST NOT be mixed in. Current Macro Kinds MUST carry string `name` and `description` plus the same themed coloring shape.\n\n`inspectStoredWorkspaceData` does not run this complete Kind-catalog guard. Therefore migration status `current` alone does not certify Kind semantics.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

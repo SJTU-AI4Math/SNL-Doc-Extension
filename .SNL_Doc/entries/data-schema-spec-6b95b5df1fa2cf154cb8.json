@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.non-guarantees",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Explicit current non-guarantees",
+        "zh-CN": "明确的当前非保证"
+      }
+    },
+    "content": {
+      "markdown": "The migration inspector currently does not require `.SNL_Doc/libraries/`, `.gitkeep`, Git checkout persistence, lowercase-only extensions, duplicate-free `active_macro_packages`, strict Kind semantics, canonical workspace paths, or a proof that required entity paths are real non-symlink directories.\n\nIt also does not cross-check `Entry.kind` or `Macro.kind` against the config Kind catalogs and does not reject unknown object fields generally. Library discovery and sidecar readers intentionally accept states that the Toolkit Library validator may reject. None of these omissions may be reported as already enforced by the Extension.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

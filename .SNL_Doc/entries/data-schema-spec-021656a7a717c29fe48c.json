@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.relationships",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Global Relationship file",
+        "zh-CN": "全局 Relationship 文件"
+      }
+    },
+    "content": {
+      "markdown": "`.SNL_Doc/relationships.json` is optional; absence means an empty pool. If present, it MUST parse as an object with `version: 1` and a `relationships` array. Each record MUST be an object whose `id`, `from`, `to`, and `label` are non-empty whitespace-canonical strings, and IDs MUST be unique.\n\nThe ordinary read does not prove that `from` and `to` resolve to Entry IDs. Endpoint existence is enforced by mutation paths, not by `readRelationships` itself.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

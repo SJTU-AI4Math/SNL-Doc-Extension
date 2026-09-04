@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.section.config",
+    "package": "data-schema-spec",
+    "kind": "section",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Config and version contract",
+        "zh-CN": "配置与版本契约"
+      }
+    },
+    "content": {
+      "markdown": "This section defines `.SNL_Doc/config.json`, version planning, Kind catalogs, and active Macro Package references.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.directories",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Required entity directories",
+        "zh-CN": "必需实体目录"
+      }
+    },
+    "content": {
+      "markdown": "For split entity topology (`0.0.6` through `0.1.0`), migration inspection probes `.SNL_Doc/packages/`, `.SNL_Doc/entries/`, and `.SNL_Doc/macros/` and rejects a missing path. The current VS Code adapter probe proves existence only; it does not itself prove that the path is a real non-symlink directory.\n\n`.SNL_Doc/libraries/` is not required by `inspectStoredWorkspaceData`; missing or unreadable Library storage degrades to an empty Library list. The inspector does not check `.gitkeep` or Git persistence. These omissions are current behavior, not implied validity guarantees.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

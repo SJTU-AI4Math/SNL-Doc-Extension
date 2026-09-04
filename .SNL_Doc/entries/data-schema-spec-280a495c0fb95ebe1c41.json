@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.baseline",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Baseline and source authority",
+        "zh-CN": "基线与源码权威"
+      }
+    },
+    "content": {
+      "markdown": "The implementation authorities are `src/dataMigrationCore.ts`, `src/dataMigrations.ts`, `src/workspaceDataMigration.ts`, `src/vscodeDataMigration.ts`, `src/entityStorage.ts`, `src/entityStorageIo.ts`, `src/kindColoring.ts`, and `src/snlDoc.ts` at the pinned baseline.\n\nUnknown fields are generally preserved or ignored unless an individual requirement says the key set is exact. This Spec does not claim that TypeScript interfaces alone validate runtime data; only exercised runtime guards count.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

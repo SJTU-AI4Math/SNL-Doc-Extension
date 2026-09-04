@@ -1,0 +1,24 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "schema.read.section.ancillary",
+    "package": "data-schema-spec",
+    "kind": "section",
+    "title": {
+      "type": "i18n",
+      "default_language": "en",
+      "values": {
+        "en": "Relationships and Libraries",
+        "zh-CN": "Relationship 与 Library"
+      }
+    },
+    "content": {
+      "markdown": "This section records strict global Relationship reads and intentionally tolerant Library sidecar reads.\n"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

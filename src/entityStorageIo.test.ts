@@ -202,6 +202,19 @@ describe('entity storage reads', () => {
     await expect(readEntryEntityRecord(storage, 'logic', 'entry-1')).rejects.toThrow();
   });
 
+  it('validates Package Entry membership with deterministic UTF-16 code-unit order', async () => {
+    const id = 'unicode';
+    const storage: EntityReadStorage = {
+      listJsonFiles: async () => [fileFor(id)],
+      readJson: async () => ({
+        format: 'snl-package', version: 1, schema_version: 2,
+        id, name: id, description: '', entry_ids: ['墨翟', '黄歇']
+      })
+    };
+
+    await expect(readPackageManifestRecords(storage)).resolves.toHaveLength(1);
+  });
+
   it('reads entity JSON with bounded concurrency while preserving result order', async () => {
     const ids = Array.from({ length: 24 }, (_, i) => `pkg-${String(23 - i).padStart(2, '0')}`);
     let inFlight = 0;

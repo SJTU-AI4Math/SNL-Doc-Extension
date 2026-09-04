@@ -4,6 +4,7 @@ import {
   CURRENT_ENTRY_SCHEMA_VERSION,
   CURRENT_MACRO_SCHEMA_VERSION,
   CURRENT_PACKAGE_SCHEMA_VERSION,
+  compareCanonicalIds,
   ENTRY_STORAGE_VERSION,
   MACRO_STORAGE_VERSION,
   PACKAGE_STORAGE_VERSION,
@@ -310,7 +311,7 @@ function validateManifestMembership(path: string, manifest: Record<string, unkno
   const valid = Array.isArray(entryIds) &&
     !entryIds.some((entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()) &&
     new Set(entryIds).size === entryIds.length &&
-    !entryIds.some((entryId, index) => index > 0 && entryIds[index - 1].localeCompare(entryId) > 0);
+    !entryIds.some((entryId, index) => index > 0 && compareCanonicalIds(entryIds[index - 1], entryId) > 0);
   if ((required && !Object.hasOwn(manifest, 'entry_ids')) ||
       (Object.hasOwn(manifest, 'entry_ids') && !valid)) {
     throw new Error(`${path}#entry_ids must be a present sorted array of unique, non-empty canonical Entry ids.`);

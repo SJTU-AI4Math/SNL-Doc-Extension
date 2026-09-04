@@ -11,6 +11,11 @@ export const UNPACKAGED_PACKAGE_ID = '_unpackaged' as const;
 
 export type EntityIdentityKind = 'package' | 'entry' | 'macro';
 
+/** Locale-independent ordering for persisted canonical identities. */
+export function compareCanonicalIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export interface PackageManifest {
   [key: string]: unknown;
   format: 'snl-package';
@@ -88,7 +93,7 @@ export function makePackageManifest(
   entryIds: readonly string[] = []
 ): PackageManifest {
   assertPackageId(id);
-  const normalizedEntryIds = [...entryIds].sort((left, right) => left.localeCompare(right));
+  const normalizedEntryIds = [...entryIds].sort(compareCanonicalIds);
   if (normalizedEntryIds.some((entryId) => typeof entryId !== 'string' || !entryId || entryId !== entryId.trim()) ||
       new Set(normalizedEntryIds).size !== normalizedEntryIds.length) {
     throw new Error('Package entry_ids must contain unique, non-empty canonical Entry ids.');

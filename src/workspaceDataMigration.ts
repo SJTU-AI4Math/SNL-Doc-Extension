@@ -1,5 +1,5 @@
 import type { DataMigrationReport } from './dataMigrationCore';
-import { assertPackageId, UNPACKAGED_PACKAGE_ID } from './entityStorage';
+import { assertPackageId, compareCanonicalIds, UNPACKAGED_PACKAGE_ID } from './entityStorage';
 import {
   readEntityStorageSnapshot,
   readEntryEntityRecords,
@@ -159,8 +159,7 @@ export async function inspectStoredWorkspaceData(
           entryIdsByOwner.get(envelope.package)!.push(entry.id);
         }
         for (const { manifest } of packages) {
-          const expectedEntryIds = entryIdsByOwner.get(manifest.id)!
-            .sort((left, right) => left.localeCompare(right));
+          const expectedEntryIds = entryIdsByOwner.get(manifest.id)!.sort(compareCanonicalIds);
           if (!sameJson(manifest.entry_ids, expectedEntryIds)) {
             throw new Error(
               `Package ${JSON.stringify(manifest.id)} entry_ids diverges from the exact owner-derived Entry membership.`

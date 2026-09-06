@@ -20,6 +20,8 @@ import { CreateRelationshipPanel } from './createRelationshipPanel';
 import { GraphPanel } from './graphPanel';
 import { SnoogLPanel } from './snooglPanel';
 import { initSnlDoc } from './snlDoc';
+import { installPointerSyncHost } from './pointerSyncHost';
+import { createPointerHostDriver } from './pointerSyncDriver';
 import * as snlDoc from './snlDoc';
 import { firstWorkspaceFolder } from './panelUtil';
 import { initialize_preferences_host } from './preferencesHost';
@@ -278,6 +280,7 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshTraceEnabled();
   const activation = startTrace('extension:activate');
   initialize_preferences_host(context);
+  installPointerSyncHost(context, createPointerHostDriver());
   const t = hostMessage;
   // Drives the `when` clause of the editor-title 🐱 navigation button.
   installSnlDocContextKey(context.subscriptions);

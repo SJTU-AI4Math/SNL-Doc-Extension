@@ -1,4 +1,6 @@
 {
+  "snlDoc.command.revealNearestEntry": "SNL: Reveal nearest Entry",
+  "snlDoc.command.maintainPointers": "SNL: Pointer maintenance",
   "snlDoc.displayName": "SNL Doc",
   "snlDoc.description": "VS Code extension for SNL documentation with an Infoview webview panel.",
   "snlDoc.settings.title": "SNL Doc",

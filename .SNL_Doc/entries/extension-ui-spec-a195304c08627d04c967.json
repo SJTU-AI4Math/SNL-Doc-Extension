@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document.research-typst",
+    "package": "extension-ui-spec",
+    "kind": "section",
+    "title": "一手调研：Tinymist / Typst Preview 的编译视图与跳转协议",
+    "content": {
+      "markdown": "## 版本与架构\n\n固定 `Myriad-Dreamin/tinymist` 提交 `766f1ec0edcfef620c70baac7fd2790a01baa324`，查看当前仓库中的 `crates/typst-preview` 与 VS Code frontend；不把历史独立 typst-preview 仓库混成同一版本。证据为静态源码及协议调用链，本轮未启动 Typst 编译或预览服务。\n\n[`actor/render.rs`](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/crates/typst-preview/src/actor/render.rs#L163-L276) 的 RenderActor 使用当前 `CompileView`。源位置通过 `resolve_document_position(Location::Src(...))` 得到一组页面位置，发出 `SrcToDocJump`；文档 frame 坐标通过 `resolve_frame_loc` 变回 SourceSpanOffset，再用 `resolve_span` 得到来源文件与范围。一个来源可产生多处版面位置，返回类型不是天然单值。\n\n## 消息与编辑缓冲区\n\n[`actor/editor.rs`](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/crates/typst-preview/src/actor/editor.rs#L120-L146) 定义 `panelScrollTo`、`sourceScrollBySpan`、`editorScrollTo`、`syncMemoryFiles` 与 `updateMemoryFiles` 等方向明确的消息，分开控制平面与渲染数据。内存文件消息进入服务更新；不能简单等同于从磁盘重读。\n\n[`editors/vscode/src/features/preview.ts`](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/editors/vscode/src/features/preview.ts#L593-L707) 按 scrollSync 设置响应鼠标/键盘 selection change，过滤多选与重复相邻 selection，发送文件路径、行、character。程序选择不能无差别当作用户点击再触发一轮同步；SNL 应使用请求来源/token 显式处理。该连接还依赖 preview task、静态服务与数据平面端口，不是把原前端直接放进离线 HTML 即可工作。\n\n## 映射寿命与反例\n\n[`source_scroll_by_span`](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/crates/typst-preview/src/actor/editor.rs#L276-L293) 通过 SpanInterner 查 span ID，遇到 `UseAfterFree` 报过期并返回，不再把旧 ID 猜成新位置。RenderActor 持有当前 CompileView，full render 替换 renderer，delta render 在 renderer 上打包变化；批量合并消息与渲染增量不能直接外推为持久、跨启动的源索引。\n\n一个容易误报的边界：当前 [`ChangeCursorPosition` 分支](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/crates/typst-preview/src/actor/editor.rs#L212-L224) 明确打印实验 cursor indicator 因性能暂时禁用并忽略请求。frontend 中仍有配置和发送代码，不代表服务端真的实现了该路径。正常 `panelScrollTo` 另有处理，不能由 cursor indicator 被禁用推断所有双向跳转失效。\n\n## 对 SNL 的结论\n\n借鉴当前快照视图、双向独立消息、失效 span 拒绝和多目标表达；不依赖 Typst compiler，也不把 Typst span 当作任意 Lean Pointer 的解析器。Extension 在自身文本快照上解析作者 Pointer；静态导出把该结果与源码一起冻结，浏览器使用这张表完成双向定位，不需要后端编译服务或再次执行正则。高频追踪须测成本并提供关闭开关，不能因类似工具有 UI 选项就承诺同样性能。\n\n### 成功编译快照的边界\n\n同提交 [`CompileWatcher::notify_compile`](https://github.com/Myriad-Dreamin/tinymist/blob/766f1ec0edcfef620c70baac7fd2790a01baa324/crates/typst-preview/src/lib.rs#L564-L595) 只在 CompileSuccess 时替换共享 view；Compiling/CompileError 仅发送状态。因此“当前 CompileView”可以是上次成功编译的快照，并不一定对应正在编辑的文本。前文 SpanInterner 是大纲等 span-handle 路径的失效机制，不是所有普通页面点击都必经的索引；普通 frame 点击有单独位置解析链。"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

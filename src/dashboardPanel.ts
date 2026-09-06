@@ -432,6 +432,9 @@ export class DashboardPanel {
         }
         return;
       }
+      case 'maintainPointers':
+        await vscode.commands.executeCommand('snlDoc.maintainPointers');
+        return;
       case 'openInfoview':
         // Dashboard → Infoview handoff (per cat 2026-07-06: reader/editor
         // toggle from either surface).

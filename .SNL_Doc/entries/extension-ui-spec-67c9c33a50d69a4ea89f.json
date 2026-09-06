@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document.acceptance",
+    "package": "extension-ui-spec",
+    "kind": "section",
+    "title": "验收矩阵：正确性、真实界面与资源",
+    "content": {
+      "markdown": "所有下列项目是**待实现后执行的门禁**，不是本次已经通过的测试。\n\n## 解析与最近查找\n\n- 0/15/16 行边界、上下距离分别为 0 和自定义值、上下不对称的边界、起始行前后对称、长范围内部、嵌套/重叠范围、同距同范围多个 Entry、多个 occurrence、无 Pointer 文件、无 workspace、多 root 与同名文件。\n- 行模式沿用起点越界失败与终点 EOF 截断；regex 验证完整文件 `m`/`s`/`u`/`y` 等 flags、默认/显式 occurrence、无匹配、非法表达式、零宽匹配、跨行末端、CRLF、空文件、BOM、中文与非 BMP。不要用逐行 regex 测试替代真实 resolver。\n- 正向与反向共用同一个解析快照；dirty buffer、撤销/revert、不保存关闭、save、外部写入、git checkout、Entry/Package 删除及 rename、source rename、失效后的恢复均不返回旧结果。测试旧异步响应晚到、query 取消、editor 切换，以及 watcher 丢失“新建候选/移入当前文件”事件后显式重建恢复；不以旧候选校验冒充发现遗漏候选。阈值 0 还覆盖光标与 regex 命中在同一行但不同列的情形。\n- 热查询用计数器证明没有再次扫描全库、读取全部源文件或重跑不相关文件的正则；长范围命中不能因二分优化丢失。超时任务不能阻塞 extension host，失败状态与 no-match 分开。\n\n## Extension 真实 UI\n\n在实际 Extension Development Host 中打开普通源码与 `.lake/packages/mathlib/...`，分别通过快捷键和命令面板定位。核对 Entry ID、代码组/Infoview 并排、未找到不乱跳、Quick Pick 取消、不抢 editor 快捷键、原来的 Entry→代码仍正常。Windows 是用户主要消费环境，必须有 Windows/F5 实测；Linux jsdom 或宿主 mock 不能替代。\n\n## 导出与安全\n\n对同一 fixture 的 none / pointer-files / project 与 include/exclude 交叉配置，检查最终精确路径集、目录拓扑、字节摘要、Pointer→file→route 闭包；包括 popover-only Entry、重复 Entry occurrence 和无 Pointer 文件。Mathlib 配置证明被 gitignore 的 `.lake` 被允许，而 `.SNL_Doc` 与输出目录默认不递归进入。\n\n覆盖过滤目标、缺文件、二进制、超大文件、编码不支持、断链、软链接循环、外部 Lake 授权/拒绝、链接读取间替换、大小写冲突、`../` 路径、原型键和包含 `</script>` 的源码。恶意文本不得执行、发请求或更改父对象；无任何隐式 CDN/联网依赖。许可和明显凭据过滤有精确文件集合断言，但不将测试冒充通用秘密检测。\n\n导出时修改 Entry、Macro/样式、正文或任一 variant/popover 依赖、源码必须被检测，不出现旧正文配新 Pointer 或 hash 与跳转对应不同字节。变化后重新捕获并重新确认预览；验收包括“只变非初始语言 variant”和“确认后文件集改变”。失败/取消后旧产物字节不变；允许缺失的导出显式展示状态。损坏文件 hash、删除 chunk、篡改 route、重复 file ID、未知 manifest 版本应被检测。\n\n## 导出真实浏览器\n\n目录 HTTP、目录 file://、单 HTML file:// 各自测试：离线加载、Lean 明暗染色、收起/展开、50% 初始分屏、拖拽/键盘分隔器、文件切换/搜索/复制、禁止编辑、多语言/主题切换、Pointer 双向跳转、15 行边界、并列选择、返回/前进、无焦点跳夺与无同步循环。桌面及窄屏桌面截图和 DOM 证据同时保存；移动浏览器只验证正文可读与明确的支持范围提示；不能只检测 Monaco 容器存在。\n\n运行 legacy 交互回归：数学高亮、悬浮/popover、折叠、Entry/node 路由、关系区、SVG/图片、locale/theme 与 page overflow，源码关闭时产物不包含源文件或多余 Monaco 载荷。捕捉控制台错误、网络失败与 CSP/worker 错误，主动断网测试。\n\n## 资源测量\n\n普通项目与明确 SHA 的 Mathlib 两套语料；分别记录 Pointer 总数/单文件数、文本字节、cold 与 warm 查询耗时、峰值 RSS、首次打开源码延迟、payload 大小、model/worker 数和切换后内存。建议 warm P95 ≤ 50 ms、无 ≥ 100 ms UI 主线程阻塞作为设计目标，必须报告测量机器、版本、样本数和实测结果，不把目标当保证。若单 HTML 超预算，保留明确配置/提醒，不把大语料换小 fixture 后声称 Mathlib 场景已交付。\n\n## 仓库现有验证入口\n\n实现阶段先写 RED fixture，再运行相关 focused 测试和完整回归。当前已存在的入口为 `npm test -- --maxWorkers=4`、`npm run compile`、`npm run build:export-runtime`、`npm run build:webview`、`npm run verify:ui-spec`；这些命令由基线 package.json 核实，但本次规范编写不运行构建，也不宣称它们已为新功能通过。新的源映射/导出浏览器测试须接入现有 test/build 链，禁止只留手工一次性 demo。\n\n## 已采纳实现切片的补充门禁\n\nPointer 上下距离的缺省/显式 0/不对称数值须经表单、保存、读取、逆查全链保留；负数、分数、非数字、超过安全整数拒绝，不静默取整。syncSNL.json 需覆盖首次生成、Entry create/update/delete、Pointer 清空/换文件、外部 Toolkit 写入、源码改动、未保存覆盖不落盘、索引损坏/缺失重建、并发过期结果与原子替换失败。Dashboard 按钮必须实际触发重建并展示结果，不能只提供命令行。热逆查不重新读取全库 Entry；首次启动、缺索引与手动维护允许全量扫描。"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

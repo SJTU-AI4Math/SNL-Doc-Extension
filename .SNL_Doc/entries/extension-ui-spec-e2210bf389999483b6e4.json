@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document.research-latex-workshop",
+    "package": "extension-ui-spec",
+    "kind": "section",
+    "title": "补充调研：LaTeX Workshop 的 SyncTeX 适配层",
+    "content": {
+      "markdown": "## 一手版本与证据级别\n\n仓库 `James-Yu/LaTeX-Workshop`，本次查询的 master 为 `3928fc8aaad1b42a2d941d98be54063550c9d0ef`。以下来自该提交的静态源码，不是本轮启动 LaTeX/PDF viewer 的运行测试。\n\n## 数据和双向入口\n\n[`src/locate/synctex/synctexjs.ts`](https://github.com/James-Yu/LaTeX-Workshop/blob/3928fc8aaad1b42a2d941d98be54063550c9d0ef/src/locate/synctex/synctexjs.ts#L65-L84) 的 `PdfSyncObject` 同时持有 pages、files 与 `blockNumberLine[inputFileFullPath][inputLineNum][pageNum] -> Block[]`，从 `.synctex` 解析出的 Block 保留来源行和版面几何。这是读取既有编译映射，不是在 PDF 中搜索源代码字符串。\n\n[`src/locate/synctex.ts`](https://github.com/James-Yu/LaTeX-Workshop/blob/3928fc8aaad1b42a2d941d98be54063550c9d0ef/src/locate/synctex.ts#L215-L235) 的 forward `synctexToPDFCombined` 优先调用 native SyncTeX，失败后用 JS 实现；reverse `computeToTeX` 的活动实现则使用 JS，旁边说明是为处理 CJK，native reverse 段已注释。不能把注释代码当现行路径。\n\n[`viewer/components/synctex.ts`](https://github.com/James-Yu/LaTeX-Workshop/blob/3928fc8aaad1b42a2d941d98be54063550c9d0ef/viewer/components/synctex.ts#L18-L80) 将页面坐标、页码和选择前后文本发送为 `reverse_synctex`；支持配置 Ctrl/Meta-click 或双击，并清理旧 click/double-click handler。forward 消息则在页面画圆形/矩形定位标记。\n\n## 查询与缓存：不能泛化成“类似工具都维护常驻反向数据库”\n\n[`src/locate/synctex/worker.ts`](https://github.com/James-Yu/LaTeX-Workshop/blob/3928fc8aaad1b42a2d941d98be54063550c9d0ef/src/locate/synctex/worker.ts#L95-L121) 的 `parseSyncTexForPdf` 每次读取 `.synctex` 或解压 `.synctex.gz`；`syncTeXToPDF` 与 `syncTeXToTeX` 在各自调用时都调用它。该文件所示 JS 路径没有跨查询的解析对象缓存，因此不能仅根据它构建了索引结构就声称常驻缓存或按版本增量更新。文件名叫 worker 也不足以证明它在独立 worker thread 运行。\n\nforward 的 JS 路径按来源行排序，在相邻有映射的行之间插值版面纵坐标；reverse 遍历目标页上的可用 Block，用矩形包含与中心距离选择来源。这里不是 SNL 需求中的“当前文件 ±15 行”规则。`computeToTeX` 还将返回的真实路径和已知源文件列表比较，处理软链接别名；这是路径身份经验，不是任意外部文件读取授权。\n\n## 对 SNL 的结论\n\n应借鉴“解析映射一次形成双向可查结构”“宿主负责开文件/面板、viewer 负责显式动作和高亮”“坐标与源文件身份分离”。但 SNL 高频光标追踪需要自己的文件/文本版本缓存，不能把 LaTeX Workshop 的每次重解析成本照抄，也不能声称它提供了所需缓存证明。SNL Entry 与代码并非连续排版函数，不采用源行到文档像素的插值；只在明确 Pointer 区间和导出 Entry 路由之间导航。"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

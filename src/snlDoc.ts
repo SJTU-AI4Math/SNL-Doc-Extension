@@ -2,6 +2,8 @@ import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import * as vscode from 'vscode';
+import { isDeepStrictEqual } from 'node:util';
+import { notifyPointerEntriesWritten } from './pointerSyncHostState';
 import { invariantHostText } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 import { formatMacroConflict } from './macroOutputI18n';
@@ -4243,6 +4245,19 @@ export interface EntryData {
   pointer: import('./pointer').EntryPointer | null | unknown;
 }
 
+function pointerMatchDistanceError(pointer: unknown): string | undefined {
+  if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return undefined;
+  const record = pointer as Record<string, unknown>;
+  for (const field of ['beforeLines', 'afterLines']) {
+    if (!Object.hasOwn(record, field)) continue;
+    const value = record[field];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      return `pointer.${field} must be a nonnegative safe integer`;
+    }
+  }
+  return undefined;
+}
+
 export type AddEntryResult =
   | { status: 'ok'; id: string; revision: string }
   | { status: 'duplicate'; id: string }
@@ -4271,6 +4286,8 @@ export async function addEntry(
     // Establish writable schema/version mode before business-field validation;
     // future or malformed configs must never masquerade as unknownKind/invalid.
     await assertWorkspaceWritableOnDisk(workspaceRoot);
+    const distanceError = pointerMatchDistanceError(entry?.pointer);
+    if (distanceError) return { status: 'invalid', reason: distanceError } as const;
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
   let title: EntryData['title'];
@@ -4426,6 +4443,7 @@ export async function addEntry(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+      await notifyPointerEntriesWritten(workspaceRoot.toString());
       return { status: 'ok', id, revision: entityRevision(record) };
     });
   } catch (error) {
@@ -5130,6 +5148,10 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
+  const distanceError = pointerMatchDistanceError(entry.pointer);
+  if (distanceError && !isDeepStrictEqual(entry.pointer, pool[idx].pointer)) {
+    return { status: 'invalid', message: distanceError };
+  }
   const currentPackageId = pool[idx].package ?? UNPACKAGED_PACKAGE_ID;
   const packageId = entityMode && typeof entry.package === 'string' && entry.package.trim()
     ? entry.package.trim()
@@ -5252,6 +5274,7 @@ export async function updateEntry(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+    await notifyPointerEntriesWritten(workspaceRoot.toString());
     return { status: 'updated', id: targetId, revision: entityRevision(record) };
   });
 }
@@ -6991,6 +7014,7 @@ export async function deleteEntry(
       message: err instanceof Error ? err.message : String(err)
     };
   }
+    await notifyPointerEntriesWritten(workspaceRoot.toString());
     return { status: 'ok', id: targetId, references };
   });
 }

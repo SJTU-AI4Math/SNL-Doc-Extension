@@ -20,6 +20,8 @@
   ],
   "contributes": {
     "commands": [
+      { "command": "snlDoc.revealNearestEntry", "title": "%snlDoc.command.revealNearestEntry%" },
+      { "command": "snlDoc.maintainPointers", "title": "%snlDoc.command.maintainPointers%" },
       {
         "command": "snlDoc.openInfoview",
         "title": "%snlDoc.command.openInfoview%"
@@ -237,6 +239,7 @@
       }
     ],
     "menus": {
+      "editor/context": [{ "command": "snlDoc.revealNearestEntry", "when": "snlDoc.hasSnlDoc", "group": "navigation@20" }],
       "editor/title": [
         {
           "command": "snlDoc.openNavigation",
@@ -384,6 +387,7 @@
       }
     },
     "keybindings": [
+      { "command": "snlDoc.revealNearestEntry", "key": "ctrl+alt+j", "mac": "cmd+alt+j", "when": "editorTextFocus && snlDoc.hasSnlDoc" },
       {
         "command": "snlDoc.inductive.moveUp",
         "key": "alt+up",

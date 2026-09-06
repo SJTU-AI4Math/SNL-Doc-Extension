@@ -70,6 +70,8 @@ vi.mock('./webviewCostProbe', () => ({ registerWebviewCostProbe: vi.fn(() => ({ 
 vi.mock('./preferencesHost', () => ({ initialize_preferences_host: vi.fn() }));
 vi.mock('./preferences', () => ({ read_extension_preferences: () => ({ language: mocks.language }) }));
 vi.mock('./snlDocContext', () => ({ installSnlDocContextKey: vi.fn() }));
+vi.mock('./pointerSyncHost', () => ({ installPointerSyncHost: vi.fn() }));
+vi.mock('./pointerSyncDriver', () => ({ createPointerHostDriver: vi.fn() }));
 vi.mock('./dataMigrationCommands', () => ({ checkDataVersion: vi.fn(), repairData: vi.fn() }));
 vi.mock('./panelUtil', () => ({ firstWorkspaceFolder: () => mocks.workspaceRoot }));
 vi.mock('./snlDoc', () => ({

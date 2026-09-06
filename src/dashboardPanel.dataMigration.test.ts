@@ -84,6 +84,12 @@ describe('Dashboard data migration host routing', () => {
     DashboardPanel.currentPanel = undefined;
   });
 
+  it('routes Pointer maintenance to the global registered command', async () => {
+    DashboardPanel.createOrShow({ path: '/ext' } as never);
+    await mocks.receive?.({ type: 'maintainPointers' });
+    expect(mocks.executeCommand).toHaveBeenCalledWith('snlDoc.maintainPointers');
+  });
+
   it('posts running and idle states around the repair command and refreshes overview', async () => {
     DashboardPanel.createOrShow({ path: '/ext' } as never);
     expect(mocks.receive).toBeTypeOf('function');

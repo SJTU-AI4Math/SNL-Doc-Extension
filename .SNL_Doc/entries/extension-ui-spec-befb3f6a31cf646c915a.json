@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "源码—文档双向导航与 HTML 平行阅读：设计规范",
+    "content": {
+      "markdown": "## 状态与权威\n\n本 Library 是猫猫提出的下一阶段功能设计，状态为 **Draft specification / 双向 Pointer 切片已实现；HTML 源码导出切片未实现**。调研、建议、将来必须通过的验收，与当前已实现行为严格分开。当前 Extension 源码基线为 `6adad09b8765ea0edecd1a1d17530bf1fc5a4516`。研究/spec 阶段只写文档；猫猫现已授权先更新此 Spec 再开工。当前实施范围为双向 Pointer、上下距离、持久逆索引、编辑器与 Dashboard 维护入口；HTML 源码导出仍是后续切片，不因 Pointer 切片完成宣称整套导出完成；不自动发布产品。\n\n## 用户确定的目标\n\n1. 在代码编辑器通过快捷键，打开 Pointer 指向光标附近的 Entry Infoview；上下默认最多 15 行，超过就判定未找到，距离阈值可配置。\n2. 研究 SyncTeX、Markdown 与 Typst preview 的实现，再决定反向同步信息的组织方式，而非每次全库反查。\n3. HTML 导出可选择不含源码、只含 Pointer 涉及的文件、或完整项目结构；允许配置保留与排除目录。Mathlib 索引可包含 `.lake`，默认排除 `.SNL_Doc` 自身。\n4. 导出前端左侧提供可收回的半屏只读 Monaco，支持 Lean 染色与 Pointer 双向追踪，右侧保留 SNL 文档阅读体验。\n\n## 本规范选择的默认设计\n\n采用项目级持久化 `.SNL_Doc/syncSNL.json`，保存由 Entry Pointer 派生的文件/行范围 → Entry ID 逆映射；每个 Pointer 用独立的 `beforeLines` / `afterLines` 表达上方/下方附近匹配距离，缺省各为 15；Extension 使用当前编辑器文本快照，静态导出使用冻结的文件字节与已解析映射；二者共享范围解析与最近匹配规则。导出保留两种现有产物形态：目录与单 HTML。源码不是运行环境，不携带 Lean 编译器、LSP、终端、执行或编辑能力。\n\n除 15 行及上述用户目标外，本文中的快捷键组合、其他数字预算和具体字段名都是可在实现验证后调整的设计默认，不冒充已发布接口。任何实质调整应先更新本规范；不因实现困难默默删除单文件导出、Lean 染色、反向定位或 `.lake` 支持。\n\n## 当前实现与证据边界\n\n双向 Pointer 已接入 Extension：独立 beforeLines/afterLines、项目级 syncSNL.json、保存同步、命令/快捷键、Pointer 表单及 Dashboard 维护。原有 Pointer 的空值和未修改的未知元数据不因编辑其他字段被丢弃。测试包括真实 Linux VS Code Development Host 中的不对称边界、表单保存后 Entry 与索引读回、Dashboard 重建、外部 snl CAS 写入监听、dirty buffer 正反向跳转且磁盘索引不变，以及确定性并发失效回归。Windows/macOS 原生宿主尚未实测；未发布扩展，未实现 HTML 源码归档/Monaco 分屏。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

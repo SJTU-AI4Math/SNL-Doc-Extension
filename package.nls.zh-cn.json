@@ -1,4 +1,6 @@
 {
+  "snlDoc.command.revealNearestEntry": "SNL：显示附近条目",
+  "snlDoc.command.maintainPointers": "SNL：Pointer 维护",
   "snlDoc.displayName": "SNL Doc",
   "snlDoc.description": "用于 SNL 文档与信息视图面板的 VS Code 扩展。",
   "snlDoc.settings.title": "SNL Doc",

@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document.navigation",
+    "package": "extension-ui-spec",
+    "kind": "section",
+    "title": "代码 → Entry：最近匹配、快捷键与面板行为",
+    "content": {
+      "markdown": "## 命令与作用域\n\n建议命令 ID `snlDoc.revealNearestEntry`，显示名“在 SNL Infoview 中显示附近条目”。建议默认快捷键：Windows/Linux **`Ctrl+Alt+J`**，macOS **`Cmd+Alt+J`**；最终以发布前检查内置、Lean 与 Markdown/Typst 常见扩展冲突为准。命令必须可从命令面板和 editor 右键执行，且可用 VS Code 原生 Keyboard Shortcuts 重绑。只在受支持的源代码文本编辑器且具有 SNL 工作区上下文时启用，不抢 Webview/输入框快捷键。已有默认组合冲突时换默认键，不删除命令。\n\n附近距离属于每个 Entry 的 Pointer：新增可选 `beforeLines` 与 `afterLines`，均为非负安全整数；各自缺省为 15，不写入时仍兼容旧数据。before 指 Pointer 实际范围开始之前的上方行，after 指范围结束之后的下方行，不是“Pointer 相对光标”的方向。0 禁止该方向向外扩展；范围覆盖行内始终可匹配。两个字段独立编辑，不再以全局单一 maxDistanceLines 覆盖作者设置。\n\n查找以当前主 selection 的 active position 为准；多光标不批量弹面板。只查当前文件及同一 SNL workspace root 的 Entry，不跨文件做最近匹配，不按标题、Lean 声明名或字符串相似度猜测。root 身份必须无歧义，不能把代码属于其他 root 的查询转交 first root。若首版尚未贯通多 root 的命令/面板路由，就明确拒绝不受支持的 root 或歧义映射；全面 multi-root 支持不是本轮强制的系统级改造。已支持 root 下的普通 `.lake` 词法路径及明确授权的依赖软链接仍属于核心需求。缓存键保留 root 身份，避免后续扩展时冲突。\n\n## 范围与距离\n\nPointer 先按共享解析器变成半开文本范围。行模式覆盖 startLine 至 endLine 的完整行（两端含）；正则使用实际完整匹配，不替换成逐行匹配或捕获组范围。正则的 exclusive end 恰为下一行列 1 时，不把该下一行算作覆盖行；零宽范围覆盖其所在行。内部统一 UTF-16 列偏移，导出标明单位，不能拿 UTF-8 byte offset 直接当 Monaco column。CRLF、中文、非 BMP 字符与 EOF 必须有测试。\n\n令覆盖行为 [a,b]，光标行为 L，距离 d = max(a − L, 0, L − b)。若 L < a，仅 a − L ≤ beforeLines 可选；若 L > b，仅 L − b ≤ afterLines 可选；若 a ≤ L ≤ b 直接可选。距离仍使用真实范围到光标的行距，不把扩展窗口当真实范围；光标在大范围内部时 d = 0，而非到首行的距离。这是本规范对“最近处”的明确解释。比较范围使用实际解析范围，lines 的 EOF 截断保持当前行为并在诊断中标注。\n\n候选先按 d 排序；同距离优先覆盖行数更少的具体范围。最佳等级唯一时直接打开；仍并列时用 Quick Pick 让用户选，显示本地化标题、Entry ID、Package、文件行范围和距离。稳定排序使用起始位置与 Entry ID，但稳定顺序不能伪装成语义唯一性。取消不改当前阅读位置。范围无交集且距离 16 时，默认不得选中。\n\n## 反馈与面板\n\n成功时复用已有 Entry Infoview 或在代码旁打开，保留源码 editor group，不替换源码标签。按键是显式导航，可将焦点移到 Entry 面板；被动追踪不得抢焦点。面板保留“返回代码”的来源 URI、光标与 editor group（仅会话状态），不回写 Pointer。\n\n没有候选显示“当前文件的 Pointer 匹配范围内未找到条目”，保留旧面板且不伪造新内容。索引构建中、文件未读到、指针无效/正则超时、工作区不支持分别提示，不能统称没找到。查询期间光标、文档版本或 root 改变时丢弃旧响应；只有当前请求可开面板。\n\n## 本地实现的范围语义\n\n`lines` 模式的 line/endLine 明确指定闭合的行范围：有效空结束行仍属于覆盖行，即使选择的半开字符终点位于该空行第 1 列。仅 regex 模式按半开字符区间推导覆盖行：非零宽匹配的终点落在下一行第 1 列时，不把下一行计入；零宽匹配覆盖起始行。正反向共用文本解析器，正向源码跳转也读取已打开的当前 buffer；异步解析期间 buffer 修订变化则拒绝过期结果。已注册默认命令 `snlDoc.revealNearestEntry` 及上述快捷键；当前首版明确拒绝其他 workspace root/provider，不默默回退。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

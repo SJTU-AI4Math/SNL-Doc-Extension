@@ -179,6 +179,42 @@ vi.mock('./snlDoc', async (importOriginal) => {
 
 const extensionUri = { path: '/ext' } as never;
 
+describe('Pointer write-side synchronization', () => {
+  it('notifies after create/update/delete succeed, with canonical bytes already visible', async () => {
+    seedEntryTransactionTopology();
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const { onPointerEntriesWritten } = await import('./pointerSyncHostState');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const pointers: unknown[] = [];
+    const id = 'pointer.entry';
+    const handle = onPointerEntriesWritten('file:///ws', async () => {
+      const envelope = jsonByPath.get(entryEntityPath('logic', id)) as { entry?: { pointer?: unknown } } | undefined;
+      pointers.push(envelope?.entry?.pointer ?? null);
+    }, error => { throw error; });
+    try {
+      const value = { ...newEntry(id, 'logic'), pointer: { file: 'test.lean', mode: 'lines', line: 1, beforeLines: 0, afterLines: 8 } };
+      const created = await actual.addEntry(root, value);
+      expect(created.status).toBe('ok');
+      if (created.status !== 'ok') throw Error('create failed');
+      const updated = await actual.updateEntry(root, id, { ...value, pointer: { ...value.pointer, beforeLines: 3 } }, created.revision);
+      expect(updated.status).toBe('updated');
+      expect((await actual.deleteEntry(root, id)).status).toBe('ok');
+      expect(pointers).toEqual([value.pointer, { ...value.pointer, beforeLines: 3 }, null]);
+    } finally { handle.dispose(); }
+  });
+  it('rejects invalid new match distances without writing', async () => {
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    for (const invalid of [-1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1]) {
+      seedEntryTransactionTopology();
+      const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
+        ...newEntry('invalid.pointer', 'logic'), pointer: { file: 'x.lean', mode: 'lines', line: 1, beforeLines: invalid }
+      });
+      expect(result.status).toBe('invalid');
+      expect(state.writes).toEqual([]);
+    }
+  });
+});
+
 function entryKindConfig(): Record<string, unknown> {
   return {
     version: '0.1.0',

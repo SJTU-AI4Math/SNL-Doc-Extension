@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.source-document.research-synctex-markdown",
+    "package": "extension-ui-spec",
+    "kind": "section",
+    "title": "一手调研：SyncTeX 与 VS Code Markdown Preview",
+    "content": {
+      "markdown": "## 证据范围\n\n此处固定源码版本，报告观察到的数据结构/调用链，不冒充本轮 GUI 或编译运行结果。不同工具的坐标系统与生命周期不可混用；“支持双向跳转”不等于维护同一种数据库，也不保证实时跟踪未保存的任意语义声明。\n\n## SyncTeX：编译产物的映射与可复用 scanner\n\n上游 `jlaurens/synctex` 的 HEAD 在本轮为 `04cf8e3e8665ff203248d7af78ee1129afbc1b64`。[`synctex_parser.h`](https://github.com/jlaurens/synctex/blob/04cf8e3e8665ff203248d7af78ee1129afbc1b64/synctex_parser.h#L60-L150) 的公开契约是先从对应输出文件创建 scanner，找到 `.synctex` / `.synctex.gz`，再在该 scanner 上进行查询；已解析 scanner 再次 parse 不重复解析。因此库层允许复用一次解析结果，但不能由此推出每个编辑器客户端都有常驻缓存。\n\n[`synctex_display_query`](https://github.com/jlaurens/synctex/blob/04cf8e3e8665ff203248d7af78ee1129afbc1b64/synctex_parser.h#L180-L226) 输入来源文件、行、列与 page_hint，输出可能多个节点。page_hint 是结果排序的上下文，不会把多解变成一一对应。反向 [`synctex_edit_query`](https://github.com/jlaurens/synctex/blob/04cf8e3e8665ff203248d7af78ee1129afbc1b64/synctex_parser.h#L228-L277) 输入页面和版面坐标，再遍历结果节点取源文件和行；新查询会覆盖 scanner 的旧结果，并行查询需使用高级 iterator API。\n\n映射的权威是该轮 TeX 输出对应的同步数据，不是从渲染后 PDF 文本反推所有源码。源文件编辑以后，只复用旧输出的 scanner 不能证明位置仍对应当前编辑缓冲区；调用方必须管理编译/产物刷新生命周期。本规范不把 SyncTeX 的版面几何算法或者某一客户端的重新读取策略当作 SNL ±15 行匹配规范。\n\n## VS Code Markdown：token 行号 → DOM 锚点 → 按渲染版本缓存\n\n`microsoft/vscode` 固定提交 `584af9d9798bd3e05c7f7b90401397dd70652609`。[`extensions/markdown-language-features/src/markdownEngine.ts`](https://github.com/microsoft/vscode/blob/584af9d9798bd3e05c7f7b90401397dd70652609/extensions/markdown-language-features/src/markdownEngine.ts#L16-L31) 把解析 token 的 `map[0]` 写入渲染节点 `data-line`，并增加 `code-line` class。这些行号来自 parser，而不是每次从 HTML 文本扫描回 Markdown。\n\n[`preview-src/scroll-sync.ts`](https://github.com/microsoft/vscode/blob/584af9d9798bd3e05c7f7b90401397dd70652609/extensions/markdown-language-features/preview-src/scroll-sync.ts#L42-L153) 的 `getCodeLineElements` 在 `documentVersion` 变化时重建 DOM 元素列表；这是预览内存缓存，而不是持久仓库反向文件。代码块用内容行数得到 endLine，列表容器等重复锚有特殊处理。源行查询寻找前后元素；页内像素反查过滤不可见元素，再用元素布局边界二分定位。后续按锚点间距插值滚动，因此“靠近”在这里包含连续排版假设，不是强制 15 行截断。\n\n[`preview-src/index.ts`](https://github.com/microsoft/vscode/blob/584af9d9798bd3e05c7f7b90401397dd70652609/extensions/markdown-language-features/preview-src/index.ts) 接收 `updateView`，用 `scrollDisabledCount`/定时窗口抑制程序滚动的回声；DOM 更新也单独拷贝 `data-line`，不能只比较表面 HTML 就忽略源映射变化。[`src/preview/preview.ts`](https://github.com/microsoft/vscode/blob/584af9d9798bd3e05c7f7b90401397dd70652609/extensions/markdown-language-features/src/preview/preview.ts) 监听文档变化，发送更新，并使用 `isScrolling` 避免 editor 与 preview 互相驱动成循环。渲染版本、文本版本与缓存寿命需要显式接线，不能因为类里有 version 字段就假定已有完整失效覆盖。\n\n## 取舍\n\nSNL 应采用类似的“映射随内容/版本派生、双向共享、丢弃旧状态、区分用户动作与程序动作”，而不是每次全库反查。SNL 的映射来自作者提供的 Pointer，不来自连续正文的编译 token；因此不照抄 Markdown 的像素滚动插值或把相邻两个 Entry 当作覆盖其间所有代码的语义依据。用户要求的 15 行是 SNL 自己的可配置、含边界拒绝规则。\n\n### 生命周期补充\n\nSyncTeX 的 parser 与 CLI 必须分开描述：同提交 [`synctex_main.c:synctex_synchronize`](https://github.com/jlaurens/synctex/blob/04cf8e3e8665ff203248d7af78ee1129afbc1b64/synctex_main.c#L248-L274) 会比较同步文件 `st_mtime`，时间未增加时复用 scanner，否则重建。这不是内容哈希或实时源码 watcher，亦不代表 LaTeX Workshop 的 JS 路径使用同一缓存。Markdown 的前端 `documentVersion` 是 Webview 内容更新代次，不是 VS Code TextDocument.version；其定时抑制不是带事务 ID 的严格去环证明。"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

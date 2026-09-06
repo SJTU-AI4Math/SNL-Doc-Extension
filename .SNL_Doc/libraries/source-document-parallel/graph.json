@@ -1,0 +1,157 @@
+{
+  "nodes": [
+    {
+      "id": "node.spec.source-document",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document"
+      }
+    },
+    {
+      "id": "node.spec.source-document.baseline",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.baseline"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-synctex-markdown",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-synctex-markdown"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-latex-workshop",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-latex-workshop"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-typst",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-typst"
+      }
+    },
+    {
+      "id": "node.spec.source-document.navigation",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.navigation"
+      }
+    },
+    {
+      "id": "node.spec.source-document.index",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.index"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-selection",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-selection"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-snapshot",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-snapshot"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-protocol",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-protocol"
+      }
+    },
+    {
+      "id": "node.spec.source-document.viewer",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.viewer"
+      }
+    },
+    {
+      "id": "node.spec.source-document.acceptance",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.acceptance"
+      }
+    },
+    {
+      "id": "node.spec.source-document.delivery",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.delivery"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.baseline",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-synctex-markdown",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-latex-workshop",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-typst",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.navigation",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.index",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-selection",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-snapshot",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-protocol",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.viewer",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.acceptance",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.delivery",
+      "label": "branch"
+    }
+  ]
+}

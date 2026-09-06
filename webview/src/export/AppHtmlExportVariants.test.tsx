@@ -113,6 +113,7 @@ describe('Infoview HTML export variants', () => {
     render(<App />);
     act(() => window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'libraryEntries',
+      renderSnapshotId: 'frozen-render-A',
       slug: 'demo',
       title: 'Demo',
       entries: [
@@ -159,6 +160,7 @@ describe('Infoview HTML export variants', () => {
     const payload = postMessage.mock.calls
       .map(([message]) => message)
       .find((message) => message?.type === 'exportLibraryHtml');
+    expect(payload.renderSnapshotId).toBe('frozen-render-A');
     expect(payload.variants.initialLocale).toBe('en');
     expect(payload.variants.initialColorScheme).toBe('light');
     expect(payload.variants.variants).toHaveLength(4);

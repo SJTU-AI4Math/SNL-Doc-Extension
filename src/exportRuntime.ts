@@ -904,7 +904,7 @@ const RUNTIME_TEMPLATE = String.raw`
       outlet.hidden = false;
     }
 
-    function applyRoute() {
+    function applyRoute(options) {
       restoreMoved();
       document.documentElement.removeAttribute('data-snl-entry-route');
       clearStatus();
@@ -955,14 +955,17 @@ const RUNTIME_TEMPLATE = String.raw`
       if (routeBody) renderRelationshipSections(matches[0], outlet);
       var target = matches[0];
       if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
-      if (target.focus) target.focus({ preventScroll: true });
+      if (!(options && options.passive) && target.focus) target.focus({ preventScroll: true });
       if (target.scrollIntoView) target.scrollIntoView({ block: 'start' });
     }
 
     if (globalThis.__snlExportRouteCleanup) globalThis.__snlExportRouteCleanup();
+    function passiveRoute() { applyRoute({ passive: true }); }
+    globalThis.__snlExportSourceFollow = passiveRoute;
     window.addEventListener('hashchange', applyRoute);
     globalThis.__snlExportRouteCleanup = function () {
       window.removeEventListener('hashchange', applyRoute);
+      if (globalThis.__snlExportSourceFollow === passiveRoute) globalThis.__snlExportSourceFollow = null;
       restoreMoved();
       if (outlet.parentNode) outlet.parentNode.removeChild(outlet);
       globalThis.__snlExportRouteCleanup = null;

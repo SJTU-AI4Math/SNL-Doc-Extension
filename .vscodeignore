@@ -25,6 +25,7 @@ node_modules/fuse.js/dist/**
 !node_modules/fuse.js/dist/fuse.cjs
 .SNL_Doc/**
 **/tsconfig.json
+tsconfig.*.json
 **/*.map
 **/*.ts
 out/**/*.test.js

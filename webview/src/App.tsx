@@ -114,6 +114,7 @@ type Incoming =
   | { type: 'librariesError'; message: string }
   | {
       type: 'libraryEntries';
+      renderSnapshotId?: string;
       slug: string;
       title: string;
       description?: string;
@@ -184,6 +185,8 @@ export function App(): React.ReactElement {
           }));
           break;
         case 'libraryEntries':
+          renderSnapshotRef.current = msg.renderSnapshotId;
+          exportGenerationRef.current++;
           if (msg.macros && typeof msg.macros === 'object') {
             setWireUserMacros(msg.macros);
           }
@@ -225,6 +228,7 @@ export function App(): React.ReactElement {
   );
 
   const outlineRef = useRef<HTMLDivElement | null>(null);
+  const renderSnapshotRef = useRef<string | undefined>(undefined);
 
   const postMessage = (message: unknown): void => {
     apiRef.current?.postMessage(message);
@@ -252,6 +256,7 @@ export function App(): React.ReactElement {
     if (!root || exportInFlightRef.current) return;
     exportInFlightRef.current = true;
     const generation = ++exportGenerationRef.current;
+    const renderSnapshotId = renderSnapshotRef.current;
     const originalLocale = get_content_language();
     const originalDocumentScheme = document.documentElement.dataset.snlColorScheme || 'light';
     const originalScheme = get_kind_color_scheme();
@@ -309,8 +314,8 @@ export function App(): React.ReactElement {
           }
         }
         return popovers;
-      } catch {
-        return {};
+      } catch (error) {
+        throw new Error('Popover capture incomplete: ' + (error instanceof Error ? error.message : String(error)));
       }
     };
 
@@ -364,6 +369,7 @@ export function App(): React.ReactElement {
     if (!initial) return;
     postMessage({
       type: 'exportLibraryHtml',
+      renderSnapshotId,
       locale: initial.locale,
       slug,
       title: initial.title,
@@ -797,6 +803,7 @@ function OutlineTreeNode({
   toggle: (nodeId: string, sameDepth: boolean) => void;
   ctx: RenderCtx;
 }): React.ReactElement {
+  const contentLanguage = use_content_language();
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.nodeId);
 
@@ -827,7 +834,7 @@ function OutlineTreeNode({
               toggle(node.nodeId, event.ctrlKey);
             }}
             childCount={countNodes(node.children)}
-            nodeLabel={node.entry?.title || node.nodeId}
+            nodeLabel={node.entry ? resolve_localized_string(node.entry.title, contentLanguage) || node.nodeId : node.nodeId}
             controlsId={`library-outline-children-${encodeURIComponent(node.nodeId)}`}
           />
         ) : null}

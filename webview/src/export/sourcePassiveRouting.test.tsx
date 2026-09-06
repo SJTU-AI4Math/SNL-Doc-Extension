@@ -1,0 +1,20 @@
+import { afterEach, expect, it } from 'vitest';
+import { EXPORT_RUNTIME_WIRING_JS } from '../../../src/exportRuntime';
+afterEach(() => { (globalThis as any).__snlExportRouteCleanup?.(); delete (globalThis as any).__SNL_POPOVERS__; document.body.replaceChildren(); history.replaceState(null, '', '/'); });
+it('passive source routing applies the real outlet without calling focus or adding history', () => {
+  document.body.innerHTML = '<textarea id="editor"></textarea><main class="snl-export"><div data-snl-export-body><section data-snl-route-id="node"><article data-entry-id="E">Entry</article></section></div></main>';
+  (globalThis as any).__SNL_POPOVERS__ = { Other: '<article data-entry-id="Other">Popover-only</article>' };
+  (0, eval)(EXPORT_RUNTIME_WIRING_JS);
+  const editor = document.getElementById('editor')!; editor.focus();
+  const length = history.length;
+  history.replaceState({ snlSourceView: { open: true } }, '', '#/entry/Other');
+  expect(typeof (globalThis as any).__snlExportSourceFollow).toBe('function');
+  (globalThis as any).__snlExportSourceFollow();
+  expect(document.activeElement).toBe(editor);
+  expect(history.length).toBe(length);
+  expect(document.querySelector('[data-snl-route-outlet]')?.textContent).toContain('Popover-only');
+  history.replaceState(history.state, '', '#/node/node');
+  (globalThis as any).__snlExportSourceFollow();
+  expect(document.activeElement).toBe(editor);
+  expect(document.querySelector('[data-snl-route-outlet] [data-entry-id="E"]')).not.toBeNull();
+});

@@ -1,4 +1,8 @@
 import * as vscode from 'vscode';
+import type { SourcePreview } from './sourceExport/types';
+import { buildSourceAssets } from './sourceExport/transport';
+import { publishSourceExport } from './sourceExport/publication';
+import { assertOwnedExportDestination, SOURCE_EXPORT_RECEIPT, sourceExportReceipt } from './sourceExport/destination';
 import {
   buildExportPlan,
   exportFileStem,
@@ -19,6 +23,8 @@ import {
 
 /** What the webview sends when the reader hits Export. */
 export interface ExportRequest {
+  /** Host-authorized frozen source preview; not accepted directly from webview. */
+  sourcePreview?: SourcePreview;
   slug: string;
   title: string;
   subtitle?: string;
@@ -120,6 +126,7 @@ export interface ExportDeps {
   extensionUri: vscode.Uri;
   workspaceRoot: vscode.Uri;
   destination: vscode.Uri;
+  beforePublish?: () => Promise<void>;
   fsApi?: vscode.FileSystem;
   assetReader?: (options: ReadWorkspaceAssetOptions) => Promise<Uint8Array>;
   /** Injected so the pure assembly can be tested without a webview. */
@@ -185,17 +192,46 @@ export async function writeExport(
         }]
       : [];
 
+  let sourceCss = "";
+  if (request.sourcePreview) {
+    if (deps.workspaceRoot.scheme !== "file" || deps.destination.scheme !== "file") throw new Error("Source export currently supports local file workspaces only.");
+    texts.push(...buildSourceAssets(request.sourcePreview, request.inline).texts);
+    const [script, style] = await Promise.all([
+      fsApi.readFile(vscode.Uri.joinPath(deps.extensionUri, "media", "sourceViewer.js")),
+      fsApi.readFile(vscode.Uri.joinPath(deps.extensionUri, "media", "sourceViewer.css"))
+    ]);
+    texts.push({ path: "sourceViewer.js", source: Buffer.from(script).toString("utf8") });
+    sourceCss = Buffer.from(style).toString("utf8");
+  }
+  const sourceChunkPaths = new Set(request.sourcePreview?.manifest.files.map(file => file.chunkId) ?? []);
   const html = deps.buildDocument({
     title: request.title,
     subtitle: request.subtitle,
     colorScheme: request.variants?.initialColorScheme,
-    css,
+    css: css + "\n" + sourceCss,
     body: request.body,
-    scriptSources: texts.map((t) => t.path)
+    scriptSources: texts.filter(t => request.inline || !sourceChunkPaths.has(t.path)).map((t) => t.path)
   });
 
   const plan = buildExportPlan({ html, binaries, inline: request.inline, texts });
   const encoder = new TextEncoder();
+
+  if (request.sourcePreview) {
+    const destination = request.inline && !/\.html$/i.test(deps.destination.path)
+      ? deps.destination.with({ path: `${deps.destination.path}.html` }) : deps.destination;
+    const files = request.inline
+      ? [{ path: 'index.html', bytes: encoder.encode(plan.html) }]
+      : [{ path: 'index.html', bytes: encoder.encode(plan.html) }, ...plan.binaries,
+          ...plan.texts.map(text => ({ path: text.path, bytes: encoder.encode(text.source) }))];
+    if (!request.inline) files.push({ path: SOURCE_EXPORT_RECEIPT, bytes: sourceExportReceipt(files) });
+    const beforeCommit = async () => {
+      await assertOwnedExportDestination(destination.fsPath, request.inline);
+      await deps.beforePublish?.();
+    };
+    await beforeCommit();
+    await publishSourceExport(destination.fsPath, files, request.inline, beforeCommit);
+    return { target: request.inline ? destination : vscode.Uri.joinPath(destination, 'index.html'), fileCount: files.length, warnings };
+  }
 
   if (request.inline) {
     const destination = /\.html$/i.test(deps.destination.path)

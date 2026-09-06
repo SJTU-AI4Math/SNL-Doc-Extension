@@ -3,7 +3,7 @@
   "displayName": "%snlDoc.displayName%",
   "description": "%snlDoc.description%",
   "publisher": "sjtu-ai4math",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/SJTU-AI4Math/SNL-Doc-Extension.git"
@@ -20,8 +20,14 @@
   ],
   "contributes": {
     "commands": [
-      { "command": "snlDoc.revealNearestEntry", "title": "%snlDoc.command.revealNearestEntry%" },
-      { "command": "snlDoc.maintainPointers", "title": "%snlDoc.command.maintainPointers%" },
+      {
+        "command": "snlDoc.revealNearestEntry",
+        "title": "%snlDoc.command.revealNearestEntry%"
+      },
+      {
+        "command": "snlDoc.maintainPointers",
+        "title": "%snlDoc.command.maintainPointers%"
+      },
       {
         "command": "snlDoc.openInfoview",
         "title": "%snlDoc.command.openInfoview%"
@@ -239,7 +245,13 @@
       }
     ],
     "menus": {
-      "editor/context": [{ "command": "snlDoc.revealNearestEntry", "when": "snlDoc.hasSnlDoc", "group": "navigation@20" }],
+      "editor/context": [
+        {
+          "command": "snlDoc.revealNearestEntry",
+          "when": "snlDoc.hasSnlDoc",
+          "group": "navigation@20"
+        }
+      ],
       "editor/title": [
         {
           "command": "snlDoc.openNavigation",
@@ -387,7 +399,12 @@
       }
     },
     "keybindings": [
-      { "command": "snlDoc.revealNearestEntry", "key": "ctrl+alt+j", "mac": "cmd+alt+j", "when": "editorTextFocus && snlDoc.hasSnlDoc" },
+      {
+        "command": "snlDoc.revealNearestEntry",
+        "key": "ctrl+alt+j",
+        "mac": "cmd+alt+j",
+        "when": "editorTextFocus && snlDoc.hasSnlDoc"
+      },
       {
         "command": "snlDoc.inductive.moveUp",
         "key": "alt+up",
@@ -451,7 +468,9 @@
     "sync:dependencies": "npm install --include=dev --no-audit --no-fund",
     "compile": "node scripts/clean-out.mjs && tsc -p ./ && npm run build:host-basics",
     "build:host-basics": "node scripts/build-snl-basics-host.mjs",
-    "build:export-runtime": "node scripts/build-export-runtime.mjs",
+    "build:export-runtime": "node scripts/build-export-runtime.mjs && npm run build:source-viewer",
+    "build:source-viewer": "node scripts/build-source-viewer.mjs && tsc -p tsconfig.source-viewer.json",
+    "test:source-viewer": "node scripts/test-source-viewer.mjs",
     "watch": "npm run build:host-basics && tsc -watch -p ./",
     "build:webview": "node scripts/build-webviews.mjs",
     "dev:webview": "vite --config webview/vite.config.ts",

@@ -23,7 +23,7 @@ function validate(files: Array<{ path: string; bytes: Uint8Array }>, inline: boo
  * rename. In-process callers serialize; the destination parent must be trusted against hostile
  * same-UID namespace writers. Directory replacement uses backup+rename+rollback (there can be a
  * brief absent-directory interval, never a mixed generation). This is not power-loss atomicity. */
-export async function publishSourceExport(destinationPath: string, files: Array<{ path: string; bytes: Uint8Array }>, inline: boolean): Promise<void> {
+export async function publishSourceExport(destinationPath: string, files: Array<{ path: string; bytes: Uint8Array }>, inline: boolean, beforeCommit?: () => Promise<void>): Promise<void> {
   validate(files, inline);
   // Copy before the first await, so caller mutation cannot change the staged generation.
   const frozen = files.map(f => ({ path: f.path, bytes: Buffer.from(f.bytes) }));
@@ -50,6 +50,7 @@ export async function publishSourceExport(destinationPath: string, files: Array<
         const handle = await fs.open(output, 'wx', 0o600);
         try { await handle.writeFile(file.bytes); await handle.sync(); } finally { await handle.close(); }
       }
+      await beforeCommit?.();
       const nowParent = await fs.stat(parent);
       if (await fs.realpath(parent) !== parentReal || nowParent.dev !== parentStat.dev || nowParent.ino !== parentStat.ino) throw new Error('Publication parent changed');
       if (!same(old, await existing(destination))) throw new Error('Publication destination changed during staging');

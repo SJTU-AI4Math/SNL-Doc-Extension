@@ -24,6 +24,9 @@ const receipts = new WeakMap<SourcePreview, { input: string; scan: string; paylo
 const within = (root: string, file: string) => { const rel = path.relative(root, file); return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)); };
 const fingerprint = (s: BigIntStats) => [s.dev, s.ino, s.mode, s.size, s.mtimeNs, s.ctimeNs, s.nlink].join(':');
 const identity = (s: BigIntStats) => `${s.dev}:${s.ino}`;
+// Directory membership is inventoried separately. Output staging must not invalidate
+// a source snapshot merely by changing an ancestor directory's timestamps/link count.
+const scanStamp = (s: BigIntStats) => s.isDirectory() ? `${identity(s)}:${s.mode}` : fingerprint(s);
 function portable(value: string, rule = false): string {
   if (typeof value !== 'string' || !value || /[\u0000-\u001f\u007f-\u009f\\:]/u.test(value) || value.startsWith('/') ||
     value.split('/').some(p => !p || p === '.' || p === '..') || (!rule && value.includes('*'))) {
@@ -56,6 +59,13 @@ function glob(pattern: string, name: string): boolean {
 }
 function matches(rules: string[], name: string, dirs: Set<string>): boolean {
   return rules.some(rule => glob(rule, name) || (!rule.includes('*') && dirs.has(rule) && name.startsWith(`${rule}/`)));
+}
+function keepMayDescend(rules: string[], name: string): boolean {
+  return rules.some(rule => {
+    const parts = rule.split('/'); const firstWildcard = parts.findIndex(part => part.includes('*'));
+    const prefix = parts.slice(0, firstWildcard < 0 ? parts.length : firstWildcard).join('/');
+    return !prefix || name === prefix || prefix.startsWith(name + '/') || name.startsWith(prefix + '/');
+  });
 }
 function defaultReason(name: string): string | undefined {
   const parts = name.split('/');
@@ -123,9 +133,11 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
     let count = 0;
     const rootStat = await fs.stat(root, { bigint: true });
     if (await fs.realpath(input.rootPath) !== root) throw new SourcePreflightError('Source root changed during capture');
-    records.push(`root:${root}:${fingerprint(rootStat)}`, `destination:${dest}`);
+    records.push(`root:${root}:${scanStamp(rootStat)}`, `destination:${dest}`);
     async function inspect(name: string, parents: Set<string>, inheritedLink = false, recurse = false): Promise<void> {
       check(); portable(name);
+      // Reserved transaction directories are never source candidates, even under ** keep.
+      if (name.split('/').some(part => part.startsWith('.snl-export-'))) return;
       if (++count > 200000 || name.split('/').length > 256) throw new SourcePreflightError('Source enumeration budget exceeded');
       if (count % 128 === 0) progress('scan', name);
       const collision = name.normalize('NFC').toLowerCase();
@@ -151,13 +163,13 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
       if (!stat.isFile() && !stat.isDirectory()) throw new SourcePreflightError('Unsafe source file type (socket/FIFO/device)');
       if (stat.isDirectory()) dirs.add(name);
       const reason = matches(options.exclude, name, dirs) ? 'explicit exclude rule' : matches(options.keep, name, dirs) ? undefined : defaultReason(name);
-      records.push(`${name}:${real}:${fingerprint(lst)}:${fingerprint(stat)}:${reason ?? ''}`);
+      records.push(`${name}:${real}:${scanStamp(lst)}:${scanStamp(stat)}:${reason ?? ''}`);
       if (reason) excluded.set(name, reason);
       const link = inheritedLink || lst.isSymbolicLink() || real !== absolute;
       if (!reason) nodes.set(name, { name, real, stat, link });
       if (stat.isDirectory() && recurse) {
         if (parents.has(identity(stat))) throw new SourcePreflightError('Source symlink directory cycle');
-        if (reason === 'explicit exclude rule' || (reason && options.keep.length === 0)) return;
+        if (reason === 'explicit exclude rule' || (reason && !keepMayDescend(options.keep, name))) return;
         const next = new Set(parents).add(identity(stat));
         const children = (await fs.readdir(absolute).catch(() => { throw new SourcePreflightError('Source directory read failed'); })).sort();
         for (const child of children) await inspect(`${name}/${child}`, next, link, true);
@@ -263,7 +275,11 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
   const run = promisify(execFile);
   try {
     const git = await run('git', ['-c', 'core.fsmonitor=false', 'rev-parse', '--verify', 'HEAD'], { cwd: root, timeout: 3000, maxBuffer: 1024 * 1024 });
-    const status = await run('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=all'], { cwd: root, timeout: 3000, maxBuffer: 1024 * 1024 });
+    const statusPaths = ['.', ':(glob,exclude)**/.snl-export-*/**'];
+    if (within(root, destLexical)) statusPaths.push(':(literal,exclude)' + path.relative(root, destLexical).split(path.sep).join('/'));
+    // Exporter-owned output/staging is not source provenance; it must not turn a
+    // clean source generation dirty while that same generation is being published.
+    const status = await run('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=all', '--', ...statusPaths], { cwd: root, timeout: 3000, maxBuffer: 1024 * 1024 });
     if (/^[a-f0-9]{40,64}$/.test(git.stdout.trim())) { snapshot.gitCommit = git.stdout.trim(); snapshot.dirty = !!status.stdout; }
   } catch { /* No Git claim if Git provenance cannot be determined. Byte hashes remain authoritative. */ }
   check();

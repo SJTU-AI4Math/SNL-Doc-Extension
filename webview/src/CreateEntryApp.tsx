@@ -101,10 +101,8 @@ import {
 } from './render/EntrySurface';
 import { HoverPopoverProvider } from './render/HoverPopoverProvider';
 import {
-  resolveWireTemplate,
   wireMacroEntriesToRenderable,
-  type WireMacro,
-  type WireMacroStyle
+  type WireMacro
 } from './render/macroWire';
 import {
   createMacroDataDriver,
@@ -4549,6 +4547,7 @@ export function GuiCanvasEditor({
       observedElement = element;
     };
     function measureAnchor(): void {
+      if (!focused || !block) return;
       const element = elementForTarget(focused);
       const canvas = canvasRef.current;
       if (!element || !canvas) {
@@ -5804,26 +5803,6 @@ function bodiesArity(bodies: readonly string[]): number {
     (arity, body) => Math.max(arity, analyzeLatexTemplatePlaceholders(body).positional_arity),
     0
   );
-}
-
-/** Preserve the Canvas editor's existing catalog-level arity behavior. */
-function macroTemplateArity(macro: SnlMacro): number {
-  let max = -1;
-  for (const style of macro.styles ?? []) {
-    const rawTemplate = (style as unknown as { template?: unknown }).template;
-    const body = rawTemplate !== null && typeof rawTemplate === 'object'
-      ? resolveWireTemplate(
-          rawTemplate as WireMacroStyle['template'],
-          webview_language_runtime.query_environment().language
-        ).body
-      : resolve_style_template(style, webview_language_runtime).body;
-    const placeholder = /(?<!\\)#(\d+)/g;
-    let match: RegExpExecArray | null;
-    while ((match = placeholder.exec(body)) !== null) {
-      max = Math.max(max, Number(match[1]));
-    }
-  }
-  return max + 1;
 }
 
 type InductiveArityAuthority = {

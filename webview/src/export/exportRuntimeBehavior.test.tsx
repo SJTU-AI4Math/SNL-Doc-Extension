@@ -252,7 +252,7 @@ describe('the exported runtime, executed', () => {
           </div>
           <span id="popover-anchor" data-src="lazy-entry">lazy</span>
         </main>`;
-      globalThis.__SNL_POPOVERS__ = {
+      (globalThis as typeof globalThis & { __SNL_POPOVERS__?: Record<string, string> }).__SNL_POPOVERS__ = {
         'lazy-entry': `
           <article data-entry-id="lazy-entry">
             <div class="snl-collapsible-scope" data-snl-collapsible-scope-label="Lazy preview">
@@ -362,7 +362,7 @@ describe('the exported runtime, executed', () => {
             </span>
           </div>
         </main>`;
-      globalThis.__SNL_POPOVERS__ = {
+      (globalThis as typeof globalThis & { __SNL_POPOVERS__?: Record<string, string> }).__SNL_POPOVERS__ = {
         'parent-entry': '<section data-entry-id="parent-entry">Parent preview</section>'
       };
       // eslint-disable-next-line no-eval

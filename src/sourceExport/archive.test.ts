@@ -22,6 +22,29 @@ describe('source snapshot', () => {
   async function put(file: string, bytes: string | Uint8Array) {
     await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true }); await fs.writeFile(path.join(root, file), bytes);
   }
+  it('revalidates after staging inside the source root without capturing exporter artifacts', async () => {
+    await put('src/a.lean', 'one\ntwo'); const args = input(); args.options.scope = 'project';
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'fixture'], { cwd: root });
+    const p = await captureSourceSnapshot(args);
+    await fs.mkdir(path.join(root, '.snl-export-owned'));
+    await fs.writeFile(path.join(root, '.snl-export-owned', 'new.html'), 'generated');
+    await expect(revalidateSourceSnapshot(p, args)).resolves.toBeUndefined();
+    expect((await captureSourceSnapshot(args)).manifest.files.map(f => f.displayPath)).toEqual(['src/a.lean']);
+  });
+  it('does not enumerate unrelated default-excluded trees for a specific deep keep rule', async () => {
+    await put('src/a.lean', 'one\ntwo'); await put('node_modules/large/file', 'irrelevant');
+    await put('.lake/packages/mathlib/Mathlib/X.lean', 'def x := 1');
+    const args = input(); args.options.scope = 'project'; args.options.keep = ['.lake/packages/mathlib/Mathlib/**'];
+    const readdir = fs.readdir.bind(fs);
+    vi.spyOn(fs, 'readdir').mockImplementation((async (p: any, ...rest: any[]) => {
+      if (String(p).includes('node_modules')) throw new Error('unrelated excluded tree enumerated');
+      return (readdir as any)(p, ...rest);
+    }) as any);
+    const p = await captureSourceSnapshot(args);
+    expect(p.manifest.files.map(f => f.displayPath)).toEqual(['.lake/packages/mathlib/Mathlib/X.lean', 'src/a.lean']);
+  });
   it('captures whole exact bytes, metadata and frozen UTF-16 ranges; companions only, not keep expansion', async () => {
     const bytes = Buffer.from('\ufeffheader\r\n😀α\r\ntail\n');
     await put('src/a.lean', bytes); await put('LICENSE', 'license'); await put('src/other.lean', 'excluded by scope');

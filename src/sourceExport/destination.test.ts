@@ -1,0 +1,22 @@
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { assertOwnedExportDestination, SOURCE_EXPORT_RECEIPT, sourceExportReceipt } from './destination';
+let root: string;
+beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-destination-')); });
+afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+it('accepts new/empty or precisely owned directories, refuses extra user files and symlinks', async () => {
+  const target = path.join(root, 'export');
+  await expect(assertOwnedExportDestination(target, false)).resolves.toBeUndefined();
+  await fs.mkdir(target); await expect(assertOwnedExportDestination(target, false)).resolves.toBeUndefined();
+  await fs.writeFile(path.join(target, 'index.html'), 'prior');
+  await expect(assertOwnedExportDestination(target, false)).rejects.toThrow('not owned');
+  await fs.writeFile(path.join(target, SOURCE_EXPORT_RECEIPT), sourceExportReceipt([{ path: 'index.html' }]));
+  await expect(assertOwnedExportDestination(target, false)).resolves.toBeUndefined();
+  await fs.writeFile(path.join(target, 'important.txt'), 'keep');
+  await expect(assertOwnedExportDestination(target, false)).rejects.toThrow('not owned');
+  expect(await fs.readFile(path.join(target, 'important.txt'), 'utf8')).toBe('keep');
+  const link = path.join(root, 'link'); await fs.symlink(target, link);
+  await expect(assertOwnedExportDestination(link, false)).rejects.toThrow('symlink');
+});

@@ -612,7 +612,7 @@ describe('restored draft in edit mode', () => {
       default_language: 'zh-CN',
       values: { 'zh-CN': '主机中文', en: 'HOST ENGLISH' }
     };
-    const sendLocalized = (): void => window.dispatchEvent(new MessageEvent('message', { data: {
+    const sendLocalized = (): void => void window.dispatchEvent(new MessageEvent('message', { data: {
       type: 'context', mode: 'edit', id: 'thm-1',
       kinds: [{ id: 'theorem', name: 'Theorem', coloring: { light: { stroke: '#888', background: '#222' }, dark: { stroke: '#888', background: '#222' } } }],
       existingIds: ['thm-1'], entryRevision: 'title-revision',

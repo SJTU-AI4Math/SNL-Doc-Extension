@@ -103,8 +103,8 @@ describe('CollapsibleScope', () => {
 
   it('renders separate scoped bulk controls with no-op disabled states', () => {
     render(<Fixture />);
-    const expand = screen.getByRole('button', { name: 'Expand all collapsible blocks in Test preview' });
-    const collapse = screen.getByRole('button', { name: 'Collapse all collapsible blocks in Test preview' });
+    const expand = screen.getByRole<HTMLButtonElement>('button', { name: 'Expand all collapsible blocks in Test preview' });
+    const collapse = screen.getByRole<HTMLButtonElement>('button', { name: 'Collapse all collapsible blocks in Test preview' });
 
     expect(expand.disabled).toBe(false);
     expect(collapse.disabled).toBe(false);

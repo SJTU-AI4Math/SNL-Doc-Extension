@@ -2,6 +2,8 @@ node_modules/
 out/
 media/webview/
 media/exportRuntime.js
+media/sourceViewer.js
+media/sourceViewer.css
 release
 *.vsix
 .DS_Store

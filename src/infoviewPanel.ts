@@ -36,6 +36,7 @@ import {
   webviewLocalResourceRoots
 } from './panelUtil';
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
+import { assertRenderSnapshot, renderDependencyId, type RenderSourceContext } from './sourceExport/renderSnapshot';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
   indexLibraryGraph,
@@ -145,6 +146,7 @@ export class InfoviewPanel {
   private contentLanguage: string | null = null;
   private disposables: vscode.Disposable[] = [];
   private viewGeneration = 0;
+  private renderSourceContext: RenderSourceContext | undefined;
 
   /** Open (or reveal) the singleton browser panel. */
   /**
@@ -608,7 +610,7 @@ export class InfoviewPanel {
         }
         return;
       case 'exportLibraryHtml':
-        this.exportLibraryHtml(msg as unknown as ExportPayload);
+        await this.exportLibraryHtml(msg as unknown as ExportPayload);
         return;
       case 'exportLibraryHtmlError':
         if (typeof msg.error === 'string' && msg.error.length <= 1000) {
@@ -837,8 +839,27 @@ export class InfoviewPanel {
         readMacroKinds(root)
       ]);
       if (generation !== this.viewGeneration) return;
+      const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds };
+      const renderSnapshotId = renderDependencyId(dependencies);
+      const context: RenderSourceContext = {
+        rootPath: root.fsPath, renderSnapshotId, entries: entryPool.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
+        entryRoutes: graph.nodes.flatMap(node => node.label === 'Entry' && typeof node.props?.entryId === 'string'
+          ? [{ entryId: node.props.entryId, nodeId: node.id, hash: '#/node/' + encodeURIComponent(node.id) }] : []),
+        revalidate: async () => {
+          if (firstWorkspaceFolder()?.toString() !== root.toString()) throw new Error('Workspace changed; recapture export.');
+          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds] = await Promise.all([
+            listLibraries(root), readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
+            readRelationships(root), readAllMacros(root), readMacroKinds(root)
+          ]);
+          const currentGraph = await readLibraryGraph(root, slug, { entryPool: entries });
+          assertRenderSnapshot(renderSnapshotId, { libraries: currentLibraries, entries, kinds: currentKinds, counters: currentCounters,
+            graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds });
+        }
+      };
+      this.renderSourceContext = context;
 
       void this.panel.webview.postMessage({
+        renderSnapshotId,
         type: 'libraryEntries',
         slug,
         title: displayTitle,
@@ -883,8 +904,26 @@ export class InfoviewPanel {
    * options are chosen in a dedicated panel (cat 2026-07-28) rather than a
    * chain of modal dialogs.
    */
-  private exportLibraryHtml(request: ExportPayload): void {
-    ExportOptionsPanel.show(this.extensionUri, request);
+  private async exportLibraryHtml(request: ExportPayload): Promise<void> {
+    const context = this.renderSourceContext;
+    try {
+      if (!context || request.renderSnapshotId !== context.renderSnapshotId) throw new Error('Stale document capture. Refresh and export again.');
+      await context.revalidate();
+      if (context !== this.renderSourceContext) throw new Error('Reader changed during export capture.');
+      const ids = new Set(context.entryRoutes.map(route => route.entryId));
+      for (const id of Object.keys(request.popovers ?? {})) ids.add(id);
+      for (const variant of request.variants?.variants ?? []) {
+        for (const id of Object.keys(variant.popovers)) ids.add(id);
+      }
+      const entries = context.entries.filter(entry => ids.has(entry.id));
+      const routes = [...context.entryRoutes];
+      for (const entry of entries) {
+        if (Object.hasOwn(request.popovers ?? {}, entry.id)) routes.push({ entryId: entry.id, hash: '#/entry/' + encodeURIComponent(entry.id) });
+      }
+      ExportOptionsPanel.show(this.extensionUri, structuredClone(request), { ...context, entries, entryRoutes: routes });
+    } catch (error) {
+      void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** Load the flat name→macro map. Strict entity-storage errors propagate to

@@ -63,6 +63,17 @@ describe('complete artifact publication', () => {
     expect(await fs.readdir(dest)).toEqual(['index.html', 'new.js']);
     expect(await fs.readFile(path.join(dest, 'index.html'), 'utf8')).toBe('third');
   });
+  it('rechecks the frozen source after staging and preserves the old output on rejection', async () => {
+    const dest = path.join(root, 'site'); await fs.mkdir(dest); await fs.writeFile(path.join(dest, 'prior'), 'keep');
+    let sawStage = false;
+    await expect(publishSourceExport(dest, [file('index.html', 'new')], false, async () => {
+      sawStage = (await fs.readdir(root)).some(name => name.startsWith('.snl-export-'));
+      throw new Error('source changed during staging');
+    })).rejects.toThrow('source changed');
+    expect(sawStage).toBe(true);
+    expect(await fs.readFile(path.join(dest, 'prior'), 'utf8')).toBe('keep');
+    expect(await fs.readdir(root)).toEqual(['site']);
+  });
   it('rejects symlink destination without changing its target', async () => {
     const target = path.join(root, 'actual'); await fs.mkdir(target); await fs.writeFile(path.join(target, 'prior'), 'keep');
     const dest = path.join(root, 'link'); await fs.symlink(target, dest);

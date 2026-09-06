@@ -481,7 +481,7 @@ describe('Inductive node action dial', () => {
     ) as HTMLTextAreaElement);
     const styleA = rowForInput(macros[1]).querySelector('.snl-tree-style-select') as HTMLSelectElement;
     const fields: HTMLElement[] = [macros[0], macros[1], styleA, macros[2], macros[3]];
-    const send = (action: string): void => window.dispatchEvent(new MessageEvent('message', {
+    const send = (action: string): void => void window.dispatchEvent(new MessageEvent('message', {
       data: { type: 'shortcutAction', action }
     }));
 

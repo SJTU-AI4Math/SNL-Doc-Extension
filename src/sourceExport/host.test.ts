@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ messages: [] as any[], receive: undefined as any, dirty: [] as any[], writes: vi.fn(), capture: vi.fn(), validate: vi.fn(), root: { fsPath: '/workspace', path: '/workspace', scheme: 'file', toString: () => 'file:///workspace' } }));
+const state = vi.hoisted(() => ({ rootCount: 1, messages: [] as any[], receive: undefined as any, dirty: [] as any[], writes: vi.fn(), capture: vi.fn(), validate: vi.fn(), root: { fsPath: '/workspace', path: '/workspace', scheme: 'file', toString: () => 'file:///workspace' } }));
 vi.mock('vscode', () => ({
   ViewColumn: { Active: 1 }, Uri: { file: (p: string) => ({ path: p, fsPath: p, scheme: 'file' }), joinPath: (_u: any, ...parts: string[]) => ({ path: parts.join('/'), fsPath: parts.join('/'), scheme: 'file' }) },
-  workspace: { get textDocuments() { return state.dirty; }, fs: { readFile: async () => Buffer.from('runtime') } },
+  workspace: { get workspaceFolders() { return Array.from({length:state.rootCount},()=>({uri:state.root})); }, get textDocuments() { return state.dirty; }, fs: { readFile: async () => Buffer.from('runtime') } },
   window: { createWebviewPanel: () => ({ title: '', webview: { html: '', postMessage: async (m: unknown) => { state.messages.push(m); }, onDidReceiveMessage: (f: unknown) => { state.receive = f; } }, reveal() {}, onDidDispose() {}, dispose() {} }), showWarningMessage: vi.fn() },
   commands: { executeCommand: vi.fn() }
 }));
@@ -19,13 +19,17 @@ const preview = () => ({ confirmationId: 'capture-A', manifest: { files: [{ disp
 const payload = { slug: 'L', title: 'L', body: '<p>L</p>', assets: [], renderSnapshotId: 'render-A' };
 beforeEach(() => {
   (ExportOptionsPanel as any).current = undefined;
-  state.messages = []; state.dirty = []; state.capture.mockReset(); state.validate.mockReset(); state.writes.mockReset();
+  state.rootCount = 1; state.messages = []; state.dirty = []; state.capture.mockReset(); state.validate.mockReset(); state.writes.mockReset();
   state.capture.mockImplementation(async () => preview()); state.validate.mockResolvedValue(undefined);
   state.writes.mockImplementation(async (_request: unknown, deps: any) => { await deps.beforePublish?.(); return { target: { path: '/output/index.html', fsPath: '/output/index.html' }, fileCount: 1, warnings: [] }; });
 });
 const preflight = () => state.receive({ type: 'previewSources', requestId: 7, shape: 'directory', destination: '/output', sources: options });
 const run = (extra = {}) => state.receive({ type: 'runExport', shape: 'directory', destination: '/output', interactive: true, sources: options, confirmationId: 'capture-A', ...extra });
 describe('source export host authority', () => {
+  it('rejects ambiguous multi-root source export instead of silently choosing first root', async () => {
+    state.rootCount=2; ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
+    expect(state.capture).not.toHaveBeenCalled(); expect(state.messages.at(-1).message).toMatch(/single.*local|one.*local|single.*root/i);
+  });
   it('refuses unconfirmed and retargeted previews, regardless of claimed client consent', async () => {
     ExportOptionsPanel.show({} as never, payload, sourceContext());
     await run(); expect(state.writes).not.toHaveBeenCalled();

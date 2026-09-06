@@ -4,13 +4,20 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/contrib/find/browser/findController', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/contrib/folding/browser/folding', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard', () => ({}));
-import { rankSourcePointers, validateManifest, sha256Bytes, verifyChunk } from './viewer';
+import { rankSourcePointers, validateManifest, sha256Bytes, verifyChunk, preferSourceRoutes } from './viewer';
 import { findNearestEntries, type PointerIndex } from '../pointerSync/index';
 import type { SourceManifest, SourcePointer } from './types';
 const sha = createHash('sha256').update('abc').digest('hex');
 const base: SourceManifest = { schemaVersion:'snl.export.sources/v1',exportId:'e',renderSnapshotId:'r',workspaceName:'w',snapshot:{mode:'disk'},options:{scope:'project',keep:[],exclude:[],companionFiles:[]},files:[{fileId:'f',displayPath:'x',kind:'text',language:'lean4',byteLength:3,sha256:sha,bom:false,eol:'none',chunkId:'source-f.js'}],directories:[],pointers:[],entryRoutes:[] };
 function pointer(id:string,line:number,endLine=line,beforeLines?:number,afterLines?:number):SourcePointer {return {entryId:id,fileId:'f',sourceSha256:sha,status:'ok',pointer:{mode:'lines',file:'x',line,endLine,beforeLines,afterLines},range:{startLine:line,startColumn:1,endLine,endColumn:2,coveredEndLine:endLine}};}
 describe('browser/host ranking contract',()=>{
+  it('does not mistake the standalone fallback for a second outline occurrence',()=>{
+    const a={entryId:'e',nodeId:'a',hash:'#/node/a'},b={entryId:'e',nodeId:'b',hash:'#/node/b'},fallback={entryId:'e',hash:'#/entry/e'};
+    expect(preferSourceRoutes([a,fallback],'')).toEqual([a]);
+    expect(preferSourceRoutes([a,b,fallback],'')).toEqual([a,b]);
+    expect(preferSourceRoutes([a,b,fallback],fallback.hash)).toEqual([fallback]);
+    expect(preferSourceRoutes([fallback],'')).toEqual([fallback]);
+  });
   it('matches real host for every line across asymmetric thresholds, span and ties',()=>{
     const pointers=[pointer('wide',20,35,0,2),pointer('inner',24,25,15,0),pointer('tie',24,25,15,0),pointer('default',60)];
     const manifest={...base,pointers};

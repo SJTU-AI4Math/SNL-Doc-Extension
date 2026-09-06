@@ -27,7 +27,7 @@ export function SourceExportFields({ value, onChange, available, disabled }: { v
         {t((['keep', 'exclude', 'companion', 'external'] as const)[i])}
         <textarea aria-label={t((['keep', 'exclude', 'companion', 'external'] as const)[i])} rows={3} value={value[key].join('\n')} style={fieldStyle} spellCheck={false} onChange={e => update({ [key]: e.target.value.split('\n') })} />
       </label>)}
-      <button type="button" onClick={() => update({ keep: ['.lake/packages/mathlib/Mathlib/**'], exclude: ['**/.lake/build/**', '**/.SNL_Doc/**', '**/.git/**', '**/node_modules/**'], companionFiles: ['.lake/packages/mathlib/LICENSE', '.lake/packages/mathlib/lean-toolchain', '.lake/packages/mathlib/lake-manifest.json'] })}>{t('mathlib')}</button>
+      <button type="button" onClick={() => update({ keep: ['.lake/packages/mathlib/Mathlib/**', '.lake/packages/mathlib/LICENSE', '.lake/packages/mathlib/lean-toolchain', '.lake/packages/mathlib/lake-manifest.json'], exclude: ['**/.lake/build/**', '**/.SNL_Doc/**', '**/.git/**', '**/node_modules/**'], companionFiles: ['.lake/packages/mathlib/LICENSE', '.lake/packages/mathlib/lean-toolchain', '.lake/packages/mathlib/lake-manifest.json'] })}>{t('mathlib')}</button>
       {(['maxFileBytes', 'maxTotalBytes'] as const).map((key, i) => <label key={key} style={{ display: 'block', marginTop: 8 }}>{t(i === 0 ? 'fileLimit' : 'totalLimit')}<input type="number" min="1" step="1" value={value[key]} style={fieldStyle} onChange={e => update({ [key]: Number(e.target.value) })} /></label>)}
       <label><input type="checkbox" checked={value.allowMissing} onChange={e => update({ allowMissing: e.target.checked })} /> {t('missing')}</label>
     </>}

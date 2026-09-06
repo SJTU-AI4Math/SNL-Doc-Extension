@@ -133,6 +133,13 @@ export async function verifyChunk(file: SourceFile, chunk: SourceChunk | undefin
   if (hash !== file.sha256) throw Error('Source SHA-256 mismatch');
   return bytes;
 }
+export function preferSourceRoutes(all: SourceRoute[], currentHash: string): SourceRoute[] {
+  const currentRoute = all.find(route => route.hash === currentHash);
+  if (currentRoute) return [currentRoute];
+  // A standalone Entry fallback is not a second outline occurrence.
+  const nodes = all.filter(route => route.nodeId !== undefined);
+  return nodes.length ? nodes : all;
+}
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string) {
   const element = document.createElement(tag); if (className) element.className = className; return element;
 }
@@ -280,7 +287,7 @@ export function installSourceViewer(): (() => void) | undefined {
   function folder(path:string):HTMLElement {const old=folders.get(path);if(old)return old;const parts=path.split('/');const title=parts.pop()!;const parent=folder(parts.join('/'));const details=node('details');details.open=true;const summary=node('summary');summary.textContent=title;details.append(summary);parent.append(details);folders.set(path,details);return details;}
   m.directories.forEach(folder);
   for(const f of m.files){const parts=f.displayPath.split('/');const title=parts.pop()!;const b=button(title,()=>{setOpen(true);void openFile(f.fileId);});b.dataset.snlSourceFile=f.fileId;b.title=f.displayPath;folder(parts.join('/')).append(b);}
-  function routesFor(p:SourcePointer) {const all=m.entryRoutes.filter(r=>r.entryId===p.entryId&&routeAvailable(r));const currentRoute=all.find(r=>r.hash===location.hash);return currentRoute?[currentRoute]:all;}
+  function routesFor(p:SourcePointer) {return preferSourceRoutes(m.entryRoutes.filter(r=>r.entryId===p.entryId&&routeAvailable(r)),location.hash);}
   function mark(p:SourcePointer): boolean {
     clearMark();
     const surfaces=Array.from(main!.querySelectorAll<HTMLElement>('[data-entry-id]')).filter(el=>el.dataset.entryId===p.entryId&&!el.closest('.snl-export-popover')&&el.getClientRects().length>0);

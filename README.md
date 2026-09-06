@@ -19,7 +19,7 @@ and select the downloaded file.
 You can also install it from a terminal:
 
 ```bash
-code --install-extension snl-doc-extension-0.1.0.vsix
+code --install-extension snl-doc-extension-0.1.2.vsix
 ```
 
 ## Build from source
@@ -27,11 +27,36 @@ code --install-extension snl-doc-extension-0.1.0.vsix
 ```bash
 npm ci                   # install the exact locked dependencies
 npm run compile          # type-check + emit the extension (tsc -> ./out)
+npm run build:export-runtime # build offline hover + read-only source reader
 npm run build:webview    # build every webview bundle
 ```
 
 Then launch the extension from VS Code (F5 / Run Extension). See
 `package.json` for the full script list.
+
+## Source navigation and parallel reading (0.1.2 candidate)
+
+- Each Entry Pointer has independent `beforeLines` / `afterLines` context.
+  `Ctrl+Alt+J` finds the nearest Entry from source; ambiguous matches remain a
+  choice. Dashboard exposes Pointer index maintenance. `.SNL_Doc/syncSNL.json`
+  is a rebuildable reverse index, not canonical Entry storage.
+- **Export HTML → Include source code** adds an offline read-only Monaco pane
+  beside the document, with Lean highlighting, search, copying, folding,
+  adjustable width, source/Entry navigation and cursor following.
+- Source inclusion defaults off. Choose whole Pointer files or a filtered
+  project snapshot, inspect the exact preflight file list, then confirm sharing.
+  Rules are root-relative, case-sensitive `/` paths with `*` and `**`; keep rules
+  override defaults, explicit excludes win. Review credentials and licenses.
+- Every reader receives the included bytes. Read-only is not confidentiality.
+  Unsaved buffers require explicit disk-version acknowledgement or save/repreview.
+  Changed document dependencies, Pointer mappings, source bytes or selection
+  invalidate confirmation. This is not a repository-wide atomic checkout.
+- Both a single HTML file and a directory work offline via `file://`; no network
+  Monaco loader is required. Directory replacement only accepts empty targets or
+  precisely exporter-owned prior generations, never unrelated project files.
+- The first implementation is local-file/single-root oriented; unsupported or
+  ambiguous workspace roots/providers are rejected. UUID schema work belongs
+  to 0.2.0 and is not part of this candidate.
 
 ## Kind preset packages
 

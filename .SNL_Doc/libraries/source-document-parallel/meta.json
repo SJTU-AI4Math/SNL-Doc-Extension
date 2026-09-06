@@ -1,4 +1,4 @@
 {
   "title": "源码—文档双向导航与 HTML 平行阅读",
-  "description": "Draft specification, not implemented: primary-source research, reverse Pointer index, source snapshots and read-only Monaco export."
+  "description": "0.1.2 integrated candidate: bidirectional Pointer, confirmed source snapshots and offline read-only Monaco; Linux VS Code/Chromium exercised, native Windows/macOS validation pending. UUID remains 0.2.0."
 }

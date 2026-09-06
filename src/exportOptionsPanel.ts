@@ -270,6 +270,10 @@ export class ExportOptionsPanel {
   }
 
   private sourceCaptureInput(context: RenderSourceContext, options: SourceExportOptions, destination: string, shape: 'single' | 'directory') {
+    const root = firstWorkspaceFolder();
+    if (vscode.workspace.workspaceFolders?.length !== 1 || root?.scheme !== 'file' || root.fsPath !== context.rootPath) {
+      throw new Error('Source export requires one unchanged local workspace root; recapture the document in a single-root workspace.');
+    }
     const destinationPath = shape === 'single' && !/\.html$/i.test(destination) ? destination + '.html' : destination;
     return { rootPath: context.rootPath, destinationPath, inline: shape === 'single',
       entries: context.entries, entryRoutes: context.entryRoutes, renderSnapshotId: context.renderSnapshotId, options };

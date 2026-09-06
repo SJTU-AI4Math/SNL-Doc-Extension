@@ -49,6 +49,7 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     title: 'SNL Dashboard', loading: 'Loading project overview…', overviewLoadError: 'Could not load project overview: {message}', setupIntroBefore: 'This workspace does not have an', setupIntroAfter: 'folder yet. Create the skeleton alone, or initialize a standard Kind catalog as part of setup.',
     runInit: 'Run SNL: Init', initEntryKinds: 'Initialize Entry Kinds', initMacroKinds: 'Initialize Macro Kinds', entryKindPreset: 'Entry Kind preset', macroKindPreset: 'Macro Kind preset', emptyPreset: 'Empty', setupStatus: 'SNL setup status', initializing: 'Initializing SNL workspace…',
     viewGraph: 'View Graph', viewGraphTitle: 'Open the pool-wide relationship graph', openInfoview: 'Open Infoview →', openInfoviewTitle: 'Open the Infoview (reading surface)',
+    maintainPointers: 'Pointer maintenance', maintainPointersTitle: 'Maintain all Entry Pointers in this workspace',
     dataMaintenance: 'Data maintenance', dataNotChecked: 'Data version has not been checked yet.', unknown: 'unknown', checkData: 'Check data', repairData: 'Repair / migrate data', pendingMigrations: '{count} pending migration step(s).', migrationRunning: 'Migration is running…', checkRunning: 'Data check is running…', dataFailed: 'Data operation failed.',
     libraries: 'Libraries', libraryCount: { arg: 'count', one: '{count} library', other: '{count} libraries' }, createLibrary: 'Create Library', createLibraryHeader: '+ Create Library', createLibraryTitle: 'Open the Create Library panel',
     entries: 'Entry Packages', entriesInPool: '{count} entries in shared pool', entryPackageCount: { arg: 'count', one: '{count} Entry Package', other: '{count} Entry Packages' }, createEntry: 'Create Entry Package', createEntryHeader: '+ Create Entry Package', createEntryTitle: 'Open the Create Entry Package flow', entrySearch: '⌕ SNoogL: Entry Search', entrySearchTitle: 'Open SNoogL panel focused on entry search',
@@ -63,6 +64,7 @@ const DASHBOARD_MESSAGES = defineUiMessages(
     title: 'SNL 仪表板', loading: '正在加载项目概览…', overviewLoadError: '无法加载项目概览：{message}', setupIntroBefore: '此工作区尚无', setupIntroAfter: '文件夹。您可以仅创建基本目录，也可以在设置时一并初始化标准类别目录。',
     runInit: '运行 SNL：初始化', initEntryKinds: '初始化条目类别', initMacroKinds: '初始化宏类别', entryKindPreset: '条目类别预设', macroKindPreset: '宏类别预设', emptyPreset: '空', setupStatus: 'SNL 设置状态', initializing: '正在初始化 SNL 工作区…',
     viewGraph: '查看关系图', viewGraphTitle: '打开共享池的完整关系图', openInfoview: '打开信息视图 →', openInfoviewTitle: '打开信息视图（阅读界面）',
+    maintainPointers: 'Pointer 维护', maintainPointersTitle: '维护此工作区中的所有条目 Pointer',
     dataMaintenance: '数据维护', dataNotChecked: '尚未检查数据版本。', unknown: '未知', checkData: '检查数据', repairData: '修复 / 迁移数据', pendingMigrations: '有 {count} 个迁移步骤待执行。', migrationRunning: '正在迁移…', checkRunning: '正在检查数据…', dataFailed: '数据操作失败。',
     libraries: '库', libraryCount: { arg: 'count', other: '{count} 个库' }, createLibrary: '创建库', createLibraryHeader: '+ 创建库', createLibraryTitle: '打开创建库面板',
     entries: '条目包', entriesInPool: '共享池中有 {count} 个条目', entryPackageCount: { arg: 'count', other: '{count} 个条目包' }, createEntry: '创建条目包', createEntryHeader: '+ 创建条目包', createEntryTitle: '打开创建条目包流程', entrySearch: '⌕ SNoogL：搜索条目', entrySearchTitle: '打开 SNoogL 面板并搜索条目',
@@ -397,6 +399,14 @@ function Initialized({
               title={t('viewGraphTitle')}
             >
               {t('viewGraph')}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => api?.postMessage({ type: 'maintainPointers' })}
+              title={t('maintainPointersTitle')}
+            >
+              {t('maintainPointers')}
             </Button>
             <Button
               type="button"

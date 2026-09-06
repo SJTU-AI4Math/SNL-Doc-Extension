@@ -264,6 +264,11 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   regexFlags: 'Regex flags (optional)',
   exampleIm: 'e.g. im',
   occurrence: 'Occurrence (optional)',
+  beforeLines: 'Before lines (optional)',
+  afterLines: 'After lines (optional)',
+  beforeLinesHint: 'Lines before the Pointer’s actual start, not the cursor. Leave empty for 15.',
+  afterLinesHint: 'Lines after the Pointer’s actual end, not the cursor. Leave empty for 15.',
+  contextLinesError: '{field} must be a nonnegative safe integer, or empty for the default 15.',
   pointerHint: 'Paths are resolved from the project root. Line numbers and regex occurrences are 1-indexed.',
   noPointer: 'No source location is attached. Enable the binding to choose a file and addressing mode.',
   canvasAria: 'GUI Editor canvas',
@@ -386,6 +391,10 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   sectionToggle: '{title}——{action}分区', collapse: '折叠', expand: '展开', bindSource: '将此条目绑定到源代码位置', projectRelativeFile: '项目相对路径文件',
   projectFilePlaceholder: '例如：src/theorems/pythagorean.ts', mode: '模式', lineRange: '行范围', regularExpression: '正则表达式', startLine: '起始行', endLine: '结束行（可选）',
   sameAsStart: '与起始行相同', regexPattern: '正则表达式', regexPlaceholder: '例如：function\\s+provePythagorean', regexFlags: '正则标志（可选）', exampleIm: '例如：im', occurrence: '匹配序号（可选）',
+  beforeLines: '前文行数（可选）', afterLines: '后文行数（可选）',
+  beforeLinesHint: 'Pointer 实际起始位置之前的行数，不相对于光标。留空默认为 15。',
+  afterLinesHint: 'Pointer 实际结束位置之后的行数，不相对于光标。留空默认为 15。',
+  contextLinesError: '{field}必须为非负安全整数，或留空使用默认值 15。',
   pointerHint: '路径从项目根目录解析。行号和正则匹配序号均从 1 开始。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
   canvasAria: 'GUI 编辑器画布', editFocusedSnl: '编辑聚焦的 SNL', editMacroInput: '编辑此块的宏；按 Enter 提交，按 Shift+Enter 添加新行', enterSnlDsl: '输入 SNL DSL；按 Enter 提交，按 Shift+Enter 添加新行',
   insertCanvasRoot: '插入画布根宏', argumentCount: '参数数量', macroActions: '宏操作', removeArgument: '移除参数', argumentCountValue: '参数数量值', addArgument: '添加参数',
@@ -483,11 +492,15 @@ interface PointerDraft {
   pattern: string;
   flags: string;
   occurrence: string;
+  beforeLines: string;
+  afterLines: string;
 }
 
-type EntryPointer =
+type PointerContext = { beforeLines?: number; afterLines?: number };
+type EntryPointer = PointerContext & (
   | { file: string; mode: 'lines'; line: number; endLine?: number }
-  | { file: string; mode: 'regex'; pattern: string; flags?: string; occurrence?: number };
+  | { file: string; mode: 'regex'; pattern: string; flags?: string; occurrence?: number }
+);
 
 const EMPTY_POINTER_DRAFT: PointerDraft = {
   enabled: false,
@@ -497,16 +510,23 @@ const EMPTY_POINTER_DRAFT: PointerDraft = {
   endLine: '',
   pattern: '',
   flags: '',
-  occurrence: ''
+  occurrence: '',
+  beforeLines: '',
+  afterLines: ''
 };
 
 function pointerDraftFrom(value: unknown): PointerDraft {
   if (!value || typeof value !== 'object') return { ...EMPTY_POINTER_DRAFT };
   const pointer = value as Record<string, unknown>;
   if (typeof pointer.file !== 'string') return { ...EMPTY_POINTER_DRAFT };
+  const context = {
+    beforeLines: pointer.beforeLines == null ? '' : String(pointer.beforeLines),
+    afterLines: pointer.afterLines == null ? '' : String(pointer.afterLines)
+  };
   if (pointer.mode === 'lines' && typeof pointer.line === 'number') {
     return {
       ...EMPTY_POINTER_DRAFT,
+      ...context,
       enabled: true,
       file: pointer.file,
       mode: 'lines',
@@ -517,6 +537,7 @@ function pointerDraftFrom(value: unknown): PointerDraft {
   if (pointer.mode === 'regex' && typeof pointer.pattern === 'string') {
     return {
       ...EMPTY_POINTER_DRAFT,
+      ...context,
       enabled: true,
       file: pointer.file,
       mode: 'regex',
@@ -528,6 +549,12 @@ function pointerDraftFrom(value: unknown): PointerDraft {
   return { ...EMPTY_POINTER_DRAFT };
 }
 
+function nonnegativeInteger(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function positiveInteger(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const parsed = Number(value);
@@ -536,6 +563,11 @@ function positiveInteger(value: string): number | null {
 
 function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): string | null {
   if (!draft.enabled) return null;
+  for (const field of ['beforeLines', 'afterLines'] as const) {
+    if (draft[field] !== '' && nonnegativeInteger(draft[field]) === null) {
+      return t('contextLinesError', { field: t(field) });
+    }
+  }
   const file = draft.file.trim().replace(/\\/g, '/');
   if (!file) return t('chooseProjectFile');
   if (file.startsWith('/') || /^[A-Za-z]:\//.test(file)) {
@@ -567,11 +599,28 @@ function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): strin
   return null;
 }
 
-function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator): EntryPointer | null {
+function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator, original?: unknown): EntryPointer | null {
   if (!draft.enabled || pointerDraftError(draft, t)) return null;
+  const context: PointerContext = {};
+  for (const field of ['beforeLines', 'afterLines'] as const) {
+    const count = nonnegativeInteger(draft[field]);
+    if (count !== null) context[field] = count;
+  }
+  // A context-only edit must not normalize addressing or discard opaque metadata.
+  const previous = pointerDraftFrom(original);
+  const addressFields: (keyof PointerDraft)[] = draft.mode === 'lines'
+    ? ['enabled', 'file', 'mode', 'line', 'endLine']
+    : ['enabled', 'file', 'mode', 'pattern', 'flags', 'occurrence'];
+  if (previous.enabled && addressFields.every((field) => previous[field] === draft[field])) {
+    const pointer = { ...(original as EntryPointer) };
+    delete pointer.beforeLines;
+    delete pointer.afterLines;
+    return { ...pointer, ...context };
+  }
   const file = draft.file.trim().replace(/\\/g, '/');
   if (draft.mode === 'lines') {
     const pointer: EntryPointer = {
+      ...context,
       file,
       mode: 'lines',
       line: positiveInteger(draft.line)!
@@ -580,7 +629,7 @@ function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator): EntryP
     if (endLine !== null) pointer.endLine = endLine;
     return pointer;
   }
-  const pointer: EntryPointer = { file, mode: 'regex', pattern: draft.pattern };
+  const pointer: EntryPointer = { ...context, file, mode: 'regex', pattern: draft.pattern };
   if (draft.flags) pointer.flags = draft.flags;
   const occurrence = positiveInteger(draft.occurrence);
   if (occurrence !== null) pointer.occurrence = occurrence;
@@ -1607,7 +1656,7 @@ export function CreateEntryApp(): React.ReactElement {
       pointer:
         mode === 'edit' && !pointerDirtyRef.current
           ? existingMetadataRef.current.pointer
-          : pointerFromDraft(pointerDraft, t)
+          : pointerFromDraft(pointerDraft, t, mode === 'edit' ? existingMetadataRef.current.pointer : undefined)
     };
     submittedEditGenerationRef.current = editGenerationRef.current;
     const saveRequestId =
@@ -1710,7 +1759,7 @@ export function CreateEntryApp(): React.ReactElement {
     setActiveFormat(restored.activeFormat);
     setSnlMode(restored.snlMode);
     if (restored.pointerDraft) {
-      setPointerDraft(restored.pointerDraft);
+      setPointerDraft({ ...EMPTY_POINTER_DRAFT, ...restored.pointerDraft });
       pointerDirtyRef.current = true;
     }
     // The Canvas forest is NOT recoverable from `content.snl`: a multi-root
@@ -2670,6 +2719,25 @@ function PointerEditor({
               </div>
             </>
           )}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {(['beforeLines', 'afterLines'] as const).map((field) => (
+              <div key={field} style={{ flex: '1 1 10rem' }}>
+                <Label htmlFor={`snl-entry-pointer-${field}`}>{t(field)}</Label>
+                <input
+                  id={`snl-entry-pointer-${field}`}
+                  type="text"
+                  inputMode="numeric"
+                  value={value[field]}
+                  onChange={(event) => update({ [field]: event.target.value })}
+                  aria-invalid={(value[field] !== '' && nonnegativeInteger(value[field]) === null) || undefined}
+                  aria-describedby={describedBy}
+                  placeholder="15"
+                  title={t(field === 'beforeLines' ? 'beforeLinesHint' : 'afterLinesHint')}
+                  style={inputStyle}
+                />
+              </div>
+            ))}
+          </div>
           <p
             id={errorId}
             role={error ? 'alert' : undefined}

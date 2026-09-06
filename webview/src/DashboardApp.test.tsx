@@ -18,6 +18,33 @@ afterEach(() => {
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
 
+describe('Dashboard Pointer maintenance', () => {
+  it.each([
+    ['en', 'Pointer maintenance', 'Maintain all Entry Pointers in this workspace'],
+    ['zh-CN', 'Pointer 维护', '维护此工作区中的所有条目 Pointer']
+  ])('posts the global maintenance intent once with %s labels', async (locale, label, title) => {
+    document.documentElement.lang = locale;
+    try {
+      render(<DashboardApp />);
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'overview', overview: {
+          hasSnlDoc: true, totalEntryCount: 0, entries: [], entryPackages: [], libraries: [],
+          macroPackages: [], allMacros: [], metricMacroSources: {}, relationships: [],
+          entryKinds: [], macroKinds: []
+        }
+      }}));
+      const button = await screen.findByRole('button', { name: label });
+      expect(button.getAttribute('title')).toBe(title);
+      expect(button.closest('nav.snl-panel-header')).toBeTruthy();
+      postMessage.mockClear();
+      fireEvent.click(button);
+      expect(postMessage.mock.calls).toEqual([[{ type: 'maintainPointers' }]]);
+    } finally {
+      document.documentElement.lang = 'en';
+    }
+  });
+});
+
 describe('Dashboard library actions', () => {
   it('shows localized Entry Kind names and descriptions without flattening the catalog', async () => {
     render(<DashboardApp />);

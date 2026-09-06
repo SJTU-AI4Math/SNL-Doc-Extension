@@ -1,0 +1,27 @@
+.snl-source-panel { position:fixed; inset:0 auto 0 0; width:var(--snl-source-width,50vw); z-index:100; background:var(--vscode-editor-background,#fff); color:var(--vscode-editor-foreground,#242424); display:flex; flex-direction:column; box-sizing:border-box; font:13px/1.45 system-ui,sans-serif; border-right:1px solid #8888; }
+.snl-source-panel[hidden], .snl-source-panel [hidden], .snl-source-splitter[hidden] { display:none !important; }
+.snl-source-visible .snl-export { position:fixed; inset:0 0 0 var(--snl-source-width,50vw); overflow:auto; width:auto !important; max-width:none !important; margin:0 !important; box-sizing:border-box; }
+.snl-source-open { position:fixed; bottom:16px; right:20px; z-index:110; border:1px solid #8888; border-radius:6px; padding:7px 12px; color:var(--vscode-editor-foreground,#242424); background:var(--vscode-editor-background,#fff); box-shadow:0 2px 8px #0002; cursor:pointer; }
+.snl-source-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:8px; border-bottom:1px solid #8885; }
+.snl-source-panel button,.snl-source-entry-action { font:inherit; border:1px solid #8886; border-radius:4px; padding:4px 7px; color:inherit; background:transparent; cursor:pointer; }
+.snl-source-panel button:hover,.snl-source-entry-action:hover { background:#8882; }
+.snl-source-panel button:focus-visible,.snl-source-panel summary:focus-visible,.snl-source-splitter:focus-visible,.snl-source-open:focus-visible { outline:2px solid #1684e8; outline-offset:1px; }
+.snl-source-toolbar label { display:flex; align-items:center; white-space:nowrap; }
+.snl-source-path { padding:5px 10px; font-family:monospace; overflow-wrap:anywhere; background:#8881; }
+.snl-source-status { padding:4px 10px; overflow-wrap:anywhere; }
+.snl-source-choices { display:flex; flex-wrap:wrap; gap:4px; padding:0 8px; max-height:130px; overflow:auto; }
+.snl-source-content { display:flex; flex:1; min-height:0; min-width:0; }
+.snl-source-files { width:150px; max-width:30%; flex-shrink:0; overflow:auto; padding:6px; border-right:1px solid #8885; box-sizing:border-box; }
+.snl-source-files details { padding-left:10px; }
+.snl-source-files summary { cursor:pointer; white-space:nowrap; }
+.snl-source-files button { display:block; text-align:left; border:0; white-space:nowrap; min-width:100%; }
+.snl-source-editor { flex:1; min-width:0; min-height:0; overflow:hidden; }
+.snl-source-splitter { position:fixed; left:calc(var(--snl-source-width,50vw) - 3px); top:0; bottom:0; width:6px; cursor:col-resize; z-index:105; touch-action:none; }
+.snl-source-splitter:hover,.snl-source-splitter:focus { background:#1684e899; }
+.snl-source-range { background:#458bda30; border-bottom:1px solid #458bda80; }
+.snl-source-range-gutter { border-left:3px solid #458bda; }
+[data-snl-source-current] { outline:2px solid #458bda; outline-offset:3px; }
+.snl-source-entry-action { margin:4px; font:12px system-ui,sans-serif; }
+.snl-source-mobile-notice { display:none; padding:8px; }
+.snl-source-diagnostic { padding:8px; color:#b22; overflow-wrap:anywhere; }
+@media(max-width:850px) { .snl-source-panel { width:100vw; } .snl-source-visible .snl-export { inset:0; } .snl-source-splitter { display:none; } .snl-source-mobile-notice { display:block; } .snl-source-open { z-index:99; } }

@@ -10,6 +10,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { buildHoverRuntime } from './export-hover-build.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,27 +29,8 @@ const dataUrl =
   'data:text/javascript;base64,' + Buffer.from(wiringModule).toString('base64');
 const { EXPORT_RUNTIME_WIRING_JS, HOVER_ENTRY_SOURCE } = await import(dataUrl);
 
-const hover = await build({
-  stdin: {
-    contents: HOVER_ENTRY_SOURCE,
-    resolveDir: root,
-    sourcefile: 'snl-hover-entry.js',
-    loader: 'js'
-  },
-  bundle: true,
-  format: 'iife',
-  platform: 'browser',
-  target: 'es2018',
-  minify: true,
-  write: false,
-  legalComments: 'none'
-});
+const hover = await buildHoverRuntime(HOVER_ENTRY_SOURCE, root);
 const hoverJs = hover.outputFiles[0].text;
-
-if (/\bfrom\s*["']react["']/.test(hoverJs) || /katex/i.test(hoverJs)) {
-  // The whole point of the ./hover subpath entry is that neither is reachable.
-  throw new Error('hover runtime unexpectedly pulled in React or KaTeX');
-}
 
 const out = resolve(root, 'media/exportRuntime.js');
 await mkdir(dirname(out), { recursive: true });

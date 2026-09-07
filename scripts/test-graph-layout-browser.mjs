@@ -34,6 +34,7 @@ const bundleDir = resolve(root, 'media/webview');
 const html = `<!doctype html><html lang="en" data-snl-color-scheme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/snlGraph.css"><style>
 :root { --vscode-editor-background:#181c22; --vscode-foreground:#dce5ef; --vscode-editorWidget-background:#222a35; --vscode-input-background:#2b3543; --vscode-input-foreground:#e2eaf3; --vscode-dropdown-background:#2b3543; --vscode-dropdown-foreground:#e2eaf3; --vscode-panel-border:#435064; --vscode-focusBorder:#8cbeef; }
 body{margin:0;background:var(--vscode-editor-background);font-family:system-ui;}
+:root[data-snl-color-scheme="light"]{--vscode-editor-background:#f7f9fc;--vscode-foreground:#243448;--vscode-editorWidget-background:#e9eef6;--vscode-input-background:white;--vscode-input-foreground:#243448;--vscode-dropdown-background:white;--vscode-dropdown-foreground:#243448;--vscode-panel-border:#8999aa;}
 </style><script>window.__fixture=${JSON.stringify(fixture)};window.__posted=[];
 window.acquireVsCodeApi=()=>({postMessage(m){window.__posted.push(m);if(m.type==='ready'){setTimeout(()=>window.dispatchEvent(new MessageEvent('message',{data:window.__fixture})),0);}},getState(){},setState(){}});
 </script></head><body><div id="root"></div><script src="/snlGraph.js"></script></body></html>`;
@@ -166,6 +167,18 @@ try {
   await wait(`window.__posted.some(m=>m.type==='openEntryInfoview')`);
   evidence.navigation=await evaluate(`window.__posted.filter(m=>m.type==='openEntryInfoview')`);
   await evaluate('document.activeElement.blur()');
+  // Live theme/language changes use the same preference message as the host.
+  await move(10,10);
+  for(const [revision,scheme,language] of [[1,'light','zh-CN'],[2,'dark','en']]) {
+    await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{type:'snl.preferences/snapshot',generation:'browser-qa',revision:${revision},preferences:{language:${JSON.stringify(language)},color_scheme:${JSON.stringify(scheme)},motion:'none',popover_hover_enabled:false}}}))`);
+    await selection('Outward|向外','Outward|向外');
+    await selection('Always|始终','Always|始终');
+    const fill=await evaluate(`document.querySelector('${nodeSelector} > rect').getAttribute('fill')`);
+    assert.equal(fill,scheme==='light'?'#e9f2fc':'#22384f');
+    if(language==='zh-CN')assert.ok((await evaluate(`document.body.innerText`)).includes('向外环铺'));
+    await screenshot('theme-'+scheme);
+  }
+  await selection('Always|始终','Auto|自动');
   // A bounded large-library control, not a universal performance guarantee.
   await move(10,10);
   const largeStart=Date.now();

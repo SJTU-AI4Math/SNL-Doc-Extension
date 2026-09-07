@@ -257,6 +257,16 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   startLine: 'Start line',
   endLine: 'End line (optional)',
   sameAsStart: 'same as start',
+  startColumn: 'Start column (optional)',
+  endColumn: 'End column (optional)',
+  startColumnHint: '1-based UTF-16 column. Leave empty for column 1.',
+  endColumnHint: 'Exclusive 1-based UTF-16 end column; equal endpoints mark a point. Leave empty for the whole last line. End line defaults to start line.',
+  wholeLastLine: 'whole last line',
+  columnError: '{field} must be a positive safe integer, or empty.',
+  invertedColumns: 'End column must not precede start column on the same line; equal columns mark a point.',
+  priority: 'Priority (optional)',
+  priorityHint: 'Higher priority wins, then smaller final scope. Leave empty for 0; negative and fractional values are allowed.',
+  priorityError: 'Priority must be a finite number, or empty for the default 0.',
   regexPattern: 'Regex pattern',
   regexPlaceholder: 'e.g. function\\s+provePythagorean',
   regexFlags: 'Regex flags (optional)',
@@ -264,10 +274,10 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   occurrence: 'Occurrence (optional)',
   beforeLines: 'Before lines (optional)',
   afterLines: 'After lines (optional)',
-  beforeLinesHint: 'Lines before the Pointer’s actual start, not the cursor. Leave empty for 15.',
-  afterLinesHint: 'Lines after the Pointer’s actual end, not the cursor. Leave empty for 15.',
+  beforeLinesHint: 'Extend the final inverse-reference scope before the Pointer’s actual start, not the cursor. Leave empty for 15; this is not a query fallback distance.',
+  afterLinesHint: 'Extend the final inverse-reference scope after the Pointer’s actual end, not the cursor. Leave empty for 15; this is not a query fallback distance.',
   contextLinesError: '{field} must be a nonnegative safe integer, or empty for the default 15.',
-  pointerHint: 'Paths are resolved from the project root. Line numbers and regex occurrences are 1-indexed.',
+  pointerHint: 'Paths are resolved from the project root. Lines, UTF-16 columns and regex occurrences are 1-indexed. Reverse lookup uses only the final buffered scope and priority: higher priority wins, then smaller final scope. Regex matches already provide precise positions.',
   noPointer: 'No source location is attached. Enable the binding to choose a file and addressing mode.',
   canvasAria: 'GUI Editor canvas',
   editFocusedSnl: 'Edit focused SNL',
@@ -389,11 +399,20 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   sectionToggle: '{title}——{action}分区', collapse: '折叠', expand: '展开', bindSource: '将此条目绑定到源代码位置', projectRelativeFile: '项目相对路径文件',
   projectFilePlaceholder: '例如：src/theorems/pythagorean.ts', mode: '模式', lineRange: '行范围', regularExpression: '正则表达式', startLine: '起始行', endLine: '结束行（可选）',
   sameAsStart: '与起始行相同', regexPattern: '正则表达式', regexPlaceholder: '例如：function\\s+provePythagorean', regexFlags: '正则标志（可选）', exampleIm: '例如：im', occurrence: '匹配序号（可选）',
+  startColumn: '起始列（可选）', endColumn: '结束列（可选）',
+  startColumnHint: '从 1 开始的 UTF-16 列号。留空默认为第 1 列。',
+  endColumnHint: '从 1 开始的 UTF-16 结束列，不包含该列；起止位置相等表示点。留空包含末行整行，结束行留空则与起始行相同。',
+  wholeLastLine: '末行整行',
+  columnError: '{field}必须为正安全整数，或留空。',
+  invertedColumns: '同一行的结束列不能小于起始列；起止列相等表示点。',
+  priority: '优先级（可选）',
+  priorityHint: '优先级较高者优先，其次选择最终范围较小者。留空默认为 0，允许负数和小数。',
+  priorityError: '优先级必须为有限数值，或留空使用默认值 0。',
   beforeLines: '前文行数（可选）', afterLines: '后文行数（可选）',
-  beforeLinesHint: 'Pointer 实际起始位置之前的行数，不相对于光标。留空默认为 15。',
-  afterLinesHint: 'Pointer 实际结束位置之后的行数，不相对于光标。留空默认为 15。',
+  beforeLinesHint: '在 Pointer 实际起始位置之前扩展最终反向引用范围，不相对于光标，也不是查询回退距离。留空默认为 15。',
+  afterLinesHint: '在 Pointer 实际结束位置之后扩展最终反向引用范围，不相对于光标，也不是查询回退距离。留空默认为 15。',
   contextLinesError: '{field}必须为非负安全整数，或留空使用默认值 15。',
-  pointerHint: '路径从项目根目录解析。行号和正则匹配序号均从 1 开始。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
+  pointerHint: '路径从项目根目录解析。行号、UTF-16 列号和正则匹配序号均从 1 开始。反向查询仅使用扩展后的最终范围和优先级：优先级较高者优先，其次选择最终范围较小者。正则匹配已提供精确位置。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
   canvasAria: 'GUI 编辑器画布', editFocusedSnl: '编辑聚焦的 SNL', editMacroInput: '编辑此块的宏；按 Enter 提交，按 Shift+Enter 添加新行', enterSnlDsl: '输入 SNL DSL；按 Enter 提交，按 Shift+Enter 添加新行',
   insertCanvasRoot: '插入画布根宏', argumentCount: '参数数量', macroActions: '宏操作', removeArgument: '移除参数', argumentCountValue: '参数数量值', addArgument: '添加参数',
   macroStyle: '宏样式', selectMacroStyle: '选择宏样式', clearStyle: '（清除样式）', missing: '（缺失）', defaultSuffix: '（默认）', editMacro: '编辑宏', createMacro: '创建宏',
@@ -487,6 +506,9 @@ interface PointerDraft {
   mode: PointerMode;
   line: string;
   endLine: string;
+  column: string;
+  endColumn: string;
+  priority: string;
   pattern: string;
   flags: string;
   occurrence: string;
@@ -494,9 +516,9 @@ interface PointerDraft {
   afterLines: string;
 }
 
-type PointerContext = { beforeLines?: number; afterLines?: number };
+type PointerContext = { beforeLines?: number; afterLines?: number; priority?: number };
 type EntryPointer = PointerContext & (
-  | { file: string; mode: 'lines'; line: number; endLine?: number }
+  | { file: string; mode: 'lines'; line: number; endLine?: number; column?: number; endColumn?: number }
   | { file: string; mode: 'regex'; pattern: string; flags?: string; occurrence?: number }
 );
 
@@ -506,6 +528,9 @@ const EMPTY_POINTER_DRAFT: PointerDraft = {
   mode: 'lines',
   line: '1',
   endLine: '',
+  column: '',
+  endColumn: '',
+  priority: '',
   pattern: '',
   flags: '',
   occurrence: '',
@@ -518,6 +543,7 @@ function pointerDraftFrom(value: unknown): PointerDraft {
   const pointer = value as Record<string, unknown>;
   if (typeof pointer.file !== 'string') return { ...EMPTY_POINTER_DRAFT };
   const context = {
+    priority: pointer.priority == null ? '' : String(pointer.priority),
     beforeLines: pointer.beforeLines == null ? '' : String(pointer.beforeLines),
     afterLines: pointer.afterLines == null ? '' : String(pointer.afterLines)
   };
@@ -529,6 +555,8 @@ function pointerDraftFrom(value: unknown): PointerDraft {
       file: pointer.file,
       mode: 'lines',
       line: String(pointer.line),
+      column: pointer.column == null ? '' : String(pointer.column),
+      endColumn: pointer.endColumn == null ? '' : String(pointer.endColumn),
       endLine: typeof pointer.endLine === 'number' ? String(pointer.endLine) : ''
     };
   }
@@ -559,8 +587,15 @@ function positiveInteger(value: string): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
+function finitePriority(value: string): number | null {
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): string | null {
   if (!draft.enabled) return null;
+  if (draft.priority !== '' && finitePriority(draft.priority) === null) return t('priorityError');
   for (const field of ['beforeLines', 'afterLines'] as const) {
     if (draft[field] !== '' && nonnegativeInteger(draft[field]) === null) {
       return t('contextLinesError', { field: t(field) });
@@ -583,6 +618,15 @@ function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): strin
         return t('validEndLine');
       }
     }
+    for (const field of ['column', 'endColumn'] as const) {
+      if (draft[field] !== '' && positiveInteger(draft[field]) === null) {
+        return t('columnError', { field: t(field === 'column' ? 'startColumn' : 'endColumn') });
+      }
+    }
+    if ((draft.endLine === '' || positiveInteger(draft.endLine) === line) &&
+        draft.endColumn !== '' && positiveInteger(draft.endColumn)! < (positiveInteger(draft.column) ?? 1)) {
+      return t('invertedColumns');
+    }
     return null;
   }
   if (!draft.pattern) return t('regexRequired');
@@ -604,20 +648,27 @@ function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator, origina
     const count = nonnegativeInteger(draft[field]);
     if (count !== null) context[field] = count;
   }
-  // A context-only edit must not normalize addressing or discard opaque metadata.
+  const priority = finitePriority(draft.priority);
+  if (priority !== null) context.priority = priority;
+  // Context/priority-only edits preserve exact addressing bytes and opaque metadata.
   const previous = pointerDraftFrom(original);
   const addressFields: (keyof PointerDraft)[] = draft.mode === 'lines'
-    ? ['enabled', 'file', 'mode', 'line', 'endLine']
+    ? ['enabled', 'file', 'mode', 'line', 'endLine', 'column', 'endColumn']
     : ['enabled', 'file', 'mode', 'pattern', 'flags', 'occurrence'];
   if (previous.enabled && addressFields.every((field) => previous[field] === draft[field])) {
     const pointer = { ...(original as EntryPointer) };
     delete pointer.beforeLines;
     delete pointer.afterLines;
+    delete pointer.priority;
     return { ...pointer, ...context };
   }
+  // Rebuild only owned schema fields; unknown extensions survive address and mode edits.
+  const opaque = original && typeof original === 'object' ? { ...original } as Record<string, unknown> : {};
+  for (const field of ['file', 'mode', 'line', 'endLine', 'column', 'endColumn', 'pattern', 'flags', 'occurrence', 'beforeLines', 'afterLines', 'priority']) delete opaque[field];
   const file = draft.file.trim().replace(/\\/g, '/');
   if (draft.mode === 'lines') {
     const pointer: EntryPointer = {
+      ...opaque,
       ...context,
       file,
       mode: 'lines',
@@ -625,9 +676,13 @@ function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator, origina
     };
     const endLine = positiveInteger(draft.endLine);
     if (endLine !== null) pointer.endLine = endLine;
+    const column = positiveInteger(draft.column);
+    const endColumn = positiveInteger(draft.endColumn);
+    if (column !== null) pointer.column = column;
+    if (endColumn !== null) pointer.endColumn = endColumn;
     return pointer;
   }
-  const pointer: EntryPointer = { ...context, file, mode: 'regex', pattern: draft.pattern };
+  const pointer: EntryPointer = { ...opaque, ...context, file, mode: 'regex', pattern: draft.pattern };
   if (draft.flags) pointer.flags = draft.flags;
   const occurrence = positiveInteger(draft.occurrence);
   if (occurrence !== null) pointer.occurrence = occurrence;
@@ -2599,6 +2654,7 @@ function PointerEditor({
   const regexInvalid = !!error && (
     error.startsWith(t('regexRequired').replace(/\.$/, '')) || error.startsWith(t('invalidRegex', { message: '' }).split(/[：:]/)[0])
   );
+  const invertedColumns = error === t('invertedColumns');
   const occurrenceInvalid = !!error && error.startsWith(t('positiveOccurrence').replace(/\.$/, ''));
   const update = (patch: Partial<PointerDraft>): void => onChange({ ...value, ...patch });
   const updateMode = (event: React.FormEvent<HTMLSelectElement>): void => {
@@ -2646,9 +2702,8 @@ function PointerEditor({
                 <Label htmlFor="snl-entry-pointer-line">{t('startLine')}</Label>
                 <input
                   id="snl-entry-pointer-line"
-                  type="number"
-                  min={1}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
                   value={value.line}
                   onChange={(event) => update({ line: event.target.value })}
                   aria-invalid={lineInvalid || undefined}
@@ -2660,9 +2715,8 @@ function PointerEditor({
                 <Label htmlFor="snl-entry-pointer-end-line">{t('endLine')}</Label>
                 <input
                   id="snl-entry-pointer-end-line"
-                  type="number"
-                  min={1}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
                   value={value.endLine}
                   onChange={(event) => update({ endLine: event.target.value })}
                   aria-invalid={lineInvalid || undefined}
@@ -2671,6 +2725,23 @@ function PointerEditor({
                   style={inputStyle}
                 />
               </div>
+              {(['column', 'endColumn'] as const).map((field) => (
+                <div key={field} style={{ flex: '1 1 8rem' }}>
+                  <Label htmlFor={`snl-entry-pointer-${field}`}>{t(field === 'column' ? 'startColumn' : 'endColumn')}</Label>
+                  <input
+                    id={`snl-entry-pointer-${field}`}
+                    type="text"
+                    inputMode="numeric"
+                    value={value[field]}
+                    onChange={(event) => update({ [field]: event.target.value })}
+                    aria-invalid={(invertedColumns || (value[field] !== '' && positiveInteger(value[field]) === null)) || undefined}
+                    aria-describedby={describedBy}
+                    placeholder={field === 'column' ? '1' : t('wholeLastLine')}
+                    title={t(field === 'column' ? 'startColumnHint' : 'endColumnHint')}
+                    style={inputStyle}
+                  />
+                </div>
+              ))}
             </div>
           ) : (
             <>
@@ -2718,6 +2789,21 @@ function PointerEditor({
             </>
           )}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 8rem' }}>
+              <Label htmlFor="snl-entry-pointer-priority">{t('priority')}</Label>
+              <input
+                id="snl-entry-pointer-priority"
+                type="text"
+                inputMode="decimal"
+                value={value.priority}
+                onChange={(event) => update({ priority: event.target.value })}
+                aria-invalid={(value.priority !== '' && finitePriority(value.priority) === null) || undefined}
+                aria-describedby={describedBy}
+                placeholder="0"
+                title={t('priorityHint')}
+                style={inputStyle}
+              />
+            </div>
             {(['beforeLines', 'afterLines'] as const).map((field) => (
               <div key={field} style={{ flex: '1 1 10rem' }}>
                 <Label htmlFor={`snl-entry-pointer-${field}`}>{t(field)}</Label>

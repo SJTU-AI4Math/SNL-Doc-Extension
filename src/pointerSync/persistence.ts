@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PointerIndex, stableStringify } from './index';
 import { isStructuralPointer, normalizePointerFile } from './schema';
+import { isCompiledPointerScope } from './scope';
 import { is_valid_i18n_string } from '../localizedContent';
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -13,13 +14,7 @@ const positive = (value: unknown): value is number =>
 function validResolution(value: unknown): boolean {
   if (!record(value)) return false;
   switch (value.status) {
-    case 'ok': {
-      const r = value.range;
-      if (!record(r) || !['startLine', 'startColumn', 'endLine', 'endColumn', 'coveredEndLine'].every(k => positive(r[k]))) return false;
-      const start = r.startLine as number, end = r.endLine as number;
-      return end >= start && (end !== start || (r.endColumn as number) >= (r.startColumn as number)) &&
-        (r.coveredEndLine as number) >= start && (r.coveredEndLine as number) <= end;
-    }
+    case 'ok': return !Object.hasOwn(value, 'range') && isCompiledPointerScope(value.scope);
     case 'invalid-shape': case 'invalid-regex': return typeof value.message === 'string';
     case 'file-missing': return typeof value.file === 'string';
     case 'file-read-error': case 'regex-worker-error':
@@ -35,7 +30,7 @@ function validResolution(value: unknown): boolean {
 /** Structural cache validation, not a freshness certificate. Rebuild after startup/metadata changes
  * and resolve dirty source snapshots before querying. Never execute regex while reading a cache. */
 export function isPointerIndex(value: unknown): value is PointerIndex {
-  if (!record(value) || value.version !== 1 || !record(value.files) || !Array.isArray(value.unfiled)) return false;
+  if (!record(value) || value.version !== 2 || !record(value.files) || !Array.isArray(value.unfiled)) return false;
   const seen = new Set<string>();
   const validEntry = (entry: unknown, file?: string, fingerprint?: unknown): boolean => {
     if (!record(entry) || typeof entry.entryId !== 'string' || !entry.entryId ||
@@ -54,10 +49,7 @@ export function isPointerIndex(value: unknown): value is PointerIndex {
     if (typeof resolution.file === 'string' && normalizePointerFile(resolution.file) !== file) return false;
     if (resolution.status === 'ok') {
       if (fingerprint === null || !isStructuralPointer(entry.pointer)) return false;
-      const range = resolution.range as { startLine: number; endLine: number; endColumn: number; coveredEndLine: number };
-      const expectedEnd = entry.pointer.mode === 'lines' ? range.endLine :
-        range.endColumn === 1 && range.endLine > range.startLine ? range.endLine - 1 : range.endLine;
-      if (range.coveredEndLine !== expectedEnd) return false;
+      if ((resolution.scope as { priority: number }).priority !== (entry.pointer.priority ?? 0)) return false;
     }
     return true;
   };

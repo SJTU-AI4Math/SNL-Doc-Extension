@@ -11,6 +11,9 @@ export interface PointerCandidate {
   package?: string;
   startLine: number;
   endLine: number;
+  startColumn?: number;
+  endColumn?: number;
+  priority?: number;
   distance: number;
 }
 export interface PointerQueryResult { complete: boolean; candidates: PointerCandidate[] }
@@ -19,7 +22,7 @@ export interface PointerSummary { files: number; pointers: number; unresolved: n
 export interface PointerHostDriver<Index> {
   build(root: vscode.Uri, previous?: Index): Promise<Index>;
   publish(root: vscode.Uri, index: Index): Promise<void>;
-  query(root: vscode.Uri, index: Index, file: string, line: number, text: string): Promise<PointerQueryResult>;
+  query(root: vscode.Uri, index: Index, file: string, line: number, text: string, column?: number): Promise<PointerQueryResult>;
   files(index: Index): string[];
   summary(index: Index): PointerSummary;
 }
@@ -190,7 +193,7 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
       const targetRoot = root;
       const index = await state.ensure();
       if (!current()) return;
-      const result = await driver.query(targetRoot, index, file, position.line + 1, document.getText());
+      const result = await driver.query(targetRoot, index, file, position.line + 1, document.getText(), position.character + 1);
       if (!current()) return;
       if (!result.candidates.length) {
         void vscode.window.showInformationMessage(text()(result.complete ? 'noMatch' : 'incomplete'));
@@ -201,7 +204,7 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
       else {
         const chosen = await vscode.window.showQuickPick(result.candidates.map(item => ({
           label: item.title || item.entryId,
-          description: `${item.entryId} · ${file}:${item.startLine}–${item.endLine} (${item.distance})`,
+          description: `${item.entryId} · ${file}:${item.startLine}:${item.startColumn ?? 1}–${item.endLine}:${item.endColumn ?? 1} (priority ${item.priority ?? 0})`,
           candidate: item,
         })), { placeHolder: text()(result.complete ? 'choose' : 'chooseIncomplete') });
         candidate = chosen?.candidate;

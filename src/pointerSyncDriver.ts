@@ -23,11 +23,11 @@ export function createPointerHostDriver(): PointerHostDriver<PointerIndex> {
       })), previous);
     },
     publish: (root, index) => writePointerIndex(root.fsPath, index),
-    async query(_root, index, file, line, text) {
+    async query(_root, index, file, line, text, column) {
       const previous = overlay && overlay.base === index && overlay.file === file ? overlay.index : index;
       const current = await updatePointerIndexText(previous, file, text);
       overlay = { base: index, file, index: current };
-      const result = findNearestEntries(current, file, line);
+      const result = findNearestEntries(current, file, line, column);
       const language = read_extension_preferences().language;
       return {
         complete: result.complete,
@@ -36,7 +36,8 @@ export function createPointerHostDriver(): PointerHostDriver<PointerIndex> {
           title: is_valid_i18n_string(candidate.title)
             ? resolve_localized_string(candidate.title, language)
             : typeof candidate.title === 'string' ? candidate.title : candidate.title?.[language] ?? candidate.title?.en ?? Object.values(candidate.title ?? {})[0],
-          startLine: candidate.range.startLine, endLine: candidate.range.coveredEndLine,
+          startLine: candidate.range.startLine, endLine: candidate.range.endLine,
+          startColumn: candidate.range.startColumn, endColumn: candidate.range.endColumn, priority: candidate.priority,
           distance: candidate.distance,
         })),
       };

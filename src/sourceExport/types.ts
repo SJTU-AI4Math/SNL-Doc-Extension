@@ -1,4 +1,5 @@
 import type { EntryPointer } from '../pointerSync/schema';
+import type { CompiledPointerScope } from '../pointerSync/scope';
 import type { PointerRange } from '../pointerSync/text';
 
 /** Derived export format. This does not change canonical workspace schemas. */
@@ -49,11 +50,13 @@ export interface SourcePointer {
   fileId?: string;
   sourceSha256?: string;
   range?: PointerRange;
+  /** Separate inverse geometry; range remains the raw forward-navigation target. */
+  inverseScope?: CompiledPointerScope;
   status: 'ok' | 'excluded' | 'unavailable' | 'unsupported' | 'unresolved';
   reason?: string;
 }
 export interface SourceManifest {
-  schemaVersion: 'snl.export.sources/v1';
+  schemaVersion: 'snl.export.sources/v2';
   exportId: string;
   renderSnapshotId: string;
   workspaceName: string;

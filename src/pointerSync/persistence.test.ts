@@ -21,9 +21,13 @@ it('rejects malformed ranges, pointer thresholds, unknown diagnostics, and dupli
   await fs.mkdir(path.join(root, '.SNL_Doc'));
   const cachePath = path.join(root, '.SNL_Doc', 'syncSNL.json');
   for (const mutate of [
-    (value: any) => { value.files.x.entries[0].resolution.range.startColumn = 0; },
-    (value: any) => { value.files.x.entries[0].resolution.range.endLine = -1; },
-    (value: any) => { value.files.x.entries[0].resolution.range.coveredEndLine = 2; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.startColumn = 0; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.endLine = -1; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.coveredEndLine = 3; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.span++; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.priority = null; },
+    (value: any) => { value.files.x.entries[0].resolution.scope.endInclusive = 'true'; },
+    (value: any) => { value.files.x.entries[0].resolution.range = value.files.x.entries[0].resolution.scope; },
     (value: any) => { value.files.x.entries[0].pointer.beforeLines = -1; },
     (value: any) => { value.files.x.entries[0].resolution = { status: 'invented' }; },
     (value: any) => { value.files.x.entries[0].resolution = { status: 'regex-timeout' }; },

@@ -70,10 +70,11 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
     const rel = path.relative(root.fsPath, uri.fsPath).replace(/\\/g, '/');
     return !rel || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel) ? undefined : rel;
   };
-  const report = (error: unknown, saved = false) => {
+  const report = (error: unknown, saved = false, explicit = false) => {
     if (disposed) return;
     const message = text()(saved ? 'savedError' : 'error', { error: errorText(error) });
-    if (message === lastError) return;
+    // Deduplicate background refresh failures, never a user-requested retry.
+    if (!explicit && message === lastError) return;
     lastError = message;
     void vscode.window.showWarningMessage(message);
   };
@@ -170,7 +171,7 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
       const action = await vscode.window.showInformationMessage(text()('done', summary), text()('details'));
       if (action === text()('details')) output.show(true);
       return { files: summary.files, pointers: summary.pointers, unresolved: summary.unresolved };
-    } catch (error) { if (target === state) report(error); }
+    } catch (error) { if (target === state) report(error, false, true); }
   }));
   context.subscriptions.push(vscode.commands.registerCommand('snlDoc.revealNearestEntry', async () => {
     bindRoot();
@@ -208,7 +209,7 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
       if (!candidate || !current()) return;
       await vscode.commands.executeCommand('snlDoc.openEntryInfoview', candidate.entryId, undefined, candidate.package);
       return candidate.entryId;
-    } catch (error) { if (current()) report(error); }
+    } catch (error) { if (current()) report(error, false, true); }
   }));
   context.subscriptions.push({ dispose() {
     disposed = true; requestId++; state?.dispose(); cancelTimer();

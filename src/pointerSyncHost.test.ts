@@ -67,6 +67,17 @@ describe('Pointer host command behavior', () => {
       expect(mocks.execute).toHaveBeenCalledWith('snlDoc.openEntryInfoview', 'Target', undefined, 'P');
     } finally { f.dispose(); }
   });
+  it.each(['snlDoc.revealNearestEntry', 'snlDoc.maintainPointers'])('reports every explicit failure of %s rather than suppressing retries', async command => {
+    const f = fixture();
+    try {
+      vi.mocked(f.driver.build).mockRejectedValue(new Error('Invalid Pointer index'));
+      await mocks.commands.get(command)!();
+      await mocks.commands.get(command)!();
+      expect(mocks.warn).toHaveBeenCalledTimes(2);
+      expect(mocks.warn).toHaveBeenLastCalledWith(expect.stringContaining('Invalid Pointer index'));
+      expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+  });
   it('reports no match without replacing the current panel', async () => {
     const f = fixture();
     try {

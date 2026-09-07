@@ -1,0 +1,49 @@
+{
+  "nodes": [
+    {
+      "id": "node.spec.graph",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.graph"
+      }
+    },
+    {
+      "id": "node.spec.graph.layout",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.graph.layout"
+      }
+    },
+    {
+      "id": "node.spec.graph.nodes",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.graph.nodes"
+      }
+    },
+    {
+      "id": "node.document.graph.layout-current",
+      "label": "Entry",
+      "props": {
+        "entryId": "document.graph.layout-current"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "node.spec.graph",
+      "to": "node.spec.graph.layout",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.graph",
+      "to": "node.spec.graph.nodes",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.graph.layout",
+      "to": "node.document.graph.layout-current",
+      "label": "branch"
+    }
+  ]
+}

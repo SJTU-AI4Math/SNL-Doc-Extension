@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "document.graph.layout-current",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "现有静态布局实现参考",
+    "content": {
+      "markdown": "## 地位与来源\n\n本条目是父级布局 Spec 的参考性实现文档，不是第二份规范。源码核对基于 Extension `0bedbd79b97a9597177bad162a0ab7f07fff4cb0`；未运行构建或浏览器验收。它说明现有机制可如何承接父 Spec，同时明确尚缺部分。\n\n## 现有机制\n\n`webview/src/SnlGraphApp.tsx` 的 `layout` 先按身份排序输入以稳定布局，再以 DFS 标记回边，在剩余有向无环子图上计算高度。代码的依赖边 A → B 表示 A 依赖 B；无后继的基础节点高度为零，其余节点高度来自后继的最大高度。随后转换为自上而下的屏幕层索引，将基础节点放在底部。因此新增环铺映射需区分语义高度与已翻转的屏幕纵坐标，不能由箭头方向猜测内外。\n\n这一静态分层步骤为父 Spec 的“同一平铺结果映射到两种环铺”提供现有接入点，不需要物理模拟。当前函数仍包含回边、长边辅助点等既有机制；本轮不据此承诺环铺的最终路由或有环图高度策略。\n\n当前节点 JSX 固定绘制 `<rect>` 和标题 `foreignObject`（同文件节点绘制区）；悬浮参与高亮。该路径尚不能证明已支持圆点形态、缩放阈值切换或两种环铺。后续实现参考应随代码更新并列出实际验证结果，不将本条源码分析记为功能已交付。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

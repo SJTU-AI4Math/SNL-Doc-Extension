@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.graph",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "图谱：渲染与设置规范",
+    "content": {
+      "markdown": "## 权威与状态\n\n本规范属于 Extension 自身的 `.SNL_Doc`。图谱文档以 Specification 为骨架，具体实现的参考性文档置于对应 Spec 的子 Entry，不建立与 Spec 平行的 Document 骨架。先立 Spec，再改代码。\n\n本轮状态：用户已确定的设计要求，尚未实现或进行 UI 验收。旧代码仅作为子条目的现状参考，不反向定义本规范。\n\n## 总原则\n\n图谱表达直观，应尽可能允许多变设置，让读者按内容形态选择布局和节点呈现，不固定为单一视觉样式。设置能力以静态布局为前提。\n\n绝不引入物理模拟，包括力导向、弹簧、斥力、速度或持续 simulation tick。节点位置由静态计算得到；改变布局或相关输入时可以重新计算，不靠物理系统逐帧收敛。允许多种设置不构成引入物理引擎的例外。\n\n## 本轮范围\n\n加入矩形平铺、向内环铺、向外环铺三种可选布局；加入圆点与含标题圆角矩形两种节点呈现，并以悬浮或缩放触发标题矩形显示。各项具体契约见子 Spec。\n\n数值参数、设置持久化范围、其他交互及导出接入尚未在本轮确定，不将它们写成已承诺的实现或验收结果。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

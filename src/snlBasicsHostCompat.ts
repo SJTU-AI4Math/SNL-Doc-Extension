@@ -16,6 +16,8 @@ type I18nValue<T> = {
 export type Localized<_Language extends string, T> = T | I18nValue<T>;
 
 interface HostBridge {
+  parseSnlSyntaxTree: typeof import('@sjtu-ai4math/snl-basics/core').parseSnlSyntaxTree;
+  fromMarkdown: typeof import('mdast-util-from-markdown').fromMarkdown;
   isSnlIdentifier(value: string): boolean;
   migrateMacroDocument(
     document: Record<string, Record<string, unknown>>,
@@ -30,6 +32,8 @@ interface HostBridge {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bridge = require('../out/snl-basics-host.cjs') as HostBridge;
 
+export const parseSnlSyntaxTree = bridge.parseSnlSyntaxTree;
+export const fromMarkdown = bridge.fromMarkdown;
 export const isSnlIdentifier = bridge.isSnlIdentifier;
 export const migrateMacroDocument = bridge.migrateMacroDocument;
 export const migrateMacroV7toV8 = bridge.migrateMacroV7toV8;

@@ -3,7 +3,7 @@ import * as nodePath from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
-import { EXPORT_RUNTIME_CSS } from './exportRuntime';
+import type { FrozenReaderSnapshot } from './sharedReaderSnapshot';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -33,6 +33,7 @@ const MESSAGES = defineHostMessages(
 
 /** Harvested payload handed over by the Infoview, held until the user commits. */
 export interface ExportPayload {
+  readerSnapshot?: FrozenReaderSnapshot;
   renderSnapshotId?: string;
   slug: string;
   locale?: string;
@@ -378,9 +379,12 @@ export class ExportOptionsPanel {
       await revalidateSourceSnapshot(confirmed.preview, this.sourceCaptureInput(sourceContext, options, destinationPath, shape));
       if (confirmed !== this.sourcePreview || sourceContext !== this.sourceContext) throw new Error('Export context changed; preview again.');
     }
+    await sourceContext?.revalidate();
     const payload = structuredClone(this.payload);
+    if (interactive && !payload.readerSnapshot) throw new Error('Versioned reader snapshot missing; recapture export.');
     const request: ExportRequest = {
       ...payload,
+      readerSnapshot: interactive ? payload.readerSnapshot : undefined,
       sourcePreview: options.enabled ? confirmed!.preview : undefined,
       inline: shape === 'single',
       // A static export promises no JavaScript. Do not merely hide the tag:
@@ -399,14 +403,7 @@ export class ExportOptionsPanel {
         const uri = vscode.Uri.joinPath(this.extensionUri, 'media', 'exportRuntime.js');
         runtimeJs = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
       } catch {
-        if (options.enabled) throw new Error('Source export runtime is missing. Rebuild before exporting.');
-        // Degrade to a strictly static document rather than failing the export:
-        // the reader still gets correct, readable content, just without hover
-        // and collapse.
-        void vscode.window.showWarningMessage(
-          t('runtimeMissing')
-        );
-        runtimeJs = undefined;
+        throw new Error('Shared reader runtime is missing. Rebuild before exporting.');
       }
     }
 
@@ -415,11 +412,13 @@ export class ExportOptionsPanel {
         extensionUri: this.extensionUri,
         workspaceRoot: root,
         destination,
-        beforePublish: options.enabled ? async () => {
+        beforePublish: async () => {
+          await sourceContext?.revalidate();
+          if (!options.enabled) return;
           if (sourceContext !== this.sourceContext || confirmed !== this.sourcePreview) throw new Error('Export preview changed before publication.');
           await sourceContext!.revalidate();
           await revalidateSourceSnapshot(confirmed!.preview, this.sourceCaptureInput(sourceContext!, options, destinationPath, shape));
-        } : undefined,
+        },
         buildDocument: (input) =>
           buildExportDocument({
             ...input,
@@ -427,7 +426,7 @@ export class ExportOptionsPanel {
             // Dropped when the reader asked for a static document: without the
             // runtime nothing would read the payload anyway.
             scriptSources: runtimeJs ? input.scriptSources : [],
-            css: [EXPORT_BASE_CSS, runtimeJs ? EXPORT_RUNTIME_CSS : '', input.css]
+            css: [EXPORT_BASE_CSS, input.css, runtimeJs ? 'body { padding: 0; } .snl-export { max-width: none; } .snl-export > h1, .snl-export > .snl-export-subtitle { display:none; }' : '']
               .filter(Boolean)
               .join('\n'),
             script: runtimeJs

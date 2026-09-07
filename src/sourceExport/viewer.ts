@@ -149,7 +149,8 @@ export function installSourceViewer(): (() => void) | undefined {
   const main = document.querySelector<HTMLElement>('.snl-export');
   if (!main) return;
   // Route existence is checked against the actual router's DOM and popover registry.
-  const routeAvailable = (r: SourceRoute) => r.nodeId !== undefined
+  const sharedRoutes = (window as unknown as { __snlReaderRoutes?: Set<string> }).__snlReaderRoutes;
+  const routeAvailable = (r: SourceRoute) => sharedRoutes ? sharedRoutes.has(r.hash) : r.nodeId !== undefined
     ? Array.from(main.querySelectorAll('[data-snl-route-id]')).some(el=>el.getAttribute('data-snl-route-id')===r.nodeId &&
         [el,...Array.from(el.querySelectorAll('[data-entry-id]'))].some(entry=>entry.getAttribute('data-entry-id')===r.entryId))
     : !!global.__SNL_POPOVERS__ && Object.hasOwn(global.__SNL_POPOVERS__,r.entryId) && typeof global.__SNL_POPOVERS__[r.entryId] === 'string';
@@ -322,6 +323,7 @@ export function installSourceViewer(): (() => void) | undefined {
     }
   }
   function attachActions(scope:ParentNode) {
+    if (sharedRoutes) return; // Shared Basics EntryRender owns the native source action.
     for(const surface of scope.querySelectorAll<HTMLElement>('.snl-entry[data-entry-id], .snl-entry-surface[data-entry-id], [data-snl-route-surface][data-entry-id]')) {
       const id=surface.dataset.entryId;if(!id||!m.pointers.some(p=>p.entryId===id))continue;
       if(Array.from(surface.querySelectorAll('[data-snl-source-entry]')).some(el=>el.getAttribute('data-snl-source-entry')===id))continue;
@@ -340,6 +342,8 @@ export function installSourceViewer(): (() => void) | undefined {
   mutations.observe(document.body,{childList:true,subtree:true});attachActions(document);
   function click(e:MouseEvent) {const action=(e.target as Element)?.closest<HTMLElement>('[data-snl-source-entry]');if(action){e.preventDefault();e.stopPropagation();showPointer(action.dataset.snlSourceEntry!);}}
   document.addEventListener('click',click,true);
+  const sourceIntent = (event: Event): void => { const id = (event as CustomEvent<{ entryId?: string }>).detail?.entryId; if (id) showPointer(id); };
+  window.addEventListener('snl-reader-source', sourceIntent);
   function key(e:KeyboardEvent) {
     if(!opened)return;
     if((e.ctrlKey||e.metaKey)&&e.altKey&&e.key.toLowerCase()==='j'&&root.contains(document.activeElement)){e.preventDefault();reverse(true);}
@@ -353,7 +357,7 @@ export function installSourceViewer(): (() => void) | undefined {
   const themeObserver=new MutationObserver(theme);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','data-snl-color-scheme','lang']});themeObserver.observe(document.body,{attributes:true,attributeFilter:['class','style']});
   function restore() {const s=history.state?.snlSourceView as SavedView|undefined;if(s?.exportId!==m.exportId)return;origin++;try {if(typeof s.width==='number'&&Number.isFinite(s.width))setWidth(s.width);setOpen(!!s.open);if(s.open&&s.fileId&&m.files.some(f=>f.fileId===s.fileId))void openFile(s.fileId,undefined,s);}finally{origin--;}}
   window.addEventListener('popstate',restore);restore();
-  const cleanup=()=>{if(disposed)return;disposed=true;generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('[data-snl-source-viewer-action]').forEach(el=>el.remove());};
+  const cleanup=()=>{if(disposed)return;disposed=true;window.removeEventListener('snl-reader-source',sourceIntent);generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('[data-snl-source-viewer-action]').forEach(el=>el.remove());};
   global.__snlSourceViewerCleanup=cleanup;return cleanup;
 }
 if(typeof document!=='undefined') {

@@ -1,5 +1,7 @@
 // Tiny helpers shared by every SNL webview entry.
 import React from 'react';
+import { setReaderPlatformResolver } from './runtime/readerPlatform';
+setReaderPlatformResolver(getVsCodeApi);
 import './components/ui.css';
 
 /**

@@ -34,7 +34,7 @@ import {
   COLLAPSE_TOGGLE_STYLE
 } from '../../../src/collapseToggleContract';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
-import { getVsCodeApi } from '../vscodeApi';
+import { getReaderPlatformApi as getVsCodeApi } from '../runtime/readerPlatform';
 import { parseBlockRendererSpec, tableOptionsFromRendererParams } from './blockRendererSpec';
 import { useCollapsibleController } from './CollapsibleScope';
 import { createWorkspaceSvgAssetLoader } from './svgTemplateAssets';

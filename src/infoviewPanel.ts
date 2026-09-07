@@ -36,6 +36,11 @@ import {
   webviewLocalResourceRoots
 } from './panelUtil';
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
+import { readerEntryClosure, readerAssetPaths, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
+import { readWorkspaceAsset } from './workspaceAssets';
+import { toDataUrl } from './exportDocument';
+import { createHash } from 'node:crypto';
+import { BUILT_IN_LANGUAGE_CATALOG } from './languageCatalog';
 import { assertRenderSnapshot, renderDependencyId, type RenderSourceContext } from './sourceExport/renderSnapshot';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
@@ -115,6 +120,7 @@ interface OutlineNode {
  * unchanged: expects `entryDetails` with the full entry pool + macros.
  */
 export class InfoviewPanel {
+  private readerSnapshot: FrozenReaderSnapshot | undefined;
   /** The single browser instance (loads `main`), or undefined when closed. */
   private static browserPanel: InfoviewPanel | undefined;
 
@@ -857,6 +863,14 @@ export class InfoviewPanel {
         }
       };
       this.renderSourceContext = context;
+      this.readerSnapshot = structuredClone({
+        version: 1, renderSnapshotId,
+        library: { slug, title: displayTitle, description, outline, warnings },
+        entries: readerEntryClosure(outline, entryPool, macros), entryKinds: kinds,
+        entryPackages: entryPackageIdentities(entryPool), macros, macroKinds,
+        relationships: exportRelationships, preferences: read_extension_preferences(),
+        contentLanguage: this.contentLanguage ?? 'en', languages: [...BUILT_IN_LANGUAGE_CATALOG], resources: {}
+      });
 
       void this.panel.webview.postMessage({
         renderSnapshotId,
@@ -910,7 +924,30 @@ export class InfoviewPanel {
       if (!context || request.renderSnapshotId !== context.renderSnapshotId) throw new Error('Stale document capture. Refresh and export again.');
       await context.revalidate();
       if (context !== this.renderSourceContext) throw new Error('Reader changed during export capture.');
+      const snapshot = structuredClone(this.readerSnapshot);
+      if (!snapshot || snapshot.renderSnapshotId !== context.renderSnapshotId) throw new Error('Reader snapshot unavailable.');
+      snapshot.preferences = read_extension_preferences();
+      snapshot.contentLanguage = request.locale ?? snapshot.contentLanguage;
+      const root = firstWorkspaceFolder();
+      if (!root) throw new Error('Workspace closed during export.');
+      for (const path of readerAssetPaths({ entries: snapshot.entries, macros: snapshot.macros })) {
+        const bytes = await readWorkspaceAsset({ workspaceRoot: root, relativePath: path });
+        snapshot.resources[path] = { url: toDataUrl(path, bytes),
+          revision: 'sha256:' + createHash('sha256').update(bytes).digest('hex'),
+          ...(path.toLowerCase().endsWith('.svg') ? { text: Buffer.from(bytes).toString('utf8') } : {}) };
+      }
+      const revalidate = async (): Promise<void> => {
+        await context.revalidate();
+        for (const [path, resource] of Object.entries(snapshot.resources)) {
+          const bytes = await readWorkspaceAsset({ workspaceRoot: root, relativePath: path });
+          if ('sha256:' + createHash('sha256').update(bytes).digest('hex') !== resource.revision) throw new Error('Reader asset changed; recapture export.');
+        }
+      };
+      await revalidate();
+      if (context !== this.renderSourceContext) throw new Error('Reader changed during resource capture.');
+      request = { ...request, readerSnapshot: snapshot };
       const ids = new Set(context.entryRoutes.map(route => route.entryId));
+      for (const entry of snapshot.entries) ids.add(entry.id);
       for (const id of Object.keys(request.popovers ?? {})) ids.add(id);
       for (const variant of request.variants?.variants ?? []) {
         for (const id of Object.keys(variant.popovers)) ids.add(id);
@@ -918,9 +955,9 @@ export class InfoviewPanel {
       const entries = context.entries.filter(entry => ids.has(entry.id));
       const routes = [...context.entryRoutes];
       for (const entry of entries) {
-        if (Object.hasOwn(request.popovers ?? {}, entry.id)) routes.push({ entryId: entry.id, hash: '#/entry/' + encodeURIComponent(entry.id) });
+        routes.push({ entryId: entry.id, hash: '#/entry/' + encodeURIComponent(entry.id) });
       }
-      ExportOptionsPanel.show(this.extensionUri, structuredClone(request), { ...context, entries, entryRoutes: routes });
+      ExportOptionsPanel.show(this.extensionUri, structuredClone(request), { ...context, revalidate, entries, entryRoutes: routes });
     } catch (error) {
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }

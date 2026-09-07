@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { getVsCodeApi } from '../vscodeApi';
+import { getReaderPlatformApi as getVsCodeApi } from '../runtime/readerPlatform';
 import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
 // Lean subpath: the Reader runtime only, with no path to the React views
 // (and therefore none to KaTeX). See vite.runtime.config.ts in SNL-Basics.

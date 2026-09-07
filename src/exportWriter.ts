@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { frozenReaderScript, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
 import type { SourcePreview } from './sourceExport/types';
 import { buildSourceAssets } from './sourceExport/transport';
 import { publishSourceExport } from './sourceExport/publication';
@@ -23,6 +24,7 @@ import {
 
 /** What the webview sends when the reader hits Export. */
 export interface ExportRequest {
+  readerSnapshot?: FrozenReaderSnapshot;
   /** Host-authorized frozen source preview; not accepted directly from webview. */
   sourcePreview?: SourcePreview;
   slug: string;
@@ -192,7 +194,11 @@ export async function writeExport(
         }]
       : [];
 
+  if (request.readerSnapshot) texts.push({ path: 'readerSnapshot.js', source: frozenReaderScript(request.readerSnapshot) });
   let sourceCss = "";
+  if (request.readerSnapshot) {
+    sourceCss += Buffer.from(await fsApi.readFile(vscode.Uri.joinPath(deps.extensionUri, 'media', 'exportRuntime.css'))).toString('utf8');
+  }
   if (request.sourcePreview) {
     if (deps.workspaceRoot.scheme !== "file" || deps.destination.scheme !== "file") throw new Error("Source export currently supports local file workspaces only.");
     texts.push(...buildSourceAssets(request.sourcePreview, request.inline).texts);
@@ -201,7 +207,7 @@ export async function writeExport(
       fsApi.readFile(vscode.Uri.joinPath(deps.extensionUri, "media", "sourceViewer.css"))
     ]);
     texts.push({ path: "sourceViewer.js", source: Buffer.from(script).toString("utf8") });
-    sourceCss = Buffer.from(style).toString("utf8");
+    sourceCss += Buffer.from(style).toString("utf8");
   }
   const sourceChunkPaths = new Set(request.sourcePreview?.manifest.files.map(file => file.chunkId) ?? []);
   const html = deps.buildDocument({
@@ -209,14 +215,14 @@ export async function writeExport(
     subtitle: request.subtitle,
     colorScheme: request.variants?.initialColorScheme,
     css: css + "\n" + sourceCss,
-    body: request.body,
+    body: request.readerSnapshot ? '<div id="snl-reader-root"></div>' : request.body,
     scriptSources: texts.filter(t => request.inline || !sourceChunkPaths.has(t.path)).map((t) => t.path)
   });
 
   const plan = buildExportPlan({ html, binaries, inline: request.inline, texts });
   const encoder = new TextEncoder();
 
-  if (request.sourcePreview) {
+  if (request.sourcePreview || request.readerSnapshot) {
     const destination = request.inline && !/\.html$/i.test(deps.destination.path)
       ? deps.destination.with({ path: `${deps.destination.path}.html` }) : deps.destination;
     const files = request.inline

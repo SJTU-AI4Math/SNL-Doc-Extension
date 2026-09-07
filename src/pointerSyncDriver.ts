@@ -4,6 +4,7 @@ import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import { buildPointerIndex, updatePointerIndexText, findNearestEntries, type PointerIndex } from './pointerSync';
 import { writePointerIndex } from './pointerSync/persistence';
 import { readEntries } from './snlDoc';
+import { is_valid_i18n_string, resolve_localized_string } from './localizedContent';
 import { read_extension_preferences } from './preferences';
 import type { PointerHostDriver } from './pointerSyncHost';
 
@@ -18,7 +19,7 @@ export function createPointerHostDriver(): PointerHostDriver<PointerIndex> {
       const entries = await readEntries(root, true);
       return buildPointerIndex(root.fsPath, entries.map(entry => ({
         id: entry.id, package: entry.package,
-        title: entry.title as string | Record<string, string>, pointer: entry.pointer,
+        title: entry.title, pointer: entry.pointer,
       })), previous);
     },
     publish: (root, index) => writePointerIndex(root.fsPath, index),
@@ -32,7 +33,9 @@ export function createPointerHostDriver(): PointerHostDriver<PointerIndex> {
         complete: result.complete,
         candidates: result.candidates.map(candidate => ({
           entryId: candidate.entryId, package: candidate.package,
-          title: typeof candidate.title === 'string' ? candidate.title : candidate.title?.[language] ?? candidate.title?.en ?? Object.values(candidate.title ?? {})[0],
+          title: is_valid_i18n_string(candidate.title)
+            ? resolve_localized_string(candidate.title, language)
+            : typeof candidate.title === 'string' ? candidate.title : candidate.title?.[language] ?? candidate.title?.en ?? Object.values(candidate.title ?? {})[0],
           startLine: candidate.range.startLine, endLine: candidate.range.coveredEndLine,
           distance: candidate.distance,
         })),

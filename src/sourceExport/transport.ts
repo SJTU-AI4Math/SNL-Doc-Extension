@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { compilePointerScope, isCompiledPointerScope } from '../pointerSync/scope';
+import { isStructuralPointer } from '../pointerSync/schema';
 import type { TextAsset } from '../exportDocument';
 import type { SourcePreview } from './types';
 const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -19,7 +21,7 @@ function data(value: unknown): string {
 export function buildSourceAssets(preview: SourcePreview, inline: boolean): { texts: TextAsset[] } {
   const { manifest, chunks } = preview;
   const fail = (): never => { throw new Error('Invalid source manifest/chunk closure'); };
-  if (manifest.schemaVersion !== 'snl.export.sources/v1' || !manifest.renderSnapshotId) fail();
+  if (manifest.schemaVersion !== 'snl.export.sources/v2' || !manifest.renderSnapshotId) fail();
   const files = new Map(manifest.files.map(f => [f.fileId, f]));
   if (files.size !== manifest.files.length || chunks.length !== files.size) fail();
   const paths = new Set<string>();
@@ -44,9 +46,16 @@ export function buildSourceAssets(preview: SourcePreview, inline: boolean): { te
       !pointer.pointer || typeof pointer.pointer !== 'object' || !('file' in pointer.pointer) || pointer.pointer.file !== file.displayPath)) fail();
     if (pointer.status === 'ok') {
       const r = pointer.range;
-      if (!file || file.kind !== 'text' || !r || Object.values(r).some(n => !Number.isSafeInteger(n) || n < 1) ||
+      if (!file || file.kind !== 'text' || !r || !isCompiledPointerScope(pointer.inverseScope) || !isStructuralPointer(pointer.pointer) || Object.values(r).some(n => !Number.isSafeInteger(n) || n < 1) ||
         r.endLine < r.startLine || (r.endLine === r.startLine && r.endColumn < r.startColumn) ||
         r.coveredEndLine < r.startLine || r.coveredEndLine > r.endLine) fail();
+      if (file && r && isStructuralPointer(pointer.pointer)) {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(payloads.get(file.fileId)!.base64, 'base64'));
+        const rows = text.split(/\r?\n/);
+        if (r.startLine > rows.length || r.endLine > rows.length || r.startColumn > rows[r.startLine - 1].length + 1 || r.endColumn > rows[r.endLine - 1].length + 1) fail();
+        const expected = compilePointerScope(pointer.pointer, r, text);
+        if (!isCompiledPointerScope(expected) || Object.keys(expected).some(k => expected[k as keyof typeof expected] !== pointer.inverseScope?.[k as keyof typeof expected])) fail();
+      }
     }
   }
   const scripts: TextAsset[] = manifest.files.map(file => ({ path: file.chunkId,

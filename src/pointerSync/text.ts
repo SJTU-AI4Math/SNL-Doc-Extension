@@ -1,6 +1,7 @@
 import { EntryPointer, EntryPointerRegex, normalizeEntryPointer, normalizePointerFile } from './schema';
 
-/** 1-based UTF-16 half-open coordinates. coveredEndLine is inclusive for line distance.
+/** Raw forward target, in 1-based UTF-16 half-open coordinates.
+ * coveredEndLine is the last covered row used once by inverse compilation.
  * A zero-width match covers its start line. Lines mode excludes the final newline.
  */
 export interface PointerRange {
@@ -74,10 +75,17 @@ export function resolvePointerText(value: EntryPointer, text: string, offsets?: 
       return { status: 'line-out-of-range', file: pointer.file, line: pointer.line, totalLines: lines.length };
     }
     const endLine = Math.min(pointer.endLine ?? pointer.line, lines.length);
-    const endColumn = lines[endLine - 1].length + 1;
-    // Explicit lines ranges include the named last row, even when that row is empty.
-    const coveredEndLine = endLine;
-    return { status: 'ok', range: { startLine: pointer.line, startColumn: 1,
+    const startColumn = pointer.column ?? 1;
+    const endColumn = pointer.endColumn ?? lines[endLine - 1].length + 1;
+    if (startColumn > lines[pointer.line - 1].length + 1 ||
+        endColumn > lines[endLine - 1].length + 1 ||
+        (pointer.endColumn !== undefined && (pointer.endLine ?? pointer.line) > lines.length) ||
+        (endLine === pointer.line && endColumn < startColumn)) {
+      return { status: 'invalid-shape', message: 'pointer columns exceed source bounds or form a reversed range' };
+    }
+    // Legacy whole rows include an empty last row; precise endpoints are half-open.
+    const coveredEndLine = pointer.endColumn !== undefined && endColumn === 1 && endLine > pointer.line ? endLine - 1 : endLine;
+    return { status: 'ok', range: { startLine: pointer.line, startColumn,
       endLine, endColumn, coveredEndLine } };
   }
   const match = offsets ?? resolveRegexOffsets(pointer, text);

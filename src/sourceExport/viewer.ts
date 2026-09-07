@@ -4,6 +4,7 @@ import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController';
 import 'monaco-editor/esm/vs/editor/contrib/folding/browser/folding';
 import 'monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard';
 import { registerLean } from './leanLanguage';
+import { isCompiledPointerScope, rankCompiledScopes } from '../pointerSync/scope';
 import { isStructuralPointer, normalizePointerFile } from '../pointerSync/schema';
 import type { SourceManifest, SourceFile, SourceChunk, SourcePointer, SourceRoute } from './types';
 import type { PointerRange } from '../pointerSync/text';
@@ -36,7 +37,7 @@ function validRange(r: PointerRange | undefined): r is PointerRange {
 export function validateManifest(value: unknown): SourceManifest {
   if (!value || typeof value !== 'object') throw Error('Invalid source manifest');
   const m = value as SourceManifest;
-  if (m.schemaVersion !== 'snl.export.sources/v1') throw Error('Unsupported source manifest version');
+  if (m.schemaVersion !== 'snl.export.sources/v2') throw Error('Unsupported source manifest version');
   if (!identifier(m.exportId) || !identifier(m.renderSnapshotId) || !identifier(m.workspaceName) ||
       m.snapshot?.mode !== 'disk' || !Array.isArray(m.files) || !Array.isArray(m.pointers) ||
       !Array.isArray(m.entryRoutes) || !Array.isArray(m.directories)) throw Error('Invalid source manifest');
@@ -62,7 +63,7 @@ export function validateManifest(value: unknown): SourceManifest {
         (p.fileId !== undefined && !ids.has(p.fileId))) throw Error('Invalid/duplicate source Pointer');
     entries.add(p.entryId);
     if (p.status === 'ok' && (!p.fileId || ids.get(p.fileId)?.kind !== 'text' ||
-        !validRange(p.range) || p.sourceSha256 !== ids.get(p.fileId)?.sha256 || !isStructuralPointer(p.pointer))) {
+        !validRange(p.range) || !isCompiledPointerScope(p.inverseScope) || p.sourceSha256 !== ids.get(p.fileId)?.sha256 || !isStructuralPointer(p.pointer))) {
       throw Error('Invalid source Pointer range/revision');
     }
   }
@@ -76,31 +77,21 @@ export function validateManifest(value: unknown): SourceManifest {
   return m;
 }
 
-/** Same (distance, inclusive covered-line span) rank as pointerSync/index.ts rankBucket.
- * This browser boundary consumes resolved ranges only; authored regex is NEVER executed.
- * Parity tests compare against the real host function, not a second test oracle.
- */
-export function rankSourcePointers(m: SourceManifest, fileId: string, line: number) {
-  if (!positive(line)) return { candidates: [] as SourcePointer[], complete: false };
+/** Reverse lookup consumes only compiled scopes; authored regex is NEVER executed. */
+export function rankSourcePointers(m: SourceManifest, fileId: string, line: number, column?: number) {
+  if (!positive(line) || (column !== undefined && !positive(column))) return { candidates: [] as SourcePointer[], complete: false };
   const path = m.files.find(f => f.fileId === fileId)?.displayPath;
-  let bestDistance = Infinity, bestSpan = Infinity, complete = true;
-  let candidates: SourcePointer[] = [];
+  let complete = true;
+  const resolved: SourcePointer[] = [];
   for (const p of m.pointers) {
-    // Preserve uncertainty when an unresolved pointer has no fileId, or a lexical alias.
+    // Raw file is provenance for unresolved membership only, never selection/ranking.
     const rawFile = p.pointer && typeof p.pointer === 'object' && 'file' in p.pointer ? p.pointer.file : undefined;
-    const same = p.fileId === fileId || (typeof rawFile === 'string' && normalizePointerFile(rawFile) === path);
+    const same = p.fileId === fileId || (p.status !== 'ok' && typeof rawFile === 'string' && normalizePointerFile(rawFile) === path);
     if (!same) continue;
-    if (p.status !== 'ok' || !validRange(p.range) || !isStructuralPointer(p.pointer)) { complete = false; continue; }
-    const r = p.range;
-    const distance = Math.max(r.startLine - line, line - r.coveredEndLine, 0);
-    const threshold = line < r.startLine ? p.pointer.beforeLines ?? 15 : p.pointer.afterLines ?? 15;
-    if (distance > threshold) continue;
-    const span = r.coveredEndLine - r.startLine + 1;
-    if (distance > bestDistance || (distance === bestDistance && span > bestSpan)) continue;
-    if (distance < bestDistance || span < bestSpan) candidates = [];
-    bestDistance = distance; bestSpan = span; candidates.push(p);
+    if (p.status !== 'ok' || !isCompiledPointerScope(p.inverseScope)) { complete = false; continue; }
+    resolved.push(p);
   }
-  return { candidates, complete };
+  return { candidates: rankCompiledScopes(resolved, p => p.inverseScope!, line, column), complete };
 }
 
 /** SHA-256 fallback for non-secure HTTP hosts; crypto.subtle was also exercised on file://.
@@ -263,7 +254,9 @@ export function installSourceViewer(): (() => void) | undefined {
           let model=models.get(id);
           if(!model) {const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);const language=file.language==='lean'||file.language==='lean4'||file.displayPath.endsWith('.lean')?'lean4':'plaintext';model=monaco.editor.createModel(text,language,monaco.Uri.from({scheme:'snl-source',path:'/'+m.exportId+'/'+id}));models.set(id,model);}
           models.delete(id);models.set(id,model);e.setModel(model);
-          for(const p of m.pointers)if(p.fileId===id&&p.status==='ok'&&p.range&&!model.validateRange(range(p.range)).equalsRange(range(p.range)))throw Error('Pointer range exceeds source');
+          for(const p of m.pointers)if(p.fileId===id&&p.status==='ok') {
+            for(const r of [p.range,p.inverseScope])if(r&&!model.validateRange(range(r)).equalsRange(range(r)))throw Error('Pointer range exceeds source');
+          }
           const saved=restore?.view??views.get(id);if(saved)e.restoreViewState(saved);
           while(models.size>4){const oldest=models.keys().next().value!;models.get(oldest)?.dispose();models.delete(oldest);}
           root.dataset.modelCount=String(models.size);root.dataset.fileId=id;
@@ -312,7 +305,7 @@ export function installSourceViewer(): (() => void) | undefined {
   function reverse(explicit:boolean) {
     if(!editor?.getModel()||!current||invalid.has(current)||!opened)return;
     clearMark();choices.replaceChildren();decorations?.clear();
-    const result=rankSourcePointers(bucketed.get(current)!,current,editor.getPosition()?.lineNumber??1);
+    const result=rankSourcePointers(bucketed.get(current)!,current,editor.getPosition()?.lineNumber??1,editor.getPosition()?.column??1);
     status.textContent=!result.complete?'Incomplete source index — automatic following paused':result.candidates.length?'Nearby entries':'No nearby entry';
     for(const p of result.candidates) {
       const routes=routesFor(p);

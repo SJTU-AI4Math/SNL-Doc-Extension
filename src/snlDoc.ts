@@ -4255,6 +4255,14 @@ function pointerMatchDistanceError(pointer: unknown): string | undefined {
       return `pointer.${field} must be a nonnegative safe integer`;
     }
   }
+  if (Object.hasOwn(record, 'priority') && (typeof record.priority !== 'number' || !Number.isFinite(record.priority))) {
+    return 'pointer.priority must be a finite number';
+  }
+  for (const field of ['column', 'endColumn']) {
+    if (Object.hasOwn(record, field) && (typeof record[field] !== 'number' || !Number.isSafeInteger(record[field]) || (record[field] as number) < 1)) {
+      return `pointer.${field} must be a positive safe integer`;
+    }
+  }
   return undefined;
 }
 

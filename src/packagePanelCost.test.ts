@@ -204,10 +204,14 @@ describe('Pointer write-side synchronization', () => {
   });
   it('rejects invalid new match distances without writing', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
-    for (const invalid of [-1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1]) {
+    for (const fields of [
+      ...[-1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1].map(beforeLines => ({ beforeLines })),
+      ...[NaN, Infinity, -Infinity, '0', null].map(priority => ({ priority })),
+      ...[0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, null].flatMap(column => [{ column }, { endColumn: column }])
+    ]) {
       seedEntryTransactionTopology();
       const result = await actual.addEntry({ path: '/ws', toString: () => 'file:///ws' } as never, {
-        ...newEntry('invalid.pointer', 'logic'), pointer: { file: 'x.lean', mode: 'lines', line: 1, beforeLines: invalid }
+        ...newEntry('invalid.pointer', 'logic'), pointer: { file: 'x.lean', mode: 'lines', line: 1, ...fields }
       });
       expect(result.status).toBe('invalid');
       expect(state.writes).toEqual([]);

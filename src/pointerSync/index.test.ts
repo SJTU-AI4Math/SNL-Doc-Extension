@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { buildPointerIndex, findNearestEntries, updatePointerIndexText, queryNearestEntries } from './index';
 import * as resolver from './resolve';
 
-it('uses each entry’s before/after thresholds and returns all best distance/span ties', async () => {
+it('compiles buffers, clamps file bounds and returns all smallest expanded-span ties', async () => {
   await fs.writeFile(path.join(root, 'x'), Array(60).fill('line').join('\n'));
   const index = await buildPointerIndex(root, [
     { id: 'wide', pointer: { file: 'x', mode: 'lines', line: 20, endLine: 25, beforeLines: 0, afterLines: 2 } },
@@ -15,11 +15,12 @@ it('uses each entry’s before/after thresholds and returns all best distance/sp
   ]);
   expect(findNearestEntries(index, 'x', 19).candidates).toEqual([]);
   expect(findNearestEntries(index, 'x', 22).candidates.map(c => c.entryId)).toEqual(['narrow-a', 'narrow-b']);
-  expect(findNearestEntries(index, 'x', 27).candidates).toMatchObject([{ entryId: 'wide', distance: 2 }]);
+  expect(findNearestEntries(index, 'x', 27).candidates).toMatchObject([{ entryId: 'wide', distance: 0 }]);
   expect(findNearestEntries(index, 'x', 28).candidates).toEqual([]);
-  expect(findNearestEntries(index, 'x', 35).candidates).toMatchObject([{ entryId: 'default', distance: 15 }]);
+  expect(findNearestEntries(index, 'x', 35).candidates).toMatchObject([{ entryId: 'default', distance: 0 }]);
   expect(findNearestEntries(index, 'x', 34).candidates).toEqual([]);
-  expect(findNearestEntries(index, 'x', 65).candidates).toMatchObject([{ entryId: 'default', distance: 15 }]);
+  expect(findNearestEntries(index, 'x', 60).candidates).toMatchObject([{ entryId: 'default', distance: 0 }]);
+  expect(findNearestEntries(index, 'x', 65).candidates).toEqual([]);
   expect(findNearestEntries(index, 'x', 66).candidates).toEqual([]);
 });
 
@@ -78,7 +79,7 @@ it('reuses hash+pointer identity without rerunning unrelated regex, including af
   const fourth = await buildPointerIndex(root, entries, third);
   expect(spy).toHaveBeenCalledTimes(2);
   expect(spy.mock.calls.every(([pointer]) => pointer.file === 'x')).toBe(true);
-  expect(fourth.files.x.entries[0].resolution).toMatchObject({ range: { startLine: 2 } });
+  expect(fourth.files.x.entries[0].resolution).toMatchObject({ scope: { startLine: 1, endLine: 3 } });
   const moved = await buildPointerIndex(root, [{ ...entries[0], pointer: { ...entries[0].pointer, file: 'y' } }], fourth);
   expect(Object.keys(moved.files)).toEqual(['y']);
   expect(moved.files.y.entries).toHaveLength(1);
@@ -143,10 +144,10 @@ describe('pointer index', () => {
     await fs.writeFile(path.join(root, '中文.lean'), '😀前\n目标\n尾');
     const pointer = { file: './中文.lean', mode: 'regex', pattern: '目标\\n', beforeLines: 0 };
     const index = await buildPointerIndex(root, [{ id: '目标', package: '课程', title: { zh: '标题' }, pointer }]);
-    expect(index).toMatchObject({ version: 1, files: { '中文.lean': {
+    expect(index).toMatchObject({ version: 2, files: { '中文.lean': {
       entries: [{ entryId: '目标', package: '课程', title: { zh: '标题' }, pointer,
-        resolution: { status: 'ok', range: { startLine: 2, startColumn: 1, endLine: 3,
-          endColumn: 1, coveredEndLine: 2 } } }]
+        resolution: { status: 'ok', scope: { startLine: 2, startColumn: 1, endLine: 3,
+          endColumn: 2, coveredEndLine: 3, endInclusive: true, priority: 0 } } }]
     } }, unfiled: [] });
   });
 });

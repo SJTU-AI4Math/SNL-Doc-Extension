@@ -1,5 +1,5 @@
 import type { EntryPointer } from './schema';
-import type { PointerDiagnostic, PointerRange } from './text';
+import { sourceTextLines, type PointerDiagnostic, type PointerRange } from './text';
 
 /** The ONLY reverse-reference geometry. No raw range, distance or thresholds survive
  * compilation. Offsets/spans count original UTF-16 units (including CRLF's two units).
@@ -15,10 +15,8 @@ export interface CompiledPointerScope extends PointerRange {
 export type ScopeResolution = { status: 'ok'; scope: CompiledPointerScope } | PointerDiagnostic;
 
 export function compilePointerScope(pointer: EntryPointer, raw: PointerRange, text: string): CompiledPointerScope {
-  const rows = text.split('\n');
-  const lengths = rows.map(row => row.endsWith('\r') ? row.length - 1 : row.length);
-  const starts: number[] = []; let offset = 0;
-  for (const row of rows) { starts.push(offset); offset += row.length + 1; }
+  const { lines: rows, starts } = sourceTextLines(text);
+  const lengths = rows.map(row => row.length);
   const before = pointer.beforeLines ?? 15, after = pointer.afterLines ?? 15;
   const startLine = before > 0 ? Math.max(1, raw.startLine - before) : raw.startLine;
   const startColumn = before > 0 ? 1 : raw.startColumn;

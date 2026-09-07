@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { compilePointerScope, isCompiledPointerScope } from '../pointerSync/scope';
 import { isStructuralPointer } from '../pointerSync/schema';
+import { sourceTextLines } from '../pointerSync/text';
 import type { TextAsset } from '../exportDocument';
 import type { SourcePreview } from './types';
 const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
@@ -51,7 +52,7 @@ export function buildSourceAssets(preview: SourcePreview, inline: boolean): { te
         r.coveredEndLine < r.startLine || r.coveredEndLine > r.endLine) fail();
       if (file && r && isStructuralPointer(pointer.pointer)) {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(payloads.get(file.fileId)!.base64, 'base64'));
-        const rows = text.split(/\r?\n/);
+        const { lines: rows } = sourceTextLines(text);
         if (r.startLine > rows.length || r.endLine > rows.length || r.startColumn > rows[r.startLine - 1].length + 1 || r.endColumn > rows[r.endLine - 1].length + 1) fail();
         const expected = compilePointerScope(pointer.pointer, r, text);
         if (!isCompiledPointerScope(expected) || Object.keys(expected).some(k => expected[k as keyof typeof expected] !== pointer.inverseScope?.[k as keyof typeof expected])) fail();

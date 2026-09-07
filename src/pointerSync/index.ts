@@ -173,7 +173,10 @@ export async function queryNearestEntries(
   if (index.version !== 2) return { candidates: [], complete: false, unresolved: [] };
   if (textOverride === undefined) return findNearestEntries(index, relativeFile, line, column);
   const file = normalizePointerFile(relativeFile);
-  if (!file || !Number.isSafeInteger(line) || line < 1) return { candidates: [], complete: false, unresolved: [] };
+  if (!file || !Number.isSafeInteger(line) || line < 1 ||
+      (column !== undefined && (!Number.isSafeInteger(column) || column < 1))) {
+    return { candidates: [], complete: false, unresolved: [] };
+  }
   const bucket = ownBucket(index, file);
   return rankBucket(bucket ? await resolveBucket(bucket.entries, textOverride, bucket) : undefined, line, column);
 }

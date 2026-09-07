@@ -51,13 +51,29 @@ export function resolveRegexOffsets(pointer: EntryPointerRegex, text: string): R
   return { status: 'regex-no-match', file: pointer.file, pattern: pointer.pattern, occurrence };
 }
 
-function lineCol(text: string, offset: number): [number, number] {
-  let line = 1;
-  let lastNewline = -1;
-  for (let i = 0; i < offset; i++) {
-    if (text.charCodeAt(i) === 10) { line++; lastNewline = i; }
+/** The editor's LF/CRLF/CR rows, with offsets into the unchanged UTF-16 string. */
+export function sourceTextLines(text: string): { lines: string[]; starts: number[] } {
+  const lines: string[] = [], starts = [0];
+  let start = 0;
+  for (const match of text.matchAll(/\r\n|\r|\n/g)) {
+    lines.push(text.slice(start, match.index));
+    start = match.index + match[0].length;
+    starts.push(start);
   }
-  return [line, offset - lastNewline];
+  lines.push(text.slice(start));
+  return { lines, starts };
+}
+
+function lineCol(rows: ReturnType<typeof sourceTextLines>, offset: number): [number, number] | null {
+  if (!Number.isSafeInteger(offset) || offset < 0) return null;
+  let lo = 0, hi = rows.starts.length;
+  while (lo + 1 < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (rows.starts[mid] <= offset) lo = mid; else hi = mid;
+  }
+  const column = offset - rows.starts[lo] + 1;
+  // A position between CR and LF has no exact VS Code/Monaco caret.
+  return column <= rows.lines[lo].length + 1 ? [lo + 1, column] : null;
 }
 
 /** Pure resolver for trusted/bounded text processing. Host callers use resolvePointerTextAsync
@@ -70,7 +86,7 @@ export function resolvePointerText(value: EntryPointer, text: string, offsets?: 
     return { status: 'invalid-shape', message: 'pointer failed structural/path validation' };
   }
   if (pointer.mode === 'lines') {
-    const lines = text.split(/\r?\n/);
+    const { lines } = sourceTextLines(text);
     if (pointer.line > lines.length) {
       return { status: 'line-out-of-range', file: pointer.file, line: pointer.line, totalLines: lines.length };
     }
@@ -90,8 +106,13 @@ export function resolvePointerText(value: EntryPointer, text: string, offsets?: 
   }
   const match = offsets ?? resolveRegexOffsets(pointer, text);
   if (match.status !== 'ok') return match;
-  const [startLine, startColumn] = lineCol(text, match.start);
-  const [endLine, endColumn] = lineCol(text, match.end);
+  const rows = sourceTextLines(text);
+  const start = lineCol(rows, match.start), end = lineCol(rows, match.end);
+  if (!start || !end || match.end < match.start) {
+    return { status: 'invalid-shape', message: 'regex endpoint has no exact editor position (inside CRLF or outside source)' };
+  }
+  const [startLine, startColumn] = start;
+  const [endLine, endColumn] = end;
   const coveredEndLine = endColumn === 1 && endLine > startLine ? endLine - 1 : endLine;
   return { status: 'ok', range: { startLine, startColumn, endLine, endColumn, coveredEndLine } };
 }

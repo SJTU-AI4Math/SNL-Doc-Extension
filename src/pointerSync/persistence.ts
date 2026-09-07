@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PointerIndex, stableStringify } from './index';
 import { isStructuralPointer, normalizePointerFile } from './schema';
+import { is_valid_i18n_string } from '../localizedContent';
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -40,7 +41,7 @@ export function isPointerIndex(value: unknown): value is PointerIndex {
     if (!record(entry) || typeof entry.entryId !== 'string' || !entry.entryId ||
         !Object.hasOwn(entry, 'pointer') || entry.pointer == null || !validResolution(entry.resolution)) return false;
     if (entry.package !== undefined && typeof entry.package !== 'string') return false;
-    if (entry.title !== undefined && typeof entry.title !== 'string' &&
+    if (entry.title !== undefined && typeof entry.title !== 'string' && !is_valid_i18n_string(entry.title) &&
         !(record(entry.title) && Object.values(entry.title).every(v => typeof v === 'string'))) return false;
     const identity = stableStringify([entry.package ?? '', entry.entryId]);
     if (seen.has(identity)) return false;

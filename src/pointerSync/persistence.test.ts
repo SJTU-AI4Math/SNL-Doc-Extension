@@ -28,6 +28,9 @@ it('rejects malformed ranges, pointer thresholds, unknown diagnostics, and dupli
     (value: any) => { value.files.x.entries[0].resolution = { status: 'invented' }; },
     (value: any) => { value.files.x.entries[0].resolution = { status: 'regex-timeout' }; },
     (value: any) => { value.files.x.fingerprint = null; },
+    (value: any) => { value.files.x.entries[0].title = { type: 'i18n', default_language: 'en', values: { en: 42 } }; },
+    (value: any) => { value.files.x.entries[0].title = { type: 'i18n', default_language: 'en', values: {} }; },
+    (value: any) => { value.files.x.entries[0].title = { type: 'i18n', values: { en: 'Alpha' } }; },
     (value: any) => { value.files.x.entries.push(value.files.x.entries[0]); }
   ]) {
     const malformed = JSON.parse(JSON.stringify(index));

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { Localized } from '@sjtu-ai4math/snl-basics';
 import { isStructuralPointer, normalizePointerFile } from './schema';
 import { readPointerSource, resolvePointerTextAsync } from './resolve';
 import { TextResolution } from './text';
@@ -6,13 +7,13 @@ import { TextResolution } from './text';
 export interface PointerIndexEntryInput {
   id: string;
   package?: string;
-  title?: string | Record<string, string>;
+  title?: Localized<string, string> | Record<string, string>;
   pointer?: unknown;
 }
 export interface IndexedPointer {
   entryId: string;
   package?: string;
-  title?: string | Record<string, string>;
+  title?: Localized<string, string> | Record<string, string>;
   /** Original authored JSON, not the normalized execution view. */
   pointer: unknown;
   resolution: TextResolution;
@@ -120,7 +121,7 @@ export async function buildPointerIndex(
 export interface NearestEntry {
   entryId: string;
   package?: string;
-  title?: string | Record<string, string>;
+  title?: Localized<string, string> | Record<string, string>;
   distance: number;
   range: import('./text').PointerRange;
 }

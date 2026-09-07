@@ -49,6 +49,7 @@
     "concept.snl.macro",
     "concept.snl.macro-kind",
     "concept.ui.panel",
+    "spec.shared-reader",
     "spec.source-document",
     "spec.source-document.acceptance",
     "spec.source-document.baseline",

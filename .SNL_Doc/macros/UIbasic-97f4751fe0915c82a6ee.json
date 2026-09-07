@@ -1,0 +1,29 @@
+{
+  "format": "snl-macro",
+  "version": 1,
+  "schema_version": 1,
+  "package": "UIbasic",
+  "macro": {
+    "name": "SpecHistoricalReference",
+    "description": "Presents a current specification correction, its owning Spec link, and the complete historical SNL subtree without discarding authored references.",
+    "source": {
+      "entries": [
+        "spec.extension"
+      ],
+      "urls": []
+    },
+    "kind": "literal",
+    "dynamic_arity": false,
+    "styles": [
+      {
+        "style_name": "default",
+        "tags": [],
+        "template": {
+          "mode": "text",
+          "body": "#0\n规范：#1\n历史原文（保留参考，不作为新架构现行合同）：#2"
+        }
+      }
+    ],
+    "tags": []
+  }
+}

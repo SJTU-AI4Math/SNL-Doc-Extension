@@ -8,7 +8,7 @@
     "kind": "text-input",
     "title": "Dynamic Separator Input (Edit)",
     "content": {
-      "snl": "%Edits the Macro v8 #0 value without replacing an explicit empty separator with a default.%(separator)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Edits the Macro v8 #0 value without replacing an explicit empty separator with a default.%(separator))"
     },
     "contribution_info": null,
     "pointer": null,

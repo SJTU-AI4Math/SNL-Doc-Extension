@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.interaction",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "递归悬浮与激活：固定、关闭、绑定高亮",
+    "content": {
+      "markdown": "## 同一个交互状态机\n\nLibrary、Entry、关系预览与弹窗内的术语/Entry 引用共享 hover、activation 与 popover provider。普通悬浮可预览，普通点击固定，显式关闭释放；Ctrl/Meta 的导航入口通过统一导航意图适配宿主。关闭悬浮偏好不得误禁用明确点击/导航。弹窗内部继续支持子弹窗，祖先冻结、父子关闭与激活上下文保持一致，不为 HTML 手写另一套 timer/event 逻辑。\n\n复用 Basics 已公开的通用交互机制；Extension 的文档级 Entry 查询和来源组织置于两端共用阅读层。继承共享策略而非复制当前延时常量；历史代码中的某个数字是实现观察，不是新的用户要求。\n\n## 身份、高亮与生命周期\n\nActivation 保留语义树路径、来源绑定与视觉放置身份。被选术语及其绑定对象使用同一高亮权威，不能叠加两套背景/阴影导致暗色不可读或事件命中错位。移动指针只更新必要状态，不因全局重复渲染丢失固定弹窗、正文选区或滚动。\n\n语言/主题/数据 generation 变化后预览不得使用旧 Entry/Style，悬浮目标移除、路由切换和组件卸载清理 timer、监听、观察器及异步订阅。自引用/互相引用不自动无限展开，只按用户动作递归。\n\n## 待执行对照序列\n\n术语 hover → 子弹窗 hover → 点击固定 → 移出 → 打开孙弹窗 → 关闭当前/祖先 → Ctrl/Meta 导航 → 返回。补测 hover disabled、重复 SVG 放置、未解析来源、快速切换及暗色；检查弹窗存活关系、实际高亮目标、焦点和清理，不只证明 provider 存在。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

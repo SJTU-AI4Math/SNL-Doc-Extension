@@ -8,7 +8,7 @@
     "kind": "panel",
     "title": "Entry Infoview",
     "content": {
-      "snl": "PanelDescription(%Dedicated per-Entry reading panel, opened directly or by Ctrl-clicking an Entry title. It renders one #0 through #1, colors macros with the workspace palette, and supports #2 for nested Entry and macro references.%(EntrySurface,MacroDataDriver,Recursive_hover_popovers),%Contains #0, #1, #2, and an edit action.%(Entry.ui.section.entry-infoview.entry-render,Entry.ui.section.entry-infoview.context,Entry.ui.section.entry-infoview.dependencies),RunVSCodeCommand(snlDoc.openEntryInfoview_entryId),%Image%@ui.panel.entry-infoview.img)"
+      "snl": "SpecHistoricalReference(%此条记录 Extension 的阅读入口与原截图；规范要求其底层阅读组件、状态和样式与 HTML 完全共用，Panel 仅是宿主适配；编辑入口按宿主能力提供。%,%功能规范%@spec.shared-reader,PanelDescription(%Dedicated per-Entry reading panel, opened directly or by Ctrl-clicking an Entry title. It renders one #0 through #1, colors macros with the workspace palette, and supports #2 for nested Entry and macro references.%(EntrySurface,MacroDataDriver,Recursive_hover_popovers),%Contains #0, #1, #2, and an edit action.%(Entry.ui.section.entry-infoview.entry-render,Entry.ui.section.entry-infoview.context,Entry.ui.section.entry-infoview.dependencies),RunVSCodeCommand(snlDoc.openEntryInfoview_entryId),%Image%@ui.panel.entry-infoview.img))"
     },
     "contribution_info": null,
     "pointer": null,

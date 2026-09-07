@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.acceptance",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "共享阅读器验收：功能对照、结构门禁与证据分层",
+    "content": {
+      "markdown": "## 完成的含义\n\n本条列待执行门禁。本轮文档维护只证明 canonical 写入、内容保全与图闭包；不宣称新共享实现、测试、构建或跨平台行为已完成。旧 source-document 的 Linux/Mathlib/Monaco 成绩保留为其原版本历史，不能替代新 exact-SHA 的实际结果。\n\n## 同一 fixture × 同一动作序列\n\n在实际 Extension Development Host 与该宿主实际导出的 HTML 运行同样的 Library/Entry、重复 occurrence、Counter、两语言、light/dark、Markdown 图片、SNL 绑定、参数化 SVG、嵌套 Collapsible、双向多标签关系、Pointer 并列和未解析目标。\n\n依次打开 Library → 展开隐藏后代/同层/全部 → Entry 标题导航 → 关系 Entry → 递归 hover/固定/关闭 → 返回原 occurrence → 语言/主题切换 → 长行滚动 → 查看源码 → 反查/并列选择 → 被动跟随 → 返回/前进/刷新/复制深链接。比对语义身份、编号、可见结构、真实 DOM/布局、绑定高亮、焦点、历史和异步清理，而非各自只断言按钮存在。\n\n## 结构与发行门禁\n\n生产依赖图证明两个宿主加载同一阅读组件、状态机制和样式；没有旧交互 runtime 的活跃构建/入口引用，也没有复制逻辑藏在平台 adapter。验证 Basics 公共机制复用和宿主 API 隔离。接口同名、测试都绿或共享一段 CSS 不构成完全共用证明。\n\n执行完整相关自动回归和生产构建，再测试目录 HTTP、目录 file://、单 HTML HTTP 与 file:// 的真正离线资源闭包、无源码负向能力、安全/确认变更/原子发布。捕获浏览器 console/CSP/worker/网络错误与窄屏布局；纯静态产物独立验证无 JavaScript，不作为交互失败回退。\n\nPointer 行列、Priority/最终域与安全详测继续引用 `spec.source-document.acceptance`。Windows F5 是用户消费门禁，Linux 实测不能替代，macOS/其他浏览器范围如未测须如实列出。独立 exact-SHA 审查和实际消费证据之后才能称共享重构完成；提交/推送/打包/发布分别报告。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

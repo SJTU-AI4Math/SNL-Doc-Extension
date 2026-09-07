@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.body",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "正文渲染：Markdown、SNL、公式、SVG 与资源",
+    "content": {
+      "markdown": "## 共用内容语义\n\nEntry 的正文选择必须委托当前 Basics 的 canonical Entry 渲染与本地化规则，两端不可分别硬编码格式优先级或从已渲染 DOM 猜回原文。多通道 Entry 只按共享选择规则显示正文，未选通道仍保留在 canonical 数据和渲染依赖中；“可在编辑器输入 Typst”不等于浏览器具备 Typst 编译器。未知/不可呈现格式有明确边界，不虚报渲染成功。\n\nSNL 由同一解析、Macro 查询、Style 选择、绑定和渲染流程处理；正文不是任意裸 KaTeX。保留显式 style、动态参数、空槽、子树语义坐标及 `x@source` 跨 Entry 上下文；不为迁就导出重写 authored SNL、提前固化一种语言或把变量误注册为 Macro。公式、普通文字、block 及 Markdown 资源各经对应共享渲染出口。\n\nMarkdown 的标题、列表、链接、代码块、公式和图片两端一致；资源适配只把受约束的工作区路径映射到可读 URL，不改语义内容。HTML/SVG/URL 仍遵守既有净化与路径边界，不能因离线或“来源可信”而开放脚本、事件属性、任意文件或网络请求。\n\n## SVG 与版面\n\n复用 Basics 及本仓库已注册的 block renderer，不以同名私有复制取代。扩展 renderer registry 时保留默认项。参数化 SVG 的占位引用可重复/省略；每次视觉放置具有独立生命周期，但 canonical treePath 和绑定目标不能随布局变化。子参数按共享 renderChild 渲染，不能把 AST 节点当 HTML 字符串拼接。\n\n内联公式内 SVG 遵守公式预留几何；普通 block/弹窗使用其适当尺寸与局部滚动。浅/深主题下文字、公式、Kind 背景、SVG currentColor 和蒙版必须可读。图片、字体、CSS、worker 的离线闭包见导出规范；不要把作者图片改成截图来绕过渲染问题。\n\n## 验收\n\n同一数据覆盖多通道、中文/英文、显式/默认 Style、跨 Entry 绑定、重复 SVG 参数、递归弹窗、非法 URL 与超宽正文；比较解析/绑定目标和真实布局，不仅比字符串或首屏截图。本轮不宣称完成渲染测试。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

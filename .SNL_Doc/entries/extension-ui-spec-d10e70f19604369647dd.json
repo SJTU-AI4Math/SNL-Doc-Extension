@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.navigation",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "导航与历史：Panel ↔ 路由、返回与无焦点跟随",
+    "content": {
+      "markdown": "## 语义目的地\n\n共享阅读层输出导航意图：Library 列表、Library slug、独立 Entry（含 Package）、Library occurrence（slug + node ID + Entry）、相关 Entry 和返回目的地。结构化上下文不能简化为 Entry ID、按钮文字或偶然 DOM 位置。引用目标不在当前 Library 时允许独立 Entry；重复 occurrence 必须保留选择，不能任取同 Entry 的第一个节点。\n\nExtension adapter 打开/复用正确 Panel，并保存源码 editor group 与返回上下文。HTML adapter 编码 URL/hash，支持直接深链接、刷新、前进/后退和明确返回。Entry 标题、关系和弹窗导航复用同一 router；不得另建一个源码专用简化 Entry 页面。\n\n## 显式导航和被动跟随\n\n点击/快捷键是显式导航，可增加一条有意义历史并聚焦目标。被动源码跟随只更新对应文档目的地/高亮，保持 Monaco/IDE 焦点，不为每次 caret 移动追加历史。区分 push、replace/同步和返回恢复，不把程序 selection 或滚动再次反馈成新用户导航。保存 origin/request token 或等价防回声语义。\n\n后退恢复 Library/occurrence、相关返回上下文及允许保存的阅读/源码位置；普通刷新重读同一语义目的地，不偷偷返回列表。没有合法返回目的地时给出明确首页入口，不伪装历史栈。损坏/未知/快照不含的路由要可解释地报不可用，不猜测或跳到另一 Entry。\n\n## 能力边界与验收\n\n编辑、系统外 URL、源码定位是不同意图，分别授权；无源码导出不能通过通用路由泄露本机路径。可编码目的地不等于已支持 multi-root：继承 source-document 的 root 歧义拒绝规则。\n\n对比 Library A 的第二 occurrence → related Entry → 子弹窗 Entry → 返回 → 源码反查 → 后退/前进；再从复制 URL 直接打开并刷新。检查身份、选区、焦点、历史长度和失效目标，不能用 mock 消息发送证明浏览器历史已工作。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

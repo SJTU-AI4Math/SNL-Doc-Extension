@@ -8,7 +8,7 @@
     "kind": "text-input",
     "title": "Macro Template Input (Create)",
     "content": {
-      "snl": "%Macro v8 template for one style. Fixed macros use numbered positional placeholders; dynamic macros contain a real #0 joined by #1.%(Literal.hash_star,separator)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Macro v8 template for one style. Fixed macros use numbered positional placeholders; dynamic macros contain a real #0 joined by #1.%(Literal.hash_star,separator))"
     },
     "contribution_info": null,
     "pointer": null,

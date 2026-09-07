@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.extension.authoring",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "编辑能力：Entry／Macro／Kind 与只读宿主边界",
+    "content": {
+      "markdown": "## Extension 编辑完整性\n\n保留 Entry 创建/编辑、ID 校验、Kind/本地化标题、五种 authored 内容通道、贡献信息、Pointer lines/regex/列/独立 beforeLines/afterLines/priority、实时预览、文本/GUI 模式及保存反馈。正文、未知元数据和未编辑语言槽必须保持；折叠表单只是 UI 状态，不能将 dirty draft 当保存成功。预览用共用阅读器，draft 自引用优先本地预览池，最终写入仍走受约束宿主与 canonical writer。\n\nMacro 编辑保留 Package/Kind/来源 Entry 与 URL/tags、有序 Style、显式 Style 名、固定/动态参数、模板与后端呈现、实时参数预览、GUI tree 以及参数增删/重置。基线 CreateMacroApp 的 serializer 写严格 Macro v11，Style 持有 style_name/tags/template（可本地化）；模式、body、separator、block renderer 等在 template projection 内。旧 Macro v8 顶层 mode/template 描述仅作历史，不可据此写回旧字段。\n\nEntry Kind/Macro Kind 编辑与初始化保留 ID 身份、名称/说明和分主题 coloring；Entry Kind 另有默认 Counter/style。不要把旧截图的 RGB 单面色板当完整 light/dark 合同。Schema 权威见 `schema.read.*`，本次不为共享阅读迁移实体数据，也不批量改名。\n\n## 只读 HTML\n\nHTML 只提供阅读及已授权源码查看。Entry/Macro/Kind/Library/Relationship 的写入、工作区资源导入、Package 转移/删除、索引维护不进入导出权限；管理动作隐藏或说明不可用，不挂永远无响应的假按钮。Monaco 源码只读不等于 Entry 编辑器：允许查找/选择/复制/折叠，不提供保存、Lean LSP、编译、执行或任意本地文件访问。\n\n## 验收边界\n\n真实 Extension 中编辑再读回 canonical 值，并与共享预览对照；取消、无效输入、CAS 冲突、异步预览晚到不能丢稿或误报成功。HTML 相同 fixture 检查不存在写入桥和误导入口。本轮仅规范维护，未执行上述回归。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

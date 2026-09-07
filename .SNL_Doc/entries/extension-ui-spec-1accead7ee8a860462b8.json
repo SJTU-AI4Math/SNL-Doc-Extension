@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.preferences",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "偏好与本地化：语言、主题、动作一致性",
+    "content": {
+      "markdown": "## 数据与呈现分离\n\n保留 authored I18N map、default_language、显式空值及未知扩展字段。界面语言、内容阅读语言与作者正在编辑的语言槽是不同状态；语言切换不能把本地化对象压平成字符串、改 ID、改编号或误触发保存。Kind 名、Entry 标题、正文、Macro template/description、关系区和递归弹窗用同一个内容语言环境及既有 fallback。\n\n用户在同一阅读表面改变语言或主题后全部子表面更新，不要求关闭重开才一致。异步查询/prepare 结果绑定当前 generation 和呈现语言，晚到响应不得恢复旧语言。跨 Panel 的作用域与 HTML 文档内作用域明确，不能用共享全局偷偷串改另一阅读窗口。\n\n## 主题与交互偏好\n\n共用层消费已解析偏好：浅/深/跟随系统的配色、motion 和 hover-enabled 等；宿主负责获取和持久化适配，不是两套 CSS/状态机。Kind 的 light/dark stroke/background、公式文字、SVG ink、代码染色和弹窗背景共同可读；不因换主题重写 authored 浅色值。\n\n关闭 hover 仅停止被动预览，明确点击固定/导航仍有效。reduced motion 与键盘/可访问名称保留；不能用颜色作为唯一状态反馈。HTML 偏好只影响阅读副本，不向工作区写设置；无持久化能力时当前页面内操作仍应有效并说明边界。\n\n## 参考与验收\n\n基线 `runtime/preferencesRuntime.ts` 具有 Panel-scoped content language store、generation/revision 的 host snapshot 和 Basics ReaderRuntime；它当前含 VS Code bridge，重构时把该来源适配与共享呈现分离。测试语言单独变化、两窗口隔离、旧异步响应、暗色 SVG/公式及 hover 开关；比较真实内容和 computed colors，而非只检测 schema 或 CSS class。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

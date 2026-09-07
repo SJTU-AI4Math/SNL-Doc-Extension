@@ -1,4 +1,4 @@
 {
   "title": "源码—文档双向导航与 HTML 平行阅读",
-  "description": "0.1.2 integrated candidate: bidirectional Pointer, confirmed source snapshots and offline read-only Monaco; Linux VS Code/Chromium exercised, native Windows/macOS validation pending. UUID remains 0.2.0."
+  "description": "兼容子系统视图：同一 canonical Entry 已纳入 SNL-Doc-Extension 系统 Library（extension-ui-tour）；共享阅读目标优先，以下旧候选版本/实测为历史。 0.1.2 integrated candidate: bidirectional Pointer, confirmed source snapshots and offline read-only Monaco; Linux VS Code/Chromium exercised, native Windows/macOS validation pending. UUID remains 0.2.0."
 }

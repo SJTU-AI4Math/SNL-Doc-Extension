@@ -2022,6 +2022,671 @@
       "props": {
         "entryId": "ui.panel.macro-package.edit.img"
       }
+    },
+    {
+      "id": "node.schema.read.contract",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.contract"
+      }
+    },
+    {
+      "id": "node.schema.read.section.boundaries",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.boundaries"
+      }
+    },
+    {
+      "id": "node.schema.read.baseline",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.baseline"
+      }
+    },
+    {
+      "id": "node.schema.read.pipelines",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.pipelines"
+      }
+    },
+    {
+      "id": "node.schema.read.section.config",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.config"
+      }
+    },
+    {
+      "id": "node.schema.read.config-version",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.config-version"
+      }
+    },
+    {
+      "id": "node.schema.read.kind-catalogs",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.kind-catalogs"
+      }
+    },
+    {
+      "id": "node.schema.read.active-packages",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.active-packages"
+      }
+    },
+    {
+      "id": "node.schema.read.section.topology",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.topology"
+      }
+    },
+    {
+      "id": "node.schema.read.directories",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.directories"
+      }
+    },
+    {
+      "id": "node.schema.read.enumeration",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.enumeration"
+      }
+    },
+    {
+      "id": "node.schema.read.receipt",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.receipt"
+      }
+    },
+    {
+      "id": "node.schema.read.section.entities",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.entities"
+      }
+    },
+    {
+      "id": "node.schema.read.packages",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.packages"
+      }
+    },
+    {
+      "id": "node.schema.read.entries",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.entries"
+      }
+    },
+    {
+      "id": "node.schema.read.macros",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.macros"
+      }
+    },
+    {
+      "id": "node.schema.read.ownership",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.ownership"
+      }
+    },
+    {
+      "id": "node.schema.read.section.ancillary",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.ancillary"
+      }
+    },
+    {
+      "id": "node.schema.read.relationships",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.relationships"
+      }
+    },
+    {
+      "id": "node.schema.read.library-discovery",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.library-discovery"
+      }
+    },
+    {
+      "id": "node.schema.read.library-sidecars",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.library-sidecars"
+      }
+    },
+    {
+      "id": "node.schema.read.section.outcomes",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.section.outcomes"
+      }
+    },
+    {
+      "id": "node.schema.read.failure-semantics",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.failure-semantics"
+      }
+    },
+    {
+      "id": "node.schema.read.non-guarantees",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.non-guarantees"
+      }
+    },
+    {
+      "id": "node.schema.read.conformance",
+      "label": "Entry",
+      "props": {
+        "entryId": "schema.read.conformance"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader"
+      }
+    },
+    {
+      "id": "node.spec.source-document",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document"
+      }
+    },
+    {
+      "id": "node.spec.source-document.baseline",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.baseline"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-synctex-markdown",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-synctex-markdown"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-latex-workshop",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-latex-workshop"
+      }
+    },
+    {
+      "id": "node.spec.source-document.research-typst",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.research-typst"
+      }
+    },
+    {
+      "id": "node.spec.source-document.navigation",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.navigation"
+      }
+    },
+    {
+      "id": "node.spec.source-document.index",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.index"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-selection",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-selection"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-snapshot",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-snapshot"
+      }
+    },
+    {
+      "id": "node.spec.source-document.export-protocol",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.export-protocol"
+      }
+    },
+    {
+      "id": "node.spec.source-document.viewer",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.viewer"
+      }
+    },
+    {
+      "id": "node.spec.source-document.acceptance",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.acceptance"
+      }
+    },
+    {
+      "id": "node.spec.source-document.delivery",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.source-document.delivery"
+      }
+    },
+    {
+      "id": "node.spec.extension",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.extension"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.library",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.library"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.entry"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.body",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.body"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.interaction",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.interaction"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.structure",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.structure"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.navigation",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.navigation"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.relationships",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.relationships"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.preferences",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.preferences"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.export",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.export"
+      }
+    },
+    {
+      "id": "node.spec.extension.authoring",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.extension.authoring"
+      }
+    },
+    {
+      "id": "node.spec.extension.management",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.extension.management"
+      }
+    },
+    {
+      "id": "node.spec.shared-reader.acceptance",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader.acceptance"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createEntry",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createEntry"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createEntryKind",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createEntryKind"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createLibrary",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createLibrary"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createMacro",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createMacro"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createMacroKind",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createMacroKind"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createMacroPackage",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createMacroPackage"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createMacroPickPackage",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createMacroPickPackage"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.createRelationship",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.createRelationship"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editEntry",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editEntry"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editEntryKind",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editEntryKind"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editLibrary",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editLibrary"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editMacro",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editMacro"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editMacroKind",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editMacroKind"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editMacroPackage",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editMacroPackage"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.editRelationship",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.editRelationship"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.initEntryKinds",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.initEntryKinds"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.initMacroKinds",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.initMacroKinds"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openDashboard",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openDashboard"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openEntryInfoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openEntryInfoview"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openInfoview",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openInfoview"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openInfoviewGraph",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openInfoviewGraph"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openInfoviewGraphForLibrary",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openInfoviewGraphForLibrary"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openMacroPackage",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openMacroPackage"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.openSnoogL",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.openSnoogL"
+      }
+    },
+    {
+      "id": "node.command.snlDoc.regenerateDependencies",
+      "label": "Entry",
+      "props": {
+        "entryId": "command.snlDoc.regenerateDependencies"
+      }
+    },
+    {
+      "id": "node.concept.extension.entry-render",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.entry-render"
+      }
+    },
+    {
+      "id": "node.concept.extension.entry-surface",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.entry-surface"
+      }
+    },
+    {
+      "id": "node.concept.extension.entry-title-format",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.entry-title-format"
+      }
+    },
+    {
+      "id": "node.concept.extension.macro-data-driver",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.macro-data-driver"
+      }
+    },
+    {
+      "id": "node.concept.extension.macro-kind-palette",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.macro-kind-palette"
+      }
+    },
+    {
+      "id": "node.concept.extension.macro-migration-boundary",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.macro-migration-boundary"
+      }
+    },
+    {
+      "id": "node.concept.extension.macro-v8",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.macro-v8"
+      }
+    },
+    {
+      "id": "node.concept.extension.recursive-popovers",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.recursive-popovers"
+      }
+    },
+    {
+      "id": "node.concept.extension.row-toolbar",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.row-toolbar"
+      }
+    },
+    {
+      "id": "node.concept.extension.shared-ui-controls",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.shared-ui-controls"
+      }
+    },
+    {
+      "id": "node.concept.extension.source-structure-metrics",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.source-structure-metrics"
+      }
+    },
+    {
+      "id": "node.concept.extension.tree-view-editor",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.extension.tree-view-editor"
+      }
+    },
+    {
+      "id": "node.concept.snl.entry",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.snl.entry"
+      }
+    },
+    {
+      "id": "node.concept.snl.entry-kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.snl.entry-kind"
+      }
+    },
+    {
+      "id": "node.concept.snl.library",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.snl.library"
+      }
+    },
+    {
+      "id": "node.concept.snl.macro",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.snl.macro"
+      }
+    },
+    {
+      "id": "node.concept.snl.macro-kind",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.snl.macro-kind"
+      }
+    },
+    {
+      "id": "node.concept.ui.panel",
+      "label": "Entry",
+      "props": {
+        "entryId": "concept.ui.panel"
+      }
     }
   ],
   "relationships": [
@@ -3348,6 +4013,596 @@
     {
       "from": "node.ui.panel.macro-package.edit",
       "to": "node.ui.panel.macro-package.edit.img",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.boundaries",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.config",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.topology",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.entities",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.ancillary",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.contract",
+      "to": "node.schema.read.section.outcomes",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.boundaries",
+      "to": "node.schema.read.baseline",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.boundaries",
+      "to": "node.schema.read.pipelines",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.config-version",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.kind-catalogs",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.config",
+      "to": "node.schema.read.active-packages",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.directories",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.enumeration",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.topology",
+      "to": "node.schema.read.receipt",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.packages",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.entries",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.macros",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.entities",
+      "to": "node.schema.read.ownership",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.relationships",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.library-discovery",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.ancillary",
+      "to": "node.schema.read.library-sidecars",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.failure-semantics",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.non-guarantees",
+      "label": "branch"
+    },
+    {
+      "from": "node.schema.read.section.outcomes",
+      "to": "node.schema.read.conformance",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.source-document",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.baseline",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-synctex-markdown",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-latex-workshop",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.research-typst",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.navigation",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.index",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-selection",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-snapshot",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.export-protocol",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.viewer",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.acceptance",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.source-document",
+      "to": "node.spec.source-document.delivery",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension",
+      "to": "node.spec.shared-reader",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension",
+      "to": "node.spec.extension.authoring",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension",
+      "to": "node.spec.extension.management",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension",
+      "to": "node.schema.read.contract",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.library",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.body",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.interaction",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.structure",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.navigation",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.relationships",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.preferences",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.export",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.shared-reader.acceptance",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.dashboard",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.library",
+      "to": "node.ui.panel.infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.entry",
+      "to": "node.ui.panel.entry-infoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.library.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.library.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.entry.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.entry-kind.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.entry-kind.initialize",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.entry-kind.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.macro-kind.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.macro-kind.initialize",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.macro-kind.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.macro-package.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.macro-package",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.macro.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.macro.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.relationship.create",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.relationship.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.relationships",
+      "to": "node.ui.panel.relationship-graph",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.snoogl",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.button.shared.add-bar",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.ui.panel.entry.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.ui.panel.macro-package.edit",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.navigation",
+      "to": "node.ui.section.shared.panel-nav",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.createEntry",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.createEntryKind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.createLibrary",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.createMacro",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.createMacroKind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.createMacroPackage",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.createMacroPickPackage",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.createRelationship",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.editEntry",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.editEntryKind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.editLibrary",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.editMacro",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.editMacroKind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.editMacroPackage",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.editRelationship",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.initEntryKinds",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.command.snlDoc.initMacroKinds",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.openDashboard",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.navigation",
+      "to": "node.command.snlDoc.openEntryInfoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.navigation",
+      "to": "node.command.snlDoc.openInfoview",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.openInfoviewGraph",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.openInfoviewGraphForLibrary",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.openMacroPackage",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.openSnoogL",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.command.snlDoc.regenerateDependencies",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.entry",
+      "to": "node.concept.extension.entry-render",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.entry",
+      "to": "node.concept.extension.entry-surface",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.entry",
+      "to": "node.concept.extension.entry-title-format",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.body",
+      "to": "node.concept.extension.macro-data-driver",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.preferences",
+      "to": "node.concept.extension.macro-kind-palette",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.concept.extension.macro-migration-boundary",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.concept.extension.macro-v8",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.interaction",
+      "to": "node.concept.extension.recursive-popovers",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.concept.extension.row-toolbar",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.concept.extension.shared-ui-controls",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.concept.extension.source-structure-metrics",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.management",
+      "to": "node.concept.extension.tree-view-editor",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.entry",
+      "to": "node.concept.snl.entry",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.concept.snl.entry-kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.library",
+      "to": "node.concept.snl.library",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.body",
+      "to": "node.concept.snl.macro",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.extension.authoring",
+      "to": "node.concept.snl.macro-kind",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.shared-reader.navigation",
+      "to": "node.concept.ui.panel",
       "label": "branch"
     }
   ]

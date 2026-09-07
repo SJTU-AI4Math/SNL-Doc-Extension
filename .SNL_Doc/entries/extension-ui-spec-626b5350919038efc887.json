@@ -8,7 +8,7 @@
     "kind": "panel",
     "title": "Edit Library",
     "content": {
-      "snl": "PanelDescription(%The #0 detail/edit view. It retains the outline tree editor, Library counter tree, external-file synchronization, and Entry navigation; the outline now displays #1 beside SNL Entries and blocks invalid references before host submission.%(Library,Source_structure_metrics),%Contains #0, #1, slug/title inputs, title-update action, and an Infoview action.%(Outline_Section,Counters_Section),RunVSCodeCommand(CommandTitle.snlDoc.editLibrary),%Image%@ui.panel.library.edit.img)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,PanelDescription(%The #0 detail/edit view. It retains the outline tree editor, Library counter tree, external-file synchronization, and Entry navigation; the outline now displays #1 beside SNL Entries and blocks invalid references before host submission.%(Library,Source_structure_metrics),%Contains #0, #1, slug/title inputs, title-update action, and an Infoview action.%(Outline_Section,Counters_Section),RunVSCodeCommand(CommandTitle.snlDoc.editLibrary),%Image%@ui.panel.library.edit.img))"
     },
     "contribution_info": null,
     "pointer": null,

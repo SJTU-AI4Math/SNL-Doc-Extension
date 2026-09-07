@@ -1,4 +1,4 @@
 {
   "title": "Data Schema",
-  "description": "Strict, source-pinned contract for current Extension workspace, entity, relationship, and Library reads."
+  "description": "兼容数据读取子系统视图：同一 canonical Entry 已纳入 SNL-Doc-Extension 系统 Library（extension-ui-tour）；原 source-pinned schema contract 不因阅读器重构迁移。 Strict, source-pinned contract for current Extension workspace, entity, relationship, and Library reads."
 }

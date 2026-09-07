@@ -8,7 +8,7 @@
     "kind": "panel",
     "title": "Package Panel",
     "content": {
-      "snl": "PanelDescription(%The macro-package detail view for strict #0 packages. It retains activation, style expansion, source status, multi-select transfer/delete, package editing, and inline package creation; rows now add direct Delete and render Macro Kind-colored previews through #1.%(Macro_v8,MacroDataDriver),%Contains #0, #1, #2, package activation, and package-edit actions.%(Entry.ui.section.macro-package.macros,Entry.ui.section.macro-package.batch-actions,Entry.ui.section.macro-package.transfer-modal),RunVSCodeCommand(CommandTitle.snlDoc.openMacroPackage),%Image%@ui.panel.macro-package.img)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,PanelDescription(%The macro-package detail view for strict #0 packages. It retains activation, style expansion, source status, multi-select transfer/delete, package editing, and inline package creation; rows now add direct Delete and render Macro Kind-colored previews through #1.%(Macro_v8,MacroDataDriver),%Contains #0, #1, #2, package activation, and package-edit actions.%(Entry.ui.section.macro-package.macros,Entry.ui.section.macro-package.batch-actions,Entry.ui.section.macro-package.transfer-modal),RunVSCodeCommand(CommandTitle.snlDoc.openMacroPackage),%Image%@ui.panel.macro-package.img))"
     },
     "contribution_info": null,
     "pointer": null,

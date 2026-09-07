@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.relationships",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "关系阅读：方向、标签、上下文与图入口",
+    "content": {
+      "markdown": "## 关系不是 Library 层级\n\n全局 semantic Relationship 的 from/to/label/metadata 与 Library branch 图分离；Counter 和阅读 occurrence 不由依赖边反推。Entry 阅读保留各标签、两方向的关系区、计数和展开控制，不限于旧的 depends 与 uses_context 两段。依赖来源和 `x@source` 绑定上下文的解释保留；有明确 metadata.isAtomic 时显示对应标识，不从缺值猜 atomic/composite。\n\n关联 Entry 使用共用 Entry 表面、语言/主题、Macro 查询、弹窗和标题导航；只剩 ID 或目标不可用时有明确 fallback，不假造正文。跳转携带当前返回上下文，HTML 的目标必须落在导出路由闭包内；被筛掉的目标明确不可用，不能生成悬空动作。\n\n## 图与管理能力\n\nExtension 保留全局/Library 范围关系图、节点阅读入口、关系创建/编辑及派生关系重建。只读阅读能力与编辑关系边分开授权；HTML 未提供某图/编辑能力时不展示活的空按钮，不据此删掉 Extension 图和管理功能。此规范不新承诺一个完整离线图编辑器，也不以关系图替代 Library 阅读森林。\n\n派生依赖重建不得删除用户 authored 和范围外关系；重构阅读组件不触发无关 canonical 关系清理。现有工作区零条全局关系不是产品无关系能力的证据，验收需构造有多标签、两方向与未知 metadata 的 fixture。\n\n## 已观察事实\n\n`EntryInfoviewApp.tsx` 的 RelatedSection 按 relationshipId 渲染每行，共用 EntrySurface，并发出 navigateEntry；旧 UI 条目将它说成仅“dependency Entry”或总是新开独立 Panel，已标记历史并给出当前规则。真实双端关系行为仍待重构后验收。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

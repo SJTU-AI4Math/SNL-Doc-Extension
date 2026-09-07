@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Entry Source Metrics (Dashboard)",
     "content": {
-      "snl": "%Displays semantic-freedom and structured-ratio badges for each SNL Entry in the Dashboard. Cross-Entry source references are resolved against the shared Entry pool before metrics are computed.%(Source_structure_metrics)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,%Displays semantic-freedom and structured-ratio badges for each SNL Entry in the Dashboard. Cross-Entry source references are resolved against the shared Entry pool before metrics are computed.%(Source_structure_metrics))"
     },
     "contribution_info": null,
     "pointer": null,

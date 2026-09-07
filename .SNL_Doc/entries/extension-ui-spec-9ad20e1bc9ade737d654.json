@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.library",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "Library 阅读：入口、层级、编号与 occurrence",
+    "content": {
+      "markdown": "## 规范性合同\n\nLibrary 列表展示可读 Library 身份、标题和说明；选择 Library 进入其有序阅读森林，而不是从全池选择单个 Entry。列表、Library 正文、独立 Entry 是不同阅读目的地。空列表、空 Library、加载中、不可读/不存在与图警告应有可区分的状态；失败不得伪装成空内容或无限等待。\n\n每个 Library 节点是一次 occurrence，保留 Library slug、node ID、Entry ID、Package 及返回上下文。同一个 Entry 在不同节点出现时不得合并为一张卡片；标题、编号和结构状态依 occurrence 解析，正文数据可共享。分支顺序、父子缩进、每 occurrence 的 Counter override、Entry Kind 默认 Counter 和 Library Counter 层级共同决定阅读编号；计数不能以当前可见 DOM、语言或 Entry ID 去重集合重算。\n\n正文卡片经同一 Entry 阅读表面；Library 描述、标题、警告、结构控制和关系入口两端语义一致。Extension 额外提供编辑/导出等宿主能力，HTML 仅展示实际能力。打开 occurrence 的导航须展开必要祖先并定位正确节点，不擅改 canonical Library graph。\n\n## 状态与平台\n\nLibrary 的初始结构折叠和同层/全局操作遵守 `spec.shared-reader.structure`；返回与浏览器历史遵守 `spec.shared-reader.navigation`。只读 HTML 从完整冻结图初始化，不从 harvest 时碰巧可见的节点推断图。未挂 Library 的 Entry 仍可有独立路由，不能因没有 occurrence 而失去引用/源码反查目标。\n\n## 实现参考与验收\n\n基线 `webview/src/App.tsx` 的 LibraryLayer/LibraryOutline 已按 nodeId 管理结构并逐节点渲染；旧 `ui.section.infoview.*` 中的单 Entry 说明不准确，已就地纠正并保留历史。双端用同一含重复 Entry、两级 Counter、空分支及初始隐藏后代的 fixture，检查完整节点集合、顺序、编号、返回目标与折叠后的可达性；这是待执行门禁，不是本轮运行回执。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

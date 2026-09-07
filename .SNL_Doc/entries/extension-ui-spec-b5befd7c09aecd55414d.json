@@ -8,7 +8,7 @@
     "kind": "text-input",
     "title": "Macro Mode Selector (Edit)",
     "content": {
-      "snl": "%Edits the active Macro v8 style mode after historical input has crossed the migration boundary.%"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Edits the active Macro v8 style mode after historical input has crossed the migration boundary.%)"
     },
     "contribution_info": null,
     "pointer": null,

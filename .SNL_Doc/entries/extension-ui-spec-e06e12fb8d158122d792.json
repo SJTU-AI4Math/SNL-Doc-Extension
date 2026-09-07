@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.entry",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "Entry 阅读：统一表面、标题、来源与加载",
+    "content": {
+      "markdown": "## 单一阅读出口\n\nLibrary 卡片、独立 Entry、关系内嵌 Entry、递归弹窗和编辑预览复用同一 Entry 表面，不能各自实现正文选择、标题拼接、source 按钮、调色或横向滚动。编辑预览只提供 draft 数据与能力适配，不能成为另一种最终渲染语义。\n\n标题使用 canonical 本地化标题、Kind 名称和当前 occurrence 的 Counter label；独立 Entry 不臆造 Library 编号。空标题的既有回退属于共用展示逻辑，不更改身份。Entry ID 与 Package 用于确切数据查找，缺失/无权/损坏/正在加载分别可见。异步结果必须绑定当前 Entry、数据 generation 与呈现语言，切换后的旧请求不能覆盖新正文。\n\n正文、来源说明和贡献元数据保留作者值；Pointer 的可见结构不等于目标当前可用。共用层发出专用标题导航与源码意图，平台决定 Panel/路由或 IDE/Monaco；禁止共享组件直接 import vscode 或 Node IO。不可用能力隐藏或明确禁用并说明原因，不制造可点击的空动作。\n\n## 内容与几何\n\n正文格式、SNL 与 SVG 见 `spec.shared-reader.body`；关联区见 `spec.shared-reader.relationships`。长公式、宽 SVG 和代码段在 Entry 内水平滚动，不把全页撑宽。Shift+wheel 交给最近真正可滚动的内部区域，普通 wheel 保留页面纵向滚动；一次事件只产生一次位移，边界不困住用户。\n\n## 已观察的基线\n\n`webview/src/render/EntryRender.tsx` 已 import Basics 的 EntrySurface、EntryDataDriver 和 MacroDataDriver；本地 EntrySurface 是 CollapsibleScope 与 overflow 外壳。旧“Basics EntryDataDriver 尚未消费”“EntrySurface 自己分派正文”的描述不再是当前事实。此复用事实不证明 HTML 已共用整个 Library/Entry 阅读器。\n\n验收需同时覆盖直接打开、关系嵌入、两层弹窗、draft 自引用、缺失 Entry、快速连续切换、长行和窄窗口，比较真实标题/正文与导航目标。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

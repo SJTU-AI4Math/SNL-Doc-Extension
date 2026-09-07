@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Entry Source Metrics (Library)",
     "content": {
-      "snl": "%Displays the same source-structure badges beside Entry references in the Library outline, using resource-aware workspace thresholds and cross-Entry source lookup.%(Source_structure_metrics)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,%Displays the same source-structure badges beside Entry references in the Library outline, using resource-aware workspace thresholds and cross-Entry source lookup.%(Source_structure_metrics))"
     },
     "contribution_info": null,
     "pointer": null,

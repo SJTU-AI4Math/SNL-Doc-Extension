@@ -1,4 +1,4 @@
 {
-  "title": "Extension UI Tour",
-  "description": "Catfood documentation for the current SNL-Doc-Extension UI, including Macro v8 authoring, query-driven previews, shared controls, source metrics, and recursive Entry rendering."
+  "title": "SNL-Doc-Extension",
+  "description": "系统功能 Spec 为骨架，既有 UI、命令、实现与截图为子 Entry；共享阅读器为规范目标，旧候选验证独立标注。沿用 extension-ui-tour slug 保持入口身份。"
 }

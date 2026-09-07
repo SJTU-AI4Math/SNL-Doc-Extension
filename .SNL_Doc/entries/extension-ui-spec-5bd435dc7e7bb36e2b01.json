@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.extension.management",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "系统管理：Dashboard、Package、Library、搜索与维护",
+    "content": {
+      "markdown": "## Dashboard 与管理入口\n\nExtension 保留 Library、Entry、Relationship、Macro Package、Entry Kind 和 Macro Kind 管理入口、搜索/过滤、初始化、读取刷新及错误反馈。只读阅读入口与编辑列表不是同一目的地，返回 Dashboard/Infoview 要保留用户正在处理的上下文。历史 UI 控件和命令作为子 Entry 保留，不要求把这些功能移植成 HTML 管理站。\n\n## Library 与 Package\n\nLibrary 编辑保留标题/slug 展示、Entry reference-or-create、Outline 增删/同级移动/缩进/出缩进、Counter tree 与 numbering、外部修改调和。删除一个 occurrence 不能删除共享 Entry；引用未存在时只通过明确创建流程解决，不生成假成功节点。保存 graph、Counter 与 metadata 必须检查结构和引用；折叠动作不写 authored 图。\n\nPackage 管理保留元数据、激活/停用、按包精确身份查询、Style 展开、预览、单项/批量删除、copy/move 及新目标包流程。Entry Package 与 Macro Package 是不同管理投影，不因共用 manifest 混成一个错误实体类型。保留 ordered membership、来源引用和用户未编辑字段；批量动作按真实 API 的事务/部分失败语义报告，不把循环 CRUD 说成原子批次。\n\n## 关系、搜索、Pointer 与指标\n\n保留关系创建/编辑、依赖/上下文派生重建，以及 Pointer 校验/重建/进度/失败重试。维护派生索引不得改作者 Pointer 或源代码；Entry 保存成功与索引失败分别反馈。SNoogL 的 Entry/Macro 查询、Kind/scope 过滤和结果导航保留；HTML 导出不因内含数据就自动获得整个工作区搜索/编辑权限。\n\n旧 semantic-freedom/structured-ratio UI 属历史指标说明。基线存在 SNL Structural Index 组件及不同页面显示条件，不能以旧截图保证所有 Dashboard/Library 行持续显示旧双 badge。保留指标相关 Entry 的来历，不以本轮阅读重构重定义指标公式。\n\n## 验收\n\n以真实 Extension 数据读回验证管理动作和取消/冲突/错误，检查 canonical 引用闭包与未编辑字段；同时检查 HTML 没有管理写入口。主系统图保留既有 UI 子树与命令身份，意味着功能保持要求，不是全部旧截图仍逐像素现行的承诺。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

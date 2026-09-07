@@ -8,7 +8,7 @@
     "kind": "concept",
     "title": "SNL Macro",
     "content": {
-      "snl": "%A named SNL syntax/rendering unit stored in the strict #0 schema. Its ordered styles use #1, required tags, one render mode and template, and either positional placeholders or a real #2 for dynamic children.%(Macro_v8,style_name,Literal.hash_star)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%A named SNL syntax/rendering unit stored in the strict #0 schema. Its ordered styles use #1, required tags, one render mode and template, and either positional placeholders or a real #2 for dynamic children.%(Macro_v8,style_name,Literal.hash_star))"
     },
     "contribution_info": null,
     "pointer": null,

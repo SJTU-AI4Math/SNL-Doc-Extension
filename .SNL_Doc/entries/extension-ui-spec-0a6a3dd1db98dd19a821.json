@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Entries Section",
     "content": {
-      "snl": "%#0 section listing all Entries in the shared pool with preview swatch, title, id, kind, populated formats, edit/delete/create actions, and #1 for SNL rows. Cross-Entry source references are included in the metric calculation.%(Dashboard,Source_structure_metrics)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,%#0 section listing all Entries in the shared pool with preview swatch, title, id, kind, populated formats, edit/delete/create actions, and #1 for SNL rows. Cross-Entry source references are included in the metric calculation.%(Dashboard,Source_structure_metrics))"
     },
     "contribution_info": null,
     "pointer": null,

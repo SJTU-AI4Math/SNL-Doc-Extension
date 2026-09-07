@@ -8,7 +8,7 @@
     "kind": "concept",
     "title": "Macro Migration Boundary",
     "content": {
-      "snl": "%Legacy documents are normalized once at input. Runtime code receives only #0 and Tree v2; writers emit current formats. Toolkit package maps temporarily restore the authoritative map key as macro name before canonical migration, then remove the redundant value-level name.%(Macro_v8)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Legacy documents are normalized once at input. Runtime code receives only #0 and Tree v2; writers emit current formats. Toolkit package maps temporarily restore the authoritative map key as macro name before canonical migration, then remove the redundant value-level name.%(Macro_v8))"
     },
     "contribution_info": null,
     "pointer": null,

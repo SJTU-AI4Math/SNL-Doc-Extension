@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Infoview Library Reading Layer",
     "content": {
-      "snl": "%Inline #0 for the selected Entry, sharing the same query-only macro route and recursive popover behavior as the dedicated Entry panel.%(EntrySurface)"
+      "snl": "SpecHistoricalReference(%所选 Library 层按有序 occurrence 森林展示 Entry 卡片、层级与 Counter；不是只有选中 Entry 的 inline 预览。%,%功能规范%@spec.shared-reader.library,%Inline #0 for the selected Entry, sharing the same query-only macro route and recursive popover behavior as the dedicated Entry panel.%(EntrySurface))"
     },
     "contribution_info": null,
     "pointer": null,

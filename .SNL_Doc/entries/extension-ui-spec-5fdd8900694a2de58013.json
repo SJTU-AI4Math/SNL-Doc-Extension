@@ -8,7 +8,7 @@
     "kind": "button",
     "title": "Related Entry Entrance",
     "content": {
-      "snl": "ButtonPress(OpenPanelFor(Entry_Infoview,%the dependency Entry%))"
+      "snl": "SpecHistoricalReference(%关联入口产生带返回上下文的阅读导航意图；Extension 可在当前阅读栈导航，HTML 使用对应路由，不保证总新开 Panel。%,%功能规范%@spec.shared-reader.navigation,ButtonPress(OpenPanelFor(Entry_Infoview,%the dependency Entry%)))"
     },
     "contribution_info": null,
     "pointer": null,

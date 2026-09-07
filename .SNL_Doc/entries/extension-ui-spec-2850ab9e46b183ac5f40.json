@@ -8,7 +8,7 @@
     "kind": "concept",
     "title": "EntryRender",
     "content": {
-      "snl": "%The Extension-local Entry renderer built on #0 and #1. It chooses body priority snl, markdown, latex, then text; Typst remains authorable but is not selected here. SNL rendering is query-only, receives workspace Macro Kind colors, resolves source Entries/URLs/context, and shares recursive popovers. SNL-Basics generic EntryDataDriver rendering is a separate optional route not yet consumed by the Extension.%(EntrySurface,MacroDataDriver)"
+      "snl": "SpecHistoricalReference(%当前 EntryRender 是 Basics canonical EntrySurface/EntryDataDriver 的适配器；共用目标包括 Extension 与 HTML，旧独立正文分派已经过时。%,%功能规范%@spec.shared-reader.entry,%The Extension-local Entry renderer built on #0 and #1. It chooses body priority snl, markdown, latex, then text; Typst remains authorable but is not selected here. SNL rendering is query-only, receives workspace Macro Kind colors, resolves source Entries/URLs/context, and shares recursive popovers. SNL-Basics generic EntryDataDriver rendering is a separate optional route not yet consumed by the Extension.%(EntrySurface,MacroDataDriver))"
     },
     "contribution_info": null,
     "pointer": null,

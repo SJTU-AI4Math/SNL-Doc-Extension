@@ -19,6 +19,35 @@ function cubics(d: string): Cubic[] {
 const node = (x: number, y: number, w = 100, h = 44) => ({ x, y, w, h });
 
 describe('graph edge path geometry', () => {
+  it('terminates on the actual dot/card boundary in arbitrary radial directions', () => {
+    const from = node(0, 0, 100, 44), to = node(200, 0, 100, 44);
+    const dots = edgePath(from, to, [], { fromShape: 'dot', toShape: 'dot' });
+    expect(dots.d).toMatch(/^M 56 22 /);
+    expect(cubics(dots.d).at(-1)?.end).toEqual({ x: 244, y: 22 });
+    const mixed = edgePath(from, to, [], { fromShape: 'title', toShape: 'dot' });
+    expect(mixed.d).toMatch(/^M 100 22 /);
+    expect(cubics(mixed.d).at(-1)?.end).toEqual({ x: 244, y: 22 });
+    const reverse = edgePath(to, from, [], { fromShape: 'title', toShape: 'title' });
+    expect(reverse.d).toMatch(/^M 200 22 /);
+    expect(cubics(reverse.d).at(-1)?.end).toEqual({ x: 100, y: 22 });
+    const rounded = edgePath(from, node(200, 88), [], { fromShape: 'title', toShape: 'title' });
+    const [x, y] = rounded.d.slice(2).split(' ').map(Number);
+    expect(x).toBeLessThan(100);
+    expect(y).toBeLessThan(44);
+    expect(Math.hypot(x - 96, y - 40)).toBeCloseTo(4);
+  });
+
+  it.each(['dot', 'title'] as const)('draws a visible self-loop outside the %s with distinct boundary ports', shape => {
+    const n = node(10, 20);
+    const path = edgePath(n, n, [], { fromShape: shape, toShape: shape });
+    const [x, y] = path.d.slice(2).split(' ').map(Number);
+    const curves = cubics(path.d);
+    expect(curves.at(-1)?.end).not.toEqual({ x, y });
+    expect(curves.some(c => c.c1.x > n.x + n.w || c.c2.x > n.x + n.w)).toBe(true);
+    expect(curves.some(c => c.c1.y < n.y || c.c2.y < n.y)).toBe(true);
+    expect(path.d).not.toMatch(/NaN|Infinity/);
+  });
+
   it('keeps vertical tangents only at the source and target anchors', () => {
     const start = node(0, 0);
     const end = node(200, 320);

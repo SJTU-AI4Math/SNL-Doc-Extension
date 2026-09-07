@@ -13,7 +13,7 @@
 // <g transform>. Click a node → post `openEntryInfoview`. Click an edge
 // label → post `editRelationship`. No physics.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useVsCodeApiRef, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
@@ -53,7 +53,9 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   entryKinds: 'Entry kinds', all: 'all', none: 'none', allTitle: 'Show every entry kind (reset kind filter)',
   noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.', unpackaged: 'Unpackaged',
  packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
- relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})'
+ relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})',
+ layout: 'Layout', rectangle: 'Rectangle', radialInward: 'Radial inward', radialOutward: 'Radial outward',
+ nodeMode: 'Nodes', autoNodes: 'Auto', alwaysTitle: 'Always title', titleThreshold: 'Title threshold'
 }, {
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
   nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
@@ -68,7 +70,9 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   all: '全部', none: '无', allTitle: '显示所有条目种类（重置种类筛选器）', noneTitle: '隐藏所有条目种类',
   noKinds: '此关系图中尚无条目种类。', unpackaged: '未分包',
   packageClusterOne: '包 {name}：1 个条目', packageClusterMany: '包 {name}：{count} 个条目',
-  relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）'
+  relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）',
+  layout: '布局', rectangle: '矩形平铺', radialInward: '向内环铺', radialOutward: '向外环铺',
+  nodeMode: '节点', autoNodes: '自动', alwaysTitle: '始终显示标题', titleThreshold: '标题阈值'
 });
 
 interface GraphNode {
@@ -198,6 +202,21 @@ interface Layout {
   clusters: LaidOutCluster[];
   width: number;
   height: number;
+  radial?: RadialProjection;
+}
+
+export type GraphLayoutMode = 'rectangle' | 'radial-inward' | 'radial-outward';
+interface RadialProjection {
+  centerX: number;
+  centerY: number;
+  innerRadius: number;
+  layerGap: number;
+  maxLayer: number;
+  xMin: number;
+  xSpan: number;
+  yMin: number;
+  startAngle: number;
+  sweep: number;
 }
 
 interface LaidOutCluster {
@@ -207,6 +226,7 @@ interface LaidOutCluster {
   w: number;
   h: number;
   nodeCount: number;
+  sector?: { path: string; startAngle: number; endAngle: number; labelX: number; labelY: number };
 }
 
 const NODE_H = 44;
@@ -268,7 +288,7 @@ function renderTitleKatex(title: string): string {
   }
 }
 
-function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
+export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], mode: GraphLayoutMode = 'rectangle'): Layout {
   // Normalize protocol ordering up front so storage iteration order cannot
   // move packages, nodes, cycle breaks, or edge routes between refreshes.
   const nodes = [...inputNodes].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -375,8 +395,8 @@ function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
     rankFromSink.set(id, r);
   }
   const maxSinkRank = Math.max(0, ...Array.from(rankFromSink.values()));
-  // Flip: layer index counts from top of screen, so sinks (largest
-  // rankFromSink) go on the LAST layer.
+  // Flip: layer index counts from top of screen, so sinks (rankFromSink 0)
+  // go on the LAST layer. Mixed relations retain the existing ranking semantics.
   const rank = new Map<string, number>();
   for (const [id, r] of rankFromSink) {
     rank.set(id, maxSinkRank - r);
@@ -635,12 +655,91 @@ function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[]): Layout {
     });
   }
 
-  return {
+  const rectangle: Layout = {
     nodes: Array.from(laidNodesById.values()),
     edges: laidEdges,
     clusters,
     width: clusteredWidth,
     height: clusteredHeight
+  };
+  return mode === 'rectangle' ? rectangle : radialLayout(rectangle, mode);
+}
+
+/** A deterministic projection of the final rectangular package lanes, not a
+ * second ordering/layout algorithm. Cards stay upright and keep their size. */
+function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectangle'>): Layout {
+  const centres = rectangle.nodes.map(n => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
+  const xMin = rectangle.clusters[0].x;
+  const lastCluster = rectangle.clusters[rectangle.clusters.length - 1];
+  const xSpan = lastCluster.x + lastCluster.w - xMin;
+  const yMin = Math.min(...centres.map(p => p.y));
+  const maxLayer = (Math.max(...centres.map(p => p.y)) - yMin) / (NODE_H + LAYER_GAP_Y);
+  const startAngle = -Math.PI / 2 + Math.PI / 24;
+  const sweep = 2 * Math.PI - Math.PI / 12; // open seam, including for a single package
+  const angle = (x: number): number => startAngle + (x - xMin) / xSpan * sweep;
+  const extent = Math.max(...rectangle.nodes.map(n => Math.hypot(n.w, n.h) / 2));
+  // Circumscribed card discs guarantee separation for upright rectangles at
+  // every angle. Adjacent angular gaps (including the seam) suffice per ring.
+  // Size for *all* rows: either direction may place any one of them innermost.
+  let innerRadius = extent + NODE_GAP_X;
+  const rows = new Map<number, number[]>();
+  for (const c of centres) {
+    const row = rows.get(c.y) ?? [];
+    row.push(angle(c.x));
+    rows.set(c.y, row);
+  }
+  for (const row of rows.values()) {
+    row.sort((a, b) => a - b);
+    if (row.length < 2) continue;
+    for (let i = 0; i < row.length; i++) {
+      const gap = i + 1 < row.length ? row[i + 1] - row[i] : row[0] + 2 * Math.PI - row[i];
+      innerRadius = Math.max(innerRadius, (2 * extent + NODE_GAP_X) / (2 * Math.sin(gap / 2)));
+    }
+  }
+  // Sparse rows can have no same-ring neighbours yet belong to very narrow
+  // package wedges. Reserve their card discs inside both angular boundaries.
+  const clusterById = new Map(rectangle.clusters.map(c => [c.packageId, c]));
+  for (let i = 0; i < rectangle.nodes.length; i++) {
+    const n = rectangle.nodes[i], c = clusterById.get(n.packageId)!;
+    const clearance = Math.min(Math.PI / 2, angle(centres[i].x) - angle(c.x), angle(c.x + c.w) - angle(centres[i].x));
+    innerRadius = Math.max(innerRadius, (Math.hypot(n.w, n.h) / 2 + 4) / Math.sin(clearance));
+  }
+  const layerGap = Math.max(NODE_H + LAYER_GAP_Y, 2 * extent + NODE_GAP_X);
+  const outerRadius = innerRadius + maxLayer * layerGap;
+  const sectorInner = Math.max(1, innerRadius - extent - CLUSTER_PADDING_X / 2);
+  const sectorOuter = outerRadius + extent + CLUSTER_HEADER_H;
+  // Label allowance also contains a visible self-loop above a card.
+  const size = 2 * (sectorOuter + MARGIN + extent);
+  const radial: RadialProjection = {
+    centerX: size / 2, centerY: size / 2, innerRadius, layerGap, maxLayer,
+    xMin, xSpan, yMin, startAngle, sweep
+  };
+  const polar = (a: number, r: number): EdgePoint => ({
+    x: radial.centerX + Math.cos(a) * r, y: radial.centerY + Math.sin(a) * r
+  });
+  const project = (point: EdgePoint): EdgePoint => {
+    const screenLayer = (point.y - yMin) / (NODE_H + LAYER_GAP_Y);
+    const layer = mode === 'radial-outward' ? maxLayer - screenLayer : screenLayer;
+    return polar(angle(point.x), innerRadius + layer * layerGap);
+  };
+  return {
+    width: size, height: size, radial,
+    nodes: rectangle.nodes.map((n, i) => {
+      const p = project(centres[i]);
+      return { ...n, x: p.x - n.w / 2, y: p.y - n.h / 2 };
+    }),
+    edges: rectangle.edges.map(e => ({ ...e, waypoints: e.waypoints.map(project) })),
+    clusters: rectangle.clusters.map(c => {
+      const start = angle(c.x), end = angle(c.x + c.w);
+      const a = polar(start, sectorOuter), b = polar(end, sectorOuter);
+      const d = polar(start, sectorInner), e = polar(end, sectorInner);
+      const large = end - start > Math.PI ? 1 : 0;
+      const label = polar((start + end) / 2, sectorOuter - 12);
+      return { ...c, sector: {
+        startAngle: start, endAngle: end, labelX: label.x, labelY: label.y,
+        path: `M ${a.x} ${a.y} A ${sectorOuter} ${sectorOuter} 0 ${large} 1 ${b.x} ${b.y} L ${e.x} ${e.y} A ${sectorInner} ${sectorInner} 0 ${large} 0 ${d.x} ${d.y} Z`
+      } };
+    })
   };
 }
 
@@ -655,34 +754,84 @@ interface Viewport {
 }
 
 /** The edge router only needs node bounds, not the rest of the graph record. */
-type EdgeAnchorNode = Pick<LaidOutNode, 'x' | 'y' | 'w' | 'h'>;
+type EdgeAnchorNode = Pick<LaidOutNode, 'x' | 'y' | 'w' | 'h'> & { dotRadius?: number; cornerRadius?: number };
 type EdgePoint = { x: number; y: number };
+type NodeShape = 'dot' | 'title';
+type GraphNodeMode = 'auto' | 'always-title';
+const DOT_RADIUS = 6;
+const CARD_RADIUS = 4;
+
+export function graphNodePresentation<T extends EdgeAnchorNode>(node: T, viewportScale: number, active: boolean) {
+  const scale = Math.max(Number.EPSILON, viewportScale);
+  const presentationScale = active ? Math.max(1, 1 / scale) : 1;
+  const w = node.w * presentationScale, h = node.h * presentationScale;
+  return {
+    ...node, x: node.x + (node.w - w) / 2, y: node.y + (node.h - h) / 2, w, h,
+    presentationScale, dotRadius: Math.max(DOT_RADIUS, 2 / scale),
+    cornerRadius: CARD_RADIUS * presentationScale
+  };
+}
+
+/** Intersect a centre ray with the actual circle or rounded-card outline. */
+function nodeBoundary(node: EdgeAnchorNode, toward: EdgePoint, shape: NodeShape): EdgePoint {
+  const cx = node.x + node.w / 2, cy = node.y + node.h / 2;
+  const dx = toward.x - cx, dy = toward.y - cy;
+  const length = Math.hypot(dx, dy);
+  const ux = length ? dx / length : 1, uy = length ? dy / length : 0;
+  let distance = node.dotRadius ?? DOT_RADIUS;
+  if (shape === 'title') {
+    const cornerRadius = node.cornerRadius ?? CARD_RADIUS;
+    const ax = Math.abs(ux), ay = Math.abs(uy);
+    const hw = node.w / 2, hh = node.h / 2;
+    distance = Math.min(ax ? hw / ax : Infinity, ay ? hh / ay : Infinity);
+    if (distance * ax > hw - cornerRadius && distance * ay > hh - cornerRadius) {
+      const cornerX = hw - cornerRadius, cornerY = hh - cornerRadius;
+      const dot = ax * cornerX + ay * cornerY;
+      distance = dot + Math.sqrt(Math.max(0, dot * dot - cornerX * cornerX - cornerY * cornerY + cornerRadius * cornerRadius));
+    }
+  }
+  return { x: cx + ux * distance, y: cy + uy * distance };
+}
 
 /**
  * Compute an SVG path for an edge, routing through any dummy-node waypoints.
  *
- * The source and target tangents stay vertical, so edges leave and enter node
- * boxes cleanly. Interior tangents instead follow the centred secant through
- * the neighbouring points. The old router reset both controls to the waypoint
- * x at every layer, which forced an extra vertical-looking section into the
- * middle of every long curve.
+ * Explicit shapes route from the actual outline toward the adjacent waypoint
+ * (or opposite centre); this works at every radial angle and for reverse edges.
+ * Omitting shapes preserves the legacy rectangular vertical-port API.
+ * Interior tangents follow the centred secant through neighbouring waypoints.
  */
 export function edgePath(
   from: EdgeAnchorNode,
   to: EdgeAnchorNode,
-  waypoints: EdgePoint[]
+  waypoints: EdgePoint[],
+  shapes?: { fromShape: NodeShape; toShape: NodeShape }
 ): { d: string; midX: number; midY: number } {
-  const x1 = from.x + from.w / 2;
-  const y1 = from.y + from.h;
-  const x2 = to.x + to.w / 2;
-  const y2 = to.y;
+  const fromCentre = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
+  const toCentre = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
+  if (shapes && fromCentre.x === toCentre.x && fromCentre.y === toCentre.y) {
+    const start = nodeBoundary(from, { x: fromCentre.x + 1, y: fromCentre.y }, shapes.fromShape);
+    const end = nodeBoundary(to, { x: toCentre.x, y: toCentre.y - 1 }, shapes.toShape);
+    const right = from.x + from.w + 36, top = from.y - 36;
+    return {
+      d: `M ${start.x} ${start.y} C ${right} ${start.y}, ${right} ${top}, ${fromCentre.x + from.w / 2} ${top} C ${end.x} ${top}, ${end.x} ${top}, ${end.x} ${end.y}`,
+      midX: right, midY: top
+    };
+  }
+  const start = shapes ? nodeBoundary(from, waypoints[0] ?? toCentre, shapes.fromShape)
+    : { x: fromCentre.x, y: from.y + from.h };
+  const end = shapes ? nodeBoundary(to, waypoints[waypoints.length - 1] ?? fromCentre, shapes.toShape)
+    : { x: toCentre.x, y: to.y };
+  const x1 = start.x, y1 = start.y, x2 = end.x, y2 = end.y;
   const pts: EdgePoint[] = [{ x: x1, y: y1 }, ...waypoints, { x: x2, y: y2 }];
   const last = pts.length - 1;
   const tangents = pts.map((point, index): EdgePoint => {
     if (index === 0) {
+      if (shapes) return { x: (pts[1].x - point.x) * 0.5, y: (pts[1].y - point.y) * 0.5 };
       return { x: 0, y: (pts[1].y - point.y) * 1.5 };
     }
     if (index === last) {
+      if (shapes) return { x: (point.x - pts[last - 1].x) * 0.5, y: (point.y - pts[last - 1].y) * 0.5 };
       return { x: 0, y: (point.y - pts[last - 1].y) * 1.5 };
     }
     return {
@@ -794,6 +943,12 @@ function SnlGraphInner({
   }>(null);
   const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  // Panel-local controls survive host refreshes, but never affect graph order
+  // or fitting except when the layout itself changes.
+  const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('rectangle');
+  const [nodeMode, setNodeMode] = useState<GraphNodeMode>('auto');
+  const [titleThreshold, setTitleThreshold] = useState(120);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
    *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
@@ -855,8 +1010,8 @@ function SnlGraphInner({
           background: colors.background
         };
       });
-    return layout(filteredNodes, filteredEdges);
-  }, [msg, depFilter, kindFilter, contentLanguage, preferencesRevision]);
+    return layout(filteredNodes, filteredEdges, layoutMode);
+  }, [msg, depFilter, kindFilter, contentLanguage, preferencesRevision, layoutMode]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current
@@ -880,7 +1035,7 @@ function SnlGraphInner({
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
   }, [msg, contentLanguage, preferencesRevision]);
 
-  // Fit-to-view on first load.
+  // Fit on host refresh and an explicit layout change, never presentation.
   useEffect(() => {
     if (!laid || !svgRef.current) return;
     const svg = svgRef.current;
@@ -898,9 +1053,9 @@ function SnlGraphInner({
       scale: s
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [msg]);
+  }, [msg, layoutMode]);
 
-  const onWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
+  const onWheel = useCallback((e: WheelEvent): void => {
     e.preventDefault();
     const svg = svgRef.current;
     if (!svg) return;
@@ -918,7 +1073,16 @@ function SnlGraphInner({
         y: my - wy * nextScale
       };
     });
-  };
+  }, []);
+
+  // React delegates wheel listeners passively. Bind to the mounted canvas so
+  // zoom can cancel native scrolling without console errors; the callback ref
+  // also releases the listener on empty/loading transitions and unmount.
+  const bindSvg = useCallback((svg: SVGSVGElement | null): void => {
+    svgRef.current?.removeEventListener('wheel', onWheel);
+    svgRef.current = svg;
+    svg?.addEventListener('wheel', onWheel, { passive: false });
+  }, [onWheel]);
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>): void => {
     if ((e.target as Element).tagName === 'svg' || (e.target as Element).id === 'snl-graph-background') {
@@ -960,7 +1124,16 @@ function SnlGraphInner({
     );
   }
 
-  const nodesById = new Map(laid.nodes.map((n) => [n.id, n]));
+  const nodesById = new Map(laid.nodes.map(n => [n.id,
+    graphNodePresentation(n, vp.scale, hoverNodeId === n.id || focusNodeId === n.id)]));
+  const nodeShape = (id: string): NodeShape =>
+    nodeMode === 'always-title' || vp.scale >= titleThreshold / 100 || hoverNodeId === id || focusNodeId === id
+      ? 'title' : 'dot';
+  // Stable keys preserve DOM/focus while raised cards paint above dots. Hover
+  // and keyboard focus remain separate so leaving either doesn't clear both.
+  const paintedNodes = [...laid.nodes].sort((a, b) =>
+    (Number(nodeShape(a.id) === 'title') + Number(a.id === hoverNodeId || a.id === focusNodeId)) -
+    (Number(nodeShape(b.id) === 'title') + Number(b.id === hoverNodeId || b.id === focusNodeId)));
   const displayedNodeCount = laid.nodes.length;
   const displayedEdgeCount = laid.edges.length;
   const backEdgeCount = laid.edges.filter((e) => e.isBack).length;
@@ -1012,6 +1185,19 @@ function SnlGraphInner({
 
   return (
     <main
+      onPointerMoveCapture={(event) => {
+        // Replacing/reordering an SVG hit shape can suppress its pointerout in
+        // Chromium. Reconcile from the next real pointer target, independently
+        // of keyboard focus, rather than leaving a permanent hovered card.
+        if (hoverNodeId && (event.target as Element).closest('[data-node-id]')?.getAttribute('data-node-id') !== hoverNodeId) {
+          const previous = nodesById.get(hoverNodeId);
+          if (previous) handleNodePointerLeave(previous);
+        }
+      }}
+      onPointerLeave={() => {
+        const previous = hoverNodeId ? nodesById.get(hoverNodeId) : undefined;
+        if (previous) handleNodePointerLeave(previous);
+      }}
       style={{
         ...PANEL_STYLE,
         padding: 0,
@@ -1064,6 +1250,31 @@ function SnlGraphInner({
             {t('instructions')}
           </div>
         </div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', padding: '0 0.75rem 0.5rem', fontSize: '0.8rem' }}>
+        <label>
+          {t('layout')}{' '}
+          <select className="snl-control" aria-label={t('layout')} value={layoutMode}
+            onChange={e => setLayoutMode(e.target.value as GraphLayoutMode)}>
+            <option value="rectangle">{t('rectangle')}</option>
+            <option value="radial-inward">{t('radialInward')}</option>
+            <option value="radial-outward">{t('radialOutward')}</option>
+          </select>
+        </label>
+        <label>
+          {t('nodeMode')}{' '}
+          <select className="snl-control" aria-label={t('nodeMode')} value={nodeMode}
+            onChange={e => setNodeMode(e.target.value as GraphNodeMode)}>
+            <option value="auto">{t('autoNodes')}</option>
+            <option value="always-title">{t('alwaysTitle')}</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          {t('titleThreshold')}
+          <input type="range" aria-label={t('titleThreshold')} min={20} max={300} step={1}
+            value={titleThreshold} onChange={e => setTitleThreshold(Number(e.target.value))} />
+          <output style={{ minWidth: '3.5em' }}>{titleThreshold}%</output>
+        </label>
       </div>
       {graphError ? (
         <div
@@ -1122,10 +1333,10 @@ function SnlGraphInner({
           </div>
         ) : (
           <svg
-            ref={svgRef}
+            ref={bindSvg}
             width="100%"
             height="100%"
-            onWheel={onWheel}
+
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -1183,7 +1394,13 @@ function SnlGraphInner({
                     data-cluster-bounds={`${cluster.x},${cluster.y},${cluster.w},${cluster.h}`}
                     style={{ pointerEvents: 'none' }}
                   >
-                    <rect
+                    {cluster.sector ? <path
+                      d={cluster.sector.path}
+                      fill="var(--vscode-editorWidget-background)"
+                      fillOpacity={0.24}
+                      stroke="var(--vscode-panel-border, var(--vscode-contrastBorder))"
+                      strokeWidth={1.5}
+                    /> : <rect
                       x={cluster.x}
                       y={cluster.y}
                       width={cluster.w}
@@ -1194,10 +1411,11 @@ function SnlGraphInner({
                       fillOpacity={0.24}
                       stroke="var(--vscode-panel-border, var(--vscode-contrastBorder))"
                       strokeWidth={1.5}
-                    />
+                    />}
                     <text
-                      x={cluster.x + CLUSTER_PADDING_X}
-                      y={cluster.y + 22}
+                      x={cluster.sector?.labelX ?? cluster.x + CLUSTER_PADDING_X}
+                      y={cluster.sector?.labelY ?? cluster.y + 22}
+                      textAnchor={cluster.sector ? 'middle' : undefined}
                       fill="var(--vscode-foreground)"
                       fontSize={12}
                       fontWeight={600}
@@ -1212,7 +1430,7 @@ function SnlGraphInner({
               {laid.edges.map((e) => {
                 const from = nodesById.get(e.from)!;
                 const to = nodesById.get(e.to)!;
-                const { d } = edgePath(from, to, e.waypoints);
+                const { d } = edgePath(from, to, e.waypoints, { fromShape: nodeShape(from.id), toShape: nodeShape(to.id) });
                 const hovered = hoverEdgeId === e.id;
                 const incidentToSelected =
                   selectedId !== null &&
@@ -1262,13 +1480,15 @@ function SnlGraphInner({
                 );
               })}
               {/* Nodes */}
-              {laid.nodes.map((n) => {
+              {paintedNodes.map((n) => {
+                const presentation = nodesById.get(n.id)!;
                 const isHovered = hoverNodeId === n.id;
                 const isSelected = selectedId === n.id;
-                const highlighted = isHovered || isSelected;
+                const showTitle = nodeShape(n.id) === 'title';
+                const highlighted = isHovered || isSelected || focusNodeId === n.id;
                 const stroke = n.color;
                 const fill = graphNodeFill(n.background, highlighted);
-                const titleHtml = renderTitleKatex(n.title);
+                const titleHtml = showTitle ? renderTitleKatex(n.title) : '';
                 return (
                   <g
                     key={n.id}
@@ -1276,14 +1496,16 @@ function SnlGraphInner({
                     tabIndex={0}
                     aria-label={t('entryAria', { title: n.title || n.id, id: n.id })}
                     data-package-id={n.packageId}
-                    transform={`translate(${n.x} ${n.y})`}
+                    data-node-id={n.id}
+                    data-node-shape={showTitle ? 'title' : 'dot'}
+                    transform={`translate(${presentation.x} ${presentation.y}) scale(${presentation.presentationScale})`}
                     style={{ cursor: 'pointer' }}
                     onPointerEnter={(ev) => handleNodePointerEnter(n, ev)}
                     onPointerMove={(ev) => handleNodePointerMove(n, ev)}
                     onPointerLeave={() => handleNodePointerLeave(n)}
                     onClick={(ev) => handleNodeClick(n, ev)}
-                    onFocus={() => setHoverNodeId(n.id)}
-                    onBlur={() => setHoverNodeId((c) => (c === n.id ? null : c))}
+                    onFocus={() => setFocusNodeId(n.id)}
+                    onBlur={() => setFocusNodeId((c) => (c === n.id ? null : c))}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
@@ -1297,11 +1519,12 @@ function SnlGraphInner({
                     {/* Cat 2026-07-10 §3: dropped the native <title>
                         tooltip — the full-Entry hover popover already
                         carries every fact this used to duplicate. */}
+                    {showTitle ? <>
                     <rect
                       width={n.w}
                       height={n.h}
-                      rx={4}
-                      ry={4}
+                      rx={CARD_RADIUS}
+                      ry={CARD_RADIUS}
                       fill={fill}
                       stroke={stroke}
                       strokeWidth={highlighted ? 3.5 : 2}
@@ -1340,6 +1563,8 @@ function SnlGraphInner({
                         dangerouslySetInnerHTML={{ __html: titleHtml }}
                       />
                     </foreignObject>
+                    </> : <circle cx={n.w / 2} cy={n.h / 2} r={presentation.dotRadius}
+                      fill={fill} stroke={stroke} strokeWidth={Math.max(highlighted ? 3.5 : 2, 1 / vp.scale)} />}
                   </g>
                 );
               })}

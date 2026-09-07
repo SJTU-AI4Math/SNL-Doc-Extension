@@ -41,8 +41,24 @@ assert(css.includes('@font-face')&&css.includes('data:font/ttf;base64,'),'codico
 const register=chunks.map(c=>`globalThis.__snlSourceChunks.set(${safe(c.fileId)},${safe(c)});`).join('\n');
 for (const f of ['sourceViewer.js','sourceViewer.css']) copyFileSync(resolve(root,'media',f),resolve(dir,f));
 for(const c of chunks)writeFileSync(resolve(dir,'source-'+c.fileId+'.js'),`globalThis.__snlSourceChunks.set(${safe(c.fileId)},${safe(c)});`);
-const body = locale => `<section data-snl-route-id="node-demo"><article class="snl-entry snl-entry-surface" data-entry-id="Demo"><h2>${locale==='en'?'Reflexivity':'自反性'}</h2><p>Source and document share a frozen snapshot.</p><a data-src="Other" href="#/entry/Other">Other entry</a></article></section><section data-snl-route-id="node-tie-a"><article class="snl-entry" data-entry-id="Tie"><h2>Tied occurrence A</h2></article></section><section data-snl-route-id="node-tie-b"><article class="snl-entry" data-entry-id="Tie"><h2>Tied occurrence B</h2></article></section><section data-snl-route-id="node-later"><article class="snl-entry" data-entry-id="Later"><h2>Later theorem</h2></article></section>`;
-const popovers={Other:'<article class="snl-entry snl-entry-surface" data-entry-id="Other"><h2>Popover-only entry</h2><p>Offline route.</p></article>'};
+const entryHeader = title => `<header class="snl-entry-header" style="display:flex;align-items:baseline;gap:0.5rem;min-width:0;padding:0.275rem 0.8rem"><strong class="snl-entry-title" style="flex:1 1 auto;min-width:0;font-size:1.25rem;overflow-wrap:anywhere">${title}</strong></header>`;
+async function assertSourceHeaders(page, scope='') {
+  const rows=await page.locator(scope+' .snl-entry-header').evaluateAll(headers=>headers.map(header=>{
+    const action=header.querySelector('[data-snl-source-entry]');
+    const title=header.querySelector('.snl-entry-title');
+    const h=header.getBoundingClientRect(), a=action?.getBoundingClientRect(), t=title?.getBoundingClientRect();
+    return {parent:action?.parentElement===header,text:action?.textContent,label:action?.getAttribute('aria-label'),nativeClass:action?.classList.contains('snl-entry-source-action'),noFooterClass:!action?.classList.contains('snl-source-entry-action'),shrink:action?getComputedStyle(action).flexShrink:null,right:a&&t&&a.left>=t.right-1,inside:a&&a.right<=h.right+1&&a.top>=h.top-1&&a.bottom<=h.bottom+1};
+  }));
+  assert(rows.length>0,'Expected rendered Entry headers');
+  for(const row of rows) {
+    assert.equal(row.parent,true,'Source must remain a direct child of the Extension Entry header');
+    assert.equal(row.text,'↗ source');assert.equal(row.label,'Open source');
+    assert(row.nativeClass&&row.noFooterClass);assert.equal(row.shrink,'0');
+    assert(row.right&&row.inside,'Source must remain at the right of the title, inside the header');
+  }
+}
+const body = locale => `<section data-snl-route-id="node-demo"><article class="snl-entry snl-entry-surface" data-entry-id="Demo">${entryHeader(locale==='en'?'Reflexivity':'自反性')}<p>Source and document share a frozen snapshot.</p><a data-src="Other" href="#/entry/Other">Other entry</a></article></section><section data-snl-route-id="node-tie-a"><article class="snl-entry" data-entry-id="Tie">${entryHeader("Tied occurrence A")}</article></section><section data-snl-route-id="node-tie-b"><article class="snl-entry" data-entry-id="Tie">${entryHeader("Tied occurrence B")}</article></section><section data-snl-route-id="node-later"><article class="snl-entry" data-entry-id="Later">${entryHeader("Later theorem")}</article></section>`;
+const popovers={Other:`<article class="snl-entry snl-entry-surface" data-entry-id="Other">${entryHeader('Popover-only entry')}<p>Offline route.</p></article>`};
 const variants={initialLocale:'en',initialColorScheme:'light',variants:['en','zh-CN'].flatMap(locale=>['light','dark'].map(colorScheme=>({locale,colorScheme,languageLabel:locale,body:body(locale),popovers})))};
 function html(inline,withSources=true,override=manifest) {return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' blob:; worker-src blob:; style-src 'self' 'unsafe-inline'; font-src data:; img-src data:; connect-src 'none'"><link rel="icon" href="data:,"><title>Offline source proof</title><style>body{margin:0;font:16px/1.6 system-ui;background:#fff}.snl-export{padding:24px;box-sizing:border-box}section{padding:20px;border-bottom:1px solid #8884}html[data-snl-color-scheme=dark]{color-scheme:dark;--vscode-editor-background:#1e1e1e;--vscode-editor-foreground:#ddd}html[data-snl-color-scheme=dark] body{background:#1e1e1e;color:#ddd}${runtime.EXPORT_RUNTIME_CSS}</style>${inline?`<style>${css}</style>`:'<link rel="stylesheet" href="sourceViewer.css">'}<body><main class="snl-export"><h1>Offline Lean</h1><div data-snl-export-body>${body('en')}</div></main><script>globalThis.MonacoEnvironment={globalAPI:true};globalThis.__SNL_POPOVERS__=${safe(popovers)};globalThis.__SNL_EXPORT_VARIANTS__=${safe(variants)};${withSources?`globalThis.__snlSources=${safe(override)};`:''}globalThis.__snlSourceChunks=new Map();${inline?register:''}history.replaceState({routerOwned:'preserve-me'},'');</script><script>${runtime.EXPORT_RUNTIME_WIRING_JS.replaceAll('</script','<\\/script')}</script>${inline?`<script>${js.replaceAll('</script','<\\/script')}</script>`:'<script src="sourceViewer.js"></script>'}</body></html>`;}
 writeFileSync(resolve(dir,'directory.html'),html(false));writeFileSync(resolve(dir,'inline.html'),html(true));writeFileSync(resolve(dir,'none.html'),html(true,false));writeFileSync(resolve(dir,'invalid.html'),html(true,true,{...manifest,schemaVersion:'unknown'}));
@@ -60,6 +76,7 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.waitForSelector('.snl-source-open');
   assert.equal(await page.locator('.monaco-editor').count(),0,'must not create editor before opening');
   assert.equal(await page.locator('.snl-source-panel').isVisible(),false);
+  await assertSourceHeaders(page,'main');
   const start=Date.now();await page.locator('[data-snl-source-entry="Demo"]').click();await page.waitForSelector('.snl-source-editor[data-ready]');
   await page.waitForFunction(()=>window.monaco.editor.getEditors()[0]?.getValue().startsWith('theorem'));
   const firstOpenMs=Date.now()-start;
@@ -92,12 +109,15 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].setPosition({lineNumber:40,column:1},'test-program'));await page.getByRole('button',{name:'Nearby entry (Ctrl+Alt+J)',exact:true}).click();
   assert.equal(await page.locator('.snl-source-choices button').count(),3);assert.equal(await page.evaluate(()=>location.hash),'');
   await page.getByRole('button',{name:'Other',exact:true}).click();assert.equal(await page.evaluate(()=>location.hash),'#/entry/Other');await page.waitForSelector('[data-snl-route-outlet] [data-entry-id="Other"] [data-snl-source-entry="Other"]');
+  await assertSourceHeaders(page,'[data-snl-route-outlet]');
   assert.equal(await page.evaluate(()=>history.state.routerOwned),'preserve-me');
   await page.goBack();await page.waitForFunction(()=>location.hash==='');await page.waitForFunction(()=>window.monaco.editor.getEditors()[0].getPosition().lineNumber===40);
   await page.goForward();await page.waitForFunction(()=>location.hash==='#/entry/Other');
   await page.goBack();await page.waitForFunction(()=>location.hash==='');
   await page.locator('a[data-src="Other"]').click();
   await page.waitForSelector('.snl-export-popover [data-snl-source-entry="Other"]');
+  await assertSourceHeaders(page,'.snl-export-popover');
+  await page.screenshot({path:resolve(dir,mode+'-source-popover.png')});
   await page.locator('.snl-export-popover [data-snl-source-entry="Other"]').click();
   await page.waitForFunction(()=>window.monaco.editor.getEditors()[0].getSelection().startLineNumber===40);
   await page.getByLabel('Follow cursor',{exact:true}).uncheck();
@@ -107,6 +127,7 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.getByLabel('Follow cursor',{exact:true}).check();
   // The real export runtime swaps locale/theme body HTML, and source actions must be reattached.
   await page.locator('[data-snl-theme-toggle]').click();await page.waitForSelector('.monaco-editor.vs-dark');await page.locator('[data-snl-language-trigger]').click();await page.locator('[data-snl-language="zh-CN"]').click();await page.waitForSelector('[data-snl-source-entry="Demo"]');
+  await assertSourceHeaders(page,'main');
   assert.equal(await page.evaluate(()=>window.monaco.editor.getModels().length),1);
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].setScrollTop(0));await page.screenshot({path:resolve(dir,mode+'-dark.png')});
   await page.locator('[data-snl-theme-toggle]').click();await page.waitForSelector('.monaco-editor.vs');await page.screenshot({path:resolve(dir,mode+'-light.png')});
@@ -120,7 +141,14 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.setViewportSize({width:720,height:900});await page.screenshot({path:resolve(dir,mode+'-narrow.png')});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].focus());await page.keyboard.press('Escape');assert.equal(await page.locator('.snl-source-panel').isVisible(),false);assert(await page.locator('.snl-source-open').evaluate(el=>el===document.activeElement));
   assert.deepEqual(errors,[]);
+  // Check wrapper ownership separately from the document's routing fixtures.
+  // Adding a second Entry surface there changes reverse-navigation ambiguity.
+  await page.evaluate(header=>{const wrapper=document.createElement('div');wrapper.id='source-wrapper-probe';wrapper.dataset.snlRouteSurface='';wrapper.dataset.entryId='Demo';wrapper.innerHTML=`<article class="snl-entry-surface" data-entry-id="Demo">${header}</article>`;document.body.append(wrapper);},entryHeader('Wrapped entry'));
+  await page.waitForSelector('#source-wrapper-probe .snl-entry-header > [data-snl-source-entry]');
+  assert.equal(await page.locator('#source-wrapper-probe [data-snl-source-entry]').count(),1,'Wrapper must not duplicate the Entry action');
+  await assertSourceHeaders(page,'#source-wrapper-probe');
   await page.evaluate(()=>window.__snlSourceViewerCleanup());
+  assert.equal(await page.locator('[data-snl-source-viewer-action]').count(),0,'Cleanup must remove restored Source actions');
   assert.equal(await page.evaluate(()=>window.monaco.editor.getModels().length),0);assert.equal(await page.locator('.monaco-editor').count(),0);
   results.push({mode,firstOpenMs,errors,requests,readOnly:true,domReadOnly:true,search:true,clipboardCopy:true,foldUnfold:true,tokenization:tokens.slice(0,6),splitter:true,hideRestore:true,followNoHistoryOrFocusChurn:true,ties:3,entryRouteBack:true,lazyPopover:true,followToggleAndShortcut:true,themeLocale:true,modelsBound:4,binaryInert:true,corruptionDiagnostic:true,narrow:true});await context.close();
 }

@@ -332,7 +332,15 @@ export function installSourceViewer(): (() => void) | undefined {
     for(const surface of scope.querySelectorAll<HTMLElement>('.snl-entry[data-entry-id], .snl-entry-surface[data-entry-id], [data-snl-route-surface][data-entry-id]')) {
       const id=surface.dataset.entryId;if(!id||!m.pointers.some(p=>p.entryId===id))continue;
       if(Array.from(surface.querySelectorAll('[data-snl-source-entry]')).some(el=>el.getAttribute('data-snl-source-entry')===id))continue;
-      const action=button('View source',()=>{});action.dataset.snlSourceEntry=id;action.className='snl-source-entry-action';surface.append(action);
+      // Route wrappers may contain the actual Basics Entry surface. Its own
+      // header owns the action; do not add another button to the wrapper.
+      if(Array.from(surface.querySelectorAll<HTMLElement>('.snl-entry[data-entry-id], .snl-entry-surface[data-entry-id]')).some(child=>child.dataset.entryId===id))continue;
+      const action=button('↗ source',()=>{});
+      action.dataset.snlSourceEntry=id;action.dataset.snlSourceViewerAction='';
+      action.className='snl-entry-source-action';action.setAttribute('aria-label','Open source');action.style.flexShrink='0';
+      // Restore the Extension's header slot after export stripped its live
+      // button. Headerless legacy surfaces retain their existing fallback.
+      (surface.querySelector(':scope > .snl-entry-header') ?? surface).append(action);
     }
   }
   const mutations=new MutationObserver(records=>{if(records.some(r=>r.type==='childList'&&Array.from(r.addedNodes).some(n=>n instanceof Element&&!n.closest('.snl-source-panel'))))attachActions(document);});
@@ -352,7 +360,7 @@ export function installSourceViewer(): (() => void) | undefined {
   const themeObserver=new MutationObserver(theme);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','data-snl-color-scheme','lang']});themeObserver.observe(document.body,{attributes:true,attributeFilter:['class','style']});
   function restore() {const s=history.state?.snlSourceView as SavedView|undefined;if(s?.exportId!==m.exportId)return;origin++;try {if(typeof s.width==='number'&&Number.isFinite(s.width))setWidth(s.width);setOpen(!!s.open);if(s.open&&s.fileId&&m.files.some(f=>f.fileId===s.fileId))void openFile(s.fileId,undefined,s);}finally{origin--;}}
   window.addEventListener('popstate',restore);restore();
-  const cleanup=()=>{if(disposed)return;disposed=true;generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('.snl-source-entry-action').forEach(el=>el.remove());};
+  const cleanup=()=>{if(disposed)return;disposed=true;generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('[data-snl-source-viewer-action]').forEach(el=>el.remove());};
   global.__snlSourceViewerCleanup=cleanup;return cleanup;
 }
 if(typeof document!=='undefined') {

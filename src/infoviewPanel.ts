@@ -24,6 +24,7 @@ import {
   readMacroKinds,
   readAllMacrosWithOrigin,
   readRelationships,
+  readWorkspaceSupportedLanguages,
   type EntryData,
   type EntryKind,
   type LibraryEntry,
@@ -36,7 +37,11 @@ import {
   webviewLocalResourceRoots
 } from './panelUtil';
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
-import { assertRenderSnapshot, renderDependencyId, type RenderSourceContext } from './sourceExport/renderSnapshot';
+import { readerDependencyClosure, readerAssetPaths, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
+import { readWorkspaceAsset } from './workspaceAssets';
+import { toDataUrl } from './exportDocument';
+import { createHash } from 'node:crypto';
+import { assertRenderSnapshot, renderDependencyId, renderSourceRoutes, type RenderSourceContext } from './sourceExport/renderSnapshot';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
   indexLibraryGraph,
@@ -115,6 +120,7 @@ interface OutlineNode {
  * unchanged: expects `entryDetails` with the full entry pool + macros.
  */
 export class InfoviewPanel {
+  private readerSnapshot: FrozenReaderSnapshot | undefined;
   /** The single browser instance (loads `main`), or undefined when closed. */
   private static browserPanel: InfoviewPanel | undefined;
 
@@ -834,29 +840,36 @@ export class InfoviewPanel {
           libraryEntryIds.has(relationship.from) && libraryEntryIds.has(relationship.to)
       );
 
-      const [macros, macroKinds] = await Promise.all([
-        this.readMacroDb(),
-        readMacroKinds(root)
+      const [macros, macroKinds, languages] = await Promise.all([
+        this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
       if (generation !== this.viewGeneration) return;
-      const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds };
+      const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
+      const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
       const renderSnapshotId = renderDependencyId(dependencies);
       const context: RenderSourceContext = {
-        rootPath: root.fsPath, renderSnapshotId, entries: entryPool.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
-        entryRoutes: graph.nodes.flatMap(node => node.label === 'Entry' && typeof node.props?.entryId === 'string'
-          ? [{ entryId: node.props.entryId, nodeId: node.id, hash: '#/node/' + encodeURIComponent(node.id) }] : []),
+        rootPath: root.fsPath, renderSnapshotId, entries: closure.entries.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
+        entryRoutes: renderSourceRoutes(graph.nodes, closure.entries),
         revalidate: async () => {
           if (firstWorkspaceFolder()?.toString() !== root.toString()) throw new Error('Workspace changed; recapture export.');
-          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds] = await Promise.all([
+          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds, currentLanguages] = await Promise.all([
             listLibraries(root), readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
-            readRelationships(root), readAllMacros(root), readMacroKinds(root)
+            readRelationships(root), readAllMacros(root), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
           ]);
           const currentGraph = await readLibraryGraph(root, slug, { entryPool: entries });
           assertRenderSnapshot(renderSnapshotId, { libraries: currentLibraries, entries, kinds: currentKinds, counters: currentCounters,
-            graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds });
+            graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds, languages: currentLanguages });
         }
       };
       this.renderSourceContext = context;
+      this.readerSnapshot = structuredClone({
+        version: 1, renderSnapshotId,
+        library: { slug, title: displayTitle, description, outline, warnings },
+        entries: closure.entries, entryKinds: kinds,
+        entryPackages: entryPackageIdentities(closure.entries), macros: closure.macros, macroKinds,
+        relationships: closure.relationships, preferences: read_extension_preferences(),
+        contentLanguage: this.contentLanguage ?? 'en', languages, resources: {}
+      });
 
       void this.panel.webview.postMessage({
         renderSnapshotId,
@@ -910,17 +923,36 @@ export class InfoviewPanel {
       if (!context || request.renderSnapshotId !== context.renderSnapshotId) throw new Error('Stale document capture. Refresh and export again.');
       await context.revalidate();
       if (context !== this.renderSourceContext) throw new Error('Reader changed during export capture.');
+      const snapshot = structuredClone(this.readerSnapshot);
+      if (!snapshot || snapshot.renderSnapshotId !== context.renderSnapshotId) throw new Error('Reader snapshot unavailable.');
+      snapshot.preferences = read_extension_preferences();
+      snapshot.contentLanguage = request.locale ?? snapshot.contentLanguage;
+      const root = firstWorkspaceFolder();
+      if (!root) throw new Error('Workspace closed during export.');
+      for (const path of readerAssetPaths(snapshot)) {
+        const bytes = await readWorkspaceAsset({ workspaceRoot: root, relativePath: path });
+        snapshot.resources[path] = { url: toDataUrl(path, bytes),
+          revision: 'sha256:' + createHash('sha256').update(bytes).digest('hex'),
+          ...(path.toLowerCase().endsWith('.svg') ? { text: Buffer.from(bytes).toString('utf8') } : {}) };
+      }
+      const revalidate = async (): Promise<void> => {
+        await context.revalidate();
+        for (const [path, resource] of Object.entries(snapshot.resources)) {
+          const bytes = await readWorkspaceAsset({ workspaceRoot: root, relativePath: path });
+          if ('sha256:' + createHash('sha256').update(bytes).digest('hex') !== resource.revision) throw new Error('Reader asset changed; recapture export.');
+        }
+      };
+      await revalidate();
+      if (context !== this.renderSourceContext) throw new Error('Reader changed during resource capture.');
+      request = { ...request, readerSnapshot: snapshot };
       const ids = new Set(context.entryRoutes.map(route => route.entryId));
+      for (const entry of snapshot.entries) ids.add(entry.id);
       for (const id of Object.keys(request.popovers ?? {})) ids.add(id);
       for (const variant of request.variants?.variants ?? []) {
         for (const id of Object.keys(variant.popovers)) ids.add(id);
       }
       const entries = context.entries.filter(entry => ids.has(entry.id));
-      const routes = [...context.entryRoutes];
-      for (const entry of entries) {
-        if (Object.hasOwn(request.popovers ?? {}, entry.id)) routes.push({ entryId: entry.id, hash: '#/entry/' + encodeURIComponent(entry.id) });
-      }
-      ExportOptionsPanel.show(this.extensionUri, structuredClone(request), { ...context, entries, entryRoutes: routes });
+      ExportOptionsPanel.show(this.extensionUri, structuredClone(request), { ...context, revalidate, entries });
     } catch (error) {
       void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }

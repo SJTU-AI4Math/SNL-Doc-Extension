@@ -8,7 +8,7 @@
     "kind": "concept",
     "title": "EntrySurface",
     "content": {
-      "snl": "%The single body-surface selector used by Entry reading and editing views. It chooses one available content format, then delegates SNL bodies to #0 and ordinary prose to the corresponding Markdown, LaTeX, Typst, or text renderer.%(EntryRender)"
+      "snl": "SpecHistoricalReference(%当前本地 EntrySurface 封装正文 CollapsibleScope 和 overflow，并委托 EntryRender/Basics 呈现；不是本地五格式渲染器。%,%功能规范%@spec.shared-reader.entry,%The single body-surface selector used by Entry reading and editing views. It chooses one available content format, then delegates SNL bodies to #0 and ordinary prose to the corresponding Markdown, LaTeX, Typst, or text renderer.%(EntryRender))"
     },
     "contribution_info": null,
     "pointer": null,

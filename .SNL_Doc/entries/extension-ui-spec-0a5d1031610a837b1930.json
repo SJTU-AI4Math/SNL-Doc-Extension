@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Macro Styles Section (Edit)",
     "content": {
-      "snl": "%Edits strict #0 styles after legacy input has crossed #1. No v6 style field is written back.%(Macro_v8,Macro_migration_boundary)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Edits strict #0 styles after legacy input has crossed #1. No v6 style field is written back.%(Macro_v8,Macro_migration_boundary))"
     },
     "contribution_info": null,
     "pointer": null,

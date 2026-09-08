@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Infoview Libraries Layer",
     "content": {
-      "snl": "%Selects one Entry from the shared pool for inline rendering.%"
+      "snl": "SpecHistoricalReference(%Library 列表层用于选择 Library，不是选择全池单个 Entry。%,%功能规范%@spec.shared-reader.library,%Selects one Entry from the shared pool for inline rendering.%)"
     },
     "contribution_info": null,
     "pointer": null,

@@ -1,7 +1,8 @@
-/** Portable Pointer schema. Missing directional thresholds independently mean 15 lines. */
+/** Portable Pointer schema. Missing directional buffers independently mean 15 lines. */
 export type PointerMode = 'lines' | 'regex';
 interface PointerBase {
   file: string;
+  priority?: number;
   beforeLines?: number;
   afterLines?: number;
 }
@@ -9,6 +10,8 @@ export interface EntryPointerLines extends PointerBase {
   mode: 'lines';
   line: number;
   endLine?: number;
+  column?: number;
+  endColumn?: number;
 }
 export interface EntryPointerRegex extends PointerBase {
   mode: 'regex';
@@ -25,6 +28,11 @@ export function isStructuralPointer(value: unknown): value is EntryPointer {
   for (const field of ['beforeLines', 'afterLines']) {
     const n = p[field];
     if (n !== undefined && (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)) return false;
+  }
+  if (p.priority !== undefined && (typeof p.priority !== 'number' || !Number.isFinite(p.priority))) return false;
+  for (const field of ['column', 'endColumn']) {
+    const n = p[field];
+    if (n !== undefined && (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1)) return false;
   }
   if (p.mode === 'lines') {
     // Preserve the existing normalization of fractional authored line numbers.
@@ -45,11 +53,14 @@ export function normalizeEntryPointer(value: unknown): EntryPointer | null {
   if (value.mode === 'lines') {
     out = { file: value.file, mode: 'lines', line: Math.floor(value.line) };
     if (value.endLine !== undefined) out.endLine = Math.floor(value.endLine);
+    if (value.column !== undefined) out.column = value.column;
+    if (value.endColumn !== undefined) out.endColumn = value.endColumn;
   } else {
     out = { file: value.file, mode: 'regex', pattern: value.pattern };
     if (value.flags !== undefined) out.flags = value.flags;
     if (value.occurrence !== undefined) out.occurrence = value.occurrence;
   }
+  if (value.priority !== undefined) out.priority = value.priority;
   if (value.beforeLines !== undefined) out.beforeLines = value.beforeLines;
   if (value.afterLines !== undefined) out.afterLines = value.afterLines;
   return out;

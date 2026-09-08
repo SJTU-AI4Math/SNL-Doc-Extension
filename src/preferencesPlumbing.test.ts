@@ -25,9 +25,9 @@ describe('preference plumbing architecture', () => {
     expect(css).toContain("data-snl-motion='reduced'");
   });
 
-  it('remounts asynchronous SNL renderers after a preference revision', () => {
-    expect(source('webview/src/render/EntryRender.tsx')).toContain(
-      'key={`content-language-${contentLanguage}-preferences-${preferencesRevision}`}');
+  it('subscribes readers without destroying authored fold state on preference revisions', () => {
+    expect(source('webview/src/render/EntryRender.tsx')).toContain('use_preferences_revision();');
+    expect(source('webview/src/render/EntryRender.tsx')).not.toContain('preferences-${preferencesRevision}');
     expect(source('webview/src/render/MacroPreview.tsx')).toContain(
       "runtime.renderRevision"
     );

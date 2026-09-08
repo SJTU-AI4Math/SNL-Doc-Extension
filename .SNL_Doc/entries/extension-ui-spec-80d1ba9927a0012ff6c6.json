@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.export",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "导出与冻结：共享运行时、离线闭包及纯静态边界",
+    "content": {
+      "markdown": "## 两种产品路径\n\nKeep interaction 开启时，导出启动与 Extension 同源的浏览器 Library/Entry 阅读器，携带版本化 canonical 渲染快照，而不是预绘 HTML 加另一套 hover/collapse/theme runtime。可复用运输/安全序列化和已有快照流程；只包一层接口而保留平行生产逻辑不合格。旧 runtime 的活跃构建入口、生产引用及隐式失败回退必须移除。\n\n关闭交互时允许无 JavaScript 的纯静态渲染采集，明确没有弹窗、动态折叠、源码 Monaco 或路由交互；它不是交互式导出失败后的静默替身。导出前的选项必须与实际能力一致。\n\n## 冻结范围\n\n从选定 Library/Entry 出发，闭包覆盖隐藏后代、重复 occurrence、独立/关系路由、递归引用与上下文 Entry、实际 Macro/Kind/Style、所有 authored 语言依赖、偏好和图片/字体/SVG 等资源。冻结结构数据使语言/主题和折叠在离线读取时真正执行共享组件，不从首屏 DOM、某一 locale variant 或可见条目推测全部数据。\n\n源代码的 none / pointer-files / project 选项、规则优先级、文件预览、外部链接授权、dirty disk 选择、许可/秘密提示继续由 `spec.source-document.export-selection` 与 export-snapshot 管辖。阅读器重构不能扩大源文件选取范围；无源码模式不输出源文件、本机 Pointer 路径库或 Monaco 大载荷。\n\n正文、依赖、source manifest 与 routes 绑定同一已确认 generation/render revision；任何相关 Entry/Macro/Style/语言分支、源码字节或文件集变化都要 revalidate，重新捕获并重新确认，不套用旧许可。失败/取消保留旧产物字节，原子发布前检查闭包。文档快照与 canonical 写入事务不同。\n\n## 离线及安全\n\n保留目录和单 HTML；两者均需 HTTP 与 file:// 验收。关闭网络后图片、KaTeX 字体、Monaco worker、CSS 和所有数据 chunk 可用；无 CDN、开发机绝对路径、webview URI 或裸 npm import。源码/JSON 通过安全 inert 编码或受信任注册包装运输，`</script>`、原型键及恶意 HTML/SVG 不得执行。\n\n历史 `spec.source-document.export-protocol` 中从 DOM 标记恢复 source 按钮的方案仅是旧接缝；新方案由共享组件直接消费 source capability，原始正向范围/已编译反向域保持分离。所有历史性能与 Linux 导出回执都需在新候选上重跑，不能直接转移为 PASS。\n\n## 资源授权与静态捕获的必要边界\n\n资源枚举以渲染语义为权限边界：只遍历被接受的正文 Markdown、SNL 中真正的 Markdown 节点及实际宏样式的图像/SVG资源（含语言投影）。Pointer 正则、路径、名称、普通 SNL 文本字面量、代码片段等非图片渲染字段中的图片式文字不构成读文件授权；不能因 Entry 已在闭包内就递归将其全部字符串当 Markdown。合法图片和所有语言分支不能因收窄授权而缺失。\n\n纯静态捕获必须在展开所需子树后，等待异步正文和 SVG 等导出表面完成，并在同一渲染 generation 下采集。仅一帧或 wrapper 存在不是完成信号。等待有界、失败显式拒绝导出半成品；切换文档/语言、取消或后续请求使旧捕获失效，不把旧加载结果接到新文档。交互快照本身不依赖 DOM 完成；若选项界面在模式选择前统一采集静态 fallback，该次采集也须满足本条，不因此恢复旧平行 runtime。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

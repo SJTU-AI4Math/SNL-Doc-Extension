@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Outline Section",
     "content": {
-      "snl": "%The tree-view editor over the Library graph. Rows retain expand, navigate, copy-id, add-child/sibling, move, indent/outdent, delete, and reference-or-create actions; referenced SNL Entries can display #0, shared #1 behavior governs controls, and invalid ids are rejected or routed through explicit Entry creation.%(Source_structure_metrics,Button_component)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,%The tree-view editor over the Library graph. Rows retain expand, navigate, copy-id, add-child/sibling, move, indent/outdent, delete, and reference-or-create actions; referenced SNL Entries can display #0, shared #1 behavior governs controls, and invalid ids are rejected or routed through explicit Entry creation.%(Source_structure_metrics,Button_component))"
     },
     "contribution_info": null,
     "pointer": null,

@@ -8,7 +8,7 @@
     "kind": "section",
     "title": "Entry Infoview Dependencies Section",
     "content": {
-      "snl": "%Lists macro-source dependencies with atomic or composite badges.%"
+      "snl": "SpecHistoricalReference(%当前 Entry 阅读按全部关系标签与两个方向组织关联区，atomic/composite 仅按明确元数据呈现；不只列宏来源依赖。%,%功能规范%@spec.shared-reader.relationships,%Lists macro-source dependencies with atomic or composite badges.%)"
     },
     "contribution_info": null,
     "pointer": null,

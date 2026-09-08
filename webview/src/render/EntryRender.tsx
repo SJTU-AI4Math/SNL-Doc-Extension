@@ -3,6 +3,7 @@
 // and SNL subtree behavior live in @sjtu-ai4math/snl-basics/entry. This module owns
 // only host messages and the Extension's recursive-popover interaction policy.
 
+import { useReaderCapabilities } from '../reader/ReaderCapabilities';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
@@ -182,7 +183,8 @@ export function EntryRender({
   disableTitleJump,
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
-  const preferencesRevision = use_preferences_revision();
+  const capabilities = useReaderCapabilities();
+  use_preferences_revision();
   const contentLanguage = use_content_language();
   const resolvedEntry = useMemo(
     () => ({ ...entry, title: resolve_localized_string(entry.title, contentLanguage) }),
@@ -350,7 +352,7 @@ export function EntryRender({
 
   return (
     <BasicsEntrySurface
-      key={`content-language-${contentLanguage}-preferences-${preferencesRevision}`}
+      key={`content-language-${contentLanguage}`}
       entry={resolvedEntry}
       kind={kind}
       entry_data_driver={entryDataDriver}
@@ -362,7 +364,7 @@ export function EntryRender({
       kind_palette={kindPalette}
       markdown_image_url_transform={markdownImageUrlTransform}
       counter_label={counterLabel}
-      show_source_action={hasStructuralPointer(entry.pointer)}
+      show_source_action={capabilities.sourceAvailable?.(entry.id) ?? hasStructuralPointer(entry.pointer)}
     />
   );
 }

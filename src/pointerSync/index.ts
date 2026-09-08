@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Localized } from '@sjtu-ai4math/snl-basics';
 import { isStructuralPointer, normalizePointerFile } from './schema';
 import { readPointerSource, resolvePointerTextAsync } from './resolve';
-import { TextResolution } from './text';
+import { compilePointerScope, rankCompiledScopes, ScopeResolution, CompiledPointerScope } from './scope';
 
 export interface PointerIndexEntryInput {
   id: string;
@@ -14,9 +14,9 @@ export interface IndexedPointer {
   entryId: string;
   package?: string;
   title?: Localized<string, string> | Record<string, string>;
-  /** Original authored JSON, not the normalized execution view. */
+  /** Rebuild provenance ONLY; query never consults addressing or thresholds. */
   pointer: unknown;
-  resolution: TextResolution;
+  resolution: ScopeResolution;
 }
 export interface PointerFileBucket {
   /** SHA-256 of the decoded UTF-8 source text, also used for dirty snapshots. */
@@ -25,7 +25,7 @@ export interface PointerFileBucket {
 }
 export interface PointerIndex {
   /** Derived format version only; independent of the workspace schema version. */
-  version: 1;
+  version: 2;
   files: Record<string, PointerFileBucket>;
   /** Invalid pointers with no safe logical file; never searched as another file's candidates. */
   unfiled: IndexedPointer[];
@@ -62,7 +62,7 @@ async function resolveBucket(
   entries: IndexedPointer[], text: string, previous?: PointerFileBucket
 ): Promise<PointerFileBucket> {
   const fingerprint = sourceFingerprint(text);
-  const cache = new Map<string, TextResolution>();
+  const cache = new Map<string, ScopeResolution>();
   if (previous?.fingerprint === fingerprint) {
     for (const entry of previous.entries) {
       // Infrastructure failures are retryable even for unchanged bytes.
@@ -76,9 +76,10 @@ async function resolveBucket(
     const key = stableStringify(entry.pointer);
     let resolution = cache.get(key);
     if (!resolution) {
-      resolution = isStructuralPointer(entry.pointer)
-        ? await resolvePointerTextAsync(entry.pointer, text)
-        : { status: 'invalid-shape', message: 'pointer failed structural validation' };
+      if (isStructuralPointer(entry.pointer)) {
+        const raw = await resolvePointerTextAsync(entry.pointer, text);
+        resolution = raw.status === 'ok' ? { status: 'ok', scope: compilePointerScope(entry.pointer, raw.range, text) } : raw;
+      } else resolution = { status: 'invalid-shape', message: 'pointer failed structural validation' };
       cache.set(key, resolution);
     }
     resolved.push({ ...entry, resolution });
@@ -94,7 +95,7 @@ export async function buildPointerIndex(
   rootPath: string, entries: readonly PointerIndexEntryInput[], previousIndex?: PointerIndex
 ): Promise<PointerIndex> {
   const groups = new Map<string, IndexedPointer[]>();
-  const index: PointerIndex = { version: 1, files: Object.create(null), unfiled: [] };
+  const index: PointerIndex = { version: 2, files: Object.create(null), unfiled: [] };
   for (const entry of entries) {
     if (entry.pointer === undefined || entry.pointer === null) continue;
     const record: IndexedPointer = { entryId: entry.id, pointer: JSON.parse(stableStringify(entry.pointer)),
@@ -111,7 +112,7 @@ export async function buildPointerIndex(
     const records = groups.get(file)!.sort(compareEntries);
     const source = await readPointerSource(rootPath, file);
     index.files[file] = source.status === 'ok'
-      ? await resolveBucket(records, source.text, previousIndex?.version === 1 ? ownBucket(previousIndex, file) : undefined)
+      ? await resolveBucket(records, source.text, previousIndex?.version === 2 ? ownBucket(previousIndex, file) : undefined)
       : { fingerprint: null, entries: records.map(entry => ({ ...entry, resolution: source })) };
   }
   index.unfiled.sort(compareEntries);
@@ -122,8 +123,10 @@ export interface NearestEntry {
   entryId: string;
   package?: string;
   title?: Localized<string, string> | Record<string, string>;
-  distance: number;
-  range: import('./text').PointerRange;
+  /** Compatibility only: every selected scope contains the cursor. */
+  distance: 0;
+  priority: number;
+  range: CompiledPointerScope;
 }
 export interface NearestEntriesResult {
   candidates: NearestEntry[];
@@ -131,41 +134,21 @@ export interface NearestEntriesResult {
   unresolved: IndexedPointer[];
 }
 
-/** Snapshot-only, current-file lookup. Returns only the best (distance, covered-line span)
- * rank, retaining ALL ties. A unique candidate is actionable only when complete is true.
- * Completeness assumes the host has delivered all metadata/source invalidations.
- */
-export function findNearestEntries(index: PointerIndex, relativeFile: string, line: number): NearestEntriesResult {
+/** Snapshot-only lookup; selection knows only compiled scope and metadata. */
+export function findNearestEntries(index: PointerIndex, relativeFile: string, line: number, column?: number): NearestEntriesResult {
   const file = normalizePointerFile(relativeFile);
-  if (!file || !Number.isSafeInteger(line) || line < 1) return { candidates: [], complete: false, unresolved: [] };
-  return rankBucket(ownBucket(index, file), line);
+  if (index.version !== 2 || !file || !Number.isSafeInteger(line) || line < 1 ||
+      (column !== undefined && (!Number.isSafeInteger(column) || column < 1))) return { candidates: [], complete: false, unresolved: [] };
+  return rankBucket(ownBucket(index, file), line, column);
 }
 
-function rankBucket(bucket: PointerFileBucket | undefined, line: number): NearestEntriesResult {
-  const unresolved: IndexedPointer[] = [];
-  let candidates: NearestEntry[] = [];
-  let bestDistance = Infinity;
-  let bestSpan = Infinity;
-  for (const entry of bucket?.entries ?? []) {
-    if (entry.resolution.status !== 'ok' || !isStructuralPointer(entry.pointer)) {
-      unresolved.push(entry);
-      continue;
-    }
-    const range = entry.resolution.range;
-    const distance = Math.max(range.startLine - line, line - range.coveredEndLine, 0);
-    const threshold = line < range.startLine ? entry.pointer.beforeLines ?? 15 : entry.pointer.afterLines ?? 15;
-    if (distance > threshold) continue;
-    const span = range.coveredEndLine - range.startLine + 1;
-    if (distance > bestDistance || (distance === bestDistance && span > bestSpan)) continue;
-    if (distance < bestDistance || span < bestSpan) candidates = [];
-    bestDistance = distance;
-    bestSpan = span;
-    const candidate: NearestEntry = { entryId: entry.entryId, distance, range };
-    if (entry.package !== undefined) candidate.package = entry.package;
-    if (entry.title !== undefined) candidate.title = entry.title;
-    candidates.push(candidate);
-  }
-  return { candidates, complete: unresolved.length === 0, unresolved };
+function rankBucket(bucket: PointerFileBucket | undefined, line: number, column?: number): NearestEntriesResult {
+  const unresolved = (bucket?.entries ?? []).filter(entry => entry.resolution.status !== 'ok');
+  const resolved = (bucket?.entries ?? []).flatMap(entry => entry.resolution.status === 'ok'
+    ? [{ entryId: entry.entryId, package: entry.package, title: entry.title, range: entry.resolution.scope,
+        priority: entry.resolution.scope.priority, distance: 0 as const }] : []);
+  return { candidates: rankCompiledScopes(resolved, entry => entry.range, line, column),
+    complete: unresolved.length === 0, unresolved };
 }
 
 /** Resolve just this file against a dirty editor snapshot; no disk writes or other-file regex.
@@ -173,6 +156,7 @@ function rankBucket(bucket: PointerFileBucket | undefined, line: number): Neares
 export async function updatePointerIndexText(
   index: PointerIndex, relativeFile: string, text: string
 ): Promise<PointerIndex> {
+  if (index.version !== 2) throw new Error('Obsolete Pointer index; rebuild required');
   const file = normalizePointerFile(relativeFile);
   if (!file) throw new Error('Invalid relative source path');
   const bucket = ownBucket(index, file);
@@ -184,11 +168,15 @@ export async function updatePointerIndexText(
 
 /** Direct current-text query when the caller does not need to retain the temporary index. */
 export async function queryNearestEntries(
-  index: PointerIndex, relativeFile: string, line: number, textOverride?: string
+  index: PointerIndex, relativeFile: string, line: number, textOverride?: string, column?: number
 ): Promise<NearestEntriesResult> {
-  if (textOverride === undefined) return findNearestEntries(index, relativeFile, line);
+  if (index.version !== 2) return { candidates: [], complete: false, unresolved: [] };
+  if (textOverride === undefined) return findNearestEntries(index, relativeFile, line, column);
   const file = normalizePointerFile(relativeFile);
-  if (!file || !Number.isSafeInteger(line) || line < 1) return { candidates: [], complete: false, unresolved: [] };
+  if (!file || !Number.isSafeInteger(line) || line < 1 ||
+      (column !== undefined && (!Number.isSafeInteger(column) || column < 1))) {
+    return { candidates: [], complete: false, unresolved: [] };
+  }
   const bucket = ownBucket(index, file);
-  return rankBucket(bucket ? await resolveBucket(bucket.entries, textOverride, bucket) : undefined, line);
+  return rankBucket(bucket ? await resolveBucket(bucket.entries, textOverride, bucket) : undefined, line, column);
 }

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { getVsCodeApi } from '../vscodeApi';
+import { getReaderPlatformApi as getVsCodeApi } from '../runtime/readerPlatform';
 import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
 // Lean subpath: the Reader runtime only, with no path to the React views
 // (and therefore none to KaTeX). See vite.runtime.config.ts in SNL-Basics.
@@ -271,11 +271,16 @@ if (typeof window !== 'undefined') {
       }
     );
   }
-  const api = getVsCodeApi();
-  if (api) {
-    installWorkspaceAssetBroker(api);
-    api.postMessage({ type: 'snl.preferences/ready' });
-  }
+}
+
+/** Host bootstrap happens after module evaluation; the shared reader does not acquire VS Code authority. */
+const connectedPlatforms = new WeakSet<object>();
+export function connect_preferences_platform(api: { postMessage(message: unknown): void }): void {
+  if (connectedPlatforms.has(api)) return;
+  connectedPlatforms.add(api);
+  const broker = installWorkspaceAssetBroker(api);
+  window.addEventListener('pagehide', () => { broker.dispose(); connectedPlatforms.delete(api); }, { once: true });
+  api.postMessage({ type: 'snl.preferences/ready' });
 }
 
 /** Shared runtime for all Entry/Macro rendering in this webview document. */

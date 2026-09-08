@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemedKindColoring } from '../../src/kindColoring';
 import { KindPreview } from './components/KindPreview';
+import { useReaderCapabilities } from './reader/ReaderCapabilities';
 import 'katex/dist/katex.min.css';
 import '@sjtu-ai4math/snl-basics/style.css';
 import './create-macro.css';
@@ -849,6 +850,7 @@ function MacroStyleRow({
 }): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
   const [hover, setHover] = useState(false);
+  const canEdit = useReaderCapabilities().edit;
   // In multi-select mode a row click toggles selection instead of opening the
   // macro editor.
   const activate = (): void =>
@@ -872,13 +874,13 @@ function MacroStyleRow({
           : 'var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.02))';
   return (
     <tr
-      onClick={activate}
+      onClick={canEdit ? activate : undefined}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onFocus={() => setHover(true)}
       onBlur={() => setHover(false)}
       style={{
-        cursor: 'pointer',
+        cursor: canEdit ? 'pointer' : 'default',
         background: rowBackground,
         // Extra rows visually attach to their default row with no top border
         // so the group reads as one block.
@@ -967,7 +969,7 @@ function MacroStyleRow({
       </td>
       {/* Name: macro-level. */}
       <td style={{ ...CELL, ...MONO }}>
-        <RowPrimaryButton
+        {canEdit ? <RowPrimaryButton
           label={
             selectMode
               ? (selected ? t('deselectMacro', { name: macro.name }) : t('selectMacro', { name: macro.name }))
@@ -978,7 +980,7 @@ function MacroStyleRow({
           onActivate={activate}
         >
           {showMacroLevel ? macro.name : <Dash />}
-        </RowPrimaryButton>
+        </RowPrimaryButton> : <span>{showMacroLevel ? macro.name : <Dash />}</span>}
       </td>
       {/* Arity: macro-level. */}
       <td style={CELL}>{showMacroLevel ? arityLabel(macro, style, t('dynamic')) : <Dash />}</td>
@@ -1034,7 +1036,7 @@ function MacroStyleRow({
         {showMacroLevel ? (macro.description ?? '') : <Dash />}
       </td>
       <td style={{ ...CELL, textAlign: 'center' }}>
-        {showMacroLevel && !selectMode ? (
+        {canEdit && showMacroLevel && !selectMode ? (
           <span style={{ display: 'inline-flex', gap: '0.3rem' }}>
             {onCopy ? (
               <Button
@@ -1167,6 +1169,7 @@ function KindCell({
 }): React.ReactElement {
   const t = useUiMessages(PACKAGE_MESSAGES);
   const apiRef = useVsCodeApiRef();
+  const canEdit = useReaderCapabilities().edit;
   if (!kindId) {
     return <span style={{ opacity: 0.5 }}>—</span>;
   }
@@ -1184,7 +1187,7 @@ function KindCell({
     coloring={kind.coloring}
     name={kind.name}
     kindId={kind.id}
-    onEditKind={(id) => apiRef.current?.postMessage({ type: 'editMacroKind', id })}
+    onEditKind={canEdit ? (id) => apiRef.current?.postMessage({ type: 'editMacroKind', id }) : undefined}
   />;
 }
 

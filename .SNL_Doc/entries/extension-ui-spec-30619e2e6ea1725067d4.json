@@ -8,7 +8,7 @@
     "kind": "concept",
     "title": "Source Structure Metrics",
     "content": {
-      "snl": "%Per-Entry measurements computed from the parsed SNL tree and macro source index: semantic freedom counts unsourced nodes, while structured ratio reports the sourced-node share. Dashboard and Library views color them using #0, #1, #2, and #3.%(Setting.semanticFreedomGreenBelow,Setting.semanticFreedomRedAbove,Setting.structuredRatioRedBelow,Setting.structuredRatioGreenAtLeast)"
+      "snl": "SpecHistoricalReference(%旧指标与显示条件不是本轮的现行保证；基线已有 SNL Structural Index。管理/引用/树操作继续保持，共享阅读不重定义指标公式。%,%功能规范%@spec.extension.management,%Per-Entry measurements computed from the parsed SNL tree and macro source index: semantic freedom counts unsourced nodes, while structured ratio reports the sourced-node share. Dashboard and Library views color them using #0, #1, #2, and #3.%(Setting.semanticFreedomGreenBelow,Setting.semanticFreedomRedAbove,Setting.structuredRatioRedBelow,Setting.structuredRatioGreenAtLeast))"
     },
     "contribution_info": null,
     "pointer": null,

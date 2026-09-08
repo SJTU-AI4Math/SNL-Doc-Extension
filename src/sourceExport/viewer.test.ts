@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { renderSourceRoutes } from './renderSnapshot';
 vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/contrib/find/browser/findController', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/contrib/folding/browser/folding', () => ({}));
@@ -7,10 +8,34 @@ vi.mock('monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard', () =>
 import { rankSourcePointers, validateManifest, sha256Bytes, verifyChunk, preferSourceRoutes } from './viewer';
 import { findNearestEntries, type PointerIndex } from '../pointerSync/index';
 import type { SourceManifest, SourcePointer } from './types';
+import { compilePointerScope } from '../pointerSync/scope';
+import { resolvePointerText } from '../pointerSync/text';
+import type { EntryPointer } from '../pointerSync/schema';
 const sha = createHash('sha256').update('abc').digest('hex');
-const base: SourceManifest = { schemaVersion:'snl.export.sources/v1',exportId:'e',renderSnapshotId:'r',workspaceName:'w',snapshot:{mode:'disk'},options:{scope:'project',keep:[],exclude:[],companionFiles:[]},files:[{fileId:'f',displayPath:'x',kind:'text',language:'lean4',byteLength:3,sha256:sha,bom:false,eol:'none',chunkId:'source-f.js'}],directories:[],pointers:[],entryRoutes:[] };
-function pointer(id:string,line:number,endLine=line,beforeLines?:number,afterLines?:number):SourcePointer {return {entryId:id,fileId:'f',sourceSha256:sha,status:'ok',pointer:{mode:'lines',file:'x',line,endLine,beforeLines,afterLines},range:{startLine:line,startColumn:1,endLine,endColumn:2,coveredEndLine:endLine}};}
+const base: SourceManifest = { schemaVersion:'snl.export.sources/v2',exportId:'e',renderSnapshotId:'r',workspaceName:'w',snapshot:{mode:'disk'},options:{scope:'project',keep:[],exclude:[],companionFiles:[]},files:[{fileId:'f',displayPath:'x',kind:'text',language:'lean4',byteLength:3,sha256:sha,bom:false,eol:'none',chunkId:'source-f.js'}],directories:[],pointers:[],entryRoutes:[] };
+function pointer(id:string,line:number,endLine=line,beforeLines?:number,afterLines?:number):SourcePointer {
+  const pointer={mode:'lines' as const,file:'x',line,endLine,beforeLines,afterLines};
+  const range={startLine:line,startColumn:1,endLine,endColumn:2,coveredEndLine:endLine};
+  return {entryId:id,fileId:'f',sourceSha256:sha,status:'ok',pointer,range,inverseScope:compilePointerScope(pointer,range,Array(100).fill('x').join('\n'))};
+}
 describe('browser/host ranking contract',()=>{
+  it('shares exact-position ranking for raw/expanded overlap, signed priority, ties and UTF16',()=>{
+    const text='😀 alpha beta\r\nother\r\n';
+    const authored:EntryPointer[]=[
+      {file:'x',mode:'regex',pattern:'alpha',beforeLines:0,afterLines:0},
+      {file:'x',mode:'lines',line:1,column:10,endColumn:14,beforeLines:0,afterLines:0,priority:-.5},
+      {file:'x',mode:'lines',line:2,beforeLines:1,afterLines:0,priority:.25},
+      {file:'x',mode:'lines',line:2,beforeLines:1,afterLines:0,priority:.25}
+    ];
+    const pointers=authored.map((pointer,i)=>{const r=resolvePointerText(pointer,text);if(r.status!=='ok')throw Error(r.status);return {entryId:String(i),fileId:'f',sourceSha256:sha,status:'ok' as const,pointer,range:r.range,inverseScope:compilePointerScope(pointer,r.range,text)};});
+    const index:PointerIndex={version:2,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope}}))}}};
+    const manifest={...base,pointers};
+    for(let line=1;line<=3;line++)for(let col=1;col<=15;col++)expect(rankSourcePointers(manifest,'f',line,col).candidates.map(p=>p.entryId)).toEqual(findNearestEntries(index,'x',line,col).candidates.map(p=>p.entryId));
+    expect(rankSourcePointers(manifest,'f',1,5).candidates.map(p=>p.entryId)).toEqual(['2','3']);
+    expect(pointers[2].range.startLine).toBe(2);expect(pointers[2].inverseScope.startLine).toBe(1);
+    expect(()=>validateManifest({...base,schemaVersion:'snl.export.sources/v1'})).toThrow();
+    expect(()=>validateManifest({...manifest,pointers:[{...pointers[0],inverseScope:undefined}]})).toThrow();
+  });
   it('does not mistake the standalone fallback for a second outline occurrence',()=>{
     const a={entryId:'e',nodeId:'a',hash:'#/node/a'},b={entryId:'e',nodeId:'b',hash:'#/node/b'},fallback={entryId:'e',hash:'#/entry/e'};
     expect(preferSourceRoutes([a,fallback],'')).toEqual([a]);
@@ -21,7 +46,7 @@ describe('browser/host ranking contract',()=>{
   it('matches real host for every line across asymmetric thresholds, span and ties',()=>{
     const pointers=[pointer('wide',20,35,0,2),pointer('inner',24,25,15,0),pointer('tie',24,25,15,0),pointer('default',60)];
     const manifest={...base,pointers};
-    const index:PointerIndex={version:1,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',range:p.range!}}))}}};
+    const index:PointerIndex={version:2,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope!}}))}}};
     for(let line=1;line<100;line++){const b=rankSourcePointers(manifest,'f',line),h=findNearestEntries(index,'x',line);expect(b.candidates.map(c=>c.entryId)).toEqual(h.candidates.map(c=>c.entryId));expect(b.complete).toBe(h.complete);}
   });
   it('does not run regex and preserves unresolved same-file completeness',()=>{
@@ -36,6 +61,26 @@ describe('browser/host ranking contract',()=>{
   });
 });
 describe('offline integrity admission',()=>{
+  it('emits valid unique routes for repeated Library placements and dependency-only Entries', () => {
+    const entries = [{ id: 'Root' }, { id: 'External.Source' }, { id: 'constructor' }];
+    const routes = renderSourceRoutes([
+      { id: 'n1', label: 'Entry', props: { entryId: 'Root' } },
+      { id: 'n2', label: 'Entry', props: { entryId: 'Root' } }
+    ], entries);
+    const manifest: SourceManifest = { schemaVersion: 'snl.export.sources/v2', exportId: 'export', renderSnapshotId: 'render',
+      workspaceName: 'workspace', snapshot: { mode: 'disk' }, options: { scope: 'pointer-files', keep: [], exclude: [], companionFiles: [] },
+      files: [], directories: [], pointers: [], entryRoutes: routes };
+    expect(() => validateManifest(manifest)).not.toThrow();
+    expect(routes).toEqual([
+      { entryId: 'Root', nodeId: 'n1', hash: '#/node/n1' },
+      { entryId: 'Root', nodeId: 'n2', hash: '#/node/n2' },
+      { entryId: 'Root', hash: '#/entry/Root' },
+      { entryId: 'External.Source', hash: '#/entry/External.Source' },
+      { entryId: 'constructor', hash: '#/entry/constructor' }
+    ]);
+    expect(renderSourceRoutes([], [])).toEqual([]);
+  });
+
   it('accepts prototype-shaped ordinary display paths and Entry IDs',()=>{expect(validateManifest({...base,files:[{...base.files[0],displayPath:'__proto__'}],entryRoutes:[{entryId:'constructor',hash:'#/entry/constructor'}]})).toBeTruthy();});
   it.each([
     {...base,schemaVersion:'v99'}, {...base,files:[...base.files,...base.files]},

@@ -1,0 +1,190 @@
+import { describe, expect, it, vi } from 'vitest';
+import { runInNewContext } from 'node:vm';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ReactMarkdown from 'react-markdown';
+import * as reader from './sharedReaderSnapshot';
+import type { EntryData, MacroPackageEntry, MacroPackageStyle, RelationshipData } from './snlDoc';
+import type { FrozenOutlineNode, FrozenReaderSnapshot } from './sharedReaderSnapshot';
+
+const entry = (id: string, snl = ''): EntryData => ({ id, kind: 'entry', title: id, content: { snl }, pointer: null });
+const outline = (e: EntryData, children: FrozenOutlineNode[] = []): FrozenOutlineNode[] => [{
+  nodeId: e.id, entry: e, kind: null, counterLabel: null, children,
+}];
+const macro = (name: string, entries: string[] = [], description = ''): MacroPackageEntry => ({
+  name, source: { entries, urls: [] }, description, kind: 'const', dynamic_arity: false, styles: [], tags: [],
+});
+const markdownAssets = (markdown: EntryData['content']['markdown'], styles: MacroPackageStyle[] = []) => {
+  const e = entry('Markdown'); e.content.markdown = markdown;
+  return { entries: [e], macros: { M: { ...macro('M'), styles } } };
+};
+const snapshot = (e = entry('Root')): FrozenReaderSnapshot => ({
+  version: 1, renderSnapshotId: 'capture', library: { slug: 'lib', title: 'Library', outline: outline(e), warnings: [] },
+  entries: [e], entryKinds: [], entryPackages: {}, macros: {}, macroKinds: [], relationships: [],
+  preferences: { language: 'en', color_scheme: 'light', motion: 'full' }, contentLanguage: 'en', languages: [], resources: {},
+});
+
+describe('reader dependency closure', () => {
+  it('matches parsed explicit context IDs, not prefixes', () => {
+    const root = entry('Root', 'x@A.long');
+    expect(reader.readerEntryClosure(outline(root), [root, entry('A'), entry('A.long')], {}).map(e => e.id))
+      .toEqual(['Root', 'A.long']);
+  });
+
+  it('matches parsed macro identifiers, not substrings or literal payloads', () => {
+    const root = entry('Root', 'VisibleMacro(%M%, $M$)');
+    const macros = { M: macro('M', ['Private']), VisibleMacro: macro('VisibleMacro', ['Public']) };
+    expect(reader.readerEntryClosure(outline(root), [root, entry('Private'), entry('Public')], macros).map(e => e.id))
+      .toEqual(['Root', 'Public']);
+  });
+});
+
+describe('fixed point and export security', () => {
+  it('includes relation neighbors, their explicit contexts and macro sources, terminating cycles', () => {
+    const root = entry('Root', 'Used()');
+    const markdown = entry('Markdown'); markdown.content.markdown = '![public](public.png)';
+    const entries = [root, entry('Source', 'Next()'), entry('Neighbor', 'x@Context.long'),
+      entry('Context'), entry('Context.long', 'Used()'), entry('Private'), markdown];
+    const macros = { Used: macro('Used', ['Source', 'Markdown']), Next: macro('Next', ['Root']),
+      Unused: macro('Unused', ['Private'], '![private](private.png)') };
+    const relationships: RelationshipData[] = [
+      { id: 'r1', from: 'Source', to: 'Neighbor', label: 'related', metadata: { custom: 1 } },
+      { id: 'r2', from: 'Neighbor', to: 'Root', label: 'uses', metadata: null },
+      { id: 'r3', from: 'Private', to: 'Private', label: 'unrelated', metadata: null },
+    ];
+    const before = JSON.stringify({ entries, macros, relationships });
+    const result = reader.readerDependencyClosure(outline(root), entries, macros, relationships);
+    expect(result.entries.map(e => e.id)).toEqual(['Root', 'Source', 'Neighbor', 'Context.long', 'Markdown']);
+    expect(Object.keys(result.macros)).toEqual(['Used', 'Next']);
+    expect(result.relationships).toEqual(relationships.slice(0, 2));
+    const assetReader = vi.fn();
+    reader.readerAssetPaths(result).forEach(assetReader);
+    expect(assetReader).toHaveBeenCalledTimes(1);
+    expect(assetReader.mock.calls[0][0]).toBe('public.png');
+    expect(JSON.stringify(result)).not.toContain('private.png');
+    expect(JSON.stringify({ entries, macros, relationships })).toBe(before);
+    expect(reader.readerDependencyClosure([], entries, macros, relationships)).toEqual({ entries: [], macros: {}, relationships: [] });
+  });
+
+  it('round-trips nested own special keys without script execution or prototype changes', () => {
+    const input = snapshot();
+    input.resources = JSON.parse('{"__proto__":{"url":"safe","revision":"r","constructor":{"prototype":{"__proto__":7}}}}');
+    input.library.title = '</sCrIpT><script>window.attacked=true</script><!--\u2028\u2029';
+    const script = reader.frozenReaderScript(input);
+    expect(script).not.toMatch(/<|\u2028|\u2029/);
+    const context = { window: {} as { __SNL_READER__: FrozenReaderSnapshot; attacked?: boolean } };
+    runInNewContext(script, context);
+    const output = context.window.__SNL_READER__;
+    expect(JSON.stringify(output)).toBe(JSON.stringify(input));
+    expect(Object.hasOwn(output.resources, '__proto__')).toBe(true);
+    expect(Object.hasOwn(Object.getPrototypeOf(output.resources), 'url')).toBe(false);
+    expect(context.window.attacked).toBeUndefined();
+  });
+
+  it('clones and strips every Entry pointer in entries and recursive outline for any export mode', () => {
+    const root = entry('Root'); root.pointer = { file: '/private/sentinel.lean', pattern: 'secret' };
+    const input = snapshot(root);
+    const child = entry('OnlyInOutline'); child.pointer = { file: '/private/child.lean' };
+    input.library.outline[0].children = [{ ...outline(child)[0], children: outline(root) }];
+    root.contribution_info = JSON.parse('{"__proto__":{"constructor":{"prototype":"authored"}}}');
+    const before = JSON.stringify(input);
+    const output = reader.projectSnapshotForExport(input);
+    expect(output).not.toBe(input);
+    expect(JSON.stringify(output)).not.toContain('/private/');
+    expect(output.entries[0].pointer).toBeNull();
+    expect(output.library.outline[0].children[0].entry?.pointer).toBeNull();
+    expect(output.library.outline[0].children[0].children[0].entry?.pointer).toBeNull();
+    expect(JSON.stringify(output.entries[0].contribution_info)).toBe(JSON.stringify(root.contribution_info));
+    output.entries[0].content.snl = 'Changed';
+    expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('reader assets', () => {
+  it('does not authorize reads from pointers, names, metadata or plain Library descriptions', () => {
+    const input = snapshot(entry('![id](private-id.png)'));
+    input.library.title = '![title](private-library-title.png)';
+    input.library.description = '![description](private-library-description.png)';
+    input.entries[0].title = '![title](private-title.png)';
+    input.entries[0].pointer = { file: 'private.lean', pattern: '![not-rendered](private-pointer.png)' };
+    input.entries[0].contribution_info = { markdown: '![metadata](private-metadata.png)' };
+    input.entries[0].content.text = '![text](private-text.png)';
+    input.macros.M = macro('![name](private-name.png)', [], '![description](private-description.png)');
+    const readAsset = vi.fn();
+    reader.readerAssetPaths(input).forEach(readAsset);
+    expect(readAsset).not.toHaveBeenCalled();
+    // Stripping pointers for a source-disabled export cannot undo earlier asset reads.
+    expect(reader.readerAssetPaths(reader.projectSnapshotForExport(input))).toEqual([]);
+  });
+
+  it('does not interpret SNL literal or formula payloads as Markdown, or render shadowed Entry formats', () => {
+    for (const snl of ['%![literal](private.png)%', '$![formula](private.png)$',
+      '$$![formula](private.png)$$', 'Wrap(%![literal](private.png)%)']) {
+      const e = entry('Root', snl);
+      e.content.markdown = '![shadowed](private-markdown.png)';
+      expect(reader.readerAssetPaths({ entries: [e], macros: {} })).toEqual([]);
+    }
+  });
+
+  it('captures every rendered Markdown image, excluding inline/fenced code and unused definitions', () => {
+    const source = [
+      '![inline](one.svg)', '![space](<figures/two words.svg>)', '![ref][CHART]',
+      '`![code](private-span.svg)`', '```md\n![code](private-fence.svg)\n```',
+      '[chart]: three.svg', '[unused]: private-unused.svg',
+    ].join('\n\n');
+    const html = renderToStaticMarkup(createElement(ReactMarkdown, { children: source }));
+    const renderedImages = [...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match => decodeURIComponent(match[1])).sort();
+    expect(renderedImages).toEqual(['figures/two words.svg', 'one.svg', 'three.svg']);
+    expect(reader.readerAssetPaths(markdownAssets(source))).toEqual(renderedImages);
+  });
+
+  it('captures all localized image/SVG block styles, not template body or backend strings', () => {
+    const styles: MacroPackageStyle[] = [
+      { style_name: '![name](private-style.svg)', tags: [], template: {
+        type: 'i18n', default_language: 'en', values: {
+          en: { mode: 'block', body: '', block_template_name: 'snl-ext-preset:v1:image?src=en.png&layout=inline' },
+          'zh-CN': { mode: 'block', body: '', block_template_name: 'snl-ext-preset:v1:image?src=zh.png&layout=block' },
+          fr: undefined,
+        },
+      } },
+      { style_name: 'svg', tags: [], template: {
+        type: 'i18n', default_language: 'en', values: {
+          en: { mode: 'block', body: '', block_template_name: 'svg_template', svg_template: { asset: { source: 'en.svg' } } },
+          'zh-CN': { mode: 'block', body: '', block_template_name: 'svg_template', svg_template: { asset: { source: 'zh.svg' } } },
+        },
+      } },
+      { style_name: 'text', tags: [], template: { mode: 'text', body: '![body](private-body.png)',
+        markdown: '![backend](private-backend.png)', svg_template: { asset: { source: 'private-unused.svg' } } } },
+      { style_name: 'other-block', tags: [], template: { mode: 'block', body: '', block_template_name: 'list',
+        svg_template: { asset: { source: 'private-other.svg' } } } },
+    ];
+    expect(reader.readerAssetPaths(markdownAssets('', styles))).toEqual(['en.png', 'en.svg', 'zh.png', 'zh.svg']);
+  });
+
+  it('normalizes the same workspace-relative spellings as the shared Markdown renderer', () => {
+    for (const spelling of ['./assets/figure.svg', '.SNL_Doc/assets/figure.svg', 'assets/figure.svg', 'figure.svg']) {
+      expect(reader.readerAssetPaths(markdownAssets(`![a](${spelling})`))).toEqual(['figure.svg']);
+    }
+  });
+  it('finds supported SVG assets and validated image presets, rejecting traversal and schemes', () => {
+    expect(reader.readerAssetPaths(markdownAssets(
+      '![x](https://example.test/x.png) ![x](//example.test/x.png) ![x](../secret.png) ![x](assets/%2e%2e/private.png) ![x](assets/%252e%252e/private.png) ![x](data:image/png;base64,AA) ![x](assets/a%00.png)', [
+        { style_name: 'svg', tags: [], template: { mode: 'block', body: '', block_template_name: 'svg_template', svg_template: { asset: { source: 'diagrams/one.svg' } } } },
+        { style_name: 'image', tags: [], template: { mode: 'block', body: '', block_template_name: 'snl-ext-preset:v1:image?src=figures%2Fplot%20one.png&layout=inline&alt=Plot' } },
+        { style_name: 'invalid', tags: [], template: { mode: 'block', body: '', block_template_name: 'snl-ext-preset:v1:image?src=..%2Fsecret.png&layout=block' } },
+      ]))).toEqual(['diagrams/one.svg', 'figures/plot one.png']);
+  });
+  it('parses CommonMark angle-space image destinations', () => {
+    expect(reader.readerAssetPaths(markdownAssets('![figure](<figures/a b.svg>)'))).toEqual(['figures/a b.svg']);
+  });
+  it('resolves reference images with normalized identifiers and first definitions', () => {
+    expect(reader.readerAssetPaths(markdownAssets('![figure][CHART]\n\n[chart]: figures/chart.svg\n[chart]: private.svg')))
+      .toEqual(['figures/chart.svg']);
+  });
+  it('collects all localized images, not code, unused definitions or arbitrary src queries', () => {
+    expect(reader.readerAssetPaths(markdownAssets({ type: 'i18n', default_language: 'en', values: {
+      en: '![a](a.svg)\n\n`![hidden](hidden.svg)`\n\n[unused]: private.svg\n\nhttps://x.test/?src=private.png',
+      'zh-CN': '![b](b.svg)',
+    } }))).toEqual(['a.svg', 'b.svg']);
+  });
+});

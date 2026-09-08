@@ -5,6 +5,7 @@ import { TextDecoder } from 'node:util';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { normalizeEntryPointer } from '../pointerSync/schema';
+import { compilePointerScope } from '../pointerSync/scope';
 import { resolvePointerTextAsync } from '../pointerSync/resolve';
 import type { SourceEntryInput, SourceExportOptions, SourcePreview, SourceRoute, SourceFile, SourcePointer } from './types';
 
@@ -218,6 +219,18 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
         parts.push(block.subarray(0, result.bytesRead));
       }
       bytes = Buffer.concat(parts, length); totalBytes += length; readFiles++; progress('read', node.name);
+      // Even nanosecond stat fields can share one filesystem clock tick. Verify
+      // held-descriptor bytes too, so same-size in-place changes are not accepted.
+      const verifyBlock = Buffer.alloc(Math.min(65536, length + 1));
+      let verified = 0;
+      while (true) {
+        check();
+        const next = await handle.read(verifyBlock, 0, verifyBlock.length, verified);
+        if (!next.bytesRead) break;
+        if (verified + next.bytesRead > length || !verifyBlock.subarray(0, next.bytesRead).equals(bytes.subarray(verified, verified + next.bytesRead))) throw new SourcePreflightError('Source changed during read');
+        verified += next.bytesRead;
+      }
+      if (verified !== length) throw new SourcePreflightError('Source changed during read');
       const after = await handle.stat({ bigint: true });
       const realAfter = await fs.realpath(path.join(root, node.name));
       const statAfter = await fs.stat(path.join(root, node.name), { bigint: true });
@@ -259,7 +272,7 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
     const text = texts.get(pointer.file);
     if (text === undefined) { p.status = 'unsupported'; p.reason = file.kind === 'binary' ? 'binary payload has no text coordinates' : 'unsupported UTF-8 encoding'; continue; }
     const resolved = await resolvePointerTextAsync(pointer, text); check();
-    if (resolved.status === 'ok') { p.status = 'ok'; p.range = resolved.range; }
+    if (resolved.status === 'ok') { p.status = 'ok'; p.range = resolved.range; p.inverseScope = compilePointerScope(pointer, resolved.range, text); }
     else { p.status = 'unresolved'; p.reason = resolved.status; }
   }
   progress('verify');
@@ -285,7 +298,7 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
   check();
   // Provenance lookup also yields the event loop: do not leave a final capture race behind it.
   if ((await scan()).key !== first.key || inputKey(input) !== inputHash) throw new SourcePreflightError('Source files or document inputs changed during capture');
-  const manifest: SourcePreview['manifest'] = { schemaVersion: 'snl.export.sources/v1', exportId: '', renderSnapshotId,
+  const manifest: SourcePreview['manifest'] = { schemaVersion: 'snl.export.sources/v2', exportId: '', renderSnapshotId,
     workspaceName: path.basename(root), snapshot,
     options: { scope: options.scope, keep: options.keep, exclude: options.exclude, companionFiles: options.companionFiles },
     files, directories: [...directories].sort(), pointers, entryRoutes };

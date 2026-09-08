@@ -8,7 +8,7 @@
     "kind": "text-input",
     "title": "Dynamic Template Left Input (Create)",
     "content": {
-      "snl": "%Edits the template text stored before the real #0 in a dynamic Macro v8 style.%(Literal.hash_star)"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,%Edits the template text stored before the real #0 in a dynamic Macro v8 style.%(Literal.hash_star))"
     },
     "contribution_info": null,
     "pointer": null,

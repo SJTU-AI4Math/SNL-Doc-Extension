@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/dom';
 import { installWorkspaceAssetBroker } from './workspaceAssetBroker';
+import { harvestLibraryHtml } from '../export/htmlExport';
 
 const disposables: Array<{ dispose(): void }> = [];
 
@@ -57,6 +58,23 @@ afterEach(() => {
 });
 
 describe('workspace asset broker', () => {
+  it('preserves native image metadata that this DOM broker does not own for portable static exports', async () => {
+    const base = 'vscode-webview://panel/workspace/assets';
+    const cached = 'vscode-webview://trusted-cache/native.svg';
+    document.documentElement.dataset.snlAssetBaseUri = base;
+    const postMessage = vi.fn();
+    disposables.push(installWorkspaceAssetBroker({ postMessage }));
+    const image = document.createElement('img');
+    image.src = cached;
+    image.dataset.snlAssetPath = 'figures/native.svg';
+    document.body.append(image);
+    await Promise.resolve(); await Promise.resolve();
+    expect(image.dataset.snlAssetPath).toBe('figures/native.svg');
+    expect(postMessage).not.toHaveBeenCalled();
+    const exported = harvestLibraryHtml(document.body, base);
+    expect(exported.html).not.toContain(cached);
+    expect(exported.assets).toEqual([{ path: 'assets/figures/native.svg', sourceUrl: cached }]);
+  });
   it('replaces a legacy workspace image URI only after a correlated host reply', async () => {
     const postMessage = vi.fn();
     document.documentElement.dataset.snlAssetBaseUri = 'vscode-webview://panel/workspace/assets';

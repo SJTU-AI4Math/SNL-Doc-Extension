@@ -3,7 +3,7 @@ import * as nodePath from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
-import { EXPORT_RUNTIME_CSS } from './exportRuntime';
+import { projectSnapshotForExport, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -33,6 +33,7 @@ const MESSAGES = defineHostMessages(
 
 /** Harvested payload handed over by the Infoview, held until the user commits. */
 export interface ExportPayload {
+  readerSnapshot?: FrozenReaderSnapshot;
   renderSnapshotId?: string;
   slug: string;
   locale?: string;
@@ -287,12 +288,17 @@ export class ExportOptionsPanel {
       const path = nodePath.resolve(root, file.displayPath); files.add(path);
       try { files.add(await realpath(path)); } catch { /* snapshot revalidation reports missing files */ }
     }
+    // Resolve document aliases before sampling mutable dirty flags. A selected
+    // clean buffer can become dirty while another document's realpath awaits.
+    const aliases = new Map<string, string>();
+    for (const doc of vscode.workspace.textDocuments) {
+      if (doc.uri.scheme !== 'file') continue;
+      try { aliases.set(doc.uri.fsPath, await realpath(doc.uri.fsPath)); } catch { /* unsaved file may have no disk path */ }
+    }
     const dirty: string[] = [];
     for (const doc of vscode.workspace.textDocuments) {
       if (!doc.isDirty || doc.uri.scheme !== 'file') continue;
-      let path = doc.uri.fsPath;
-      try { path = await realpath(path); } catch { /* unsaved file may have no disk path */ }
-      if (files.has(path) || files.has(doc.uri.fsPath)) dirty.push(doc.uri.fsPath);
+      if (files.has(aliases.get(doc.uri.fsPath) ?? doc.uri.fsPath) || files.has(doc.uri.fsPath)) dirty.push(doc.uri.fsPath);
     }
     return dirty;
   }
@@ -369,6 +375,14 @@ export class ExportOptionsPanel {
     const options = parseSourceOptions(rawSources);
     const sourceContext = this.sourceContext;
     const confirmed = this.sourcePreview;
+    const capturedPayload = this.payload;
+    const generation = this.previewGeneration;
+    const payload = structuredClone(capturedPayload);
+    const assertCurrent = (): void => {
+      if (sourceContext !== this.sourceContext || capturedPayload !== this.payload || generation !== this.previewGeneration) {
+        throw new Error('Export context changed; recapture export.');
+      }
+    };
     if (options.enabled) {
       if (!interactive || !sourceContext || !confirmed) throw new Error('Source export requires interaction and a confirmed preview.');
       if (confirmed.key !== sourceRequestKey(options, destinationPath, shape, sourceContext.renderSnapshotId) || confirmationId !== confirmed.preview.confirmationId) throw new Error('Source options changed; preview and confirm again.');
@@ -378,9 +392,13 @@ export class ExportOptionsPanel {
       await revalidateSourceSnapshot(confirmed.preview, this.sourceCaptureInput(sourceContext, options, destinationPath, shape));
       if (confirmed !== this.sourcePreview || sourceContext !== this.sourceContext) throw new Error('Export context changed; preview again.');
     }
-    const payload = structuredClone(this.payload);
+    await sourceContext?.revalidate();
+    assertCurrent();
+    if (interactive && (!sourceContext || payload.readerSnapshot?.renderSnapshotId !== sourceContext.renderSnapshotId)) throw new Error('Reader snapshot/context mismatch; recapture export.');
+    if (interactive && !payload.readerSnapshot) throw new Error('Versioned reader snapshot missing; recapture export.');
     const request: ExportRequest = {
       ...payload,
+      readerSnapshot: interactive ? projectSnapshotForExport(payload.readerSnapshot!) : undefined,
       sourcePreview: options.enabled ? confirmed!.preview : undefined,
       inline: shape === 'single',
       // A static export promises no JavaScript. Do not merely hide the tag:
@@ -399,14 +417,7 @@ export class ExportOptionsPanel {
         const uri = vscode.Uri.joinPath(this.extensionUri, 'media', 'exportRuntime.js');
         runtimeJs = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
       } catch {
-        if (options.enabled) throw new Error('Source export runtime is missing. Rebuild before exporting.');
-        // Degrade to a strictly static document rather than failing the export:
-        // the reader still gets correct, readable content, just without hover
-        // and collapse.
-        void vscode.window.showWarningMessage(
-          t('runtimeMissing')
-        );
-        runtimeJs = undefined;
+        throw new Error('Shared reader runtime is missing. Rebuild before exporting.');
       }
     }
 
@@ -415,11 +426,22 @@ export class ExportOptionsPanel {
         extensionUri: this.extensionUri,
         workspaceRoot: root,
         destination,
-        beforePublish: options.enabled ? async () => {
+        beforePublish: async () => {
+          assertCurrent();
+          await sourceContext?.revalidate();
+          assertCurrent();
+          if (!options.enabled) return;
           if (sourceContext !== this.sourceContext || confirmed !== this.sourcePreview) throw new Error('Export preview changed before publication.');
           await sourceContext!.revalidate();
           await revalidateSourceSnapshot(confirmed!.preview, this.sourceCaptureInput(sourceContext!, options, destinationPath, shape));
-        } : undefined,
+          // Disk hashes cannot detect editor changes made while staging the export.
+          // Keep this check after the final awaited snapshot validation, and do
+          // not let its own asynchronous realpath lookups revive a stale owner.
+          if ((await this.dirtySourceFiles(confirmed!.preview)).length && !diskAcknowledged) {
+            throw new Error('Unsaved source files: explicitly choose disk snapshot or save and preview again.');
+          }
+          assertCurrent();
+        },
         buildDocument: (input) =>
           buildExportDocument({
             ...input,
@@ -427,7 +449,7 @@ export class ExportOptionsPanel {
             // Dropped when the reader asked for a static document: without the
             // runtime nothing would read the payload anyway.
             scriptSources: runtimeJs ? input.scriptSources : [],
-            css: [EXPORT_BASE_CSS, runtimeJs ? EXPORT_RUNTIME_CSS : '', input.css]
+            css: [EXPORT_BASE_CSS, input.css, runtimeJs ? 'body { padding: 0; } .snl-export { max-width: none; } .snl-export > h1, .snl-export > .snl-export-subtitle { display:none; }' : '']
               .filter(Boolean)
               .join('\n'),
             script: runtimeJs

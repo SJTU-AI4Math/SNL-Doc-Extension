@@ -62,7 +62,7 @@ describe('Pointer host command behavior', () => {
     try {
       expect(await mocks.commands.get('snlDoc.revealNearestEntry')!()).toBe('Target');
       await mocks.commands.get('snlDoc.revealNearestEntry')!();
-      expect(f.driver.query).toHaveBeenCalledWith(expect.anything(), 1, 'Example.lean', 20, 'dirty text');
+      expect(f.driver.query).toHaveBeenCalledWith(expect.anything(), 1, 'Example.lean', 20, 'dirty text', 1);
       expect(f.driver.build).toHaveBeenCalledTimes(1);
       expect(mocks.execute).toHaveBeenCalledWith('snlDoc.openEntryInfoview', 'Target', undefined, 'P');
     } finally { f.dispose(); }
@@ -101,6 +101,18 @@ describe('Pointer host command behavior', () => {
       vi.mocked(f.driver.query).mockImplementation(async () => {
         f.editor.document.version++;
         return { complete: true, candidates: [{ entryId: 'Old', startLine: 1, endLine: 1, distance: 0 }] };
+      });
+      await mocks.commands.get('snlDoc.revealNearestEntry')!();
+      expect(mocks.execute).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+  });
+  it('discards a late query after a same-line column move', async () => {
+    const f=fixture();
+    try {
+      vi.mocked(f.driver.query).mockImplementation(async () => {
+        const old=f.editor.selection.active;
+        f.editor.selection.active={...old,character:old.character+1,isEqual:()=>false};
+        return {complete:true,candidates:[{entryId:'Old',startLine:1,endLine:1,distance:0}]};
       });
       await mocks.commands.get('snlDoc.revealNearestEntry')!();
       expect(mocks.execute).not.toHaveBeenCalled();

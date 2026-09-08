@@ -2,6 +2,7 @@ import React from 'react';
 import { EntryRender, type EntryRenderProps } from './EntryRender';
 import { CollapsibleScope } from './CollapsibleScope';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
+import '@sjtu-ai4math/snl-basics/style.css';
 import './EntrySurface.css';
 
 const MESSAGES = defineUiMessages(

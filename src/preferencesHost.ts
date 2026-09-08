@@ -126,7 +126,17 @@ export class PreferencesHost implements vscode.Disposable {
     if (languageService) this.languageServices.set(ref, languageService);
     if (assetService) this.assetServices.set(ref, assetService);
     const listener = webview.onDidReceiveMessage((message: unknown) => {
-      const incoming = message as { type?: unknown; language?: unknown } | null;
+      const incoming = message as { type?: unknown; language?: unknown; preferences?: Record<string, unknown> } | null;
+      if (incoming?.type === 'snl.preferences/set-reading' && incoming.preferences) {
+        const p = incoming.preferences;
+        const config = vscode.workspace.getConfiguration('snlDoc');
+        const updates: Array<PromiseLike<void>> = [];
+        if (p.color_scheme === 'light' || p.color_scheme === 'dark') updates.push(config.update('appearance.theme', p.color_scheme, vscode.ConfigurationTarget.Global));
+        if (p.motion === 'full' || p.motion === 'reduced') updates.push(config.update('appearance.motion', p.motion, vscode.ConfigurationTarget.Global));
+        if (typeof p.popover_hover_enabled === 'boolean') updates.push(config.update('popovers.openOnHover', p.popover_hover_enabled, vscode.ConfigurationTarget.Global));
+        void Promise.all(updates).catch(error => vscode.window.showErrorMessage(String(error)));
+        return;
+      }
       if (incoming?.type === 'snl.preferences/ready') {
         const target = ref.deref();
         if (target) void this.send(target, ref);

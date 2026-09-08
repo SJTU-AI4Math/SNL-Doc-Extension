@@ -4,6 +4,7 @@ import 'monaco-editor/esm/vs/editor/contrib/find/browser/findController';
 import 'monaco-editor/esm/vs/editor/contrib/folding/browser/folding';
 import 'monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard';
 import { registerLean } from './leanLanguage';
+import { isCompiledPointerScope, rankCompiledScopes } from '../pointerSync/scope';
 import { isStructuralPointer, normalizePointerFile } from '../pointerSync/schema';
 import type { SourceManifest, SourceFile, SourceChunk, SourcePointer, SourceRoute } from './types';
 import type { PointerRange } from '../pointerSync/text';
@@ -36,7 +37,7 @@ function validRange(r: PointerRange | undefined): r is PointerRange {
 export function validateManifest(value: unknown): SourceManifest {
   if (!value || typeof value !== 'object') throw Error('Invalid source manifest');
   const m = value as SourceManifest;
-  if (m.schemaVersion !== 'snl.export.sources/v1') throw Error('Unsupported source manifest version');
+  if (m.schemaVersion !== 'snl.export.sources/v2') throw Error('Unsupported source manifest version');
   if (!identifier(m.exportId) || !identifier(m.renderSnapshotId) || !identifier(m.workspaceName) ||
       m.snapshot?.mode !== 'disk' || !Array.isArray(m.files) || !Array.isArray(m.pointers) ||
       !Array.isArray(m.entryRoutes) || !Array.isArray(m.directories)) throw Error('Invalid source manifest');
@@ -62,7 +63,7 @@ export function validateManifest(value: unknown): SourceManifest {
         (p.fileId !== undefined && !ids.has(p.fileId))) throw Error('Invalid/duplicate source Pointer');
     entries.add(p.entryId);
     if (p.status === 'ok' && (!p.fileId || ids.get(p.fileId)?.kind !== 'text' ||
-        !validRange(p.range) || p.sourceSha256 !== ids.get(p.fileId)?.sha256 || !isStructuralPointer(p.pointer))) {
+        !validRange(p.range) || !isCompiledPointerScope(p.inverseScope) || p.sourceSha256 !== ids.get(p.fileId)?.sha256 || !isStructuralPointer(p.pointer))) {
       throw Error('Invalid source Pointer range/revision');
     }
   }
@@ -76,31 +77,21 @@ export function validateManifest(value: unknown): SourceManifest {
   return m;
 }
 
-/** Same (distance, inclusive covered-line span) rank as pointerSync/index.ts rankBucket.
- * This browser boundary consumes resolved ranges only; authored regex is NEVER executed.
- * Parity tests compare against the real host function, not a second test oracle.
- */
-export function rankSourcePointers(m: SourceManifest, fileId: string, line: number) {
-  if (!positive(line)) return { candidates: [] as SourcePointer[], complete: false };
+/** Reverse lookup consumes only compiled scopes; authored regex is NEVER executed. */
+export function rankSourcePointers(m: SourceManifest, fileId: string, line: number, column?: number) {
+  if (!positive(line) || (column !== undefined && !positive(column))) return { candidates: [] as SourcePointer[], complete: false };
   const path = m.files.find(f => f.fileId === fileId)?.displayPath;
-  let bestDistance = Infinity, bestSpan = Infinity, complete = true;
-  let candidates: SourcePointer[] = [];
+  let complete = true;
+  const resolved: SourcePointer[] = [];
   for (const p of m.pointers) {
-    // Preserve uncertainty when an unresolved pointer has no fileId, or a lexical alias.
+    // Raw file is provenance for unresolved membership only, never selection/ranking.
     const rawFile = p.pointer && typeof p.pointer === 'object' && 'file' in p.pointer ? p.pointer.file : undefined;
-    const same = p.fileId === fileId || (typeof rawFile === 'string' && normalizePointerFile(rawFile) === path);
+    const same = p.fileId === fileId || (p.status !== 'ok' && typeof rawFile === 'string' && normalizePointerFile(rawFile) === path);
     if (!same) continue;
-    if (p.status !== 'ok' || !validRange(p.range) || !isStructuralPointer(p.pointer)) { complete = false; continue; }
-    const r = p.range;
-    const distance = Math.max(r.startLine - line, line - r.coveredEndLine, 0);
-    const threshold = line < r.startLine ? p.pointer.beforeLines ?? 15 : p.pointer.afterLines ?? 15;
-    if (distance > threshold) continue;
-    const span = r.coveredEndLine - r.startLine + 1;
-    if (distance > bestDistance || (distance === bestDistance && span > bestSpan)) continue;
-    if (distance < bestDistance || span < bestSpan) candidates = [];
-    bestDistance = distance; bestSpan = span; candidates.push(p);
+    if (p.status !== 'ok' || !isCompiledPointerScope(p.inverseScope)) { complete = false; continue; }
+    resolved.push(p);
   }
-  return { candidates, complete };
+  return { candidates: rankCompiledScopes(resolved, p => p.inverseScope!, line, column), complete };
 }
 
 /** SHA-256 fallback for non-secure HTTP hosts; crypto.subtle was also exercised on file://.
@@ -158,7 +149,8 @@ export function installSourceViewer(): (() => void) | undefined {
   const main = document.querySelector<HTMLElement>('.snl-export');
   if (!main) return;
   // Route existence is checked against the actual router's DOM and popover registry.
-  const routeAvailable = (r: SourceRoute) => r.nodeId !== undefined
+  const sharedRoutes = (window as unknown as { __snlReaderRoutes?: Set<string> }).__snlReaderRoutes;
+  const routeAvailable = (r: SourceRoute) => sharedRoutes ? sharedRoutes.has(r.hash) : r.nodeId !== undefined
     ? Array.from(main.querySelectorAll('[data-snl-route-id]')).some(el=>el.getAttribute('data-snl-route-id')===r.nodeId &&
         [el,...Array.from(el.querySelectorAll('[data-entry-id]'))].some(entry=>entry.getAttribute('data-entry-id')===r.entryId))
     : !!global.__SNL_POPOVERS__ && Object.hasOwn(global.__SNL_POPOVERS__,r.entryId) && typeof global.__SNL_POPOVERS__[r.entryId] === 'string';
@@ -263,7 +255,9 @@ export function installSourceViewer(): (() => void) | undefined {
           let model=models.get(id);
           if(!model) {const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);const language=file.language==='lean'||file.language==='lean4'||file.displayPath.endsWith('.lean')?'lean4':'plaintext';model=monaco.editor.createModel(text,language,monaco.Uri.from({scheme:'snl-source',path:'/'+m.exportId+'/'+id}));models.set(id,model);}
           models.delete(id);models.set(id,model);e.setModel(model);
-          for(const p of m.pointers)if(p.fileId===id&&p.status==='ok'&&p.range&&!model.validateRange(range(p.range)).equalsRange(range(p.range)))throw Error('Pointer range exceeds source');
+          for(const p of m.pointers)if(p.fileId===id&&p.status==='ok') {
+            for(const r of [p.range,p.inverseScope])if(r&&!model.validateRange(range(r)).equalsRange(range(r)))throw Error('Pointer range exceeds source');
+          }
           const saved=restore?.view??views.get(id);if(saved)e.restoreViewState(saved);
           while(models.size>4){const oldest=models.keys().next().value!;models.get(oldest)?.dispose();models.delete(oldest);}
           root.dataset.modelCount=String(models.size);root.dataset.fileId=id;
@@ -312,7 +306,7 @@ export function installSourceViewer(): (() => void) | undefined {
   function reverse(explicit:boolean) {
     if(!editor?.getModel()||!current||invalid.has(current)||!opened)return;
     clearMark();choices.replaceChildren();decorations?.clear();
-    const result=rankSourcePointers(bucketed.get(current)!,current,editor.getPosition()?.lineNumber??1);
+    const result=rankSourcePointers(bucketed.get(current)!,current,editor.getPosition()?.lineNumber??1,editor.getPosition()?.column??1);
     status.textContent=!result.complete?'Incomplete source index — automatic following paused':result.candidates.length?'Nearby entries':'No nearby entry';
     for(const p of result.candidates) {
       const routes=routesFor(p);
@@ -329,6 +323,7 @@ export function installSourceViewer(): (() => void) | undefined {
     }
   }
   function attachActions(scope:ParentNode) {
+    if (sharedRoutes) return; // Shared Basics EntryRender owns the native source action.
     for(const surface of scope.querySelectorAll<HTMLElement>('.snl-entry[data-entry-id], .snl-entry-surface[data-entry-id], [data-snl-route-surface][data-entry-id]')) {
       const id=surface.dataset.entryId;if(!id||!m.pointers.some(p=>p.entryId===id))continue;
       if(Array.from(surface.querySelectorAll('[data-snl-source-entry]')).some(el=>el.getAttribute('data-snl-source-entry')===id))continue;
@@ -347,6 +342,8 @@ export function installSourceViewer(): (() => void) | undefined {
   mutations.observe(document.body,{childList:true,subtree:true});attachActions(document);
   function click(e:MouseEvent) {const action=(e.target as Element)?.closest<HTMLElement>('[data-snl-source-entry]');if(action){e.preventDefault();e.stopPropagation();showPointer(action.dataset.snlSourceEntry!);}}
   document.addEventListener('click',click,true);
+  const sourceIntent = (event: Event): void => { const id = (event as CustomEvent<{ entryId?: string }>).detail?.entryId; if (id) showPointer(id); };
+  window.addEventListener('snl-reader-source', sourceIntent);
   function key(e:KeyboardEvent) {
     if(!opened)return;
     if((e.ctrlKey||e.metaKey)&&e.altKey&&e.key.toLowerCase()==='j'&&root.contains(document.activeElement)){e.preventDefault();reverse(true);}
@@ -360,7 +357,7 @@ export function installSourceViewer(): (() => void) | undefined {
   const themeObserver=new MutationObserver(theme);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class','style','data-snl-color-scheme','lang']});themeObserver.observe(document.body,{attributes:true,attributeFilter:['class','style']});
   function restore() {const s=history.state?.snlSourceView as SavedView|undefined;if(s?.exportId!==m.exportId)return;origin++;try {if(typeof s.width==='number'&&Number.isFinite(s.width))setWidth(s.width);setOpen(!!s.open);if(s.open&&s.fileId&&m.files.some(f=>f.fileId===s.fileId))void openFile(s.fileId,undefined,s);}finally{origin--;}}
   window.addEventListener('popstate',restore);restore();
-  const cleanup=()=>{if(disposed)return;disposed=true;generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('[data-snl-source-viewer-action]').forEach(el=>el.remove());};
+  const cleanup=()=>{if(disposed)return;disposed=true;window.removeEventListener('snl-reader-source',sourceIntent);generation++;pendingScripts.forEach(cancel=>cancel());resize.disconnect();mutations.disconnect();themeObserver.disconnect();document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);window.removeEventListener('popstate',restore);clearMark();decorations?.clear();editor?.dispose();models.forEach(model=>model.dispose());workers.forEach(w=>w.terminate());if(workerURL)URL.revokeObjectURL(workerURL);if(global.MonacoEnvironment===environment)global.MonacoEnvironment=previousEnvironment;root.remove();opener.remove();split.remove();document.documentElement.classList.remove('snl-source-visible');document.querySelectorAll('[data-snl-source-viewer-action]').forEach(el=>el.remove());};
   global.__snlSourceViewerCleanup=cleanup;return cleanup;
 }
 if(typeof document!=='undefined') {

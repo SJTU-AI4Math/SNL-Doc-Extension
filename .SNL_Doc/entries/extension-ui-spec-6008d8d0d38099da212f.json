@@ -8,7 +8,7 @@
     "kind": "button",
     "title": "Add Macro Style Button (Create)",
     "content": {
-      "snl": "ButtonPress(AddItem(%a uniquely named Macro v8 style%))"
+      "snl": "SpecHistoricalReference(%本条的 Macro v8 字段/存储版本为历史。当前编辑写严格 Macro v11；模式、body、separator 和 block renderer 位于 template projection，来源、Style 顺序与预览能力继续保留。%,%功能规范%@spec.extension.authoring,ButtonPress(AddItem(%a uniquely named Macro v8 style%)))"
     },
     "contribution_info": null,
     "pointer": null,

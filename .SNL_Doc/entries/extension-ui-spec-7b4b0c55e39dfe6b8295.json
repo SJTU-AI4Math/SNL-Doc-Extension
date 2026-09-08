@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.shared-reader.structure",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "折叠与结构状态：正文、Library 与同层操作",
+    "content": {
+      "markdown": "## 区分三类结构\n\nLibrary occurrence 的折叠控制可见后代；正文 Collapsible 控制 Entry 内语义内容；编辑器树的增删移动改 authored 结构。三者不可混用：阅读折叠是 transient state，不能保存为 Library graph 或改写 Entry。正文折叠不能偷偷删除 Library 分支，编辑器删除也不是一次折叠。\n\nLibrary 阅读初始有子节点的结构保持收起；正文 Collapsible 采用共用默认收起策略。独立 Entry、每次 occurrence 与递归弹窗有明确 scope；同层操作只作用该 scope 的同深度可折叠节点，全展开/全收起反映真正能力，叶节点不产生伪操作。隐藏后代仍在结构描述和冻结数据里，不以当前 mounted DOM 当作全集。\n\n## 变更、返回与可访问性\n\n同一 Library 刷新按稳定 node ID 调和：保留仍存在的状态，新节点用默认，移除节点清理；切换 Library 隔离状态。返回已有阅读目的地可恢复其语义状态，不将上一次用户展开误当成新导出的初始默认。显示/隐藏采用可访问 disclosure 状态与键盘动作，关闭区域不残留可聚焦的隐藏按钮。\n\n打开隐藏 occurrence 必须先展开必要祖先，再完成定位。结构状态、页面滚动和来源 editor 状态分开保存；被动跟随不乱改其它树或制造历史。export 捕获为了完整性临时展开 DOM 是旧机制，不得成为交互式导出数据闭包或默认状态的来源。\n\n## 基线与门禁\n\n`App.tsx` LibraryLayer 已有 stable-node 调和与同层/全局操作；`render/CollapsibleScope.tsx` 管理正文 scope。共享重构需要两个宿主加载这些共用机制，不是复制效果。用至少两层隐藏后代、重复 Entry、刷新增删和多个弹窗验收默认、全局能力及返回恢复。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

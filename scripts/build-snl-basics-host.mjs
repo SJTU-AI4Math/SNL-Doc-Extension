@@ -8,7 +8,8 @@ await build({
   stdin: {
     contents: [
       "export { migrateMacroDocument, migrateMacroV7toV8, readSnlTableRenderOptions } from '@sjtu-ai4math/snl-basics';",
-      "export { isSnlIdentifier, parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';"
+      "export { isSnlIdentifier, parseSnlSyntaxTree } from '@sjtu-ai4math/snl-basics/core';",
+      "export { fromMarkdown } from 'mdast-util-from-markdown';"
     ].join('\n'),
     loader: 'js',
     resolveDir: root

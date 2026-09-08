@@ -1,4 +1,5 @@
 import React from 'react';
+import { ReaderPreferences } from '../reader/ReaderPreferences';
 import type { VsCodeApi } from '../vscodeApi';
 import { IconButton } from './IconButton';
 import {
@@ -189,6 +190,7 @@ export function PanelHeader({
           />
         ) : null}
         {actions}
+        <ReaderPreferences api={vsApi} />
         <ContentLanguageSelector
           label={contentLanguageLabel}
           current={contentLanguage}

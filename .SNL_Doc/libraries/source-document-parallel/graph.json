@@ -1,6 +1,13 @@
 {
   "nodes": [
     {
+      "id": "node.spec.shared-reader",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.shared-reader"
+      }
+    },
+    {
       "id": "node.spec.source-document",
       "label": "Entry",
       "props": {
@@ -93,6 +100,11 @@
     }
   ],
   "relationships": [
+    {
+      "from": "node.spec.shared-reader",
+      "to": "node.spec.source-document",
+      "label": "branch"
+    },
     {
       "from": "node.spec.source-document",
       "to": "node.spec.source-document.baseline",

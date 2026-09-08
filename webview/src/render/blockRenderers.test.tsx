@@ -7,6 +7,7 @@ import { COLLAPSE_TOGGLE_GEOMETRY } from '../../../src/collapseToggleContract';
 import { CollapsibleRenderer, extensionRenderers } from './blockRenderers';
 import { serializeTableRendererSpec } from './blockRendererSpec';
 import { harvestLibraryHtml } from '../export/htmlExport';
+import { setReaderPlatformApi } from '../runtime/readerPlatform';
 
 
 const rendererContractProps = {
@@ -18,7 +19,7 @@ const rendererContractProps = {
 };
 
 const assetPostMessage = vi.fn();
-(globalThis as { __snlApi?: unknown }).__snlApi = { postMessage: assetPostMessage };
+setReaderPlatformApi({ postMessage: assetPostMessage });
 
 // This project does not enable vitest `globals`, so testing-library's automatic
 // cleanup hook is not installed. Unmount explicitly or renders pile up in the

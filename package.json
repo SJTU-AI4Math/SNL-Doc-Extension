@@ -471,6 +471,7 @@
     "build:export-runtime": "node scripts/build-export-runtime.mjs && npm run build:source-viewer",
     "build:source-viewer": "node scripts/build-source-viewer.mjs && tsc -p tsconfig.source-viewer.json",
     "test:source-viewer": "node scripts/test-source-viewer.mjs",
+    "test:pointer-editor": "node scripts/test-pointer-editor.mjs",
     "test:pointer-navigation": "npm run compile && npm run build:export-runtime && node scripts/test-pointer-navigation.mjs",
     "watch": "npm run build:host-basics && tsc -watch -p ./",
     "build:webview": "node scripts/build-webviews.mjs",

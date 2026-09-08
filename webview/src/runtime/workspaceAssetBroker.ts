@@ -145,6 +145,9 @@ export function installWorkspaceAssetBroker(
   };
 
   const clearAssociation = (image: HTMLImageElement): void => {
+    // Native image renderers also carry this export hint. A global observer
+    // must only remove metadata belonging to an association that it owns.
+    if (!associations.has(image)) return;
     releaseAssociation(image);
     delete image.dataset.snlAssetPath;
     delete image.dataset.snlAssetError;

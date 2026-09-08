@@ -1,5 +1,6 @@
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
 import React,{ useEffect,useRef,useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
 COLLAPSE_GLYPH,
 COLLAPSE_TOGGLE_STYLE
@@ -107,7 +108,7 @@ export interface RenderCtx {
   kindPalette: KindPalette | undefined;
   markdownImageUrlTransform?: (source: string) => string;
   /** Harvest the rendered outline and hand it to the host to write out. */
-  exportHtml: (slug: string, title: string, entryCount: number) => void;
+  exportHtml: (slug: string, title: string, entryCount: number) => void | Promise<void>;
   /** Wraps the rendered outline forest; the export harvests from here. */
   outlineRef: React.MutableRefObject<HTMLDivElement | null>;
 }
@@ -359,14 +360,13 @@ export function LibraryLayer({
               onClick={() => {
                 // The Entry outline renders collapse by OMITTING the subtree,
                 // so a collapsed branch is not in the DOM and cannot be
-                // harvested. Expand everything, then export after the paint.
+                // harvested. Commit expansion before starting the async capture
+                // gate; a queued frame would retain an obsolete ctx on navigation.
                 // (Collapsible BLOCKS don't need this: they keep their body
                 // mounted and just set `hidden`, so their fold state is
                 // harvested as-is and carried into the exported file.)
-                setCollapsed(new Set());
-                requestAnimationFrame(() =>
-                  ctx.exportHtml(slug, title, totalEntries)
-                );
+                flushSync(() => setCollapsed(new Set()));
+                void ctx.exportHtml(slug, title, totalEntries);
               }}
             /> : null}
           </>

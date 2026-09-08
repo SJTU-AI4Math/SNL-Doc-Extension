@@ -12,9 +12,9 @@
 // Back button that walks the stack up one step.
 
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
-import React,{ useEffect,useMemo,useRef,useState } from 'react';
+import React,{ useEffect,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import type { RelationshipData } from '../../src/snlDoc';
-import { harvestLibraryHtml } from './export/htmlExport';
+import { harvestLibraryHtml,waitForExportSurfaces } from './export/htmlExport';
 import {
 type EntryData,
 type EntryKind,
@@ -79,12 +79,14 @@ export function App(): React.ReactElement {
       }
       switch (msg.type) {
         case 'libraries':
+          cancelExport();
           setView({
             kind: 'libraries',
             libraries: Array.isArray(msg.libraries) ? msg.libraries : []
           });
           break;
         case 'librariesError':
+          cancelExport();
           setView((current) => ({
             kind: 'librariesError',
             message: msg.message || '',
@@ -98,7 +100,7 @@ export function App(): React.ReactElement {
           break;
         case 'libraryEntries':
           renderSnapshotRef.current = msg.renderSnapshotId;
-          exportGenerationRef.current++;
+          cancelExport();
           if (msg.macros && typeof msg.macros === 'object') {
             setWireUserMacros(msg.macros);
           }
@@ -144,26 +146,54 @@ export function App(): React.ReactElement {
   };
 
   const exportGenerationRef = useRef(0);
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const cancelExport = React.useCallback((): void => {
+    exportGenerationRef.current++;
+    exportAbortRef.current?.abort();
+    exportAbortRef.current = null;
+  }, []);
+  // Retire the producer at commit/unmount, including same-slug refreshes and
+  // locale changes. Host context messages and Back also cancel synchronously.
+  useLayoutEffect(() => cancelExport, [cancelExport, view, contentLanguage, userMacros, assetBaseUri]);
 
   /**
    * Export the Library the reader is currently looking at.
    *
-   * We harvest the live DOM instead of re-rendering: by this point every Entry
-   * has settled (SNL context resolved, KaTeX painted), so the snapshot is
-   * exactly what the reader sees. A fresh render would have to redo that
-   * asynchronous work and could not be captured synchronously anyway —
-   * `renderToStaticMarkup` cannot render this tree at all, because the hover
-   * popover layer mounts a portal.
+   * Harvest the shared reader only after its newly mounted Entry/SNL/SVG
+   * surfaces settle. The options panel selects static/interactive later, so
+   * both paths get one complete static fallback; interactive raw snapshot
+   * ownership remains with the host. No locale projection or parallel DOM.
    *
    * Callers must expand the outline first: collapse is rendered by *omitting*
    * the subtree, so a collapsed branch is absent from the DOM and would be
    * silently dropped from the export.
    */
-  const exportHtml = (slug: string, title: string, _entryCount: number): void => {
-    // Interactive exports freeze raw host data; they never wait for DOM/SVG capture.
-    const harvested = outlineRef.current ? harvestLibraryHtml(outlineRef.current, assetBaseUri, userMacros) : { html: '', assets: [] };
-    postMessage({ type: 'exportLibraryHtml', renderSnapshotId: renderSnapshotRef.current,
-      locale: get_content_language(), slug, title, body: harvested.html, assets: harvested.assets });
+  const exportHtml = async (slug: string, title: string, entryCount: number): Promise<void> => {
+    cancelExport();
+    const generation = exportGenerationRef.current;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    const root = outlineRef.current;
+    const renderSnapshotId = renderSnapshotRef.current;
+    const locale = get_content_language();
+    const isCurrent = (): boolean => !controller.signal.aborted &&
+      generation === exportGenerationRef.current && root === outlineRef.current &&
+      renderSnapshotId === renderSnapshotRef.current && locale === get_content_language();
+    try {
+      if (root) await waitForExportSurfaces(root, { signal: controller.signal });
+      if (!isCurrent()) return;
+      if ((root?.querySelectorAll('[data-snl-route-id]').length ?? 0) !== entryCount) {
+        throw new Error('The outline changed during HTML capture. Please retry the export.');
+      }
+      const harvested = root ? harvestLibraryHtml(root, assetBaseUri, userMacros) : { html: '', assets: [] };
+      postMessage({ type: 'exportLibraryHtml', renderSnapshotId,
+        locale, slug, title, body: harvested.html, assets: harvested.assets });
+    } catch (error) {
+      if (isCurrent()) postMessage({ type: 'exportLibraryHtmlError',
+        error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      if (exportAbortRef.current === controller) exportAbortRef.current = null;
+    }
   };
   const markdownImageUrlTransform = React.useMemo(
     () => assetBaseUri
@@ -173,6 +203,7 @@ export function App(): React.ReactElement {
   );
 
   const goBack = (): void => {
+    cancelExport();
     if (view.kind === 'library') {
       // `ready` preserves a host-seeded Library slug so direct navigation can
       // survive the first handshake. Back is an explicit state transition:

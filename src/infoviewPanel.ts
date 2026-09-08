@@ -931,7 +931,7 @@ export class InfoviewPanel {
       snapshot.contentLanguage = request.locale ?? snapshot.contentLanguage;
       const root = firstWorkspaceFolder();
       if (!root) throw new Error('Workspace closed during export.');
-      for (const path of readerAssetPaths({ entries: snapshot.entries, macros: snapshot.macros })) {
+      for (const path of readerAssetPaths(snapshot)) {
         const bytes = await readWorkspaceAsset({ workspaceRoot: root, relativePath: path });
         snapshot.resources[path] = { url: toDataUrl(path, bytes),
           revision: 'sha256:' + createHash('sha256').update(bytes).digest('hex'),

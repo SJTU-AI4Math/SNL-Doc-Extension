@@ -24,8 +24,9 @@ export interface PointerFileBucket {
   entries: IndexedPointer[];
 }
 export interface PointerIndex {
-  /** Derived format version only; independent of the workspace schema version. */
-  version: 2;
+  /** Derived format only, independent of workspace schema. v3 has exact scopes;
+   * v2's expanded scopes must never be queried or reused during rebuild. */
+  version: 3;
   files: Record<string, PointerFileBucket>;
   /** Invalid pointers with no safe logical file; never searched as another file's candidates. */
   unfiled: IndexedPointer[];
@@ -95,7 +96,7 @@ export async function buildPointerIndex(
   rootPath: string, entries: readonly PointerIndexEntryInput[], previousIndex?: PointerIndex
 ): Promise<PointerIndex> {
   const groups = new Map<string, IndexedPointer[]>();
-  const index: PointerIndex = { version: 2, files: Object.create(null), unfiled: [] };
+  const index: PointerIndex = { version: 3, files: Object.create(null), unfiled: [] };
   for (const entry of entries) {
     if (entry.pointer === undefined || entry.pointer === null) continue;
     const record: IndexedPointer = { entryId: entry.id, pointer: JSON.parse(stableStringify(entry.pointer)),
@@ -112,7 +113,7 @@ export async function buildPointerIndex(
     const records = groups.get(file)!.sort(compareEntries);
     const source = await readPointerSource(rootPath, file);
     index.files[file] = source.status === 'ok'
-      ? await resolveBucket(records, source.text, previousIndex?.version === 2 ? ownBucket(previousIndex, file) : undefined)
+      ? await resolveBucket(records, source.text, previousIndex?.version === 3 ? ownBucket(previousIndex, file) : undefined)
       : { fingerprint: null, entries: records.map(entry => ({ ...entry, resolution: source })) };
   }
   index.unfiled.sort(compareEntries);
@@ -137,7 +138,7 @@ export interface NearestEntriesResult {
 /** Snapshot-only lookup; selection knows only compiled scope and metadata. */
 export function findNearestEntries(index: PointerIndex, relativeFile: string, line: number, column?: number): NearestEntriesResult {
   const file = normalizePointerFile(relativeFile);
-  if (index.version !== 2 || !file || !Number.isSafeInteger(line) || line < 1 ||
+  if (index.version !== 3 || !file || !Number.isSafeInteger(line) || line < 1 ||
       (column !== undefined && (!Number.isSafeInteger(column) || column < 1))) return { candidates: [], complete: false, unresolved: [] };
   return rankBucket(ownBucket(index, file), line, column);
 }
@@ -156,7 +157,7 @@ function rankBucket(bucket: PointerFileBucket | undefined, line: number, column?
 export async function updatePointerIndexText(
   index: PointerIndex, relativeFile: string, text: string
 ): Promise<PointerIndex> {
-  if (index.version !== 2) throw new Error('Obsolete Pointer index; rebuild required');
+  if (index.version !== 3) throw new Error('Obsolete Pointer index; rebuild required');
   const file = normalizePointerFile(relativeFile);
   if (!file) throw new Error('Invalid relative source path');
   const bucket = ownBucket(index, file);
@@ -170,7 +171,7 @@ export async function updatePointerIndexText(
 export async function queryNearestEntries(
   index: PointerIndex, relativeFile: string, line: number, textOverride?: string, column?: number
 ): Promise<NearestEntriesResult> {
-  if (index.version !== 2) return { candidates: [], complete: false, unresolved: [] };
+  if (index.version !== 3) return { candidates: [], complete: false, unresolved: [] };
   if (textOverride === undefined) return findNearestEntries(index, relativeFile, line, column);
   const file = normalizePointerFile(relativeFile);
   if (!file || !Number.isSafeInteger(line) || line < 1 ||

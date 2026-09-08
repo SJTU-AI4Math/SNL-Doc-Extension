@@ -19,18 +19,21 @@ async function fixture() {
   return { root, uri: { fsPath: root } as never, driver: createPointerHostDriver() };
 }
 describe('Pointer host filesystem adapter', () => {
-  it('publishes exact columns/priority and distinguishes same-line dirty cursor moves', async () => {
+  it('publishes exact columns/priority despite obsolete fields and distinguishes same-line dirty cursor moves', async () => {
     const f=await fixture(), text='alpha beta\n';
     await fs.writeFile(path.join(f.root,'Example.lean'),text);
     mocks.entries=[
-      {id:'a',pointer:{file:'Example.lean',mode:'lines',line:1,column:1,endColumn:6,beforeLines:0,afterLines:0,priority:-.5}},
-      {id:'b',pointer:{file:'Example.lean',mode:'lines',line:1,column:7,endColumn:11,beforeLines:0,afterLines:0,priority:.25}}
+      {id:'a',pointer:{file:'Example.lean',mode:'lines',line:1,column:1,endColumn:6,beforeLines:-99,afterLines:1e12,priority:-.5}},
+      {id:'b',pointer:{file:'Example.lean',mode:'lines',line:1,column:7,endColumn:11,priority:.25}}
     ];
     const index=await f.driver.build(f.uri);await f.driver.publish(f.uri,index);
     const persisted=(await readPointerIndex(f.root))!;
+    expect(persisted.version).toBe(3);
     expect(await f.driver.query(f.uri,persisted,'Example.lean',1,text,2)).toMatchObject({complete:true,candidates:[{entryId:'a',startColumn:1,endColumn:6,priority:-.5}]});
     expect(await f.driver.query(f.uri,persisted,'Example.lean',1,text,7)).toMatchObject({complete:true,candidates:[{entryId:'b',startColumn:7,endColumn:11,priority:.25}]});
     expect((await f.driver.query(f.uri,persisted,'Example.lean',1,text,6)).candidates).toEqual([]);
+    expect((await f.driver.query(f.uri,persisted,'Example.lean',1,text,11)).candidates).toEqual([]);
+    expect((await f.driver.query(f.uri,persisted,'Example.lean',2,text,1)).candidates).toEqual([]);
   });
   it('round-trips canonical localized titles and resolves the current language at query time', async () => {
     const f = await fixture();

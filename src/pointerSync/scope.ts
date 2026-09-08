@@ -3,8 +3,8 @@ import { sourceTextLines, type PointerDiagnostic, type PointerRange } from './te
 
 /** The ONLY reverse-reference geometry. No raw range, distance or thresholds survive
  * compilation. Offsets/spans count original UTF-16 units (including CRLF's two units).
- * endInclusive admits the final EOL/empty EOF caret for whole rows, added buffer
- * rows and true points. Other precise endpoints are half-open. */
+ * endInclusive admits the final EOL/empty EOF caret for whole rows and true
+ * points. Other precise endpoints are half-open. No scope expansion occurs. */
 export interface CompiledPointerScope extends PointerRange {
   startOffset: number;
   endOffset: number;
@@ -15,19 +15,12 @@ export interface CompiledPointerScope extends PointerRange {
 export type ScopeResolution = { status: 'ok'; scope: CompiledPointerScope } | PointerDiagnostic;
 
 export function compilePointerScope(pointer: EntryPointer, raw: PointerRange, text: string): CompiledPointerScope {
-  const { lines: rows, starts } = sourceTextLines(text);
-  const lengths = rows.map(row => row.length);
-  const before = pointer.beforeLines ?? 15, after = pointer.afterLines ?? 15;
-  const startLine = before > 0 ? Math.max(1, raw.startLine - before) : raw.startLine;
-  const startColumn = before > 0 ? 1 : raw.startColumn;
-  // Buffer after the last actually covered row; a match ending at next-row column 1
-  // does not itself cover that row. Positive buffering includes full added rows.
-  const endLine = after > 0 ? Math.min(rows.length, raw.coveredEndLine + after) : raw.endLine;
-  const endColumn = after > 0 ? lengths[endLine - 1] + 1 : raw.endColumn;
+  const { starts } = sourceTextLines(text);
+  const { startLine, startColumn, endLine, endColumn } = raw;
   const startOffset = starts[startLine - 1] + startColumn - 1;
   const endOffset = starts[endLine - 1] + endColumn - 1;
   const point = raw.startLine === raw.endLine && raw.startColumn === raw.endColumn;
-  const endInclusive = after > 0 || (pointer.mode === 'lines' && pointer.endColumn === undefined) || point;
+  const endInclusive = (pointer.mode === 'lines' && pointer.endColumn === undefined) || point;
   const coveredEndLine = !endInclusive && endColumn === 1 && endLine > startLine ? endLine - 1 : endLine;
   return { startLine, startColumn, endLine, endColumn, coveredEndLine,
     startOffset, endOffset, span: endOffset - startOffset, priority: pointer.priority ?? 0, endInclusive };
@@ -63,7 +56,7 @@ export function comparePointerIdentity(a: { entryId: string; package?: string },
 }
 
 /** Shared host/browser selection: containing scopes, highest priority, smallest
- * actual expanded span, ALL ties in identity order. Geometry is compiled-only. */
+ * actual UTF-16 span, ALL ties in identity order. Geometry is compiled-only. */
 export function rankCompiledScopes<T extends { entryId: string; package?: string }>(items: readonly T[], scope: (item: T) => CompiledPointerScope, line: number, column?: number): T[] {
   let priority = -Infinity, span = Infinity;
   let selected: T[] = [];

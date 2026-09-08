@@ -9,7 +9,7 @@ describe('Explicit lines Pointer empty endpoint', () => {
     const resolution = resolvePointerText(pointer, 'a\nb\n');
     expect(resolution).toMatchObject({ status: 'ok', range: { startLine: 1, endLine: 3, coveredEndLine: 3 } });
     if (resolution.status !== 'ok') throw Error('unexpected resolution');
-    const index = { version: 2 as const, files: { 'x.lean': { fingerprint: 'a'.repeat(64), entries: [{ entryId: 'A', pointer, resolution: { status: 'ok' as const, scope: compilePointerScope(pointer, resolution.range, 'a\nb\n') } }] } }, unfiled: [] };
+    const index = { version: 3 as const, files: { 'x.lean': { fingerprint: 'a'.repeat(64), entries: [{ entryId: 'A', pointer, resolution: { status: 'ok' as const, scope: compilePointerScope(pointer, resolution.range, 'a\nb\n') } }] } }, unfiled: [] };
     expect(findNearestEntries(index, 'x.lean', 3).candidates).toHaveLength(1);
     expect(isPointerIndex(index)).toBe(true);
   });

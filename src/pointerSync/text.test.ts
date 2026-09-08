@@ -4,7 +4,7 @@ import { resolvePointerTextAsync } from './resolve';
 import { EntryPointer, normalizePointerFile } from './schema';
 
 describe('shared text resolution', () => {
-  const cases: Array<[EntryPointer, string, unknown]> = [
+  const cases: Array<[EntryPointer, string, object]> = [
     [{ file: 'x', mode: 'lines', line: 1, endLine: 100 }, 'α\r\nβ',
       { status: 'ok', range: { startLine: 1, startColumn: 1, endLine: 2, endColumn: 2, coveredEndLine: 2 } }],
     [{ file: 'x', mode: 'lines', line: 2 }, '', { status: 'line-out-of-range', line: 2, totalLines: 1 }],

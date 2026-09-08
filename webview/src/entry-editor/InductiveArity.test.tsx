@@ -21,6 +21,7 @@ afterEach(() => {
   cleanup();
   postMessage.mockClear();
   document.documentElement.lang = 'en';
+  delete document.documentElement.dataset.snlColorScheme;
 });
 
 const macro = (name: string, dynamic: boolean, template: string): never => ({
@@ -284,10 +285,11 @@ describe('Inductive editor arity auto-fill', () => {
 
     const input = view.getByRole('textbox') as HTMLInputElement;
     await waitFor(() => expect(input.title).toContain('const'));
-    expect(input.style.borderColor).toBe('rgb(0, 91, 156)');
+    // Published Basics 0.3.5 dark const palette: #87CEFA on #20394C.
+    expect(input.style.borderColor).toBe('rgb(135, 206, 250)');
     const row = input.closest<HTMLElement>('.snl-tree-row')!;
-    expect(row.style.borderColor).toBe('rgb(0, 91, 156)');
-    expect(row.style.background).toBe('rgba(218, 240, 255, 0.18)');
+    expect(row.style.borderColor).toBe('rgb(135, 206, 250)');
+    expect(row.style.background).toBe('rgba(32, 57, 76, 0.18)');
     delete document.documentElement.dataset.snlColorScheme;
   });
 

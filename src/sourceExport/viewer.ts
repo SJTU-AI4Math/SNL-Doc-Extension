@@ -307,7 +307,7 @@ export function installSourceViewer(): (() => void) | undefined {
   m.directories.forEach(folder);
   for(const f of m.files){const parts=f.displayPath.split('/');const title=parts.pop()!;const b=button(title,()=>{setOpen(true);void openFile(f.fileId);});b.dataset.snlSourceFile=f.fileId;b.title=f.displayPath;folder(parts.join('/')).append(b);}
   function routesFor(p:SourcePointer) {return preferSourceRoutes(m.entryRoutes.filter(r=>r.entryId===p.entryId&&routeAvailable(r)),location.hash);}
-  function mark(p:SourcePointer,r:SourceRoute): boolean {
+  function mark(p:SourcePointer,r:SourceRoute,explicit=false): boolean {
     const scope = r.nodeId !== undefined
       ? Array.from(main!.querySelectorAll<HTMLElement>('[data-snl-route-id]')).find(el=>el.dataset.snlRouteId===r.nodeId)
       : main!;
@@ -323,15 +323,18 @@ export function installSourceViewer(): (() => void) | undefined {
     // the sticky shared-reader header so the target title does not disappear under it.
     const sticky=Array.from(main!.querySelectorAll<HTMLElement>('header,[data-snl-panel-header],.snl-panel-header,.snl-topbar')).filter(el=>getComputedStyle(el).position==='sticky'&&el.getClientRects().length);
     const top=Math.max(viewport.top,...sticky.map(el=>el.getBoundingClientRect().bottom))+8;
-    if(rect.top<top||rect.bottom>viewport.bottom)main!.scrollTop+=rect.top-top;
+    const needsReveal=explicit
+      ? rect.top<top||rect.bottom>viewport.bottom
+      : rect.bottom<=top||rect.top>=viewport.bottom;
+    if(needsReveal)main!.scrollTop+=rect.top-top;
     return true;
   }
-  function markWhenReady(p:SourcePointer,r:SourceRoute):void {
+  function markWhenReady(p:SourcePointer,r:SourceRoute,explicit:boolean):void {
     const ticket=markRequest, deadline=performance.now()+5000;
     const attempt=()=>{
       markFrame=undefined;
       if(disposed||!opened||ticket!==markRequest||location.hash!==r.hash||!current||invalid.has(current))return;
-      if(mark(p,r))return;
+      if(mark(p,r,explicit))return;
       if(performance.now()<deadline)markFrame=requestAnimationFrame(attempt);
     };
     attempt();
@@ -349,7 +352,7 @@ export function installSourceViewer(): (() => void) | undefined {
         history.replaceState(data,'',r.hash);global.__snlExportSourceFollow();
       }
     }
-    markWhenReady(p,r);
+    markWhenReady(p,r,explicit);
   }
   function reverse(explicit:boolean) {
     if(!editor?.getModel()||!current||invalid.has(current)||!opened)return;

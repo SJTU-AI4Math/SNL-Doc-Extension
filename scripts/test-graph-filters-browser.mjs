@@ -20,6 +20,19 @@ export async function verifyGraphFilters({evaluate,wait,screenshot,page,evidence
   evidence.filters={};
   await evaluate(`(()=>{const f=window.__fixture;window.__filterFixture={...f,nodes:f.nodes.map(n=>({...n,kindId:n.id==='Base3'?'axm':['Base','Base2','CycleB'].includes(n.id)?'lma':'thm',kind:n.id==='Base3'?'Axiom':['Base','Base2','CycleB'].includes(n.id)?'Lemma':'Theorem'})),edges:f.edges.map(e=>({...e,label:['e6','e7'].includes(e.id)?'cites':e.label}))};window.dispatchEvent(new MessageEvent('message',{data:window.__filterFixture}));})()`);
   await click(`[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent))`);
+  const atomicToggle = `[...document.querySelectorAll('label')].find(n=>n.textContent.trim()==='atomic deps only').querySelector('input')`;
+  assert.equal(await evaluate(`${atomicToggle}.checked`),true,'atomic-only is enabled on initial mount');
+  await evaluate(`(()=>{const f=window.__filterFixture;window.__atomicFixture={...f,nodes:[...f.nodes,{...f.nodes[0],id:'CompositeOnly'},{...f.nodes[0],id:'UnknownOnly'}],edges:[...f.edges,{...f.edges[0],id:'composite-only',from:'CompositeOnly',to:'Goal',isAtomic:false},{...f.edges[0],id:'unknown-only',from:'UnknownOnly',to:'Goal',isAtomic:null}]};window.dispatchEvent(new MessageEvent('message',{data:window.__atomicFixture}));})()`);
+  const allIds=['Goal','Middle','Base','Base2','Base3','Side','CycleA','CycleB'];
+  await expectNodes(allIds,'atomicDefaultBeforeLayout');
+  await screenshot('atomic-default');
+  await click(atomicToggle);
+  await expectNodes([...allIds,'CompositeOnly','UnknownOnly'],'atomicOptOut');
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:window.__atomicFixture}))`);
+  await expectNodes([...allIds,'CompositeOnly','UnknownOnly'],'atomicOptOutRefresh');
+  assert.equal(await evaluate(`${atomicToggle}.checked`),false);
+  await click(atomicToggle);await expectNodes(allIds,'atomicReenabled');
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:window.__filterFixture}))`);
   assert.ok(await evaluate(`Boolean(${button('Add filter')})`),'missing Add filter: baseline must fail before implementation');
   await click(button('Add filter'));
   await expectNodes(['Goal','Middle','Base','Base2','Base3','Side','CycleA','CycleB'],'emptyDraft');
@@ -72,5 +85,6 @@ export async function verifyGraphFilters({evaluate,wait,screenshot,page,evidence
   await wait(`document.querySelectorAll('svg g[role="button"][data-package-id]').length===8`);
   await click(`[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent))`);
   assert.equal(await evaluate(`document.querySelectorAll('[data-testid="graph-filter-clause"]').length`),0,'new mounted panel must reset filters');
+  assert.equal(await evaluate(`${atomicToggle}.checked`),true,'new mount restores atomic-only default');
   evidence.filters.remountReset=true;
 }

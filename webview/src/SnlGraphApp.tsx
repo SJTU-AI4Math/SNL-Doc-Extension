@@ -977,7 +977,7 @@ function SnlGraphInner({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
    *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
-  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
+  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('atomic-deps');
   /**
    * Cat 2026-07-10 §3: multi-select kind filter. `null` means "no
    * filter — show every kind"; otherwise the Set holds the kindIds

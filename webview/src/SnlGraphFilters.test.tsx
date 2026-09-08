@@ -50,6 +50,26 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
 describe('relationship node predicates', () => {
+  it('defaults to atomic-only before layout, preserves an explicit opt-out on refresh and resets on remount', () => {
+    const data = { ...graph, edges: [edge('aa', 'a', 'a', 'atomic', true, true),
+      edge('bb', 'b', 'b', 'composite', true, false), edge('cc', 'c', 'c', 'unknown', true, null),
+      edge('ab', 'a', 'b', 'authored', false, null)] };
+    const view = mount(data);
+    const toggle = screen.getByRole('checkbox', { name: 'atomic deps only' }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(ids()).toEqual(['a', 'b']);
+    expect(screen.queryByRole('button', { name: 'Relationship composite: b to b' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Relationship unknown: c to c' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Relationship authored: a to b' })).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    send(data);
+    expect(toggle.checked).toBe(false);
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    view.unmount(); mount(data);
+    expect((screen.getByRole('checkbox', { name: 'atomic deps only' }) as HTMLInputElement).checked).toBe(true);
+    expect(ids()).toEqual(['a', 'b']);
+  });
   it.each(['rectangle', 'radial-inward', 'radial-outward'])('uses true from-to direction, OR labels and self-loops in %s', mode => {
     mount({ ...graph, edges: [edge('aa', 'a', 'a', 'keep'), edge('bb', 'b', 'b', 'keep'), edge('cc', 'c', 'c', 'keep'),
       edge('ab', 'a', 'b', 'red'), edge('ba', 'b', 'a', 'blue'), edge('cc-red', 'c', 'c', 'red')] });
@@ -86,6 +106,8 @@ describe('relationship node predicates', () => {
     mount({ ...graph, edges: [edge('aa', 'a', 'a', 'keep'), edge('bb', 'b', 'b', 'keep'), edge('cc', 'c', 'c', 'keep'),
       edge('ab', 'a', 'b', 'composite', true, false), edge('bc', 'b', 'c', 'unknown', true, null),
       edge('ca', 'c', 'a', 'atomic', true, true), edge('ba', 'b', 'a', 'authored', false, false)] });
+    // Explicitly opt out before exercising the all→atomic transition.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'atomic deps only' }));
     const card = relationship(['composite'], 'outgoing');
     expect(ids()).toEqual(['a']);
     fireEvent.click(screen.getByRole('checkbox', { name: 'atomic deps only' }));

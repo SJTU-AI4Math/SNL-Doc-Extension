@@ -33,7 +33,7 @@ const control = (name: string, value: string) => fireEvent.change(screen.getByRo
 beforeEach(() => {
   document.documentElement.lang = 'en';
   api.postMessage.mockReset();
-  vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 700, width: 900, height: 700, toJSON() {} });
+  vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 900, bottom: 400, width: 900, height: 400, toJSON() {} });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
@@ -106,13 +106,16 @@ describe('adaptive graph presentation', () => {
     expect(transform()).toBe(vp);
     control('Nodes', 'auto');
     const slider = screen.getByRole('slider', { name: 'Title threshold' });
-    fireEvent.change(slider, { target: { value: '100' } }); // fitted scale is 1
+    // Content fitting is no longer capped at exactly 1. Exercise equality
+    // against the actual fitted zoom, then straddle it with wheel input.
+    const fittedScale = Number(vp!.match(/scale\(([^)]+)\)/)![1]);
+    fireEvent.change(slider, { target: { value: String(fittedScale * 100) } });
     expect(node().querySelector('rect')).not.toBeNull();
-    fireEvent.change(slider, { target: { value: '120' } });
+    fireEvent.change(slider, { target: { value: String(fittedScale * 120) } });
     expect(node().querySelector('circle')).not.toBeNull();
     const svg = document.querySelector('svg > g[transform]')!.parentElement!;
     fireEvent.wheel(svg, { deltaY: -100, clientX: 400, clientY: 300 });
-    expect(node().querySelector('circle')).not.toBeNull(); // 1.15 < 1.2
+    expect(node().querySelector('circle')).not.toBeNull(); // 1.15 < 1.2 relative to fit
     fireEvent.wheel(svg, { deltaY: -100, clientX: 400, clientY: 300 });
     expect(node().querySelector('rect')).not.toBeNull();
     expect(anchors()).toEqual(positions);
@@ -124,7 +127,7 @@ describe('adaptive graph presentation', () => {
     for (const cluster of screen.getAllByRole('group', { name: /^Package / })) {
       expect(cluster.querySelector('path')?.getAttribute('d')).toContain(' A ');
       expect(cluster.querySelector('rect')).toBeNull();
-      expect(cluster.querySelector('text')).not.toBeNull();
+      expect(document.querySelector(`[data-package-label="${cluster.getAttribute('data-package-id')}"]`)).not.toBeNull();
     }
     control('Nodes', 'always-title');
     fireEvent.change(slider, { target: { value: '250' } });

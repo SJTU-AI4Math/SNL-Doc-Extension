@@ -76,7 +76,7 @@ class Cdp {
 }
 async function connect(url) { const ws = new WebSocket(url); await new Promise((r,j) => { ws.onopen=r; ws.onerror=j; }); return new Cdp(ws); }
 let browser, page;
-const evidence = { url, mode: process.argv.includes('--filters') ? 'filters' : 'layouts',
+const evidence = { url, mode: process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
   bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
@@ -105,13 +105,27 @@ try {
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-  if (process.argv.includes('--filters')) {
+  if (process.argv.includes('--compact')) {
+    const { verifyCompactGraph } = await import('./test-graph-compact-browser.mjs');
+    await verifyCompactGraph({ evaluate, wait, screenshot, page, evidence });
+  } else if (process.argv.includes('--filters')) {
     const { verifyGraphFilters } = await import('./test-graph-filters-browser.mjs');
     await verifyGraphFilters({ evaluate, wait, screenshot, page, evidence, url });
   } else {
+  // Legacy radius-direction oracle uses strict rings; band packing has its own
+  // browser + pure geometry suite and cannot infer a center from three radii.
+  await evaluate(`(()=>{[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent)).click();})()`);await sleep(40);
+  await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Layer packing"]');if(s){s.value='rings';s.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
+  await evaluate(`[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent)).click()`);await sleep(40);
   for(const mode of ['Rectangle|矩形','Outward|向外','Inward|向内']){
     await selection('Outward|向外',mode);
     await move(10,10);
+    // Content fitting may now legitimately start above the title threshold.
+    // Explicitly establish low zoom instead of mistaking fit<=1 for a contract.
+    const lowZoomAt=await evaluate(`(()=>{const r=document.getElementById('snl-graph-background').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
+    for(let i=0;i<35&&await evaluate(`document.querySelectorAll('${nodeSelector} > circle').length<8`);i++){
+      await page.call('Input.dispatchMouseEvent',{type:'mouseWheel',...lowZoomAt,deltaX:0,deltaY:80});await sleep(20);
+    }
     const before=await snapshot();assert.equal(before.length,8);assert.ok(before.every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));
     assert.ok(before.some(n=>n.shape==='dot'),'auto low zoom must display dots');
     const pos=await center(nodeSelector);await move(pos.x,pos.y);

@@ -34,7 +34,7 @@ describe('static graph layouts', () => {
 
   it.each(['radial-outward', 'radial-inward'] as const)('%s projects the same global x order and reversed screen y, including waypoints and package sectors', mode => {
     const rectangle = layout(nodes, edges);
-    const radial = layout(nodes, edges, mode);
+    const radial = layout(nodes, edges, mode, 'rings');
     expect(radial.nodes).not.toEqual(rectangle.nodes);
     const p = radial.radial!;
     expect(p.innerRadius).toBeGreaterThan(0);
@@ -55,7 +55,8 @@ describe('static graph layouts', () => {
       const angle = p.startAngle + (point.x - p.xMin) / p.xSpan * p.sweep;
       const screenLayer = (point.y - p.yMin) / 134;
       const layer = mode === 'radial-outward' ? p.maxLayer - screenLayer : screenLayer;
-      const r = p.innerRadius + layer * p.layerGap;
+      const lo = Math.floor(layer), hi = Math.ceil(layer);
+      const r = p.layerRadii[lo] + (layer - lo) * (p.layerRadii[hi] - p.layerRadii[lo]);
       return { x: p.centerX + r * Math.cos(angle), y: p.centerY + r * Math.sin(angle) };
     };
     for (const n of rectangle.nodes) {
@@ -73,7 +74,7 @@ describe('static graph layouts', () => {
       expect(c.sector!.path).toMatch(/^M .* A .* L .* A .* Z$/);
       expect(c.sector!.endAngle).toBeGreaterThan(c.sector!.startAngle);
     }
-    expect(layout([...nodes].reverse(), [...edges].reverse(), mode)).toEqual(radial);
+    expect(layout([...nodes].reverse(), [...edges].reverse(), mode, 'rings')).toEqual(radial);
   });
 
   it.each(['rectangle', 'radial-outward', 'radial-inward'] as const)('%s handles empty, self-loop, cycle and multi-node single-layer graphs deterministically', mode => {
@@ -98,18 +99,17 @@ describe('static graph layouts', () => {
     }
   });
 
-  it.each(['radial-outward', 'radial-inward'] as const)('%s contains cards within narrow package sectors even with one node per layer', mode => {
+  it.each(['radial-outward', 'radial-inward'] as const)('%s preserves center membership in narrow decorative package sectors without disc containment', mode => {
     const chain = Array.from({ length: 16 }, (_, i) => node(String(i).padStart(2, '0'), `package-${i}`, 'Wide title '.repeat(10)));
     const result = layout(chain, chain.slice(1).map((n, i) => edge(String(i), chain[i].id, n.id)), mode);
     const p = result.radial!;
     for (const n of result.nodes) {
       const sector = result.clusters.find(c => c.packageId === n.packageId)!.sector!;
-      for (const x of [n.x, n.x + n.w]) for (const y of [n.y, n.y + n.h]) {
-        let a = Math.atan2(y - p.centerY, x - p.centerX);
-        while (a < p.startAngle) a += 2 * Math.PI;
-        expect(a).toBeGreaterThanOrEqual(sector.startAngle);
-        expect(a).toBeLessThanOrEqual(sector.endAngle);
-      }
+      const { x, y } = center(n);
+      let a = Math.atan2(y - p.centerY, x - p.centerX);
+      while (a < p.startAngle) a += 2 * Math.PI;
+      expect(a).toBeGreaterThanOrEqual(sector.startAngle);
+      expect(a).toBeLessThanOrEqual(sector.endAngle);
     }
   });
 });

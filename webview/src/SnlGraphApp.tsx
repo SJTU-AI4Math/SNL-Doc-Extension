@@ -55,6 +55,8 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
  packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
  relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})',
  layout: 'Layout', rectangle: 'Rectangle', radialInward: 'Radial inward', radialOutward: 'Radial outward',
+ layerPacking: 'Layer packing', compactBands: 'Compact bands', strictRings: 'Strict rings',
+ packingHelp: 'Radial layouts only. Compact bands stagger nodes within each layer. Strict rings keep one radius per layer, with more empty space. Rectangle ignores this choice; refresh preserves it in this panel only.',
  nodeMode: 'Nodes', autoNodes: 'Auto', alwaysTitle: 'Always title', titleThreshold: 'Title threshold',
  previewFilters: 'Temporary filters', filterHelp: 'Match every filter (AND); any selected value within each filter (OR).',
  addFilter: 'Add filter', clearFilters: 'Clear filters', removeFilter: 'Remove filter',
@@ -80,6 +82,8 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   packageClusterOne: '包 {name}：1 个条目', packageClusterMany: '包 {name}：{count} 个条目',
   relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）',
   layout: '布局', rectangle: '矩形平铺', radialInward: '向内环铺', radialOutward: '向外环铺',
+  layerPacking: '同层铺排', compactBands: '紧凑环带', strictRings: '严格同心圆',
+  packingHelp: '仅用于环铺。紧凑环带允许同层节点径向错排；严格同心圆保持同层同半径，但留白较多。矩形布局忽略此选项；刷新保留，仅当前面板有效。',
   nodeMode: '节点', autoNodes: '自动', alwaysTitle: '始终显示标题', titleThreshold: '标题阈值',
   previewFilters: '临时筛选', filterHelp: '满足每个筛选条件（AND）；每个条件内满足任一选值（OR）。',
   addFilter: '添加筛选', clearFilters: '清空筛选', removeFilter: '移除筛选',
@@ -231,11 +235,16 @@ interface Layout {
 }
 
 export type GraphLayoutMode = 'rectangle' | 'radial-inward' | 'radial-outward';
+export type GraphLayerPacking = 'bands' | 'rings';
 interface RadialProjection {
   centerX: number;
   centerY: number;
   innerRadius: number;
-  layerGap: number;
+  packing: GraphLayerPacking;
+  /** Continuous x/radius samples per displayed layer, inner to outer. */
+  radiusSamples: Array<Array<{ x: number; radius: number }>>;
+  /** Outer centre radius per layer (the common radius in strict rings). */
+  layerRadii: number[];
   maxLayer: number;
   xMin: number;
   xSpan: number;
@@ -313,7 +322,7 @@ function renderTitleKatex(title: string): string {
   }
 }
 
-export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], mode: GraphLayoutMode = 'rectangle'): Layout {
+export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], mode: GraphLayoutMode = 'rectangle', packing: GraphLayerPacking = 'bands'): Layout {
   // Normalize protocol ordering up front so storage iteration order cannot
   // move packages, nodes, cycle breaks, or edge routes between refreshes.
   const nodes = [...inputNodes].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -687,81 +696,199 @@ export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], mode: G
     width: clusteredWidth,
     height: clusteredHeight
   };
-  return mode === 'rectangle' ? rectangle : radialLayout(rectangle, mode);
+  return mode === 'rectangle' ? rectangle : radialLayout(rectangle, mode, packing);
 }
 
-/** A deterministic projection of the final rectangular package lanes, not a
- * second ordering/layout algorithm. Cards stay upright and keep their size. */
-function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectangle'>): Layout {
+/** Broad phase for upright title rectangles. Bounded card dimensions mean
+ * each card occupies at most four cells. No all-pairs relaxation or physics. */
+class CardGrid<T extends { x: number; y: number; w: number; h: number }> {
+  private cells = new Map<string, T[]>();
+  private keys(n: T): string[] {
+    const keys: string[] = [];
+    for (let x = Math.floor((n.x - 6) / (NODE_W_MAX + 12)); x <= Math.floor((n.x + n.w + 6) / (NODE_W_MAX + 12)); x++) {
+      for (let y = Math.floor((n.y - 6) / (NODE_H + 12)); y <= Math.floor((n.y + n.h + 6) / (NODE_H + 12)); y++) keys.push(`${x},${y}`);
+    }
+    return keys;
+  }
+  add(n: T): void {
+    for (const key of this.keys(n)) {
+      const cell = this.cells.get(key) ?? [];
+      cell.push(n); this.cells.set(key, cell);
+    }
+  }
+  collisions(n: T): T[] {
+    const found = new Set<T>();
+    for (const key of this.keys(n)) for (const other of this.cells.get(key) ?? []) {
+      if (n.x < other.x + other.w + 12 && other.x < n.x + n.w + 12 &&
+          n.y < other.y + other.h + 12 && other.y < n.y + n.h + 12) found.add(other);
+    }
+    return [...found];
+  }
+}
+
+/** Preserve package-lane x angles and semantic heights. Pack upright cards
+ * in ordered bands or strict rings. Decoration never constrains nodes. */
+function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectangle'>, packing: GraphLayerPacking): Layout {
   const centres = rectangle.nodes.map(n => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 }));
   const xMin = rectangle.clusters[0].x;
   const lastCluster = rectangle.clusters[rectangle.clusters.length - 1];
   const xSpan = lastCluster.x + lastCluster.w - xMin;
   const yMin = Math.min(...centres.map(p => p.y));
-  const maxLayer = (Math.max(...centres.map(p => p.y)) - yMin) / (NODE_H + LAYER_GAP_Y);
+  const maxLayer = Math.round((Math.max(...centres.map(p => p.y)) - yMin) / (NODE_H + LAYER_GAP_Y));
   const startAngle = -Math.PI / 2 + Math.PI / 24;
-  const sweep = 2 * Math.PI - Math.PI / 12; // open seam, including for a single package
+  const sweep = 2 * Math.PI - Math.PI / 12;
   const angle = (x: number): number => startAngle + (x - xMin) / xSpan * sweep;
-  const extent = Math.max(...rectangle.nodes.map(n => Math.hypot(n.w, n.h) / 2));
-  // Circumscribed card discs guarantee separation for upright rectangles at
-  // every angle. Adjacent angular gaps (including the seam) suffice per ring.
-  // Size for *all* rows: either direction may place any one of them innermost.
-  let innerRadius = extent + NODE_GAP_X;
-  const rows = new Map<number, number[]>();
-  for (const c of centres) {
-    const row = rows.get(c.y) ?? [];
-    row.push(angle(c.x));
-    rows.set(c.y, row);
-  }
-  for (const row of rows.values()) {
-    row.sort((a, b) => a - b);
-    if (row.length < 2) continue;
-    for (let i = 0; i < row.length; i++) {
-      const gap = i + 1 < row.length ? row[i + 1] - row[i] : row[0] + 2 * Math.PI - row[i];
-      innerRadius = Math.max(innerRadius, (2 * extent + NODE_GAP_X) / (2 * Math.sin(gap / 2)));
+  const layerOf = (y: number): number => {
+    const screenLayer = (y - yMin) / (NODE_H + LAYER_GAP_Y);
+    return mode === 'radial-outward' ? maxLayer - screenLayer : screenLayer;
+  };
+  const rows = Array.from({ length: maxLayer + 1 }, () => [] as Array<LaidOutNode & { ux: number; uy: number }>);
+  rectangle.nodes.forEach((n, i) => {
+    const a = angle(centres[i].x);
+    rows[Math.round(layerOf(centres[i].y))].push({ ...n, ux: Math.cos(a), uy: Math.sin(a) });
+  });
+  const layerRadii: number[] = [];
+  const nodeRadii = new Map<string, number>();
+  const placed = new CardGrid<LaidOutNode>();
+  let occupiedOuter = 0;
+  for (const row of rows) {
+    row.sort((a, b) => a.x + a.w / 2 - b.x - b.w / 2);
+    let radius = layerRadii.length ? layerRadii[layerRadii.length - 1] + 12 : 24;
+    if (packing === 'bands') {
+      const inner = radius;
+      let outer = inner;
+      for (const n of row) {
+        let r = inner;
+        const cardAt = () => ({ ...n, x: r * n.ux - n.w / 2, y: r * n.uy - n.h / 2 });
+        // Static ray/AABB clearance: skip the forbidden interval containing r.
+        // The grid bounds each query to nearby cards. A fixed pass cap keeps
+        // adversarial near-collinear layers from becoming quadratic; fallback
+        // clears the occupied envelope and is certified without another scan.
+        let clear = false;
+        for (let pass = 0; pass < 128; pass++) {
+          const collisions = placed.collisions(cardAt());
+          if (!collisions.length) { clear = true; break; }
+          let next = r;
+          for (const other of collisions) {
+            const exitX = Math.abs(n.ux) < 1e-12 ? Infinity :
+              (n.ux > 0 ? other.x + other.w + n.w / 2 + 12 : other.x - n.w / 2 - 12) / n.ux;
+            const exitY = Math.abs(n.uy) < 1e-12 ? Infinity :
+              (n.uy > 0 ? other.y + other.h + n.h / 2 + 12 : other.y - n.h / 2 - 12) / n.uy;
+            next = Math.max(next, Math.min(exitX, exitY) + 1e-6);
+          }
+          r = next;
+        }
+        if (!clear) r = Math.max(r, occupiedOuter + Math.hypot(n.w / 2 + 12, n.h / 2 + 12) + 1e-6);
+        const card = cardAt();
+        placed.add(card); nodeRadii.set(n.id, r);
+        outer = Math.max(outer, r);
+        occupiedOuter = Math.max(occupiedOuter, ...[card.x, card.x + card.w].flatMap(x =>
+          [card.y, card.y + card.h].map(y => Math.hypot(x, y))));
+      }
+      layerRadii.push(outer);
+      continue;
+    }
+    const requiredRadius = (a: typeof row[number], b: typeof row[number]): number => Math.min(
+      ((a.w + b.w) / 2 + 12) / Math.abs(a.ux - b.ux),
+      ((a.h + b.h) / 2 + 12) / Math.abs(a.uy - b.uy)
+    );
+    if (row.length > 1) for (let i = 0; i < row.length; i++) {
+      radius = Math.max(radius, requiredRadius(row[i], row[(i + 1) % row.length]));
+    }
+    const atRadius = (n: typeof row[number], r: number) => ({ ...n, x: r * n.ux - n.w / 2, y: r * n.uy - n.h / 2 });
+    // Adjacent angular neighbours give a cheap lower bound. Check non-neighbours
+    // too (wide cards near a pole, including the seam). Same-ring separation
+    // grows monotonically with radius: ONE pass at the lower bound suffices.
+    const ring = new CardGrid<typeof row[number]>();
+    let sameRingRadius = radius;
+    for (const n of row) {
+      const card = atRadius(n, radius);
+      for (const other of ring.collisions(card)) sameRingRadius = Math.max(sameRingRadius, requiredRadius(n, other));
+      ring.add(card);
+    }
+    radius = sameRingRadius + 1e-6;
+    // Ray vs expanded rectangle: jump to the exit of current forbidden intervals.
+    // Eight bounded passes, not simulation steps. A rare crowded fallback clears
+    // the occupied radial envelope; this is NOT the normal per-layer spacing.
+    let clear = false;
+    for (let pass = 0; pass < 8; pass++) {
+      let next = radius;
+      for (const n of row) for (const other of placed.collisions(atRadius(n, radius))) {
+        const exitX = Math.abs(n.ux) < 1e-12 ? Infinity :
+          (n.ux > 0 ? other.x + other.w + n.w / 2 + 12 : other.x - n.w / 2 - 12) / n.ux;
+        const exitY = Math.abs(n.uy) < 1e-12 ? Infinity :
+          (n.uy > 0 ? other.y + other.h + n.h / 2 + 12 : other.y - n.h / 2 - 12) / n.uy;
+        next = Math.max(next, Math.min(exitX, exitY) + 1e-6);
+      }
+      if (next === radius) { clear = true; break; }
+      radius = next;
+    }
+    if (!clear) radius = Math.max(radius, occupiedOuter + Math.max(...row.map(n => Math.hypot(n.w, n.h) / 2)) + 12);
+    layerRadii.push(radius);
+    for (const n of row) {
+      const card = atRadius(n, radius);
+      nodeRadii.set(n.id, radius);
+      placed.add(card);
+      occupiedOuter = Math.max(occupiedOuter, ...[card.x, card.x + card.w].flatMap(x =>
+        [card.y, card.y + card.h].map(y => Math.hypot(x, y))));
     }
   }
-  // Sparse rows can have no same-ring neighbours yet belong to very narrow
-  // package wedges. Reserve their card discs inside both angular boundaries.
-  const clusterById = new Map(rectangle.clusters.map(c => [c.packageId, c]));
-  for (let i = 0; i < rectangle.nodes.length; i++) {
-    const n = rectangle.nodes[i], c = clusterById.get(n.packageId)!;
-    const clearance = Math.min(Math.PI / 2, angle(centres[i].x) - angle(c.x), angle(c.x + c.w) - angle(centres[i].x));
-    innerRadius = Math.max(innerRadius, (Math.hypot(n.w, n.h) / 2 + 4) / Math.sin(clearance));
-  }
-  const layerGap = Math.max(NODE_H + LAYER_GAP_Y, 2 * extent + NODE_GAP_X);
-  const outerRadius = innerRadius + maxLayer * layerGap;
-  const sectorInner = Math.max(1, innerRadius - extent - CLUSTER_PADDING_X / 2);
-  const sectorOuter = outerRadius + extent + CLUSTER_HEADER_H;
-  // Label allowance also contains a visible self-loop above a card.
-  const size = 2 * (sectorOuter + MARGIN + extent);
+  const radiusSamples = rows.map(row => row.map(n => ({ x: n.x + n.w / 2, radius: nodeRadii.get(n.id)! })));
+  // Piecewise-linear in original x, then in semantic layer. Node centres are
+  // exact samples; dummy route points use the same continuous display map.
+  const radiusAt = (layer: number, x: number): number => {
+    const samples = radiusSamples[layer];
+    if (!samples.length) return layerRadii[layer];
+    if (x <= samples[0].x) return samples[0].radius;
+    let lo = 0, hi = samples.length - 1;
+    if (x >= samples[hi].x) return samples[hi].radius;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >>> 1;
+      if (samples[mid].x <= x) lo = mid; else hi = mid;
+    }
+    const a = samples[lo], b = samples[hi];
+    return a.radius + (x - a.x) / (b.x - a.x) * (b.radius - a.radius);
+  };
+  const innerRadius = Math.min(...nodeRadii.values());
+  const extent = Math.max(...rectangle.nodes.map(n => Math.hypot(n.w, n.h) / 2));
+  const size = 2 * (occupiedOuter + CLUSTER_HEADER_H + MARGIN);
   const radial: RadialProjection = {
-    centerX: size / 2, centerY: size / 2, innerRadius, layerGap, maxLayer,
+    centerX: size / 2, centerY: size / 2, innerRadius, layerRadii, radiusSamples, packing, maxLayer,
     xMin, xSpan, yMin, startAngle, sweep
   };
   const polar = (a: number, r: number): EdgePoint => ({
     x: radial.centerX + Math.cos(a) * r, y: radial.centerY + Math.sin(a) * r
   });
   const project = (point: EdgePoint): EdgePoint => {
-    const screenLayer = (point.y - yMin) / (NODE_H + LAYER_GAP_Y);
-    const layer = mode === 'radial-outward' ? maxLayer - screenLayer : screenLayer;
-    return polar(angle(point.x), innerRadius + layer * layerGap);
+    const layer = Math.max(0, Math.min(maxLayer, layerOf(point.y)));
+    const lo = Math.floor(layer), hi = Math.ceil(layer);
+    const a = radiusAt(lo, point.x), b = radiusAt(hi, point.x);
+    return polar(angle(point.x), a + (layer - lo) * (b - a));
   };
+  const nodes = rectangle.nodes.map((n, i) => {
+    const p = project(centres[i]);
+    return { ...n, x: p.x - n.w / 2, y: p.y - n.h / 2 };
+  });
+  const packages = new Map<string, { inner: number; outer: number; label: LaidOutNode }>();
+  nodes.forEach(n => {
+    const r = nodeRadii.get(n.id)!;
+    const prev = packages.get(n.packageId);
+    packages.set(n.packageId, { inner: Math.min(prev?.inner ?? Infinity, r), outer: Math.max(prev?.outer ?? 0, r),
+      label: !prev || n.y < prev.label.y ? n : prev.label });
+  });
   return {
-    width: size, height: size, radial,
-    nodes: rectangle.nodes.map((n, i) => {
-      const p = project(centres[i]);
-      return { ...n, x: p.x - n.w / 2, y: p.y - n.h / 2 };
-    }),
+    width: size, height: size, radial, nodes,
     edges: rectangle.edges.map(e => ({ ...e, waypoints: e.waypoints.map(project) })),
     clusters: rectangle.clusters.map(c => {
+      const members = packages.get(c.packageId)!;
+      const sectorInner = Math.max(1, members.inner - extent - 12);
+      const sectorOuter = members.outer + extent + CLUSTER_HEADER_H;
       const start = angle(c.x), end = angle(c.x + c.w);
       const a = polar(start, sectorOuter), b = polar(end, sectorOuter);
       const d = polar(start, sectorInner), e = polar(end, sectorInner);
       const large = end - start > Math.PI ? 1 : 0;
-      const label = polar((start + end) / 2, sectorOuter - 12);
       return { ...c, sector: {
-        startAngle: start, endAngle: end, labelX: label.x, labelY: label.y,
+        startAngle: start, endAngle: end, labelX: members.label.x + members.label.w / 2, labelY: members.label.y - 12,
         path: `M ${a.x} ${a.y} A ${sectorOuter} ${sectorOuter} 0 ${large} 1 ${b.x} ${b.y} L ${e.x} ${e.y} A ${sectorInner} ${sectorInner} 0 ${large} 0 ${d.x} ${d.y} Z`
       } };
     })
@@ -884,6 +1011,61 @@ export function edgePath(
   };
 }
 
+interface ContentBounds { minX: number; minY: number; maxX: number; maxY: number }
+
+/** Actual title-card rectangles plus the convex hull of the existing cubic
+ * edge controls (including self loops). Decorative lane/sector canvases are
+ * deliberately excluded. Parsing is safe here: edgePath emits only M/C pairs. */
+export function graphContentBounds(laid: Layout): ContentBounds {
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  const include = (x: number, y: number): void => {
+    bounds.minX = Math.min(bounds.minX, x); bounds.maxX = Math.max(bounds.maxX, x);
+    bounds.minY = Math.min(bounds.minY, y); bounds.maxY = Math.max(bounds.maxY, y);
+  };
+  const byId = new Map(laid.nodes.map(n => [n.id, n]));
+  for (const n of laid.nodes) { include(n.x - 2, n.y - 2); include(n.x + n.w + 2, n.y + n.h + 2); }
+  for (const e of laid.edges) {
+    const { d } = edgePath(byId.get(e.from)!, byId.get(e.to)!, e.waypoints, { fromShape: 'title', toShape: 'title' });
+    const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
+    for (let i = 0; i < values.length; i += 2) include(values[i], values[i + 1]);
+  }
+  return bounds;
+}
+
+const packageLabelAnchor = (cluster: LaidOutCluster): EdgePoint => ({
+  x: cluster.sector?.labelX ?? cluster.x + CLUSTER_PADDING_X,
+  y: cluster.sector?.labelY ?? cluster.y + 22
+});
+
+/** Fixed-screen labels contribute pixels, not world-sized phantom circles. */
+export function fitGraphViewport(bounds: ContentBounds, width: number, height: number,
+  labels: Array<EdgePoint & { width: number; centered: boolean }> = []): Viewport {
+  const screenBounds = (scale: number): ContentBounds => {
+    let minX = bounds.minX * scale, maxX = bounds.maxX * scale;
+    let minY = bounds.minY * scale, maxY = bounds.maxY * scale;
+    for (const label of labels) {
+      const left = label.x * scale - (label.centered ? label.width / 2 : 0);
+      minX = Math.min(minX, left); maxX = Math.max(maxX, left + label.width);
+      minY = Math.min(minY, label.y * scale - 14); maxY = Math.max(maxY, label.y * scale + 4);
+    }
+    return { minX, minY, maxX, maxY };
+  };
+  const availableW = Math.max(1, width - 40), availableH = Math.max(1, height - 40);
+  let lo = 0, hi = 5;
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2, b = screenBounds(mid);
+    if (b.maxX - b.minX <= availableW && b.maxY - b.minY <= availableH) lo = mid; else hi = mid;
+  }
+  // A fixed-screen label wider than the canvas cannot be made to fit by
+  // shrinking world geometry. Keep the content fitted and allow label overflow.
+  if (lo === 0 && labels.length) return fitGraphViewport(bounds, width, height);
+  const scale = lo || Math.min(5, availableW / Math.max(1, bounds.maxX - bounds.minX),
+    availableH / Math.max(1, bounds.maxY - bounds.minY));
+  const b = screenBounds(scale);
+  return { scale, x: 20 + (availableW - b.maxX + b.minX) / 2 - b.minX,
+    y: 20 + (availableH - b.maxY + b.minY) / 2 - b.minY };
+}
+
 /** Selection is represented by a thicker stroke; never replace the themed fill. */
 export function graphNodeFill(background: string, _highlighted: boolean): string {
   return background && background !== 'transparent'
@@ -972,6 +1154,8 @@ function SnlGraphInner({
   // Panel-local controls survive host refreshes, but never affect graph order
   // or fitting except when the layout itself changes.
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('rectangle');
+  const [layerPacking, setLayerPacking] = useState<GraphLayerPacking>('bands');
+  const effectivePacking = layoutMode === 'rectangle' ? 'bands' : layerPacking;
   const [nodeMode, setNodeMode] = useState<GraphNodeMode>('auto');
   const [titleThreshold, setTitleThreshold] = useState(120);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1043,8 +1227,8 @@ function SnlGraphInner({
           background: colors.background
         };
       });
-    return layout(filteredNodes, filteredEdges, layoutMode);
-  }, [msg, depFilter, kindFilter, clauses, contentLanguage, preferencesRevision, layoutMode]);
+    return layout(filteredNodes, filteredEdges, layoutMode, effectivePacking);
+  }, [msg, depFilter, kindFilter, clauses, contentLanguage, preferencesRevision, layoutMode, effectivePacking]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current
@@ -1072,25 +1256,43 @@ function SnlGraphInner({
   const relationshipUniverse = useMemo(() => [...new Set(msg?.edges.map(edge => edge.label) ?? [])]
     .sort(compareLexically), [msg]);
 
-  // Fit on host refresh and an explicit layout change, never presentation.
+  const contentBounds = useMemo(() => laid?.nodes.length ? graphContentBounds(laid) : null, [laid]);
+
+  // Refit committed layout input and available canvas changes, not interaction
+  // or presentation. Observe both the SVG and overlay sidebar (font/wrapping
+  // changes can alter its width). Cleanup also rejects queued late deliveries.
   useEffect(() => {
-    if (!laid || !svgRef.current) return;
     const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    if (laid.width === 0 || laid.height === 0) return;
-    const s = Math.min(
-      1,
-      (rect.width - 40) / laid.width,
-      (rect.height - 40) / laid.height
-    );
-    setVp({
-      x: (rect.width - laid.width * s) / 2,
-      y: 20,
-      scale: s
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [msg, layoutMode]);
+    if (!laid || !contentBounds || !svg) return;
+    const sidebar = svg.parentElement?.querySelector<HTMLElement>('[data-graph-sidebar]');
+    let alive = true;
+    let previousSize = '';
+    const fit = (): void => {
+      if (!alive) return;
+      const rect = svg.getBoundingClientRect();
+      const side = sidebar?.getBoundingClientRect();
+      const width = side && side.width > 0 ? Math.max(1, Math.min(rect.width, side.left - rect.left)) : rect.width;
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const size = `${width},${rect.height}`;
+      if (size === previousSize) return;
+      previousSize = size;
+      const elements = new Map([...svg.querySelectorAll<SVGTextElement>('[data-package-label]')]
+        .map(element => [element.getAttribute('data-package-label'), element]));
+      const labels = laid.clusters.map(cluster => {
+        const element = elements.get(cluster.packageId);
+        const measured = element?.getComputedTextLength?.();
+        return { ...packageLabelAnchor(cluster), centered: !!cluster.sector,
+          width: measured && Number.isFinite(measured) ? measured + 4 : (element?.textContent?.length ?? cluster.packageId.length) * 8 + 4 };
+      });
+      setVp(fitGraphViewport(contentBounds, width, rect.height, labels));
+    };
+    fit();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    observer?.observe(svg);
+    if (sidebar) observer?.observe(sidebar);
+    window.addEventListener('resize', fit);
+    return () => { alive = false; observer?.disconnect(); window.removeEventListener('resize', fit); };
+  }, [laid, contentBounds, filtersOpen]);
 
   const onWheel = useCallback((e: WheelEvent): void => {
     e.preventDefault();
@@ -1353,6 +1555,8 @@ function SnlGraphInner({
           onToggle={() => setFiltersOpen((v) => !v)}
           depFilter={depFilter}
           onDepFilterChange={setDepFilter}
+          layerPacking={layerPacking}
+          onLayerPackingChange={setLayerPacking}
           kindUniverse={kindUniverse}
           kindFilter={kindFilter}
           onKindFilterChange={setKindFilter}
@@ -1376,6 +1580,7 @@ function SnlGraphInner({
         ) : (
           <svg
             ref={bindSvg}
+            data-layer-packing={layerPacking}
             width="100%"
             height="100%"
 
@@ -1415,6 +1620,8 @@ function SnlGraphInner({
               fill="transparent"
             />
             <g
+              data-graph-viewport=""
+              data-content-bounds={contentBounds ? JSON.stringify(contentBounds) : undefined}
               transform={`translate(${vp.x} ${vp.y}) scale(${vp.scale})`}
             >
               {/* Package lanes paint behind edges and nodes. They use only
@@ -1454,17 +1661,6 @@ function SnlGraphInner({
                       stroke="var(--vscode-panel-border, var(--vscode-contrastBorder))"
                       strokeWidth={1.5}
                     />}
-                    <text
-                      x={cluster.sector?.labelX ?? cluster.x + CLUSTER_PADDING_X}
-                      y={cluster.sector?.labelY ?? cluster.y + 22}
-                      textAnchor={cluster.sector ? 'middle' : undefined}
-                      fill="var(--vscode-foreground)"
-                      fontSize={12}
-                      fontWeight={600}
-                      fontFamily="var(--vscode-font-family)"
-                    >
-                      {name}
-                    </text>
                   </g>
                 );
               })}
@@ -1611,6 +1807,21 @@ function SnlGraphInner({
                 );
               })}
             </g>
+            {/* Screen-space overlay: anchors pan/zoom with the package, but
+                glyphs remain 12px and paint above cards without intercepting input. */}
+            <g style={{ pointerEvents: 'none' }} data-package-labels="">
+              {laid.clusters.map(cluster => {
+                const anchor = packageLabelAnchor(cluster);
+                return <text key={cluster.packageId} data-package-label={cluster.packageId}
+                  data-world-anchor={`${anchor.x},${anchor.y}`}
+                  x={vp.x + anchor.x * vp.scale} y={vp.y + anchor.y * vp.scale}
+                  textAnchor={cluster.sector ? 'middle' : undefined}
+                  fill="var(--vscode-foreground, #ddd)" fontSize={12} fontWeight={600}
+                  fontFamily="var(--vscode-font-family)">
+                  {cluster.packageId === '_unpackaged' ? t('unpackaged') : cluster.packageId}
+                </text>;
+              })}
+            </g>
           </svg>
         )}
       </div>
@@ -1640,6 +1851,8 @@ function FiltersSidebar({
   onToggle,
   depFilter,
   onDepFilterChange,
+  layerPacking,
+  onLayerPackingChange,
   kindUniverse,
   kindFilter,
   onKindFilterChange,
@@ -1652,6 +1865,8 @@ function FiltersSidebar({
   onToggle: () => void;
   depFilter: 'all' | 'atomic-deps';
   onDepFilterChange: (v: 'all' | 'atomic-deps') => void;
+  layerPacking: GraphLayerPacking;
+  onLayerPackingChange: (v: GraphLayerPacking) => void;
   kindUniverse: Array<{ kindId: string; label: string; color: string }>;
   kindFilter: Set<string> | null;
   onKindFilterChange: (v: Set<string> | null) => void;
@@ -1685,6 +1900,7 @@ function FiltersSidebar({
 
   return (
     <div
+      data-graph-sidebar=""
       style={{
         position: 'absolute',
         top: 0,
@@ -1748,6 +1964,19 @@ function FiltersSidebar({
               letterSpacing: '0.06em'
             }}
           >
+            {t('layerPacking')}
+          </h3>
+          <select className="snl-control" aria-label={t('layerPacking')}
+            aria-describedby="snl-graph-packing-help" value={layerPacking}
+            onChange={e => onLayerPackingChange(e.target.value as GraphLayerPacking)}
+            style={{ width: '100%', minWidth: 0 }}>
+            <option value="bands">{t('compactBands')}</option>
+            <option value="rings">{t('strictRings')}</option>
+          </select>
+          <p id="snl-graph-packing-help" style={{ fontSize: '0.8rem', opacity: 0.8, margin: '0.4rem 0 0.9rem' }}>
+            {t('packingHelp')}
+          </p>
+          <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.85rem', opacity: 0.75 }}>
             {t('edgesHeading')}
           </h3>
           <label

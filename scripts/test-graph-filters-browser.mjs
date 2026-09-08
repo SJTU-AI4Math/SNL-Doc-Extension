@@ -1,0 +1,76 @@
+// Run through test-graph-layout-browser.mjs --filters; reuse its actual bundle/Chromium lifecycle.
+import assert from 'node:assert/strict';
+export async function verifyGraphFilters({evaluate,wait,screenshot,page,evidence,url}) {
+  const button = text => `[...document.querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(text)})`;
+  const click = async expression => {
+    const point=await evaluate(`(()=>{const n=${expression};if(!n)throw Error('Missing clickable control: '+${JSON.stringify(expression)});n.scrollIntoView({block:'nearest'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    for(const type of ['mousePressed','mouseReleased'])await page.call('Input.dispatchMouseEvent',{type,...point,button:'left',clickCount:1});
+  };
+  const card = i => `[...document.querySelectorAll('[data-testid="graph-filter-clause"]')][${i}]`;
+  const choice = (i,value) => `[...${card(i)}.querySelectorAll('label')].find(n=>n.textContent.includes(${JSON.stringify(value)}))?.querySelector('input[type="checkbox"]')`;
+  const select = async(i,option) => {
+    await evaluate(`(()=>{const s=[...${card(i)}.querySelectorAll('select')].find(s=>[...s.options].some(o=>o.textContent===${JSON.stringify(option)}));if(!s)throw Error('missing option '+${JSON.stringify(option)});s.value=[...s.options].find(o=>o.textContent===${JSON.stringify(option)}).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    await wait(`Boolean(${card(i)})`);
+  };
+  const nodes = `[...document.querySelectorAll('svg g[role="button"][data-package-id]')].map(n=>n.dataset.nodeId).sort()`;
+  const expectNodes = async(ids,label) => {
+    const expected=[...ids].sort();await wait(`JSON.stringify(${nodes})===${JSON.stringify(JSON.stringify(expected))}`);
+    evidence.filters[label]=await evaluate(nodes);
+  };
+  evidence.filters={};
+  await evaluate(`(()=>{const f=window.__fixture;window.__filterFixture={...f,nodes:f.nodes.map(n=>({...n,kindId:n.id==='Base3'?'axm':['Base','Base2','CycleB'].includes(n.id)?'lma':'thm',kind:n.id==='Base3'?'Axiom':['Base','Base2','CycleB'].includes(n.id)?'Lemma':'Theorem'})),edges:f.edges.map(e=>({...e,label:['e6','e7'].includes(e.id)?'cites':e.label}))};window.dispatchEvent(new MessageEvent('message',{data:window.__filterFixture}));})()`);
+  await click(`[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent))`);
+  assert.ok(await evaluate(`Boolean(${button('Add filter')})`),'missing Add filter: baseline must fail before implementation');
+  await click(button('Add filter'));
+  await expectNodes(['Goal','Middle','Base','Base2','Base3','Side','CycleA','CycleB'],'emptyDraft');
+  await click(choice(0,'Theorem'));
+  await expectNodes(['Goal','Middle','CycleA'],'kindOnly');
+  await click(choice(0,'Lemma'));
+  await expectNodes(['Goal','Middle','Base','Base2','Side','CycleA','CycleB'],'withinClauseOR');
+  await click(button('Add filter'));await select(1,'Relationship');
+  await click(choice(1,'cites'));await select(1,'Outgoing');
+  await expectNodes(['CycleA','CycleB'],'betweenClausesAND');
+  await screenshot('filters-and-or');
+  await click(button('Add filter'));await click(choice(2,'Axiom'));
+  await expectNodes([],'conflictingSameKind');
+  await screenshot('filters-empty-recoverable');
+  // Native keyboard toggles remain operable when the graph is empty.
+  await evaluate(`(${card(2)}.querySelector('input[type="checkbox"]')).focus()`);
+  for(const type of ['keyDown','keyUp'])await page.call('Input.dispatchKeyEvent',{type,key:' ',code:'Space',windowsVirtualKeyCode:32});
+  await expectNodes(['CycleA','CycleB'],'disabledClause');
+  await click(`[...${card(2)}.querySelectorAll('button')].find(n=>/Remove/.test(n.textContent))`);
+  await wait(`document.querySelectorAll('[data-testid="graph-filter-clause"]').length===2`);
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{...window.__filterFixture,edges:window.__filterFixture.edges.map(e=>({...e,label:e.label==='cites'?'mentions':e.label}))}}))`);
+  await expectNodes([],'missingSelectedRelationship');
+  assert.ok(await evaluate(`${card(1)}.textContent.includes('cites')`),'missing selected value retained');
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:window.__filterFixture}))`);
+  await expectNodes(['CycleA','CycleB'],'refreshPreserves');
+  await select(1,'Incoming');await expectNodes(['CycleA','CycleB'],'incoming');
+  await click(choice(1,'cites'));await click(choice(1,'depends'));
+  await expectNodes(['Middle','Base','Base2','CycleA'],'incomingDepends');
+  await select(1,'Outgoing');await expectNodes(['Goal','Middle','CycleA'],'outgoingDepends');
+  await click(choice(1,'cites'));await expectNodes(['Goal','Middle','CycleA','CycleB'],'relationshipOR');
+  await select(1,'Either direction');await expectNodes(['Goal','Middle','Base','Base2','Side','CycleA','CycleB'],'either');
+  await page.call('Emulation.setDeviceMetricsOverride',{width:430,height:850,deviceScaleFactor:1,mobile:false});
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{type:'snl.preferences/snapshot',generation:'filter-qa',revision:1,preferences:{language:'zh-CN',color_scheme:'light',motion:'none',popover_hover_enabled:false}}}))`);
+  await wait(`document.body.innerText.includes('添加')`);
+  evidence.filters.narrow=await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth})`);
+  assert.ok(evidence.filters.narrow.scrollWidth<=430);
+  await screenshot('filters-narrow-chinese-light');
+  await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{type:'snl.preferences/snapshot',generation:'filter-qa',revision:2,preferences:{language:'en',color_scheme:'dark',motion:'none',popover_hover_enabled:false}}}))`);
+  await wait(`Boolean(${button('Clear filters')})`);
+  await click(choice(1,'depends'));await expectNodes(['CycleA','CycleB'],'narrowScrolledRelationship');
+  await click(choice(1,'cites'));await expectNodes(['Goal','Middle','Base','Base2','Side','CycleA','CycleB'],'narrowClearedClause');
+  await click(button('Clear filters'));
+  await expectNodes(['Goal','Middle','Base','Base2','Base3','Side','CycleA','CycleB'],'cleared');
+  await click(button('Add filter'));await click(choice(0,'Axiom'));await expectNodes([],'beforeRemount');
+  evidence.filters.persistence=await evaluate(`({stateWrites:window.__stateWrites,localStorageKeys:Object.keys(localStorage),messages:window.__posted.map(m=>m.type)})`);
+  assert.deepEqual(evidence.filters.persistence.stateWrites,[]);
+  assert.deepEqual(evidence.filters.persistence.localStorageKeys,[]);
+  assert.ok(evidence.filters.persistence.messages.every(t=>['ready','snl.preferences/ready','popoverEntryDetails','cancelPopoverEntryDetails','getPopoverEntryDetails'].includes(t)),'filter edits must not send authoring messages');
+  await page.call('Page.navigate',{url});
+  await wait(`document.querySelectorAll('svg g[role="button"][data-package-id]').length===8`);
+  await click(`[...document.querySelectorAll('button')].find(n=>/Filters/.test(n.textContent))`);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-testid="graph-filter-clause"]').length`),0,'new mounted panel must reset filters');
+  evidence.filters.remountReset=true;
+}

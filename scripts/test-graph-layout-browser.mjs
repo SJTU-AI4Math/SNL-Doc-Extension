@@ -2,6 +2,7 @@
 // Exercise the actual classic-script graph bundle. The VS Code transport is a
 // fixture here; a separate Extension Development Host probe covers host wiring.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
@@ -35,8 +36,8 @@ const html = `<!doctype html><html lang="en" data-snl-color-scheme="dark"><head>
 :root { --vscode-editor-background:#181c22; --vscode-foreground:#dce5ef; --vscode-editorWidget-background:#222a35; --vscode-input-background:#2b3543; --vscode-input-foreground:#e2eaf3; --vscode-dropdown-background:#2b3543; --vscode-dropdown-foreground:#e2eaf3; --vscode-panel-border:#435064; --vscode-focusBorder:#8cbeef; }
 body{margin:0;background:var(--vscode-editor-background);font-family:system-ui;}
 :root[data-snl-color-scheme="light"]{--vscode-editor-background:#f7f9fc;--vscode-foreground:#243448;--vscode-editorWidget-background:#e9eef6;--vscode-input-background:white;--vscode-input-foreground:#243448;--vscode-dropdown-background:white;--vscode-dropdown-foreground:#243448;--vscode-panel-border:#8999aa;}
-</style><script>window.__fixture=${JSON.stringify(fixture)};window.__posted=[];
-window.acquireVsCodeApi=()=>({postMessage(m){window.__posted.push(m);if(m.type==='ready'){setTimeout(()=>window.dispatchEvent(new MessageEvent('message',{data:window.__fixture})),0);}},getState(){},setState(){}});
+</style><script>window.__fixture=${JSON.stringify(fixture)};window.__posted=[];window.__stateWrites=[];
+window.acquireVsCodeApi=()=>({postMessage(m){window.__posted.push(m);if(m.type==='ready'){setTimeout(()=>window.dispatchEvent(new MessageEvent('message',{data:window.__fixture})),0);}},getState(){},setState(m){window.__stateWrites.push(m);}});
 </script></head><body><div id="root"></div><script src="/snlGraph.js"></script></body></html>`;
 const server = createServer((req, res) => {
   const path = new URL(req.url || '/', 'http://127.0.0.1').pathname;
@@ -75,7 +76,8 @@ class Cdp {
 }
 async function connect(url) { const ws = new WebSocket(url); await new Promise((r,j) => { ws.onopen=r; ws.onerror=j; }); return new Cdp(ws); }
 let browser, page;
-const evidence = {};
+const evidence = { url, mode: process.argv.includes('--filters') ? 'filters' : 'layouts',
+  bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
   for (let i=0;i<200;i++) { devtools=log.match(/DevTools listening on (ws:\/\/\S+)/)?.[1]; if(devtools) break; await sleep(25); }
@@ -103,6 +105,10 @@ try {
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  if (process.argv.includes('--filters')) {
+    const { verifyGraphFilters } = await import('./test-graph-filters-browser.mjs');
+    await verifyGraphFilters({ evaluate, wait, screenshot, page, evidence, url });
+  } else {
   for(const mode of ['Rectangle|矩形','Outward|向外','Inward|向内']){
     await selection('Outward|向外',mode);
     await move(10,10);
@@ -203,9 +209,11 @@ try {
   await screenshot('narrow-settings');
   await evaluate(`window.dispatchEvent(new MessageEvent('message',{data:{...window.__fixture,nodes:[],edges:[]}}))`);
   await wait(`document.querySelectorAll('${nodeSelector}').length===0`);
+  }
   evidence.errors=page.events.filter(e=>e.method==='Runtime.exceptionThrown'||(e.method==='Log.entryAdded'&&e.params.entry.level==='error'));
   assert.deepEqual(evidence.errors,[],'browser errors');
-  console.log('PASS: actual production bundle layouts, pointer/focus, zoom, stable anchors, state refresh, empty graph');
+  evidence.success = true;
+  console.log('PASS: actual production graph bundle ' + evidence.mode);
   writeFileSync(resolve(artifacts,'evidence.json'),JSON.stringify(evidence,null,2));
 } catch(error) {
   if(page){try{const r=await page.call('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(artifacts,'failure.png'),Buffer.from(r.data,'base64'));}catch{}}

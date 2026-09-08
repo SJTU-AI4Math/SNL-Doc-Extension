@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "document.graph.filters",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "临时组合筛选：实现参考与验收",
+    "content": {
+      "markdown": "## 地位与范围\n\n本条目属于筛选 Spec 的参考性实现子条目。首批实现 EntryKind／Relationship，Tag 数据源与 Tag 着色尚未接入，不新增 canonical Entry 字段。\n\n## 实现\n\n代码集中在 `webview/src/SnlGraphApp.tsx`。`GraphFilterClause` 只用于挂载面板内存，含稳定数值 id、Kind、Relationship 方向、enabled 与 values；每个 Filter 内以 Set 匹配 OR，生效 Filter 的谓词以 every 合取。初始无条件；空值是带提示的草稿、忽略不参与，停用不清除选值。切换 Kind 清空该卡片选值并返回草稿，删除其他卡片不改变剩余卡片身份；新增不复用旧编号。\n\n求值次序：host scope 内合法端点 → 既有 atomic-only 边门控 → 在共同输入图上编译每个关系谓词 → 与 EntryKind Filter 和旧 Kind 快捷条件求交 → 诱导全部标签的边 → 隐藏孤立节点 → 既有静态布局。出边匹配 from，入边匹配 to，任意方向匹配两端；自环可同时属于两种方向。关系标签条件是节点谓词，最终保留边不局限于被选标签；循环断边显示不影响谓词原始方向。\n\n完整 Kind/关系选值来自 host scope 消息，不读取已筛选图或全池 popover entryOptions。刷新后缺失的已选值追加为“不可用”选项，仍选中、仍参与实际求值，且允许用户取消；不自动变成草稿。恢复数据后自动恢复正常显示。空结果保留侧栏，并提示调整或清空筛选，不再误导用户去添加源关系。\n\n侧栏保留 atomic-only 与 Kind 快捷开关，新增卡片、停用、移除、清空；字段组有 legend、原生 label 和中英文本，侧栏可收起且具有 aria-expanded。当前面板刷新和 graphError 之后仍保留条件，新挂载面板重置。没有 localStorage、VS Code getState/setState 或筛选配置 host 写消息；不修改布局模式、Kind 默认颜色或节点展开机制。\n\n## 已执行验证与边界\n\n12 个真实组件回归覆盖 AND/OR、重复 Kind、草稿、停用与删除、稳定身份、三个布局下方向与自环、共同图求值的顺序独立性、atomic-only、诱导边／孤立节点、scope 更新、不可用选择、错误恢复、中文、非持久化与重新挂载。新行为分别经过实际 RED→GREEN。\n\n沿用已有 Chromium harness：`node scripts/test-graph-layout-browser.mjs --filters`，新增 helper `scripts/test-graph-filters-browser.mjs`，加载生产 snlGraph bundle，不复制一个替代图谱。原 bundle 在 Add filter 缺失处确实失败。新 bundle 已通过真实鼠标复选、键盘停用、Kind/Relationship AND–OR、相冲突筛空、恢复、关系方向、刷新后失效／恢复、清空、新挂载重置；测试记录没有状态写入或 localStorage 数据。430px 中文浅色画面已截图检查，侧栏可滚动；不把无页面横向溢出等同所有设备可用。\n\nLinux VS Code Extension Development Host 使用 Toolkit 创建的 canonical 测试工作区，实际读取 5 节点／4 条关系，Concept 条件保留 4 节点，加 outgoing depends 条件后保留 spec.graph 与 spec.graph.layout；点击真实 Host Refresh 后仍为 2 节点／2 条 Filter。运行前后整个测试工作区 .SNL_Doc 文件逐项 hash 一致，没有新增文件。这是当前版本真实 Host→Webview 数据链路证据，不是给 fixture 虚构 Tags。\n\n独立只读审查：Scoped PASS，无重大 BLOCK，最终源码与受审 SHA256 一致。最终门禁：完整 npm test（单 worker）251 个文件、1973 项测试通过，入口重新生成生产 Webview／导出产物；host compile 与 webview TypeScript 检查通过。相同生产 bundle 的 layouts 与 filters 两种浏览器模式最终都通过，均记录 success、bundle SHA256 和空 errors。布局模式回归包含三布局、hover／focus、缩放阈值、稳定中心、600 节点和窄屏；筛选模式另外通过窄屏下滚动至第二卡片并实际点击关系复选项、清空和恢复。资源紧张时的早期 EAGAIN／pthread_create 失败不作为门禁通过，最终受控重跑完成。未测试 Windows F5；未 push、未发布；Tag 筛选、Tag Priority 着色和任意嵌套布尔表达式不在首批已实现范围。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

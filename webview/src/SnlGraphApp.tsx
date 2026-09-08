@@ -55,7 +55,15 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
  packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
  relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})',
  layout: 'Layout', rectangle: 'Rectangle', radialInward: 'Radial inward', radialOutward: 'Radial outward',
- nodeMode: 'Nodes', autoNodes: 'Auto', alwaysTitle: 'Always title', titleThreshold: 'Title threshold'
+ nodeMode: 'Nodes', autoNodes: 'Auto', alwaysTitle: 'Always title', titleThreshold: 'Title threshold',
+ previewFilters: 'Temporary filters', filterHelp: 'Match every filter (AND); any selected value within each filter (OR).',
+ addFilter: 'Add filter', clearFilters: 'Clear filters', removeFilter: 'Remove filter',
+ filterNumber: 'Filter {id}', filterKind: 'Filter kind', entryKindFilter: 'Entry kind',
+ enabledFilter: 'Enabled', disabledFilter: 'Disabled — ignored', draftFilter: 'Draft — no values; ignored',
+ filterValues: 'Values (OR)', andFilters: 'AND', relationshipFilter: 'Relationship',
+ filterDirection: 'Direction', incomingFilter: 'Incoming', outgoingFilter: 'Outgoing', eitherFilter: 'Either direction',
+ emptyRelationshipLabel: '(empty label)', unavailableFilterValue: '{value} (unavailable)',
+ filteredEmpty: 'No connected nodes match. Adjust or clear filters in the sidebar.'
 }, {
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
   nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
@@ -72,7 +80,15 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   packageClusterOne: '包 {name}：1 个条目', packageClusterMany: '包 {name}：{count} 个条目',
   relationshipAria: '关系 {label}：{from} 到 {to}', entryAria: '条目 {title}（{id}）',
   layout: '布局', rectangle: '矩形平铺', radialInward: '向内环铺', radialOutward: '向外环铺',
-  nodeMode: '节点', autoNodes: '自动', alwaysTitle: '始终显示标题', titleThreshold: '标题阈值'
+  nodeMode: '节点', autoNodes: '自动', alwaysTitle: '始终显示标题', titleThreshold: '标题阈值',
+  previewFilters: '临时筛选', filterHelp: '满足每个筛选条件（AND）；每个条件内满足任一选值（OR）。',
+  addFilter: '添加筛选', clearFilters: '清空筛选', removeFilter: '移除筛选',
+  filterNumber: '筛选 {id}', filterKind: '筛选种类', entryKindFilter: '条目种类',
+  enabledFilter: '启用', disabledFilter: '已停用 — 不参与筛选', draftFilter: '草稿 — 未选择值，不参与筛选',
+  filterValues: '选值（OR）', andFilters: 'AND（且）', relationshipFilter: '关系',
+  filterDirection: '方向', incomingFilter: '入边', outgoingFilter: '出边', eitherFilter: '任意方向',
+  emptyRelationshipLabel: '（空标签）', unavailableFilterValue: '{value}（不可用）',
+  filteredEmpty: '没有匹配的相连节点。请在侧栏中调整或清空筛选条件。'
 });
 
 interface GraphNode {
@@ -101,6 +117,15 @@ interface GraphEdge {
 }
 
 type Scope = { mode: 'pool' } | { mode: 'library'; slug: string };
+
+/** Temporary mounted-panel state only; never part of the host wire schema. */
+interface GraphFilterClause {
+  id: number;
+  kind: 'entry-kind' | 'relationship';
+  direction: 'incoming' | 'outgoing' | 'either';
+  enabled: boolean;
+  values: string[];
+}
 
 interface GraphMessage {
   type: 'graph';
@@ -960,6 +985,12 @@ function SnlGraphInner({
    * turned every kind off).
    */
   const [kindFilter, setKindFilter] = useState<Set<string> | null>(null);
+  const [clauses, setClauses] = useState<GraphFilterClause[]>([]);
+  const nextClauseId = useRef(1);
+  const addClause = (): void => {
+    const id = nextClauseId.current++;
+    setClauses(previous => [...previous, { id, kind: 'entry-kind', direction: 'either', enabled: true, values: [] }]);
+  };
   /** Sidebar open/closed. Persists across msg updates. */
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -970,32 +1001,34 @@ function SnlGraphInner({
 
   const laid = useMemo<Layout | null>(() => {
     if (!msg) return null;
-    // Cat 2026-07-10 §3: apply kind filter FIRST — dropping nodes drops
-    // every edge that touched them, so we run kind then the dep-atomic
-    // filter which only touches surviving edges.
-    const allowKind = (id: string): boolean => {
-      if (kindFilter === null) return true;
-      const n = msg.nodes.find((x) => x.id === id);
-      if (!n) return false;
-      return kindFilter.has(n.kindId);
-    };
-    const kindKeptNodes = msg.nodes.filter((n) => allowKind(n.id));
-    const kindKeptIds = new Set(kindKeptNodes.map((n) => n.id));
-    const kindKeptEdges = msg.edges.filter(
-      (e) => kindKeptIds.has(e.from) && kindKeptIds.has(e.to)
-    );
-    const filteredEdges =
-      depFilter === 'atomic-deps'
-        ? kindKeptEdges.filter(
-            (e) => !e.isDependency || e.isAtomic === true
-          )
-        : kindKeptEdges;
+    // Every predicate sees the same host-scope graph after the atomic edge
+    // gate, BEFORE any clause or quick-kind node restriction. Layout cycle
+    // breaks never affect direction: these are the original from→to edges.
+    const scopeIds = new Set(msg.nodes.map(node => node.id));
+    const commonEdges = msg.edges.filter(edge => scopeIds.has(edge.from) && scopeIds.has(edge.to) &&
+      (depFilter === 'all' || !edge.isDependency || edge.isAtomic === true));
+    const predicates = clauses.filter(clause => clause.enabled && clause.values.length > 0).map(clause => {
+      const values = new Set(clause.values);
+      if (clause.kind === 'entry-kind') return (node: GraphNodeWire): boolean => values.has(node.kindId);
+      const matchingIds = new Set<string>();
+      for (const edge of commonEdges) {
+        if (!values.has(edge.label)) continue;
+        if (clause.direction !== 'incoming') matchingIds.add(edge.from);
+        if (clause.direction !== 'outgoing') matchingIds.add(edge.to);
+      }
+      return (node: GraphNodeWire): boolean => matchingIds.has(node.id);
+    });
+    const matchingNodes = msg.nodes.filter(node => (kindFilter === null || kindFilter.has(node.kindId)) &&
+      predicates.every(matches => matches(node)));
+    const matchingIds = new Set(matchingNodes.map(node => node.id));
+    // Induce ALL surviving edge labels, not just labels used by predicates.
+    const filteredEdges = commonEdges.filter(edge => matchingIds.has(edge.from) && matchingIds.has(edge.to));
     const kept = new Set<string>();
     for (const e of filteredEdges) {
       kept.add(e.from);
       kept.add(e.to);
     }
-    const filteredNodes: GraphNode[] = kindKeptNodes
+    const filteredNodes: GraphNode[] = matchingNodes
       .filter((n) => kept.has(n.id))
       .map((node) => {
         const { coloring, ...base } = node;
@@ -1011,7 +1044,7 @@ function SnlGraphInner({
         };
       });
     return layout(filteredNodes, filteredEdges, layoutMode);
-  }, [msg, depFilter, kindFilter, contentLanguage, preferencesRevision, layoutMode]);
+  }, [msg, depFilter, kindFilter, clauses, contentLanguage, preferencesRevision, layoutMode]);
 
   /**
    * Kind universe: the set of distinct kindIds present in the current
@@ -1034,6 +1067,10 @@ function SnlGraphInner({
     }
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
   }, [msg, contentLanguage, preferencesRevision]);
+
+  // Choices use the full scope message, not the displayed/atomic-only graph.
+  const relationshipUniverse = useMemo(() => [...new Set(msg?.edges.map(edge => edge.label) ?? [])]
+    .sort(compareLexically), [msg]);
 
   // Fit on host refresh and an explicit layout change, never presentation.
   useEffect(() => {
@@ -1319,9 +1356,14 @@ function SnlGraphInner({
           kindUniverse={kindUniverse}
           kindFilter={kindFilter}
           onKindFilterChange={setKindFilter}
+          clauses={clauses}
+          onClausesChange={setClauses}
+          onAddClause={addClause}
+          relationshipUniverse={relationshipUniverse}
         />
         {displayedNodeCount === 0 ? (
           <div
+            data-testid="graph-filtered-empty"
             style={{
               padding: '2rem',
               opacity: 0.75,
@@ -1329,7 +1371,7 @@ function SnlGraphInner({
               textAlign: 'center'
             }}
           >
-            {t('empty')}
+            {t(msg.nodes.length > 0 ? 'filteredEmpty' : 'empty')}
           </div>
         ) : (
           <svg
@@ -1579,13 +1621,15 @@ function SnlGraphInner({
 /**
  * Right-edge Filters sidebar (cat 2026-07-10 §3).
  *
- * Two filter groups, both live-applied:
+ * Existing quick controls remain live-applied alongside temporary AND clauses:
  *
  *   - **Edges**: the atomic-only toggle (previously the standalone
  *     header button). Kept as a boolean because that's what it is.
  *   - **Entry kinds**: one checkbox per kindId present in the graph,
  *     with a kind-colored swatch. `null` filter (default) = all kinds
  *     visible; toggling a kind switches to "specific set" mode.
+ *   - **Temporary filters**: stable local cards, OR values inside each card,
+ *     AND between cards. Empty drafts and disabled cards do not constrain nodes.
  *
  * Collapsed state: a single tab pinned to the right edge with a `◀`
  * arrow. Expanded state: the tab flips to `▶` and a ~220px panel
@@ -1598,7 +1642,11 @@ function FiltersSidebar({
   onDepFilterChange,
   kindUniverse,
   kindFilter,
-  onKindFilterChange
+  onKindFilterChange,
+  clauses,
+  onClausesChange,
+  onAddClause,
+  relationshipUniverse
 }: {
   open: boolean;
   onToggle: () => void;
@@ -1607,6 +1655,10 @@ function FiltersSidebar({
   kindUniverse: Array<{ kindId: string; label: string; color: string }>;
   kindFilter: Set<string> | null;
   onKindFilterChange: (v: Set<string> | null) => void;
+  clauses: GraphFilterClause[];
+  onClausesChange: (clauses: GraphFilterClause[]) => void;
+  onAddClause: () => void;
+  relationshipUniverse: string[];
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const isKindEnabled = (id: string): boolean =>
@@ -1649,6 +1701,9 @@ function FiltersSidebar({
         type="button"
         onClick={onToggle}
         title={t(open ? 'collapseFilters' : 'expandFilters')}
+        data-testid="graph-filter-toggle"
+        aria-expanded={open}
+        aria-controls="snl-graph-filter-settings"
         style={{
           pointerEvents: 'auto',
           alignSelf: 'flex-start',
@@ -1671,6 +1726,8 @@ function FiltersSidebar({
       </Button>
       {open ? (
         <div
+          id="snl-graph-filter-settings"
+          data-testid="graph-filter-settings"
           style={{
             pointerEvents: 'auto',
             width: '240px',
@@ -1810,6 +1867,70 @@ function FiltersSidebar({
               })}
             </ul>
           )}
+          <section data-testid="graph-filters" aria-label={t('previewFilters')}>
+            <h3 style={{ margin: '1rem 0 0.4rem', fontSize: '0.85rem' }}>{t('previewFilters')}</h3>
+            <p style={{ fontSize: '0.8rem' }}>{t('filterHelp')}</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <Button type="button" data-testid="graph-filter-add" onClick={onAddClause}>{t('addFilter')}</Button>
+              <Button type="button" data-testid="graph-filter-clear" disabled={clauses.length === 0}
+                onClick={() => onClausesChange([])}>{t('clearFilters')}</Button>
+            </div>
+            {clauses.map((clause, index) => {
+              const update = (patch: Partial<GraphFilterClause>): void =>
+                onClausesChange(clauses.map(item => item.id === clause.id ? { ...item, ...patch } : item));
+              const options = clause.kind === 'entry-kind'
+                ? kindUniverse.map(option => ({ value: option.kindId, label: option.label || option.kindId, unavailable: false }))
+                : relationshipUniverse.map(value => ({ value, label: value || t('emptyRelationshipLabel'), unavailable: false }));
+              const availableValues = new Set(options.map(option => option.value));
+              // Missing selections remain real predicates. Keep them editable
+              // (not disabled) so an empty result can always be recovered.
+              for (const value of clause.values) {
+                if (!availableValues.has(value)) options.push({ value, unavailable: true,
+                  label: t('unavailableFilterValue', { value: value || t('emptyRelationshipLabel') }) });
+              }
+              return <React.Fragment key={clause.id}>
+                {index > 0 ? <div style={{ textAlign: 'center', fontWeight: 600 }}>{t('andFilters')}</div> : null}
+                <fieldset data-testid="graph-filter-clause" data-filter-id={clause.id}
+                  style={{ minWidth: 0, margin: '0.5rem 0', padding: '0.5rem', border: '1px solid var(--vscode-panel-border, #888)', borderRadius: 4 }}>
+                  <legend>{t('filterNumber', { id: clause.id })}</legend>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.4rem' }}>
+                    <label><input type="checkbox" data-testid="graph-filter-enabled" checked={clause.enabled}
+                      onChange={event => update({ enabled: event.target.checked })} /> {t('enabledFilter')}</label>
+                    <Button type="button" data-testid="graph-filter-remove" style={smallLinkBtn}
+                      onClick={() => onClausesChange(clauses.filter(item => item.id !== clause.id))}>{t('removeFilter')}</Button>
+                  </div>
+                  <label style={{ display: 'block', margin: '0.4rem 0' }}>{t('filterKind')}{' '}
+                    <select className="snl-control" data-testid="graph-filter-kind" value={clause.kind}
+                      onChange={event => update({ kind: event.target.value as GraphFilterClause['kind'], values: [] })}>
+                      <option value="entry-kind">{t('entryKindFilter')}</option>
+                      <option value="relationship">{t('relationshipFilter')}</option>
+                    </select>
+                  </label>
+                  {clause.kind === 'relationship' ? <label style={{ display: 'block', margin: '0.4rem 0' }}>{t('filterDirection')}{' '}
+                    <select className="snl-control" data-testid="graph-filter-direction" value={clause.direction}
+                      onChange={event => update({ direction: event.target.value as GraphFilterClause['direction'] })}>
+                      <option value="either">{t('eitherFilter')}</option>
+                      <option value="incoming">{t('incomingFilter')}</option>
+                      <option value="outgoing">{t('outgoingFilter')}</option>
+                    </select>
+                  </label> : null}
+                  {!clause.enabled ? <p style={{ fontSize: '0.8rem' }}>{t('disabledFilter')}</p> : null}
+                  {clause.values.length === 0 ? <p data-testid="graph-filter-draft" style={{ fontSize: '0.8rem' }}>{t('draftFilter')}</p> : null}
+                  <fieldset style={{ minWidth: 0, margin: 0, padding: '0.4rem', border: 0 }}>
+                    <legend>{t('filterValues')}</legend>
+                    {options.map(option => <label key={option.value} data-unavailable={option.unavailable}
+                      style={{ display: 'block', overflowWrap: 'anywhere' }}>
+                      <input type="checkbox" data-testid="graph-filter-value" value={option.value}
+                        checked={clause.values.includes(option.value)}
+                        onChange={event => update({ values: event.target.checked
+                          ? [...clause.values, option.value] : clause.values.filter(value => value !== option.value) })} />{' '}
+                      {option.label}
+                    </label>)}
+                  </fieldset>
+                </fieldset>
+              </React.Fragment>;
+            })}
+          </section>
         </div>
       ) : null}
     </div>

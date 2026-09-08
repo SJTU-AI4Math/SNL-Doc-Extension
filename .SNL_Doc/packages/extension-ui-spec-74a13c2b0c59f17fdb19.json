@@ -49,6 +49,7 @@
     "concept.snl.macro",
     "concept.snl.macro-kind",
     "concept.ui.panel",
+    "document.graph.filters",
     "document.graph.layout-current",
     "spec.graph",
     "spec.graph.coloring",

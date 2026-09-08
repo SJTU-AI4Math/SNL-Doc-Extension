@@ -1,13 +1,48 @@
-import { describe, expect, it } from 'vitest';
-import { compilePointerScope, rankCompiledScopes, scopeContains, isCompiledPointerScope } from './scope';
+import { describe, expect, it, vi } from 'vitest';
+import { comparePointerIdentity, compilePointerScope, rankCompiledScopes, scopeContains, isCompiledPointerScope } from './scope';
 import { resolvePointerText } from './text';
 import { normalizeEntryPointer, type EntryPointer } from './schema';
 function scope(p: EntryPointer, text: string) {
   const raw = resolvePointerText(p, text); if (raw.status !== 'ok') throw Error(JSON.stringify(raw));
-  return compilePointerScope(p, raw.range, text);
+  return { ...compilePointerScope(p, raw.range, text), entryId: '' };
 }
 const line = (extra: object = {}): EntryPointer => ({ file: 'x', mode: 'lines', line: 2, beforeLines: 0, afterLines: 0, ...extra });
 describe('compiled inverse scope contract', () => {
+  it('compares identity alone without locale collation and treats omitted package as empty', () => {
+    const locale = vi.spyOn(String.prototype, 'localeCompare').mockImplementation(() => { throw Error('locale collation forbidden'); });
+    try {
+      expect(comparePointerIdentity({ entryId: 'a' }, { entryId: 'a', package: '' })).toBe(0);
+      for (const [a, b] of [
+        [{ entryId: 'Z', package: 'zz' }, { entryId: 'ä', package: '' }],
+        [{ entryId: '😀' }, { entryId: '\uE000' }],
+        [{ entryId: 'a' }, { entryId: 'a', package: 'A' }],
+        [{ entryId: 'a', package: 'Z' }, { entryId: 'a', package: 'ä' }],
+        [{ entryId: 'a', package: '😀' }, { entryId: 'a', package: '\uE000' }],
+      ]) {
+        expect(comparePointerIdentity(a, b)).toBeLessThan(0);
+        expect(comparePointerIdentity(b, a)).toBeGreaterThan(0);
+      }
+      expect(locale).not.toHaveBeenCalled();
+    } finally { locale.mockRestore(); }
+  });
+  it('orders all winning identities by UTF-16 EntryId then PackageId, never locale or input order', () => {
+    const compiled = scope(line(), 'a\nabc\nz');
+    const identities = [
+      { entryId: '\uE000' }, { entryId: '😀' }, { entryId: 'ä' },
+      { entryId: 'a', package: 'ä' }, { entryId: 'a', package: 'Z' },
+      { entryId: 'a' }, { entryId: 'Z' }, { entryId: 'a\n' }, { entryId: 'a"' },
+    ];
+    const items = identities.map(identity => ({ ...compiled, ...identity }));
+    const expected = [items[6], items[5], items[4], items[3], items[7], items[8], items[2], items[1], items[0]];
+    for (const input of [items, [...items].reverse(), [...items.slice(3), ...items.slice(0, 3)]]) {
+      const candidates = [
+        ...input,
+        { ...compiled, entryId: 'A', priority: -1 },
+        { ...scope(line({ beforeLines: 1 }), 'a\nabc\nz'), entryId: 'B' },
+      ];
+      expect(rankCompiledScopes(candidates, x => x, 2, 2)).toEqual(expected);
+    }
+  });
   it('preserves independent omission, explicit zero, signed fractional priority and columns', () => {
     expect(normalizeEntryPointer(line({ column: 2, endColumn: 4, priority: 0 }))).toMatchObject({ column: 2, endColumn: 4, priority: 0 });
     for (const priority of [-1.5, 0, .25]) expect(scope(line({ priority }), 'a\nabc\nz').priority).toBe(priority);

@@ -55,9 +55,16 @@ export function scopeContains(s: CompiledPointerScope, line: number, column?: nu
   return start && end;
 }
 
+/** Locale-independent UTF-16 identity ordering, shared by every navigation surface. */
+export function comparePointerIdentity(a: { entryId: string; package?: string }, b: { entryId: string; package?: string }): number {
+  if (a.entryId !== b.entryId) return a.entryId < b.entryId ? -1 : 1;
+  const aPackage = a.package ?? '', bPackage = b.package ?? '';
+  return aPackage < bPackage ? -1 : aPackage > bPackage ? 1 : 0;
+}
+
 /** Shared host/browser selection: containing scopes, highest priority, smallest
- * actual expanded span, ALL ties. The selector receives compiled scopes only. */
-export function rankCompiledScopes<T>(items: readonly T[], scope: (item: T) => CompiledPointerScope, line: number, column?: number): T[] {
+ * actual expanded span, ALL ties in identity order. Geometry is compiled-only. */
+export function rankCompiledScopes<T extends { entryId: string; package?: string }>(items: readonly T[], scope: (item: T) => CompiledPointerScope, line: number, column?: number): T[] {
   let priority = -Infinity, span = Infinity;
   let selected: T[] = [];
   for (const item of items) {
@@ -66,5 +73,5 @@ export function rankCompiledScopes<T>(items: readonly T[], scope: (item: T) => C
     if (s.priority > priority || s.span < span) selected = [];
     priority = s.priority; span = s.span; selected.push(item);
   }
-  return selected;
+  return selected.sort(comparePointerIdentity);
 }

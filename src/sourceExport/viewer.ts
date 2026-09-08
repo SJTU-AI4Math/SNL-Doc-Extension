@@ -37,7 +37,7 @@ function validRange(r: PointerRange | undefined): r is PointerRange {
 export function validateManifest(value: unknown): SourceManifest {
   if (!value || typeof value !== 'object') throw Error('Invalid source manifest');
   const m = value as SourceManifest;
-  if (m.schemaVersion !== 'snl.export.sources/v2') throw Error('Unsupported source manifest version');
+  if (m.schemaVersion !== 'snl.export.sources/v3') throw Error('Unsupported source manifest version');
   if (!identifier(m.exportId) || !identifier(m.renderSnapshotId) || !identifier(m.workspaceName) ||
       m.snapshot?.mode !== 'disk' || !Array.isArray(m.files) || !Array.isArray(m.pointers) ||
       !Array.isArray(m.entryRoutes) || !Array.isArray(m.directories)) throw Error('Invalid source manifest');

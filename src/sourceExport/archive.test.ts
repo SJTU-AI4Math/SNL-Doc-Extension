@@ -54,7 +54,11 @@ describe('source snapshot', () => {
     const file = preview.manifest.files[1];
     expect(file).toMatchObject({ sha256: digest(bytes), bom: true, eol: 'mixed', byteLength: bytes.length, kind: 'text' });
     expect(Buffer.from(preview.chunks[1].base64, 'base64')).toEqual(bytes);
-    expect(preview.manifest.pointers[0]).toMatchObject({ status: 'ok', sourceSha256: digest(bytes), range: { startLine: 2, endColumn: 4 }, pointer: { beforeLines: 0, afterLines: 4 } });
+    expect(preview.manifest.schemaVersion).toBe('snl.export.sources/v3');
+    expect(preview.manifest.pointers[0].pointer).not.toHaveProperty('beforeLines');
+    expect(preview.manifest.pointers[0].pointer).not.toHaveProperty('afterLines');
+    expect(preview.manifest.pointers[0].inverseScope).toMatchObject({ startLine: 2, endLine: 2 });
+    expect(preview.manifest.pointers[0]).toMatchObject({ status: 'ok', sourceSha256: digest(bytes), range: { startLine: 2, endColumn: 4 }, pointer: { file: 'src/a.lean', mode: 'lines', line: 2 } });
     expect(preview.manifest.directories).toContain('src');
     await expect(revalidateSourceSnapshot(preview, args)).resolves.toBeUndefined();
     await put('src/a.lean', 'changed');

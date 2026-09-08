@@ -4245,16 +4245,18 @@ export interface EntryData {
   pointer: import('./pointer').EntryPointer | null | unknown;
 }
 
-function pointerMatchDistanceError(pointer: unknown): string | undefined {
+// Retired context fields are ignored on read and removed from managed Entry saves.
+// Preserve all other Pointer metadata; this is not a lossy schema normalization.
+function withoutPointerContext(pointer: unknown): unknown {
+  if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return pointer;
+  const { beforeLines: _before, afterLines: _after, ...rest } = pointer as Record<string, unknown>;
+  return rest;
+}
+
+function pointerPositionError(pointer: unknown): string | undefined {
   if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return undefined;
   const record = pointer as Record<string, unknown>;
-  for (const field of ['beforeLines', 'afterLines']) {
-    if (!Object.hasOwn(record, field)) continue;
-    const value = record[field];
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-      return `pointer.${field} must be a nonnegative safe integer`;
-    }
-  }
+
   if (Object.hasOwn(record, 'priority') && (typeof record.priority !== 'number' || !Number.isFinite(record.priority))) {
     return 'pointer.priority must be a finite number';
   }
@@ -4294,7 +4296,7 @@ export async function addEntry(
     // Establish writable schema/version mode before business-field validation;
     // future or malformed configs must never masquerade as unknownKind/invalid.
     await assertWorkspaceWritableOnDisk(workspaceRoot);
-    const distanceError = pointerMatchDistanceError(entry?.pointer);
+    const distanceError = pointerPositionError(entry?.pointer);
     if (distanceError) return { status: 'invalid', reason: distanceError } as const;
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
   const kind = typeof entry?.kind === 'string' ? entry.kind.trim() : '';
@@ -4406,7 +4408,7 @@ export async function addEntry(
     title,
     content: normalizedContent,
     contribution_info: contributor,
-    pointer: entry.pointer ?? null
+    pointer: withoutPointerContext(entry.pointer) ?? null
   };
   // Drop undefined content fields so entries.json stays tidy.
   for (const key of Object.keys(record.content) as Array<
@@ -5156,7 +5158,7 @@ export async function updateEntry(
       message: error instanceof Error ? error.message : String(error)
     };
   }
-  const distanceError = pointerMatchDistanceError(entry.pointer);
+  const distanceError = pointerPositionError(entry.pointer);
   if (distanceError && !isDeepStrictEqual(entry.pointer, pool[idx].pointer)) {
     return { status: 'invalid', message: distanceError };
   }
@@ -5207,7 +5209,7 @@ export async function updateEntry(
     title,
     content: mergedContent as EntryData['content'],
     contribution_info: contributor,
-    pointer: entry.pointer ?? null
+    pointer: withoutPointerContext(entry.pointer) ?? null
   };
   for (const key of Object.keys(record.content) as Array<
     keyof EntryData['content']

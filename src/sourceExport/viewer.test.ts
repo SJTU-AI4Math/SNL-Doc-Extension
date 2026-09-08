@@ -12,28 +12,28 @@ import { compilePointerScope } from '../pointerSync/scope';
 import { resolvePointerText } from '../pointerSync/text';
 import type { EntryPointer } from '../pointerSync/schema';
 const sha = createHash('sha256').update('abc').digest('hex');
-const base: SourceManifest = { schemaVersion:'snl.export.sources/v2',exportId:'e',renderSnapshotId:'r',workspaceName:'w',snapshot:{mode:'disk'},options:{scope:'project',keep:[],exclude:[],companionFiles:[]},files:[{fileId:'f',displayPath:'x',kind:'text',language:'lean4',byteLength:3,sha256:sha,bom:false,eol:'none',chunkId:'source-f.js'}],directories:[],pointers:[],entryRoutes:[] };
+const base: SourceManifest = { schemaVersion:'snl.export.sources/v3',exportId:'e',renderSnapshotId:'r',workspaceName:'w',snapshot:{mode:'disk'},options:{scope:'project',keep:[],exclude:[],companionFiles:[]},files:[{fileId:'f',displayPath:'x',kind:'text',language:'lean4',byteLength:3,sha256:sha,bom:false,eol:'none',chunkId:'source-f.js'}],directories:[],pointers:[],entryRoutes:[] };
 function pointer(id:string,line:number,endLine=line,beforeLines?:number,afterLines?:number):SourcePointer {
   const pointer={mode:'lines' as const,file:'x',line,endLine,beforeLines,afterLines};
   const range={startLine:line,startColumn:1,endLine,endColumn:2,coveredEndLine:endLine};
   return {entryId:id,fileId:'f',sourceSha256:sha,status:'ok',pointer,range,inverseScope:compilePointerScope(pointer,range,Array(100).fill('x').join('\n'))};
 }
 describe('browser/host ranking contract',()=>{
-  it('shares exact-position ranking for raw/expanded overlap, signed priority, ties and UTF16',()=>{
+  it('shares exact-position ranking for exact overlap and retired buffers, signed priority, ties and UTF16',()=>{
     const text='😀 alpha beta\r\nother\r\n';
-    const authored:EntryPointer[]=[
+    const authored:(EntryPointer & { beforeLines?:number; afterLines?:number })[]=[
       {file:'x',mode:'regex',pattern:'alpha',beforeLines:0,afterLines:0},
       {file:'x',mode:'lines',line:1,column:10,endColumn:14,beforeLines:0,afterLines:0,priority:-.5},
-      {file:'x',mode:'lines',line:2,beforeLines:1,afterLines:0,priority:.25},
-      {file:'x',mode:'lines',line:2,beforeLines:1,afterLines:0,priority:.25}
+      {file:'x',mode:'lines',line:1,column:4,endColumn:9,beforeLines:999,afterLines:999,priority:.25},
+      {file:'x',mode:'lines',line:1,column:4,endColumn:9,beforeLines:999,afterLines:999,priority:.25}
     ];
     const pointers=authored.map((pointer,i)=>{const r=resolvePointerText(pointer,text);if(r.status!=='ok')throw Error(r.status);return {entryId:String(i),fileId:'f',sourceSha256:sha,status:'ok' as const,pointer,range:r.range,inverseScope:compilePointerScope(pointer,r.range,text)};});
-    const index:PointerIndex={version:2,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope}}))}}};
+    const index:PointerIndex={version:3,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope}}))}}};
     const manifest={...base,pointers};
     for(let line=1;line<=3;line++)for(let col=1;col<=15;col++)expect(rankSourcePointers(manifest,'f',line,col).candidates.map(p=>p.entryId)).toEqual(findNearestEntries(index,'x',line,col).candidates.map(p=>p.entryId));
     expect(rankSourcePointers(manifest,'f',1,5).candidates.map(p=>p.entryId)).toEqual(['2','3']);
-    expect(pointers[2].range.startLine).toBe(2);expect(pointers[2].inverseScope.startLine).toBe(1);
-    expect(()=>validateManifest({...base,schemaVersion:'snl.export.sources/v1'})).toThrow();
+    expect(pointers[2].range.startColumn).toBe(4);expect(pointers[2].inverseScope.startColumn).toBe(4);
+    expect(()=>validateManifest({...base,schemaVersion:'snl.export.sources/v2'})).toThrow();
     expect(()=>validateManifest({...manifest,pointers:[{...pointers[0],inverseScope:undefined}]})).toThrow();
   });
   it('does not mistake the standalone fallback for a second outline occurrence',()=>{
@@ -43,10 +43,10 @@ describe('browser/host ranking contract',()=>{
     expect(preferSourceRoutes([b,a,fallback],fallback.hash)).toEqual([a,b]);
     expect(preferSourceRoutes([fallback],'')).toEqual([fallback]);
   });
-  it('matches real host for every line across asymmetric thresholds, span and ties',()=>{
+  it('matches real host for every line across exact scopes, retired fields, span and ties',()=>{
     const pointers=[pointer('wide',20,35,0,2),pointer('inner',24,25,15,0),pointer('tie',24,25,15,0),pointer('default',60)];
     const manifest={...base,pointers};
-    const index:PointerIndex={version:2,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope!}}))}}};
+    const index:PointerIndex={version:3,unfiled:[],files:{x:{fingerprint:sha,entries:pointers.map(p=>({entryId:p.entryId,pointer:p.pointer,resolution:{status:'ok',scope:p.inverseScope!}}))}}};
     for(let line=1;line<100;line++){const b=rankSourcePointers(manifest,'f',line),h=findNearestEntries(index,'x',line);expect(b.candidates.map(c=>c.entryId)).toEqual(h.candidates.map(c=>c.entryId));expect(b.complete).toBe(h.complete);}
   });
   it('does not run regex and preserves unresolved same-file completeness',()=>{
@@ -54,9 +54,9 @@ describe('browser/host ranking contract',()=>{
     expect(rankSourcePointers({...base,pointers:[known,unresolved]},'f',1)).toEqual({candidates:[known],complete:false});
     expect(rankSourcePointers({...base,pointers:[known,{...unresolved,pointer:{mode:'regex',file:'elsewhere',pattern:'['}}]},'f',1).complete).toBe(true);
   });
-  it('covers 0/15/16 boundaries, long interior and half-open coveredEndLine',()=>{
-    const p=pointer('one',20);expect(rankSourcePointers({...base,pointers:[p]},'f',5).candidates).toHaveLength(1);expect(rankSourcePointers({...base,pointers:[p]},'f',4).candidates).toHaveLength(0);
-    expect(rankSourcePointers({...base,pointers:[p]},'f',35).candidates).toHaveLength(1);expect(rankSourcePointers({...base,pointers:[p]},'f',36).candidates).toHaveLength(0);
+  it('rejects former surrounding rows and preserves exact lines/long interior',()=>{
+    const p=pointer('one',20); for(const line of [4,5,19,21,35,36])expect(rankSourcePointers({...base,pointers:[p]},'f',line).candidates).toHaveLength(0); expect(rankSourcePointers({...base,pointers:[p]},'f',20).candidates).toHaveLength(1);
+    expect(rankSourcePointers({...base,pointers:[pointer('legacy',20,20,999,999)]},'f',19).candidates).toHaveLength(0);
     const half={...pointer('half',1,10,0,0),range:{startLine:1,startColumn:1,endLine:11,endColumn:1,coveredEndLine:10}};expect(rankSourcePointers({...base,pointers:[half]},'f',10).candidates).toHaveLength(1);expect(rankSourcePointers({...base,pointers:[half]},'f',11).candidates).toHaveLength(0);
   });
 });
@@ -67,7 +67,7 @@ describe('offline integrity admission',()=>{
       { id: 'n1', label: 'Entry', props: { entryId: 'Root' } },
       { id: 'n2', label: 'Entry', props: { entryId: 'Root' } }
     ], entries);
-    const manifest: SourceManifest = { schemaVersion: 'snl.export.sources/v2', exportId: 'export', renderSnapshotId: 'render',
+    const manifest: SourceManifest = { schemaVersion: 'snl.export.sources/v3', exportId: 'export', renderSnapshotId: 'render',
       workspaceName: 'workspace', snapshot: { mode: 'disk' }, options: { scope: 'pointer-files', keep: [], exclude: [], companionFiles: [] },
       files: [], directories: [], pointers: [], entryRoutes: routes };
     expect(() => validateManifest(manifest)).not.toThrow();

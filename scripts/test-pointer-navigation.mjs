@@ -18,19 +18,22 @@ const executablePath=process.env.SNL_CHROMIUM_PATH||resolve(process.env.HOME,'.a
 assert(existsSync(executablePath),'Set SNL_CHROMIUM_PATH to a real installed browser');
 const out=process.env.SNL_SOURCE_EVIDENCE||'/tmp/pointer-035/browser';mkdirSync(out,{recursive:true});
 const digest=x=>createHash('sha256').update(x).digest('hex');
-const text=['-- 😀 中文 source','def alpha := Nat.zero','def beta := Nat.succ 0',...Array.from({length:180},(_,i)=>`-- row ${i+4}`)].join('\r\n');
+const text=['-- 😀 中文 source','def alpha := Nat.zero','def beta := Nat.succ 0',...Array.from({length:180},(_,i)=>i===2?'theorem regexTarget : True := by trivial':`-- row ${i+4}`)].join('\r\n');
 const fileId=digest('Main.lean'), bytes=Buffer.from(text), sha=digest(bytes);
 const files=[{fileId,displayPath:'Main.lean',kind:'text',language:'lean4',byteLength:bytes.length,sha256:sha,bom:false,eol:'crlf',chunkId:`source-${fileId}.js`}];
 const chunks=[{fileId,sha256:sha,base64:bytes.toString('base64')}];
-const pointer=(entryId,line,priority=0)=>{const pointer={file:'Main.lean',mode:'lines',line,beforeLines:0,afterLines:0,priority};const resolved=resolvePointerText(pointer,text);assert.equal(resolved.status,'ok');return {entryId,package:'P',pointer,fileId,sourceSha256:sha,status:'ok',range:resolved.range,inverseScope:compilePointerScope(pointer,resolved.range,text)};};
+const pointer=(entryId,line,priority=0)=>{const pointer={file:'Main.lean',mode:'lines',line,priority};const resolved=resolvePointerText(pointer,text);assert.equal(resolved.status,'ok');return {entryId,package:'P',pointer,fileId,sourceSha256:sha,status:'ok',range:resolved.range,inverseScope:compilePointerScope(pointer,resolved.range,text)};};
 const entry=(id,markdown)=>({id,package:'P',kind:'entry',title:id,content:{markdown},pointer:null});
-const entries=[entry('Intro',Array.from({length:40},(_,i)=>`Paragraph ${i}. Long reading body before the target.`).join('\n\n')),entry('Zeta','Zeta tie'),entry('Alpha','Alpha target'),entry('Beta','Beta target'),entry('Hidden','Hidden child target'),entry('Missing','Unavailable source'),entry('Outside','Standalone target')];
+const entries=[entry('Intro',Array.from({length:40},(_,i)=>`Paragraph ${i}. Long reading body before the target.`).join('\n\n')),entry('Zeta','Zeta tie'),entry('Alpha','Alpha target'),entry('Beta','Beta target'),entry('Regex','Regex exact-only target'),entry('Hidden','Hidden child target'),entry('Missing','Unavailable source'),entry('Outside','Standalone target')];
 const byId=new Map(entries.map(e=>[e.id,e]));
 const node=(id,entryId,children=[])=>({nodeId:id,entry:byId.get(entryId),kind:null,counterLabel:null,children});
-const outline=[node('a-intro','Intro'),node('z-alpha','Alpha'),node('zeta','Zeta'),node('a-alpha','Alpha'),node('beta','Beta'),node('parent','Intro',[node('deep','Hidden')]),node('missing','Missing')];
+const outline=[node('a-intro','Intro'),node('z-alpha','Alpha'),node('zeta','Zeta'),node('a-alpha','Alpha'),node('beta','Beta'),node('regex','Regex'),node('parent','Intro',[node('deep','Hidden')]),node('missing','Missing')];
 const routes=[];const walk=ns=>ns.forEach(n=>{routes.push({entryId:n.entry.id,nodeId:n.nodeId,hash:'#/node/'+n.nodeId});walk(n.children);});walk(outline);entries.forEach(e=>routes.push({entryId:e.id,hash:'#/entry/'+e.id}));
 const pointers=[pointer('Zeta',2),pointer('Alpha',2),pointer('Beta',3),pointer('Intro',4),pointer('Hidden',120),pointer('Outside',140),{entryId:'Missing',status:'unavailable',reason:'Source file missing',pointer:{file:'missing.lean',mode:'lines',line:1}}];
-const manifest={schemaVersion:'snl.export.sources/v2',exportId:'pointer-browser',renderSnapshotId:'pointer-browser',workspaceName:'Pointer fixture',snapshot:{mode:'disk'},options:{scope:'pointer-files',keep:[],exclude:[],companionFiles:[]},files,directories:[],pointers,entryRoutes:routes};
+const regexPointer={file:'Main.lean',mode:'regex',pattern:'theorem regexTarget',beforeLines:99,afterLines:99};
+const regexResolved=resolvePointerText(regexPointer,text);assert.equal(regexResolved.status,'ok');
+pointers.push({entryId:'Regex',package:'P',pointer:regexPointer,fileId,sourceSha256:sha,status:'ok',range:regexResolved.range,inverseScope:compilePointerScope(regexPointer,regexResolved.range,text)});
+const manifest={schemaVersion:'snl.export.sources/v3',exportId:'pointer-browser',renderSnapshotId:'pointer-browser',workspaceName:'Pointer fixture',snapshot:{mode:'disk'},options:{scope:'pointer-files',keep:[],exclude:[],companionFiles:[]},files,directories:[],pointers,entryRoutes:routes};
 const snapshot={version:1,renderSnapshotId:'pointer-browser',library:{slug:'Pointer',title:'Pointer fixture',outline,warnings:[]},entries,entryKinds:[],entryPackages:Object.fromEntries(entries.map(e=>[e.id,'P'])),macros:{},macroKinds:[],relationships:[],preferences:{language:'en',color_scheme:'light',motion:'reduced'},contentLanguage:'en',languages:[{id:'en',display_name:'English'}],resources:{}};
 const css=EXPORT_BASE_CSS+'\n'+readFileSync(resolve(root,'media/exportRuntime.css'),'utf8')+'\n'+readFileSync(resolve(root,'media/sourceViewer.css'),'utf8');
 for(const shape of ['folder','single']){
@@ -49,7 +52,7 @@ try{
   page.on('pageerror',e=>errors.push(String(e)));page.on('requestfailed',r=>errors.push(r.url()+': '+r.failure()?.errorText));
   await page.goto(url);await page.locator('.snl-source-open').click();await page.waitForFunction(()=>window.monaco?.editor.getEditors()[0]?.getModel());
   await page.getByLabel('Follow cursor',{exact:true}).uncheck();
-  const position=async line=>page.evaluate(line=>{const e=window.monaco.editor.getEditors()[0];e.setPosition({lineNumber:line,column:1},'probe');e.focus();},line);
+  const position=async (line,column=1)=>page.evaluate(([line,column])=>{const e=window.monaco.editor.getEditors()[0];e.setPosition({lineNumber:line,column},'probe');e.focus();},[line,column]);
   const test=async(name,fn)=>{try{await fn();if(['forward-reading-anchor','deep-route-marker','passive-long-entry-keeps-reading-position'].includes(name))await page.screenshot({path:resolve(out,`${shape}-${protocol}-${name}-pass.png`)});cases.push({name,ok:true});}catch(e){cases.push({name,ok:false,error:String(e)});await page.screenshot({path:resolve(out,`${shape}-${protocol}-${name}.png`)});}};
   await test('forward-reading-anchor',async()=>{
     await page.getByRole('button',{name:'Hide',exact:true}).click();
@@ -74,6 +77,19 @@ try{
     const after=await page.evaluate(()=>({top:document.querySelector('.snl-export').scrollTop,history:history.length,hash:location.hash}));
     assert.deepEqual(after,before);assert.equal(await page.locator('[data-snl-source-current]').count(),1);
     assert(await page.evaluate(()=>document.activeElement.closest('.monaco-editor')!==null));
+  });
+  await test('regex-sync-is-exact-without-context',async()=>{
+    await page.getByLabel('Follow cursor',{exact:true}).uncheck();
+    for(const [line,col] of [[5,1],[7,1],[6,regexResolved.range.endColumn]]){
+      await position(6);await page.keyboard.press('Control+Alt+j');
+      await page.waitForFunction(()=>document.querySelector('[data-snl-route-id="regex"] [data-snl-source-current]'),null,{timeout:2500});
+      await position(line,col);await page.keyboard.press('Control+Alt+j');
+      await page.waitForFunction(()=>document.querySelector('.snl-source-status').textContent==='No nearby entry');
+      assert.equal(await page.locator('[data-snl-source-current]').count(),0);
+    }
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent('snl-reader-source',{detail:{entryId:'Regex'}})));
+    await page.waitForFunction(()=>{const e=window.monaco.editor.getEditors()[0];return e.getModel().getValueInRange(e.getSelection())==='theorem regexTarget';});
+    await page.screenshot({path:resolve(out,`${shape}-${protocol}-regex-exact-pass.png`)});
   });
   await test('unavailable-clears-source' ,async()=>{await page.evaluate(()=>window.dispatchEvent(new CustomEvent('snl-reader-source',{detail:{entryId:'Missing'}})));await page.waitForFunction(()=>document.querySelector('.snl-source-status').textContent.includes('missing'));assert.equal(await page.locator('[data-snl-source-current]').count(),0);assert.equal(await page.locator('.snl-source-editor').isVisible(),false);assert.equal(await page.locator('.snl-source-path').textContent(),'');});
   await page.locator('[data-snl-source-file]').first().click();await page.waitForFunction(()=>!document.querySelector('.snl-source-editor').hidden&&window.monaco.editor.getEditors()[0]?.getModel());

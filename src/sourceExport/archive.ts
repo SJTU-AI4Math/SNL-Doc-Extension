@@ -298,7 +298,7 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
   check();
   // Provenance lookup also yields the event loop: do not leave a final capture race behind it.
   if ((await scan()).key !== first.key || inputKey(input) !== inputHash) throw new SourcePreflightError('Source files or document inputs changed during capture');
-  const manifest: SourcePreview['manifest'] = { schemaVersion: 'snl.export.sources/v2', exportId: '', renderSnapshotId,
+  const manifest: SourcePreview['manifest'] = { schemaVersion: 'snl.export.sources/v3', exportId: '', renderSnapshotId,
     workspaceName: path.basename(root), snapshot,
     options: { scope: options.scope, keep: options.keep, exclude: options.exclude, companionFiles: options.companionFiles },
     files, directories: [...directories].sort(), pointers, entryRoutes };

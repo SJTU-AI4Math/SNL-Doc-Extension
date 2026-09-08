@@ -199,13 +199,30 @@ describe('Pointer write-side synchronization', () => {
       const updated = await actual.updateEntry(root, id, { ...value, pointer: { ...value.pointer, beforeLines: 3 } }, created.revision);
       expect(updated.status).toBe('updated');
       expect((await actual.deleteEntry(root, id)).status).toBe('ok');
-      expect(pointers).toEqual([value.pointer, { ...value.pointer, beforeLines: 3 }, null]);
+      expect(pointers).toEqual([{ file: 'test.lean', mode: 'lines', line: 1 }, { file: 'test.lean', mode: 'lines', line: 1 }, null]);
+      expect(value.pointer.afterLines).toBe(8);
     } finally { handle.dispose(); }
   });
-  it('rejects invalid new match distances without writing', async () => {
+  it('retires legacy buffer values on create and save while preserving opaque Pointer fields', async () => {
+    seedEntryTransactionTopology();
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const pointer = { file: 'test.lean', mode: 'regex', pattern: '/--[\\s\\S]*?theorem', flags: 'm', occurrence: 2, priority: -0.5, beforeLines: -1, afterLines: 'legacy', opaque: { keep: true } };
+    const value = { ...newEntry('retired.pointer', 'logic'), pointer };
+    const created = await actual.addEntry(root, value);
+    expect(created.status).toBe('ok');
+    if (created.status !== 'ok') throw Error('create failed');
+    const expected = { file: pointer.file, mode: pointer.mode, pattern: pointer.pattern, flags: 'm', occurrence: 2, priority: -0.5, opaque: { keep: true } };
+    expect((jsonByPath.get(entryEntityPath('logic', value.id)) as any).entry.pointer).toEqual(expected);
+    const updated = await actual.updateEntry(root, value.id, { ...value, pointer: { ...pointer, beforeLines: 999999, afterLines: null } }, created.revision);
+    expect(updated.status).toBe('updated');
+    expect((jsonByPath.get(entryEntityPath('logic', value.id)) as any).entry.pointer).toEqual(expected);
+    expect(pointer.beforeLines).toBe(-1);
+  });
+  it('rejects invalid active priority/columns without writing', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
     for (const fields of [
-      ...[-1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1].map(beforeLines => ({ beforeLines })),
+
       ...[NaN, Infinity, -Infinity, '0', null].map(priority => ({ priority })),
       ...[0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, null].flatMap(column => [{ column }, { endColumn: column }])
     ]) {

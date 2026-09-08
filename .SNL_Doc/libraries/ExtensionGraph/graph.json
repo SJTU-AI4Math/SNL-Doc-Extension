@@ -27,6 +27,20 @@
       "props": {
         "entryId": "document.graph.layout-current"
       }
+    },
+    {
+      "id": "node.spec.graph.filters",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.graph.filters"
+      }
+    },
+    {
+      "id": "node.spec.graph.coloring",
+      "label": "Entry",
+      "props": {
+        "entryId": "spec.graph.coloring"
+      }
     }
   ],
   "relationships": [
@@ -43,6 +57,16 @@
     {
       "from": "node.spec.graph.layout",
       "to": "node.document.graph.layout-current",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.graph",
+      "to": "node.spec.graph.filters",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.graph",
+      "to": "node.spec.graph.coloring",
       "label": "branch"
     }
   ]

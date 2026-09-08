@@ -51,6 +51,8 @@
     "concept.ui.panel",
     "document.graph.layout-current",
     "spec.graph",
+    "spec.graph.coloring",
+    "spec.graph.filters",
     "spec.graph.layout",
     "spec.graph.nodes",
     "spec.source-document",

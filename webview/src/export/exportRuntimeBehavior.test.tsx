@@ -16,7 +16,34 @@ const hosts = () => Array.from(document.querySelectorAll<HTMLElement>('.snl-coll
 const toggle = (host: Element) => host.querySelector<HTMLButtonElement>(':scope > .snl-collapsible__summary > button')!;
 const body = (host: Element) => host.querySelector<HTMLElement>(':scope > .snl-collapsible__body')!;
 
+async function macroReader() {
+  const value = snapshot(); const root = entry('root', 'Group(%Hello%, %World%)');
+  value.entries[0] = root; value.library.outline = [node('root-node', root)];
+  value.macros.Group.kind = 'example';
+  value.macros.Group.styles.push({ ...value.macros.Group.styles[0], style_name: 'extra' });
+  value.macroKinds.push({ id: 'example', name: 'Example', description: '', coloring: { light: {stroke:'#000000',background:'#ffffff'}, dark: {stroke:'#ffffff',background:'#000000'} } });
+  mountReader(value); await navigate('#/entry/root');
+  fireEvent.click(await screen.findByRole('button', { name: /^Macros \(/ }));
+}
+
 describe('exported BrowserReader uses native Entry/Basics behavior', () => {
+  it('keeps native macro previews/styles readable without deep authoring controls', async () => {
+    await macroReader();
+    expect(screen.queryAllByRole('button', { name: /edit macro|delete macro|edit.*kind/i })).toHaveLength(0);
+    expect(screen.getByText('Group', { selector: 'td > span' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand styles' }));
+    expect(screen.getByText('extra')).toBeTruthy();
+    expect(screen.queryAllByRole('button', { name: /edit macro|delete macro|edit.*kind/i })).toHaveLength(0);
+  });
+
+  it('does not advertise a Ctrl-click editor on a readonly macro kind', async () => {
+    await macroReader();
+    const kind = document.querySelector<HTMLElement>('[data-kind-preview][data-kind-id="example"]')!;
+    expect(kind).not.toBeNull();
+    fireEvent.mouseEnter(kind, { ctrlKey: true });
+    expect(kind.style.cursor).toBe('default');
+  });
+
   it('renders authored collapsibles closed with the shared summary gutter and accessible controls', async () => {
     await blockReader(); expect(hosts()).toHaveLength(3);
     for (const host of hosts()) {

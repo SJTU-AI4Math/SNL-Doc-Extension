@@ -126,6 +126,7 @@ function markCollapsibleRows(clone: HTMLElement): void {
 
 export interface ExportSurfaceWaitOptions {
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export function hasPendingExportSurface(root: HTMLElement): boolean {
@@ -155,13 +156,25 @@ export function waitForExportSurfaces(
     ? cancelAnimationFrame
     : (handle: number): void => clearTimeout(handle);
   return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      reject(new DOMException('HTML capture cancelled', 'AbortError'));
+      return;
+    }
     let quietFrames = 0;
     let frameHandle = 0;
     let finished = false;
     const cleanup = (): void => {
       observer.disconnect();
+      signal?.removeEventListener('abort', abort);
       cancelFrame(frameHandle);
       clearTimeout(timer);
+    };
+    const abort = (): void => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(new DOMException('HTML capture cancelled', 'AbortError'));
     };
     const fail = (): void => {
       if (finished) return;
@@ -184,6 +197,7 @@ export function waitForExportSurfaces(
     const observer = new MutationObserver(() => { quietFrames = 0; });
     observer.observe(root, { subtree: true, childList: true, attributes: true });
     const timer = setTimeout(fail, Math.max(0, timeoutMs));
+    signal?.addEventListener('abort', abort, { once: true });
     frameHandle = frame(tick);
   });
 }

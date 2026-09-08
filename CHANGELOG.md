@@ -15,8 +15,15 @@
   Single-file and directory exports require no external Monaco service.
 
 ### Fixed
-- Pin the published `@sjtu-ai4math/snl-basics` dependency to **0.3.4** while keeping
-  the exported hover runtime free of retained React and KaTeX engines.
+- Pin the published `@sjtu-ai4math/snl-basics` dependency to **0.3.5** across
+  the host bridge, Webviews and shared React HTML reader.
+- Make Ctrl+Alt+J (Cmd+Alt+J on macOS) navigate directly without a candidate
+  picker: containing scope, highest Priority, smallest expanded UTF-16 span,
+  then locale-independent Entry/Package identity and HTML occurrence identity.
+- Preserve the document reading anchor when opening source beside it; finish
+  collapsed-target rendering before applying reverse-navigation highlighting.
+- Clear stale code and document highlights when a Pointer is unavailable, and
+  keep the background watermark from overlapping the split document pane.
 - Preserve private render-snapshot identity through locale/theme and popover
   capture; stale dependencies require recapture instead of mixing generations.
 - Recheck source state after staging, retain previous output on failure, and

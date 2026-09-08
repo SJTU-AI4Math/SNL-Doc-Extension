@@ -109,8 +109,7 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].focus());const historyBefore=await page.evaluate(()=>history.length);await page.keyboard.press('ArrowDown');
   await page.waitForSelector('[data-snl-source-current]');assert(await page.evaluate(()=>document.activeElement?.closest('.monaco-editor')!==null));assert.equal(await page.evaluate(()=>history.length),historyBefore);assert.equal(await page.evaluate(()=>location.hash),'');
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].setPosition({lineNumber:40,column:1},'test-program'));await page.getByRole('button',{name:'Nearby entry (Ctrl+Alt+J)',exact:true}).click();
-  assert.equal(await page.locator('.snl-source-choices button').count(),3);assert.equal(await page.evaluate(()=>location.hash),'');
-  await page.getByRole('button',{name:'Other',exact:true}).click();assert.equal(await page.evaluate(()=>location.hash),'#/entry/Other');await page.waitForSelector('[data-snl-route-outlet] [data-entry-id="Other"] [data-snl-source-entry="Other"]');
+  assert.equal(await page.locator('.snl-source-choices button').count(),0);assert.equal(await page.evaluate(()=>location.hash),'#/entry/Other');await page.waitForSelector('[data-snl-route-outlet] [data-entry-id="Other"] [data-snl-source-entry="Other"]');
   await assertSourceHeaders(page,'[data-snl-route-outlet]');
   assert.equal(await page.evaluate(()=>history.state.routerOwned),'preserve-me');
   await page.goBack();await page.waitForFunction(()=>location.hash==='');await page.waitForFunction(()=>window.monaco.editor.getEditors()[0].getPosition().lineNumber===40);
@@ -125,8 +124,9 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.getByLabel('Follow cursor',{exact:true}).uncheck();
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].focus());await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('[data-snl-source-current]').count(),0);
-  await page.keyboard.press('Control+Alt+j');assert.equal(await page.locator('.snl-source-choices button').count(),3);
+  await page.keyboard.press('Control+Alt+j');assert.equal(await page.locator('.snl-source-choices button').count(),0);assert.equal(await page.evaluate(()=>location.hash),'#/entry/Other');
   await page.getByLabel('Follow cursor',{exact:true}).check();
+  await page.goBack();await page.waitForFunction(()=>location.hash==='');
   // The real export runtime swaps locale/theme body HTML, and source actions must be reattached.
   await page.locator('[data-snl-theme-toggle]').click();await page.waitForSelector('.monaco-editor.vs-dark');await page.locator('[data-snl-language-trigger]').click();await page.locator('[data-snl-language="zh-CN"]').click();await page.waitForSelector('[data-snl-source-entry="Demo"]');
   await assertSourceHeaders(page,'main');
@@ -152,7 +152,7 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.evaluate(()=>window.__snlSourceViewerCleanup());
   assert.equal(await page.locator('[data-snl-source-viewer-action]').count(),0,'Cleanup must remove restored Source actions');
   assert.equal(await page.evaluate(()=>window.monaco.editor.getModels().length),0);assert.equal(await page.locator('.monaco-editor').count(),0);
-  results.push({mode,firstOpenMs,errors,requests,readOnly:true,domReadOnly:true,search:true,clipboardCopy:true,foldUnfold:true,tokenization:tokens.slice(0,6),splitter:true,hideRestore:true,followNoHistoryOrFocusChurn:true,ties:3,entryRouteBack:true,lazyPopover:true,followToggleAndShortcut:true,themeLocale:true,modelsBound:4,binaryInert:true,corruptionDiagnostic:true,narrow:true});await context.close();
+  results.push({mode,firstOpenMs,errors,requests,readOnly:true,domReadOnly:true,search:true,clipboardCopy:true,foldUnfold:true,tokenization:tokens.slice(0,6),splitter:true,hideRestore:true,followNoHistoryOrFocusChurn:true,deterministicTies:true,entryRouteBack:true,lazyPopover:true,followToggleAndShortcut:true,themeLocale:true,modelsBound:4,binaryInert:true,corruptionDiagnostic:true,narrow:true});await context.close();
 }
 for(const [file,selector] of [['none.html','.snl-source-open'],['invalid.html','.monaco-editor']]){const page=await browser.newPage();await page.goto(pathToFileURL(resolve(dir,file)).href);assert.equal(await page.locator(selector).count(),0);if(file==='invalid.html')assert((await page.locator('.snl-source-diagnostic').textContent()).includes('Unsupported'));await page.close();}
 const report={browser:browser.version(),dir,jsBytes:Buffer.byteLength(js),cssBytes:Buffer.byteLength(css),results};writeFileSync(resolve(dir,'results.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));

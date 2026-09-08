@@ -1,6 +1,8 @@
 .snl-source-panel { position:fixed; inset:0 auto 0 0; width:var(--snl-source-width,50vw); z-index:100; background:var(--vscode-editor-background,#fff); color:var(--vscode-editor-foreground,#242424); display:flex; flex-direction:column; box-sizing:border-box; font:13px/1.45 system-ui,sans-serif; border-right:1px solid #8888; }
 .snl-source-panel[hidden], .snl-source-panel [hidden], .snl-source-splitter[hidden] { display:none !important; }
 .snl-source-visible .snl-export { position:fixed; inset:0 0 0 var(--snl-source-width,50vw); overflow:auto; width:auto !important; max-width:none !important; margin:0 !important; box-sizing:border-box; }
+.snl-source-visible body { overflow:hidden; }
+.snl-source-visible .snl-export-watermark { display:none; }
 .snl-source-open { position:fixed; bottom:16px; right:20px; z-index:110; border:1px solid #8888; border-radius:6px; padding:7px 12px; color:var(--vscode-editor-foreground,#242424); background:var(--vscode-editor-background,#fff); box-shadow:0 2px 8px #0002; cursor:pointer; }
 .snl-source-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:8px; border-bottom:1px solid #8885; }
 .snl-source-panel button { font:inherit; border:1px solid #8886; border-radius:4px; padding:4px 7px; color:inherit; background:transparent; cursor:pointer; }

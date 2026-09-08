@@ -40,7 +40,7 @@ describe('browser/host ranking contract',()=>{
     const a={entryId:'e',nodeId:'a',hash:'#/node/a'},b={entryId:'e',nodeId:'b',hash:'#/node/b'},fallback={entryId:'e',hash:'#/entry/e'};
     expect(preferSourceRoutes([a,fallback],'')).toEqual([a]);
     expect(preferSourceRoutes([a,b,fallback],'')).toEqual([a,b]);
-    expect(preferSourceRoutes([a,b,fallback],fallback.hash)).toEqual([fallback]);
+    expect(preferSourceRoutes([b,a,fallback],fallback.hash)).toEqual([a,b]);
     expect(preferSourceRoutes([fallback],'')).toEqual([fallback]);
   });
   it('matches real host for every line across asymmetric thresholds, span and ties',()=>{

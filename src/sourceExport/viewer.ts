@@ -124,12 +124,13 @@ export async function verifyChunk(file: SourceFile, chunk: SourceChunk | undefin
   if (hash !== file.sha256) throw Error('Source SHA-256 mismatch');
   return bytes;
 }
-export function preferSourceRoutes(all: SourceRoute[], currentHash: string): SourceRoute[] {
-  const currentRoute = all.find(route => route.hash === currentHash);
-  if (currentRoute) return [currentRoute];
-  // A standalone Entry fallback is not a second outline occurrence.
+export function preferSourceRoutes(all: SourceRoute[], _currentHash: string): SourceRoute[] {
+  // A stable occurrence identity, never current URL/DOM order or translated title.
   const nodes = all.filter(route => route.nodeId !== undefined);
-  return nodes.length ? nodes : all;
+  return [...(nodes.length ? nodes : all)].sort((a,b) => {
+    const x=a.nodeId ?? a.entryId, y=b.nodeId ?? b.entryId;
+    return x<y?-1:x>y?1:0;
+  });
 }
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string) {
   const element = document.createElement(tag); if (className) element.className = className; return element;
@@ -197,19 +198,43 @@ export function installSourceViewer(): (() => void) | undefined {
   const notice=node('small','snl-source-mobile-notice');notice.textContent='Monaco source reading is supported on desktop browsers. Hide to read the document.';
   const content=node('div','snl-source-content');content.append(files,host);
   root.append(bar,pathLabel,status,choices,notice,content);document.body.append(opener,root,split);
-  function clearMark() { main!.querySelectorAll('[data-snl-source-current]').forEach(el=>el.removeAttribute('data-snl-source-current')); }
-  function layout() { if(opened&&!disposed) editor?.layout(); }
+  let markFrame: number | undefined, markRequest=0;
+  function clearMark() {
+    markRequest++;
+    if(markFrame!==undefined){cancelAnimationFrame(markFrame);markFrame=undefined;}
+    main!.querySelectorAll('[data-snl-source-current]').forEach(el=>el.removeAttribute('data-snl-source-current'));
+  }
+  function clearSource() {
+    clearMark();decorations?.clear();editor?.setModel(null);current=undefined;
+    delete root.dataset.fileId;pathLabel.textContent='';host.hidden=true;
+    for(const control of [copy,search,fold,nearest])control.disabled=true;
+  }
+  function layout() { if(opened&&!disposed&&!host.hidden) editor?.layout({width:host.clientWidth,height:host.clientHeight}); }
   const resize=new ResizeObserver(layout);
   function setWidth(value:number) {width=Math.max(25,Math.min(75,value));document.documentElement.style.setProperty('--snl-source-width',width+'vw');split.setAttribute('aria-valuenow',String(Math.round(width)));layout();}
   setWidth(50);
   function saveView() {if(current&&editor?.getModel())views.set(current,editor.saveViewState());}
   function state(): SavedView {saveView();return {exportId:m.exportId,open:opened,width,fileId:current,view:current?views.get(current):undefined};}
   function persist() {if(!disposed)history.replaceState({...history.state,snlSourceView:state()},'');}
-  function setOpen(value:boolean,returnFocus=false) {
+  function setOpen(value:boolean,returnFocus=false,preferredEntryId?:string) {
     if(disposed)return;
+    const changing=opened!==value;
+    const viewportTop=opened?main!.getBoundingClientRect().top:0;
+    const visible=Array.from(main!.querySelectorAll<HTMLElement>('.snl-entry-surface[data-entry-id]'));
+    if(preferredEntryId)visible.sort((a,b)=>Number(b.dataset.entryId===preferredEntryId)-Number(a.dataset.entryId===preferredEntryId));
+    const anchor=changing?visible.find(el=>{
+      const r=el.getBoundingClientRect();return r.height>0&&r.bottom>viewportTop+100&&r.top<innerHeight;
+    }):undefined;
+    const anchorTop=anchor?.getBoundingClientRect().top;
     opened=value;root.hidden=!value;split.hidden=!value;opener.setAttribute('aria-expanded',String(value));document.documentElement.classList.toggle('snl-source-visible',value);
+    // Switching between page scroll and the fixed document pane must preserve the
+    // reader's visible Entry instead of silently returning the document to its top.
+    if(anchor&&anchorTop!==undefined){
+      const delta=anchor.getBoundingClientRect().top-anchorTop;
+      if(value)main!.scrollTop+=delta;else window.scrollBy(0,delta);
+    }
     if(value){resize.observe(host);if(!current&&m.files[0])void openFile(m.files[0].fileId);layout();}
-    else {saveView();resize.disconnect();generation++;if(returnFocus)opener.focus();}
+    else {saveView();clearMark();resize.disconnect();generation++;if(returnFocus)opener.focus();}
     persist();
   }
   function theme() {if(!editor)return;const style=getComputedStyle(document.documentElement);const dark=document.body.classList.contains('vscode-dark')||document.documentElement.classList.contains('vscode-dark')||document.documentElement.dataset.snlColorScheme==='dark'||style.colorScheme==='dark';monaco.editor.setTheme(dark?'vs-dark':'vs');}
@@ -241,7 +266,7 @@ export function installSourceViewer(): (() => void) | undefined {
   }
   async function openFile(id:string,pointer?:SourcePointer,restore?:SavedView) {
     const file=m.files.find(f=>f.fileId===id);if(!file)return;
-    const ticket=++generation;saveView();status.textContent='Loading source…';choices.replaceChildren();clearMark();
+    const ticket=++generation;saveView();clearSource();status.textContent='Loading source…';choices.replaceChildren();
     try {
       const bytes=await load(file);if(disposed||ticket!==generation||!opened)return;
       invalid.delete(id);origin++;
@@ -272,8 +297,8 @@ export function installSourceViewer(): (() => void) | undefined {
   }
   function showPointer(id:string) {
     const p=m.pointers.find(p=>p.entryId===id);if(!p)return;
-    setOpen(true);
-    if(p.status!=='ok'||!p.fileId){generation++;status.textContent=p.reason||('Source '+p.status);choices.replaceChildren();return;}
+    setOpen(true,false,id);
+    if(p.status!=='ok'||!p.fileId){generation++;saveView();clearSource();status.textContent=p.reason||('Source '+p.status);choices.replaceChildren();return;}
     void openFile(p.fileId,p);
   }
   // Build the actual project hierarchy, retaining independent empty directory records.
@@ -282,11 +307,34 @@ export function installSourceViewer(): (() => void) | undefined {
   m.directories.forEach(folder);
   for(const f of m.files){const parts=f.displayPath.split('/');const title=parts.pop()!;const b=button(title,()=>{setOpen(true);void openFile(f.fileId);});b.dataset.snlSourceFile=f.fileId;b.title=f.displayPath;folder(parts.join('/')).append(b);}
   function routesFor(p:SourcePointer) {return preferSourceRoutes(m.entryRoutes.filter(r=>r.entryId===p.entryId&&routeAvailable(r)),location.hash);}
-  function mark(p:SourcePointer): boolean {
-    clearMark();
-    const surfaces=Array.from(main!.querySelectorAll<HTMLElement>('[data-entry-id]')).filter(el=>el.dataset.entryId===p.entryId&&!el.closest('.snl-export-popover')&&el.getClientRects().length>0);
+  function mark(p:SourcePointer,r:SourceRoute): boolean {
+    const scope = r.nodeId !== undefined
+      ? Array.from(main!.querySelectorAll<HTMLElement>('[data-snl-route-id]')).find(el=>el.dataset.snlRouteId===r.nodeId)
+      : main!;
+    if(!scope)return false;
+    const matches=Array.from(scope.querySelectorAll<HTMLElement>('[data-entry-id]')).filter(el=>
+      el.dataset.entryId===p.entryId&&!el.closest('.snl-export-popover,[role="dialog"]')&&el.getClientRects().length>0);
+    // Route/render wrappers can repeat the Entry identity; mark the actual leaf surface.
+    const surfaces=matches.filter(el=>!matches.some(other=>other!==el&&el.contains(other)));
     if(surfaces.length!==1)return false;
-    surfaces[0].setAttribute('data-snl-source-current','');surfaces[0].scrollIntoView({block:'nearest',inline:'nearest'});return true;
+    const target=surfaces[0];target.setAttribute('data-snl-source-current','');
+    const rect=target.getBoundingClientRect(), viewport=main!.getBoundingClientRect();
+    // Scroll only the document owner, not the body or the Monaco pane. Account for
+    // the sticky shared-reader header so the target title does not disappear under it.
+    const sticky=Array.from(main!.querySelectorAll<HTMLElement>('header,[data-snl-panel-header],.snl-panel-header,.snl-topbar')).filter(el=>getComputedStyle(el).position==='sticky'&&el.getClientRects().length);
+    const top=Math.max(viewport.top,...sticky.map(el=>el.getBoundingClientRect().bottom))+8;
+    if(rect.top<top||rect.bottom>viewport.bottom)main!.scrollTop+=rect.top-top;
+    return true;
+  }
+  function markWhenReady(p:SourcePointer,r:SourceRoute):void {
+    const ticket=markRequest, deadline=performance.now()+5000;
+    const attempt=()=>{
+      markFrame=undefined;
+      if(disposed||!opened||ticket!==markRequest||location.hash!==r.hash||!current||invalid.has(current))return;
+      if(mark(p,r))return;
+      if(performance.now()<deadline)markFrame=requestAnimationFrame(attempt);
+    };
+    attempt();
   }
   function navigate(p:SourcePointer,r:SourceRoute,explicit:boolean) {
     if(!routeAvailable(r)||!current||invalid.has(current))return;
@@ -301,25 +349,22 @@ export function installSourceViewer(): (() => void) | undefined {
         history.replaceState(data,'',r.hash);global.__snlExportSourceFollow();
       }
     }
-    mark(p);
+    markWhenReady(p,r);
   }
   function reverse(explicit:boolean) {
     if(!editor?.getModel()||!current||invalid.has(current)||!opened)return;
     clearMark();choices.replaceChildren();decorations?.clear();
     const result=rankSourcePointers(bucketed.get(current)!,current,editor.getPosition()?.lineNumber??1,editor.getPosition()?.column??1);
     status.textContent=!result.complete?'Incomplete source index — automatic following paused':result.candidates.length?'Nearby entries':'No nearby entry';
-    for(const p of result.candidates) {
-      const routes=routesFor(p);
-      if(!routes.length){const missing=node('span');missing.textContent=p.entryId+': not included in this export';choices.append(missing);continue;}
-      for(const route of routes)choices.append(button(p.entryId+(route.nodeId?' · '+route.nodeId:''),()=>navigate(p,route,true)));
-    }
-    if(result.complete&&result.candidates.length===1) {
-      const p=result.candidates[0],routes=routesFor(p);
-      if(p.range)decorations?.set([{range:range(p.range),options:{className:'snl-source-range'}}]);
-      if(routes.length===1){if(explicit)navigate(p,routes[0],true);else if(!mark(p)){
-        if(global.__snlExportSourceFollow)navigate(p,routes[0],false);
-        else status.textContent='Nearby entry is outside the visible document — choose it to open';
-      }}
+    const p=result.candidates[0];
+    if(!p||(!explicit&&!result.complete))return;
+    const route=routesFor(p)[0];
+    if(!route){status.textContent=p.entryId+': not included in this export';return;}
+    if(p.range)decorations?.set([{range:range(p.range),options:{className:'snl-source-range'}}]);
+    if(explicit)navigate(p,route,true);
+    else if(!mark(p,route)) {
+      if(global.__snlExportSourceFollow)navigate(p,route,false);
+      else status.textContent='Nearby entry is outside the visible document — use Ctrl+Alt+J to open';
     }
   }
   function attachActions(scope:ParentNode) {
@@ -346,7 +391,7 @@ export function installSourceViewer(): (() => void) | undefined {
   window.addEventListener('snl-reader-source', sourceIntent);
   function key(e:KeyboardEvent) {
     if(!opened)return;
-    if((e.ctrlKey||e.metaKey)&&e.altKey&&e.key.toLowerCase()==='j'&&root.contains(document.activeElement)){e.preventDefault();reverse(true);}
+    if((e.ctrlKey||e.metaKey)&&e.altKey&&!e.shiftKey&&!e.isComposing&&e.key.toLowerCase()==='j'&&root.contains(document.activeElement)){e.preventDefault();e.stopPropagation();reverse(true);}
     else if(e.key==='Escape'&&root.contains(document.activeElement)&&!host.querySelector('.find-widget.visible')){e.preventDefault();setOpen(false,true);}
   }
   document.addEventListener('keydown',key,true);

@@ -4,12 +4,9 @@ import { join } from 'node:path';
 import {
   COLLAPSE_GLYPH,
   COLLAPSE_TOGGLE_CLASS,
-  COLLAPSE_TOGGLE_GEOMETRY,
-  COLLAPSE_TOGGLE_STYLE,
   collapseToggleAriaLabel,
   collapseToggleTitle
 } from './collapseToggleContract';
-import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_WIRING_JS } from './exportRuntime';
 
 /**
  * Cat 2026-07-28: '为什么 Collapse 按钮的效果和 Extension 内很不一样?'
@@ -20,7 +17,7 @@ import { EXPORT_RUNTIME_CSS, EXPORT_RUNTIME_WIRING_JS } from './exportRuntime';
  */
 
 const LIVE_TOGGLE = readFileSync(
-  join(__dirname, '..', 'webview', 'src', 'App.tsx'),
+  join(__dirname, '..', 'webview', 'src', 'reader', 'LibraryReader.tsx'),
   'utf8'
 );
 
@@ -56,58 +53,36 @@ describe('the live panel consumes the contract', () => {
   });
 });
 
-describe('the exported runtime consumes the same contract', () => {
-  it('emits the shared glyphs', () => {
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_GLYPH.expanded);
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_GLYPH.collapsed);
-    // The small triangles the first version used are gone.
-    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('\u25be');
-    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('\u25b8');
+describe('the exported reader consumes the very same React toggle', () => {
+  const browser = readFileSync(join(__dirname, '..', 'webview', 'src', 'reader', 'BrowserReader.tsx'), 'utf8');
+  const adapter = readFileSync(join(__dirname, '..', 'webview', 'src', 'App.tsx'), 'utf8');
+  it('mounts LibraryLayer in the browser and the LibraryReader dispatcher in the Extension', () => {
+    expect(browser).toContain('<LibraryLayer');
+    expect(browser).toContain("from './LibraryReader'");
+    expect(adapter).toContain('renderCurrentView(view,');
+    expect(adapter).toContain("from './reader/LibraryReader'");
+    expect(LIVE_TOGGLE).toContain('<LibraryLayer');
   });
-
-  it('emits the shared class list and geometry', () => {
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain(COLLAPSE_TOGGLE_CLASS);
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain(`left:${COLLAPSE_TOGGLE_STYLE.left}`);
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain(`width:${COLLAPSE_TOGGLE_STYLE.width}`);
+  it('keeps button creation, geometry, glyphs, and localized names in the shared surface', () => {
+    expect(browser).not.toContain('COLLAPSE_GLYPH');
+    expect(browser).not.toContain('createElement("button")');
+    expect(LIVE_TOGGLE).toContain('<CollapseToggle');
+    expect(LIVE_TOGGLE).toContain('COLLAPSE_TOGGLE_STYLE as React.CSSProperties');
+    expect(LIVE_TOGGLE).toContain('COLLAPSE_GLYPH.collapsed : COLLAPSE_GLYPH.expanded');
+    expect(LIVE_TOGGLE).toContain("t(collapsed ? 'expandChildren' : 'collapseChildren'");
+    expect(LIVE_TOGGLE).toContain("t(collapsed ? 'expand' : 'collapse')");
   });
-
-  it('produces the same tooltip wording as the live panel', () => {
-    // Exercise the runtime's own string building against the shared helper.
-    const built = (open: boolean, count: number): string =>
-      `${open ? 'Collapse ' : 'Expand '}${count} sub-entr${count === 1 ? 'y' : 'ies'}`;
-    expect(built(true, 2)).toBe(collapseToggleTitle(false, 2));
-    expect(built(false, 1)).toBe(collapseToggleTitle(true, 1));
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain("zh ? '收起' : 'Collapse'");
-    expect(EXPORT_RUNTIME_WIRING_JS).toContain("zh ? '展开' : 'Expand'");
+  it('delegates individual, peer, and bulk state changes to the same structural-tree model', () => {
+    expect(LIVE_TOGGLE).toContain('toggleStructuralNode(prev, descriptors, nodeId, sameDepth)');
+    expect(LIVE_TOGGLE).toContain('toggle(node.nodeId, event.ctrlKey)');
+    expect(LIVE_TOGGLE).toContain('setAllStructuralNodes(descriptors, false)');
+    expect(LIVE_TOGGLE).toContain('setAllStructuralNodes(descriptors, true)');
   });
-
-  it('leaves no placeholder unsubstituted', () => {
-    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('__TOGGLE_CLASS__');
-    expect(EXPORT_RUNTIME_WIRING_JS).not.toContain('__TOGGLE_STYLE__');
-    expect(EXPORT_RUNTIME_WIRING_JS).not.toMatch(/__GLYPH_[A-Z]+__/);
-  });
-
-  it('no longer ships a duplicate stylesheet for the button', () => {
-    // Appearance comes from .snl-btn in the inlined bundle CSS. The only styles
-    // the export owns are the gutter the toggle hangs in and the collapse rule
-    // that has to outrank the outline's inline `display` (see EXPORT_RUNTIME_CSS).
-    expect(EXPORT_RUNTIME_CSS).not.toContain('snl-export-toggle');
-    expect(EXPORT_RUNTIME_CSS).toContain('padding-left');
-    // Assert the intent against selectors that can actually style the toggle.
-    // Popovers, route icons, and the standalone language/theme toolbar are
-    // independent controls and legitimately own their own paint.
-    const toggleRules = [...EXPORT_RUNTIME_CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter(([, selector]) => selector.includes('.snl-collapse-toggle'));
-    expect(toggleRules.length).toBeGreaterThan(0); // route view hides its orphan toggle
-    for (const [, , declarations] of toggleRules) {
-      expect(declarations.replace(/display:\s*none\s*!important\s*;?/g, '').trim()).toBe('');
-    }
-  });
-
-  it('reserves exactly the gutter the shared geometry needs', () => {
-    const needed = -COLLAPSE_TOGGLE_GEOMETRY.left;
-    const match = EXPORT_RUNTIME_CSS.match(/padding-left:\s*(\d+)px/);
-    expect(match).toBeTruthy();
-    expect(Number(match![1])).toBeGreaterThanOrEqual(needed);
+  it('uses React-owned subtree lifetime and never a DOM clone/move collapse driver', () => {
+    expect(LIVE_TOGGLE).toContain('hasChildren && !isCollapsed ?');
+    expect(LIVE_TOGGLE).toContain('aria-controls={controlsId}');
+    expect(LIVE_TOGGLE).toContain('aria-expanded={!collapsed}');
+    expect(browser).not.toContain('.cloneNode(');
+    expect(browser).not.toContain('.appendChild(');
   });
 });

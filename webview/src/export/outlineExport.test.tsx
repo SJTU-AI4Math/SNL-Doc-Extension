@@ -1,183 +1,99 @@
-// End-to-end export test driven by the REAL Library outline component.
-//
-// 猫猫 2026-07-29: "Library 里条目的 Collapse 还是不 work". The previous round of
-// export tests built their own markup by hand, so they proved the runtime
-// worked on markup *I* wrote — not on what `OutlineTreeNode` actually renders.
-// This test renders the real component, runs the real harvest, builds the real
-// document, executes the real runtime, and clicks the result.
+// Export routing now mounts the same LibraryLayer as the Extension. No HTML clone/move driver.
+import { fireEvent, screen, within } from '@testing-library/react';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanupReader, entry, mountReader, navigate, node, setupReader, snapshot } from './sharedReaderFixture';
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup } from '@testing-library/react';
-import { JSDOM } from 'jsdom';
-import { LibraryOutline, type OutlineNode } from '../App';
-import { HoverPopoverProvider } from '../render/HoverPopoverProvider';
-import { harvestLibraryHtml } from './htmlExport';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { EXPORT_RUNTIME_CSS } from '../../../src/exportRuntime';
-
-/** The real generated runtime — see exportRuntimeBehavior.test.tsx. */
-const EXPORT_RUNTIME_JS = readFileSync(
-  resolve(__dirname, '../../../media/exportRuntime.js'),
-  'utf8'
-);
-import { buildExportDocument, EXPORT_BASE_CSS } from '../../../src/exportHtmlDocument';
-
-const leaf = (id: string): OutlineNode => ({
-  nodeId: id,
-  entry: null,
-  kind: null,
-  counterLabel: id,
-  children: []
-});
-
-const branch = (id: string, children: OutlineNode[]): OutlineNode => ({
-  ...leaf(id),
-  children
-});
-
-/** Render the outline, harvest it, wrap it, execute the runtime. */
-async function exportAndRun(nodes: OutlineNode[], hash = ''): Promise<Document> {
-  const { container } = render(
-    <HoverPopoverProvider postMessage={() => {}} entries={[]}>
-      <LibraryOutline nodes={nodes} />
-    </HoverPopoverProvider>
-  );
-  const root = container.firstElementChild as HTMLElement;
-  const { html } = harvestLibraryHtml(root, 'vscode-webview://x/assets');
-  const doc = buildExportDocument({
-    title: 'T',
-    css: [EXPORT_BASE_CSS, EXPORT_RUNTIME_CSS].join('\n'),
-    body: html,
-    script: EXPORT_RUNTIME_JS
-  });
-  const dom = new JSDOM(doc, {
-    url: `https://export.invalid/${hash}`,
-    runScripts: 'dangerously',
-    pretendToBeVisual: true
-  });
-  // The runtime installs on DOMContentLoaded. Without this wait the assertions
-  // run against a document still in `readyState: 'loading'` and see zero
-  // toggles — a false failure that looks exactly like the real bug.
-  await new Promise((resolve) => dom.window.addEventListener('load', resolve));
-  return dom.window.document;
-}
-
-const click = (el: Element): void => {
-  const w = el.ownerDocument.defaultView!;
-  el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+beforeEach(setupReader);
+afterEach(cleanupReader);
+const outlineSnapshot = () => {
+  const entries = ['parent', 'middle', 'leaf', 'peer', 'peer-leaf'].map(id => entry(id));
+  return snapshot({ entries, library: { slug: 'tree', title: 'Tree', warnings: [], outline: [
+    node('parent-node', entries[0], [node('middle-node', entries[1], [node('leaf-node', entries[2])])]),
+    node('peer-node', entries[3], [node('peer-leaf-node', entries[4])])
+  ] } });
 };
+const routeNode = (id: string) => document.querySelector<HTMLElement>(`[data-snl-route-id="${id}"]`);
 
-/**
- * Whether the element is ACTUALLY not rendered.
- *
- * Asserting on `.hidden` alone is not enough and was the hole that let the
- * reported bug through: the Entry outline's subtree carries an inline
- * `display: flex`, which outranks the UA's `[hidden] { display: none }`, so
- * the property read `true` while the rows stayed on screen (猫猫 2026-07-29:
- * block collapse worked, outline collapse did not). Only the computed style
- * tells the truth.
- */
-function isVisuallyCollapsed(el: HTMLElement): boolean {
-  const w = el.ownerDocument.defaultView!;
-  return el.hidden && w.getComputedStyle(el).display === 'none';
-}
-
-afterEach(cleanup);
-
-describe('Library outline survives export with working collapse', () => {
-  it('emits the collapse markers from the real component', () => {
-    const { container } = render(
-      <LibraryOutline nodes={[branch('sec', [leaf('a'), leaf('b')])]} />
-    );
-    const host = container.querySelector('[data-snl-collapsible]');
-    expect(host).not.toBeNull();
-    expect(host!.getAttribute('data-snl-child-count')).toBe('2');
-    expect(host!.querySelector(':scope > [data-snl-subtree]')).not.toBeNull();
+describe('exported shared Library outline', () => {
+  it('starts closed and uses the real button and ARIA relationship for every parent', () => {
+    mountReader(outlineSnapshot());
+    expect(routeNode('leaf-node')).toBeNull();
+    const outer = screen.getByRole('button', { name: 'Expand parent' });
+    expect(outer.getAttribute('aria-expanded')).toBe('false');
+    expect(outer.title).toBe('Expand 2 children');
+    fireEvent.click(outer);
+    expect(outer.getAttribute('aria-expanded')).toBe('true');
+    expect(document.getElementById(outer.getAttribute('aria-controls')!)).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Expand middle' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
+    expect(routeNode('leaf-node')).not.toBeNull();
+    fireEvent.click(outer);
+    // React removes the subtree, avoiding hidden/display:flex specificity bugs.
+    expect(document.getElementById(outer.getAttribute('aria-controls')!)).toBeNull();
+    fireEvent.click(outer);
+    expect(routeNode('leaf-node')).not.toBeNull();
   });
 
-  it('preserves graph-node occurrence ids when two nodes share one Entry', async () => {
-    const sharedEntry = {
-      id: 'shared-entry',
-      kind: 'theorem',
-      title: 'Shared Entry',
-      content: { markdown: 'same Entry, distinct graph nodes' },
-      contribution_info: null,
-      pointer: null
-    } as never;
-    const occurrence = (nodeId: string): OutlineNode => ({
-      nodeId,
-      entry: sharedEntry,
-      kind: null,
-      counterLabel: nodeId,
-      children: []
-    });
-    const D = await exportAndRun(
-      [occurrence('first occurrence'), occurrence('second/occurrence')],
-      '#/node/second%2Foccurrence'
-    );
-    const routes = Array.from(D.querySelectorAll<HTMLElement>('[data-snl-route-id]'));
-    expect(routes.map((node) => node.dataset.snlRouteId)).toEqual([
-      'first occurrence', 'second/occurrence'
-    ]);
-    expect(routes.map((node) => node.dataset.snlEntryId)).toEqual([
-      'shared-entry', 'shared-entry'
-    ]);
-    expect(routes[0].hasAttribute('data-snl-route-current')).toBe(false);
-    expect(routes[1].hasAttribute('data-snl-route-current')).toBe(true);
-    expect(D.defaultView!.getComputedStyle(routes[0]).display).toBe('none');
-    expect(D.defaultView!.getComputedStyle(routes[1]).display).not.toBe('none');
+  it('keeps nested collapse independent and Ctrl-click affects only same-depth peers', () => {
+    mountReader(outlineSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: 'Expand parent' }), { ctrlKey: true });
+    expect(screen.getByRole('button', { name: 'Collapse peer' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Expand middle' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse middle' }));
+    expect(routeNode('leaf-node')).toBeNull();
+    expect(routeNode('peer-leaf-node')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Collapse parent' })).toBeDefined();
   });
 
-  it('extracts a nested graph occurrence into a flat single-node route view', async () => {
-    const D = await exportAndRun(
-      [branch('parent', [branch('middle', [leaf('child')])])],
-      '#/node/child'
-    );
-    const body = D.querySelector<HTMLElement>('[data-snl-export-body]')!;
-    const outlet = D.querySelector<HTMLElement>('[data-snl-route-outlet]')!;
-    const child = outlet.querySelector<HTMLElement>('[data-snl-route-id="child"]');
-    expect(body.hidden).toBe(true);
-    expect(outlet.hidden).toBe(false);
+  it('bulk controls expand/collapse the entire structural tree without editing raw data', () => {
+    const value = outlineSnapshot(); const original = JSON.stringify(value);
+    mountReader(value);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(routeNode('leaf-node')).not.toBeNull(); expect(routeNode('peer-leaf-node')).not.toBeNull();
+    expect((screen.getByRole('button', { name: 'Expand all' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(routeNode('middle-node')).toBeNull(); expect(routeNode('peer-leaf-node')).toBeNull();
+    expect(JSON.stringify(value)).toBe(original);
+  });
+
+  it('deep links reveal nested occurrences in place and never clone or move a React card', () => {
+    const clone = vi.spyOn(Node.prototype, 'cloneNode');
+    mountReader(outlineSnapshot(), '#/node/leaf-node');
+    const child = routeNode('leaf-node')!; const parent = child.parentElement;
     expect(child).not.toBeNull();
-    expect(outlet.querySelector('[data-snl-route-id="parent"]')).toBeNull();
-    expect(outlet.querySelector('[data-snl-route-id="middle"]')).toBeNull();
-    expect(child?.parentElement).toBe(outlet);
+    expect(child.closest('#library-outline-children-middle-node')).not.toBeNull();
+    navigate('#/library', 'popstate');
+    expect(routeNode('leaf-node')).toBe(child); expect(child.parentElement).toBe(parent);
+    expect(clone).not.toHaveBeenCalled();
   });
 
-  it('rebuilds a working toggle for every parent row in the exported file', async () => {
-    const D = await exportAndRun([
-      branch('sec', [branch('sub', [leaf('leaf1'), leaf('leaf2')]), leaf('other')])
-    ]);
-
-    const hosts = Array.from(D.querySelectorAll<HTMLElement>('[data-snl-collapsible]'));
-    // Two parents (sec, sub); the three leaves carry no marker.
-    expect(hosts).toHaveLength(2);
-    expect(D.querySelectorAll('button')).toHaveLength(2);
-
-    for (const host of hosts) {
-      const toggle = host.querySelector(':scope > button');
-      const subtree = host.querySelector<HTMLElement>(':scope > [data-snl-subtree]');
-      expect(toggle).not.toBeNull();
-      expect(subtree).not.toBeNull();
-      expect(isVisuallyCollapsed(subtree!)).toBe(true);
-      click(toggle!);
-      expect(isVisuallyCollapsed(subtree!)).toBe(false);
-      click(toggle!);
-      expect(isVisuallyCollapsed(subtree!)).toBe(true);
-    }
+  it('addresses duplicate Entry occurrences by node identity, including encoded slash and space', () => {
+    const shared = entry('shared-entry');
+    const scrolled: Element[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this); };
+    try {
+      mountReader(snapshot({ entries: [shared], library: { slug: 'duplicates', title: 'Duplicates', warnings: [], outline: [
+        node('first occurrence', shared), node('second/occurrence', shared)
+      ] } }), '#/node/second%2Foccurrence');
+      const first = routeNode('first occurrence')!; const second = routeNode('second/occurrence')!;
+      expect(first.dataset.snlEntryId).toBe('shared-entry'); expect(second.dataset.snlEntryId).toBe('shared-entry');
+      expect(scrolled.at(-1)).toBe(second);
+      navigate('#/node/first%20occurrence'); expect(scrolled.at(-1)).toBe(first);
+      fireEvent.click(within(second).getByText('shared-entry', { exact: true }), { ctrlKey: true });
+      expect(location.hash).toContain('#/entry/shared-entry?return=');
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+      expect(location.hash).toBe('#/node/second%2Foccurrence');
+      expect(routeNode('second/occurrence')).toBe(second);
+    } finally { HTMLElement.prototype.scrollIntoView = original; }
   });
 
-  it('opens a child row without touching its collapsed parent', async () => {
-    const D = await exportAndRun([branch('sec', [branch('sub', [leaf('leaf1')])])]);
-    const [outer, inner] = Array.from(
-      D.querySelectorAll<HTMLElement>('[data-snl-collapsible]')
-    );
-    const innerSub = inner.querySelector<HTMLElement>(':scope > [data-snl-subtree]')!;
-    const outerSub = outer.querySelector<HTMLElement>(':scope > [data-snl-subtree]')!;
-
-    click(inner.querySelector(':scope > button')!);
-    expect(isVisuallyCollapsed(innerSub)).toBe(false);
-    expect(isVisuallyCollapsed(outerSub)).toBe(true);
+  it('unknown and malformed node routes keep the Library usable', () => {
+    mountReader(outlineSnapshot(), '#/node/not-in-snapshot');
+    expect(screen.getByRole('button', { name: 'Expand parent' })).toBeDefined();
+    navigate('#/node/%broken');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand parent' }));
+    expect(routeNode('middle-node')).not.toBeNull();
   });
 });

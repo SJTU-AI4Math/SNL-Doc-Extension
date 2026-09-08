@@ -16,7 +16,13 @@ import { DEFAULT_SOURCE_OPTIONS } from './types';
 const options = { ...DEFAULT_SOURCE_OPTIONS, enabled: true };
 const sourceContext = () => ({ rootPath: '/workspace', renderSnapshotId: 'render-A', entries: [], entryRoutes: [], revalidate: vi.fn(async () => {}) });
 const preview = () => ({ confirmationId: 'capture-A', manifest: { files: [{ displayPath: 'Main.lean', kind: 'text', byteLength: 3 }], directories: [], pointers: [] }, chunks: [], totalBytes: 3, estimatedBytes: 4, exclusions: [], warnings: [], externalRoots: [] });
-const payload = { slug: 'L', title: 'L', body: '<p>L</p>', assets: [], renderSnapshotId: 'render-A' };
+const payload = { slug: 'L', title: 'L', body: '<p>L</p>', assets: [], renderSnapshotId: 'render-A', readerSnapshot: {
+  version: 1 as const, renderSnapshotId: 'render-A',
+  library: { slug: 'L', title: 'L', outline: [], warnings: [] },
+  entries: [], entryKinds: [], entryPackages: {}, macros: {}, macroKinds: [], relationships: [], resources: {},
+  preferences: { language: 'en', color_scheme: 'light', motion: 'full' }, contentLanguage: 'en',
+  languages: [{ id: 'en', display_name: 'English' }]
+} };
 beforeEach(() => {
   (ExportOptionsPanel as any).current = undefined;
   state.rootCount = 1; state.messages = []; state.dirty = []; state.capture.mockReset(); state.validate.mockReset(); state.writes.mockReset();
@@ -26,6 +32,12 @@ beforeEach(() => {
 const preflight = () => state.receive({ type: 'previewSources', requestId: 7, shape: 'directory', destination: '/output', sources: options });
 const run = (extra = {}) => state.receive({ type: 'runExport', shape: 'directory', destination: '/output', interactive: true, sources: options, confirmationId: 'capture-A', ...extra });
 describe('source export host authority', () => {
+  it('fails closed when an interactive export has no versioned raw snapshot', async () => {
+    const { readerSnapshot: _snapshot, ...legacyPayload } = payload;
+    ExportOptionsPanel.show({} as never, legacyPayload, sourceContext()); await preflight(); await run();
+    expect(state.writes).not.toHaveBeenCalled();
+    expect(state.messages.at(-1).message).toMatch(/snapshot missing/i);
+  });
   it('rejects ambiguous multi-root source export instead of silently choosing first root', async () => {
     state.rootCount=2; ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
     expect(state.capture).not.toHaveBeenCalled(); expect(state.messages.at(-1).message).toMatch(/single.*local|one.*local|single.*root/i);

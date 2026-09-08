@@ -1,246 +1,137 @@
-// Behavioural tests for hover popovers in an EXPORTED document.
-//
-// Same discipline as `exportRuntimeBehavior.test.tsx`: read the real
-// `media/exportRuntime.js` and EXECUTE it, because the bug class this feature
-// exists to fix ("the exported file has no popovers at all") is invisible to
-// any assertion made against source text.
+// Execute BrowserReader + production EntrySurface/Basics. No harvested HTML stand-ins.
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { advance, cleanupReader, entry, mountReader, move, navigate, node, panels, semantic, setupReader, snapshot } from './sharedReaderFixture';
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-const EXPORT_RUNTIME_JS = readFileSync(
-  resolve(__dirname, '../../../media/exportRuntime.js'),
-  'utf8'
-);
-
-/** Matches the runtime's own open delay; kept local so a drift shows up. */
-const OPEN_DELAY_MS = 1000;
-
-const BODY = `
-<main class="snl-export">
-  <section data-entry-id="root">
-    <div data-entry-body="snl">
-      <span id="ref-a" data-src="entry-a" role="button" tabindex="0" data-snl-keyboard-activation="true">A</span>
-      <span id="ref-missing" data-src="entry-absent">?</span>
-    </div>
-  </section>
-</main>`;
-
-const POPOVERS: Record<string, string> = {
-  'entry-a': `<section data-entry-id="entry-a"><div data-entry-body="snl">
-      <b id="a-body">body of A</b>
-      <span id="ref-b" data-src="entry-b">B</span>
-    </div></section>`,
-  'entry-b': `<section data-entry-id="entry-b"><div data-entry-body="snl">
-      <b id="b-body">body of B</b>
-    </div></section>`
-};
-
-function boot(payload: Record<string, string> | undefined): void {
-  document.body.innerHTML = BODY;
-  if (payload === undefined) {
-    delete (window as unknown as Record<string, unknown>).__SNL_POPOVERS__;
-  } else {
-    (window as unknown as Record<string, unknown>).__SNL_POPOVERS__ = payload;
-  }
-  // eslint-disable-next-line no-eval
-  (0, eval)(EXPORT_RUNTIME_JS);
+beforeEach(setupReader);
+afterEach(cleanupReader);
+async function boot() {
+  const view = mountReader();
+  const anchor = await waitFor(() => semantic(view.container, 'entry-a'));
+  vi.useFakeTimers();
+  return { ...view, anchor };
 }
+// jsdom has zero-sized rectangles. Exercise the production pointer hit-test with
+// the zero rect (inside) and an explicit distant point (outside); painted
+// viewport geometry is covered by the parent's real-browser checks.
+const pointer = (x: number, y: number) => fireEvent(document, new MouseEvent('pointermove', { bubbles: true, clientX: x, clientY: y }));
+const leave = (anchor: Element) => { fireEvent.mouseLeave(anchor.closest('[data-entry-body]') ?? anchor); pointer(1000, 1000); };
+const marker = (panel = panels()[0]) => panel.querySelector<HTMLElement>('[data-snl-popover-id]')!;
+async function hover(anchor: Element) { move(anchor); await advance(1010); }
+async function escape() { fireEvent.keyDown(document, { key: 'Escape' }); await advance(500); }
 
-const byId = (id: string): HTMLElement => {
-  const el = document.getElementById(id);
-  if (!el) throw new Error(`missing #${id}`);
-  return el;
-};
-
-function mouseover(el: Element, x = 40, y = 40): void {
-  el.dispatchEvent(
-    new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y })
-  );
-}
-function mouseout(el: Element, related: Element | null = null): void {
-  const event = new MouseEvent('mouseout', { bubbles: true });
-  Object.defineProperty(event, 'relatedTarget', { value: related });
-  el.dispatchEvent(event);
-}
-function click(el: Element, x = 40, y = 40): void {
-  el.dispatchEvent(new MouseEvent('click', {
-    bubbles: true,
-    button: 0,
-    clientX: x,
-    clientY: y
-  }));
-}
-
-const panels = (): HTMLElement[] =>
-  Array.from(document.querySelectorAll<HTMLElement>('.snl-export-popover'));
-
-describe('exported document popovers, executed', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    document.body.innerHTML = '';
-    delete (window as unknown as Record<string, unknown>).__SNL_POPOVERS__;
+describe('exported shared reader popovers', () => {
+  it('waits the full hover delay and renders the raw referenced Entry with Basics', async () => {
+    const { anchor } = await boot();
+    move(anchor); await advance(999);
+    expect(marker().dataset.snlPopoverPhase).toBe('opening');
+    expect(panels()[0].style.opacity).toBe('0');
+    expect(panels()[0].style.pointerEvents).toBe('none');
+    await advance(11); expect(panels()).toHaveLength(1);
+    expect(marker().dataset.snlPopoverPhase).toBe('visible');
+    expect(panels()[0].style.opacity).toBe('1');
+    expect(marker().dataset.snlPopoverSubject).toBe('entry-a');
+    expect(panels()[0].querySelector('[data-entry-id="entry-a"]')).not.toBeNull();
+    expect(semantic(panels()[0], 'entry-b')).toBeDefined();
   });
 
-  it('shows the pre-rendered fragment after the hover delay', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    expect(panels()).toHaveLength(0); // not before the delay
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
+  it('pins on primary click immediately, survives pointer exit, and dismisses outside', async () => {
+    const { anchor } = await boot();
+    fireEvent.click(anchor); await advance(0);
+    expect(panels()).toHaveLength(1); expect(marker().dataset.snlPopoverFrozen).toBe('true');
+    leave(anchor); await advance(2000);
     expect(panels()).toHaveLength(1);
-    expect(panels()[0].querySelector('#a-body')?.textContent).toBe('body of A');
-    expect(panels()[0].getAttribute('data-snl-popover')).toBe('entry-a');
+    fireEvent.pointerDown(document.body); await advance(500); expect(panels()).toHaveLength(0);
   });
 
-  it('pins immediately on primary click and dismisses the pinned stack on outside click', () => {
-    boot(POPOVERS);
-    const anchor = byId('ref-a');
-    click(anchor);
-    expect(panels()).toHaveLength(1);
-    expect(panels()[0].getAttribute('data-snl-popover-pinned')).toBe('true');
+  it.each(['Enter', ' '])('pins an actual accessible Basics reference with %s and Escape dismisses it', async key => {
+    const { anchor } = await boot();
+    expect(anchor.getAttribute('role')).toBe('button'); expect(anchor.tabIndex).toBe(0);
+    fireEvent.keyDown(anchor, { key }); await advance(0);
+    expect(panels()).toHaveLength(1); expect(marker().dataset.snlPopoverFrozen).toBe('true');
+    await escape(); expect(panels()).toHaveLength(0);
+  });
 
-    mouseout(anchor, byId('ref-missing'));
-    vi.advanceTimersByTime(2000);
-    expect(panels()).toHaveLength(1);
-
-    click(byId('ref-missing'));
-    vi.runOnlyPendingTimers();
-    expect(panels()).toHaveLength(0);
-
-    click(anchor);
-    expect(panels()).toHaveLength(1);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    vi.runOnlyPendingTimers();
+  it('cancels a pending hover when the pointer leaves for ordinary content', async () => {
+    const { anchor } = await boot();
+    move(anchor); await advance(500);
+    leave(anchor); await advance(1500);
     expect(panels()).toHaveLength(0);
   });
 
-  it('pins a retained Basics semantic reference with Enter and Space', () => {
-    boot(POPOVERS);
-    const anchor = byId('ref-a');
-    anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(panels()).toHaveLength(1);
-    expect(panels()[0].getAttribute('data-snl-popover-pinned')).toBe('true');
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    vi.runOnlyPendingTimers();
-    anchor.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(panels()).toHaveLength(1);
-  });
-
-  it('opens nothing for a reference the payload does not carry', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-missing'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
+  it('retains the hover while the pointer enters its panel then disposes it on exit', async () => {
+    const { anchor } = await boot(); await hover(anchor);
+    fireEvent.mouseLeave(anchor.closest('[data-entry-body]')!); pointer(0, 0);
+    await advance(1000); expect(panels()).toHaveLength(1);
+    pointer(1000, 1000); await advance(2000);
     expect(panels()).toHaveLength(0);
   });
 
-  it('degrades silently when the document ships without a payload', () => {
-    boot(undefined);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    expect(panels()).toHaveLength(0);
-    // Collapse/highlight wiring must still have installed.
-    expect(document.querySelector('.snl-export')).not.toBeNull();
-  });
-
-  it('stays open while the pointer is over the popover itself', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    const panel = panels()[0];
-    // Leaving the anchor towards the panel, then entering the panel.
-    mouseout(byId('ref-a'), panel);
-    panel.dispatchEvent(new MouseEvent('mouseenter'));
-    vi.advanceTimersByTime(2000);
-    expect(panels()).toHaveLength(1);
-  });
-
-  it('does not open after the pointer has already left the reference', () => {
-    boot(POPOVERS);
-    const anchor = byId('ref-a');
-    mouseover(anchor);
-    // The destination is still inside the delegated main container. Treating
-    // that as "still over the anchor" was the production bug.
-    mouseout(anchor, byId('ref-missing'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
+  it('closes an unpinned hover when the pointer leaves both anchor and panel', async () => {
+    const { anchor } = await boot(); await hover(anchor);
+    leave(anchor); await advance(2000);
     expect(panels()).toHaveLength(0);
   });
 
-  it('closes when the pointer leaves a reference for ordinary document content', () => {
-    boot(POPOVERS);
-    const anchor = byId('ref-a');
-    mouseover(anchor);
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    expect(panels()).toHaveLength(1);
-
-    mouseout(anchor, byId('ref-missing'));
-    vi.advanceTimersByTime(2000);
-    expect(panels()).toHaveLength(0);
-  });
-
-  it('closes once the pointer leaves anchor and popover both', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    panels()[0].dispatchEvent(new MouseEvent('mouseleave'));
-    vi.advanceTimersByTime(2000);
-    expect(panels()).toHaveLength(0);
-  });
-
-  it('stacks a second popover for a reference INSIDE the first', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    const nestedRef = panels()[0].querySelector('#ref-b');
-    expect(nestedRef).not.toBeNull();
-    mouseover(nestedRef as Element, 200, 200);
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
+  it('stacks a child from the actual nested reference and records parent ownership', async () => {
+    const { anchor } = await boot(); await hover(anchor);
+    const parent = marker();
+    await hover(semantic(panels()[0], 'entry-b'));
     expect(panels()).toHaveLength(2);
-    expect(panels()[1].getAttribute('data-snl-popover')).toBe('entry-b');
-    expect(panels()[1].querySelector('#b-body')).not.toBeNull();
-  });
-
-  it('disposes the child stack when the pointer returns to the base level', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    mouseover(panels()[0].querySelector('#ref-b') as Element, 200, 200);
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    expect(panels()).toHaveLength(2);
-
-    // Leave the whole first popover: level 0 and everything above it goes.
-    panels()[0].dispatchEvent(new MouseEvent('mouseleave'));
-    vi.advanceTimersByTime(2000);
+    expect(marker(panels()[1]).dataset.snlPopoverSubject).toBe('entry-b');
+    expect(marker(panels()[1]).dataset.snlPopoverParentId).toBe(parent.dataset.snlPopoverId);
+    expect(panels()[1].textContent).toContain('Body of entry-b');
+    pointer(1000, 1000); await advance(2000);
     expect(panels()).toHaveLength(0);
   });
 
-  it('keeps a full-width Entry card inside the popover box', () => {
-    boot(POPOVERS);
-    mouseover(byId('ref-a'));
-    vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-    const panel = panels()[0];
-    const card = panel.firstElementChild as HTMLElement;
-    expect(getComputedStyle(card).boxSizing).toBe('border-box');
+  it('does not invent a detail for references absent from the frozen closure', async () => {
+    const value = snapshot(); value.entries = value.entries.filter(e => e.id !== 'entry-a');
+    const view = mountReader(value);
+    const anchor = await waitFor(() => semantic(view.container, 'entry-a'));
+    vi.useFakeTimers(); await hover(anchor);
+    expect(document.querySelector('[data-entry-id="entry-a"]')).toBeNull();
+    expect(document.body.textContent).not.toContain('Body of entry-a');
   });
 
-  it('keeps the panel inside the viewport instead of overflowing right', () => {
-    boot(POPOVERS);
-    // jsdom reports zero-size rects, so pin a width the placement can use.
-    const originalRect = HTMLElement.prototype.getBoundingClientRect;
-    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-      return { width: 600, height: 200, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
-    };
-    try {
-      mouseover(byId('ref-a'), window.innerWidth - 5, 10);
-      vi.advanceTimersByTime(OPEN_DELAY_MS + 10);
-      const left = parseFloat(panels()[0].style.left);
-      expect(left + 600).toBeLessThanOrEqual(window.innerWidth);
-      expect(left).toBeGreaterThanOrEqual(0);
-    } finally {
-      HTMLElement.prototype.getBoundingClientRect = originalRect;
-    }
+  it('disposes pending work and portal roots when the reader unmounts', async () => {
+    const { anchor, unmount } = await boot();
+    move(anchor); unmount(); await advance(2000);
+    expect(panels()).toHaveLength(0);
+    fireEvent.click(anchor); await advance(2000); expect(panels()).toHaveLength(0);
+  });
+
+  it('does not leave pinned Library popovers over a newly routed Entry panel', async () => {
+    const { anchor } = await boot(); fireEvent.click(anchor); await advance(0);
+    expect(panels()).toHaveLength(1);
+    navigate('#/entry/entry-b'); await advance(500);
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDefined();
+    expect(panels()).toHaveLength(0);
+  });
+
+  it('uses the shared viewport-constrained frame; jsdom checks CSS, not painted geometry', async () => {
+    const { anchor } = await boot(); await hover(anchor);
+    const panel = panels()[0];
+    expect(panel.style.boxSizing).toBe('border-box');
+    expect(panel.style.maxWidth).toBe('min(720px, calc(100vw - 16px))');
+    expect(panel.style.maxHeight).not.toBe('');
+    expect(panel.style.overflowY).toBe('auto');
+    expect(panel.querySelector('[data-entry-id="entry-a"]')).not.toBeNull();
+  });
+
+  it('reopens authored blocks with fresh state and isolates detached controls', async () => {
+    const value = snapshot(); value.entries[1] = entry('entry-a', 'Fold(%Summary%, %Hidden detail%)');
+    value.entries[0] = entry('root', 'Ref(x)'); value.library.outline = [node('root-node', value.entries[0])];
+    const view = mountReader(value); const anchor = await waitFor(() => semantic(view.container, 'entry-a'));
+    vi.useFakeTimers(); fireEvent.click(anchor); await advance(0);
+    const panel = panels()[0];
+    const toggle = panel.querySelector<HTMLButtonElement>('.snl-collapsible__summary > button')!;
+    expect(toggle).not.toBeNull(); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle); expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    await escape(); fireEvent.click(anchor); await advance(0);
+    const replacement = panels()[0].querySelector<HTMLButtonElement>('.snl-collapsible__summary > button')!;
+    expect(replacement).not.toBe(toggle); expect(replacement.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle); expect(replacement.getAttribute('aria-expanded')).toBe('false');
+    expect(panels()[0].querySelectorAll('[data-snl-collapsible-controls]')).toHaveLength(1);
   });
 });

@@ -1,16 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { App, type OutlineNode } from '../App';
 import type { EntryData, EntryKind } from '../render/EntryRender';
 import { apply_preferences_snapshot } from '../runtime/preferencesRuntime';
 import type { VsCodeApi } from '../vscodeApi';
-import { buildExportDocument, EXPORT_BASE_CSS, EXPORT_WATERMARK_LOGO_PATH } from '../../../src/exportHtmlDocument';
-import { rewriteBundledCss } from '../../../src/exportDocument';
-import { buildExportPayloadScript } from '../../../src/exportPopoverPayload';
-import { EXPORT_RUNTIME_CSS } from '../../../src/exportRuntime';
 
 const postMessage = vi.fn();
 const api: VsCodeApi = { postMessage, getState: () => undefined, setState: () => undefined };
@@ -59,46 +53,14 @@ const outline: OutlineNode[] = [{
   }]
 }];
 
-function writeBrowserFixture(payload: any): void {
-  const output = process.env.SNL_EXPORT_FIXTURE_DIR;
-  if (!output) return;
-  const repo = resolve(__dirname, '../../..');
-  const media = resolve(repo, 'media/webview');
-  const rawCss = readFileSync(resolve(media, 'main.css'), 'utf8');
-  const rewritten = rewriteBundledCss(rawCss);
-  const runtime = readFileSync(resolve(repo, 'media/exportRuntime.js'), 'utf8');
-  const payloadScript = buildExportPayloadScript(payload.popovers, payload.variants);
-  const html = buildExportDocument({
-    title: payload.title,
-    subtitle: payload.subtitle,
-    locale: payload.locale,
-    colorScheme: payload.variants.initialColorScheme,
-    css: [EXPORT_BASE_CSS, EXPORT_RUNTIME_CSS, rewritten.css].join('\n'),
-    body: payload.body,
-    scriptSources: ['popovers.js'],
-    script: runtime
-  });
-  mkdirSync(output, { recursive: true });
-  writeFileSync(resolve(output, 'index.html'), html);
-  writeFileSync(resolve(output, 'popovers.js'), payloadScript);
-  for (const font of rewritten.fontFiles) {
-    const target = resolve(output, font.exportPath);
-    mkdirSync(dirname(target), { recursive: true });
-    copyFileSync(resolve(media, font.bundleName), target);
-  }
-  const logoTarget = resolve(output, EXPORT_WATERMARK_LOGO_PATH);
-  mkdirSync(dirname(logoTarget), { recursive: true });
-  copyFileSync(resolve(repo, 'media/icons/logoCSS_black.svg'), logoTarget);
-}
-
 afterEach(() => {
   cleanup();
   postMessage.mockReset();
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
 
-describe('Infoview HTML export variants', () => {
-  it('captures every supported content language and theme, including real popover bodies', async () => {
+describe('Infoview HTML export snapshot handoff', () => {
+  it('captures one static fallback and hands off the host snapshot token without changing live language', async () => {
     (globalThis as { __snlApi?: VsCodeApi }).__snlApi = api;
     apply_preferences_snapshot({
       type: 'snl.preferences/snapshot',
@@ -149,9 +111,9 @@ describe('Infoview HTML export variants', () => {
       },
       outline
     } })));
+    await waitFor(() => expect(document.querySelector('.snl-block-right')).not.toBeNull());
     postMessage.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export HTML' }));
     fireEvent.click(screen.getByRole('button', { name: 'Export HTML' }));
     await waitFor(() => {
       expect(postMessage.mock.calls.some(([message]) => message?.type === 'exportLibraryHtml')).toBe(true);
@@ -161,33 +123,20 @@ describe('Infoview HTML export variants', () => {
       .map(([message]) => message)
       .find((message) => message?.type === 'exportLibraryHtml');
     expect(payload.renderSnapshotId).toBe('frozen-render-A');
-    expect(payload.variants.initialLocale).toBe('en');
-    expect(payload.variants.initialColorScheme).toBe('light');
-    expect(payload.variants.variants).toHaveLength(4);
-    expect(payload.variants.relationships).toEqual([{
-      id: 'rel-1', from: 'entry-parent', to: 'child', label: 'uses_context', metadata: null
-    }]);
-    const byKey = new Map(payload.variants.variants.map((variant: { locale: string; colorScheme: string }) => [
-      `${variant.locale}:${variant.colorScheme}`, variant
-    ]));
-    expect((byKey.get('en:light') as { body: string }).body).toContain('Parent Entry');
-    for (const variant of byKey.values() as Iterable<{ body: string }>) {
-      expect(variant.body).toContain('snl-block-right');
-      expect(variant.body).toMatch(/text-align:\s*right/);
-    }
-    expect((byKey.get('en:light') as { body: string }).body).toContain('data-src="outside"');
-    expect((byKey.get('en:light') as { body: string }).body)
-      .toContain('data-snl-keyboard-activation="true"');
-    expect((byKey.get('zh-CN:light') as { body: string }).body).toContain('父条目');
-    expect((byKey.get('en:light') as { body: string }).body).toContain('rgb(237, 244, 255)');
-    expect((byKey.get('en:light') as { body: string }).body).toMatch(/--snl-entry-stroke:\s*rgb\(18, 52, 86\)/);
-    expect((byKey.get('en:dark') as { body: string }).body).toContain('rgb(26, 36, 51)');
-    expect((byKey.get('en:light') as { popovers: Record<string, string> }).popovers.child)
-      .toContain('English child body');
-    expect((byKey.get('zh-CN:dark') as { popovers: Record<string, string> }).popovers.child)
-      .toContain('中文子条目正文');
-    expect((byKey.get('en:light') as { popovers: Record<string, string> }).popovers.outside)
-      .toBeUndefined();
+    expect(payload.locale).toBe('en');
+    expect(payload.slug).toBe('demo');
+    expect(payload.variants).toBeUndefined();
+    expect(payload.popovers).toBeUndefined();
+    expect(payload.readerSnapshot).toBeUndefined(); // raw data is owned and attached by the host
+    expect(payload.body).toContain('Parent Entry');
+    expect(payload.body).toContain('Child Entry');
+    expect(payload.body).toContain('Formula child');
+    expect(payload.body).toContain('English child body');
+    expect(payload.body).not.toContain('父条目');
+    expect(payload.body).toContain('snl-block-right');
+    expect(payload.body).toContain('data-src="outside"');
+    // This body is the non-interactive fallback, not the interactive runtime.
+    // Accessible keyboard activation is exercised on BrowserReader above the raw snapshot.
 
     expect(postMessage.mock.calls.some(([message]) => message?.type === 'requestEntryDetails')).toBe(false);
     expect(postMessage.mock.calls
@@ -197,6 +146,5 @@ describe('Infoview HTML export variants', () => {
       .map(([message]) => message)
       .filter((message) => message?.type === 'exportLibraryHtml')).toHaveLength(1);
     expect(document.documentElement.dataset.snlColorScheme).toBe('high-contrast-light');
-    writeBrowserFixture(payload);
   });
 });

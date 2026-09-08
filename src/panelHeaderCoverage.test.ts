@@ -61,8 +61,8 @@ const jsxStringAttribute = (
 
 /** One React app can back multiple Vite entries (Entry/Macro kind init/edit). */
 const PANEL_APPS = [
-  'App.tsx',
-  'EntryInfoviewApp.tsx',
+  'reader/LibraryReader.tsx',
+  'reader/EntryReader.tsx',
   'CreateLibraryApp.tsx',
   'DashboardApp.tsx',
   'InitKindsApp.tsx',
@@ -114,6 +114,16 @@ describe('shared panel header coverage', () => {
       'padding',
       spreadLastFile
     )).toBeUndefined();
+  });
+
+  it('routes both Extension reader adapters and the browser adapter through shared header-owning readers', () => {
+    expect(source('webview/src/App.tsx')).toContain('renderCurrentView(view,');
+    expect(source('webview/src/EntryInfoviewApp.tsx')).toContain('<EntryReader');
+    expect(source('webview/src/reader/BrowserReader.tsx')).toContain('<LibraryLayer');
+    expect(source('webview/src/reader/BrowserReader.tsx')).toContain('<EntryReader');
+    for (const adapter of ['App.tsx', 'EntryInfoviewApp.tsx', 'reader/BrowserReader.tsx']) {
+      expect(source(`webview/src/${adapter}`)).not.toContain('<h1');
+    }
   });
 
   it('routes every webview panel app through PanelHeader', () => {

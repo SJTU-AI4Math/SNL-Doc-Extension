@@ -272,12 +272,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   regexFlags: 'Regex flags (optional)',
   exampleIm: 'e.g. im',
   occurrence: 'Occurrence (optional)',
-  beforeLines: 'Before lines (optional)',
-  afterLines: 'After lines (optional)',
-  beforeLinesHint: 'Extend the final inverse-reference scope before the Pointer’s actual start, not the cursor. Leave empty for 15; this is not a query fallback distance.',
-  afterLinesHint: 'Extend the final inverse-reference scope after the Pointer’s actual end, not the cursor. Leave empty for 15; this is not a query fallback distance.',
-  contextLinesError: '{field} must be a nonnegative safe integer, or empty for the default 15.',
-  pointerHint: 'Paths are resolved from the project root. Lines, UTF-16 columns and regex occurrences are 1-indexed. Reverse lookup uses only the final buffered scope and priority: higher priority wins, then smaller final scope. Regex matches already provide precise positions.',
+  pointerHint: 'Paths are resolved from the project root. Lines, UTF-16 columns and regex occurrences are 1-indexed. Reverse lookup uses only the exact Pointer range and priority: higher priority wins, then smaller final scope. Regex matches already provide precise positions.',
   noPointer: 'No source location is attached. Enable the binding to choose a file and addressing mode.',
   canvasAria: 'GUI Editor canvas',
   editFocusedSnl: 'Edit focused SNL',
@@ -408,11 +403,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   priority: '优先级（可选）',
   priorityHint: '优先级较高者优先，其次选择最终范围较小者。留空默认为 0，允许负数和小数。',
   priorityError: '优先级必须为有限数值，或留空使用默认值 0。',
-  beforeLines: '前文行数（可选）', afterLines: '后文行数（可选）',
-  beforeLinesHint: '在 Pointer 实际起始位置之前扩展最终反向引用范围，不相对于光标，也不是查询回退距离。留空默认为 15。',
-  afterLinesHint: '在 Pointer 实际结束位置之后扩展最终反向引用范围，不相对于光标，也不是查询回退距离。留空默认为 15。',
-  contextLinesError: '{field}必须为非负安全整数，或留空使用默认值 15。',
-  pointerHint: '路径从项目根目录解析。行号、UTF-16 列号和正则匹配序号均从 1 开始。反向查询仅使用扩展后的最终范围和优先级：优先级较高者优先，其次选择最终范围较小者。正则匹配已提供精确位置。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
+  pointerHint: '路径从项目根目录解析。行号、UTF-16 列号和正则匹配序号均从 1 开始。反向查询仅使用 Pointer 精确范围和优先级：优先级较高者优先，其次选择最终范围较小者。正则匹配已提供精确位置。', noPointer: '尚未附加源代码位置。启用绑定后即可选择文件和寻址模式。',
   canvasAria: 'GUI 编辑器画布', editFocusedSnl: '编辑聚焦的 SNL', editMacroInput: '编辑此块的宏；按 Enter 提交，按 Shift+Enter 添加新行', enterSnlDsl: '输入 SNL DSL；按 Enter 提交，按 Shift+Enter 添加新行',
   insertCanvasRoot: '插入画布根宏', argumentCount: '参数数量', macroActions: '宏操作', removeArgument: '移除参数', argumentCountValue: '参数数量值', addArgument: '添加参数',
   macroStyle: '宏样式', selectMacroStyle: '选择宏样式', clearStyle: '（清除样式）', missing: '（缺失）', defaultSuffix: '（默认）', editMacro: '编辑宏', createMacro: '创建宏',
@@ -512,11 +503,9 @@ interface PointerDraft {
   pattern: string;
   flags: string;
   occurrence: string;
-  beforeLines: string;
-  afterLines: string;
 }
 
-type PointerContext = { beforeLines?: number; afterLines?: number; priority?: number };
+type PointerContext = { priority?: number };
 type EntryPointer = PointerContext & (
   | { file: string; mode: 'lines'; line: number; endLine?: number; column?: number; endColumn?: number }
   | { file: string; mode: 'regex'; pattern: string; flags?: string; occurrence?: number }
@@ -534,9 +523,16 @@ const EMPTY_POINTER_DRAFT: PointerDraft = {
   pattern: '',
   flags: '',
   occurrence: '',
-  beforeLines: '',
-  afterLines: ''
 };
+
+// Strip only the retired top-level fields; opaque nested metadata is not ours to edit.
+function withoutRetiredPointerFields<T>(value: T): T {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const pointer = { ...value } as T & { beforeLines?: unknown; afterLines?: unknown };
+  delete pointer.beforeLines;
+  delete pointer.afterLines;
+  return pointer;
+}
 
 function pointerDraftFrom(value: unknown): PointerDraft {
   if (!value || typeof value !== 'object') return { ...EMPTY_POINTER_DRAFT };
@@ -544,8 +540,6 @@ function pointerDraftFrom(value: unknown): PointerDraft {
   if (typeof pointer.file !== 'string') return { ...EMPTY_POINTER_DRAFT };
   const context = {
     priority: pointer.priority == null ? '' : String(pointer.priority),
-    beforeLines: pointer.beforeLines == null ? '' : String(pointer.beforeLines),
-    afterLines: pointer.afterLines == null ? '' : String(pointer.afterLines)
   };
   if (pointer.mode === 'lines' && typeof pointer.line === 'number') {
     return {
@@ -575,12 +569,6 @@ function pointerDraftFrom(value: unknown): PointerDraft {
   return { ...EMPTY_POINTER_DRAFT };
 }
 
-function nonnegativeInteger(value: string): number | null {
-  if (!/^\d+$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
-
 function positiveInteger(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const parsed = Number(value);
@@ -596,11 +584,6 @@ function finitePriority(value: string): number | null {
 function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): string | null {
   if (!draft.enabled) return null;
   if (draft.priority !== '' && finitePriority(draft.priority) === null) return t('priorityError');
-  for (const field of ['beforeLines', 'afterLines'] as const) {
-    if (draft[field] !== '' && nonnegativeInteger(draft[field]) === null) {
-      return t('contextLinesError', { field: t(field) });
-    }
-  }
   const file = draft.file.trim().replace(/\\/g, '/');
   if (!file) return t('chooseProjectFile');
   if (file.startsWith('/') || /^[A-Za-z]:\//.test(file)) {
@@ -644,21 +627,15 @@ function pointerDraftError(draft: PointerDraft, t: CreateEntryTranslator): strin
 function pointerFromDraft(draft: PointerDraft, t: CreateEntryTranslator, original?: unknown): EntryPointer | null {
   if (!draft.enabled || pointerDraftError(draft, t)) return null;
   const context: PointerContext = {};
-  for (const field of ['beforeLines', 'afterLines'] as const) {
-    const count = nonnegativeInteger(draft[field]);
-    if (count !== null) context[field] = count;
-  }
   const priority = finitePriority(draft.priority);
   if (priority !== null) context.priority = priority;
-  // Context/priority-only edits preserve exact addressing bytes and opaque metadata.
+  // Priority-only edits preserve exact addressing bytes and opaque metadata.
   const previous = pointerDraftFrom(original);
   const addressFields: (keyof PointerDraft)[] = draft.mode === 'lines'
     ? ['enabled', 'file', 'mode', 'line', 'endLine', 'column', 'endColumn']
     : ['enabled', 'file', 'mode', 'pattern', 'flags', 'occurrence'];
   if (previous.enabled && addressFields.every((field) => previous[field] === draft[field])) {
-    const pointer = { ...(original as EntryPointer) };
-    delete pointer.beforeLines;
-    delete pointer.afterLines;
+    const pointer = { ...withoutRetiredPointerFields(original as EntryPointer) };
     delete pointer.priority;
     return { ...pointer, ...context };
   }
@@ -1708,7 +1685,7 @@ export function CreateEntryApp(): React.ReactElement {
           : contributor.trim() || null,
       pointer:
         mode === 'edit' && !pointerDirtyRef.current
-          ? existingMetadataRef.current.pointer
+          ? withoutRetiredPointerFields(existingMetadataRef.current.pointer)
           : pointerFromDraft(pointerDraft, t, mode === 'edit' ? existingMetadataRef.current.pointer : undefined)
     };
     submittedEditGenerationRef.current = editGenerationRef.current;
@@ -1812,7 +1789,7 @@ export function CreateEntryApp(): React.ReactElement {
     setActiveFormat(restored.activeFormat);
     setSnlMode(restored.snlMode);
     if (restored.pointerDraft) {
-      setPointerDraft({ ...EMPTY_POINTER_DRAFT, ...restored.pointerDraft });
+      setPointerDraft({ ...EMPTY_POINTER_DRAFT, ...withoutRetiredPointerFields(restored.pointerDraft) });
       pointerDirtyRef.current = true;
     }
     // The Canvas forest is NOT recoverable from `content.snl`: a multi-root
@@ -2746,45 +2723,50 @@ function PointerEditor({
           ) : (
             <>
               <Label htmlFor="snl-entry-pointer-pattern">{t('regexPattern')}</Label>
-              <input
-                id="snl-entry-pointer-pattern"
-                type="text"
-                value={value.pattern}
-                onChange={(event) => update({ pattern: event.target.value })}
-                aria-invalid={regexInvalid || undefined}
-                aria-describedby={describedBy}
-                placeholder={t('regexPlaceholder')}
-                style={{ ...inputStyle, ...monoStyle }}
-              />
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 10rem' }}>
-                  <Label htmlFor="snl-entry-pointer-flags">{t('regexFlags')}</Label>
-                  <input
-                    id="snl-entry-pointer-flags"
-                    type="text"
-                    value={value.flags}
-                    onChange={(event) => update({ flags: event.target.value })}
-                    aria-invalid={regexInvalid || undefined}
-                    aria-describedby={describedBy}
-                    placeholder={t('exampleIm')}
-                    style={{ ...inputStyle, ...monoStyle }}
-                  />
-                </div>
-                <div style={{ flex: '1 1 10rem' }}>
-                  <Label htmlFor="snl-entry-pointer-occurrence">{t('occurrence')}</Label>
-                  <input
-                    id="snl-entry-pointer-occurrence"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={value.occurrence}
-                    onChange={(event) => update({ occurrence: event.target.value })}
-                    aria-invalid={occurrenceInvalid || undefined}
-                    aria-describedby={describedBy}
-                    placeholder="1"
-                    style={inputStyle}
-                  />
-                </div>
+              <label
+                htmlFor="snl-entry-pointer-flags"
+                style={{ position: 'absolute', width: 1, height: 1, padding: 0, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }}
+              >
+                {t('regexFlags')}
+              </label>
+              <div style={{ ...inputStyle, ...monoStyle, display: 'flex', alignItems: 'center', gap: 0, padding: '0 0.35rem' }}>
+                <span aria-hidden="true">/</span>
+                <input
+                  id="snl-entry-pointer-pattern"
+                  type="text"
+                  value={value.pattern}
+                  onChange={(event) => update({ pattern: event.target.value })}
+                  aria-invalid={regexInvalid || undefined}
+                  aria-describedby={describedBy}
+                  placeholder={t('regexPlaceholder')}
+                  style={{ ...inputStyle, ...monoStyle, flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, border: 0, borderRadius: 0, background: 'transparent', padding: '0.4rem 0.25rem' }}
+                />
+                <span aria-hidden="true">/</span>
+                <input
+                  id="snl-entry-pointer-flags"
+                  type="text"
+                  value={value.flags}
+                  onChange={(event) => update({ flags: event.target.value })}
+                  aria-invalid={regexInvalid || undefined}
+                  aria-describedby={describedBy}
+                  placeholder="im"
+                  style={{ ...inputStyle, ...monoStyle, width: '6ch', flexGrow: 0, flexShrink: 0, border: 0, borderRadius: 0, background: 'transparent', padding: '0.4rem 0.25rem' }}
+                />
+              </div>
+              <div>
+                <Label htmlFor="snl-entry-pointer-occurrence">{t('occurrence')}</Label>
+                <input
+                  id="snl-entry-pointer-occurrence"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={value.occurrence}
+                  onChange={(event) => update({ occurrence: event.target.value })}
+                  aria-invalid={occurrenceInvalid || undefined}
+                  aria-describedby={describedBy}
+                  placeholder="1"
+                  style={inputStyle}
+                />
               </div>
             </>
           )}
@@ -2804,23 +2786,6 @@ function PointerEditor({
                 style={inputStyle}
               />
             </div>
-            {(['beforeLines', 'afterLines'] as const).map((field) => (
-              <div key={field} style={{ flex: '1 1 10rem' }}>
-                <Label htmlFor={`snl-entry-pointer-${field}`}>{t(field)}</Label>
-                <input
-                  id={`snl-entry-pointer-${field}`}
-                  type="text"
-                  inputMode="numeric"
-                  value={value[field]}
-                  onChange={(event) => update({ [field]: event.target.value })}
-                  aria-invalid={(value[field] !== '' && nonnegativeInteger(value[field]) === null) || undefined}
-                  aria-describedby={describedBy}
-                  placeholder="15"
-                  title={t(field === 'beforeLines' ? 'beforeLinesHint' : 'afterLinesHint')}
-                  style={inputStyle}
-                />
-              </div>
-            ))}
           </div>
           <p
             id={errorId}

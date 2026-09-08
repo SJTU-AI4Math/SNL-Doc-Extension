@@ -288,12 +288,17 @@ export class ExportOptionsPanel {
       const path = nodePath.resolve(root, file.displayPath); files.add(path);
       try { files.add(await realpath(path)); } catch { /* snapshot revalidation reports missing files */ }
     }
+    // Resolve document aliases before sampling mutable dirty flags. A selected
+    // clean buffer can become dirty while another document's realpath awaits.
+    const aliases = new Map<string, string>();
+    for (const doc of vscode.workspace.textDocuments) {
+      if (doc.uri.scheme !== 'file') continue;
+      try { aliases.set(doc.uri.fsPath, await realpath(doc.uri.fsPath)); } catch { /* unsaved file may have no disk path */ }
+    }
     const dirty: string[] = [];
     for (const doc of vscode.workspace.textDocuments) {
       if (!doc.isDirty || doc.uri.scheme !== 'file') continue;
-      let path = doc.uri.fsPath;
-      try { path = await realpath(path); } catch { /* unsaved file may have no disk path */ }
-      if (files.has(path) || files.has(doc.uri.fsPath)) dirty.push(doc.uri.fsPath);
+      if (files.has(aliases.get(doc.uri.fsPath) ?? doc.uri.fsPath) || files.has(doc.uri.fsPath)) dirty.push(doc.uri.fsPath);
     }
     return dirty;
   }
@@ -429,6 +434,12 @@ export class ExportOptionsPanel {
           if (sourceContext !== this.sourceContext || confirmed !== this.sourcePreview) throw new Error('Export preview changed before publication.');
           await sourceContext!.revalidate();
           await revalidateSourceSnapshot(confirmed!.preview, this.sourceCaptureInput(sourceContext!, options, destinationPath, shape));
+          // Disk hashes cannot detect editor changes made while staging the export.
+          // Keep this check after the final awaited snapshot validation, and do
+          // not let its own asynchronous realpath lookups revive a stale owner.
+          if ((await this.dirtySourceFiles(confirmed!.preview)).length && !diskAcknowledged) {
+            throw new Error('Unsaved source files: explicitly choose disk snapshot or save and preview again.');
+          }
           assertCurrent();
         },
         buildDocument: (input) =>

@@ -239,6 +239,9 @@ export async function writeExport(
     return { target: request.inline ? destination : vscode.Uri.joinPath(destination, 'index.html'), fileCount: files.length, warnings };
   }
 
+  // Static exports still belong to a captured reader generation. Validate it
+  // after assembling assets, before any output is replaced or created.
+  await deps.beforePublish?.();
   if (request.inline) {
     const destination = /\.html$/i.test(deps.destination.path)
       ? deps.destination

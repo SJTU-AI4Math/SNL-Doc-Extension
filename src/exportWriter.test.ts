@@ -111,6 +111,21 @@ const deps = (destination: { path: string }) => ({
 
 beforeEach(seed);
 
+describe('static export publication authority', () => {
+  it.each([false, true])('checks the final owner before any output write (inline=%s)', async (inline) => {
+    files.set('/out/tour/index.html', new TextEncoder().encode('existing directory output'));
+    files.set('/out/tour.html', new TextEncoder().encode('existing single output'));
+    const before = new Map(files), directories = new Set(dirs);
+    const beforePublish = vi.fn(async () => { throw new Error('Export context changed before publication'); });
+    await expect(writeExport({ ...request, inline }, {
+      ...deps({ path: inline ? '/out/tour.html' : '/out/tour' }), beforePublish,
+    } as never)).rejects.toThrow(/context changed/i);
+    expect(beforePublish).toHaveBeenCalledOnce();
+    expect(files).toEqual(before);
+    expect(dirs).toEqual(directories);
+  });
+});
+
 describe('writeExport — directory shape', () => {
   it('writes index.html plus the image and the fonts it references', async () => {
     const out = await writeExport(request, deps({ path: '/out/tour' }) as never);

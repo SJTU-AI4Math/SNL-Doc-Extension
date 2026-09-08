@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ rootCount: 1, messages: [] as any[], receive: undefined as any, dirty: [] as any[], writes: vi.fn(), capture: vi.fn(), validate: vi.fn(), root: { fsPath: '/workspace', path: '/workspace', scheme: 'file', toString: () => 'file:///workspace' } }));
+const state = vi.hoisted(() => ({ rootCount: 1, messages: [] as any[], receive: undefined as any, dirty: [] as any[], onReadDocuments: undefined as (() => void) | undefined, onRealpath: undefined as ((path: string) => void) | undefined, writes: vi.fn(), capture: vi.fn(), validate: vi.fn(), root: { fsPath: '/workspace', path: '/workspace', scheme: 'file', toString: () => 'file:///workspace' } }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, realpath: async (path: string) => { state.onRealpath?.(path); return actual.realpath(path); } };
+});
 vi.mock('vscode', () => ({
   ViewColumn: { Active: 1 }, Uri: { file: (p: string) => ({ path: p, fsPath: p, scheme: 'file' }), joinPath: (_u: any, ...parts: string[]) => ({ path: parts.join('/'), fsPath: parts.join('/'), scheme: 'file' }) },
-  workspace: { get workspaceFolders() { return Array.from({length:state.rootCount},()=>({uri:state.root})); }, get textDocuments() { return state.dirty; }, fs: { readFile: async () => Buffer.from('runtime') } },
+  workspace: { get workspaceFolders() { return Array.from({length:state.rootCount},()=>({uri:state.root})); }, get textDocuments() { state.onReadDocuments?.(); return state.dirty; }, fs: { readFile: async () => Buffer.from('runtime') } },
   window: { createWebviewPanel: () => ({ title: '', webview: { html: '', postMessage: async (m: unknown) => { state.messages.push(m); }, onDidReceiveMessage: (f: unknown) => { state.receive = f; } }, reveal() {}, onDidDispose() {}, dispose() {} }), showWarningMessage: vi.fn() },
   commands: { executeCommand: vi.fn() }
 }));
@@ -25,7 +29,7 @@ const payload = { slug: 'L', title: 'L', body: '<p>L</p>', assets: [], renderSna
 } };
 beforeEach(() => {
   (ExportOptionsPanel as any).current = undefined;
-  state.rootCount = 1; state.messages = []; state.dirty = []; state.capture.mockReset(); state.validate.mockReset(); state.writes.mockReset();
+  state.rootCount = 1; state.messages = []; state.dirty = []; state.onReadDocuments = undefined; state.onRealpath = undefined; state.capture.mockReset(); state.validate.mockReset(); state.writes.mockReset();
   state.capture.mockImplementation(async () => preview()); state.validate.mockResolvedValue(undefined);
   state.writes.mockImplementation(async (_request: unknown, deps: any) => { await deps.beforePublish?.(); return { target: { path: '/output/index.html', fsPath: '/output/index.html' }, fileCount: 1, warnings: [] }; });
 });
@@ -69,6 +73,63 @@ describe('source export host authority', () => {
     ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
     await run(); expect(state.writes).not.toHaveBeenCalled(); expect(save).not.toHaveBeenCalled();
     await run({ diskAcknowledged: true }); expect(state.writes).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('rechecks newly dirty buffers after final source validation (disk consent=%s)', async (diskAcknowledged) => {
+    const save = vi.fn(), publish = vi.fn();
+    state.validate.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => {
+      state.dirty = [{ isDirty: true, uri: { scheme: 'file', fsPath: '/workspace/Main.lean' }, save }];
+    });
+    state.writes.mockImplementation(async (_request, deps) => {
+      await deps.beforePublish(); publish();
+      return { target: { fsPath: '/output/index.html' }, fileCount: 1, warnings: [] };
+    });
+    ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
+    await run({ diskAcknowledged });
+    expect(state.validate).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(diskAcknowledged ? 1 : 0);
+    expect(save).not.toHaveBeenCalled();
+    expect(state.messages.at(-1).type).toBe(diskAcknowledged ? 'exportDone' : 'exportFailed');
+    if (!diskAcknowledged) expect(state.messages.at(-1).message).toMatch(/unsaved source files/i);
+  });
+  it('samples dirty flags after asynchronous document alias lookups have finished', async () => {
+    const selected = { isDirty: false, uri: { scheme: 'file', fsPath: '/workspace/Main.lean' } };
+    state.dirty = [selected, { isDirty: true, uri: { scheme: 'file', fsPath: '/workspace/Unrelated.lean' } }];
+    const publish = vi.fn();
+    state.writes.mockImplementation(async (_request, deps) => {
+      await deps.beforePublish(); publish();
+      return { target: { fsPath: '/output/index.html' }, fileCount: 1, warnings: [] };
+    });
+    ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
+    state.onRealpath = (path) => {
+      if (state.validate.mock.calls.length === 2 && path.endsWith('/Unrelated.lean')) selected.isDirty = true;
+    };
+    await run();
+    expect(selected.isDirty).toBe(true);
+    expect(publish).not.toHaveBeenCalled();
+    expect(state.messages.at(-1).message).toMatch(/unsaved source files/i);
+  });
+  it('rejects context replacement during the final dirty-buffer lookup', async () => {
+    const publish = vi.fn();
+    state.writes.mockImplementation(async (_request, deps) => {
+      await deps.beforePublish(); publish();
+      return { target: { fsPath: '/output/index.html' }, fileCount: 1, warnings: [] };
+    });
+    ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
+    state.onReadDocuments = () => {
+      if (state.validate.mock.calls.length !== 2) return;
+      state.onReadDocuments = undefined;
+      ExportOptionsPanel.show({} as never, { ...payload, slug: 'replacement' }, sourceContext());
+    };
+    await run();
+    expect(publish).not.toHaveBeenCalled();
+    expect(state.messages.at(-1).message).toMatch(/context changed/i);
+  });
+  it('does not require disk consent for source-disabled export', async () => {
+    state.dirty = [{ isDirty: true, uri: { scheme: 'file', fsPath: '/workspace/Main.lean' } }];
+    ExportOptionsPanel.show({} as never, payload, sourceContext());
+    await run({ sources: { ...options, enabled: false } });
+    expect(state.writes).toHaveBeenCalledOnce();
+    expect(state.messages.at(-1).type).toBe('exportDone');
   });
   it('fails rather than silently dropping requested sources when interaction is disabled', async () => {
     ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();

@@ -1,5 +1,5 @@
 import type { EntryData, EntryKind, MacroKind, MacroPackageEntry, RelationshipData } from './snlDoc';
-import { fromMarkdown, parseSnlSyntaxTree } from './snlBasicsHostCompat';
+import { fromMarkdown, parseSnlSyntaxTree, type Localized } from './snlBasicsHostCompat';
 import { parseBlockRendererSpec } from './blockRendererSpec';
 
 /** Raw versioned read model, never harvested HTML. Host owns this snapshot. */
@@ -83,7 +83,7 @@ export function readerEntryClosure(outline: FrozenOutlineNode[], entries: EntryD
 /** Enumerate authored asset references across every localized projection.
  * Call only on the dependency closure, before authorizing any asset reads.
  */
-export function readerAssetPaths(value: unknown): string[] {
+export function readerAssetPaths({ entries, macros }: Pick<FrozenReaderSnapshot, 'entries' | 'macros'>): string[] {
   const paths = new Set<string>();
   const add = (raw: string): void => {
     let path: string;
@@ -113,23 +113,38 @@ export function readerAssetPaths(value: unknown): string[] {
       }
     });
   };
-  const walk = (node: unknown): void => {
-    if (typeof node === 'string') markdown(node);
-    else if (Array.isArray(node)) node.forEach(walk);
-    else if (node && typeof node === 'object') {
-      const record = node as Record<string, unknown>;
-      const svg = record.svg_template as { asset?: { source?: unknown } } | undefined;
-      if (typeof svg?.asset?.source === 'string') add(svg.asset.source);
-      if (typeof record.block_template_name === 'string') {
+  // Only unwrap canonical localization containers at known render fields.
+  const localizedValues = <T>(value: Localized<string, T>): T[] => {
+    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'i18n') {
+      return Object.values(value.values).filter((item): item is T => item !== undefined);
+    }
+    return [value as T];
+  };
+  for (const entry of entries) {
+    // Basics EntryRender selects SNL before Markdown. SNL's delimited AST
+    // payloads are text/LaTeX, not Markdown; Macro assets are handled below.
+    if (entry.content.snl?.trim()) continue;
+    if (entry.content.markdown !== undefined) {
+      for (const text of localizedValues(entry.content.markdown)) markdown(text);
+    }
+  }
+  for (const macro of Object.values(macros)) {
+    for (const style of macro.styles) {
+      for (const template of localizedValues(style.template)) {
+        if (template.mode !== 'block' || typeof template.block_template_name !== 'string') continue;
         try {
-          const spec = parseBlockRendererSpec(record.block_template_name);
+          const spec = parseBlockRendererSpec(template.block_template_name);
           if (spec.name === 'image' && spec.params.src) add(spec.params.src);
+          if (spec.name === 'svg_template') {
+            const svg = template.svg_template as { asset?: { source?: unknown } } | undefined;
+            if (typeof svg?.asset?.source === 'string') add(svg.asset.source);
+          }
         } catch { /* Invalid presets are not permission to read a file. */ }
       }
-      Object.values(record).forEach(walk);
     }
-  };
-  walk(value);
+  }
+  // Library descriptions, titles, pointers, Macro descriptions and template
+  // body/backend strings are not Markdown render surfaces in the shared reader.
   return [...paths].sort();
 }
 

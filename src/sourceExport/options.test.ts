@@ -4,6 +4,8 @@ import { parseSourceOptions, sourceRequestKey } from './options';
 describe('source export request validation', () => {
   it('defaults off and never treats unchecked as enabled', () => {
     expect(parseSourceOptions(undefined).enabled).toBe(false);
+    expect(parseSourceOptions({ enabled: true }).allowMissing).toBe(true);
+    expect(parseSourceOptions({ enabled: true, allowMissing: false }).allowMissing).toBe(false);
     expect(() => parseSourceOptions({ enabled: 'yes' })).toThrow();
   });
   it('strictly checks budgets, root-relative rules and arrays', () => {
@@ -15,7 +17,7 @@ describe('source export request validation', () => {
   it('binds every filter, target, output shape and document capture to confirmation', () => {
     const opts = parseSourceOptions({ enabled: true });
     const key = sourceRequestKey(opts, '/tmp/a', 'directory', 'render-1');
-    expect(sourceRequestKey({ ...opts, allowMissing: true }, '/tmp/a', 'directory', 'render-1')).not.toBe(key);
+    expect(sourceRequestKey({ ...opts, allowMissing: !opts.allowMissing }, '/tmp/a', 'directory', 'render-1')).not.toBe(key);
     expect(sourceRequestKey(opts, '/tmp/b', 'directory', 'render-1')).not.toBe(key);
     expect(sourceRequestKey(opts, '/tmp/a', 'single', 'render-1')).not.toBe(key);
     expect(sourceRequestKey(opts, '/tmp/a', 'directory', 'render-2')).not.toBe(key);

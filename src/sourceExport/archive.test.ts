@@ -149,8 +149,35 @@ describe('source snapshot', () => {
     args.options.maxTotalBytes = 100; args.entryRoutes.push({ entryId: 'outside', hash: '#/entry/outside' });
     await expect(captureSourceSnapshot(args)).rejects.toThrow(/closure/);
   });
-  it('excluded/missing Pointer requires explicit acceptance and retains portable descriptions without extra fields', async () => {
-    await put('src/a.lean', 'one\ntwo'); const args = input(); args.options.exclude = ['src'];
+  it.each(['missing', 'excluded', 'unresolved'] as const)('default export preserves partial sources with a visible %s Pointer diagnostic', async failure => {
+    await put('src/a.lean', 'one\ntwo'); const args = input();
+    args.entries.push({ id: 'bad', pointer: failure === 'unresolved'
+      ? { file: 'src/a.lean', mode: 'regex', pattern: 'never-matches' }
+      : { file: 'absent.lean', mode: 'lines', line: 1 } });
+    if (failure === 'excluded') { await put('absent.lean', 'excluded secret'); args.options.exclude = ['absent.lean']; }
+    const p = await captureSourceSnapshot(args);
+    expect(p.manifest.pointers[0].status).toBe('ok');
+    expect(p.manifest.pointers[1]).toMatchObject({ entryId: 'bad', status: failure === 'missing' ? 'unavailable' : failure });
+    expect(p.manifest.pointers[1].reason).toBeTruthy();
+    expect(p.manifest.pointers[1].range).toBeUndefined();
+    expect(p.manifest.files.map(f => f.displayPath)).toEqual(['src/a.lean']);
+    await revalidateSourceSnapshot(p, args);
+    for (const inline of [true, false]) expect(buildSourceAssets(p, inline).texts.length).toBeGreaterThan(0);
+    args.options.allowMissing = false;
+    await expect(captureSourceSnapshot(args)).rejects.toThrow(/Pointer/);
+  });
+  it.each([true, false])('requires explicitly selected companion files even when allowMissing=%s', async allowMissing => {
+    await put('src/a.lean', 'one\ntwo'); const args = input();
+    args.options.allowMissing = allowMissing; args.options.companionFiles = ['LICENSE'];
+    await expect(captureSourceSnapshot(args)).rejects.toThrow(/Required companion.*LICENSE/);
+    await put('LICENSE', 'license');
+    const p = await captureSourceSnapshot(args);
+    expect(p.manifest.files.map(f => f.displayPath)).toContain('LICENSE');
+    args.options.exclude = ['LICENSE'];
+    await expect(captureSourceSnapshot(args)).rejects.toThrow(/Required companion.*LICENSE/);
+  });
+  it('strict mode blocks excluded Pointer targets and retains portable descriptions without extra fields', async () => {
+    await put('src/a.lean', 'one\ntwo'); const args = input(); args.options.exclude = ['src']; args.options.allowMissing = false;
     args.entries[0].pointer = { file: 'src/a.lean', mode: 'lines', line: 2, hostPath: '/secret/host' };
     await expect(captureSourceSnapshot(args)).rejects.toMatchObject({ preview: { manifest: { pointers: [{ status: 'excluded' }] } } });
     args.options.allowMissing = true; const p = await captureSourceSnapshot(args);

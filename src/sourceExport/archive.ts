@@ -294,7 +294,9 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
     estimatedBytes: Buffer.byteLength(json(manifest)) + chunks.reduce((n, c) => n + Buffer.byteLength(json(c)) + 160, 0),
     exclusions: [...first.excluded].map(([name, reason]) => ({ path: name, reason })).sort((a, b) => a.path < b.path ? -1 : 1),
     warnings, externalRoots: [...first.external].sort(), confirmationId: sha(inputHash + first.key + manifest.exportId) };
-  if (!options.allowMissing && (pointers.some(p => p.status !== 'ok') || options.companionFiles.some(name => !fileByPath.has(name)))) throw new SourcePreflightError('Source Pointer/companion closure is incomplete; explicitly accept missing sources or change filters', preview);
+  const missingCompanions = options.companionFiles.filter(name => !fileByPath.has(name));
+  if (missingCompanions.length) throw new SourcePreflightError(`Required companion source files unavailable: ${missingCompanions.join(', ')}; restore them or revise the companion list and preview again`, preview);
+  if (!options.allowMissing && pointers.some(p => p.status !== 'ok')) throw new SourcePreflightError('Source Pointer closure is incomplete; allow unavailable Pointer targets or change filters', preview);
   receipts.set(preview, { input: inputHash, scan: first.key, payload: sha(json(preview)) });
   return preview;
 }

@@ -15,7 +15,7 @@ export interface SourceExportOptions {
 }
 export const DEFAULT_SOURCE_OPTIONS: SourceExportOptions = {
   enabled: false, scope: 'pointer-files', keep: [], exclude: [], companionFiles: [],
-  allowedExternalRoots: [], allowMissing: false,
+  allowedExternalRoots: [], allowMissing: true,
   maxFileBytes: 5 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024
 };
 export interface SourceEntryInput {

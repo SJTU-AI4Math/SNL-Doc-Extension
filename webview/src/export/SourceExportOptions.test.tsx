@@ -22,6 +22,23 @@ describe('source export confirmation UI', () => {
     fireEvent.click(screen.getByLabelText(/Keep interaction/));
     expect((screen.getByLabelText(/Include source code/) as HTMLInputElement).checked).toBe(false);
   });
+  it('defaults to warnings for unavailable Pointers and requires a new preview when strict mode is selected', () => {
+    setup(); fireEvent.click(screen.getByLabelText(/Include source code/));
+    const allow = screen.getByLabelText(/Allow unavailable Pointer targets/) as HTMLInputElement;
+    expect(allow.checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview selected sources' }));
+    send({ type: 'sourcePreview', requestId: lastPreviewId(), preview: { ...preview, blocked: false, unresolved: [{ entryId: 'Algebra.def.semigroup', status: 'excluded', reason: 'default build/cache exclusion' }] } });
+    expect(screen.getByText(/Algebra.def.semigroup/).textContent).toContain('default build/cache exclusion');
+    fireEvent.click(screen.getByLabelText(/I reviewed this exact file list/));
+    const button = screen.getByRole('button', { name: 'Export' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(allow);
+    expect(allow.checked).toBe(false); expect(button.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview selected sources' }));
+    expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ type: 'previewSources', sources: { allowMissing: false } });
+    send({ type: 'sourcePreview', requestId: lastPreviewId(), preview: { ...preview, blocked: true } });
+    expect(button.disabled).toBe(true);
+  });
   it('requires explicit file-list consent and invalidates it on every destination or filter edit', () => {
     setup(); fireEvent.click(screen.getByLabelText(/Include source code/));
     fireEvent.click(screen.getByRole('button', { name: 'Preview selected sources' }));

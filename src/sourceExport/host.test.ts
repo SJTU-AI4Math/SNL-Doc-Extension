@@ -26,6 +26,24 @@ beforeEach(() => {
 const preflight = () => state.receive({ type: 'previewSources', requestId: 7, shape: 'directory', destination: '/output', sources: options });
 const run = (extra = {}) => state.receive({ type: 'runExport', shape: 'directory', destination: '/output', interactive: true, sources: options, confirmationId: 'capture-A', ...extra });
 describe('source export host authority', () => {
+  it.each([true, false])('carries unavailable Pointer diagnostics to preview and honors allowMissing=%s at publication', async allowMissing => {
+    const p = { ...preview(), manifest: { ...preview().manifest, pointers: [{ entryId: 'missing', status: 'excluded', reason: 'default build/cache exclusion' }] } };
+    state.capture.mockResolvedValue(p);
+    const selected = { ...options, allowMissing };
+    ExportOptionsPanel.show({} as never, payload, sourceContext());
+    await state.receive({ type: 'previewSources', requestId: 7, shape: 'directory', destination: '/output', sources: selected });
+    expect(state.messages.find(m => m.type === 'sourcePreview').preview.unresolved).toEqual(p.manifest.pointers);
+    await run({ sources: selected });
+    if (allowMissing) {
+      expect(state.writes).toHaveBeenCalledOnce();
+      expect(state.writes.mock.calls[0][0].body).toBe(payload.body);
+      expect(state.writes.mock.calls[0][0].sourcePreview).toEqual(p);
+      expect(state.validate).toHaveBeenCalledTimes(2);
+    } else {
+      expect(state.writes).not.toHaveBeenCalled();
+      expect(state.messages.at(-1).message).toMatch(/Pointer targets unavailable/);
+    }
+  });
   it('rejects ambiguous multi-root source export instead of silently choosing first root', async () => {
     state.rootCount=2; ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();
     expect(state.capture).not.toHaveBeenCalled(); expect(state.messages.at(-1).message).toMatch(/single.*local|one.*local|single.*root/i);

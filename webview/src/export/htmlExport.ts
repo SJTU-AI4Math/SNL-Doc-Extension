@@ -194,8 +194,16 @@ export function waitForExportSurfaces(
       }
       frameHandle = frame(tick);
     };
-    const observer = new MutationObserver(() => { quietFrames = 0; });
-    observer.observe(root, { subtree: true, childList: true, attributes: true });
+    const observer = new MutationObserver(records => {
+      // Native SVG layout reasserts unchanged data-state/aria-hidden each frame.
+      // Those writes are not unfinished rendering. Real attribute/text changes
+      // and structural mutations still restart the quiet window.
+      if (records.some(record => record.type === 'attributes'
+        ? (record.target as Element).getAttributeNS(record.attributeNamespace, record.attributeName!) !== record.oldValue
+        : record.type === 'characterData' ? record.target.nodeValue !== record.oldValue : true)) quietFrames = 0;
+    });
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeOldValue: true,
+      characterData: true, characterDataOldValue: true });
     const timer = setTimeout(fail, Math.max(0, timeoutMs));
     signal?.addEventListener('abort', abort, { once: true });
     frameHandle = frame(tick);

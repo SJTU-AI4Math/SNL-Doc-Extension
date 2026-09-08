@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
-import { setReaderPlatformApi } from '../runtime/readerPlatform';
+import { installReaderPlatformApi } from '../runtime/readerPlatform';
 import { get_content_language, set_content_language } from '../runtime/preferencesRuntime';
 import { hasPendingExportSurface, waitForExportSurfaces } from './htmlExport';
 
@@ -12,6 +12,9 @@ vi.mock('../vscodeApi', async (original) => ({
 }));
 const artwork = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="2" y="20">Settled artwork</text></svg>';
 let identity = 0;
+let releasePlatform: () => void;
+let previousLanguage: ReturnType<typeof get_content_language>;
+let previousDocumentLanguage: string;
 const messages = (type: string) => api.postMessage.mock.calls.map(([message]) => message).filter(message => message.type === type);
 const send = (data: unknown) => act(() => window.dispatchEvent(new MessageEvent('message', { data })));
 const advance = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
@@ -50,14 +53,45 @@ async function release(request: object) {
   await advance(48);
 }
 beforeEach(() => {
+  previousLanguage = get_content_language();
+  previousDocumentLanguage = document.documentElement.lang;
+  releasePlatform = installReaderPlatformApi(api);
   document.documentElement.lang = 'en';
-  setReaderPlatformApi(api);
   set_content_language('zh-CN');
   api.postMessage.mockClear();
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); api.postMessage.mockClear(); });
+afterEach(() => {
+  cleanup(); vi.useRealTimers();
+  set_content_language(previousLanguage);
+  document.documentElement.lang = previousDocumentLanguage;
+  releasePlatform(); api.postMessage.mockClear();
+});
 
 describe('shared reader static fallback capture settlement', () => {
+  it.each(['unchanged attributes', 'changing text'])('measures semantic quietness amid %s', async activity => {
+    vi.useFakeTimers();
+    const root = document.createElement('div');
+    root.setAttribute('data-state', 'positioned');
+    const text = root.appendChild(document.createTextNode('0'));
+    document.body.appendChild(root);
+    const controller = new AbortController();
+    let settled = false, generation = 0;
+    const repeat = setInterval(() => {
+      if (activity === 'unchanged attributes') root.setAttribute('data-state', 'positioned');
+      else text.nodeValue = String(++generation);
+    }, 8);
+    const waiting = waitForExportSurfaces(root, { signal: controller.signal }).then(() => { settled = true; }, () => {});
+    try {
+      await advance(80);
+      expect(settled).toBe(activity === 'unchanged attributes');
+      clearInterval(repeat);
+      await advance(64);
+      expect(settled).toBe(true);
+    } finally {
+      clearInterval(repeat); controller.abort(); await waiting; root.remove();
+    }
+  });
+
   it.each([false, true])('disposes the wait deadline/frame when aborted (pre-aborted: %s)', async preAborted => {
     vi.useFakeTimers();
     const controller = new AbortController();

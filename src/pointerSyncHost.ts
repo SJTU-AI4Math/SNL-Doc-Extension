@@ -4,6 +4,7 @@ import { firstWorkspaceFolder } from './panelUtil';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
 import { onPointerEntriesWritten, PointerIndexCoordinator } from './pointerSyncHostState';
+import { comparePointerIdentity } from './pointerSync/scope';
 
 export interface PointerCandidate {
   entryId: string;
@@ -36,8 +37,6 @@ const MESSAGES = defineHostMessages({
   savedError: 'The Entry was saved, but its Pointer index could not be updated. Retry Pointer maintenance. {error}',
   noMatch: 'No Entry matches the Pointer ranges in this file.',
   incomplete: 'Some pointers could not be resolved. Results are incomplete; use Pointer maintenance for details.',
-  choose: 'Choose an Entry near this source location',
-  chooseIncomplete: 'Incomplete Pointer results — choose a known Entry explicitly',
 }, {
   unsupported: 'Pointer 导航需要第一个 SNL 工作区中的代码文件；暂不支持其他根目录或文件提供者。',
   maintenance: 'SNL Pointer 维护',
@@ -48,8 +47,6 @@ const MESSAGES = defineHostMessages({
   savedError: 'Entry 已保存，但 Pointer 索引更新失败，请重新执行 Pointer 维护。{error}',
   noMatch: '当前文件的 Pointer 匹配范围内未找到条目。',
   incomplete: '部分 Pointer 无法解析，结果不完整；请在 Pointer 维护中查看详情。',
-  choose: '选择此源码位置附近的条目',
-  chooseIncomplete: 'Pointer 结果不完整，请显式选择已知条目',
 });
 const text = () => createHostTranslator(read_extension_preferences().language, MESSAGES);
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -199,17 +196,10 @@ export function installPointerSyncHost<Index>(context: vscode.ExtensionContext, 
         void vscode.window.showInformationMessage(text()(result.complete ? 'noMatch' : 'incomplete'));
         return;
       }
-      let candidate: PointerCandidate | undefined;
-      if (result.complete && result.candidates.length === 1) candidate = result.candidates[0];
-      else {
-        const chosen = await vscode.window.showQuickPick(result.candidates.map(item => ({
-          label: item.title || item.entryId,
-          description: `${item.entryId} · ${file}:${item.startLine}:${item.startColumn ?? 1}–${item.endLine}:${item.endColumn ?? 1} (priority ${item.priority ?? 0})`,
-          candidate: item,
-        })), { placeHolder: text()(result.complete ? 'choose' : 'chooseIncomplete') });
-        candidate = chosen?.candidate;
-      }
-      if (!candidate || !current()) return;
+      // Query already selected the best priority/span. Break known ties only;
+      // opening an incomplete result does not assert that it is unique or complete.
+      const candidate = [...result.candidates].sort(comparePointerIdentity)[0];
+      if (!current()) return;
       await vscode.commands.executeCommand('snlDoc.openEntryInfoview', candidate.entryId, undefined, candidate.package);
       return candidate.entryId;
     } catch (error) { if (current()) report(error, false, true); }

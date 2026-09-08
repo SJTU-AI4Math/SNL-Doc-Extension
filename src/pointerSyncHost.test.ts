@@ -87,32 +87,66 @@ describe('Pointer host command behavior', () => {
       expect(mocks.info).toHaveBeenCalledWith(expect.stringContaining('No Entry'));
     } finally { f.dispose(); }
   });
-  it('requires an explicit pick even for a single incomplete candidate', async () => {
+  it.each([true, false])('opens a single known candidate without QuickPick (complete=%s)', async complete => {
     const f = fixture();
     try {
-      vi.mocked(f.driver.query).mockResolvedValue({ complete: false, candidates: [{ entryId: 'Known', startLine: 1, endLine: 1, distance: 1 }] });
-      await mocks.commands.get('snlDoc.revealNearestEntry')!();
-      expect(mocks.pick).toHaveBeenCalledTimes(1);
+      vi.mocked(f.driver.query).mockResolvedValue({ complete, candidates: [{ entryId: 'Known', startLine: 1, endLine: 1, distance: 0 }] });
+      expect(await mocks.commands.get('snlDoc.revealNearestEntry')!()).toBe('Known');
+      expect(mocks.execute).toHaveBeenCalledWith('snlDoc.openEntryInfoview', 'Known', undefined, undefined);
+      expect(mocks.pick).not.toHaveBeenCalled();
+      expect(mocks.info).not.toHaveBeenCalled();
+      expect(mocks.warn).not.toHaveBeenCalled();
     } finally { f.dispose(); }
   });
-  it('does not open an Entry for a late query after an edit', async () => {
+  it.each([true, false])('opens deterministic identity from shuffled known ties (complete=%s)', async complete => {
+    const f = fixture();
+    try {
+      const candidates = [
+        { entryId: 'ä', package: '', title: 'A' },
+        { entryId: 'Z', package: 'ä', title: 'B' },
+        { entryId: 'Z', package: 'Z', title: 'C' },
+        { entryId: 'Z', title: 'ZZZ' },
+      ].map((identity, i) => ({ ...identity, startLine: i + 1, endLine: i + 1, distance: i }));
+      for (const input of [candidates, [...candidates].reverse()]) {
+        vi.mocked(f.driver.query).mockResolvedValue({ complete, candidates: input });
+        const before = [...input];
+        expect(await mocks.commands.get('snlDoc.revealNearestEntry')!()).toBe('Z');
+        expect(mocks.execute).toHaveBeenLastCalledWith('snlDoc.openEntryInfoview', 'Z', undefined, undefined);
+        expect(input).toEqual(before);
+      }
+      expect(mocks.pick).not.toHaveBeenCalled();
+      expect(mocks.info).not.toHaveBeenCalled();
+      expect(mocks.warn).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+  });
+  it('retains incomplete feedback when no known candidate exists', async () => {
+    const f = fixture();
+    try {
+      vi.mocked(f.driver.query).mockResolvedValue({ complete: false, candidates: [] });
+      await mocks.commands.get('snlDoc.revealNearestEntry')!();
+      expect(mocks.info).toHaveBeenCalledWith(expect.stringContaining('Results are incomplete'));
+      expect(mocks.execute).not.toHaveBeenCalled();
+      expect(mocks.pick).not.toHaveBeenCalled();
+    } finally { f.dispose(); }
+  });
+  it.each([true, false])('does not open an Entry for a late query after an edit (complete=%s)', async complete => {
     const f = fixture();
     try {
       vi.mocked(f.driver.query).mockImplementation(async () => {
         f.editor.document.version++;
-        return { complete: true, candidates: [{ entryId: 'Old', startLine: 1, endLine: 1, distance: 0 }] };
+        return { complete, candidates: [{ entryId: 'Old', startLine: 1, endLine: 1, distance: 0 }] };
       });
       await mocks.commands.get('snlDoc.revealNearestEntry')!();
       expect(mocks.execute).not.toHaveBeenCalled();
     } finally { f.dispose(); }
   });
-  it('discards a late query after a same-line column move', async () => {
+  it.each([true, false])('discards a late query after a same-line column move (complete=%s)', async complete => {
     const f=fixture();
     try {
       vi.mocked(f.driver.query).mockImplementation(async () => {
         const old=f.editor.selection.active;
         f.editor.selection.active={...old,character:old.character+1,isEqual:()=>false};
-        return {complete:true,candidates:[{entryId:'Old',startLine:1,endLine:1,distance:0}]};
+        return {complete,candidates:[{entryId:'Old',startLine:1,endLine:1,distance:0}]};
       });
       await mocks.commands.get('snlDoc.revealNearestEntry')!();
       expect(mocks.execute).not.toHaveBeenCalled();

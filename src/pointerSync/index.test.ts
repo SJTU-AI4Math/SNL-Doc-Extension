@@ -49,6 +49,24 @@ it('marks unknown same-file ranges incomplete, but does not search unrelated ent
 });
 
 let root: string;
+it.each([true, false])('sorts every winning tie from shuffled buckets and preserves complete=%s', async complete => {
+  await fs.writeFile(path.join(root, 'x'), 'line');
+  const identities = [{ id: 'ä' }, { id: 'Z', package: 'ä' }, { id: 'Z', package: 'Z' }, { id: 'Z' }];
+  const index = await buildPointerIndex(root, [
+    ...identities.map(identity => ({ ...identity, pointer: { file: 'x', mode: 'lines', line: 1 } })),
+    ...(!complete ? [{ id: 'unknown', pointer: { file: 'x', mode: 'regex', pattern: '[' } }] : []),
+  ]);
+  const entries = index.files.x.entries;
+  index.files.x.entries = identities.map(identity => entries.find(entry => entry.entryId === identity.id && entry.package === identity.package)!);
+  if (!complete) index.files.x.entries.push(entries.find(entry => entry.entryId === 'unknown')!);
+  for (const result of [findNearestEntries(index, 'x', 1, 1), await queryNearestEntries(index, 'x', 1, 'line', 1)]) {
+    expect(result.complete).toBe(complete);
+    expect(result.candidates.map(c => [c.entryId, c.package ?? ''])).toEqual([
+      ['Z', ''], ['Z', 'Z'], ['Z', 'ä'], ['ä', ''],
+    ]);
+    expect(result.unresolved).toHaveLength(complete ? 0 : 1);
+  }
+});
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-index-'));
   await fs.mkdir(path.join(root, '.SNL_Doc'));

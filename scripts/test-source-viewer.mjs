@@ -34,7 +34,7 @@ file('f-one','Main.lean',bytes);
 for(let i=2;i<=7;i++)file('f-'+i,'Library/File'+i+'.lean',Buffer.from('def value := '+i+'\n'));
 file('binary','data/unsafe.html',Buffer.from('<script>globalThis.SOURCE_EXECUTED=true</script>\u0000'),'binary');
 file('bad','broken.lean',Buffer.from('bad'));chunks.at(-1).base64=Buffer.from('BAD').toString('base64');
-const p=(entryId,line,endLine=line)=>{const pointer={mode:'lines',file:'Main.lean',line,endLine};const range={startLine:line,startColumn:1,endLine,endColumn:2,coveredEndLine:endLine};return {entryId,pointer,fileId:'f-one',sourceSha256:sha(bytes),range,inverseScope:compilePointerScope(pointer,range,text),status:'ok'};};
+const p=(entryId,line,endLine=line)=>{const pointer={mode:'lines',file:'Main.lean',line,endLine};const range={startLine:line,startColumn:1,endLine,endColumn:text.split('\n')[endLine-1].length+1,coveredEndLine:endLine};return {entryId,pointer,fileId:'f-one',sourceSha256:sha(bytes),range,inverseScope:compilePointerScope(pointer,range,text),status:'ok'};};
 const manifest = { schemaVersion: 'snl.export.sources/v3', exportId: 'export-1', renderSnapshotId: 'render-1', workspaceName: 'Offline Lean', snapshot: {mode:'disk'}, options:{scope:'project',keep:[],exclude:[],companionFiles:[]}, files,directories:['Library','empty'],pointers:[p('Demo',1,6),p('Tie',40),p('Other',40),p('Later',80)],entryRoutes:[{entryId:'Demo',nodeId:'node-demo',hash:'#/node/node-demo'},{entryId:'Tie',nodeId:'node-tie-a',hash:'#/node/node-tie-a'},{entryId:'Tie',nodeId:'node-tie-b',hash:'#/node/node-tie-b'},{entryId:'Other',hash:'#/entry/Other'},{entryId:'Later',nodeId:'node-later',hash:'#/node/node-later'}] };
 const js = readFileSync(resolve(root,'media/sourceViewer.js'),'utf8');
 const css = readFileSync(resolve(root,'media/sourceViewer.css'),'utf8');
@@ -124,7 +124,11 @@ for (const [mode,url] of [['http',`http://127.0.0.1:${server.address().port}/dir
   await page.getByLabel('Follow cursor',{exact:true}).uncheck();
   await page.evaluate(()=>window.monaco.editor.getEditors()[0].focus());await page.keyboard.press('ArrowDown');
   assert.equal(await page.locator('[data-snl-source-current]').count(),0);
-  await page.keyboard.press('Control+Alt+j');assert.equal(await page.locator('.snl-source-choices button').count(),0);assert.equal(await page.evaluate(()=>location.hash),'#/entry/Other');
+  // The next row is outside the exact Pointer; the retired context window must not match.
+  await page.keyboard.press('Control+Alt+j');await page.waitForFunction(()=>document.querySelector('.snl-source-status').textContent==='No nearby entry');
+  assert.equal(await page.locator('[data-snl-source-current]').count(),0);
+  await page.evaluate(()=>window.monaco.editor.getEditors()[0].setPosition({lineNumber:40,column:1},'test-program'));
+  await page.keyboard.press('Control+Alt+j');assert.equal(await page.locator('.snl-source-choices button').count(),0);await page.waitForFunction(()=>location.hash==='#/entry/Other');
   await page.getByLabel('Follow cursor',{exact:true}).check();
   await page.goBack();await page.waitForFunction(()=>location.hash==='');
   // The real export runtime swaps locale/theme body HTML, and source actions must be reattached.

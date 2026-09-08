@@ -495,6 +495,17 @@ describe('Entry pointer editor', () => {
     expect(latestUpdate().entry.pointer).toEqual(malformed);
   });
 
+  it.each([{ priority: '0' }, { column: '2' }, { endColumn: 0 }])('unrelated title edits strip retired fields but preserve unchanged malformed active values: %j', async invalid => {
+    const pointer = { file: 'Main.lean', mode: 'lines', line: 1, ...invalid, beforeLines: 15, afterLines: 15, opaque: { keep: true } };
+    const view = await renderEditor(pointer);
+    fireEvent.change(view.getByLabelText('Title'), { target: { value: 'Unrelated title edit' } });
+    fireEvent.click(view.getByRole('button', { name: /Update Entry/i }));
+    const { beforeLines: _before, afterLines: _after, ...expected } = pointer;
+    expect(latestUpdate().entry.pointer).toEqual(expected);
+    expect(latestUpdate().entry.title).toBe('Unrelated title edit');
+    expect(latestUpdate()).toMatchObject({ expectedRevision: 'pointer-test-revision' });
+  });
+
   it('announces pointer validation errors and associates them with the invalid field', async () => {
     const view = await renderEditor({ file: 'src/a.ts', mode: 'regex', pattern: 'valid' });
     fireEvent.click(sectionButton(view, 'Pointer'));

@@ -5159,7 +5159,8 @@ export async function updateEntry(
     };
   }
   const distanceError = pointerPositionError(entry.pointer);
-  if (distanceError && !isDeepStrictEqual(entry.pointer, pool[idx].pointer)) {
+  // Removing retired fields is not an authored edit to active Pointer values.
+  if (distanceError && !isDeepStrictEqual(withoutPointerContext(entry.pointer), withoutPointerContext(pool[idx].pointer))) {
     return { status: 'invalid', message: distanceError };
   }
   const currentPackageId = pool[idx].package ?? UNPACKAGED_PACKAGE_ID;

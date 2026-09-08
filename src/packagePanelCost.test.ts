@@ -219,6 +219,29 @@ describe('Pointer write-side synchronization', () => {
     expect((jsonByPath.get(entryEntityPath('logic', value.id)) as any).entry.pointer).toEqual(expected);
     expect(pointer.beforeLines).toBe(-1);
   });
+  it.each([{ priority: '0' }, { column: '2' }, { endColumn: 0 }])('allows unrelated edits after UI retirement cleanup of an unchanged malformed Pointer: %j', async (invalid) => {
+    seedEntryTransactionTopology();
+    const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
+    const root = { path: '/ws', toString: () => 'file:///ws' } as never;
+    const id = 'legacy.malformed';
+    const legacy = { file: 'Main.lean', mode: 'lines', line: 1, ...invalid, beforeLines: 15, afterLines: 15, opaque: { keep: true } };
+    const entry = { ...newEntry(id, 'logic'), content: { snl: 'PreservedStatement', markdown: 'Preserved prose.' }, pointer: legacy };
+    jsonByPath.set(packageManifestPath('logic'), makePackageManifest('logic', 'Logic', '', [id]));
+    jsonByPath.set(entryEntityPath('logic', id), makeEntryEnvelope('logic', entry));
+    const { beforeLines: _before, afterLines: _after, ...uiPointer } = legacy;
+    const revision = actual.entityRevision((await actual.readEntries(root, true)).find(e => e.id === id));
+    const result = await actual.updateEntry(root, id, { ...entry, title: 'Unrelated title edit', pointer: uiPointer }, revision);
+    expect(result, JSON.stringify(result)).toMatchObject({ status: 'updated' });
+    const saved = (jsonByPath.get(entryEntityPath('logic', id)) as { entry: typeof entry }).entry;
+    expect(saved.pointer).toEqual(uiPointer);
+    expect(saved.title).toBe('Unrelated title edit');
+    expect(saved.content).toEqual(entry.content);
+    state.writes.length = 0;
+    const changed = { ...uiPointer, priority: 'new invalid priority' };
+    const denied = await actual.updateEntry(root, id, { ...entry, pointer: changed }, actual.entityRevision(saved));
+    expect(denied.status).toBe('invalid');
+    expect(state.writes).toEqual([]);
+  });
   it('rejects invalid active priority/columns without writing', async () => {
     const actual = await vi.importActual<typeof import('./snlDoc')>('./snlDoc');
     for (const fields of [

@@ -22,10 +22,10 @@ async function fixture(text: string, pointer: EntryPointer) {
     options: { ...DEFAULT_SOURCE_OPTIONS, enabled: true, allowMissing: true } });
   return { root, index, preview };
 }
-const regex = (pattern: string): EntryPointer => ({ file: 'x.lean', mode: 'regex', pattern, beforeLines: 0, afterLines: 0 });
+const regex = (pattern: string): EntryPointer => ({ file: 'x.lean', mode: 'regex', pattern });
 
 it('treats a lone CR as an editor newline and never publishes a negative scope', async () => {
-  const pointer: EntryPointer = { file: 'x.lean', mode: 'lines', line: 1, column: 3, endColumn: 3, beforeLines: 0, afterLines: 1 };
+  const pointer: EntryPointer = { file: 'x.lean', mode: 'lines', line: 1, column: 3, endColumn: 3 };
   const { root, index, preview } = await fixture('a\r', pointer);
   expect(index.files['x.lean'].entries[0].resolution.status).toBe('invalid-shape');
   expect(isPointerIndex(index)).toBe(true);
@@ -55,16 +55,18 @@ it('retains whole CRLF matches and exact original UTF16 offsets', async () => {
 });
 
 it('uses the same lone-CR row coordinates for forward, inverse and exported scopes', async () => {
-  const pointer: EntryPointer = { ...regex('b'), afterLines: 1 };
+  const pointer = regex('b');
   const { index, preview } = await fixture('a\rb\r', pointer);
   expect(resolvePointerText(pointer, 'a\rb\r')).toMatchObject({ status: 'ok', range: {
     startLine: 2, startColumn: 1, endLine: 2, endColumn: 2,
   } });
   expect(index.files['x.lean'].entries[0].resolution).toMatchObject({ status: 'ok', scope: {
-    startLine: 2, endLine: 3, endColumn: 1, startOffset: 2, endOffset: 4, span: 2,
+    startLine: 2, endLine: 2, endColumn: 2, startOffset: 2, endOffset: 3, span: 1, endInclusive: false,
   } });
   // Preserve the existing export EOL vocabulary (bare CR is classified as mixed).
   expect(preview.manifest.files[0].eol).toBe('mixed');
-  expect(findNearestEntries(index, 'x.lean', 3, 1).candidates.map(p => p.entryId)).toEqual(['e']);
+  expect(findNearestEntries(index, 'x.lean', 2, 1).candidates.map(p => p.entryId)).toEqual(['e']);
+  expect(findNearestEntries(index, 'x.lean', 2, 2).candidates).toEqual([]);
+  expect(findNearestEntries(index, 'x.lean', 3, 1).candidates).toEqual([]);
   for (const inline of [false, true]) expect(() => buildSourceAssets(preview, inline)).not.toThrow();
 });

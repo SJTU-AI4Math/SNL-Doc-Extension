@@ -1,10 +1,8 @@
-/** Portable Pointer schema. Missing directional buffers independently mean 15 lines. */
+/** Portable Pointer schema. The resolved range is the exact inverse scope. */
 export type PointerMode = 'lines' | 'regex';
 interface PointerBase {
   file: string;
   priority?: number;
-  beforeLines?: number;
-  afterLines?: number;
 }
 export interface EntryPointerLines extends PointerBase {
   mode: 'lines';
@@ -25,10 +23,7 @@ export function isStructuralPointer(value: unknown): value is EntryPointer {
   if (!value || typeof value !== 'object') return false;
   const p = value as Record<string, unknown>;
   if (typeof p.file !== 'string' || !p.file.trim()) return false;
-  for (const field of ['beforeLines', 'afterLines']) {
-    const n = p[field];
-    if (n !== undefined && (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0)) return false;
-  }
+  // Obsolete beforeLines/afterLines are unknown fields, regardless of their values.
   if (p.priority !== undefined && (typeof p.priority !== 'number' || !Number.isFinite(p.priority))) return false;
   for (const field of ['column', 'endColumn']) {
     const n = p[field];
@@ -46,7 +41,7 @@ export function isStructuralPointer(value: unknown): value is EntryPointer {
       Number.isSafeInteger(p.occurrence) && p.occurrence >= 1));
 }
 
-/** Keep authored omission vs explicit zero; discard unknown fields. */
+/** Preserve supported authored options; discard unknown and obsolete fields. */
 export function normalizeEntryPointer(value: unknown): EntryPointer | null {
   if (!isStructuralPointer(value)) return null;
   let out: EntryPointer;
@@ -61,8 +56,6 @@ export function normalizeEntryPointer(value: unknown): EntryPointer | null {
     if (value.occurrence !== undefined) out.occurrence = value.occurrence;
   }
   if (value.priority !== undefined) out.priority = value.priority;
-  if (value.beforeLines !== undefined) out.beforeLines = value.beforeLines;
-  if (value.afterLines !== undefined) out.afterLines = value.afterLines;
   return out;
 }
 

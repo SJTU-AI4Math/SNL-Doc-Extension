@@ -15,7 +15,7 @@ it.each([
   expect(await readPointerIndex(root)).toBeUndefined();
 });
 
-it('rejects malformed ranges, pointer thresholds, unknown diagnostics, and duplicate records', async () => {
+it('rejects malformed ranges, pointer priorities, unknown diagnostics, and duplicate records', async () => {
   await fs.writeFile(path.join(root, 'x'), 'a\nb');
   const index = await buildPointerIndex(root, [{ id: 'a', pointer: { file: 'x', mode: 'lines', line: 1 } }]);
   await fs.mkdir(path.join(root, '.SNL_Doc'));
@@ -28,7 +28,7 @@ it('rejects malformed ranges, pointer thresholds, unknown diagnostics, and dupli
     (value: any) => { value.files.x.entries[0].resolution.scope.priority = null; },
     (value: any) => { value.files.x.entries[0].resolution.scope.endInclusive = 'true'; },
     (value: any) => { value.files.x.entries[0].resolution.range = value.files.x.entries[0].resolution.scope; },
-    (value: any) => { value.files.x.entries[0].pointer.beforeLines = -1; },
+    (value: any) => { value.files.x.entries[0].pointer.priority = 'bad'; },
     (value: any) => { value.files.x.entries[0].resolution = { status: 'invented' }; },
     (value: any) => { value.files.x.entries[0].resolution = { status: 'regex-timeout' }; },
     (value: any) => { value.files.x.fingerprint = null; },

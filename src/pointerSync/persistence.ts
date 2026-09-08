@@ -30,7 +30,7 @@ function validResolution(value: unknown): boolean {
 /** Structural cache validation, not a freshness certificate. Rebuild after startup/metadata changes
  * and resolve dirty source snapshots before querying. Never execute regex while reading a cache. */
 export function isPointerIndex(value: unknown): value is PointerIndex {
-  if (!record(value) || value.version !== 2 || !record(value.files) || !Array.isArray(value.unfiled)) return false;
+  if (!record(value) || value.version !== 3 || !record(value.files) || !Array.isArray(value.unfiled)) return false;
   const seen = new Set<string>();
   const validEntry = (entry: unknown, file?: string, fingerprint?: unknown): boolean => {
     if (!record(entry) || typeof entry.entryId !== 'string' || !entry.entryId ||

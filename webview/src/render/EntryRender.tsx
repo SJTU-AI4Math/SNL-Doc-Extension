@@ -184,7 +184,7 @@ export function EntryRender({
   onTitleCtrlClick
 }: EntryRenderProps): React.ReactElement {
   const capabilities = useReaderCapabilities();
-  const preferencesRevision = use_preferences_revision();
+  use_preferences_revision();
   const contentLanguage = use_content_language();
   const resolvedEntry = useMemo(
     () => ({ ...entry, title: resolve_localized_string(entry.title, contentLanguage) }),
@@ -352,7 +352,7 @@ export function EntryRender({
 
   return (
     <BasicsEntrySurface
-      key={`content-language-${contentLanguage}-preferences-${preferencesRevision}`}
+      key={`content-language-${contentLanguage}`}
       entry={resolvedEntry}
       kind={kind}
       entry_data_driver={entryDataDriver}
@@ -364,7 +364,7 @@ export function EntryRender({
       kind_palette={kindPalette}
       markdown_image_url_transform={markdownImageUrlTransform}
       counter_label={counterLabel}
-      show_source_action={hasStructuralPointer(entry.pointer) && capabilities.sourceAvailable(entry.id)}
+      show_source_action={capabilities.sourceAvailable?.(entry.id) ?? hasStructuralPointer(entry.pointer)}
     />
   );
 }

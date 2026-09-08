@@ -1,6 +1,8 @@
 // Tiny helpers shared by every SNL webview entry.
 import React from 'react';
 import { setReaderPlatformResolver } from './runtime/readerPlatform';
+import { connect_preferences_platform } from './runtime/preferencesRuntime';
+queueMicrotask(() => { const api = getVsCodeApi(); if (api) connect_preferences_platform(api); });
 setReaderPlatformResolver(getVsCodeApi);
 import './components/ui.css';
 

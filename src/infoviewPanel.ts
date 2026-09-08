@@ -24,6 +24,7 @@ import {
   readMacroKinds,
   readAllMacrosWithOrigin,
   readRelationships,
+  readWorkspaceSupportedLanguages,
   type EntryData,
   type EntryKind,
   type LibraryEntry,
@@ -36,11 +37,10 @@ import {
   webviewLocalResourceRoots
 } from './panelUtil';
 import { ExportOptionsPanel, type ExportPayload } from './exportOptionsPanel';
-import { readerEntryClosure, readerAssetPaths, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
+import { readerDependencyClosure, readerAssetPaths, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
 import { readWorkspaceAsset } from './workspaceAssets';
 import { toDataUrl } from './exportDocument';
 import { createHash } from 'node:crypto';
-import { BUILT_IN_LANGUAGE_CATALOG } from './languageCatalog';
 import { assertRenderSnapshot, renderDependencyId, type RenderSourceContext } from './sourceExport/renderSnapshot';
 import { countPanelOpen, startTrace, type Trace } from './trace';
 import {
@@ -840,36 +840,37 @@ export class InfoviewPanel {
           libraryEntryIds.has(relationship.from) && libraryEntryIds.has(relationship.to)
       );
 
-      const [macros, macroKinds] = await Promise.all([
-        this.readMacroDb(),
-        readMacroKinds(root)
+      const [macros, macroKinds, languages] = await Promise.all([
+        this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
       if (generation !== this.viewGeneration) return;
-      const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds };
+      const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
+      const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
       const renderSnapshotId = renderDependencyId(dependencies);
       const context: RenderSourceContext = {
-        rootPath: root.fsPath, renderSnapshotId, entries: entryPool.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
+        rootPath: root.fsPath, renderSnapshotId, entries: closure.entries.map(entry => ({ id: entry.id, package: entry.package, pointer: structuredClone(entry.pointer), title: resolve_localized_string(entry.title, this.contentLanguage ?? "en") })),
         entryRoutes: graph.nodes.flatMap(node => node.label === 'Entry' && typeof node.props?.entryId === 'string'
-          ? [{ entryId: node.props.entryId, nodeId: node.id, hash: '#/node/' + encodeURIComponent(node.id) }] : []),
+          ? [{ entryId: node.props.entryId, nodeId: node.id, hash: '#/node/' + encodeURIComponent(node.id) }] : []).concat(
+            closure.entries.filter(entry => !libraryEntryIds.has(entry.id)).map(entry => ({ entryId: entry.id, nodeId: entry.id, hash: '#/entry/' + encodeURIComponent(entry.id) }))),
         revalidate: async () => {
           if (firstWorkspaceFolder()?.toString() !== root.toString()) throw new Error('Workspace changed; recapture export.');
-          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds] = await Promise.all([
+          const [currentLibraries, entries, currentKinds, currentCounters, relationships, currentMacros, currentMacroKinds, currentLanguages] = await Promise.all([
             listLibraries(root), readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
-            readRelationships(root), readAllMacros(root), readMacroKinds(root)
+            readRelationships(root), readAllMacros(root), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
           ]);
           const currentGraph = await readLibraryGraph(root, slug, { entryPool: entries });
           assertRenderSnapshot(renderSnapshotId, { libraries: currentLibraries, entries, kinds: currentKinds, counters: currentCounters,
-            graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds });
+            graphResult: currentGraph, relationshipRead: { relationships, error: null }, macros: currentMacros, macroKinds: currentMacroKinds, languages: currentLanguages });
         }
       };
       this.renderSourceContext = context;
       this.readerSnapshot = structuredClone({
         version: 1, renderSnapshotId,
         library: { slug, title: displayTitle, description, outline, warnings },
-        entries: readerEntryClosure(outline, entryPool, macros), entryKinds: kinds,
-        entryPackages: entryPackageIdentities(entryPool), macros, macroKinds,
-        relationships: exportRelationships, preferences: read_extension_preferences(),
-        contentLanguage: this.contentLanguage ?? 'en', languages: [...BUILT_IN_LANGUAGE_CATALOG], resources: {}
+        entries: closure.entries, entryKinds: kinds,
+        entryPackages: entryPackageIdentities(closure.entries), macros: closure.macros, macroKinds,
+        relationships: closure.relationships, preferences: read_extension_preferences(),
+        contentLanguage: this.contentLanguage ?? 'en', languages, resources: {}
       });
 
       void this.panel.webview.postMessage({

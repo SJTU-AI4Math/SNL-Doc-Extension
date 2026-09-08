@@ -40,12 +40,13 @@ function decodeWorkspaceSource(
         path.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
       return undefined;
     }
-    const parsed = new URL(normalizedSource);
     return {
       key: `${normalizedBase}\u0000${normalizedSource}\u0000${epoch}`,
       path,
       authoredSource: normalizedSource,
-      suffix: `${parsed.search}${parsed.hash}`
+      // A data-URL broker base has its own hash marker; only the suffix
+      // AFTER the authored asset path belongs on the resolved resource.
+      suffix: remainder.slice(encodedPath.length)
     };
   } catch {
     return undefined;

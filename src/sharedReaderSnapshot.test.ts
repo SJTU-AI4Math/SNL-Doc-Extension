@@ -94,6 +94,11 @@ describe('fixed point and export security', () => {
 });
 
 describe('reader assets', () => {
+  it('normalizes the same workspace-relative spellings as the shared Markdown renderer', () => {
+    for (const spelling of ['./assets/figure.svg', '.SNL_Doc/assets/figure.svg', 'assets/figure.svg', 'figure.svg']) {
+      expect(reader.readerAssetPaths(`![a](${spelling})`)).toEqual(['figure.svg']);
+    }
+  });
   it('finds supported SVG assets and validated image presets, rejecting traversal and schemes', () => {
     expect(reader.readerAssetPaths({ styles: [
       { template: { svg_template: { asset: { source: 'diagrams/one.svg' } } } },

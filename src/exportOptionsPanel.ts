@@ -3,7 +3,7 @@ import * as nodePath from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { buildPanelHtml, firstWorkspaceFolder } from './panelUtil';
 import { buildExportDocument, EXPORT_BASE_CSS } from './exportHtmlDocument';
-import type { FrozenReaderSnapshot } from './sharedReaderSnapshot';
+import { projectSnapshotForExport, type FrozenReaderSnapshot } from './sharedReaderSnapshot';
 import { defaultExportName, writeExport, type ExportRequest } from './exportWriter';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -370,6 +370,14 @@ export class ExportOptionsPanel {
     const options = parseSourceOptions(rawSources);
     const sourceContext = this.sourceContext;
     const confirmed = this.sourcePreview;
+    const capturedPayload = this.payload;
+    const generation = this.previewGeneration;
+    const payload = structuredClone(capturedPayload);
+    const assertCurrent = (): void => {
+      if (sourceContext !== this.sourceContext || capturedPayload !== this.payload || generation !== this.previewGeneration) {
+        throw new Error('Export context changed; recapture export.');
+      }
+    };
     if (options.enabled) {
       if (!interactive || !sourceContext || !confirmed) throw new Error('Source export requires interaction and a confirmed preview.');
       if (confirmed.key !== sourceRequestKey(options, destinationPath, shape, sourceContext.renderSnapshotId) || confirmationId !== confirmed.preview.confirmationId) throw new Error('Source options changed; preview and confirm again.');
@@ -380,11 +388,12 @@ export class ExportOptionsPanel {
       if (confirmed !== this.sourcePreview || sourceContext !== this.sourceContext) throw new Error('Export context changed; preview again.');
     }
     await sourceContext?.revalidate();
-    const payload = structuredClone(this.payload);
+    assertCurrent();
+    if (interactive && (!sourceContext || payload.readerSnapshot?.renderSnapshotId !== sourceContext.renderSnapshotId)) throw new Error('Reader snapshot/context mismatch; recapture export.');
     if (interactive && !payload.readerSnapshot) throw new Error('Versioned reader snapshot missing; recapture export.');
     const request: ExportRequest = {
       ...payload,
-      readerSnapshot: interactive ? payload.readerSnapshot : undefined,
+      readerSnapshot: interactive ? projectSnapshotForExport(payload.readerSnapshot!) : undefined,
       sourcePreview: options.enabled ? confirmed!.preview : undefined,
       inline: shape === 'single',
       // A static export promises no JavaScript. Do not merely hide the tag:
@@ -413,11 +422,14 @@ export class ExportOptionsPanel {
         workspaceRoot: root,
         destination,
         beforePublish: async () => {
+          assertCurrent();
           await sourceContext?.revalidate();
+          assertCurrent();
           if (!options.enabled) return;
           if (sourceContext !== this.sourceContext || confirmed !== this.sourcePreview) throw new Error('Export preview changed before publication.');
           await sourceContext!.revalidate();
           await revalidateSourceSnapshot(confirmed!.preview, this.sourceCaptureInput(sourceContext!, options, destinationPath, shape));
+          assertCurrent();
         },
         buildDocument: (input) =>
           buildExportDocument({

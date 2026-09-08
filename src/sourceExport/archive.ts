@@ -219,6 +219,18 @@ export async function captureSourceSnapshot(input: SourceCaptureInput): Promise<
         parts.push(block.subarray(0, result.bytesRead));
       }
       bytes = Buffer.concat(parts, length); totalBytes += length; readFiles++; progress('read', node.name);
+      // Even nanosecond stat fields can share one filesystem clock tick. Verify
+      // held-descriptor bytes too, so same-size in-place changes are not accepted.
+      const verifyBlock = Buffer.alloc(Math.min(65536, length + 1));
+      let verified = 0;
+      while (true) {
+        check();
+        const next = await handle.read(verifyBlock, 0, verifyBlock.length, verified);
+        if (!next.bytesRead) break;
+        if (verified + next.bytesRead > length || !verifyBlock.subarray(0, next.bytesRead).equals(bytes.subarray(verified, verified + next.bytesRead))) throw new SourcePreflightError('Source changed during read');
+        verified += next.bytesRead;
+      }
+      if (verified !== length) throw new SourcePreflightError('Source changed during read');
       const after = await handle.stat({ bigint: true });
       const realAfter = await fs.realpath(path.join(root, node.name));
       const statAfter = await fs.stat(path.join(root, node.name), { bigint: true });

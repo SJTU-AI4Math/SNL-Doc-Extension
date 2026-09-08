@@ -16,6 +16,20 @@ export function decodeReaderRoute(hash: string): ReaderRoute {
   } catch { /* Malformed deep links return to the library without crashing. */ }
   return { kind: 'library' };
 }
+/** Resolve before DOM insertion: an offline reader must never attempt a remote image request. */
+export function frozenImageUrl(resources: FrozenReaderSnapshot['resources'], source: string): string {
+  if (/^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)[;,]/i.test(source)) return source;
+  const unavailable = 'data:,';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source) || source.startsWith('/') || source.startsWith('#')) return unavailable;
+  try {
+    const path = decodeURIComponent(source.split(/[?#]/, 1)[0]).replace(/^\.\//, '').replace(/^\.SNL_Doc\/assets\//, '').replace(/^assets\//, '');
+    if (!path || /[:\\\u0000-\u001f\u007f-\u009f]/u.test(path) || path.split('/').some(part => !part || part === '.' || part === '..') || decodeURIComponent(path) !== path) return unavailable;
+    const asset = Object.hasOwn(resources, path) ? resources[path] : undefined;
+    if (!asset) return unavailable;
+    const hash = source.indexOf('#');
+    return asset.url + (hash >= 0 ? source.slice(hash) : '');
+  } catch { return unavailable; }
+}
 export function frozenAssetReply(resources: FrozenReaderSnapshot['resources'], request: Record<string, unknown>): Record<string, unknown> | undefined {
   const svg = request.type === 'snl.assets/read-svg';
   if (!svg && request.type !== 'snl.assets/resolve') return undefined;

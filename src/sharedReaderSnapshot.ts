@@ -87,7 +87,7 @@ export function readerAssetPaths(value: unknown): string[] {
   const paths = new Set<string>();
   const add = (raw: string): void => {
     let path: string;
-    try { path = decodeURIComponent(raw.split(/[?#]/)[0]).replace(/^assets\//, ''); } catch { return; }
+    try { path = decodeURIComponent(raw.split(/[?#]/)[0]).replace(/^\.\//, '').replace(/^\.SNL_Doc\/assets\//, '').replace(/^assets\//, ''); } catch { return; }
     if (!path || /[:\\\u0000-\u001f\u007f-\u009f]/u.test(path) || path.startsWith('/') ||
         path.split('/').some(s => !s || s === '.' || s === '..')) return;
     // Refuse a second encoded interpretation at downstream URL/filesystem boundaries.

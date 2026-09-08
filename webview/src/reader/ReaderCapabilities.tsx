@@ -6,11 +6,12 @@ export interface ReaderCapabilities {
   edit: boolean;
   graph: boolean;
   export: boolean;
-  sourceAvailable(entryId: string): boolean;
+  /** Browser resolves availability from its reviewed manifest; host uses authored Pointer. */
+  sourceAvailable?(entryId: string): boolean;
   sourceUnavailableReason?: string;
 }
 const defaults: ReaderCapabilities = {
-  edit: true, graph: true, export: true, sourceAvailable: () => true
+  edit: true, graph: true, export: true
 };
 export const ReaderCapabilitiesContext = createContext<ReaderCapabilities>(defaults);
 export const useReaderCapabilities = (): ReaderCapabilities => useContext(ReaderCapabilitiesContext);

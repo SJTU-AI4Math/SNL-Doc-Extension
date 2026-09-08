@@ -36,7 +36,7 @@ describe('source export host authority', () => {
     const { readerSnapshot: _snapshot, ...legacyPayload } = payload;
     ExportOptionsPanel.show({} as never, legacyPayload, sourceContext()); await preflight(); await run();
     expect(state.writes).not.toHaveBeenCalled();
-    expect(state.messages.at(-1).message).toMatch(/snapshot missing/i);
+    expect(state.messages.at(-1).message).toMatch(/snapshot missing|snapshot\/context mismatch/i);
   });
   it('rejects ambiguous multi-root source export instead of silently choosing first root', async () => {
     state.rootCount=2; ExportOptionsPanel.show({} as never, payload, sourceContext()); await preflight();

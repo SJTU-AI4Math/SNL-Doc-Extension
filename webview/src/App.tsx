@@ -182,7 +182,7 @@ export function App(): React.ReactElement {
   };
 
   return (
-    <ReaderCapabilitiesContext.Provider value={{ api: apiRef.current, edit: true, graph: true, export: true, sourceAvailable: () => true }}>
+    <ReaderCapabilitiesContext.Provider value={{ api: apiRef.current, edit: true, graph: true, export: true }}>
     <HoverPopoverProvider
       postMessage={postMessage}
       entries={entryPool}

@@ -14,8 +14,15 @@ export async function verifyCompactGraph({evaluate,wait,screenshot,page,evidence
     const labels=[...document.querySelectorAll('[data-package-label], g[role="group"][data-package-id] > text')];
     const bounds={left:Math.min(...rects.map(r=>r.left)),top:Math.min(...rects.map(r=>r.top)),right:Math.max(...rects.map(r=>r.right)),bottom:Math.max(...rects.map(r=>r.bottom))};
     const w=bounds.right-bounds.left,h=bounds.bottom-bounds.top;
+    // Orbital routes can extend beyond the card rectangle: fit must contain
+    // these real paths, not crop them to maximize the old node-only metric.
+    const paths=[...document.querySelectorAll('[data-graph-viewport] path[marker-end]')].map(p=>p.getBoundingClientRect());
+    const content=[...rects,...paths];
+    const contentWidth=Math.max(...content.map(r=>r.right))-Math.min(...content.map(r=>r.left));
+    const contentHeight=Math.max(...content.map(r=>r.bottom))-Math.min(...content.map(r=>r.top));
     let overlaps=0;for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){const a=rects[i],b=rects[j];if(Math.min(a.right,b.right)-Math.max(a.left,b.left)>0.3&&Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>0.3)overlaps++;}
-    return {nodes:ns.length,bounds,width:w,height:h,density:rects.reduce((s,r)=>s+r.width*r.height,0)/(w*h),extentFill:Math.max(w/svg.width,h/svg.height),overlaps,
+    return {nodes:ns.length,bounds,width:w,height:h,density:rects.reduce((s,r)=>s+r.width*r.height,0)/(w*h),extentFill:Math.max(w/svg.width,h/svg.height),contentExtentFill:Math.max(contentWidth/svg.width,contentHeight/svg.height),overlaps,
+      routesOutside:paths.filter(r=>r.left<svg.left-0.5||r.top<svg.top-0.5||r.right>svg.right+0.5||r.bottom>svg.bottom+0.5).length,
       outside:rects.filter(r=>r.left<svg.left-0.5||r.top<svg.top-0.5||r.right>svg.right+0.5||r.bottom>svg.bottom+0.5).length,
       labels:labels.map(n=>{const r=n.getBoundingClientRect(),m=n.getScreenCTM();return {text:n.textContent,width:r.width,height:r.height,font:parseFloat(getComputedStyle(n).fontSize)*Math.hypot(m.a,m.b)};})};
   })()`);
@@ -40,7 +47,7 @@ export async function verifyCompactGraph({evaluate,wait,screenshot,page,evidence
       await select('Layout',mode);
       const result=await measure();evidence.compact[name+'-'+mode]=result;
       await screenshot('compact-'+name+'-'+mode);
-      if(!measureOnly){assert.equal(result.nodes,count);assert.equal(result.overlaps,0,'ordinary title cards overlap');assert.equal(result.outside,0,'fit clips title cards');assert.ok(result.extentFill>=0.72,'actual content does not use available viewport');assert.ok(result.labels.length>=packages);assert.ok(result.labels.every(l=>Math.abs(l.font-12)<0.1),'package label must be 12 screen pixels');
+      if(!measureOnly){assert.equal(result.nodes,count);assert.equal(result.overlaps,0,'ordinary title cards overlap');assert.equal(result.outside,0,'fit clips title cards');assert.equal(result.routesOutside,0,'fit clips orbital routes');assert.ok(result.contentExtentFill>=0.72,'actual content does not use available viewport');assert.ok(result.labels.length>=packages);assert.ok(result.labels.every(l=>Math.abs(l.font-12)<0.1),'package label must be 12 screen pixels');
         if(name==='branching'){
           await packing('rings');const rings=await measure();evidence.compact[name+'-'+mode+'-rings']=rings;await screenshot('compact-'+name+'-'+mode+'-rings');
           assert.equal(rings.overlaps,0);assert.equal(rings.outside,0);assert.equal(rings.nodes,count);

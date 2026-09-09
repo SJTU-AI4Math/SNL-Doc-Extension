@@ -219,9 +219,8 @@ interface LaidOutNode {
 
 interface LaidOutEdge extends GraphEdge {
   isBack: boolean; // was reversed during cycle-break; render dashed
-  /** X/Y waypoints threaded through dummy-node centres between endpoints.
-   *  Endpoints themselves are NOT included; empty for short (single-layer)
-   *  edges. */
+  /** Internal layout metadata threaded through dummy centers. Endpoint-only
+   *  rendering ignores these points; retain them to preserve node placement. */
   waypoints: { x: number; y: number }[];
 }
 
@@ -443,8 +442,8 @@ export function layout(inputNodes: GraphNode[], inputEdges: GraphEdge[], mode: G
   // has no barycentre input for the sort — this is exactly the
   // "很左边的拉一条边到最右边" symptom cat flagged. Fix: replace each
   // long edge with a chain A → d1(r=k+1) → d2(r=k+2) → … → B, where
-  // d_i are virtual dummies that participate in ordering but render as
-  // waypoints on the real edge.
+  // d_i are virtual dummies that participate in ordering. Their coordinates
+  // remain layout metadata; endpoint-only edge rendering ignores them.
   //
   // `dummiesByEdge` holds the chain per original edge id (in visit
   // order — d1 at rank k+1, d2 at k+2, …). Empty for short edges.
@@ -945,69 +944,124 @@ function nodeBoundary(node: EdgeAnchorNode, toward: EdgePoint, shape: NodeShape)
   return { x: cx + ux * distance, y: cy + uy * distance };
 }
 
-/**
- * Compute an SVG path for an edge, routing through any dummy-node waypoints.
- *
- * Explicit shapes route from the actual outline toward the adjacent waypoint
- * (or opposite centre); this works at every radial angle and for reverse edges.
- * Omitting shapes preserves the legacy rectangular vertical-port API.
- * Interior tangents follow the centred secant through neighbouring waypoints.
- */
+type EdgeCubic = { start: EdgePoint; c1: EdgePoint; c2: EdgePoint; end: EdgePoint };
+const offsetPoint = (p: EdgePoint, direction: EdgePoint, distance: number): EdgePoint => ({
+  x: p.x + direction.x * distance, y: p.y + direction.y * distance
+});
+
+/** A canonical radial-out / short orbit / radial-in maneuver. Both transition
+ * control polygons stay in their angular wedges, away from the center. The
+ * circular cubics meet the transitions with the same oriented tangent (G1).
+ * This is endpoint geometry, not obstacle avoidance or a layout operation. */
+function radialEdgePath(from: EdgeAnchorNode, to: EdgeAnchorNode,
+  fromShape: NodeShape, toShape: NodeShape, origin: EdgePoint) {
+  const fc = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
+  const tc = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
+  // Calculate once in a spatially canonical order, then reverse controls. This
+  // also makes the exactly-antipodal choice independent of edge direction.
+  const reverse = fc.x > tc.x || (fc.x === tc.x && fc.y > tc.y);
+  const a = reverse ? to : from, b = reverse ? from : to;
+  const ac = reverse ? tc : fc, bc = reverse ? fc : tc;
+  const aShape = reverse ? toShape : fromShape, bShape = reverse ? fromShape : toShape;
+  const ar = Math.hypot(ac.x - origin.x, ac.y - origin.y);
+  const br = Math.hypot(bc.x - origin.x, bc.y - origin.y);
+  // A node exactly at the center has no polar direction: use its partner's
+  // ray. Coincident centers (including two central endpoints) use the loop.
+  const aa = Math.atan2((ar ? ac : bc).y - origin.y, (ar ? ac : bc).x - origin.x);
+  const ba = Math.atan2((br ? bc : ac).y - origin.y, (br ? bc : ac).x - origin.x);
+  let sweep = Math.atan2(Math.sin(ba - aa), Math.cos(ba - aa));
+  if (Math.abs(Math.abs(sweep) - Math.PI) < 1e-14) sweep = Math.PI;
+  const au = { x: Math.cos(aa), y: Math.sin(aa) }, bu = { x: Math.cos(ba), y: Math.sin(ba) };
+  const port = (n: EdgeAnchorNode, c: EdgePoint, u: EdgePoint, shape: NodeShape, sign = 1) =>
+    nodeBoundary(n, offsetPoint(c, u, sign), shape);
+  let curves: EdgeCubic[];
+  let middle: EdgePoint;
+  // Equal angles at distinct radii need no orbital turn. The small tolerance
+  // absorbs atan2 roundoff from the layout's sin/cos projection, not real turns.
+  if (Math.abs(sweep) < 1e-14 && Math.abs(ar - br) > 1e-8) {
+    const sign = br > ar ? 1 : -1;
+    const start = port(a, ac, au, aShape, sign), end = port(b, bc, bu, bShape, -sign);
+    const step = { x: (end.x - start.x) / 3, y: (end.y - start.y) / 3 };
+    curves = [{ start, c1: offsetPoint(start, step, 1), c2: offsetPoint(end, step, -1), end }];
+    middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  } else {
+    const start = port(a, ac, au, aShape), end = port(b, bc, bu, bShape);
+    const sr = Math.hypot(start.x - origin.x, start.y - origin.y);
+    const er = Math.hypot(end.x - origin.x, end.y - origin.y);
+    const direction = sweep < 0 ? -1 : 1;
+    const turn = Math.min(Math.abs(sweep) / 4, Math.PI / 8);
+    // Keep the radial controls before the orbit's projected radius, providing
+    // a positive outward departure even for equal endpoint radii.
+    const radius = Math.max(sr, er) / Math.cos(turn) + 24;
+    const polar = (angle: number): EdgePoint => offsetPoint(origin, { x: Math.cos(angle), y: Math.sin(angle) }, radius);
+    const tangent = (angle: number): EdgePoint => ({ x: -Math.sin(angle) * direction, y: Math.cos(angle) * direction });
+    const firstAngle = aa + direction * turn, lastAngle = aa + sweep - direction * turn;
+    const first = polar(firstAngle), last = polar(lastAngle);
+    const turnHandle = radius * Math.tan(turn / 2);
+    curves = [{ start, c1: offsetPoint(start, au, (radius * Math.cos(turn) - sr) / 2),
+      c2: offsetPoint(first, tangent(firstAngle), -turnHandle), end: first }];
+    // At most two circular cubics; each spans <= pi/2. Their standard controls
+    // preserve the short angular sweep rather than cutting a chord inward.
+    const count = Math.max(1, Math.ceil(Math.abs(lastAngle - firstAngle) / (Math.PI / 2)));
+    for (let i = 0; i < count; i++) {
+      const angle = firstAngle + (lastAngle - firstAngle) * i / count;
+      const nextAngle = firstAngle + (lastAngle - firstAngle) * (i + 1) / count;
+      const p = curves[curves.length - 1].end, q = i === count - 1 ? last : polar(nextAngle);
+      const handle = 4 / 3 * radius * Math.tan(Math.abs(nextAngle - angle) / 4);
+      curves.push({ start: p, c1: offsetPoint(p, tangent(angle), handle),
+        c2: offsetPoint(q, tangent(nextAngle), -handle), end: q });
+    }
+    curves.push({ start: last, c1: offsetPoint(last, tangent(lastAngle), turnHandle),
+      c2: offsetPoint(end, bu, (radius * Math.cos(turn) - er) / 2), end });
+    middle = polar(aa + sweep / 2);
+  }
+  if (reverse) curves = curves.reverse().map(c => ({ start: c.end, c1: c.c2, c2: c.c1, end: c.start }));
+  const start = curves[0].start;
+  return { d: `M ${start.x} ${start.y} ` + curves.map(c =>
+    `C ${c.c1.x} ${c.c1.y}, ${c.c2.x} ${c.c2.y}, ${c.end.x} ${c.end.y}`).join(' '),
+    midX: middle.x, midY: middle.y };
+}
+
+/** Endpoint-only routing. Layout dummies still stabilize node ordering, but
+ * never influence rendered paths. Omitting context selects vertical ports. */
 export function edgePath(
   from: EdgeAnchorNode,
   to: EdgeAnchorNode,
-  waypoints: EdgePoint[],
-  shapes?: { fromShape: NodeShape; toShape: NodeShape }
+  _waypoints: EdgePoint[],
+  shapes?: { fromShape: NodeShape; toShape: NodeShape },
+  context?: { radial?: Pick<RadialProjection, 'centerX' | 'centerY'> }
 ): { d: string; midX: number; midY: number } {
   const fromCentre = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
   const toCentre = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
-  if (shapes && fromCentre.x === toCentre.x && fromCentre.y === toCentre.y) {
-    const start = nodeBoundary(from, { x: fromCentre.x + 1, y: fromCentre.y }, shapes.fromShape);
-    const end = nodeBoundary(to, { x: toCentre.x, y: toCentre.y - 1 }, shapes.toShape);
+  if (fromCentre.x === toCentre.x && fromCentre.y === toCentre.y) {
+    const start = nodeBoundary(from, { x: fromCentre.x + 1, y: fromCentre.y }, shapes?.fromShape ?? 'title');
+    const end = nodeBoundary(to, { x: toCentre.x, y: toCentre.y - 1 }, shapes?.toShape ?? 'title');
     const right = from.x + from.w + 36, top = from.y - 36;
     return {
       d: `M ${start.x} ${start.y} C ${right} ${start.y}, ${right} ${top}, ${fromCentre.x + from.w / 2} ${top} C ${end.x} ${top}, ${end.x} ${top}, ${end.x} ${end.y}`,
       midX: right, midY: top
     };
   }
-  const start = shapes ? nodeBoundary(from, waypoints[0] ?? toCentre, shapes.fromShape)
-    : { x: fromCentre.x, y: from.y + from.h };
-  const end = shapes ? nodeBoundary(to, waypoints[waypoints.length - 1] ?? fromCentre, shapes.toShape)
-    : { x: toCentre.x, y: to.y };
-  const x1 = start.x, y1 = start.y, x2 = end.x, y2 = end.y;
-  const pts: EdgePoint[] = [{ x: x1, y: y1 }, ...waypoints, { x: x2, y: y2 }];
-  const last = pts.length - 1;
-  const tangents = pts.map((point, index): EdgePoint => {
-    if (index === 0) {
-      if (shapes) return { x: (pts[1].x - point.x) * 0.5, y: (pts[1].y - point.y) * 0.5 };
-      return { x: 0, y: (pts[1].y - point.y) * 1.5 };
-    }
-    if (index === last) {
-      if (shapes) return { x: (point.x - pts[last - 1].x) * 0.5, y: (point.y - pts[last - 1].y) * 0.5 };
-      return { x: 0, y: (point.y - pts[last - 1].y) * 1.5 };
-    }
-    return {
-      x: (pts[index + 1].x - pts[index - 1].x) * 0.5,
-      y: (pts[index + 1].y - pts[index - 1].y) * 0.5
-    };
-  });
-
-  const segments: string[] = [`M ${pts[0].x} ${pts[0].y}`];
-  for (let index = 1; index < pts.length; index++) {
-    const start = pts[index - 1];
-    const end = pts[index];
-    const startTangent = tangents[index - 1];
-    const endTangent = tangents[index];
-    segments.push(
-      `C ${start.x + startTangent.x / 3} ${start.y + startTangent.y / 3}, ` +
-      `${end.x - endTangent.x / 3} ${end.y - endTangent.y / 3}, ` +
-      `${end.x} ${end.y}`
-    );
-  }
+  if (context?.radial) return radialEdgePath(from, to,
+    shapes?.fromShape ?? 'title', shapes?.toShape ?? 'title',
+    { x: context.radial.centerX, y: context.radial.centerY });
+  // Canonical lower-to-upper traversal, with left-to-right as the same-level
+  // tie break. Swapping the relationship reverses the controls, never its IDs.
+  const reverse = fromCentre.y < toCentre.y ||
+    (fromCentre.y === toCentre.y && fromCentre.x > toCentre.x);
+  const a = reverse ? to : from, b = reverse ? from : to;
+  const ac = reverse ? toCentre : fromCentre, bc = reverse ? fromCentre : toCentre;
+  const aShape = (reverse ? shapes?.toShape : shapes?.fromShape) ?? 'title';
+  const bShape = (reverse ? shapes?.fromShape : shapes?.toShape) ?? 'title';
+  const start = nodeBoundary(a, { x: ac.x, y: ac.y - 1 }, aShape);
+  const end = nodeBoundary(b, { x: bc.x, y: bc.y + 1 }, bShape);
+  const handle = Math.max(24, Math.abs(start.y - end.y) / 2);
+  const c1 = { x: start.x, y: start.y - handle };
+  const c2 = { x: end.x, y: end.y + handle };
+  const [p, q, r, t] = reverse ? [end, c2, c1, start] : [start, c1, c2, end];
   return {
-    d: segments.join(' '),
-    midX: (x1 + x2) / 2,
-    midY: (y1 + y2) / 2
+    d: `M ${p.x} ${p.y} C ${q.x} ${q.y}, ${r.x} ${r.y}, ${t.x} ${t.y}`,
+    midX: (start.x + end.x) / 2, midY: (start.y + end.y) / 2
   };
 }
 
@@ -1025,7 +1079,7 @@ export function graphContentBounds(laid: Layout): ContentBounds {
   const byId = new Map(laid.nodes.map(n => [n.id, n]));
   for (const n of laid.nodes) { include(n.x - 2, n.y - 2); include(n.x + n.w + 2, n.y + n.h + 2); }
   for (const e of laid.edges) {
-    const { d } = edgePath(byId.get(e.from)!, byId.get(e.to)!, e.waypoints, { fromShape: 'title', toShape: 'title' });
+    const { d } = edgePath(byId.get(e.from)!, byId.get(e.to)!, e.waypoints, { fromShape: 'title', toShape: 'title' }, laid);
     const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
     for (let i = 0; i < values.length; i += 2) include(values[i], values[i + 1]);
   }
@@ -1159,6 +1213,12 @@ function SnlGraphInner({
   const [nodeMode, setNodeMode] = useState<GraphNodeMode>('auto');
   const [titleThreshold, setTitleThreshold] = useState(120);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const selectEdge = (id: string): void => {
+    setSelectedId(null);
+    setSelectedEdgeId(previous => previous === id ? null : id);
+    post({ type: 'editRelationship', id });
+  };
   /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
    *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
   const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('atomic-deps');
@@ -1256,6 +1316,11 @@ function SnlGraphInner({
   const relationshipUniverse = useMemo(() => [...new Set(msg?.edges.map(edge => edge.label) ?? [])]
     .sort(compareLexically), [msg]);
 
+  useEffect(() => {
+    if (selectedId && !laid?.nodes.some(node => node.id === selectedId)) setSelectedId(null);
+    if (selectedEdgeId && !laid?.edges.some(edge => edge.id === selectedEdgeId)) setSelectedEdgeId(null);
+  }, [laid, selectedId, selectedEdgeId]);
+
   const contentBounds = useMemo(() => laid?.nodes.length ? graphContentBounds(laid) : null, [laid]);
 
   // Refit committed layout input and available canvas changes, not interaction
@@ -1327,8 +1392,9 @@ function SnlGraphInner({
     if ((e.target as Element).tagName === 'svg' || (e.target as Element).id === 'snl-graph-background') {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
       setDragging({ startX: e.clientX, startY: e.clientY, vpX: vp.x, vpY: vp.y });
-      // Clicking blank canvas clears selection.
+      // Clicking blank canvas clears either kind of selection.
       setSelectedId(null);
+      setSelectedEdgeId(null);
     }
   };
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -1419,11 +1485,15 @@ function SnlGraphInner({
       return;
     }
     // Plain click → select (cat 2026-07-10 §3).
+    setSelectedEdgeId(null);
     setSelectedId((prev) => (prev === n.id ? null : n.id));
   };
 
   return (
     <main
+      onKeyDownCapture={(event) => {
+        if (event.key === 'Escape') { setSelectedId(null); setSelectedEdgeId(null); }
+      }}
       onPointerMoveCapture={(event) => {
         // Replacing/reordering an SVG hit shape can suppress its pointerout in
         // Chromium. Reconcile from the next real pointer target, independently
@@ -1581,6 +1651,7 @@ function SnlGraphInner({
           <svg
             ref={bindSvg}
             data-layer-packing={layerPacking}
+            data-radial-center={laid.radial ? JSON.stringify({ x: laid.radial.centerX, y: laid.radial.centerY }) : undefined}
             width="100%"
             height="100%"
 
@@ -1668,34 +1739,41 @@ function SnlGraphInner({
               {laid.edges.map((e) => {
                 const from = nodesById.get(e.from)!;
                 const to = nodesById.get(e.to)!;
-                const { d } = edgePath(from, to, e.waypoints, { fromShape: nodeShape(from.id), toShape: nodeShape(to.id) });
+                const { d } = edgePath(from, to, e.waypoints, { fromShape: nodeShape(from.id), toShape: nodeShape(to.id) }, laid);
                 const hovered = hoverEdgeId === e.id;
                 const incidentToSelected =
                   selectedId !== null &&
                   (e.from === selectedId || e.to === selectedId);
                 const nonAtomicDep = e.isDependency && e.isAtomic === false;
                 const baseOpacity = nonAtomicDep ? 0.28 : 0.55;
-                const opacity = incidentToSelected || hovered ? 1 : baseOpacity;
+                const edgeSelected = selectedEdgeId === e.id;
+                const edgeVisible = selectedEdgeId !== null ? edgeSelected
+                  : selectedId !== null ? incidentToSelected : true;
+                const opacity = incidentToSelected || edgeSelected || hovered ? 1 : baseOpacity;
                 return (
                   <g
                     key={e.id}
+                    data-edge-id={e.id}
+                    data-from={e.from}
+                    data-to={e.to}
                     role="button"
-                    tabIndex={0}
+                    opacity={edgeVisible ? 1 : 0}
+                    aria-hidden={!edgeVisible || undefined}
+                    aria-pressed={edgeSelected}
+                    tabIndex={edgeVisible ? 0 : -1}
                     aria-label={t('relationshipAria', { label: e.label || e.id, from: e.from, to: e.to })}
-                    onPointerEnter={() => setHoverEdgeId(e.id)}
+                    onPointerEnter={() => { if (edgeVisible) setHoverEdgeId(e.id); }}
                     onPointerLeave={() =>
                       setHoverEdgeId((c) => (c === e.id ? null : c))
                     }
-                    style={{ cursor: 'pointer' }}
-                    onClick={() =>
-                      post({ type: 'editRelationship', id: e.id })
-                    }
-                    onFocus={() => setHoverEdgeId(e.id)}
+                    style={{ cursor: 'pointer', pointerEvents: edgeVisible ? 'auto' : 'none' }}
+                    onClick={() => { if (edgeVisible) selectEdge(e.id); }}
+                    onFocus={() => { if (edgeVisible) setHoverEdgeId(e.id); }}
                     onBlur={() => setHoverEdgeId((c) => (c === e.id ? null : c))}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
-                      post({ type: 'editRelationship', id: e.id });
+                      if (edgeVisible) selectEdge(e.id);
                     }}
                   >
                     <title>
@@ -1710,7 +1788,7 @@ function SnlGraphInner({
                       fill="none"
                       stroke="var(--vscode-editor-foreground, #ddd)"
                       strokeOpacity={opacity}
-                      strokeWidth={incidentToSelected || hovered ? 2 : 1.2}
+                      strokeWidth={incidentToSelected || edgeSelected || hovered ? 2 : 1.2}
                       strokeDasharray={e.isBack ? '5 4' : undefined}
                       markerEnd="url(#snl-graph-arrow)"
                     />
@@ -1751,6 +1829,7 @@ function SnlGraphInner({
                         post({ type: 'openEntryInfoview', entryId: n.id });
                         return;
                       }
+                      setSelectedEdgeId(null);
                       setSelectedId((previous) => previous === n.id ? null : n.id);
                     }}
                   >

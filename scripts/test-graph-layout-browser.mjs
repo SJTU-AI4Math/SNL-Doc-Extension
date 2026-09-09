@@ -76,7 +76,7 @@ class Cdp {
 }
 async function connect(url) { const ws = new WebSocket(url); await new Promise((r,j) => { ws.onopen=r; ws.onerror=j; }); return new Cdp(ws); }
 let browser, page;
-const evidence = { url, mode: process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
+const evidence = { url, mode: process.argv.includes('--routes') ? 'routes' : process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
   bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
@@ -105,7 +105,10 @@ try {
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-  if (process.argv.includes('--compact')) {
+  if (process.argv.includes('--routes')) {
+    const { verifyGraphRoutes } = await import('./test-graph-routes-browser.mjs');
+    await verifyGraphRoutes({ evaluate, wait, screenshot, page, evidence });
+  } else if (process.argv.includes('--compact')) {
     const { verifyCompactGraph } = await import('./test-graph-compact-browser.mjs');
     await verifyCompactGraph({ evaluate, wait, screenshot, page, evidence });
   } else if (process.argv.includes('--filters')) {

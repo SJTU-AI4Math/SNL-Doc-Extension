@@ -104,11 +104,14 @@ describe('compact static title-card occupancy', () => {
       expect(bands.edges[i].waypoints[j].y).toBeCloseTo(p.centerY + r * Math.sin(angle), 7);
     }));
   });
-  it('fits actual content and cubic route controls with world offsets, ignoring arbitrary decorative size', () => {
-    const nodes = [node('a'), node('b'), node('c')];
-    const result = layout(nodes, [edge('a', 'b'), edge('b', 'c'), edge('a', 'c'), edge('b', 'b')], 'radial-inward');
+  it.each([['radial-inward', 'bands'], ['radial-outward', 'bands'], ['radial-inward', 'rings'], ['radial-outward', 'rings']] as const)('%s/%s fits the actual endpoint routes and all controls, ignoring dummy and decorative size', (mode, packing) => {
+    const nodes = [node('a'), node('b', 'other'), node('c', 'third')];
+    const result = layout(nodes, [edge('a', 'b'), edge('b', 'c'), edge('a', 'c'), edge('b', 'b')], mode, packing);
     const bounds = graphContentBounds(result);
     expect(graphContentBounds({ ...result, width: 1e9, height: 1e9 })).toEqual(bounds);
+    expect(graphContentBounds({ ...result, edges: result.edges.map(e => ({ ...e, waypoints: [{ x: -1e9, y: 1e9 }] })) })).toEqual(bounds);
+    const hull = { minX: Math.min(...result.nodes.map(n => n.x - 2)), minY: Math.min(...result.nodes.map(n => n.y - 2)),
+      maxX: Math.max(...result.nodes.map(n => n.x + n.w + 2)), maxY: Math.max(...result.nodes.map(n => n.y + n.h + 2)) };
     const vp = fitGraphViewport(bounds, 700, 500);
     const dx = -3000, dy = 1700;
     const shifted = fitGraphViewport({ minX: bounds.minX + dx, minY: bounds.minY + dy,
@@ -118,15 +121,18 @@ describe('compact static title-card occupancy', () => {
     expect(shifted.y + dy * vp.scale).toBeCloseTo(vp.y);
     for (const e of result.edges) {
       const d = edgePath(result.nodes.find(n => n.id === e.from)!, result.nodes.find(n => n.id === e.to)!, e.waypoints,
-        { fromShape: 'title', toShape: 'title' }).d;
+        { fromShape: 'title', toShape: 'title' }, result).d;
       const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
       for (let i = 0; i < values.length; i += 2) {
+        hull.minX = Math.min(hull.minX, values[i]); hull.maxX = Math.max(hull.maxX, values[i]);
+        hull.minY = Math.min(hull.minY, values[i + 1]); hull.maxY = Math.max(hull.maxY, values[i + 1]);
         expect(vp.x + values[i] * vp.scale).toBeGreaterThanOrEqual(19.99);
         expect(vp.x + values[i] * vp.scale).toBeLessThanOrEqual(680.01);
         expect(vp.y + values[i + 1] * vp.scale).toBeGreaterThanOrEqual(19.99);
         expect(vp.y + values[i + 1] * vp.scale).toBeLessThanOrEqual(480.01);
       }
     }
+    expect(bounds).toEqual(hull);
   });
   it('includes fixed-screen label extents without scaling the glyph allowance', () => {
     const bounds = { minX: -60, minY: -20, maxX: 60, maxY: 20 };

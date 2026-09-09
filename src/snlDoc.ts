@@ -1,3 +1,4 @@
+import { hasValidEntryTags } from './entryTags';
 import { assertTableRendererTransport } from './blockRendererSpec';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -4221,6 +4222,8 @@ export async function listMacroKinds(
  */
 export interface EntryData {
   id: string;
+  /** Exact authored tags; absence is empty, duplicates are preserved. */
+  tags?: string[];
   /** Immutable Package identity for per-entity storage; defaults to `_unpackaged`. */
   package?: string;
   kind: string;
@@ -4286,6 +4289,7 @@ export async function addEntry(
     // Establish writable schema/version mode before business-field validation;
     // future or malformed configs must never masquerade as unknownKind/invalid.
     await assertWorkspaceWritableOnDisk(workspaceRoot);
+    if (!hasValidEntryTags(entry)) return { status: 'invalid', reason: 'tags must be an array of strings' } as const;
     const distanceError = pointerMatchDistanceError(entry?.pointer);
     if (distanceError) return { status: 'invalid', reason: distanceError } as const;
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
@@ -4398,6 +4402,7 @@ export async function addEntry(
     title,
     content: normalizedContent,
     contribution_info: contributor,
+    ...(Object.hasOwn(entry, 'tags') ? { tags: [...entry.tags!] } : {}),
     pointer: entry.pointer ?? null
   };
   // Drop undefined content fields so entries.json stays tidy.
@@ -5081,6 +5086,7 @@ export async function updateEntry(
     return { status: 'noSnlDoc' };
   }
   return withExtensionWriterLock(workspaceRoot, 'update Entry', async () => {
+    if (!hasValidEntryTags(entry)) return { status: 'invalid', message: 'tags must be an array of strings' } as const;
     const targetId = (id ?? '').trim();
   if (!targetId) {
     return { status: 'invalid', message: 'id is required' };
@@ -5199,6 +5205,7 @@ export async function updateEntry(
     title,
     content: mergedContent as EntryData['content'],
     contribution_info: contributor,
+    ...(Object.hasOwn(entry, 'tags') ? { tags: [...entry.tags!] } : {}),
     pointer: entry.pointer ?? null
   };
   for (const key of Object.keys(record.content) as Array<

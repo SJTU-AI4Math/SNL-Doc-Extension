@@ -765,6 +765,7 @@ export class CreateEntryPanel {
           title: entry.title,
           content: entry.content,
           contribution_info: entry.contribution_info,
+          ...(Object.hasOwn(entry, 'tags') ? { tags: entry.tags } : {}),
           pointer: entry.pointer
         }, typeof msg.expectedRevision === 'string' ? msg.expectedRevision : undefined);
         if (result.status !== 'updated' && !targetIsCurrent()) {

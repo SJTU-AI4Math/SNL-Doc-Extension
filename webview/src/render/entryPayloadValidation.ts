@@ -1,3 +1,4 @@
+import { hasValidEntryTags } from '../../../src/entryTags';
 import { is_valid_i18n_string } from '../../../src/localizedContent';
 import { isThemedKindColoring } from '../../../src/kindColoring';
 import type { Localized } from '@sjtu-ai4math/snl-basics/runtime';
@@ -16,7 +17,7 @@ const isNonEmptyLocalizedLabel = (value: unknown): value is Localized<string, st
 export function isEntryDataPayload(value: unknown): value is EntryData {
   return isRecord(value) && typeof value.id === 'string' && typeof value.kind === 'string' &&
     (typeof value.title === 'string' || is_valid_i18n_string(value.title)) &&
-    isRecord(value.content);
+    isRecord(value.content) && hasValidEntryTags(value);
 }
 
 export function isEntryKindPayload(value: unknown): value is EntryKind {

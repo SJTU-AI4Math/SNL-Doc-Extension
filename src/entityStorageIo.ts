@@ -1,3 +1,4 @@
+import { hasValidEntryTags } from './entryTags';
 import { is_valid_i18n_string } from './localizedContent';
 import { assertCanonicalMacroPackage } from './dataMigrations';
 import {
@@ -218,6 +219,7 @@ function assertExpectedPath(actual: string, expected: string): void {
 }
 
 function assertCanonicalEntryPayload(path: string, entry: Record<string, unknown>): void {
+  if (!hasValidEntryTags(entry)) throw new Error(`${path}#entry.tags must be an array of strings.`);
   if (typeof entry.kind !== 'string' || !entry.kind ||
       (typeof entry.title !== 'string' && !is_valid_i18n_string(entry.title)) ||
       !isRecord(entry.content) ||

@@ -64,6 +64,24 @@ it.each([
   )).rejects.toThrow(/schema_version|schema version/i);
 });
 
+describe('canonical Entry tags read/write barrier', () => {
+  const base = { id: 'tagged', package: 'logic', kind: 'definition', title: 'Tags', content: {}, pointer: null };
+  const path = entryEntityPath('logic', base.id);
+  it.each([null, 'csv', ['ok', null], ['ok', 2], undefined, Array(1)].map(tags => [tags]))('rejects present malformed tags %j', async tags => {
+    const value = makeEntryEnvelope('logic', { ...base, tags });
+    expect(() => assertCurrentEntityFile(path, value)).toThrow(/tags/);
+    await expect(readEntryEntityRecord(mapStorage(new Map([[path, value]])), 'logic', base.id)).rejects.toThrow(/tags/);
+  });
+  it('preserves exact tags through point read and rewrite without changing the envelope version', async () => {
+    const tags = ['', ' a,b ', '__proto__', '中文', 'same', 'same'];
+    const value = makeEntryEnvelope('logic', { ...base, tags });
+    const record = (await readEntryEntityRecord(mapStorage(new Map([[path, value]])), 'logic', base.id))!;
+    expect(record.entry.tags).toEqual(tags);
+    const rewrite = rewriteEntryEntityRecord(record, 'logic', { ...record.entry, title: 'Edited' });
+    expect(rewrite.value).toMatchObject({ version: 1, schema_version: 1, entry: { tags } });
+  });
+});
+
 const macro = {
   name: 'Eq',
   description: '',

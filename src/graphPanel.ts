@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { relationshipGraphEdge } from './relationshipGraphWire';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -350,29 +351,7 @@ export class GraphPanel {
       if (allowedIds && !(allowedIds.has(r.from) && allowedIds.has(r.to))) {
         continue;
       }
-      edges.push({
-        id: r.id,
-        from: r.from,
-        to: r.to,
-        label: r.label,
-        // Auto-managed = generator tag AND label ∈ {depends, uses_context}.
-        // The graph filter treats them uniformly so cat's atomic-only
-        // toggle covers both kinds (cat 2026-07-10).
-        isDependency:
-          (r.label === 'depends' || r.label === 'uses_context') &&
-          r.metadata !== null &&
-          typeof r.metadata === 'object' &&
-          (r.metadata as { generator?: unknown }).generator ===
-            'macro-source-scan',
-        isAtomic:
-          (r.label === 'depends' || r.label === 'uses_context') &&
-          r.metadata !== null &&
-          typeof r.metadata === 'object' &&
-          typeof (r.metadata as { isAtomic?: unknown }).isAtomic === 'boolean'
-            ? ((r.metadata as { isAtomic: boolean }).isAtomic)
-            : null
-      });
-      participating.add(r.from);
+      edges.push(relationshipGraphEdge(r));      participating.add(r.from);
       participating.add(r.to);
     }
 

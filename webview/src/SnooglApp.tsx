@@ -13,9 +13,11 @@ import {
   is_valid_i18n_string,
   resolve_localized_string
 } from '../../src/localizedContent';
+import { useReaderCapabilities } from './reader/ReaderCapabilities';
 import { use_content_language } from './runtime/preferencesRuntime';
 
 const MESSAGES = defineUiMessages('snoogl', {
+  frozenSubtitle: 'Search entries and macros in this frozen export only.', readerBack: '← Back to reading',
   title: 'SNoogL', subtitle: "Search across your workspace's entries and macros.",
   dashboard: '← Dashboard', dashboardTitle: 'Return to the SNL Dashboard', searchTarget: 'Search target',
   entry: 'Entry', macro: 'Macro', entryPlaceholder: 'Search entries — id or title…',
@@ -23,6 +25,7 @@ const MESSAGES = defineUiMessages('snoogl', {
   kindMode: 'Kind ({mode})', any: '(any)', moreFilters: 'More filters coming — tag / source / content-format / rerank score…',
   usesMacro: 'Uses Macro ID', sourceEntry: 'Source Entry ID', noMatches: 'No matches.', results: '{mode} results', untitled: '(untitled)', rerankScore: 'rerank score: {score}'
 }, {
+  frozenSubtitle: '仅搜索本次冻结导出的条目和宏。', readerBack: '← 返回阅读',
   title: 'SNoogL', subtitle: '搜索工作区中的条目和宏。', dashboard: '← 仪表板',
   dashboardTitle: '返回 SNL 仪表板', searchTarget: '搜索目标', entry: '条目', macro: '宏',
   entryPlaceholder: '搜索条目——按 ID 或标题……', macroPlaceholder: '搜索宏——在所有已启用包中按名称……',
@@ -120,7 +123,10 @@ const isResultsMsg = (value: unknown): value is ResultsMsg => {
 
 export function SnooglApp(): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  const apiRef = useVsCodeApiRef();
+  const extensionApiRef = useVsCodeApiRef();
+  const capabilities = useReaderCapabilities();
+  const apiRef = useRef(capabilities.api ?? extensionApiRef.current);
+  apiRef.current = capabilities.api ?? extensionApiRef.current;
   const [mode, setMode] = useState<Mode>('entry');
   const [q, setQ] = useState('');
   const [filters, setFilters] = useState<Filters>({});
@@ -305,10 +311,10 @@ export function SnooglApp(): React.ReactElement {
       <PanelHeader
         vsApi={apiRef.current}
         title={t('title')}
-        subtitle={t('subtitle')}
+        subtitle={t(capabilities.edit ? 'subtitle' : 'frozenSubtitle')}
         back={{
-          label: t('dashboard'),
-          title: t('dashboardTitle'),
+          label: t(capabilities.edit ? 'dashboard' : 'readerBack'),
+          title: t(capabilities.edit ? 'dashboardTitle' : 'readerBack'),
           message: { type: 'nav.openDashboard' }
         }}
       />

@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useVsCodeApiRef, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
+import { useReaderCapabilities } from './reader/ReaderCapabilities';
 import { PanelHeader } from './components/PanelHeader';
 import { Button } from './components/Button';
 import { HoverPopoverProvider, useHoverPopovers, useCurrentPopoverId } from './render/HoverPopoverProvider';
@@ -38,6 +39,7 @@ import { use_content_language, use_preferences_revision } from './runtime/prefer
 import { resolveWebviewKindColoring } from './render/kindColoring';
 
 const MESSAGES = defineUiMessages('relationshipGraph', {
+  frozenScope: 'Scope: this frozen export only.', frozenEmpty: 'No relationships to display in this frozen export with the current filters.', readerBack: '← Back to reading',
   title: 'SNL Relationship Graph', infoview: 'Infoview', backInfoview: 'Back to SNL Infoview',
   loading: 'Loading graph…', nodes: { arg: 'count', one: '{count} node', other: '{count} nodes' },
   edges: { arg: 'count', one: '{count} edge', other: '{count} edges' },
@@ -55,6 +57,7 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
  packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
  relationshipAria: 'Relationship {label}: {from} to {to}', entryAria: 'Entry {title} ({id})'
 }, {
+  frozenScope: '范围：仅本次冻结导出。', frozenEmpty: '本次冻结导出在当前筛选下无可显示关系。', readerBack: '← 返回阅读',
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
   nodes: '{count} 个节点', edges: '{count} 条边', backEdges: '{count} 条断环回边（虚线）',
   isolatedHidden: '已隐藏孤立节点', selected: '已选择：{title}',
@@ -98,7 +101,7 @@ interface GraphEdge {
 
 type Scope = { mode: 'pool' } | { mode: 'library'; slug: string };
 
-interface GraphMessage {
+export interface GraphMessage {
   type: 'graph';
   scope: Scope;
   title: string;
@@ -717,8 +720,11 @@ export function graphNodeFill(background: string, _highlighted: boolean): string
     : 'var(--vscode-editorWidget-background, #252526)';
 }
 
-export function SnlGraphApp(): React.ReactElement {
-  const apiRef = useVsCodeApiRef();
+export function SnlGraphApp({ localDetails, markdownImageUrlTransform, initialAtomicDependenciesOnly = false }: Pick<React.ComponentProps<typeof HoverPopoverProvider>, 'localDetails' | 'markdownImageUrlTransform'> & { initialAtomicDependenciesOnly?: boolean } = {}): React.ReactElement {
+  const extensionApiRef = useVsCodeApiRef();
+  const capabilities = useReaderCapabilities();
+  const apiRef = useRef(capabilities.api ?? extensionApiRef.current);
+  apiRef.current = capabilities.api ?? extensionApiRef.current;
   const contentLanguage = use_content_language();
   const [msg, setMsg] = useState<GraphMessage | null>(null);
   const [graphError, setGraphError] = useState<GraphErrorMessage | null>(null);
@@ -763,8 +769,10 @@ export function SnlGraphApp(): React.ReactElement {
       entryPackages={msg?.entryPackages}
       userMacros={userMacros}
       kindPalette={kindPalette}
+      localDetails={localDetails}
+      markdownImageUrlTransform={markdownImageUrlTransform}
     >
-      <SnlGraphInner msg={msg} graphError={graphError} post={post} apiRef={apiRef} />
+      <SnlGraphInner msg={msg} graphError={graphError} post={post} apiRef={apiRef} initialAtomicDependenciesOnly={initialAtomicDependenciesOnly} />
     </HoverPopoverProvider>
   );
 }
@@ -773,14 +781,17 @@ function SnlGraphInner({
   msg,
   graphError,
   post,
-  apiRef
+  apiRef,
+  initialAtomicDependenciesOnly
 }: {
   msg: GraphMessage | null;
   graphError: GraphErrorMessage | null;
   post: (m: unknown) => void;
   apiRef: React.MutableRefObject<VsCodeApi | undefined>;
+  initialAtomicDependenciesOnly: boolean;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  const { edit } = useReaderCapabilities();
   const contentLanguage = use_content_language();
   const preferencesRevision = use_preferences_revision();
   const popovers = useHoverPopovers();
@@ -797,7 +808,7 @@ function SnlGraphInner({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 'all' = every edge; 'atomic-deps' = keep user-authored edges +
    *  dependency edges with isAtomic===true only (cat 2026-07-10 §4). */
-  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>('all');
+  const [depFilter, setDepFilter] = useState<'all' | 'atomic-deps'>(initialAtomicDependenciesOnly ? 'atomic-deps' : 'all');
   /**
    * Cat 2026-07-10 §3: multi-select kind filter. `null` means "no
    * filter — show every kind"; otherwise the Set holds the kindIds
@@ -880,25 +891,26 @@ function SnlGraphInner({
     return [...seen.values()].sort((a, b) => compareLexically(a.label, b.label));
   }, [msg, contentLanguage, preferencesRevision]);
 
-  // Fit-to-view on first load.
+  // Fit committed geometry and changed canvas dimensions, never ordinary pan/zoom.
   useEffect(() => {
-    if (!laid || !svgRef.current) return;
+    if (!laid || !svgRef.current || laid.width <= 0 || laid.height <= 0) return;
     const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    if (laid.width === 0 || laid.height === 0) return;
-    const s = Math.min(
-      1,
-      (rect.width - 40) / laid.width,
-      (rect.height - 40) / laid.height
-    );
-    setVp({
-      x: (rect.width - laid.width * s) / 2,
-      y: 20,
-      scale: s
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [msg]);
+    let live = true;
+    let previousWidth = -1, previousHeight = -1;
+    const fit = (): void => {
+      if (!live) return;
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      if (rect.width === previousWidth && rect.height === previousHeight) return;
+      previousWidth = rect.width; previousHeight = rect.height;
+      const scale = Math.max(0.01, Math.min(1, (rect.width - 40) / laid.width, (rect.height - 40) / laid.height));
+      setVp({ x: (rect.width - laid.width * scale) / 2, y: 20, scale });
+    };
+    fit();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(fit);
+    observer?.observe(svg);
+    return () => { live = false; observer?.disconnect(); };
+  }, [laid]);
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>): void => {
     e.preventDefault();
@@ -1029,10 +1041,11 @@ function SnlGraphInner({
       >
         <PanelHeader
           vsApi={apiRef.current}
-          title={msg.title}
+          title={edit ? msg.title : t('title')}
+          subtitle={edit ? undefined : t('frozenScope')}
           back={{
-            label: t('infoview'),
-            title: t('backInfoview'),
+            label: t(edit ? 'infoview' : 'readerBack'),
+            title: t(edit ? 'backInfoview' : 'readerBack'),
             message: { type: 'nav.openInfoview' }
           }}
         />
@@ -1118,7 +1131,7 @@ function SnlGraphInner({
               textAlign: 'center'
             }}
           >
-            {t('empty')}
+            {t(edit ? 'empty' : 'frozenEmpty')}
           </div>
         ) : (
           <svg
@@ -1223,21 +1236,19 @@ function SnlGraphInner({
                 return (
                   <g
                     key={e.id}
-                    role="button"
-                    tabIndex={0}
+                    role={edit ? 'button' : 'img'}
+                    tabIndex={edit ? 0 : undefined}
                     aria-label={t('relationshipAria', { label: e.label || e.id, from: e.from, to: e.to })}
                     onPointerEnter={() => setHoverEdgeId(e.id)}
                     onPointerLeave={() =>
                       setHoverEdgeId((c) => (c === e.id ? null : c))
                     }
-                    style={{ cursor: 'pointer' }}
-                    onClick={() =>
-                      post({ type: 'editRelationship', id: e.id })
-                    }
+                    style={{ cursor: edit ? 'pointer' : 'default' }}
+                    onClick={edit ? () => post({ type: 'editRelationship', id: e.id }) : undefined}
                     onFocus={() => setHoverEdgeId(e.id)}
                     onBlur={() => setHoverEdgeId((c) => (c === e.id ? null : c))}
                     onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      if (!edit || (event.key !== 'Enter' && event.key !== ' ')) return;
                       event.preventDefault();
                       post({ type: 'editRelationship', id: e.id });
                     }}

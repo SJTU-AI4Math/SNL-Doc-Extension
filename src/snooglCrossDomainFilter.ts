@@ -1,4 +1,5 @@
-import { extractSnlReferences, type EntryData } from './snlDoc';
+import type { EntryData } from './snlDoc';
+import { extractSnlReferences } from './snlReferences';
 
 export function entryMatchesMacroFilter(entry: EntryData, macroId: string): boolean {
   if (!macroId) return true;

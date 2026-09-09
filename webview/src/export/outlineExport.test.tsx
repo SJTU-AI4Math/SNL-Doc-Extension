@@ -93,6 +93,8 @@ describe('exported shared Library outline', () => {
     mountReader(outlineSnapshot(), '#/node/not-in-snapshot');
     expect(screen.getByRole('button', { name: 'Expand parent' })).toBeDefined();
     navigate('#/node/%broken');
+    expect(screen.getByRole('alert').textContent).toContain('unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     fireEvent.click(screen.getByRole('button', { name: 'Expand parent' }));
     expect(routeNode('middle-node')).not.toBeNull();
   });

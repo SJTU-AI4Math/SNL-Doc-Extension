@@ -287,7 +287,7 @@ interface LaidOutCluster {
   w: number;
   h: number;
   nodeCount: number;
-  sector?: { path: string; startAngle: number; endAngle: number; labelX: number; labelY: number };
+  sector?: { path: string; startAngle: number; endAngle: number; outerRadius: number; labelAngle: number; labelX: number; labelY: number };
 }
 
 const NODE_H = 44;
@@ -896,12 +896,11 @@ function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectang
     const p = project(centres[i]);
     return { ...n, x: p.x - n.w / 2, y: p.y - n.h / 2 };
   });
-  const packages = new Map<string, { inner: number; outer: number; label: LaidOutNode }>();
+  const packages = new Map<string, { inner: number; outer: number }>();
   nodes.forEach(n => {
     const r = nodeRadii.get(n.id)!;
     const prev = packages.get(n.packageId);
-    packages.set(n.packageId, { inner: Math.min(prev?.inner ?? Infinity, r), outer: Math.max(prev?.outer ?? 0, r),
-      label: !prev || n.y < prev.label.y ? n : prev.label });
+    packages.set(n.packageId, { inner: Math.min(prev?.inner ?? Infinity, r), outer: Math.max(prev?.outer ?? 0, r) });
   });
   return {
     width: size, height: size, radial, nodes,
@@ -914,8 +913,10 @@ function radialLayout(rectangle: Layout, mode: Exclude<GraphLayoutMode, 'rectang
       const a = polar(start, sectorOuter), b = polar(end, sectorOuter);
       const d = polar(start, sectorInner), e = polar(end, sectorInner);
       const large = end - start > Math.PI ? 1 : 0;
+      const labelAngle = (start + end) / 2;
+      const label = polar(labelAngle, sectorOuter);
       return { ...c, sector: {
-        startAngle: start, endAngle: end, labelX: members.label.x + members.label.w / 2, labelY: members.label.y - 12,
+        startAngle: start, endAngle: end, outerRadius: sectorOuter, labelAngle, labelX: label.x, labelY: label.y,
         path: `M ${a.x} ${a.y} A ${sectorOuter} ${sectorOuter} 0 ${large} 1 ${b.x} ${b.y} L ${e.x} ${e.y} A ${sectorInner} ${sectorInner} 0 ${large} 0 ${d.x} ${d.y} Z`
       } };
     })
@@ -1139,16 +1140,39 @@ const packageLabelAnchor = (cluster: LaidOutCluster): EdgePoint => ({
   y: cluster.sector?.labelY ?? cluster.y + 22
 });
 
+/** Keep titles horizontal, with their nearest corner/edge on the outer arc.
+ * Axis tolerance avoids flipping alignment on trigonometric roundoff. */
+function radialPackageLabelOrientation(angle: number) {
+  const cos = Math.cos(angle), sin = Math.sin(angle), epsilon = 1e-10;
+  return {
+    textAnchor: Math.abs(cos) < epsilon ? 'middle' as const : cos < 0 ? 'end' as const : 'start' as const,
+    dominantBaseline: Math.abs(sin) < epsilon ? 'central' as const : sin < 0 ? 'text-after-edge' as const : 'text-before-edge' as const
+  };
+}
+
 /** Fixed-screen labels contribute pixels, not world-sized phantom circles. */
 export function fitGraphViewport(bounds: ContentBounds, width: number, height: number,
-  labels: Array<EdgePoint & { width: number; centered: boolean }> = []): Viewport {
+  labels: Array<EdgePoint & { width: number; height?: number; centered: boolean; angle?: number }> = []): Viewport {
+  // Horizontal glyph extents stay in screen pixels. Radial labels extend into
+  // their outward quadrant; rectangle labels retain alphabetic-baseline bounds.
+  // Only the world anchor is multiplied by scale.
+  const labelBounds = labels.map(label => {
+    if (label.angle === undefined) {
+      const left = label.centered ? -label.width / 2 : 0;
+      return { ...label, minX: left, maxX: left + label.width, minY: -14, maxY: 4 };
+    }
+    const { textAnchor, dominantBaseline } = radialPackageLabelOrientation(label.angle);
+    const labelHeight = label.height && Number.isFinite(label.height) && label.height > 0 ? label.height : 18;
+    const left = textAnchor === 'middle' ? -label.width / 2 : textAnchor === 'end' ? -label.width : 0;
+    const top = dominantBaseline === 'central' ? -labelHeight / 2 : dominantBaseline === 'text-after-edge' ? -labelHeight : 0;
+    return { ...label, minX: left, maxX: left + label.width, minY: top, maxY: top + labelHeight };
+  });
   const screenBounds = (scale: number): ContentBounds => {
     let minX = bounds.minX * scale, maxX = bounds.maxX * scale;
     let minY = bounds.minY * scale, maxY = bounds.maxY * scale;
-    for (const label of labels) {
-      const left = label.x * scale - (label.centered ? label.width / 2 : 0);
-      minX = Math.min(minX, left); maxX = Math.max(maxX, left + label.width);
-      minY = Math.min(minY, label.y * scale - 14); maxY = Math.max(maxY, label.y * scale + 4);
+    for (const label of labelBounds) {
+      minX = Math.min(minX, label.x * scale + label.minX); maxX = Math.max(maxX, label.x * scale + label.maxX);
+      minY = Math.min(minY, label.y * scale + label.minY); maxY = Math.max(maxY, label.y * scale + label.maxY);
     }
     return { minX, minY, maxX, maxY };
   };
@@ -1244,6 +1268,7 @@ function SnlGraphInner({
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
+  const [labelOffsets, setLabelOffsets] = useState<Map<string, EdgePoint>>(() => new Map());
   const [dragging, setDragging] = useState<null | {
     startX: number;
     startY: number;
@@ -1403,12 +1428,27 @@ function SnlGraphInner({
       previousSize = size;
       const elements = new Map([...svg.querySelectorAll<SVGTextElement>('[data-package-label]')]
         .map(element => [element.getAttribute('data-package-label'), element]));
+      const offsets = new Map<string, EdgePoint>();
       const labels = laid.clusters.map(cluster => {
         const element = elements.get(cluster.packageId);
         const measured = element?.getComputedTextLength?.();
-        return { ...packageLabelAnchor(cluster), centered: !!cluster.sector,
-          width: measured && Number.isFinite(measured) ? measured + 4 : (element?.textContent?.length ?? cluster.packageId.length) * 8 + 4 };
+        const box = cluster.sector ? element?.getBBox?.() : undefined;
+        if (cluster.sector && element && box && box.width > 0 && box.height > 0) {
+          const orientation = radialPackageLabelOrientation(cluster.sector.labelAngle);
+          // Ink can overhang the advance (e.g. final 'y'). Remove the previous
+          // correction when measuring, so repeated resize/fit cannot oscillate.
+          const left = box.x - Number(element.getAttribute('x')) - Number(element.getAttribute('dx'));
+          const top = box.y - Number(element.getAttribute('y')) - Number(element.getAttribute('dy'));
+          offsets.set(cluster.packageId, {
+            x: -(left + (orientation.textAnchor === 'end' ? box.width : orientation.textAnchor === 'middle' ? box.width / 2 : 0)),
+            y: -(top + (orientation.dominantBaseline === 'text-after-edge' ? box.height : orientation.dominantBaseline === 'central' ? box.height / 2 : 0))
+          });
+        }
+        return { ...packageLabelAnchor(cluster), centered: false, angle: cluster.sector?.labelAngle,
+          height: box?.height,
+          width: Math.max(box?.width ?? 0, measured && Number.isFinite(measured) ? measured + 4 : (element?.textContent?.length ?? cluster.packageId.length) * 8 + 4) };
       });
+      setLabelOffsets(offsets);
       setVp(fitGraphViewport(contentBounds, width, rect.height, labels));
     };
     fit();
@@ -1959,10 +1999,17 @@ function SnlGraphInner({
             <g style={{ pointerEvents: 'none' }} data-package-labels="">
               {laid.clusters.map(cluster => {
                 const anchor = packageLabelAnchor(cluster);
+                const x = vp.x + anchor.x * vp.scale, y = vp.y + anchor.y * vp.scale;
+                const orientation = cluster.sector && radialPackageLabelOrientation(cluster.sector.labelAngle);
+                // Only the anchor pans/zooms; upright 12px glyphs extend outward
+                // from the sector's exact outer radius, without an extra gap.
                 return <text key={cluster.packageId} data-package-label={cluster.packageId}
                   data-world-anchor={`${anchor.x},${anchor.y}`}
-                  x={vp.x + anchor.x * vp.scale} y={vp.y + anchor.y * vp.scale}
-                  textAnchor={cluster.sector ? 'middle' : undefined}
+                  x={x} y={y}
+                  dx={orientation ? labelOffsets.get(cluster.packageId)?.x : undefined}
+                  dy={orientation ? labelOffsets.get(cluster.packageId)?.y : undefined}
+                  textAnchor={orientation?.textAnchor}
+                  dominantBaseline={orientation?.dominantBaseline}
                   fill="var(--vscode-foreground, #ddd)" fontSize={12} fontWeight={600}
                   fontFamily="var(--vscode-font-family)">
                   {cluster.packageId === '_unpackaged' ? t('unpackaged') : cluster.packageId}

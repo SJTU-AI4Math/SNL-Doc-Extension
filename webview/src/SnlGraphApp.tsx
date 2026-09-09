@@ -65,6 +65,10 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
  filterValues: 'Values (OR)', andFilters: 'AND', relationshipFilter: 'Relationship',
  filterDirection: 'Direction', incomingFilter: 'Incoming', outgoingFilter: 'Outgoing', eitherFilter: 'Either direction',
  emptyRelationshipLabel: '(empty label)', unavailableFilterValue: '{value} (unavailable)',
+ coloringSettings: 'Coloring settings', coloringMode: 'Coloring mode', kindColoring: 'EntryKind', tagColoring: 'Tag',
+ addColorMapping: 'Add color mapping', removeColorMapping: 'Remove color mapping',
+ colorMapping: 'Color mapping {id}', tag: 'Tag', color: 'Color', chooseTag: 'Choose a tag', emptyTag: '(empty tag)',
+ moveUp: 'Move up', moveDown: 'Move down', colorHelp: 'First matching tag from top to bottom wins; otherwise use the current theme’s EntryKind color. Temporary to this panel.',
  filteredEmpty: 'No connected nodes match. Adjust or clear filters in the sidebar.'
 }, {
   title: 'SNL 关系图', infoview: '信息视图', backInfoview: '返回 SNL 信息视图', loading: '正在加载关系图……',
@@ -92,6 +96,10 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   filterValues: '选值（OR）', andFilters: 'AND（且）', relationshipFilter: '关系',
   filterDirection: '方向', incomingFilter: '入边', outgoingFilter: '出边', eitherFilter: '任意方向',
   emptyRelationshipLabel: '（空标签）', unavailableFilterValue: '{value}（不可用）',
+  coloringSettings: '着色设置', coloringMode: '着色模式', kindColoring: 'EntryKind', tagColoring: 'Tag',
+  addColorMapping: '添加颜色映射', removeColorMapping: '移除颜色映射',
+  colorMapping: '颜色映射 {id}', tag: '标签', color: '颜色', chooseTag: '选择标签', emptyTag: '（空标签）',
+  moveUp: '上移', moveDown: '下移', colorHelp: '从上到下取首个命中的标签；未命中则使用当前主题的 EntryKind 默认色。仅当前面板有效。',
   filteredEmpty: '没有匹配的相连节点。请在侧栏中调整或清空筛选条件。'
 });
 
@@ -109,6 +117,7 @@ type GraphNodeWire = Omit<GraphNode, 'title' | 'kind' | 'color' | 'background'> 
   title: Localized<string, string>;
   kind: Localized<string, string>;
   coloring: ThemedKindColoring | null;
+  tags?: string[];
 };
 
 interface GraphEdge {
@@ -123,6 +132,24 @@ interface GraphEdge {
 type Scope = { mode: 'pool' } | { mode: 'library'; slug: string };
 
 /** Temporary mounted-panel state only; never part of the host wire schema. */
+interface GraphTagColorRule {
+  id: number;
+  tag: string | null; // null is a draft; the empty string is a real tag.
+  color: string;
+}
+
+/** Paint-only lookup: rule order wins, independently of Entry tag order. */
+export function graphTagColor(tags: readonly string[] | undefined, rules: readonly GraphTagColorRule[]): string | undefined {
+  return rules.find(rule => rule.tag !== null && tags?.includes(rule.tag))?.color;
+}
+
+function graphTagTextColor(color: string): string {
+  const linear = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16) / 255)
+    .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#ffffff';
+}
+
 interface GraphFilterClause {
   id: number;
   kind: 'entry-kind' | 'relationship';
@@ -168,6 +195,7 @@ const isGraphNode = (value: unknown): value is GraphNodeWire =>
     .every((key) => typeof value[key] === 'string') &&
   (typeof value.kind === 'string' || is_valid_i18n_string(value.kind)) &&
   (value.coloring === null || isThemedKindColoring(value.coloring)) &&
+  (value.tags === undefined || (Array.isArray(value.tags) && value.tags.every(tag => typeof tag === 'string'))) &&
   (typeof value.title === 'string' || is_valid_i18n_string(value.title));
 const isGraphEdge = (value: unknown): value is GraphEdge =>
   isRecord(value) && ['id', 'from', 'to', 'label']
@@ -1232,6 +1260,18 @@ function SnlGraphInner({
   const effectivePacking = layoutMode === 'rectangle' ? 'bands' : layerPacking;
   const [nodeMode, setNodeMode] = useState<GraphNodeMode>('auto');
   const [titleThreshold, setTitleThreshold] = useState(120);
+  const [coloringMode, setColoringMode] = useState<'kind' | 'tag'>('kind');
+  const [tagColorRules, setTagColorRules] = useState<GraphTagColorRule[]>([]);
+  const nextColorRuleId = useRef(1);
+  const addColorRule = (): void => {
+    const id = nextColorRuleId.current++;
+    setTagColorRules(previous => [...previous, { id, tag: null, color: '#6688cc' }]);
+  };
+  // These are deliberately separate from layout/filter/fit inputs.
+  const tagUniverse = useMemo(() => [...new Set(msg?.nodes.flatMap(node => node.tags ?? []) ?? [])]
+    .sort(compareLexically), [msg]);
+  const tagFills = useMemo(() => new Map(msg?.nodes.map(node =>
+    [node.id, graphTagColor(node.tags, tagColorRules)]) ?? []), [msg, tagColorRules]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const selectEdge = (id: string): void => {
@@ -1654,6 +1694,12 @@ function SnlGraphInner({
           onClausesChange={setClauses}
           onAddClause={addClause}
           relationshipUniverse={relationshipUniverse}
+          coloringMode={coloringMode}
+          onColoringModeChange={setColoringMode}
+          tagUniverse={tagUniverse}
+          tagColorRules={tagColorRules}
+          onTagColorRulesChange={setTagColorRules}
+          onAddColorRule={addColorRule}
         />
         {displayedNodeCount === 0 ? (
           <div
@@ -1823,7 +1869,9 @@ function SnlGraphInner({
                 const showTitle = nodeShape(n.id) === 'title';
                 const highlighted = isHovered || isSelected || focusNodeId === n.id;
                 const stroke = n.color;
-                const fill = graphNodeFill(n.background, highlighted);
+                const tagFill = coloringMode === 'tag' ? tagFills.get(n.id) : undefined;
+                const fill = graphNodeFill(tagFill ?? n.background, highlighted);
+                const textColor = tagFill ? graphTagTextColor(tagFill) : stroke;
                 const titleHtml = showTitle ? renderTitleKatex(n.title) : '';
                 return (
                   <g
@@ -1871,8 +1919,8 @@ function SnlGraphInner({
                       y={16}
                       fontSize={11}
                       fontFamily="var(--vscode-editor-font-family, monospace)"
-                      opacity={0.85}
-                      fill={stroke}
+                      opacity={tagFill ? 1 : 0.85}
+                      fill={textColor}
                     >
                       {n.kind}
                     </text>
@@ -1891,7 +1939,7 @@ function SnlGraphInner({
                         style={{
                           fontSize: '13px',
                           fontWeight: 600,
-                          color: stroke,
+                          color: textColor,
                           lineHeight: '20px',
                           overflow: 'hidden',
                           whiteSpace: 'nowrap',
@@ -1958,7 +2006,8 @@ function FiltersSidebar({
   clauses,
   onClausesChange,
   onAddClause,
-  relationshipUniverse
+  relationshipUniverse,
+  coloringMode, onColoringModeChange, tagUniverse, tagColorRules, onTagColorRulesChange, onAddColorRule
 }: {
   open: boolean;
   onToggle: () => void;
@@ -1973,6 +2022,12 @@ function FiltersSidebar({
   onClausesChange: (clauses: GraphFilterClause[]) => void;
   onAddClause: () => void;
   relationshipUniverse: string[];
+  coloringMode: 'kind' | 'tag';
+  onColoringModeChange: (mode: 'kind' | 'tag') => void;
+  tagUniverse: string[];
+  tagColorRules: GraphTagColorRule[];
+  onTagColorRulesChange: (rules: GraphTagColorRule[]) => void;
+  onAddColorRule: () => void;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
   const isKindEnabled = (id: string): boolean =>
@@ -2054,6 +2109,54 @@ function FiltersSidebar({
               '1px solid var(--vscode-panel-border, var(--vscode-contrastBorder, #444))'
           }}
         >
+          <section aria-label={t('coloringSettings')} data-testid="graph-color-settings">
+            <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.85rem' }}>{t('coloringSettings')}</h3>
+            <label>{t('coloringMode')}{' '}
+              <select className="snl-control" aria-label={t('coloringMode')} value={coloringMode}
+                onChange={event => onColoringModeChange(event.target.value as 'kind' | 'tag')}>
+                <option value="kind">{t('kindColoring')}</option>
+                <option value="tag">{t('tagColoring')}</option>
+              </select>
+            </label>
+            <p style={{ fontSize: '0.8rem' }}>{t('colorHelp')}</p>
+            <Button type="button" onClick={onAddColorRule}>{t('addColorMapping')}</Button>
+            {tagColorRules.map((rule, index) => {
+              const update = (patch: Partial<GraphTagColorRule>): void =>
+                onTagColorRulesChange(tagColorRules.map(item => item.id === rule.id ? { ...item, ...patch } : item));
+              const options = [...tagUniverse];
+              const unavailable = rule.tag !== null && !options.includes(rule.tag);
+              if (unavailable) options.push(rule.tag!);
+              const move = (offset: number): void => {
+                const next = [...tagColorRules];
+                [next[index], next[index + offset]] = [next[index + offset], next[index]];
+                onTagColorRulesChange(next);
+              };
+              return <fieldset key={rule.id} data-testid="graph-tag-color-rule" data-rule-id={rule.id}
+                style={{ minWidth: 0, margin: '0.5rem 0', padding: '0.5rem', border: '1px solid var(--vscode-panel-border, #888)' }}>
+                <legend>{t('colorMapping', { id: rule.id })}</legend>
+                <label style={{ display: 'block' }}>{t('tag')}{' '}
+                  <select className="snl-control" aria-label={t('tag')} style={{ width: '100%', minWidth: 0 }}
+                    value={rule.tag === null ? '' : String(options.indexOf(rule.tag))}
+                    onChange={event => update({ tag: event.target.value === '' ? null : options[Number(event.target.value)] })}>
+                    <option value="">{t('chooseTag')}</option>
+                    {options.map((tag, optionIndex) => <option key={optionIndex} value={String(optionIndex)}>
+                      {unavailable && tag === rule.tag ? t('unavailableFilterValue', { value: tag === '' ? t('emptyTag') : tag }) : tag === '' ? t('emptyTag') : tag}
+                    </option>)}
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', margin: '0.4rem 0' }}>{t('color')}
+                  <input type="color" aria-label={t('color')} value={rule.color}
+                    onChange={event => { if (/^#[0-9a-f]{6}$/i.test(event.target.value)) update({ color: event.target.value }); }} />
+                  <span>{rule.color}</span>
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                  <Button type="button" disabled={index === 0} onClick={() => move(-1)}>{t('moveUp')}</Button>
+                  <Button type="button" disabled={index === tagColorRules.length - 1} onClick={() => move(1)}>{t('moveDown')}</Button>
+                  <Button type="button" onClick={() => onTagColorRulesChange(tagColorRules.filter(item => item.id !== rule.id))}>{t('removeColorMapping')}</Button>
+                </div>
+              </fieldset>;
+            })}
+          </section>
           <h3
             style={{
               margin: '0 0 0.4rem',

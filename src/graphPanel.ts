@@ -58,6 +58,7 @@ interface GraphNodeOut {
   kind: EntryKind['name']; // raw localized name (fallback: kind id)
   kindId: string;
   coloring: EntryKind['coloring'] | null;
+  tags?: string[];
 }
 
 interface GraphEdgeOut {
@@ -388,6 +389,8 @@ export class GraphPanel {
         title: e ? e.title || hostText()('untitled') : `⚠ ${id}`,
         kind: kind ? kind.name : e ? e.kind : hostText()('unknown'),
         kindId: e ? e.kind : '',
+        // Canonical Entry data only. The storage reader validates present tags.
+        tags: e?.tags ?? [],
         coloring: kind ? kind.coloring : null
       });
     }

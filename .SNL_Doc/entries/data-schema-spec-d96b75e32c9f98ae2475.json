@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "data-schema-spec",
+  "entry": {
+    "id": "document.entry.tags",
+    "package": "data-schema-spec",
+    "kind": "concept",
+    "title": "Entry tags：实现与验收",
+    "content": {
+      "markdown": "正式字段 tags?: string[] 已接入 Extension EntryData、实体读取校验、add/update、CreateEntryApp 草稿/保存消息及 reader/HTML detail guard。旧条目不补写，缺省空标签；标签省略更新保留，显式空数组清空，非法类型拒绝。编辑器逐行 textarea 原样保存，不切逗号、不裁空白、不合并重复值。\n\nToolkit 在同一合同下接入读写/校验、rename、跨 Package move 和 copy-by-create；生成统一 CLI、MCP 和 DSH 运行产物。真实 CLI 已写入原型样字符串、中文、逗号、空字符串，省略字段更新保留；非法数组和过期 revision 拒绝且文件路径/字节不变。\n\n这不是批量迁移，也不声称旧软件能无损保存新增字段；Tagged Entry 的编辑需采用已更新的读写端。\n\n## 最终验收\n\nExtension 261个测试文件、2065项测试通过，Host compile与Webview类型检查通过。Toolkit整库374项测试、类型检查通过，重建CLI/MCP/DSH运行产物已验证。两仓库独立只读审查均Scoped PASS，无具体BLOCK。\n\n生产浏览器 colors/routes/compact/layouts/filters 五组验收通过，记录同一实际bundle SHA。真实Linux VS Code执行：Toolkit写入 `__proto__`、中文、逗号与空字符串标签；编辑器读取并修改标签后点击Update Entry，Toolkit回读确认只有Entry.tags变化；图谱刷新后读取新标签，切换映射后命中节点变为#1188cc，未命中节点回退Kind色，面板规则保留。截图与JSON回读均已检查。Windows/macOS未实测。\n\n旧图谱QA样本含与正文不一致的generator-labelled边，Entry保存会按既有机制清理这些过期派生边；真实标签刷新链路改用显式手写关系验收，不把这种源样本清理误报为Tag丢数据，也不声明保存会阻止正常依赖重建。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "document.graph.coloring",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "图谱 Tag 着色：实现与验收",
+    "content": {
+      "markdown": "Host 从 canonical Entry.tags 投影到图谱节点。Settings 默认 Kind，Tag 模式的映射列表按从上到下首次命中，未命中回退主题 Kind 背景；显式空 Tag 与未选草稿不同。候选来自完整 Host scope，筛选不会缩减，刷新失效的映射保留并标不可用。\n\n状态为组件 useState；tagFills 是独立 Map，仅在最终绘制使用，不进入 layout/contentBounds/fit 依赖。圆点和标题同背景，命中 Tag 背景时文字自动选黑/白对比色；边线与焦点/选择仍独立。无 setState/localStorage/canonical 写入。刷新保留，新挂载重置。\n\n维护的生产浏览器入口为 scripts/test-graph-layout-browser.mjs --colors：三布局、首条优先、Tag 顺序无关、任意字符串、切换模式/颜色/顺序不移动、圆点/标题、删除/刷新/缺失标签、明暗中英与新挂载默认。前版 bundle 明确因缺少 Coloring mode RED。不增加 Tag Filter。\n\n## 最终验收\n\nExtension 261个测试文件、2065项测试通过，Host compile与Webview类型检查通过。Toolkit整库374项测试、类型检查通过，重建CLI/MCP/DSH运行产物已验证。两仓库独立只读审查均Scoped PASS，无具体BLOCK。\n\n生产浏览器 colors/routes/compact/layouts/filters 五组验收通过，记录同一实际bundle SHA。真实Linux VS Code执行：Toolkit写入 `__proto__`、中文、逗号与空字符串标签；编辑器读取并修改标签后点击Update Entry，Toolkit回读确认只有Entry.tags变化；图谱刷新后读取新标签，切换映射后命中节点变为#1188cc，未命中节点回退Kind色，面板规则保留。截图与JSON回读均已检查。Windows/macOS未实测。\n\n旧图谱QA样本含与正文不一致的generator-labelled边，Entry保存会按既有机制清理这些过期派生边；真实标签刷新链路改用显式手写关系验收，不把这种源样本清理误报为Tag丢数据，也不声明保存会阻止正常依赖重建。\n"
+    },
+    "pointer": null,
+    "contribution_info": null
+  }
+}

@@ -6,6 +6,7 @@
   "version": 1,
   "schema_version": 2,
   "entry_ids": [
+    "document.entry.tags",
     "schema.read.active-packages",
     "schema.read.baseline",
     "schema.read.config-version",

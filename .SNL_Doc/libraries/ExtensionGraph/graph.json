@@ -48,6 +48,13 @@
       "props": {
         "entryId": "document.graph.filters"
       }
+    },
+    {
+      "id": "node.document.graph.coloring",
+      "label": "Entry",
+      "props": {
+        "entryId": "document.graph.coloring"
+      }
     }
   ],
   "relationships": [
@@ -79,6 +86,11 @@
     {
       "from": "node.spec.graph.filters",
       "to": "node.document.graph.filters",
+      "label": "branch"
+    },
+    {
+      "from": "node.spec.graph.coloring",
+      "to": "node.document.graph.coloring",
       "label": "branch"
     }
   ]

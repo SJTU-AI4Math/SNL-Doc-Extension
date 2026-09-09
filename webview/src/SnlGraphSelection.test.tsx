@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SnlGraphApp } from './SnlGraphApp';
 const api=vi.hoisted(()=>({postMessage:vi.fn(),getState:vi.fn(),setState:vi.fn()}));
@@ -9,14 +9,15 @@ const graph={type:'graph',scope:{mode:'pool'},title:'Selection',warnings:[],node
 const send=(data:unknown=graph)=>act(()=>window.dispatchEvent(new MessageEvent('message',{data})));
 const group=(id:string)=>[...document.querySelectorAll<SVGGElement>('g[role="button"]')].find(n=>n.getAttribute('aria-label')?.startsWith(`Relationship ${id}:`))!;
 const node=(id:string)=>document.querySelector(`[data-node-id="${id}"]`)!;
-const hidden=(id:string)=>{const g=group(id);expect(g.getAttribute('opacity')??g.style.opacity).toBe('0');expect(g.style.pointerEvents).toBe('none');expect(g.getAttribute('tabindex')).toBe('-1');};
+const hidden=(id:string)=>{expect(group(id)).toBeUndefined();expect(document.querySelector(`[data-edge-id="${id}"]`)).toBeNull();expect(screen.queryByRole('button',{name:new RegExp(`^Relationship ${id}:`)})).toBeNull();};
 const visible=(id:string)=>expect(group(id).getAttribute('opacity')??group(id).style.opacity).not.toBe('0');
-beforeEach(()=>{document.documentElement.lang='en';api.postMessage.mockReset();api.setState.mockReset();render(<SnlGraphApp/>);send();});
+beforeEach(()=>{document.documentElement.lang='en';api.postMessage.mockReset();api.setState.mockReset();render(<SnlGraphApp/>);send();fireEvent.click(screen.getByTestId('graph-filter-toggle'));fireEvent.click(screen.getByRole('checkbox',{name:'Show relationships'}));});
 afterEach(()=>{cleanup();vi.restoreAllMocks();document.documentElement.lang='';});
 describe('graph selection isolates unrelated edges',()=>{
  it('keeps only directly incident edges and cannot reveal unrelated edges by hovering',()=>{
+  const unrelated=group('DD');
   fireEvent.click(node('b'));visible('AB');visible('BC');hidden('DD');
-  fireEvent.pointerEnter(group('DD'));hidden('DD');
+  fireEvent.pointerEnter(unrelated);hidden('DD');
   fireEvent.click(node('b'));visible('AB');visible('BC');visible('DD');
  });
  it('selects only one edge, preserves its edit action and deselects on repeat click',()=>{

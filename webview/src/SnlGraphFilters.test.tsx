@@ -23,6 +23,8 @@ function send(data: unknown = graph): void { act(() => window.dispatchEvent(new 
 function mount(data: unknown = graph) {
   const view = render(<SnlGraphApp />); send(data);
   fireEvent.click(screen.getByTitle('Expand filters'));
+  // Predicate tests inspect induced relationships, independently of paint's off default.
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
   return view;
 }
 const cards = () => screen.queryAllByTestId('graph-filter-clause');

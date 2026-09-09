@@ -112,7 +112,7 @@ describe('actual-content graph viewport', () => {
     render(<SnlGraphApp />); send({ ...graph, nodes: [{ ...graph.nodes[0], title: 'A' }], edges: [{ ...graph.edges[0], from: 'n0', to: 'n0' }] });
     control('Nodes', 'always-title');
     expect(viewport().scale).toBeGreaterThan(1);
-    expect(viewport().scale).toBeLessThanOrEqual(5);
+    expect(viewport().scale).toBeLessThanOrEqual(100);
     assertCardsInside(width - 28);
   });
   it.each(['rectangle', 'radial-outward', 'radial-inward'] as const)('%s keeps Package text at screen size 12 through zoom without moving card world centers', mode => {

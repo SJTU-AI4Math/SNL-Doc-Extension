@@ -75,6 +75,8 @@ describe('adaptive graph presentation', () => {
     expect((screen.getByRole('combobox', { name: 'Nodes' }) as HTMLSelectElement).value).toBe('auto');
     const threshold = screen.getByRole('slider', { name: 'Title threshold' }) as HTMLInputElement;
     expect([threshold.min, threshold.max, threshold.value]).toEqual(['20', '300', '120']);
+    fireEvent.click(screen.getByTestId('graph-filter-toggle'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
     const vp = transform(), positions = anchors(), before = path();
     fireEvent.focus(node());
     expect(node().querySelector('rect')).not.toBeNull();

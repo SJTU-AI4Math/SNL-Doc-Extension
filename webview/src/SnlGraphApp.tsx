@@ -13,7 +13,7 @@
 // <g transform>. Click a node → post `openEntryInfoview`. Click an edge
 // label → post `editRelationship`. No physics.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useVsCodeApiRef, PANEL_STYLE, type VsCodeApi } from './vscodeApi';
@@ -47,9 +47,9 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   refreshFailed: 'Refresh failed; showing the last valid graph. {message}',
   empty: 'No relationships to show. Add some from the Dashboard → Relationships section.',
   atomic: 'atomic', composite: 'composite', collapseFilters: 'Collapse filters', expandFilters: 'Expand filters',
-  filtersOpen: '▶ Filters', filtersClosed: '◀ Filters', edgesHeading: 'Edges', atomicOnly: 'atomic deps only',
-  hidingComposite: 'Currently hiding non-atomic (composite) dependency edges. Uncheck to show every edge.',
-  showingAllEdges: 'Currently showing every edge. Check to hide non-atomic dependency edges.',
+  filtersOpen: '▶ Filters', filtersClosed: '◀ Filters', edgesHeading: 'Edges', showRelationships: 'Show relationships', atomicOnly: 'atomic deps only',
+  hidingComposite: 'Excludes non-atomic dependency edges from the graph. Uncheck to include them; relationship visibility is controlled separately.',
+  showingAllEdges: 'Includes all relationship types in the graph. Check to exclude non-atomic dependency edges; relationship visibility is controlled separately.',
   entryKinds: 'Entry kinds', all: 'all', none: 'none', allTitle: 'Show every entry kind (reset kind filter)',
   noneTitle: 'Hide every entry kind', noKinds: 'No entry kinds in this graph yet.', unpackaged: 'Unpackaged',
  packageClusterOne: 'Package {name}: 1 entry', packageClusterMany: 'Package {name}: {count} entries',
@@ -65,7 +65,8 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
  filterValues: 'Values (OR)', andFilters: 'AND', relationshipFilter: 'Relationship',
  filterDirection: 'Direction', incomingFilter: 'Incoming', outgoingFilter: 'Outgoing', eitherFilter: 'Either direction',
  emptyRelationshipLabel: '(empty label)', unavailableFilterValue: '{value} (unavailable)',
- coloringSettings: 'Coloring settings', coloringMode: 'Coloring mode', kindColoring: 'EntryKind', tagColoring: 'Tag',
+ coloringSettings: 'Coloring settings', coloringMode: 'Coloring mode', kindColoring: 'EntryKind', tagColoring: 'Tag', packageColoring: 'EntryPackage',
+ packageColorHelp: 'Stable colors by full EntryPackage identity; unpackaged entries use their themed EntryKind color. Temporary to this panel.',
  addColorMapping: 'Add color mapping', removeColorMapping: 'Remove color mapping',
  colorMapping: 'Color mapping {id}', tag: 'Tag', color: 'Color', chooseTag: 'Choose a tag', emptyTag: '(empty tag)',
  moveUp: 'Move up', moveDown: 'Move down', colorHelp: 'First matching tag from top to bottom wins; otherwise use the current theme’s EntryKind color. Temporary to this panel.',
@@ -78,9 +79,9 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   refreshFailed: '刷新失败；正在显示上一个有效关系图。{message}',
   empty: '没有可显示的关系。请在仪表板的“关系”部分中添加。', atomic: '原子', composite: '组合',
   collapseFilters: '折叠筛选器', expandFilters: '展开筛选器', filtersOpen: '▶ 筛选器', filtersClosed: '◀ 筛选器',
-  edgesHeading: '边', atomicOnly: '仅原子依赖项',
-  hidingComposite: '当前已隐藏非原子（组合）依赖边。取消勾选可显示所有边。',
-  showingAllEdges: '当前正在显示所有边。勾选可隐藏非原子依赖边。', entryKinds: '条目种类',
+  edgesHeading: '边', showRelationships: '显示关系', atomicOnly: '仅原子依赖项',
+  hidingComposite: '从关系图中排除非原子依赖边。取消勾选可纳入这些边；关系的显示由独立开关控制。',
+  showingAllEdges: '关系图包含所有关系类型。勾选可排除非原子依赖边；关系的显示由独立开关控制。', entryKinds: '条目种类',
   all: '全部', none: '无', allTitle: '显示所有条目种类（重置种类筛选器）', noneTitle: '隐藏所有条目种类',
   noKinds: '此关系图中尚无条目种类。', unpackaged: '未分包',
   packageClusterOne: '包 {name}：1 个条目', packageClusterMany: '包 {name}：{count} 个条目',
@@ -96,7 +97,8 @@ const MESSAGES = defineUiMessages('relationshipGraph', {
   filterValues: '选值（OR）', andFilters: 'AND（且）', relationshipFilter: '关系',
   filterDirection: '方向', incomingFilter: '入边', outgoingFilter: '出边', eitherFilter: '任意方向',
   emptyRelationshipLabel: '（空标签）', unavailableFilterValue: '{value}（不可用）',
-  coloringSettings: '着色设置', coloringMode: '着色模式', kindColoring: 'EntryKind', tagColoring: 'Tag',
+  coloringSettings: '着色设置', coloringMode: '着色模式', kindColoring: 'EntryKind', tagColoring: 'Tag', packageColoring: 'EntryPackage',
+  packageColorHelp: '按完整 EntryPackage 标识稳定着色；未分包条目使用当前主题的 EntryKind 默认色。仅当前面板有效。',
   addColorMapping: '添加颜色映射', removeColorMapping: '移除颜色映射',
   colorMapping: '颜色映射 {id}', tag: '标签', color: '颜色', chooseTag: '选择标签', emptyTag: '（空标签）',
   moveUp: '上移', moveDown: '下移', colorHelp: '从上到下取首个命中的标签；未命中则使用当前主题的 EntryKind 默认色。仅当前面板有效。',
@@ -142,6 +144,25 @@ interface GraphTagColorRule {
 export function graphTagColor(tags: readonly string[] | undefined, rules: readonly GraphTagColorRule[]): string | undefined {
   return rules.find(rule => rule.tag !== null && tags?.includes(rule.tag))?.color;
 }
+
+// Package paint is keyed by exact host identity, never filtered order or kind.
+// The deterministic hue palette survives refresh/remount and scope changes;
+// black/white text below provides contrast on its opaque swatches in either theme.
+function graphPackageColor(packageId: string): string | undefined {
+  if (!packageId || packageId === '_unpackaged') return undefined;
+  let hash = 2166136261;
+  for (let i = 0; i < packageId.length; i++) hash = Math.imul(hash ^ packageId.charCodeAt(i), 16777619);
+  const hue = (hash >>> 0) % 360;
+  // HSL palette (lightness .65, chroma .46), returned as hex like Tag colors.
+  const channel = (offset: number): string => {
+    const k = (offset + hue / 30) % 12;
+    return Math.round(255 * (.65 - .23 * Math.max(-1, Math.min(k - 3, 9 - k, 1))))
+      .toString(16).padStart(2, '0');
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
+}
+
+type GraphColoringMode = 'kind' | 'tag' | 'package';
 
 function graphTagTextColor(color: string): string {
   const linear = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16) / 255)
@@ -1119,14 +1140,15 @@ interface ContentBounds { minX: number; minY: number; maxX: number; maxY: number
 /** Actual title-card rectangles plus the convex hull of the existing cubic
  * edge controls (including self loops). Decorative lane/sector canvases are
  * deliberately excluded. Parsing is safe here: edgePath emits only M/C pairs. */
-export function graphContentBounds(laid: Layout): ContentBounds {
+export function graphContentBounds(laid: Layout, includeEdges = true): ContentBounds {
   const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const include = (x: number, y: number): void => {
     bounds.minX = Math.min(bounds.minX, x); bounds.maxX = Math.max(bounds.maxX, x);
     bounds.minY = Math.min(bounds.minY, y); bounds.maxY = Math.max(bounds.maxY, y);
   };
-  const byId = new Map(laid.nodes.map(n => [n.id, n]));
   for (const n of laid.nodes) { include(n.x - 2, n.y - 2); include(n.x + n.w + 2, n.y + n.h + 2); }
+  if (!includeEdges) return bounds;
+  const byId = new Map(laid.nodes.map(n => [n.id, n]));
   for (const e of laid.edges) {
     const { d } = edgePath(byId.get(e.from)!, byId.get(e.to)!, e.waypoints, { fromShape: 'title', toShape: 'title' }, laid);
     const values = d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
@@ -1149,6 +1171,10 @@ function radialPackageLabelOrientation(angle: number) {
     dominantBaseline: Math.abs(sin) < epsilon ? 'central' as const : sin < 0 ? 'text-after-edge' as const : 'text-before-edge' as const
   };
 }
+
+const GRAPH_MIN_ZOOM = 1e-5;
+const GRAPH_MAX_ZOOM = 100;
+const clampGraphZoom = (scale: number): number => Math.max(GRAPH_MIN_ZOOM, Math.min(GRAPH_MAX_ZOOM, scale));
 
 /** Fixed-screen labels contribute pixels, not world-sized phantom circles. */
 export function fitGraphViewport(bounds: ContentBounds, width: number, height: number,
@@ -1177,16 +1203,16 @@ export function fitGraphViewport(bounds: ContentBounds, width: number, height: n
     return { minX, minY, maxX, maxY };
   };
   const availableW = Math.max(1, width - 40), availableH = Math.max(1, height - 40);
-  let lo = 0, hi = 5;
-  for (let i = 0; i < 28; i++) {
+  let lo = 0, hi = GRAPH_MAX_ZOOM;
+  for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2, b = screenBounds(mid);
     if (b.maxX - b.minX <= availableW && b.maxY - b.minY <= availableH) lo = mid; else hi = mid;
   }
   // A fixed-screen label wider than the canvas cannot be made to fit by
   // shrinking world geometry. Keep the content fitted and allow label overflow.
   if (lo === 0 && labels.length) return fitGraphViewport(bounds, width, height);
-  const scale = lo || Math.min(5, availableW / Math.max(1, bounds.maxX - bounds.minX),
-    availableH / Math.max(1, bounds.maxY - bounds.minY));
+  const scale = clampGraphZoom(lo || Math.min(GRAPH_MAX_ZOOM, availableW / Math.max(1, bounds.maxX - bounds.minX),
+    availableH / Math.max(1, bounds.maxY - bounds.minY)));
   const b = screenBounds(scale);
   return { scale, x: 20 + (availableW - b.maxX + b.minX) / 2 - b.minX,
     y: 20 + (availableH - b.maxY + b.minY) / 2 - b.minY };
@@ -1285,7 +1311,7 @@ function SnlGraphInner({
   const effectivePacking = layoutMode === 'rectangle' ? 'bands' : layerPacking;
   const [nodeMode, setNodeMode] = useState<GraphNodeMode>('auto');
   const [titleThreshold, setTitleThreshold] = useState(120);
-  const [coloringMode, setColoringMode] = useState<'kind' | 'tag'>('kind');
+  const [coloringMode, setColoringMode] = useState<GraphColoringMode>('kind');
   const [tagColorRules, setTagColorRules] = useState<GraphTagColorRule[]>([]);
   const nextColorRuleId = useRef(1);
   const addColorRule = (): void => {
@@ -1297,6 +1323,9 @@ function SnlGraphInner({
     .sort(compareLexically), [msg]);
   const tagFills = useMemo(() => new Map(msg?.nodes.map(node =>
     [node.id, graphTagColor(node.tags, tagColorRules)]) ?? []), [msg, tagColorRules]);
+  const packageFills = useMemo(() => new Map(msg?.nodes.map(node =>
+    [node.id, graphPackageColor(node.packageId)]) ?? []), [msg]);
+  const [showRelationships, setShowRelationships] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const selectEdge = (id: string): void => {
@@ -1406,19 +1435,36 @@ function SnlGraphInner({
     if (selectedEdgeId && !laid?.edges.some(edge => edge.id === selectedEdgeId)) setSelectedEdgeId(null);
   }, [laid, selectedId, selectedEdgeId]);
 
-  const contentBounds = useMemo(() => laid?.nodes.length ? graphContentBounds(laid) : null, [laid]);
+  // One paint list owns both mounted paths and bounds for the next fit.
+  // Selection/visibility update bounds, but never trigger an immediate fit.
+  const paintedEdges = useMemo(() => {
+    if (!laid) return [];
+    return selectedEdgeId !== null ? laid.edges.filter(edge => edge.id === selectedEdgeId)
+      : selectedId !== null ? laid.edges.filter(edge => edge.from === selectedId || edge.to === selectedId)
+      : showRelationships ? laid.edges : [];
+  }, [laid, selectedEdgeId, selectedId, showRelationships]);
+  const contentBounds = useMemo(() => laid?.nodes.length
+    ? graphContentBounds({ ...laid, edges: paintedEdges }, paintedEdges.length > 0) : null, [laid, paintedEdges]);
+  const fitSnapshotRef = useRef<{ laid: typeof laid; bounds: typeof contentBounds } | null>(null);
+  useLayoutEffect(() => {
+    const snapshot = { laid, bounds: contentBounds };
+    fitSnapshotRef.current = snapshot;
+    return () => { if (fitSnapshotRef.current === snapshot) fitSnapshotRef.current = null; };
+  }, [laid, contentBounds]);
 
   // Refit committed layout input and available canvas changes, not interaction
   // or presentation. Observe both the SVG and overlay sidebar (font/wrapping
   // changes can alter its width). Cleanup also rejects queued late deliveries.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!laid || !contentBounds || !svg) return;
+    if (!laid || !svg) return;
     const sidebar = svg.parentElement?.querySelector<HTMLElement>('[data-graph-sidebar]');
     let alive = true;
     let previousSize = '';
     const fit = (): void => {
-      if (!alive) return;
+      const snapshot = fitSnapshotRef.current;
+      if (!alive || !snapshot?.bounds || snapshot.laid !== laid) return;
+      const bounds = snapshot.bounds;
       const rect = svg.getBoundingClientRect();
       const side = sidebar?.getBoundingClientRect();
       const width = side && side.width > 0 ? Math.max(1, Math.min(rect.width, side.left - rect.left)) : rect.width;
@@ -1449,7 +1495,7 @@ function SnlGraphInner({
           width: Math.max(box?.width ?? 0, measured && Number.isFinite(measured) ? measured + 4 : (element?.textContent?.length ?? cluster.packageId.length) * 8 + 4) };
       });
       setLabelOffsets(offsets);
-      setVp(fitGraphViewport(contentBounds, width, rect.height, labels));
+      setVp(fitGraphViewport(bounds, width, rect.height, labels));
     };
     fit();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
@@ -1457,7 +1503,7 @@ function SnlGraphInner({
     if (sidebar) observer?.observe(sidebar);
     window.addEventListener('resize', fit);
     return () => { alive = false; observer?.disconnect(); window.removeEventListener('resize', fit); };
-  }, [laid, contentBounds, filtersOpen]);
+  }, [laid, filtersOpen]);
 
   const onWheel = useCallback((e: WheelEvent): void => {
     e.preventDefault();
@@ -1468,7 +1514,7 @@ function SnlGraphInner({
     const my = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     setVp((prev) => {
-      const nextScale = Math.max(0.05, Math.min(5, prev.scale * factor));
+      const nextScale = clampGraphZoom(prev.scale * factor);
       const wx = (mx - prev.x) / prev.scale;
       const wy = (my - prev.y) / prev.scale;
       return {
@@ -1734,6 +1780,12 @@ function SnlGraphInner({
           onClausesChange={setClauses}
           onAddClause={addClause}
           relationshipUniverse={relationshipUniverse}
+          showRelationships={showRelationships}
+          onShowRelationshipsChange={value => {
+            setShowRelationships(value);
+            setSelectedEdgeId(null);
+            setHoverEdgeId(null);
+          }}
           coloringMode={coloringMode}
           onColoringModeChange={setColoringMode}
           tagUniverse={tagUniverse}
@@ -1842,7 +1894,7 @@ function SnlGraphInner({
                 );
               })}
               {/* Edges first so nodes paint on top. */}
-              {laid.edges.map((e) => {
+              {paintedEdges.map((e) => {
                 const from = nodesById.get(e.from)!;
                 const to = nodesById.get(e.to)!;
                 const { d } = edgePath(from, to, e.waypoints, { fromShape: nodeShape(from.id), toShape: nodeShape(to.id) }, laid);
@@ -1853,8 +1905,6 @@ function SnlGraphInner({
                 const nonAtomicDep = e.isDependency && e.isAtomic === false;
                 const baseOpacity = nonAtomicDep ? 0.28 : 0.55;
                 const edgeSelected = selectedEdgeId === e.id;
-                const edgeVisible = selectedEdgeId !== null ? edgeSelected
-                  : selectedId !== null ? incidentToSelected : true;
                 const opacity = incidentToSelected || edgeSelected || hovered ? 1 : baseOpacity;
                 return (
                   <g
@@ -1863,23 +1913,21 @@ function SnlGraphInner({
                     data-from={e.from}
                     data-to={e.to}
                     role="button"
-                    opacity={edgeVisible ? 1 : 0}
-                    aria-hidden={!edgeVisible || undefined}
                     aria-pressed={edgeSelected}
-                    tabIndex={edgeVisible ? 0 : -1}
+                    tabIndex={0}
                     aria-label={t('relationshipAria', { label: e.label || e.id, from: e.from, to: e.to })}
-                    onPointerEnter={() => { if (edgeVisible) setHoverEdgeId(e.id); }}
+                    onPointerEnter={() => setHoverEdgeId(e.id)}
                     onPointerLeave={() =>
                       setHoverEdgeId((c) => (c === e.id ? null : c))
                     }
-                    style={{ cursor: 'pointer', pointerEvents: edgeVisible ? 'auto' : 'none' }}
-                    onClick={() => { if (edgeVisible) selectEdge(e.id); }}
-                    onFocus={() => { if (edgeVisible) setHoverEdgeId(e.id); }}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => selectEdge(e.id)}
+                    onFocus={() => setHoverEdgeId(e.id)}
                     onBlur={() => setHoverEdgeId((c) => (c === e.id ? null : c))}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
-                      if (edgeVisible) selectEdge(e.id);
+                      selectEdge(e.id);
                     }}
                   >
                     <title>
@@ -1909,9 +1957,10 @@ function SnlGraphInner({
                 const showTitle = nodeShape(n.id) === 'title';
                 const highlighted = isHovered || isSelected || focusNodeId === n.id;
                 const stroke = n.color;
-                const tagFill = coloringMode === 'tag' ? tagFills.get(n.id) : undefined;
-                const fill = graphNodeFill(tagFill ?? n.background, highlighted);
-                const textColor = tagFill ? graphTagTextColor(tagFill) : stroke;
+                const overrideFill = coloringMode === 'tag' ? tagFills.get(n.id)
+                  : coloringMode === 'package' ? packageFills.get(n.id) : undefined;
+                const fill = graphNodeFill(overrideFill ?? n.background, highlighted);
+                const textColor = overrideFill ? graphTagTextColor(overrideFill) : stroke;
                 const titleHtml = showTitle ? renderTitleKatex(n.title) : '';
                 return (
                   <g
@@ -1959,7 +2008,7 @@ function SnlGraphInner({
                       y={16}
                       fontSize={11}
                       fontFamily="var(--vscode-editor-font-family, monospace)"
-                      opacity={tagFill ? 1 : 0.85}
+                      opacity={overrideFill ? 1 : 0.85}
                       fill={textColor}
                     >
                       {n.kind}
@@ -2054,6 +2103,7 @@ function FiltersSidebar({
   onClausesChange,
   onAddClause,
   relationshipUniverse,
+  showRelationships, onShowRelationshipsChange,
   coloringMode, onColoringModeChange, tagUniverse, tagColorRules, onTagColorRulesChange, onAddColorRule
 }: {
   open: boolean;
@@ -2069,8 +2119,10 @@ function FiltersSidebar({
   onClausesChange: (clauses: GraphFilterClause[]) => void;
   onAddClause: () => void;
   relationshipUniverse: string[];
-  coloringMode: 'kind' | 'tag';
-  onColoringModeChange: (mode: 'kind' | 'tag') => void;
+  showRelationships: boolean;
+  onShowRelationshipsChange: (value: boolean) => void;
+  coloringMode: GraphColoringMode;
+  onColoringModeChange: (mode: GraphColoringMode) => void;
   tagUniverse: string[];
   tagColorRules: GraphTagColorRule[];
   onTagColorRulesChange: (rules: GraphTagColorRule[]) => void;
@@ -2160,12 +2212,13 @@ function FiltersSidebar({
             <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.85rem' }}>{t('coloringSettings')}</h3>
             <label>{t('coloringMode')}{' '}
               <select className="snl-control" aria-label={t('coloringMode')} value={coloringMode}
-                onChange={event => onColoringModeChange(event.target.value as 'kind' | 'tag')}>
+                onChange={event => onColoringModeChange(event.target.value as GraphColoringMode)}>
                 <option value="kind">{t('kindColoring')}</option>
                 <option value="tag">{t('tagColoring')}</option>
+                <option value="package">{t('packageColoring')}</option>
               </select>
             </label>
-            <p style={{ fontSize: '0.8rem' }}>{t('colorHelp')}</p>
+            <p style={{ fontSize: '0.8rem' }}>{t(coloringMode === 'package' ? 'packageColorHelp' : 'colorHelp')}</p>
             <Button type="button" onClick={onAddColorRule}>{t('addColorMapping')}</Button>
             {tagColorRules.map((rule, index) => {
               const update = (patch: Partial<GraphTagColorRule>): void =>
@@ -2228,6 +2281,11 @@ function FiltersSidebar({
           <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.85rem', opacity: 0.75 }}>
             {t('edgesHeading')}
           </h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+            <input type="checkbox" checked={showRelationships}
+              onChange={event => onShowRelationshipsChange(event.target.checked)} />
+            <span>{t('showRelationships')}</span>
+          </label>
           <label
             style={{
               display: 'flex',

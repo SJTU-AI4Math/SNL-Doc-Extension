@@ -36,6 +36,7 @@ describe('rendered endpoint routes', () => {
     act(() => window.dispatchEvent(new MessageEvent('message', { data: graph })));
     control('Nodes', 'always-title');
     fireEvent.click(screen.getByTestId('graph-filter-toggle'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show relationships' }));
     control('Layer packing', packing);
     for (const mode of ['rectangle', 'radial-outward', 'radial-inward']) {
       control('Layout', mode);

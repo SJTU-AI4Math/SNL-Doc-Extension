@@ -76,7 +76,7 @@ class Cdp {
 }
 async function connect(url) { const ws = new WebSocket(url); await new Promise((r,j) => { ws.onopen=r; ws.onerror=j; }); return new Cdp(ws); }
 let browser, page;
-const evidence = { url, mode: process.argv.includes('--colors') ? 'colors' : process.argv.includes('--routes') ? 'routes' : process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
+const evidence = { url, mode: process.argv.includes('--scale') ? 'scale' : process.argv.includes('--colors') ? 'colors' : process.argv.includes('--routes') ? 'routes' : process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
   bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
@@ -105,7 +105,10 @@ try {
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-  if (process.argv.includes('--colors')) {
+  if (process.argv.includes('--scale')) {
+    const { verifyGraphScale } = await import('./test-graph-scale-browser.mjs');
+    await verifyGraphScale({ evaluate, wait, screenshot, page, evidence });
+  } else if (process.argv.includes('--colors')) {
     const { verifyGraphColors } = await import('./test-graph-colors-browser.mjs');
     await verifyGraphColors({ evaluate, wait, screenshot, page, evidence, url });
   } else if (process.argv.includes('--routes')) {
@@ -216,12 +219,15 @@ try {
   assert.ok((await snapshot()).every(n=>Number.isFinite(n.x)&&Number.isFinite(n.y)));
   await screenshot('large-library-outward');
   evidence.largeLibrary.smallestDot=await evaluate(`Math.min(...[...document.querySelectorAll('${nodeSelector} > circle')].map(n=>n.getBoundingClientRect().width))`);
-  assert.ok(evidence.largeLibrary.smallestDot>=3.99,'overview dots retain at least a 2px screen radius');
-  const overviewHit=await center(nodeSelector);await move(overviewHit.x,overviewHit.y);
+  evidence.largeLibrary.overviewScale=await evaluate(`document.getElementById('snl-graph-background').closest('svg').querySelector(':scope > g[transform]').transform.baseVal.consolidate().matrix.a`);
+  assert.ok(Math.abs(evidence.largeLibrary.smallestDot-12*evidence.largeLibrary.overviewScale)<0.001,'overview dots scale with the graph, without a pixel floor');
+  // Subpixel corpus dots deliberately have no minimum hit footprint. Real
+  // pointer entry is covered above/--scale; keyboard access remains available.
+  await evaluate(`document.querySelector('${nodeSelector}').focus()`);
   await wait(`document.querySelectorAll('${nodeSelector} > rect').length>=1`);
   evidence.largeLibrary.hoverCardHeight=await evaluate(`Math.max(...[...document.querySelectorAll('${nodeSelector} > rect')].map(n=>n.getBoundingClientRect().height))`);
-  assert.ok(evidence.largeLibrary.hoverCardHeight>=43.9,'overview hover title remains screen-readable');
-  await screenshot('large-library-hover');await move(10,10);
+  assert.ok(Math.abs(evidence.largeLibrary.hoverCardHeight-44*evidence.largeLibrary.overviewScale)<0.001,'active overview title retains world size');
+  await screenshot('large-library-focus');await evaluate('document.activeElement.blur()');await move(10,10);
   await page.call('Emulation.setDeviceMetricsOverride',{width:430,height:850,deviceScaleFactor:1,mobile:false});
   await selection('Outward|向外','Inward|向内');
   evidence.narrow=await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,selects:[...document.querySelectorAll('select')].map(s=>{const r=s.getBoundingClientRect();return {left:r.left,right:r.right}})})`);

@@ -12,15 +12,15 @@ const edges = [edge('ab', 'a', 'b'), edge('ac', 'a', 'c'), edge('bd', 'b', 'd', 
 const center = (n: { x: number; y: number; w: number; h: number }) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
 
 describe('static graph layouts', () => {
-  it('keeps overview dots visible and active cards readable without moving centers', () => {
+  it.each([0.001, 0.01, 0.1, 0.5, 1, 2, 5])('keeps world sizes and centers at scale %s, including active titles', scale => {
     const n = { x: 40, y: 50, w: 160, h: 44 };
-    const dot = graphNodePresentation(n, 0.01, false);
-    expect(dot.dotRadius * 0.01).toBeGreaterThanOrEqual(2);
-    const card = graphNodePresentation(n, 0.01, true);
-    expect(card.presentationScale * 0.01).toBe(1);
-    expect(center(card)).toEqual(center(n));
-    expect(card.w * 0.01).toBe(n.w);
-    expect(graphNodePresentation(n, 2, true).presentationScale).toBe(1);
+    for (const active of [false, true]) {
+      const shown = graphNodePresentation(n, scale, active);
+      expect(shown).toMatchObject({ ...n, dotRadius: 6, cornerRadius: 4, presentationScale: 1 });
+      expect(center(shown)).toEqual(center(n));
+      expect(shown.w * scale).toBe(n.w * scale);
+    }
+    expect(n).toEqual({ x: 40, y: 50, w: 160, h: 44 });
   });
   it('characterizes sink-zero heights, mixed relations and deterministic rectangular lanes', () => {
     const result = layout(nodes, edges);

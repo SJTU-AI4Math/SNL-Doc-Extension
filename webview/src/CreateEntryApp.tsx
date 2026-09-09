@@ -234,6 +234,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   formatSnl: 'Format SNL',
   formatShortcut: 'Shift+Alt+F',
   formatFailed: 'Could not format SNL: {error}',
+  tags: 'Tags', addTag: 'Add tag', removeTag: 'Remove tag {index}', tagRow: 'Tag {index}',
   contributor: 'Contributor',
   contributorPlaceholder: 'e.g. Ada Lovelace',
   contributorTemporary: 'Temporary single-string field — this Contributor shape may change.',
@@ -382,7 +383,7 @@ export const CREATE_ENTRY_MESSAGES = defineUiMessages('createEntry', {
   missingPackage: '已分配的条目包不存在。请先恢复该条目包再保存。', packageHint: '条目包已在打开编辑器前通过 VS Code 选择，此处只读。',
   kind: '条目类别', kindSelection: '条目类别：{name}', kindDetails: 'ID {id}；描边 {stroke}；背景 {background}', unsupportedFormat: '暂不支持编辑 {format}', kindColors: '描边 {stroke} / 背景 {background}', livePreview: '实时预览', structuralIndex: 'SNL 结构索引（SSI）', newEntryId: '（新条目）', content: '内容', textFormat: '文本',
   editorMode: 'SNL 编辑器模式', guiCanvas: 'GUI 编辑器（画布）', guiInductive: 'GUI 编辑器（归纳式）', textEditor: '文本编辑器', sourcePlaceholder: '{format} 源代码…',
-  sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
+  sourceEditorLabel: '{format} 源代码编辑器', formatSnl: '格式化 SNL', formatShortcut: 'Shift+Alt+F', formatFailed: '无法格式化 SNL：{error}', tags: '标签', addTag: '添加标签', removeTag: '移除标签 {index}', tagRow: '标签 {index}', contributor: '贡献者', contributorPlaceholder: '例如：艾达·洛芙莱斯', contributorTemporary: '临时单字符串字段——此贡献者数据结构将来可能更改。', pointer: '指针',
   canvasMultipleRoots: '画布语法森林有多个根节点时无法保存。请连接未附着的块或重置画布。',
   canvasSingleSlot: '某个宏只有一个未填槽位，无法写入 SNL，因此无法保存——空槽位需要逗号；请为该宏再添加一个参数或填充此槽位。',
   updating: '正在更新…', creating: '正在创建…', updateEntry: '更新条目', resetBanner: '重置横幅', cancel: '取消',
@@ -464,6 +465,7 @@ type Mode = 'create' | 'edit';
 
 interface ExistingEntry {
   id: string;
+  tags?: string[];
   package?: string;
   kind: string;
   title: Localized<string, string>;
@@ -940,6 +942,8 @@ export function CreateEntryApp(): React.ReactElement {
   useEffect(() => {
     contentEditLanguagesRef.current = contentEditLanguages;
   }, [contentEditLanguages]);
+  const [tags, setTags] = useState<string[] | undefined>(undefined);
+  const tagsDirtyRef = useRef(false);
   const [contributor, setContributor] = useState('');
   const contributorDirtyRef = useRef(false);
   const [pointerDraft, setPointerDraft] = useState<PointerDraft>(() => ({
@@ -1148,6 +1152,8 @@ export function CreateEntryApp(): React.ReactElement {
           setSelectedKind('');
           setContentI18n({});
           setContentEditLanguages({ ...GENERAL_CONTENT_EDIT_LANGUAGES });
+          setTags(undefined);
+          tagsDirtyRef.current = false;
           setContributor('');
           contributorDirtyRef.current = false;
           setPointerDraft({ ...EMPTY_POINTER_DRAFT });
@@ -1234,6 +1240,10 @@ export function CreateEntryApp(): React.ReactElement {
               const latex = projectLocalizedContent(msg.existing.content?.latex);
               const markdown = projectLocalizedContent(msg.existing.content?.markdown);
               const text = projectLocalizedContent(msg.existing.content?.text);
+              if (!preserveDraft || !tagsDirtyRef.current) {
+                setTags(msg.existing.tags?.slice());
+                tagsDirtyRef.current = false;
+              }
               if (!preserveDraft || !contributorDirtyRef.current) {
                 setContributor(
                   typeof msg.existing.contribution_info === 'string'
@@ -1643,6 +1653,7 @@ export function CreateEntryApp(): React.ReactElement {
       package: selectedPackage,
       kind: selectedKind,
       title: persistedTitle!,
+      ...(tags === undefined ? {} : { tags: [...tags] }),
       content: {
         snl: content.snl || undefined,
         ...persistedContent
@@ -1698,6 +1709,7 @@ export function CreateEntryApp(): React.ReactElement {
       canvasForest?: SnlSyntaxTree[];
       pointerDraft?: PointerDraft;
       contributor?: string;
+      tags?: string[];
       entryRevision?: string;
     }>(draftApi, draftKey);
     if (!restored) return;
@@ -1748,6 +1760,12 @@ export function CreateEntryApp(): React.ReactElement {
       text: typeof restoredLanguages?.text === 'string'
         ? restoredLanguages.text : legacyLanguage
     });
+    if (Array.isArray(restored.tags) && restored.tags.every(tag => typeof tag === 'string')) {
+      setTags(restored.tags.slice());
+      tagsDirtyRef.current = true;
+    } else {
+      tagsDirtyRef.current = false;
+    }
     if (typeof restored.contributor === 'string') {
       setContributor(restored.contributor);
       contributorDirtyRef.current = true;
@@ -1790,6 +1808,7 @@ export function CreateEntryApp(): React.ReactElement {
       snlMode,
       canvasForest,
       contributor,
+      tags: tagsDirtyRef.current ? tags : undefined,
       pointerDraft: pointerDirtyRef.current ? pointerDraft : undefined,
       entryRevision: mode === 'edit' ? entryRevisionRef.current : undefined
     },
@@ -2344,6 +2363,32 @@ export function CreateEntryApp(): React.ReactElement {
             }
           />
         ) : null}
+
+        <CollapsibleEntrySection title={t('tags')}>
+          <div data-testid="entry-tags-editor">
+            {(tags ?? []).map((tag, index) => (
+              <div key={index} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                <textarea className="snl-control" rows={1} aria-label={t('tagRow', { index: index + 1 })}
+                  value={tag} style={{ flex: 1, minWidth: 0 }} onChange={event => {
+                    tagsDirtyRef.current = true;
+                    markFormDirty(true);
+                    setTags(previous => previous!.map((value, i) => i === index ? event.target.value : value));
+                  }} />
+                <button type="button" className="snl-control" aria-label={t('removeTag', { index: index + 1 })}
+                  onClick={() => {
+                    tagsDirtyRef.current = true;
+                    markFormDirty(true);
+                    setTags(previous => previous!.filter((_, i) => i !== index));
+                  }}>{t('removeTag', { index: index + 1 })}</button>
+              </div>
+            ))}
+            <button type="button" className="snl-control" onClick={() => {
+              tagsDirtyRef.current = true;
+              markFormDirty(true);
+              setTags(previous => [...(previous ?? []), '']);
+            }}>{t('addTag')}</button>
+          </div>
+        </CollapsibleEntrySection>
 
         {/* 6. Contributor (temporary single-string shape) ============== */}
         <CollapsibleEntrySection title={t('contributor')}>

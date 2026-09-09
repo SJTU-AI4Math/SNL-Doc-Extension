@@ -380,11 +380,11 @@ describe('CreateEntryPanel create -> edit flip', () => {
       type: 'create',
       entry: {
         id: 'thm-second', package: '_unpackaged',
-        kind: 'definition', title: 'Second', content: {}
+        kind: 'definition', title: 'Second', content: {}, tags: ['', '__proto__', ' a,b ']
       }
     });
     expect(snlDoc.addEntry).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(snlDoc.addEntry).mock.calls[0][1]).toMatchObject({ package: 'Logic' });
+    expect(vi.mocked(snlDoc.addEntry).mock.calls[0][1]).toMatchObject({ package: 'Logic', tags: ['', '__proto__', ' a,b '] });
 
     await messageHandler!({
       type: 'update',
@@ -392,7 +392,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
       entry: {
         id: 'thm-second', kind: 'definition', package: '_unpackaged',
         title: 'Second edited', content: {},
-        contribution_info: 'Grace Hopper'
+        contribution_info: 'Grace Hopper', tags: ['', '中文', ' a,b ', '__proto__']
       }
     });
     const updateCommitted = posted.findLast((message) => message?.type === 'updateCommitted');
@@ -403,7 +403,7 @@ describe('CreateEntryPanel create -> edit flip', () => {
     expect(snlDoc.updateEntry).toHaveBeenCalledTimes(1);
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][1]).toBe('thm-second');
     expect(vi.mocked(snlDoc.updateEntry).mock.calls[0][2]).toMatchObject({
-      package: 'Logic', contribution_info: 'Grace Hopper'
+      package: 'Logic', contribution_info: 'Grace Hopper', tags: ['', '中文', ' a,b ', '__proto__']
     });
     expect(events.indexOf('save:update')).toBeLessThan(events.lastIndexOf('regenerate:thm-second'));
     expect(events.lastIndexOf('regenerate:thm-second')).toBeLessThan(events.lastIndexOf('post:updated'));

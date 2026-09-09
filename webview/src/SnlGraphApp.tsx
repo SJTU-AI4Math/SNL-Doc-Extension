@@ -949,17 +949,19 @@ const offsetPoint = (p: EdgePoint, direction: EdgePoint, distance: number): Edge
   x: p.x + direction.x * distance, y: p.y + direction.y * distance
 });
 
-/** A canonical radial-out / short orbit / radial-in maneuver. Both transition
- * control polygons stay in their angular wedges, away from the center. The
- * circular cubics meet the transitions with the same oriented tangent (G1).
- * This is endpoint geometry, not obstacle avoidance or a layout operation. */
+/** Facing radial ports, joined through a short intermediate arc. Distinct
+ * radii use canonical inner-to-outer travel; equal radii retain the outside
+ * orbit. This is endpoint geometry, never avoidance or a layout operation. */
 function radialEdgePath(from: EdgeAnchorNode, to: EdgeAnchorNode,
   fromShape: NodeShape, toShape: NodeShape, origin: EdgePoint) {
   const fc = { x: from.x + from.w / 2, y: from.y + from.h / 2 };
   const tc = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
-  // Calculate once in a spatially canonical order, then reverse controls. This
-  // also makes the exactly-antipodal choice independent of edge direction.
-  const reverse = fc.x > tc.x || (fc.x === tc.x && fc.y > tc.y);
+  // Calculate once inner-to-outer, using a spatial tie break on equal rings.
+  // Reversing controls also preserves the exactly-antipodal choice.
+  const fr = Math.hypot(fc.x - origin.x, fc.y - origin.y);
+  const tr = Math.hypot(tc.x - origin.x, tc.y - origin.y);
+  const distinct = Math.abs(fr - tr) > 1e-8;
+  const reverse = distinct ? fr > tr : fc.x > tc.x || (fc.x === tc.x && fc.y > tc.y);
   const a = reverse ? to : from, b = reverse ? from : to;
   const ac = reverse ? tc : fc, bc = reverse ? fc : tc;
   const aShape = reverse ? toShape : fromShape, bShape = reverse ? fromShape : toShape;
@@ -978,28 +980,46 @@ function radialEdgePath(from: EdgeAnchorNode, to: EdgeAnchorNode,
   let middle: EdgePoint;
   // Equal angles at distinct radii need no orbital turn. The small tolerance
   // absorbs atan2 roundoff from the layout's sin/cos projection, not real turns.
-  if (Math.abs(sweep) < 1e-14 && Math.abs(ar - br) > 1e-8) {
-    const sign = br > ar ? 1 : -1;
-    const start = port(a, ac, au, aShape, sign), end = port(b, bc, bu, bShape, -sign);
-    const step = { x: (end.x - start.x) / 3, y: (end.y - start.y) / 3 };
-    curves = [{ start, c1: offsetPoint(start, step, 1), c2: offsetPoint(end, step, -1), end }];
+  const facingStart = port(a, ac, au, aShape), facingEnd = port(b, bc, bu, bShape, -1);
+  const facingSR = (facingStart.x - origin.x) * au.x + (facingStart.y - origin.y) * au.y;
+  const facingER = (facingEnd.x - origin.x) * bu.x + (facingEnd.y - origin.y) * bu.y;
+  if (distinct && (Math.abs(sweep) < 1e-14 || facingER <= 1e-8)) {
+    const start = facingStart, end = facingEnd;
+    // Coincident rays, or an enlarged outer card covering the origin, cannot
+    // use a positive-radius orbit. Keep the specified signed endpoint ports.
+    const handle = facingER > facingSR + 1e-8
+      ? (facingER - facingSR) / 3
+      : Math.max(1, Math.min(32, Math.hypot(end.x - start.x, end.y - start.y) / 3));
+    curves = [{ start, c1: offsetPoint(start, au, handle), c2: offsetPoint(end, bu, -handle), end }];
     middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   } else {
-    const start = port(a, ac, au, aShape), end = port(b, bc, bu, bShape);
+    const start = facingStart, end = distinct ? facingEnd : port(b, bc, bu, bShape);
     const sr = Math.hypot(start.x - origin.x, start.y - origin.y);
     const er = Math.hypot(end.x - origin.x, end.y - origin.y);
     const direction = sweep < 0 ? -1 : 1;
     const turn = Math.min(Math.abs(sweep) / 4, Math.PI / 8);
     // Keep the radial controls before the orbit's projected radius, providing
     // a positive outward departure even for equal endpoint radii.
-    const radius = Math.max(sr, er) / Math.cos(turn) + 24;
+    const radius = distinct ? (sr + er) / 2 : Math.max(sr, er) / Math.cos(turn) + 24;
+    // Independent wedge bounds keep the first handle outward and the last
+    // handle inward of the outer port, with same-oriented tangent joins.
+    const orderedPorts = distinct && er > sr + 1e-8;
+    const firstTurn = orderedPorts ? Math.min(turn, Math.acos(sr / radius) / 2) : turn;
+    const lastTurn = orderedPorts ? Math.min(turn, Math.acos(radius / er) / 2) : turn;
     const polar = (angle: number): EdgePoint => offsetPoint(origin, { x: Math.cos(angle), y: Math.sin(angle) }, radius);
     const tangent = (angle: number): EdgePoint => ({ x: -Math.sin(angle) * direction, y: Math.cos(angle) * direction });
-    const firstAngle = aa + direction * turn, lastAngle = aa + sweep - direction * turn;
+    const firstAngle = aa + direction * firstTurn, lastAngle = aa + sweep - direction * lastTurn;
     const first = polar(firstAngle), last = polar(lastAngle);
-    const turnHandle = radius * Math.tan(turn / 2);
-    curves = [{ start, c1: offsetPoint(start, au, (radius * Math.cos(turn) - sr) / 2),
-      c2: offsetPoint(first, tangent(firstAngle), -turnHandle), end: first }];
+    const firstHandle = radius * Math.tan(firstTurn / 2), lastHandle = radius * Math.tan(lastTurn / 2);
+    // Radial extents may cross even for disjoint cards on opposite rays.
+    // Keep the short orbit and positive radial departure; never replace it
+    // with a diameter shortcut. Controls stay inside their angular wedges.
+    const departure = distinct && !orderedPorts ? Math.min(24, sr / 2)
+      : (radius * Math.cos(firstTurn) - sr) / 2;
+    const arrivalControl = !distinct ? (radius * Math.cos(lastTurn) - er) / 2
+      : orderedPorts ? (radius / Math.cos(lastTurn) - er) / 2 : -Math.min(24, er / 2);
+    curves = [{ start, c1: offsetPoint(start, au, departure),
+      c2: offsetPoint(first, tangent(firstAngle), -firstHandle), end: first }];
     // At most two circular cubics; each spans <= pi/2. Their standard controls
     // preserve the short angular sweep rather than cutting a chord inward.
     const count = Math.max(1, Math.ceil(Math.abs(lastAngle - firstAngle) / (Math.PI / 2)));
@@ -1011,8 +1031,8 @@ function radialEdgePath(from: EdgeAnchorNode, to: EdgeAnchorNode,
       curves.push({ start: p, c1: offsetPoint(p, tangent(angle), handle),
         c2: offsetPoint(q, tangent(nextAngle), -handle), end: q });
     }
-    curves.push({ start: last, c1: offsetPoint(last, tangent(lastAngle), turnHandle),
-      c2: offsetPoint(end, bu, (radius * Math.cos(turn) - er) / 2), end });
+    curves.push({ start: last, c1: offsetPoint(last, tangent(lastAngle), lastHandle),
+      c2: offsetPoint(end, bu, arrivalControl), end });
     middle = polar(aa + sweep / 2);
   }
   if (reverse) curves = curves.reverse().map(c => ({ start: c.end, c1: c.c2, c2: c.c1, end: c.start }));

@@ -56,6 +56,19 @@ describe('rendered endpoint routes', () => {
         const d = edgePath(anchor(e.from), anchor(e.to), [{ x: -1e9, y: 1e9 }], { fromShape: 'title', toShape: 'title' }, context).d;
         expect(path.getAttribute('d')).toBe(d);
         const controls = values(d);
+        if (origin && e.from !== e.to) {
+          const a = anchor(e.from), b = anchor(e.to);
+          const ra = [a.x + a.w / 2 - origin.x, a.y + a.h / 2 - origin.y];
+          const rb = [b.x + b.w / 2 - origin.x, b.y + b.h / 2 - origin.y];
+          const sign = Math.sign(Math.hypot(...rb) - Math.hypot(...ra));
+          if (Math.abs(Math.hypot(...rb) - Math.hypot(...ra)) > 1e-8) {
+            const end = controls.length - 2;
+            expect(sign * ((controls[0] - a.x - a.w / 2) * ra[0] + (controls[1] - a.y - a.h / 2) * ra[1])).toBeGreaterThan(0);
+            expect(sign * ((controls[end] - b.x - b.w / 2) * rb[0] + (controls[end + 1] - b.y - b.h / 2) * rb[1])).toBeLessThan(0);
+            expect(sign * ((controls[2] - controls[0]) * ra[0] + (controls[3] - controls[1]) * ra[1])).toBeGreaterThan(0);
+            expect(sign * ((controls[end] - controls[end - 2]) * rb[0] + (controls[end + 1] - controls[end - 1]) * rb[1])).toBeGreaterThan(0);
+          }
+        }
         for (let i = 0; i < controls.length; i += 2) {
           expect(controls[i]).toBeGreaterThanOrEqual(bounds.minX - 1e-6);
           expect(controls[i]).toBeLessThanOrEqual(bounds.maxX + 1e-6);

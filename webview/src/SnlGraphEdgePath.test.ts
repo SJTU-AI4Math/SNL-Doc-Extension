@@ -55,7 +55,22 @@ function assertRadialRoute(a: ReturnType<typeof node>, b: ReturnType<typeof node
   const da = derivative(first, 0), db = derivative(last, 1);
   expect(Math.abs(cross(da, ra)) / length(da) / length(ra)).toBeLessThan(1e-8);
   expect(Math.abs(cross(db, rb)) / length(db) / length(rb)).toBeLessThan(1e-8);
+  if (Math.abs(length(ra) - length(rb)) > 1e-8) {
+    const sign = length(rb) > length(ra) ? 1 : -1;
+    expect(dot(sub(first.start, center(a)), ra) * sign).toBeGreaterThan(0);
+    expect(dot(sub(last.end, center(b)), rb) * sign).toBeLessThan(0);
+    expect(dot(da, ra) * sign).toBeGreaterThan(0);
+    expect(dot(db, rb) * sign).toBeGreaterThan(0);
+  }
   expectReverse(path.d, edgePath(b, a, [], { fromShape: style.toShape, toShape: style.fromShape }, context).d);
+  // Crossed facing radii from enlarged/nearby cards are a signed-endpoint
+  // fallback, not the normal annular transition contract.
+  const outward = length(rb) > length(ra);
+  const innerPort = outward ? first.start : last.end, outerPort = outward ? last.end : first.start;
+  const innerRay = outward ? ra : rb, outerRay = outward ? rb : ra;
+  const innerRadius = dot(sub(innerPort, origin), innerRay) / length(innerRay);
+  const outerRadius = dot(sub(outerPort, origin), outerRay) / length(outerRay);
+  if (Math.abs(length(ra) - length(rb)) > 1e-8 && outerRadius <= innerRadius + 1e-8) return curves;
   let previous = Math.atan2(first.start.y - origin.y, first.start.x - origin.x), sweep = 0;
   const expected = Math.abs(shortAngle(Math.atan2(ra.y, ra.x), Math.atan2(rb.y, rb.x)));
   let turning = false;
@@ -71,6 +86,7 @@ function assertRadialRoute(a: ReturnType<typeof node>, b: ReturnType<typeof node
       const t = j / 40, r = sub(at(c, t), origin), v = derivative(c, t);
       expect(length(v)).toBeGreaterThan(1e-9);
       expect(length(r)).toBeGreaterThanOrEqual(minRadius - 1e-6);
+      if (Math.abs(length(ra) - length(rb)) > 1e-8) expect(length(r)).toBeLessThanOrEqual(outerRadius + 1e-6);
       const angle = Math.atan2(r.y, r.x), delta = shortAngle(previous, angle);
       sweep += Math.abs(delta); previous = angle;
       if (Math.abs(dot(r, v)) / length(r) / length(v) < 0.02) turning = true;
@@ -85,6 +101,29 @@ function assertRadialRoute(a: ReturnType<typeof node>, b: ReturnType<typeof node
 }
 
 describe('endpoint-only radial edge paths', () => {
+  it('uses exact facing ports and signed travel on translated, rotated, enlarged cards and dots', () => {
+    for (const angle of [0, 0.35, 1.2, -2.6]) for (const scale of [1, 0.25]) {
+      const a = graphNodePresentation(polarNode(angle, 300), scale, true);
+      const b = graphNodePresentation(polarNode(angle + 0.6, 1000), scale, true);
+      for (const shape of ['dot', 'title'] as const) {
+        const cs = assertRadialRoute(a, b, { fromShape: shape, toShape: shape });
+        for (const [n, p, sign] of [[a, cs[0].start, 1], [b, cs.at(-1)!.end, -1]] as const) {
+          const r = sub(center(n), origin), u = { x: r.x / length(r), y: r.y / length(r) };
+          // Independent rounded-box membership/bisection oracle, including
+          // corners; do not reuse the production ray-intersection formula.
+          let lo = 0, hi = Math.hypot(n.w, n.h);
+          for (let i = 0; i < 60; i++) {
+            const d = (lo + hi) / 2;
+            const qx = Math.max(0, Math.abs(u.x * d) - n.w / 2 + n.cornerRadius);
+            const qy = Math.max(0, Math.abs(u.y * d) - n.h / 2 + n.cornerRadius);
+            if (Math.hypot(qx, qy) <= n.cornerRadius) lo = d; else hi = d;
+          }
+          const distance = shape === 'dot' ? n.dotRadius : (lo + hi) / 2;
+          expectPoint(sub(p, center(n)), { x: sign * u.x * distance, y: sign * u.y * distance });
+        }
+      }
+    }
+  });
   it.each([
     ['quarter', 0.2, 1.6], ['clockwise', 1.6, 0.2], ['seam', 3.05, -3.05],
     ['near-half', -1.4, 1.7], ['half', 0, Math.PI], ['rotated-half', 0.7, 0.7 + Math.PI],
@@ -115,6 +154,25 @@ describe('endpoint-only radial edge paths', () => {
       expect(Math.abs(cross(sub(p, c), sub(c, origin)))).toBeLessThan(1e-7);
       const dotCurve = assertRadialRoute(shown, b, { fromShape: 'dot', toShape: 'title' });
       expect(length(sub(dotCurve[0].start, c))).toBeCloseTo(shown.dotRadius, 7);
+    }
+  });
+  it('keeps crossed enlarged-card ports and endpoint travel signed in both directions', () => {
+    for (const delta of [0, 0.7, Math.PI]) {
+      const a = graphNodePresentation(polarNode(0.35, 180), 0.1, true);
+      const b = graphNodePresentation(polarNode(0.35 + delta, 220), 0.1, true);
+      assertRadialRoute(a, b);
+      assertRadialRoute(b, a);
+    }
+  });
+  it('retains finite nonzero signed derivatives at roundoff-sized angular separations', () => {
+    for (const delta of [1e-9, 1e-12, 1e-14, 0]) {
+      const a = polarNode(0.7, 180), b = polarNode(0.7 + delta, 500);
+      const path = edgePath(a, b, [], shapes, context), cs = cubics(path.d);
+      expect(path.d).not.toMatch(/NaN|Infinity/);
+      expect(dot(derivative(cs[0], 0), sub(center(a), origin))).toBeGreaterThan(0);
+      expect(dot(derivative(cs.at(-1)!, 1), sub(center(b), origin))).toBeGreaterThan(0);
+      for (const c of cs) for (let i = 0; i <= 40; i++) expect(length(derivative(c, i / 40))).toBeGreaterThan(0);
+      expectReverse(path.d, edgePath(b, a, [], shapes, context).d);
     }
   });
   it.each([0, 0.7, -2.6])('uses a direct radial cubic for equal angles (%s)', angle => {

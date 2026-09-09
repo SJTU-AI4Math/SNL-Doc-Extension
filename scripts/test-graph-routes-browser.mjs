@@ -11,13 +11,21 @@ export async function verifyGraphRoutes({evaluate,wait,screenshot,page,evidence}
  evidence.routes={};const expectedEdgeCount=await evaluate('window.__fixture.edges.length');await select('Nodes','always-title');
  for(const [mode,packing] of [['rectangle','bands'],['radial-outward','bands'],['radial-inward','bands'],['radial-outward','rings'],['radial-inward','rings']]){
   if(packing==='rings'){await evaluate(`document.querySelector('button[title="Expand filters"]')?.click()`);await settle();await select('Layer packing',packing);}
-  await select('Layout',mode);const g=await geometry();assert.equal(g.edges.length,expectedEdgeCount);
+  await select('Layout',mode);const g=await geometry();assert.equal(g.edges.length,expectedEdgeCount);const portSigns=[];
   for(const e of g.edges){assert.ok(e.id);const ss=parse(e.d),first=ss[0],last=ss.at(-1),u=vector(first[0],first[1]),v=vector(last[2],last[3]);assert.ok(length(u)>0&&length(v)>0);assert.equal(e.arrow,'url(#snl-graph-arrow)');if(e.from===e.to){assert.ok(ss.length>=2,'self loop stays visible');continue;}
    if(mode==='rectangle'){assert.equal(ss.length,1,'rectangle must have one cubic, no dummy anchors');assert.ok(Math.abs(u.x)<1e-7&&Math.abs(v.x)<1e-7,'rectangle endpoint tangents must be vertical');}
    else {assert.ok(g.center?.length===2,'radial center not exposed');const c={x:g.center[0],y:g.center[1]},a=vector(c,g.nodes[e.from]),b=vector(c,g.nodes[e.to]);assert.ok(Math.abs(cross(a,u))<=1e-5*length(a)*length(u),'departure is not radial');assert.ok(Math.abs(cross(b,v))<=1e-5*length(b)*length(v),'arrival is not radial');
+    const dot=(x,y)=>x.x*y.x+x.y*y.y,dr=length(b)-length(a);
+    if(Math.abs(dr)>1e-5){const sign=Math.sign(dr);portSigns.push(sign);
+      assert.ok(dot(vector(g.nodes[e.from],first[0]),a)*sign>0,'radial source port is on the wrong side');
+      assert.ok(dot(vector(g.nodes[e.to],last[3]),b)*sign<0,'radial target port is on the wrong side');
+      assert.ok(dot(u,a)*sign>0,'radial departure points in the wrong direction');
+      assert.ok(dot(v,b)*sign>0,'radial arrival points in the wrong direction');
+    }
     let prev=Math.atan2(first[0].y-c.y,first[0].x-c.x),turn=0;const radii=[],turns=[];for(const s of ss)for(let i=1;i<=32;i++){const p=sample(s,i/32),angle=Math.atan2(p.y-c.y,p.x-c.x);let delta=Math.atan2(Math.sin(angle-prev),Math.cos(angle-prev));turn+=delta;turns.push(delta);prev=angle;radii.push(Math.hypot(p.x-c.x,p.y-c.y));}assert.ok(Math.abs(turn)<=Math.PI+0.02,'route takes long angular side');assert.ok(Math.min(...radii)>0.01,'route crosses center');assert.ok(turns.every(d=>d*Math.sign(turn)>=-1e-7),'angular backtracking');assert.ok(turns.reduce((s,d)=>s+Math.abs(d),0)<=Math.PI+0.02,'total angular travel exceeds short side');
    }
   }
+  if(mode!=='rectangle'){assert.ok(portSigns.includes(1)&&portSigns.includes(-1),'fixture must check both directed radial signs');g.signedPortDirections=portSigns;}
   const key=mode+(packing==='rings'?'-rings':'');evidence.routes[key]=g;await screenshot('routes-'+key);
  }
  // Real pointer hit for node selection; hidden paths must neither paint nor hit.

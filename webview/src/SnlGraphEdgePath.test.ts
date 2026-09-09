@@ -212,7 +212,7 @@ describe('endpoint-only rectangular edge paths', () => {
   it('uses actual dot/zoomed-card vertical ports', () => {
     const from = graphNodePresentation(node(0, 300), 0.25, true), to = node(200, 0);
     const [c] = cubics(edgePath(from, to, [], { fromShape: 'title', toShape: 'dot' }).d);
-    expectPoint(c.start, { x: 50, y: from.y }); expectPoint(c.end, { x: 250, y: 28 });
+    expectPoint(c.start, { x: 50, y: from.y }); expectPoint(c.end, { x: 250, y: to.y + to.h / 2 + 12 });
   });
   it('uses deterministic vertical ports for same-level edges and reverses the same curve', () => {
     const a = node(0, 0), b = node(200, 0);

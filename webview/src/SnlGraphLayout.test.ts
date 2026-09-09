@@ -16,7 +16,7 @@ describe('static graph layouts', () => {
     const n = { x: 40, y: 50, w: 160, h: 44 };
     for (const active of [false, true]) {
       const shown = graphNodePresentation(n, scale, active);
-      expect(shown).toMatchObject({ ...n, dotRadius: 6, cornerRadius: 4, presentationScale: 1 });
+      expect(shown).toMatchObject({ ...n, dotRadius: 12, cornerRadius: 6, presentationScale: 1 });
       expect(center(shown)).toEqual(center(n));
       expect(shown.w * scale).toBe(n.w * scale);
     }
@@ -53,7 +53,7 @@ describe('static graph layouts', () => {
     expect(radius('c')).toBeCloseTo(radius('d'));
     const project = (point: { x: number; y: number }) => {
       const angle = p.startAngle + (point.x - p.xMin) / p.xSpan * p.sweep;
-      const screenLayer = (point.y - p.yMin) / 134;
+      const screenLayer = (point.y - p.yMin) / (66 + 90);
       const layer = mode === 'radial-outward' ? p.maxLayer - screenLayer : screenLayer;
       const lo = Math.floor(layer), hi = Math.ceil(layer);
       const r = p.layerRadii[lo] + (layer - lo) * (p.layerRadii[hi] - p.layerRadii[lo]);

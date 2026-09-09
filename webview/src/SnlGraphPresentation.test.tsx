@@ -45,7 +45,7 @@ describe('adaptive graph presentation', () => {
     const positions = anchors(), vp = transform();
     expect(Number(vp!.match(/scale\(([^)]+)\)/)![1])).toBeLessThan(0.2);
     const dot = node().querySelector('circle')!;
-    expect(Number(dot.getAttribute('r'))).toBe(6);
+    expect(Number(dot.getAttribute('r'))).toBe(12);
     expect(Number(dot.getAttribute('stroke-width'))).toBe(2);
     fireEvent.click(node());
     expect(Number(node().querySelector('circle')!.getAttribute('stroke-width'))).toBe(3.5);

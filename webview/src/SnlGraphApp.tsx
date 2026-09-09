@@ -311,7 +311,7 @@ interface LaidOutCluster {
   sector?: { path: string; startAngle: number; endAngle: number; outerRadius: number; labelAngle: number; labelX: number; labelY: number };
 }
 
-const NODE_H = 44;
+const NODE_H = 66;
 const LAYER_GAP_Y = 90;
 const NODE_GAP_X = 24;
 const MARGIN = 40;
@@ -322,12 +322,12 @@ const CLUSTER_HEADER_H = 34;
  *  don't reserve display width in the row (their neighbours pack tight). */
 const DUMMY_W = 0;
 /** Auto-size bounds: keep boxes uniform-ish while accommodating long titles. */
-const NODE_W_MIN = 90;
-const NODE_W_MAX = 320;
-const NODE_PADDING_X = 20; // left + right combined
+const NODE_W_MIN = 135;
+const NODE_W_MAX = 480;
+const NODE_PADDING_X = 30; // left + right combined
 /** Approximate pixel width per character at the label's font-size / weight. */
-const CHAR_W_TITLE = 7.5;   // 13px, weight 600
-const CHAR_W_KIND = 6.0;    // 11px, weight normal, opacity 0.65
+const CHAR_W_TITLE = 11.25; // 19.5px, weight 600
+const CHAR_W_KIND = 9;      // 16.5px, weight normal
 
 function nodeWidthFor(kindLabel: string, title: string): number {
   // Title now renders via KaTeX (cat 2026-07-10 §2), so the raw
@@ -959,8 +959,9 @@ type EdgeAnchorNode = Pick<LaidOutNode, 'x' | 'y' | 'w' | 'h'> & { dotRadius?: n
 type EdgePoint = { x: number; y: number };
 type NodeShape = 'dot' | 'title';
 type GraphNodeMode = 'auto' | 'always-title';
-const DOT_RADIUS = 6;
-const CARD_RADIUS = 4;
+const DOT_RADIUS = 12;
+const CARD_RADIUS = 6;
+const TITLE_VIEWPORT_MARGIN = 256; // CSS pixels, independent of world zoom
 
 /** Node geometry stays in world units; only the viewport applies zoom.
  * Hover/focus change detail, never compensate size in screen space. */
@@ -1289,6 +1290,7 @@ function SnlGraphInner({
   const popovers = useHoverPopovers();
   const currentPopoverId = useCurrentPopoverId();
   const [vp, setVp] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
+  const [availableSize, setAvailableSize] = useState<{ laid: Layout; width: number; height: number } | null>(null);
   const [labelOffsets, setLabelOffsets] = useState<Map<string, EdgePoint>>(() => new Map());
   const [dragging, setDragging] = useState<null | {
     startX: number;
@@ -1462,8 +1464,14 @@ function SnlGraphInner({
       const bounds = snapshot.bounds;
       const rect = svg.getBoundingClientRect();
       const side = sidebar?.getBoundingClientRect();
-      const width = side && side.width > 0 ? Math.max(1, Math.min(rect.width, side.left - rect.left)) : rect.width;
-      if (rect.width <= 0 || rect.height <= 0) return;
+      const width = side && side.width > 0 ? Math.max(0, Math.min(rect.width, side.left - rect.left)) : rect.width;
+      if (![width, rect.height].every(value => Number.isFinite(value) && value > 0)) {
+        previousSize = '';
+        setAvailableSize(null);
+        return;
+      }
+      setAvailableSize(previous => previous?.laid === laid && previous.width === width && previous.height === rect.height
+        ? previous : { laid, width, height: rect.height });
       const size = `${width},${rect.height}`;
       if (size === previousSize) return;
       previousSize = size;
@@ -1572,9 +1580,22 @@ function SnlGraphInner({
 
   const nodesById = new Map(laid.nodes.map(n => [n.id,
     graphNodePresentation(n, vp.scale, hoverNodeId === n.id || focusNodeId === n.id)]));
-  const nodeShape = (id: string): NodeShape =>
-    nodeMode === 'always-title' || vp.scale >= titleThreshold / 100 || hoverNodeId === id || focusNodeId === id
+  // Invert the available SVG rectangle once per render, not per node. Only
+  // presentation depends on this region: full-title layout and fit stay intact.
+  // A new/loading canvas has no accepted measurement and fails closed to dots.
+  const nearBounds = availableSize?.laid === laid ? {
+    minX: (-TITLE_VIEWPORT_MARGIN - vp.x) / vp.scale,
+    minY: (-TITLE_VIEWPORT_MARGIN - vp.y) / vp.scale,
+    maxX: (availableSize.width + TITLE_VIEWPORT_MARGIN - vp.x) / vp.scale,
+    maxY: (availableSize.height + TITLE_VIEWPORT_MARGIN - vp.y) / vp.scale
+  } : null;
+  const nodeShape = (id: string): NodeShape => {
+    const n = nodesById.get(id)!;
+    return nearBounds && n.x + n.w >= nearBounds.minX && n.x <= nearBounds.maxX &&
+      n.y + n.h >= nearBounds.minY && n.y <= nearBounds.maxY &&
+      (nodeMode === 'always-title' || vp.scale >= titleThreshold / 100 || hoverNodeId === id || focusNodeId === id)
       ? 'title' : 'dot';
+  };
   // Stable keys preserve DOM/focus while raised cards paint above dots. Hover
   // and keyboard focus remain separate so leaving either doesn't clear both.
   const paintedNodes = [...laid.nodes].sort((a, b) =>
@@ -1999,9 +2020,9 @@ function SnlGraphInner({
                       strokeWidth={highlighted ? 3.5 : 2}
                     />
                     <text
-                      x={10}
-                      y={16}
-                      fontSize={11}
+                      x={15}
+                      y={24}
+                      fontSize={16.5}
                       fontFamily="var(--vscode-editor-font-family, monospace)"
                       opacity={overrideFill ? 1 : 0.85}
                       fill={textColor}
@@ -2013,18 +2034,18 @@ function SnlGraphInner({
                         foreignObject to embed KaTeX HTML output inside
                         the SVG — KaTeX SVG output isn't a stable API. */}
                     <foreignObject
-                      x={10}
-                      y={20}
-                      width={n.w - 20}
-                      height={n.h - 22}
+                      x={15}
+                      y={30}
+                      width={n.w - 30}
+                      height={n.h - 33}
                       style={{ pointerEvents: 'none' }}
                     >
                       <div
                         style={{
-                          fontSize: '13px',
+                          fontSize: '19.5px',
                           fontWeight: 600,
                           color: textColor,
-                          lineHeight: '20px',
+                          lineHeight: '30px',
                           overflow: 'hidden',
                           whiteSpace: 'nowrap',
                           textOverflow: 'ellipsis'

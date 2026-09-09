@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SnlGraphApp } from './SnlGraphApp';
+import { fitGraphViewport, SnlGraphApp } from './SnlGraphApp';
 
 const api = vi.hoisted(() => ({ postMessage: vi.fn() }));
 vi.mock('./vscodeApi', async original => ({
@@ -106,7 +106,9 @@ describe('actual-content graph viewport', () => {
   it.each(['radial-outward', 'radial-inward'] as const)('%s fits the occupied title bounds, not a blank circular square', mode => {
     render(<SnlGraphApp />); send(); control('Nodes', 'always-title'); control('Layout', mode);
     assertCardsInside(width - 28);
-    expect(viewport().scale).toBeGreaterThan(1);
+    const center = JSON.parse(canvas().getAttribute('data-radial-center')!) as { x: number; y: number };
+    const decorativeFit = fitGraphViewport({ minX: 0, minY: 0, maxX: 2 * center.x, maxY: 2 * center.y }, width - 28, height);
+    expect(viewport().scale).toBeGreaterThan(decorativeFit.scale);
   });
   it('upscales small content up to the manual zoom ceiling', () => {
     render(<SnlGraphApp />); send({ ...graph, nodes: [{ ...graph.nodes[0], title: 'A' }], edges: [{ ...graph.edges[0], from: 'n0', to: 'n0' }] });

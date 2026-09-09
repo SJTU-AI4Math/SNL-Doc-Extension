@@ -76,7 +76,7 @@ class Cdp {
 }
 async function connect(url) { const ws = new WebSocket(url); await new Promise((r,j) => { ws.onopen=r; ws.onerror=j; }); return new Cdp(ws); }
 let browser, page;
-const evidence = { url, mode: process.argv.includes('--scale') ? 'scale' : process.argv.includes('--colors') ? 'colors' : process.argv.includes('--routes') ? 'routes' : process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
+const evidence = { url, mode: process.argv.includes('--near-titles') ? 'near-titles' : process.argv.includes('--scale') ? 'scale' : process.argv.includes('--colors') ? 'colors' : process.argv.includes('--routes') ? 'routes' : process.argv.includes('--compact') ? 'compact' : process.argv.includes('--filters') ? 'filters' : 'layouts',
   bundleSha256: createHash('sha256').update(readFileSync(resolve(bundleDir, 'snlGraph.js'))).digest('hex') };
 try {
   let devtools;
@@ -105,7 +105,10 @@ try {
   const nodeSelector='svg g[role="button"][data-package-id]';
   const move=async(x,y)=>page.call('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   const center=selector=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=(n.querySelector(':scope > circle')||n.querySelector(':scope > rect')||n).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-  if (process.argv.includes('--scale')) {
+  if (process.argv.includes('--near-titles')) {
+    const { verifyGraphNearTitles } = await import('./test-graph-near-titles-browser.mjs');
+    await verifyGraphNearTitles({ evaluate, wait, screenshot, page, evidence });
+  } else if (process.argv.includes('--scale')) {
     const { verifyGraphScale } = await import('./test-graph-scale-browser.mjs');
     await verifyGraphScale({ evaluate, wait, screenshot, page, evidence });
   } else if (process.argv.includes('--colors')) {
@@ -169,10 +172,16 @@ try {
       assert.equal(new Set(evidence[mode].map(n=>`${n.x.toFixed(4)},${n.y.toFixed(4)}`)).size,8,'distinct centers');
     }
     await selection('Always|始终','Auto|自动');
-    const svgRect=await evaluate(`(()=>{const r=document.getElementById('snl-graph-background').closest('svg').getBoundingClientRect();return {x:r.x+10,y:r.y+10};})()`);
-    for(let i=0;i<35;i++)await page.call('Input.dispatchMouseEvent',{type:'mouseWheel',x:svgRect.x,y:svgRect.y,deltaX:0,deltaY:-80});
-    await wait(`document.querySelectorAll('${nodeSelector} > rect').length===8`);
-    assert.ok((await snapshot()).every(n=>n.shape==='title'),'zoom alone reveals titles');
+    const zoomAnchor=await center('[data-node-id="Goal"]');
+    for(let i=0;i<60;i++) {
+      const scale=await evaluate(`document.getElementById('snl-graph-background').closest('svg').querySelector(':scope > g[transform]').transform.baseVal.consolidate().matrix.a`);
+      if(scale>=1.25)break;
+      await page.call('Input.dispatchMouseEvent',{type:'mouseWheel',...zoomAnchor,deltaX:0,deltaY:-80});
+      await sleep(30);
+    }
+    await move(10,10);
+    await wait(`document.querySelectorAll('${nodeSelector} > rect').length>0`);
+    assert.ok((await snapshot()).some(n=>n.shape==='title'),'zoom alone reveals near titles (far nodes remain dots)');
     const afterZoom=await snapshot();assert.ok(afterZoom.every(n=>Math.hypot(n.x-anchorMap[n.id][0],n.y-anchorMap[n.id][1])<0.001),'zoom must not relayout');
   }
   // Refresh must preserve controls; user view-state does not write canonical data.
@@ -220,13 +229,13 @@ try {
   await screenshot('large-library-outward');
   evidence.largeLibrary.smallestDot=await evaluate(`Math.min(...[...document.querySelectorAll('${nodeSelector} > circle')].map(n=>n.getBoundingClientRect().width))`);
   evidence.largeLibrary.overviewScale=await evaluate(`document.getElementById('snl-graph-background').closest('svg').querySelector(':scope > g[transform]').transform.baseVal.consolidate().matrix.a`);
-  assert.ok(Math.abs(evidence.largeLibrary.smallestDot-12*evidence.largeLibrary.overviewScale)<0.001,'overview dots scale with the graph, without a pixel floor');
+  assert.ok(Math.abs(evidence.largeLibrary.smallestDot-24*evidence.largeLibrary.overviewScale)<0.001,'overview dots scale with the graph, without a pixel floor');
   // Subpixel corpus dots deliberately have no minimum hit footprint. Real
   // pointer entry is covered above/--scale; keyboard access remains available.
   await evaluate(`document.querySelector('${nodeSelector}').focus()`);
   await wait(`document.querySelectorAll('${nodeSelector} > rect').length>=1`);
   evidence.largeLibrary.hoverCardHeight=await evaluate(`Math.max(...[...document.querySelectorAll('${nodeSelector} > rect')].map(n=>n.getBoundingClientRect().height))`);
-  assert.ok(Math.abs(evidence.largeLibrary.hoverCardHeight-44*evidence.largeLibrary.overviewScale)<0.001,'active overview title retains world size');
+  assert.ok(Math.abs(evidence.largeLibrary.hoverCardHeight-66*evidence.largeLibrary.overviewScale)<0.001,'active overview title retains world size');
   await screenshot('large-library-focus');await evaluate('document.activeElement.blur()');await move(10,10);
   await page.call('Emulation.setDeviceMetricsOverride',{width:430,height:850,deviceScaleFactor:1,mobile:false});
   await selection('Outward|向外','Inward|向内');

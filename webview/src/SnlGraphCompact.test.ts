@@ -78,7 +78,7 @@ describe('compact static title-card occupancy', () => {
     const rows = new Map<number, Array<{ x: number; radius: number }>>();
     flat.nodes.forEach((n, i) => {
       const c = center(n), actual = center(bands.nodes[i]);
-      const screen = Math.round((c.y - p.yMin) / 134);
+      const screen = Math.round((c.y - p.yMin) / (66 + 90));
       const layer = mode === 'radial-outward' ? p.maxLayer - screen : screen;
       const row = rows.get(layer) ?? [];
       row.push({ x: c.x, radius: Math.hypot(actual.x - p.centerX, actual.y - p.centerY) }); rows.set(layer, row);
@@ -94,7 +94,7 @@ describe('compact static title-card occupancy', () => {
     };
     expect(flat.edges.reduce((sum, e) => sum + e.waypoints.length, 0)).toBeGreaterThan(0);
     flat.edges.forEach((e, i) => e.waypoints.forEach((point, j) => {
-      const screen = (point.y - p.yMin) / 134;
+      const screen = (point.y - p.yMin) / (66 + 90);
       const layer = mode === 'radial-outward' ? p.maxLayer - screen : screen;
       const lo = Math.floor(layer), hi = Math.ceil(layer);
       const a = atX(lo, point.x), b = atX(hi, point.x);
@@ -153,7 +153,7 @@ describe('compact static title-card occupancy', () => {
     const m = metrics(result);
     console.info('compact-chain', mode, m);
     expect(m.inner).toBeLessThanOrEqual(32);
-    expect(m.outer - m.inner).toBeLessThanOrEqual(16 * 60);
+    expect(m.outer - m.inner).toBeLessThanOrEqual(16 * (66 + 16));
     expect(m.coverage).toBeGreaterThan(0.7);
     assertSeparated(result);
   });

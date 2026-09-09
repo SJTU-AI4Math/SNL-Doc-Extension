@@ -38,6 +38,27 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); document.documentElement.lang = ''; });
 
 describe('adaptive graph presentation', () => {
+  it.each(['rectangle', 'radial-outward', 'radial-inward'])('%s scales dots, outlines and active cards in world units', mode => {
+    render(<SnlGraphApp />); send(); control('Layout', mode);
+    const svg = document.getElementById('snl-graph-background')!.closest('svg')!;
+    for (let i = 0; i < 30; i++) fireEvent.wheel(svg, { deltaY: 100, clientX: 400, clientY: 300 });
+    const positions = anchors(), vp = transform();
+    expect(Number(vp!.match(/scale\(([^)]+)\)/)![1])).toBeLessThan(0.2);
+    const dot = node().querySelector('circle')!;
+    expect(Number(dot.getAttribute('r'))).toBe(6);
+    expect(Number(dot.getAttribute('stroke-width'))).toBe(2);
+    fireEvent.click(node());
+    expect(Number(node().querySelector('circle')!.getAttribute('stroke-width'))).toBe(3.5);
+    control('Nodes', 'always-title');
+    const ordinary = node().getAttribute('transform');
+    const card = node().querySelector('rect')!.getAttribute('width');
+    fireEvent.focus(node());
+    expect(node().getAttribute('transform')).toBe(ordinary);
+    expect(node().querySelector('rect')!.getAttribute('width')).toBe(card);
+    expect(anchors()).toEqual(positions);
+    expect(transform()).toBe(vp);
+  });
+
   it('reconciles a missing native leave when a hovered SVG shape is replaced', () => {
     render(<SnlGraphApp />); send();
     fireEvent.pointerEnter(node());

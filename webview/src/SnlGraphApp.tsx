@@ -962,15 +962,10 @@ type GraphNodeMode = 'auto' | 'always-title';
 const DOT_RADIUS = 6;
 const CARD_RADIUS = 4;
 
-export function graphNodePresentation<T extends EdgeAnchorNode>(node: T, viewportScale: number, active: boolean) {
-  const scale = Math.max(Number.EPSILON, viewportScale);
-  const presentationScale = active ? Math.max(1, 1 / scale) : 1;
-  const w = node.w * presentationScale, h = node.h * presentationScale;
-  return {
-    ...node, x: node.x + (node.w - w) / 2, y: node.y + (node.h - h) / 2, w, h,
-    presentationScale, dotRadius: Math.max(DOT_RADIUS, 2 / scale),
-    cornerRadius: CARD_RADIUS * presentationScale
-  };
+/** Node geometry stays in world units; only the viewport applies zoom.
+ * Hover/focus change detail, never compensate size in screen space. */
+export function graphNodePresentation<T extends EdgeAnchorNode>(node: T, _viewportScale: number, _active: boolean) {
+  return { ...node, presentationScale: 1, dotRadius: DOT_RADIUS, cornerRadius: CARD_RADIUS };
 }
 
 /** Intersect a centre ray with the actual circle or rounded-card outline. */
@@ -2038,7 +2033,7 @@ function SnlGraphInner({
                       />
                     </foreignObject>
                     </> : <circle cx={n.w / 2} cy={n.h / 2} r={presentation.dotRadius}
-                      fill={fill} stroke={stroke} strokeWidth={Math.max(highlighted ? 3.5 : 2, 1 / vp.scale)} />}
+                      fill={fill} stroke={stroke} strokeWidth={highlighted ? 3.5 : 2} />}
                   </g>
                 );
               })}

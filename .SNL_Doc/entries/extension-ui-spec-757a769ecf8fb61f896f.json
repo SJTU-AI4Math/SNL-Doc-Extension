@@ -8,7 +8,7 @@
     "kind": "command",
     "title": "snlDoc.openDashboard",
     "content": {
-      "snl": "%Opens (or reveals) the singleton #0 panel. Beside column. Reads current config + entries + libraries on ready.%(Dashboard)"
+      "snl": "%Opens or reveals the singleton #0 management panel in the active column. On ready, loads the lightweight Package and Library catalog independently of Entry-dependent statistics. Statistics update asynchronously without blocking navigation; catalog readiness is not full topology validation. See #1.%(Dashboard,%Dashboard loading specification%@spec.extension.management)"
     },
     "contribution_info": null,
     "pointer": null,

@@ -18,6 +18,85 @@ afterEach(() => {
   delete (globalThis as { __snlApi?: VsCodeApi }).__snlApi;
 });
 
+describe('Dashboard incremental loading', () => {
+  it('patches count-only results locally and ignores stale successes/errors without remounting controls', () => {
+    render(<DashboardApp />);
+    const send = (data: unknown) => act(() => window.dispatchEvent(new MessageEvent('message', { data })));
+    const catalog = {
+      hasSnlDoc: true, totalEntryCount: null, entryKinds: [], macroKinds: [],
+      entryPackages: [{ id: 'Logic', name: 'Logic', description: '', entryCount: null }],
+      macroPackages: [{ file: 'Logic.json', active: true, macroCount: null }], libraries: [],
+      dataStatus: { status: 'unchecked', currentVersion: '0.1.0', targetVersion: '0.1.0', pendingCount: 0, message: '' }
+    };
+    send({ type: 'overview', generation: 1, overview: catalog });
+    fireEvent.click(screen.getByText('Entry Packages').closest('button')!);
+    const button = screen.getByRole('button', { name: 'Open Entry Package Logic' });
+    button.focus();
+    expect(button.closest('tr')!.textContent).toContain('—');
+    send({ type: 'dashboardStatistics', generation: 1, status: 'error', message: 'broken entry' });
+    expect(screen.getByRole('alert').textContent).toContain('broken entry');
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(postMessage).toHaveBeenCalledWith({ type: 'openEntryPackage', packageId: 'Logic' });
+    send({ type: 'overview', generation: 2, overview: catalog });
+    expect(screen.getByRole('button', { name: 'Open Entry Package Logic' })).toBe(button);
+    expect(document.activeElement).toBe(button);
+    send({ type: 'dashboardStatistics', generation: 1, status: 'error', message: 'stale error' });
+    const statistics = { totalEntryCount: 9000, entryPackages: [{ id: 'Logic', entryCount: 9000 }],
+      macroPackages: [{ file: 'Logic.json', macroCount: 7 }], relationshipCount: 3, libraries: [] };
+    send({ type: 'dashboardStatistics', generation: 1, status: 'ready', statistics });
+    expect(button.closest('tr')!.textContent).not.toContain('9000');
+    send({ type: 'dashboardStatistics', generation: 2, status: 'ready', statistics });
+    expect(button.closest('tr')!.textContent).toContain('9000');
+    expect(document.activeElement).toBe(button);
+    expect(screen.getByText('Entry Packages').closest('button')!.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByText('stale error')).toBeNull();
+    expect(screen.getByRole('status', { name: 'Statistics' }).textContent).toContain('9000');
+    expect(screen.getByText('Data version has not been checked yet.')).toBeTruthy();
+  });
+
+  it('loads relationship rows only on disclosure, keeping actions usable during local failure', () => {
+    render(<DashboardApp />);
+    const send = (data: unknown) => act(() => window.dispatchEvent(new MessageEvent('message', { data })));
+    send({ type: 'overview', generation: 5, overview: { hasSnlDoc: true } });
+    expect(postMessage).not.toHaveBeenCalledWith({ type: 'loadDashboardRelationships' });
+    fireEvent.click(screen.getByText('Relationships').closest('button')!);
+    expect(postMessage).toHaveBeenCalledWith({ type: 'loadDashboardRelationships' });
+    send({ type: 'dashboardRelationships', generation: 5, status: 'error', message: 'broken relationships' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Relationship' }));
+    expect(postMessage).toHaveBeenCalledWith({ type: 'createRelationship' });
+    send({ type: 'dashboardRelationships', generation: 5, status: 'ready',
+      relationships: [{ id: 'r', from: 'a', to: 'b', label: 'implies', metadata: null }],
+      entries: [{ id: 'a', title: 'Alpha' }, { id: 'b', title: 'Beta' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit relationship r' }));
+    expect(postMessage).toHaveBeenCalledWith({ type: 'editRelationship', id: 'r' });
+    expect(screen.getByText('Alpha')).toBeTruthy();
+  });
+
+  it('shows missing-workspace feedback separately from an uninitialized folder', () => {
+    render(<DashboardApp />);
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: {
+      type: 'overview', generation: 1, overview: { hasSnlDoc: false,
+        dataStatus: { status: 'missing', currentVersion: null, targetVersion: '0.1.0', pendingCount: 0, message: 'No workspace folder is open.' } }
+    } })));
+    expect(screen.getByText('No workspace folder is open.')).toBeTruthy();
+  });
+
+  it('mounts navigation and independent management controls before any data and keeps them on error', () => {
+    render(<DashboardApp />);
+    const graph = screen.getByRole('button', { name: 'View Graph' });
+    fireEvent.click(graph);
+    fireEvent.click(screen.getByRole('button', { name: '+ Create Library' }));
+    fireEvent.click(screen.getByRole('button', { name: '⌕ SNoogL: Entry Search' }));
+    expect(postMessage).toHaveBeenCalledWith({ type: 'openInfoviewGraph' });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'createLibrary' });
+    expect(postMessage).toHaveBeenCalledWith({ type: 'openSnoogL', mode: 'entry' });
+    act(() => window.dispatchEvent(new MessageEvent('message', { data: { type: 'overviewError', message: 'bad config' } })));
+    expect(screen.getByRole('button', { name: 'View Graph' })).toBe(graph);
+    expect(screen.getByRole('alert').textContent).toContain('bad config');
+  });
+});
+
 describe('Dashboard Pointer maintenance', () => {
   it.each([
     ['en', 'Pointer maintenance', 'Maintain all Entry Pointers in this workspace'],

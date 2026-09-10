@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { bind_preferences_panel_title } from './preferencesHost';
 import {
   initSnlDoc,
+  readDashboardCatalog,
+  type DashboardCatalog,
   ENTRY_KIND_PRESETS,
   MACRO_KIND_PRESETS,
   setMacroPackageActive,
@@ -15,7 +17,7 @@ import {
   webviewLocalResourceRoots
 } from './panelUtil';
 import { readEntryMetricThresholds } from './entryMetricSettings';
-import { readDashboardWorkspaceData } from './vscodeDataMigration';
+import { readDashboardStatistics, readDashboardRelationships } from './dashboardStatistics';
 import { CURRENT_DATA_VERSION } from './dataMigrationCore';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { extension_preferences_runtime } from './preferences';
@@ -96,6 +98,13 @@ export class DashboardPanel {
   private readonly extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
   private overviewGeneration = 0;
+  private disposed = false;
+  private backgroundAbort: AbortController | undefined;
+  private backgroundTask: Promise<void> | undefined;
+  private pendingBackground: { root: vscode.Uri; catalog: DashboardCatalog; generation: number } | undefined;
+  private currentCatalog: { root: vscode.Uri; catalog: DashboardCatalog; generation: number } | undefined;
+  private relationshipsRequested = false;
+  private relationshipsLoadedGeneration = -1;
   private skeletonInitialization: { choiceKey: string; promise: Promise<InitResult> } | undefined;
   private setupOperationCount = 0;
 
@@ -207,7 +216,11 @@ export class DashboardPanel {
   }
 
   private async pushOverview(): Promise<void> {
+    if (this.disposed) return;
     const generation = ++this.overviewGeneration;
+    this.backgroundAbort?.abort();
+    this.pendingBackground = undefined;
+    this.currentCatalog = undefined;
     const root = firstWorkspaceFolder();
     if (!root) {
       void this.panel.webview.postMessage({
@@ -228,32 +241,76 @@ export class DashboardPanel {
       return;
     }
     try {
-      const { overview, inspection } = await readDashboardWorkspaceData(root);
-      if (generation !== this.overviewGeneration) return;
+      const overview = await readDashboardCatalog(root);
+      if (this.disposed || generation !== this.overviewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'overview',
+        generation,
         overview: {
           ...overview,
           ...(!overview.hasSnlDoc ? {
             entryKindPresets: projectKindPresets('entry', extension_preferences_runtime.query_environment().language, ENTRY_KIND_PRESETS),
             macroKindPresets: projectKindPresets('macro', extension_preferences_runtime.query_environment().language, MACRO_KIND_PRESETS)
           } : {}),
-          metricThresholds: readEntryMetricThresholds(),
-          dataStatus: {
-            status: inspection.status,
-            currentVersion: inspection.currentVersion,
-            targetVersion: inspection.targetVersion,
-            pendingCount: inspection.pending?.length ?? 0,
-            message: inspection.message
-          }
+          metricThresholds: readEntryMetricThresholds()
         }
       });
+      if (overview.dataStatus.status === 'unchecked') {
+        this.currentCatalog = { root, catalog: overview, generation };
+        this.pendingBackground = this.currentCatalog;
+        this.startBackground();
+      }
     } catch (err) {
-      if (generation !== this.overviewGeneration) return;
+      if (this.disposed || generation !== this.overviewGeneration) return;
       const text = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(dashboardT()('refreshFailed', { error: text }));
-      void this.panel.webview.postMessage({ type: 'overviewError', message: text });
+      void this.panel.webview.postMessage({ type: 'overviewError', generation, message: text });
     }
+  }
+
+  /** One background scan at a time. A refresh cancels work at the next I/O /
+   * batch boundary and replaces the queued generation, never stacks scans. */
+  private startBackground(): void {
+    if (this.disposed || this.backgroundTask || !this.currentCatalog) return;
+    const context = this.pendingBackground ?? this.currentCatalog;
+    const doStatistics = this.pendingBackground !== undefined;
+    this.pendingBackground = undefined;
+    const { root, catalog, generation } = context;
+    const controller = new AbortController();
+    this.backgroundAbort = controller;
+    const current = () => !this.disposed && !controller.signal.aborted && generation === this.overviewGeneration;
+    const publish = (message: object) => {
+      if (current()) void this.panel.webview.postMessage({ ...message, generation });
+    };
+    this.backgroundTask = (async () => {
+      // Leave the catalog publication and incoming navigation a host turn.
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (!current()) return;
+      if (doStatistics) {
+        publish({ type: 'dashboardStatistics', status: 'loading' });
+        try {
+          const statistics = await readDashboardStatistics(root, catalog, controller.signal);
+          publish({ type: 'dashboardStatistics', status: 'ready', statistics });
+        } catch (error) {
+          publish({ type: 'dashboardStatistics', status: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      if (current() && this.relationshipsRequested && this.relationshipsLoadedGeneration !== generation) {
+        this.relationshipsLoadedGeneration = generation;
+        publish({ type: 'dashboardRelationships', status: 'loading' });
+        try {
+          const data = await readDashboardRelationships(root, controller.signal);
+          publish({ type: 'dashboardRelationships', status: 'ready', ...data });
+        } catch (error) {
+          publish({ type: 'dashboardRelationships', status: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    })().finally(() => {
+      this.backgroundTask = undefined;
+      if (this.disposed) return;
+      if (this.pendingBackground || (this.currentCatalog && this.relationshipsRequested &&
+          this.relationshipsLoadedGeneration !== this.currentCatalog.generation)) this.startBackground();
+    });
   }
 
   private async handleMessage(message: unknown): Promise<void> {
@@ -261,7 +318,12 @@ export class DashboardPanel {
     if (!msg || typeof msg.type !== 'string') {
       return;
     }
+    if (this.disposed) return;
     switch (msg.type) {
+      case 'loadDashboardRelationships':
+        this.relationshipsRequested = true;
+        this.startBackground();
+        return;
       case 'ready':
         await this.pushOverview();
         return;
@@ -608,6 +670,12 @@ export class DashboardPanel {
   }
 
   public dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    ++this.overviewGeneration;
+    this.backgroundAbort?.abort();
+    this.pendingBackground = undefined;
+    this.currentCatalog = undefined;
     DashboardPanel.currentPanel = undefined;
 
     this.panel.dispose();

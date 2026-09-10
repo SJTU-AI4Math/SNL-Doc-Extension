@@ -9,6 +9,10 @@ export interface ReaderCapabilities {
   /** Browser resolves availability from its reviewed manifest; host uses authored Pointer. */
   sourceAvailable?(entryId: string): boolean;
   sourceUnavailableReason?: string;
+  /** Host-owned copy: read-only does not necessarily mean a frozen export. */
+  scopeDescription?: string;
+  graphEmptyDescription?: string;
+  missingEntryDescription?: string;
 }
 const defaults: ReaderCapabilities = {
   edit: true, graph: true, export: true

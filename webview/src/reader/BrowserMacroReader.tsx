@@ -19,7 +19,7 @@ const MESSAGES = defineUiMessages('browserMacroReader', {
 /** Read-only destination for a frozen Macro; rendering is the same shared preview as the Extension. */
 export function BrowserMacroReader({ snapshot, name }: { snapshot: FrozenReaderSnapshot; name: string }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  const { api } = useReaderCapabilities();
+  const { api, missingEntryDescription } = useReaderCapabilities();
   const language = use_content_language();
   const [style, setStyle] = useState<string>();
   const runtime = useMemo(() => createMacroPreviewRuntime({ macros: snapshot.macros, macroKinds: snapshot.macroKinds, language }), [snapshot, language]);
@@ -35,6 +35,6 @@ export function BrowserMacroReader({ snapshot, name }: { snapshot: FrozenReaderS
     <h2>{t('sourceEntries')}</h2>
     <ul>{macro.source.entries.map(id => <li key={id}>{entryIds.has(id)
       ? <Button onClick={() => api?.postMessage({ type: 'navigateEntry', entryId: id })}>{id}</Button>
-      : <span>{id} — {t('missing')}</span>}</li>)}</ul>
+      : <span>{id} — {missingEntryDescription ?? t('missing')}</span>}</li>)}</ul>
   </main>;
 }

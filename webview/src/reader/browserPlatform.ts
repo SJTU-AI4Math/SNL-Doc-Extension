@@ -1,46 +1,5 @@
 import type { FrozenReaderSnapshot } from '../../../src/sharedReaderSnapshot';
-import type { FrozenSearchQuery } from './browserDiscovery';
-export type ReaderRoute = { kind: 'library' } | { kind: 'node'; nodeId: string }
-  | { kind: 'entry'; entryId: string; returnHash?: string }
-  | ({ kind: 'search'; returnHash?: string } & FrozenSearchQuery)
-  | { kind: 'graph'; returnHash?: string }
-  | { kind: 'macro'; name: string; returnHash?: string }
-  | { kind: 'unavailable' };
-export function encodeReaderRoute(route: ReaderRoute): string {
-  if (route.kind === 'library') return '#/library';
-  if (route.kind === 'unavailable') return '#/unavailable';
-  if (route.kind === 'node') return '#/node/' + encodeURIComponent(route.nodeId);
-  const params = new URLSearchParams();
-  if (route.kind === 'search') {
-    if (route.q) params.set('q', route.q);
-    if (route.mode !== 'entry') params.set('mode', route.mode);
-    if (route.filters.kindId) params.set('kind', route.filters.kindId);
-    if (route.filters.counterpartId) params.set('counterpart', route.filters.counterpartId);
-  }
-  if (route.returnHash) params.set('return', route.returnHash);
-  const path = route.kind === 'entry' ? 'entry/' + encodeURIComponent(route.entryId)
-    : route.kind === 'macro' ? 'macro/' + encodeURIComponent(route.name) : route.kind;
-  return '#/' + path + (params.size ? '?' + params.toString() : '');
-}
-export function decodeReaderRoute(hash: string): ReaderRoute {
-  try {
-    const separator = hash.indexOf('?');
-    const path = separator < 0 ? hash : hash.slice(0, separator);
-    const params = new URLSearchParams(separator < 0 ? '' : hash.slice(separator + 1));
-    const returnHash = params.get('return') || undefined;
-    const back = returnHash ? { returnHash } : {};
-    if (!hash || path === '#/library') return { kind: 'library' };
-    if (path.startsWith('#/node/')) return { kind: 'node', nodeId: decodeURIComponent(path.slice('#/node/'.length)) };
-    if (path.startsWith('#/entry/')) return { kind: 'entry', entryId: decodeURIComponent(path.slice('#/entry/'.length)), ...back };
-    if (path.startsWith('#/macro/')) return { kind: 'macro', name: decodeURIComponent(path.slice('#/macro/'.length)), ...back };
-    if (path === '#/graph') return { kind: 'graph', ...back };
-    if (path === '#/search' && (!params.has('mode') || ['entry', 'macro'].includes(params.get('mode')!))) return {
-      kind: 'search', q: params.get('q') ?? '', mode: params.get('mode') === 'macro' ? 'macro' : 'entry',
-      filters: { ...(params.get('kind') ? { kindId: params.get('kind')! } : {}), ...(params.get('counterpart') ? { counterpartId: params.get('counterpart')! } : {}) }, ...back
-    };
-  } catch { /* A malformed route must not silently open a different reading destination. */ }
-  return { kind: 'unavailable' };
-}
+export { decodeReaderRoute, encodeReaderRoute, readerRouteInLibrary, type ReaderRoute } from './readerRoute';
 /** Resolve before DOM insertion: an offline reader must never attempt a remote image request. */
 export function frozenImageUrl(resources: FrozenReaderSnapshot['resources'], source: string): string {
   if (/^data:image\/(?:png|jpeg|gif|webp|avif|svg\+xml)[;,]/i.test(source)) return source;

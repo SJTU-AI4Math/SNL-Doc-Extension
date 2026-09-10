@@ -311,7 +311,7 @@ export function SnooglApp(): React.ReactElement {
       <PanelHeader
         vsApi={apiRef.current}
         title={t('title')}
-        subtitle={t(capabilities.edit ? 'subtitle' : 'frozenSubtitle')}
+        subtitle={capabilities.scopeDescription ?? t(capabilities.edit ? 'subtitle' : 'frozenSubtitle')}
         back={{
           label: t(capabilities.edit ? 'dashboard' : 'readerBack'),
           title: t(capabilities.edit ? 'dashboardTitle' : 'readerBack'),

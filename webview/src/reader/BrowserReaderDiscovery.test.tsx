@@ -32,6 +32,42 @@ const settle = async () => { await act(async () => { await new Promise(resolve =
 const input = async (node: HTMLInputElement, value: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); }); await settle(); };
 const visibleMain = () => Array.from(element.querySelectorAll('main')).find(node => !node.closest('[hidden]'))!;
 
+it('keeps local library identity through search, query edits, Entry Back and occurrence return without frozen-export claims', async () => {
+  history.replaceState(null, '', '#/node/second?library=L');
+  await act(async () => root.render(<BrowserReader snapshot={snapshot} hostContext={{
+    librarySlug: 'L', scope: 'Scope: local workspace.', sourceUnavailableReason: 'Local source navigation is not connected.',
+    unavailable: 'Not found in this workspace.', missingEntry: 'Not found in this workspace.',
+    graphEmpty: 'No relationships with the current filters.', onWorkspace: vi.fn(), workspaceLabel: 'Workspace'
+  }} />));
+  expect(element.textContent).not.toContain('frozen export');
+  expect(element.querySelector('[title*="frozen export"]')).toBeNull();
+  await click(Array.from(element.querySelectorAll('nav button')).find(b => b.textContent === 'SNoogL') ?? null);
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
+  expect(visibleMain().textContent).toContain('Scope: local workspace.');
+  await input(visibleMain().querySelector<HTMLInputElement>('input[type="text"]')!, 'Beta');
+  const searchHash = location.hash;
+  expect(new URLSearchParams(searchHash.split('?')[1]).get('library')).toBe('L');
+  await click(visibleMain().querySelector('[role="option"]'));
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
+  await click(visibleMain().querySelector('button'));
+  expect(location.hash).toBe(searchHash);
+  await click(visibleMain().querySelector('button'));
+  expect(location.hash).toBe('#/node/second?library=L');
+  // The Library's occurrence-return path must use the same contextual codec too.
+  await click(Array.from(element.querySelectorAll('[data-snl-route-id="second"] *')).find(node => node.textContent === 'Alpha title') ?? null, true);
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
+  await click(visibleMain().querySelector('button'));
+  expect(location.hash).toBe('#/node/second?library=L');
+  await click(Array.from(element.querySelectorAll('nav button')).find(b => b.textContent === 'Relationship graph') ?? null);
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
+  expect(visibleMain().textContent).toContain('Scope: local workspace.');
+  expect(element.textContent).not.toContain('frozen export');
+  await click(visibleMain().querySelector('g[aria-label="Entry Beta title (Beta)"]'), true);
+  expect(new URLSearchParams(location.hash.split('?')[1]).get('library')).toBe('L');
+  await click(visibleMain().querySelector('button'));
+  expect(location.hash).toContain('#/graph?library=L');
+});
+
 it('reads a Macro through real preview and exposes only exported source Entry navigation', async () => {
   await mount('#/search?mode=macro&counterpart=Beta');
   await click(visibleMain().querySelector('[role="option"]'));

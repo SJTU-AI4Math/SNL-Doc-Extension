@@ -791,7 +791,8 @@ function SnlGraphInner({
   initialAtomicDependenciesOnly: boolean;
 }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  const { edit } = useReaderCapabilities();
+  const capabilities = useReaderCapabilities();
+  const { edit } = capabilities;
   const contentLanguage = use_content_language();
   const preferencesRevision = use_preferences_revision();
   const popovers = useHoverPopovers();
@@ -1042,7 +1043,7 @@ function SnlGraphInner({
         <PanelHeader
           vsApi={apiRef.current}
           title={edit ? msg.title : t('title')}
-          subtitle={edit ? undefined : t('frozenScope')}
+          subtitle={capabilities.scopeDescription ?? (edit ? undefined : t('frozenScope'))}
           back={{
             label: t(edit ? 'infoview' : 'readerBack'),
             title: t(edit ? 'backInfoview' : 'readerBack'),
@@ -1131,7 +1132,7 @@ function SnlGraphInner({
               textAlign: 'center'
             }}
           >
-            {t(edit ? 'empty' : 'frozenEmpty')}
+            {capabilities.graphEmptyDescription ?? t(edit ? 'empty' : 'frozenEmpty')}
           </div>
         ) : (
           <svg

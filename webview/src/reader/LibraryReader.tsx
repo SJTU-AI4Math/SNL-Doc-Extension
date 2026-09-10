@@ -348,7 +348,7 @@ export function LibraryLayer({
             <ToolbarButton label={t('back')} onClick={ctx.goBack} title={t('backTitle')} />
             {useReaderCapabilities().graph ? <ToolbarButton
               label={t('viewGraph')}
-              title={useReaderCapabilities().edit ? t('libraryGraphTitle', { slug }) : t('frozenGraphTitle')}
+              title={useReaderCapabilities().scopeDescription ?? (useReaderCapabilities().edit ? t('libraryGraphTitle', { slug }) : t('frozenGraphTitle'))}
               onClick={() =>
                 ctx.postMessage({
                   type: 'openInfoviewGraphForLibrary',

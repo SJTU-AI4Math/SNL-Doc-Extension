@@ -1,0 +1,37 @@
+:root {
+  color-scheme: light;
+  --vscode-editor-foreground: #202124;
+  --vscode-editor-background: #fff;
+  --vscode-foreground: var(--vscode-editor-foreground);
+  --vscode-font-family: system-ui, -apple-system, sans-serif;
+  --vscode-input-background: var(--vscode-editor-background);
+  --vscode-input-foreground: var(--vscode-editor-foreground);
+  --vscode-menu-background: var(--vscode-editor-background);
+  --vscode-menu-foreground: var(--vscode-editor-foreground);
+  --vscode-editorWidget-background: var(--vscode-menu-background);
+  --vscode-sideBar-background: var(--vscode-menu-background);
+  --vscode-widget-border: rgba(31, 41, 55, .24);
+  --vscode-panel-border: var(--vscode-widget-border);
+  --vscode-focusBorder: #0969da;
+  --vscode-textLink-foreground: #0969da;
+}
+:root[data-snl-color-scheme='dark'], :root[data-snl-color-scheme='high-contrast'] {
+  color-scheme: dark;
+  --vscode-editor-foreground: #ddd;
+  --vscode-editor-background: #1e1e1e;
+  --vscode-menu-background: #252526;
+  --vscode-widget-border: rgba(255, 255, 255, .24);
+  --vscode-textLink-foreground: #4a9eff;
+}
+:root[data-snl-color-scheme='high-contrast'] {
+  --vscode-editor-foreground: #fff;
+  --vscode-editor-background: #000;
+  --vscode-widget-border: #fff;
+}
+:root[data-snl-color-scheme='high-contrast-light'] {
+  --vscode-editor-foreground: #000;
+  --vscode-editor-background: #fff;
+  --vscode-widget-border: #000;
+}
+body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+a { color: var(--vscode-textLink-foreground); }

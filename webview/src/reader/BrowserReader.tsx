@@ -1,4 +1,4 @@
-import React, { useEffect, useInsertionEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useInsertionEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { SnooglApp } from '../SnooglApp';
@@ -18,7 +18,8 @@ import { apply_preferences_snapshot, set_content_language, use_content_language 
 import { installWorkspaceAssetBroker } from '../runtime/workspaceAssetBroker';
 import { groupEntryRelationships } from '../../../src/entryInfoviewRelationships';
 import type { FrozenReaderSnapshot, FrozenOutlineNode } from '../../../src/sharedReaderSnapshot';
-import { decodeReaderRoute, encodeReaderRoute, frozenAssetReply, frozenImageUrl } from './browserPlatform';
+import { decodeReaderRoute, encodeReaderRoute, readerRouteInLibrary, frozenAssetReply, frozenImageUrl } from './browserPlatform';
+import { navigateReaderHash, notifyReaderLocation, useReaderLocation } from './readerHistory';
 import { installReaderPlatformApi } from '../runtime/readerPlatform';
 import logoBlack from '../../../media/icons/logoCSS_black.svg';
 import logoWhite from '../../../media/icons/logoCSS_white.svg';
@@ -48,13 +49,27 @@ function RoutePopoverBoundary({ visible }: { visible: boolean }): null {
 
 /** Browser-only adapter. All reading, hover, relationships and controls below
  * are the same components mounted by the Extension panels. */
-export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }): React.ReactElement {
+export interface BrowserReaderHostContext {
+  librarySlug: string;
+  scope: string;
+  sourceUnavailableReason: string;
+  unavailable: string;
+  missingEntry: string;
+  graphEmpty: string;
+  workspaceLabel: string;
+  onWorkspace(): void;
+}
+
+export function BrowserReader({ snapshot, hostContext }: { snapshot: FrozenReaderSnapshot; hostContext?: BrowserReaderHostContext }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
-  const [route, setRoute] = useState(() => decodeReaderRoute(location.hash));
-  // Explicit navigation owns a fresh search session; local query edits only replace the URL.
-  const [searchSession, setSearchSession] = useState(0);
+  const { route: currentRoute, session: searchSession } = useReaderLocation();
+  const librarySlug = hostContext?.librarySlug ?? (currentRoute.kind === 'workspace' ? undefined : currentRoute.librarySlug);
+  const route = readerRouteInLibrary(currentRoute, librarySlug);
+  const routeHash = (destination: import('./readerRoute').ReaderRoute): string => encodeReaderRoute(readerRouteInLibrary(destination, librarySlug));
+  const libraryHash = routeHash({ kind: 'library' });
   const contentLanguage = use_content_language();
-  const sourceUnavailable = use_localized({type:'i18n',default_language:'en',values:{en:'Source is not included in this frozen export.','zh-CN':'此冻结导出未包含源码。'}});
+  const frozenSourceUnavailable = use_localized({type:'i18n',default_language:'en',values:{en:'Source is not included in this frozen export.','zh-CN':'此冻结导出未包含源码。'}});
+  const sourceUnavailable = hostContext?.sourceUnavailableReason ?? frozenSourceUnavailable;
   const outlineRef = useRef<HTMLDivElement | null>(null);
   const entries = useMemo(() => snapshot.entries.map(entry => ({ id: entry.id, package: entry.package,
     title: entry.title, hasContent: !!entry.content.snl, snl: entry.content.snl })), [snapshot]);
@@ -70,8 +85,7 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
   const preferences = useRef({ ...snapshot.preferences });
   const revision = useRef(0);
   const navigate = (hash: string, passive = false): void => {
-    if (location.hash !== hash) (passive ? history.replaceState : history.pushState).call(history, { ...history.state }, '', hash);
-    flushSync(() => { setRoute(decodeReaderRoute(hash)); setSearchSession(value => value + 1); });
+    navigateReaderHash(hostContext ? routeHash(decodeReaderRoute(hash)) : hash, passive);
   };
   const publishPreferences = (): void => {
     apply_preferences_snapshot({ type: 'snl.preferences/snapshot', generation: snapshot.renderSnapshotId,
@@ -94,29 +108,29 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
           const filters = msg.filters as { kindId?: string; counterpartId?: string } | undefined;
           const query: import('./browserDiscovery').FrozenSearchQuery = { q: msg.q, mode: msg.mode, filters: filters ?? {} };
           // Query changes replace the current search destination, never add caret/keystroke history.
-          history.replaceState(history.state, '', encodeReaderRoute({ ...route, ...query }));
+          history.replaceState(history.state, '', routeHash({ ...route, ...query }));
           reply(frozenSearchResults(snapshot, query));
         }
         break;
       case 'openMacro':
-        if (typeof msg.name === 'string' && Object.hasOwn(snapshot.macros, msg.name)) navigate(encodeReaderRoute({ kind: 'macro', name: msg.name, returnHash: location.hash }));
+        if (typeof msg.name === 'string' && Object.hasOwn(snapshot.macros, msg.name)) navigate(routeHash({ kind: 'macro', name: msg.name, returnHash: location.hash }));
         break;
       case 'openInfoviewGraph': case 'openInfoviewGraphForLibrary':
-        navigate(encodeReaderRoute({ kind: 'graph', returnHash: location.hash || '#/library' })); break;
+        navigate(routeHash({ kind: 'graph', returnHash: location.hash || libraryHash })); break;
       case 'openEntry':
-        if (typeof msg.id === 'string' && byId.has(msg.id)) navigate(encodeReaderRoute({ kind: 'entry', entryId: msg.id, returnHash: location.hash }));
+        if (typeof msg.id === 'string' && byId.has(msg.id)) navigate(routeHash({ kind: 'entry', entryId: msg.id, returnHash: location.hash }));
         break;
       case 'navigateEntry':
       case 'openEntryInfoview':
         if (typeof msg.entryId === 'string' && byId.has(msg.entryId)) {
           const origin = msg.origin as { kind?: string; nodeId?: string } | undefined;
-          const returnHash = origin?.kind === 'library' && origin.nodeId ? encodeReaderRoute({ kind: 'node', nodeId: origin.nodeId }) : location.hash || '#/library';
-          navigate(encodeReaderRoute({ kind: 'entry', entryId: msg.entryId, returnHash }));
+          const returnHash = origin?.kind === 'library' && origin.nodeId ? routeHash({ kind: 'node', nodeId: origin.nodeId }) : location.hash || libraryHash;
+          navigate(routeHash({ kind: 'entry', entryId: msg.entryId, returnHash }));
         }
         break;
       case 'back': case 'nav.openDashboard': case 'nav.openInfoview':
-        navigate('returnHash' in route ? route.returnHash ?? '#/library' : '#/library'); break;
-      case 'selectLibrary': case 'openInfoview': navigate('#/library'); break;
+        navigate('returnHash' in route ? route.returnHash ?? libraryHash : libraryHash); break;
+      case 'selectLibrary': case 'openInfoview': navigate(libraryHash); break;
       case 'revealPointer': window.dispatchEvent(new CustomEvent('snl-reader-source', { detail: { entryId: msg.entryId } })); break;
       case 'snl.preferences/set-language':
         preferences.current.language = msg.language === 'auto' ? snapshot.preferences.language : String(msg.language); publishPreferences(); break;
@@ -141,11 +155,9 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
     publishPreferences();
     set_content_language(snapshot.contentLanguage);
     const broker = installWorkspaceAssetBroker(api);
-    const changed = (): void => { flushSync(() => { setRoute(decodeReaderRoute(location.hash)); setSearchSession(value => value + 1); }); };
-    window.addEventListener('hashchange', changed);
-    window.addEventListener('popstate', changed);
+    const changed = (): void => { flushSync(notifyReaderLocation); };
     host.__snlExportSourceFollow = changed;
-    return () => { broker.dispose(); window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed); if (host.__snlExportSourceFollow === changed) delete host.__snlExportSourceFollow; };
+    return () => { broker.dispose(); if (host.__snlExportSourceFollow === changed) delete host.__snlExportSourceFollow; };
   }, [snapshot]);
   const selected = route.kind === 'entry' ? byId.get(route.entryId) : undefined;
   const state: EntryReaderState | null = selected ? {
@@ -155,19 +167,21 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
     relationshipsError: null, returnRoute: { kind: 'library', slug: snapshot.library.slug }
   } : null;
   const markdownImageUrlTransform = (source: string): string => frozenImageUrl(snapshot.resources, source);
-  const sourceAvailable = (id: string): boolean => !!host.__snlSources?.pointers.some(pointer => pointer.entryId === id);
+  const sourceAvailable = (id: string): boolean => !hostContext && !!host.__snlSources?.pointers.some(pointer => pointer.entryId === id);
   return <ReaderCapabilitiesContext.Provider value={{ api, edit: false, graph: true, export: false, sourceAvailable,
-    sourceUnavailableReason: sourceUnavailable }}>
-    <nav aria-label={t('scope')} style={{ ...READER_STYLE, paddingBottom: 0, display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-      <Button onClick={() => navigate(encodeReaderRoute({ kind: 'search', q: '', mode: 'entry', filters: {}, returnHash: location.hash || '#/library' }))}>{t('search')}</Button>
-      <Button onClick={() => navigate(encodeReaderRoute({ kind: 'graph', returnHash: location.hash || '#/library' }))}>{t('graph')}</Button>
+    sourceUnavailableReason: sourceUnavailable, scopeDescription: hostContext?.scope,
+    graphEmptyDescription: hostContext?.graphEmpty, missingEntryDescription: hostContext?.missingEntry }}>
+    <nav aria-label={hostContext?.scope ?? t('scope')} style={{ ...READER_STYLE, paddingBottom: 0, display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+      {hostContext ? <Button onClick={hostContext.onWorkspace}>{hostContext.workspaceLabel}</Button> : null}
+      <Button onClick={() => navigate(routeHash({ kind: 'search', q: '', mode: 'entry', filters: {}, returnHash: location.hash || libraryHash }))}>{t('search')}</Button>
+      <Button onClick={() => navigate(routeHash({ kind: 'graph', returnHash: location.hash || libraryHash }))}>{t('graph')}</Button>
     </nav>
     <div hidden={route.kind !== 'library' && route.kind !== 'node'}>
       <HoverPopoverProvider postMessage={postMessage} entries={entries} entryPackages={snapshot.entryPackages} userMacros={userMacros}
         kindPalette={kindPalette} localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform}>
         <RoutePopoverBoundary visible={route.kind === 'library' || route.kind === 'node'} />
         <main style={READER_STYLE}>
-          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: () => navigate('#/library'), entryPool: entries,
+          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: hostContext?.onWorkspace ?? (() => navigate(libraryHash)), entryPool: entries,
             entryPackages: snapshot.entryPackages, userMacros, kindPalette, markdownImageUrlTransform, exportHtml: () => {}, outlineRef,
             activeNodeId: route.kind === 'node' ? route.nodeId : undefined }} />
         </main>
@@ -177,22 +191,26 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
     {route.kind === 'graph' ? <SnlGraphApp initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
     {route.kind === 'macro' ? Object.hasOwn(snapshot.macros, route.name)
       ? <BrowserMacroReader key={route.name} snapshot={snapshot} name={route.name} />
-      : <main style={READER_STYLE}><p role="alert">{t('unavailable')}</p><Button onClick={() => navigate('#/library')}>{t('home')}</Button></main> : null}
-    {route.kind === 'unavailable' ? <main style={READER_STYLE}><p role="alert">{t('unavailable')}</p><Button onClick={() => navigate('#/library')}>{t('home')}</Button></main> : null}
+      : <main style={READER_STYLE}><p role="alert">{hostContext?.unavailable ?? t('unavailable')}</p><Button onClick={() => navigate(libraryHash)}>{t('home')}</Button></main> : null}
+    {route.kind === 'unavailable' ? <main style={READER_STYLE}><p role="alert">{hostContext?.unavailable ?? t('unavailable')}</p><Button onClick={() => navigate(libraryHash)}>{t('home')}</Button></main> : null}
     {route.kind === 'entry' ? <EntryReader key={route.entryId} state={state} loaded loadError={null} wireUserMacros={snapshot.macros}
       userMacros={userMacros} macroKinds={snapshot.macroKinds} kindPalette={kindPalette} localDetails={details}
       markdownImageUrlTransform={markdownImageUrlTransform} postMessage={postMessage} /> : null}
-    {!host.__snlSources ? <p role="note" style={{ padding: '0 1.5rem' }}>{sourceUnavailable}</p> : null}
+    {hostContext || !host.__snlSources ? <p role="note" style={{ padding: '0 1.5rem' }}>{sourceUnavailable}</p> : null}
   </ReaderCapabilitiesContext.Provider>;
+}
+
+export function initializeBrowserReaderDocument(): void {
+  document.documentElement.dataset.snlAssetBaseUri = 'https://snl-workspace-assets.invalid';
+  document.documentElement.dataset.snlLogoBlack = logoBlack;
+  document.documentElement.dataset.snlLogoWhite = logoWhite;
 }
 
 export function mountBrowserReader(snapshot: FrozenReaderSnapshot): void {
   if (snapshot.version !== 1) throw new Error('Unsupported frozen reader snapshot version');
   const root = document.getElementById('snl-reader-root');
   if (!root) throw new Error('Shared reader root missing');
-  document.documentElement.dataset.snlAssetBaseUri = 'https://snl-workspace-assets.invalid';
-  document.documentElement.dataset.snlLogoBlack = logoBlack;
-  document.documentElement.dataset.snlLogoWhite = logoWhite;
+  initializeBrowserReaderDocument();
   const routes = new Set(snapshot.entries.map(entry => '#/entry/' + encodeURIComponent(entry.id)));
   const walk = (nodes: FrozenOutlineNode[]): void => { for (const node of nodes) { routes.add('#/node/' + encodeURIComponent(node.nodeId)); walk(node.children); } };
   walk(snapshot.library.outline); host.__snlReaderRoutes = routes;

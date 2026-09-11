@@ -103,6 +103,15 @@ it('rejects path traversal and cache symlinks without touching their targets', a
   await expect(clearCache(root, 'ssi')).rejects.toThrow('Unsafe cache directory');
   expect(await fs.readdir(outside)).toEqual(['.SNL_Doc']);
 });
+it('retains computed data when optional disk persistence is unavailable', async () => {
+  const root = await workspace(); const r = request();
+  const rename = vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('read-only cache filesystem'), { code: 'EROFS' }));
+  try {
+    expect(await getOrGenerateCache(root, r)).toEqual({ value: 3 });
+    expect(cacheStatus(root, 'ssi')).toBe('failed');
+    expect(await readCacheArtifact(root, r)).toBeUndefined();
+  } finally { rename.mockRestore(); }
+});
 it('uses canonical own keys and preserves prototype-like data without input mutation', async () => {
   const input = JSON.parse('{"__proto__":{"value":1},"constructor":"x"}');
   expect(cacheFingerprint(input)).toBe(cacheFingerprint({ constructor: 'x', ['__proto__']: { value: 1 } }));

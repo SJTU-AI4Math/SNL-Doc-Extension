@@ -184,7 +184,16 @@ export function getOrGenerateCache<T>(root: string, request: CacheRequest<T>): P
     statuses.set(file, 'generating');
     const result = await request.generate();
     if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during generation');
-    await publish(root, request, result, epoch);
+    try {
+      await publish(root, request, result, epoch);
+    } catch (error) {
+      // Disk persistence is optional. Validation, identity, missing-Library and
+      // cancellation failures are not storage degradation and must still reject.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE'].includes(code ?? '')) throw error;
+      if (epochs.get(file) !== epoch) throw abortError();
+      statuses.set(file, 'failed');
+    }
     // Return detached JSON, identical to a subsequent disk read.
     return JSON.parse(JSON.stringify(result)) as T;
   });

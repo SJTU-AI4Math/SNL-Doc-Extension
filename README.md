@@ -41,8 +41,9 @@ Then launch the extension from VS Code (F5 / Run Extension). See
   Priority, smaller actual range, then stable identity, without a picker.
   Regex editing uses joined `/ pattern / flags` fields (not JS literal parsing).
   Retired context fields are ignored and removed on Entry save; old derived
-  indexes are rebuilt. Dashboard exposes Pointer index maintenance. `.SNL_Doc/syncSNL.json`
-  is a rebuildable reverse index, not canonical Entry storage.
+  indexes are rebuilt. Dashboard exposes Pointer index maintenance. The reverse
+  index now lives in `.SNL_Doc/.cache/pointer-inverse/`; legacy `syncSNL.json`
+  is neither consumed nor rewritten or deleted by cache maintenance.
 - **Export HTML → Include source code** adds an offline read-only Monaco pane
   beside the document, with Lean highlighting, search, copying, folding,
   adjustable width, source/Entry navigation and cursor following.
@@ -60,6 +61,43 @@ Then launch the extension from VS Code (F5 / Run Extension). See
 - The first implementation is local-file/single-root oriented; unsupported or
   ambiguous workspace roots/providers are rejected. UUID schema work belongs
   to 0.2.0 and is not part of this candidate.
+
+## Derived caches (`0.2.0-cache` branch)
+
+Git stores Authoring, not automatically derived results. Internal, versioned
+Generators share validation, input fingerprints, atomic publication and scoped
+invalidation:
+
+```text
+.SNL_Doc/.cache/{dependencies,pagerank,ssi,pointer-inverse}/
+.SNL_Doc/libraries/<Library>/.cache/graph-layout/
+```
+
+Each Generator owns its `result.json`; `.cache/` directories are Git-ignored.
+Missing, corrupt or obsolete results are rebuilt from current inputs. Local
+preferences, unsaved drafts, migration backups and rollback records are **not**
+these caches and must not be removed by cache cleanup.
+
+- Dependencies combine authored relationships with globally derived Macro-source
+  `depends` edges. Only `depends` marked `metadata.generator=macro-source-scan`
+  are Generator-owned; manual relationships, other generators and `uses_context`
+  remain Authoring. Normal relationship edits never persist the composed view.
+- PageRank and saved Entry SSI use the complete workspace, not the visible
+  Library. Readers and interactive HTML consume projections of those global
+  values; an export closure does not renormalize or recompute them. Unavailable
+  metrics remain unavailable, not zero.
+- Pointer cold starts reconcile persisted candidates with current canonical
+  metadata and actual source-content fingerprints. Dirty editor overlays stay
+  in memory. Pointer navigation still requires a local-file workspace.
+- Each Library owns its layout cache. Inputs include the relevant graph,
+  language, algorithm and layout parameters; filters, colors and viewport are
+  temporary view state. Offline HTML uses only instance-local layout memory.
+- Non-`file` workspaces use an isolated memory backend keyed by the complete
+  URI, never a same-named local filesystem path. Read, rebuild and clear use the
+  same backend. This does not add virtual-provider support to source export.
+
+Custom Generator scripting and Package membership migration are outside this
+branch. The normative contracts are the `spec.cache` subtree in `.SNL_Doc`.
 
 ## Kind preset packages
 

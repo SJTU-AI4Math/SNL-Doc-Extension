@@ -53,6 +53,11 @@ describe('SNL_DOC_WATCHED_PATH', () => {
       '/ws/.SNL_Doc/term_macros',
       // Nested deeper than any real package.
       '/ws/.SNL_Doc/term_macros/sub/dir/core.json',
+      // Both cache scopes must stay out of Authoring refresh paths.
+      '/ws/.SNL_Doc/.cache/ssi/result.json',
+      '/ws/.SNL_Doc/.cache/dependencies/result.json',
+      '/ws/.SNL_Doc/libraries/algebra/.cache/graph-layout/result.json',
+      '/ws/.SNL_Doc/libraries/algebra/.cache/graph.json',
       // Outside .SNL_Doc entirely.
       '/ws/src/index.ts'
     ];

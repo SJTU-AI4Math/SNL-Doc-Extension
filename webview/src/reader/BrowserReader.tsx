@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { SnooglApp } from '../SnooglApp';
 import { SnlGraphApp } from '../SnlGraphApp';
+import { isGlobalPageRankView } from '../../../src/entryPageRankView';
+import { isCachedEntryMetrics } from '../../../src/cachedEntryMetrics';
 import { GraphLayoutMemoryCache } from '../../../src/graphLayoutCacheModel';
 import { BrowserMacroReader } from './BrowserMacroReader';
 import { frozenRelationshipGraph, frozenSearchResults } from './browserDiscovery';
@@ -151,7 +153,10 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
     return () => { broker.dispose(); window.removeEventListener('hashchange', changed); window.removeEventListener('popstate', changed); if (host.__snlExportSourceFollow === changed) delete host.__snlExportSourceFollow; };
   }, [snapshot]);
   const selected = route.kind === 'entry' ? byId.get(route.entryId) : undefined;
+  const cachedEntryMetrics = isCachedEntryMetrics(snapshot.cachedEntryMetrics) ? snapshot.cachedEntryMetrics : undefined;
+  const globalPageRank = isGlobalPageRankView(snapshot.globalPageRank) ? snapshot.globalPageRank : null;
   const state: EntryReaderState | null = selected ? {
+    cachedEntryMetrics, globalPageRank,
     entry: selected, kind: kinds.get(selected.kind) ?? null, entries, entryPackages: snapshot.entryPackages,
     relationshipSections: groupEntryRelationships(selected.id, snapshot.relationships, byId),
     relatedEntries: snapshot.entries.filter(entry => entry.id !== selected.id).map(entry => details[entry.id]),
@@ -170,7 +175,7 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
         kindPalette={kindPalette} localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform}>
         <RoutePopoverBoundary visible={route.kind === 'library' || route.kind === 'node'} />
         <main style={READER_STYLE}>
-          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: () => navigate('#/library'), entryPool: entries,
+          <LibraryLayer {...snapshot.library} ctx={{ postMessage, goBack: () => navigate('#/library'), entryPool: entries, cachedEntryMetrics, globalPageRank,
             entryPackages: snapshot.entryPackages, userMacros, kindPalette, markdownImageUrlTransform, exportHtml: () => {}, outlineRef,
             activeNodeId: route.kind === 'node' ? route.nodeId : undefined }} />
         </main>

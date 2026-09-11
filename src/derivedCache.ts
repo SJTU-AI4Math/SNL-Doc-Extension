@@ -104,6 +104,8 @@ async function guard(root: string, id: string, scope: CacheScope | undefined, cr
 /** Structural read only. Call readCache with actual inputs to establish freshness. */
 export async function readCacheArtifact<T>(root: string, descriptor: Omit<CacheDescriptor<T>, 'input'>): Promise<{ inputHash: string; value: T } | undefined> {
   try {
+    // A reader must not consume a publication that an earlier clear will revoke.
+    await publications.get(cachePath(root, descriptor.id, descriptor.scope))?.catch(() => undefined);
     const file = await guard(root, descriptor.id, descriptor.scope, false);
     const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     let text: string;

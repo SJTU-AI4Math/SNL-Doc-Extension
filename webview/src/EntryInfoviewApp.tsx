@@ -27,6 +27,7 @@ import { resolveMarkdownAssetUrl } from './render/markdownAssets';
 import { use_content_language } from './runtime/preferencesRuntime';
 import { useVsCodeApiRef } from './vscodeApi';
 
+import { isGlobalPageRankView, type GlobalPageRankView } from '../../src/entryPageRankView';
 import { isCachedEntryMetrics, type CachedEntryMetrics } from '../../src/cachedEntryMetrics';
 import { EntryReader } from './reader/EntryReader';
 
@@ -35,6 +36,7 @@ type Incoming =
   | {
       type: 'entryDetails';
       cachedEntryMetrics?: CachedEntryMetrics;
+    globalPageRank?: GlobalPageRankView | null;
       entry: EntryData | null;
       kind: EntryKind | null;
       entries: EntryOption[];
@@ -117,6 +119,7 @@ export function EntryInfoviewApp(): React.ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [state, setState] = useState<{
     cachedEntryMetrics?: CachedEntryMetrics;
+    globalPageRank?: GlobalPageRankView | null;
     entry: EntryData;
     kind: EntryKind | null;
     entries: EntryOption[];
@@ -159,6 +162,7 @@ export function EntryInfoviewApp(): React.ReactElement {
         }
         setState({
           cachedEntryMetrics: isCachedEntryMetrics(msg.cachedEntryMetrics) ? msg.cachedEntryMetrics : undefined,
+          globalPageRank: isGlobalPageRankView(msg.globalPageRank) ? msg.globalPageRank : null,
           entry: msg.entry,
           kind: msg.kind,
           entries: Array.isArray(msg.entries) ? msg.entries : [],

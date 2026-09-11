@@ -151,6 +151,29 @@ it('does not report ready or return success when clear interrupts rename', async
     expect(await readCacheArtifact(root,request())).toBeUndefined();
   } finally { rename.mockRestore(); }
 });
+it('makes successor lookup wait for a physically visible but revoked publication and its clear', async () => {
+  const root=await workspace(); const visible=deferred<void>(); const proceed=deferred<void>();
+  const original=fs.rename;
+  const rename=vi.spyOn(fs,'rename').mockImplementationOnce(async(from,to)=>{
+    await original(from,to); visible.resolve(); await proceed.promise;
+  });
+  try {
+    const old=getOrGenerateCache(root,request()).catch(e=>e);
+    await visible.promise;
+    const clear=clearCache(root,'ssi');
+    const generate=vi.fn(()=>({value:30}));
+    let delivered=false;
+    const next=getOrGenerateCache(root,request(generate)).then(value=>{delivered=true;return value;});
+    // Hold the actual-rename barrier across I/O turns; no publication can finish.
+    await new Promise(resolve=>setTimeout(resolve,50));
+    expect(delivered).toBe(false);
+    proceed.resolve();
+    expect((await old).name).toBe('AbortError'); await clear;
+    expect(await next).toEqual({value:30}); expect(generate).toHaveBeenCalledTimes(1);
+    expect(cacheStatus(root,'ssi')).toBe('ready');
+    expect((await readCacheArtifact(root,request()))?.value).toEqual({value:30});
+  } finally { proceed.resolve(); rename.mockRestore(); }
+});
 it('uses canonical own keys and preserves prototype-like data without input mutation', async () => {
   const input = JSON.parse('{"__proto__":{"value":1},"constructor":"x"}');
   expect(cacheFingerprint(input)).toBe(cacheFingerprint({ constructor: 'x', ['__proto__']: { value: 1 } }));

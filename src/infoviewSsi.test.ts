@@ -49,6 +49,7 @@ async function harness(): Promise<any> {
 it('Entry and Library host messages consume one saved global cache while returning only visible Entry results', async () => {
   const panel = await harness();
   await panel.pushLibraryEntries('lib');
+  const frozen = panel.readerSnapshot;
   await panel.pushEntryDetailsForEntry('target');
   const library = state.posted.find(m => m.type === 'libraryEntries');
   const entry = state.posted.find(m => m.type === 'entryDetails');
@@ -60,4 +61,26 @@ it('Entry and Library host messages consume one saved global cache while returni
   }
   const stored = JSON.parse(await readFile(join(state.root, '.SNL_Doc/.cache/ssi/result.json'), 'utf8'));
   expect(Object.keys(stored.value)).toEqual(['context', 'target']);
+  const rank = JSON.parse(await readFile(join(state.root,'.SNL_Doc/.cache/pagerank/result.json'),'utf8')).value;
+  for (const message of [library, entry]) {
+    expect(message.globalPageRank).toMatchObject({scope:'workspace',converged:true,scores:{target:rank.scores.target}});
+    expect(Object.keys(message.globalPageRank.scores)).toEqual(['target']);
+  }
+  expect(Object.keys(frozen.cachedEntryMetrics.entries).sort()).toEqual(['context','target']);
+  expect(frozen.globalPageRank.scores).toEqual(rank.scores);
+});
+it('freezes global values for the closure without exporting an unrelated private Entry', async () => {
+  state.posted.length = 0;
+  state.entries.push({id:'private',package:'two',title:'Private',kind:'definition',content:{snl:'z'},pointer:null});
+  try {
+    const panel = await harness(); await panel.pushLibraryEntries('lib');
+    const frozen = panel.readerSnapshot;
+    expect(frozen.entries.map((e:any) => e.id).sort()).toEqual(['context','target']);
+    expect(Object.keys(frozen.cachedEntryMetrics.entries).sort()).toEqual(['context','target']);
+    expect(Object.keys(frozen.globalPageRank.scores).sort()).toEqual(['context','target']);
+    const rank = JSON.parse(await readFile(join(state.root,'.SNL_Doc/.cache/pagerank/result.json'),'utf8')).value;
+    expect(Object.keys(rank.scores).sort()).toEqual(['context','private','target']);
+    expect(frozen.globalPageRank.scores.target).toBe(rank.scores.target);
+    expect(JSON.stringify(frozen)).not.toContain('"private"');
+  } finally { state.entries.pop(); }
 });

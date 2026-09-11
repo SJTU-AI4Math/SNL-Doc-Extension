@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import { readCachedEntryMetrics } from './ssiCache';
+import { readReaderPageRank } from './readerPageRank';
+import { projectPageRank } from './entryPageRankView';
+import { projectCachedEntryMetrics } from './cachedEntryMetrics';
 import { bind_preferences_panel_title } from './preferencesHost';
 import { createHostTranslator, defineHostMessages } from './hostI18n';
 import { read_extension_preferences } from './preferences';
@@ -719,18 +722,15 @@ export class InfoviewPanel {
       // other, and hand the pool to `readLibraryGraph` so it does not read
       // `entries.json` a second time for its dangling-id check.
       // Cat 2026-07-25: panels felt slow.
-      const [entryPool, kinds, counters, relationshipRead] = await Promise.all([
-        readEntries(root),
-        readEntryKinds(root),
-        readLibraryCounters(root, slug),
-        readRelationships(root).then(
-          (relationships) => ({ relationships, error: null as string | null }),
-          (error: unknown) => ({
-            relationships: [],
-            error: error instanceof Error ? error.message : String(error)
-          })
-        )
+      const [entryPool, kinds, counters, macros, macroKinds, languages] = await Promise.all([
+        readEntries(root), readEntryKinds(root), readLibraryCounters(root, slug),
+        this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
       ]);
+      // Dependency generation reuses these exact global reads, not a second scan.
+      const relationshipRead = await readRelationships(root, { entries: entryPool, macros }).then(
+        relationships => ({ relationships, error: null as string | null }),
+        (error: unknown) => ({ relationships: [], error: error instanceof Error ? error.message : String(error) })
+      );
 
       const graphResult = await readLibraryGraph(root, slug, { entryPool });
       const warnings: string[] = [];
@@ -841,12 +841,13 @@ export class InfoviewPanel {
           libraryEntryIds.has(relationship.from) && libraryEntryIds.has(relationship.to)
       );
 
-      const [macros, macroKinds, languages] = await Promise.all([
-        this.readMacroDb(), readMacroKinds(root), readWorkspaceSupportedLanguages(root)
-      ]);
-      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entryPool, macros, libraryEntryIds);
-      if (generation !== this.viewGeneration) return;
       const closure = readerDependencyClosure(outline, entryPool, macros, relationshipRead.relationships);
+      const closureIds = closure.entries.map(entry => entry.id);
+      const [cachedEntryMetrics, globalPageRank] = await Promise.all([
+        readCachedEntryMetrics(root.fsPath, entryPool, macros, closureIds),
+        readReaderPageRank(root.fsPath, entryPool, relationshipRead, closureIds)
+      ]);
+      if (generation !== this.viewGeneration) return;
       const dependencies = { libraries, entries: entryPool, kinds, counters, graphResult, relationshipRead, macros, macroKinds, languages };
       const renderSnapshotId = renderDependencyId(dependencies);
       const context: RenderSourceContext = {
@@ -866,6 +867,9 @@ export class InfoviewPanel {
       this.renderSourceContext = context;
       this.readerSnapshot = structuredClone({
         version: 1, renderSnapshotId,
+        // Do not leak host filesystem errors into an exported document.
+        cachedEntryMetrics: cachedEntryMetrics.status === 'ready' ? cachedEntryMetrics : {scope:'workspace',status:'unavailable'},
+        globalPageRank,
         library: { slug, title: displayTitle, description, outline, warnings },
         entries: closure.entries, entryKinds: kinds,
         entryPackages: entryPackageIdentities(closure.entries), macros: closure.macros, macroKinds,
@@ -876,7 +880,8 @@ export class InfoviewPanel {
       void this.panel.webview.postMessage({
         renderSnapshotId,
         type: 'libraryEntries',
-        cachedEntryMetrics,
+        cachedEntryMetrics: projectCachedEntryMetrics(cachedEntryMetrics, libraryEntryIds),
+        globalPageRank: globalPageRank ? projectPageRank(globalPageRank, libraryEntryIds) : null,
         slug,
         title: displayTitle,
         description,
@@ -1006,11 +1011,18 @@ export class InfoviewPanel {
         this.readMacroDb(),
         readMacroKinds(root)
       ]);
-      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entries, macros, [id]);
+      const relationshipRead = await readRelationships(root, { entries, macros })
+        .then(relationships => ({ relationships, error: null }))
+        .catch(error => ({ relationships: [], error: String(error) }));
+      const [cachedEntryMetrics, globalPageRank] = await Promise.all([
+        readCachedEntryMetrics(root.fsPath, entries, macros, [id]),
+        readReaderPageRank(root.fsPath, entries, relationshipRead, [id])
+      ]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         cachedEntryMetrics,
+        globalPageRank,
         entry,
         kind,
         entries: options,
@@ -1125,8 +1137,9 @@ export class InfoviewPanel {
       let relationshipSections = null as ReturnType<typeof groupEntryRelationships> | null;
       let relatedEntries: Array<{ entry: EntryData; kind: EntryKind | null }> = [];
       let relationshipsError: string | undefined;
+      let relationships: Awaited<ReturnType<typeof readRelationships>> = [];
       try {
-        const relationships = await readRelationships(root);
+        relationships = await readRelationships(root, { entries, macros });
         relationshipSections = groupEntryRelationships(
           id,
           relationships,
@@ -1150,11 +1163,16 @@ export class InfoviewPanel {
         );
       }
       const returnRoute = this.entryHistory.at(-1) ?? this.fallbackReturnRoute;
-      const cachedEntryMetrics = await readCachedEntryMetrics(root.fsPath, entries, macros, [id]);
+      const relationshipRead = { relationships, error: relationshipsError ?? null };
+      const [cachedEntryMetrics, globalPageRank] = await Promise.all([
+        readCachedEntryMetrics(root.fsPath, entries, macros, [id]),
+        readReaderPageRank(root.fsPath, entries, relationshipRead, [id])
+      ]);
       if (generation !== this.viewGeneration) return;
       void this.panel.webview.postMessage({
         type: 'entryDetails',
         cachedEntryMetrics,
+        globalPageRank,
         entry,
         kind,
         entries: options,

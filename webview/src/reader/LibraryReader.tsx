@@ -1,3 +1,5 @@
+import type { GlobalPageRankView } from '../../../src/entryPageRankView';
+import { EntryPageRank } from '../components/EntryPageRank';
 import type { CachedEntryMetrics } from '../../../src/cachedEntryMetrics';
 import { CachedEntryMetricValue } from '../components/EntryMetrics';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
@@ -103,6 +105,7 @@ export type View =
 
 export interface RenderCtx {
   cachedEntryMetrics?: CachedEntryMetrics;
+  globalPageRank?: GlobalPageRankView | null;
   postMessage: (m: unknown) => void;
   goBack: () => void;
   entryPool: EntryOption[];
@@ -530,7 +533,7 @@ function OutlineTreeNode({
         ) : null}
         {node.entry ? (
           <>
-          <div data-snl-entry-metric-region={node.entry.id}><CachedEntryMetricValue entryId={node.entry.id} cachedEntryMetrics={ctx.cachedEntryMetrics} /></div>
+          <div data-snl-entry-metric-region={node.entry.id}><CachedEntryMetricValue entryId={node.entry.id} cachedEntryMetrics={ctx.cachedEntryMetrics} /><EntryPageRank entryId={node.entry.id} view={ctx.globalPageRank ?? null} /></div>
           <EntrySurface
             entry={node.entry}
             kind={node.kind}

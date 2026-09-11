@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+let workspacePath = '';
 import { entryEntityPath, packageManifestPath } from './entityStorage';
 
 /**
@@ -200,7 +204,7 @@ vi.mock('vscode', () => {
       }
     },
     workspace: {
-      workspaceFolders: [{ uri: { path: '/ws', fsPath: '/ws', toString: () => '/ws' } }],
+      get workspaceFolders() { return [{ uri: { path: workspacePath, fsPath: workspacePath, toString: () => workspacePath } }]; },
       getConfiguration: () => ({ get: () => undefined }),
       onDidChangeConfiguration: (handler: (event: { affectsConfiguration(key: string): boolean }) => void) => {
         configurationHandlers.push(handler);
@@ -295,9 +299,14 @@ async function openBrowser(initialLibrarySlug?: string): Promise<(message: unkno
 }
 
 describe('infoview panel read cost', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     reset();
+    // Real backing root for the optional Node cache; authored reads remain
+    // instrumented through vscode.fs, preserving every I/O count assertion.
+    workspacePath = await mkdtemp(join(tmpdir(), 'snl-infoview-cost-'));
+    await mkdir(join(workspacePath, '.SNL_Doc'));
   });
+  afterEach(async () => { await rm(workspacePath, { recursive: true, force: true }); });
 
   it('keeps the resolved Entry display title across a locale refresh', async () => {
     const { InfoviewPanel } = await loadPanel();
@@ -492,8 +501,8 @@ describe('infoview panel read cost', () => {
     }));
     expect(readCounts[entityPath.split('/').pop()!]).toBe(1);
     expect(readCounts[packageManifestPath('logic').split('/').pop()!]).toBe(1);
-    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
-    expect(directoryReadCounts['/ws/.SNL_Doc/packages'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/entries`] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/packages`] ?? 0).toBe(0);
   });
 
   it('rejects a current-storage popover when entity_storage metadata is missing', async () => {
@@ -525,7 +534,7 @@ describe('infoview panel read cost', () => {
       entryId: 'e1',
       message: expect.stringMatching(/missing Package manifest.*logic/i)
     }));
-    expect(directoryReadCounts['/ws/.SNL_Doc/packages'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/packages`] ?? 0).toBe(0);
   });
 
   it('keeps package lookup pool-wide while scoping export records to the Library', async () => {
@@ -577,7 +586,7 @@ describe('infoview panel read cost', () => {
       entryId: 'e2',
       message: expect.stringMatching(/missing its package identity/)
     }));
-    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/entries`] ?? 0).toBe(0);
   });
 
   it('posts a correlated terminal not-found response when the exact entity is missing', async () => {
@@ -595,7 +604,7 @@ describe('infoview panel read cost', () => {
       type: 'popoverEntryDetails', entryId: 'e2', popoverRequestKey: 'missing-e2',
       entry: null, kind: null
     });
-    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/entries`] ?? 0).toBe(0);
   });
 
   it('posts one correlated terminal response for every concurrent request', async () => {
@@ -617,7 +626,7 @@ describe('infoview panel read cost', () => {
     expect(posted.filter((message) => message.type === 'popoverEntryDetails')
       .map((message) => [message.entryId, message.popoverRequestKey]).sort())
       .toEqual([['e1', 'request-e1'], ['e2', 'request-e2']]);
-    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/entries`] ?? 0).toBe(0);
   });
 
   it('fails closed when the exact current-storage entity has a malformed envelope', async () => {
@@ -636,7 +645,7 @@ describe('infoview panel read cost', () => {
       message: expect.stringMatching(/valid SNL Entry envelope/)
     }));
     expect(posted.some((message) => message.type === 'popoverEntryDetails')).toBe(false);
-    expect(directoryReadCounts['/ws/.SNL_Doc/entries'] ?? 0).toBe(0);
+    expect(directoryReadCounts[`${workspacePath}/.SNL_Doc/entries`] ?? 0).toBe(0);
   });
 
   it('waits for the Dashboard before opening the Entry editor', async () => {

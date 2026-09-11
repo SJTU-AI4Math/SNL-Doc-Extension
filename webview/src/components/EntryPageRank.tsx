@@ -11,8 +11,9 @@ const MESSAGES = defineUiMessages('entryPageRank', {
   label: 'PageRank · 全工作区', missing: '全局结果不可用', unconverged: '尚未收敛',
   explanation: '基于全工作区依赖图的中心性，不代表数学质量，也不是在当前视图内重算的分数。'
 });
-export function EntryPageRank({ entryId }: { entryId: string }): ReactElement | null {
-  const result = useContext(GlobalPageRankContext);
+export function EntryPageRank({ entryId, view: provided }: { entryId: string; view?: GlobalPageRankView | null }): ReactElement | null {
+  const inherited = useContext(GlobalPageRankContext);
+  const result = provided === undefined ? inherited : provided;
   const t = useUiMessages(MESSAGES);
   if (result === undefined) return null;
   const score = result?.scope === 'workspace' && Object.hasOwn(result.scores, entryId) ? result.scores[entryId] : undefined;

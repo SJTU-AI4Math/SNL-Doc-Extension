@@ -1,3 +1,5 @@
+import type { GlobalPageRankView } from '../../../src/entryPageRankView';
+import { EntryPageRank } from '../components/EntryPageRank';
 import type { CachedEntryMetrics } from '../../../src/cachedEntryMetrics';
 import { CachedEntryMetricValue } from '../components/EntryMetrics';
 import type { KindPalette } from '@sjtu-ai4math/snl-basics';
@@ -53,6 +55,7 @@ const MESSAGES = defineUiMessages('entryInfoview', {
 
 export type EntryReaderState = {
     cachedEntryMetrics?: CachedEntryMetrics;
+    globalPageRank?: GlobalPageRankView | null;
     entry: EntryData;
     kind: EntryKind | null;
     entries: EntryOption[];
@@ -116,7 +119,7 @@ export function EntryReader({state, loaded, loadError, wireUserMacros, userMacro
         ) : (
           <>
 
-            <div data-snl-entry-metric-region={state.entry.id}><CachedEntryMetricValue entryId={state.entry.id} cachedEntryMetrics={state.cachedEntryMetrics} /></div>
+            <div data-snl-entry-metric-region={state.entry.id}><CachedEntryMetricValue entryId={state.entry.id} cachedEntryMetrics={state.cachedEntryMetrics} /><EntryPageRank entryId={state.entry.id} view={state.globalPageRank ?? null} /></div>
             <EntrySurface
               entry={state.entry}
               kind={state.kind}

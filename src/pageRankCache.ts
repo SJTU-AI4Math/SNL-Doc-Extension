@@ -1,7 +1,7 @@
-import { cacheFingerprint, getOrGenerateCache } from './derivedCache';
+import { cacheFingerprint, getOrGenerateCache, type CacheRoot } from './derivedCache';
 import { computePageRank, pageRankGraph, pageRankParameters, PAGE_RANK_VERSION, type PageRankEntry, type PageRankRelationship, type PageRankResult } from './pageRank';
 
-export async function readPageRankCache(root: string, entries: readonly PageRankEntry[], relationships: readonly PageRankRelationship[]): Promise<PageRankResult> {
+export async function readPageRankCache(root: CacheRoot, entries: readonly PageRankEntry[], relationships: readonly PageRankRelationship[]): Promise<PageRankResult> {
   const graph = pageRankGraph(entries, relationships);
   const parameters = pageRankParameters();
   const input = { graph, parameters };

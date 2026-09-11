@@ -1,6 +1,6 @@
 import type { EntryData, MacroPackageEntry, RelationshipData } from './snlDoc';
 import { extractSnlReferences } from './snlReferences';
-import { getOrGenerateCache } from './derivedCache';
+import { getOrGenerateCache, type CacheRoot } from './derivedCache';
 
 // ===========================================================================
 // Auto-generated dependency relationships (cat 2026-07-10 §3)
@@ -259,7 +259,7 @@ export interface DependencySnapshot {
 const compareId = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 
 /** Cache only generated rows; never cache or publish a second Authoring pool. */
-export async function readDependencyCache(root: string, snapshot: DependencySnapshot): Promise<RelationshipData[]> {
+export async function readDependencyCache(root: CacheRoot, snapshot: DependencySnapshot): Promise<RelationshipData[]> {
   // Detach a complete semantic global snapshot. No Uri, Set, Map or UI scope
   // enters the cache hash. Authored rows affect identity allocation/atomicity.
   const input = JSON.parse(JSON.stringify({

@@ -1,4 +1,5 @@
 import { clearCache } from './derivedCache';
+import { cacheRootForWorkspace } from './cacheRoot';
 import { readPageRankCache } from './pageRankCache';
 import type { PageRankResult } from './pageRank';
 export { computePageRank } from './pageRank';
@@ -3925,7 +3926,7 @@ export async function readOverview(
   entryPackages.sort((left, right) => left.id.localeCompare(right.id));
   // Reuse precisely the Entries/active Macro sources displayed in this
   // overview (including operation snapshots), rather than rereading them.
-  const generated = await readDependencyCache(workspaceRoot.fsPath, {
+  const generated = await readDependencyCache(cacheRootForWorkspace(workspaceRoot), {
     entries, macros: metricMacroSources, relationships: authoredRelationships
   });
   const relationships = mergeDependencyRelationships(authoredRelationships, generated);
@@ -7313,7 +7314,7 @@ export async function readRelationships(
   const [entries, macros] = snapshot ? [snapshot.entries, snapshot.macros] : await Promise.all([
     readEntries(workspaceRoot), readAllMacros(workspaceRoot)
   ]);
-  const generated = await readDependencyCache(workspaceRoot.fsPath, { entries, macros, relationships: authored });
+  const generated = await readDependencyCache(cacheRootForWorkspace(workspaceRoot), { entries, macros, relationships: authored });
   return mergeDependencyRelationships(authored, generated);
 }
 
@@ -7323,16 +7324,21 @@ export async function readGlobalPageRank(
   root: vscode.Uri,
   snapshot?: { entries: readonly EntryData[]; relationships: readonly RelationshipData[] }
 ): Promise<PageRankResult> {
-  if (snapshot) return readPageRankCache(root.fsPath, snapshot.entries, snapshot.relationships);
+  if (snapshot) return readPageRankCache(cacheRootForWorkspace(root), snapshot.entries, snapshot.relationships);
   const [entries, macros] = await Promise.all([readEntries(root), readAllMacros(root)]);
   const relationships = await readRelationships(root, { entries, macros });
-  return readPageRankCache(root.fsPath, entries, relationships);
+  return readPageRankCache(cacheRootForWorkspace(root), entries, relationships);
 }
 
 /** Raw Authoring view for CAS/mutation paths, including untouched legacy rows. */
 export async function readAuthoredRelationships(workspaceRoot: vscode.Uri): Promise<RelationshipData[]> {
   const uri = relationshipsUri(workspaceRoot);
-  if (!(await exists(uri))) return [];
+  try { await vscode.workspace.fs.stat(uri); }
+  catch (error) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === 'ENOENT' || code === 'FileNotFound') return [];
+    throw error;
+  }
   return parseAuthoredRelationships(await readJson<unknown>(uri));
 }
 
@@ -7571,8 +7577,8 @@ export async function regenerateDependencyRelationships(
     const [entries, macros, existing] = await Promise.all([
       readEntries(workspaceRoot), readAllMacros(workspaceRoot), readAuthoredRelationships(workspaceRoot)
     ]);
-    await clearCache(workspaceRoot.fsPath, 'dependencies');
-    const generated = await readDependencyCache(workspaceRoot.fsPath, { entries, macros, relationships: existing });
+    await clearCache(cacheRootForWorkspace(workspaceRoot), 'dependencies');
+    const generated = await readDependencyCache(cacheRootForWorkspace(workspaceRoot), { entries, macros, relationships: existing });
     const merged = mergeDependencyRelationships(existing, generated);
     const previous = existing.filter(isAutomaticDependency);
     const key = (r: RelationshipData) => JSON.stringify([r.from, r.to]);

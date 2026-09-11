@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { getOrGenerateCache } from './derivedCache';
+import { getOrGenerateCache, type CacheRoot } from './derivedCache';
 import { isEntryMetricResult, type CachedEntryMetrics } from './cachedEntryMetrics';
 import { createSsiEngine, type EntryMetricResult, type SnlMacroSourceLookup, type SsiParser } from './ssiMetrics';
 import type { EntryPoolItemForLookup } from './ssiContext';
@@ -22,11 +22,11 @@ function hostEngine(): Promise<ReturnType<typeof createSsiEngine>> {
 
 /** Complete saved-workspace SSI product for HTML export, PageRank, and other
  * host consumers. Reuses the same cache as Entry/Library projections below.
- * Call with root.fsPath, all saved readEntries(root), and readAllMacros(root).
+ * Call with cacheRootForWorkspace(root), all saved readEntries(root), and readAllMacros(root).
  * No draft/Library/export-subset inputs: these change the semantic universe.
  */
 export function getGlobalSSI(
-  root: string,
+  root: CacheRoot,
   entries: EntryPoolItemForLookup[],
   activeMacroSources: SnlMacroSourceLookup,
   signal?: AbortSignal
@@ -40,7 +40,7 @@ export function getGlobalSSI(
  * No independent workspace scan here: reuse the panel's authoritative reads.
  */
 export async function readCachedEntryMetrics(
-  root: string,
+  root: CacheRoot,
   entries: EntryPoolItemForLookup[],
   activeMacroSources: SnlMacroSourceLookup,
   entryIds: Iterable<string>,

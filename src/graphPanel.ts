@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { relationshipGraphEdge } from './relationshipGraphWire';
 import { getLibraryGraphLayout } from './graphLayoutCache';
+import { cacheRootForWorkspace } from './cacheRoot';
 import { graphLayoutInput, type GraphLayoutArtifact } from './graphLayoutCacheModel';
 import { resolve_localized_string } from './localizedContent';
 import { bind_preferences_panel_title } from './preferencesHost';
@@ -415,7 +416,7 @@ export class GraphPanel {
         title: resolve_localized_string(node.title, language), kind: resolve_localized_string(node.kind, language),
         color: '', background: ''
       })), edges);
-      try { layoutCache = await getLibraryGraphLayout(root.fsPath, input); }
+      try { layoutCache = await getLibraryGraphLayout(cacheRootForWorkspace(root), input); }
       catch { /* Derived cache failure cannot hide a valid authored graph. */ }
       if (generation !== this.graphGeneration) return;
     }

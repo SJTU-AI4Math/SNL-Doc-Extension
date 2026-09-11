@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { SnooglApp } from '../SnooglApp';
 import { SnlGraphApp } from '../SnlGraphApp';
+import { GraphLayoutMemoryCache } from '../../../src/graphLayoutCacheModel';
 import { BrowserMacroReader } from './BrowserMacroReader';
 import { frozenRelationshipGraph, frozenSearchResults } from './browserDiscovery';
 import { defineUiMessages, useUiMessages } from '../i18n/uiMessages';
@@ -50,6 +51,8 @@ function RoutePopoverBoundary({ visible }: { visible: boolean }): null {
  * are the same components mounted by the Extension panels. */
 export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }): React.ReactElement {
   const t = useUiMessages(MESSAGES);
+  // Frozen-input cache survives graph route remounts, but not snapshot replacement.
+  const graphLayoutMemory = useMemo(() => new GraphLayoutMemoryCache(), [snapshot]);
   const [route, setRoute] = useState(() => decodeReaderRoute(location.hash));
   // Explicit navigation owns a fresh search session; local query edits only replace the URL.
   const [searchSession, setSearchSession] = useState(0);
@@ -174,7 +177,7 @@ export function BrowserReader({ snapshot }: { snapshot: FrozenReaderSnapshot }):
       </HoverPopoverProvider>
     </div>
     {route.kind === 'search' ? <SnooglApp key={searchSession} /> : null}
-    {route.kind === 'graph' ? <SnlGraphApp initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
+    {route.kind === 'graph' ? <SnlGraphApp key={snapshot.renderSnapshotId} layoutMemory={graphLayoutMemory} initialAtomicDependenciesOnly localDetails={details} markdownImageUrlTransform={markdownImageUrlTransform} /> : null}
     {route.kind === 'macro' ? Object.hasOwn(snapshot.macros, route.name)
       ? <BrowserMacroReader key={route.name} snapshot={snapshot} name={route.name} />
       : <main style={READER_STYLE}><p role="alert">{t('unavailable')}</p><Button onClick={() => navigate('#/library')}>{t('home')}</Button></main> : null}

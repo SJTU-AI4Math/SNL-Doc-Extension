@@ -7,6 +7,8 @@ vi.mock('./snlDoc', () => ({ readEntries: async () => mocks.entries }));
 vi.mock('./preferences', () => ({ read_extension_preferences: () => ({ language: mocks.language }) }));
 import { createPointerHostDriver } from './pointerSyncDriver';
 import { readPointerIndex } from './pointerSync/persistence';
+import { cachePath, clearCache, readCacheArtifact } from './derivedCache';
+import { isPointerIndex } from './pointerSync/persistence';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true }); });
 async function fixture() {
@@ -19,6 +21,25 @@ async function fixture() {
   return { root, uri: { fsPath: root } as never, driver: createPointerHostDriver() };
 }
 describe('Pointer host filesystem adapter', () => {
+  it('rebuilds the global v3 cache through the common interface without touching legacy files', async () => {
+    const f = await fixture();
+    const legacy = path.join(f.root, '.SNL_Doc/syncSNL.json');
+    await fs.writeFile(legacy, 'legacy bytes are not authority');
+    mocks.entries.push({ id: 'Other', package: 'OutsideLibrary', pointer: { file: 'other', mode: 'lines', line: 1 } });
+    await fs.writeFile(path.join(f.root, 'other'), 'other source');
+    const index = await f.driver.build(f.uri); await f.driver.publish(f.uri, index);
+    const artifact = await readCacheArtifact(f.root, { id: 'pointer-inverse', version: '1', validate: isPointerIndex });
+    expect(artifact?.value).toEqual(index);
+    expect(await fs.readFile(legacy, 'utf8')).toBe('legacy bytes are not authority');
+    expect(JSON.parse(await fs.readFile(cachePath(f.root, 'pointer-inverse'), 'utf8')).value.version).toBe(3);
+    await clearCache(f.root, 'pointer-inverse');
+    await fs.writeFile(path.join(f.root, 'Example.lean'), 'new\nprefix\nfoo\n');
+    const cold = createPointerHostDriver();
+    const rebuilt = await cold.build(f.uri); await cold.publish(f.uri, rebuilt);
+    expect(await cold.query(f.uri, rebuilt, 'Example.lean', 3, 'new\nprefix\nfoo\n')).toMatchObject({ candidates: [{ entryId: 'A', startLine: 3 }] });
+    expect(await cold.query(f.uri, rebuilt, 'other', 1, 'other source')).toMatchObject({ candidates: [{ entryId: 'Other', package: 'OutsideLibrary' }] });
+    expect(await fs.readFile(legacy, 'utf8')).toBe('legacy bytes are not authority');
+  });
   it('publishes exact columns/priority despite obsolete fields and distinguishes same-line dirty cursor moves', async () => {
     const f=await fixture(), text='alpha beta\n';
     await fs.writeFile(path.join(f.root,'Example.lean'),text);
@@ -85,11 +106,11 @@ describe('Pointer host filesystem adapter', () => {
   it('publishes an actual validated inverse map and keeps dirty text overlays out of disk', async () => {
     const f = await fixture();
     const index = await f.driver.build(f.uri); await f.driver.publish(f.uri, index);
-    const before = await fs.readFile(path.join(f.root, '.SNL_Doc/syncSNL.json'), 'utf8');
+    const before = await fs.readFile(cachePath(f.root, 'pointer-inverse'), 'utf8');
     expect((await readPointerIndex(f.root))?.files['Example.lean'].entries[0].resolution).toMatchObject({ status: 'ok', scope: { startLine: 2 } });
     const found = await f.driver.query(f.uri, index, 'Example.lean', 3, 'prefix\ninserted\nfoo\n');
     expect(found).toMatchObject({ complete: true, candidates: [{ entryId: 'A', title: 'Alpha', startLine: 3 }] });
-    expect(await fs.readFile(path.join(f.root, '.SNL_Doc/syncSNL.json'), 'utf8')).toBe(before);
+    expect(await fs.readFile(cachePath(f.root, 'pointer-inverse'), 'utf8')).toBe(before);
   });
   it('reconciles moved/deleted Pointer metadata instead of retaining stale rows', async () => {
     const f = await fixture(); const index = await f.driver.build(f.uri);

@@ -57,6 +57,19 @@ function fixture() {
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.commands.clear(); mocks.watchers = []; });
 describe('Pointer host command behavior', () => {
+  it('does not rebuild on global or Library cache writes but still reacts to authored metadata', async () => {
+    vi.useFakeTimers(); const f = fixture();
+    try {
+      await mocks.commands.get('snlDoc.revealNearestEntry')!();
+      for (const file of ['.SNL_Doc/.cache/pointer-inverse/result.json', '.SNL_Doc/libraries/lib/.cache/graph-layout/result.json'])
+        for (const changed of mocks.watchers) changed(uri('/ws/' + file));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.driver.build).toHaveBeenCalledTimes(1);
+      for (const changed of mocks.watchers) changed(uri('/ws/.SNL_Doc/entries/entry.json'));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.driver.build).toHaveBeenCalledTimes(2);
+    } finally { f.dispose(); vi.useRealTimers(); }
+  });
   it('opens the existing Entry Infoview command with a current-buffer query and warm metadata cache', async () => {
     const f = fixture();
     try {

@@ -14,6 +14,7 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 async function fixture(text: string, pointer: EntryPointer) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pointer-line-ending-')); roots.push(root);
+  await fs.mkdir(path.join(root, '.SNL_Doc'));
   await fs.writeFile(path.join(root, 'x.lean'), text);
   const entries = [{ id: 'e', pointer }];
   const index = await buildPointerIndex(root, entries);

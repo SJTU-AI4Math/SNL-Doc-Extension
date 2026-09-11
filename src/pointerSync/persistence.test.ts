@@ -10,16 +10,16 @@ it.each([
   '{"version":1,"files":{"../x":{"fingerprint":null,"entries":[]}},"unfiled":[]}',
   '{"version":1,"files":{"x":{"fingerprint":"bad","entries":[]}},"unfiled":[]}'
 ])('rejects malformed persisted input %s', async text => {
-  await fs.mkdir(path.join(root, '.SNL_Doc'));
-  await fs.writeFile(path.join(root, '.SNL_Doc', 'syncSNL.json'), text);
+  await fs.mkdir(path.join(root, '.SNL_Doc/.cache/pointer-inverse'), { recursive: true });
+  await fs.writeFile(path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json'), text);
   expect(await readPointerIndex(root)).toBeUndefined();
 });
 
 it('rejects malformed ranges, pointer priorities, unknown diagnostics, and duplicate records', async () => {
   await fs.writeFile(path.join(root, 'x'), 'a\nb');
   const index = await buildPointerIndex(root, [{ id: 'a', pointer: { file: 'x', mode: 'lines', line: 1 } }]);
-  await fs.mkdir(path.join(root, '.SNL_Doc'));
-  const cachePath = path.join(root, '.SNL_Doc', 'syncSNL.json');
+  await fs.mkdir(path.join(root, '.SNL_Doc/.cache/pointer-inverse'), { recursive: true });
+  const cachePath = path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json');
   for (const mutate of [
     (value: any) => { value.files.x.entries[0].resolution.scope.startColumn = 0; },
     (value: any) => { value.files.x.entries[0].resolution.scope.endLine = -1; },
@@ -62,10 +62,10 @@ it('roundtrips unresolved pointers and arbitrary own file keys without prototype
   expect(loaded!.files.__proto__.entries[0].entryId).toBe('__proto__');
 });
 let root: string;
-beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-persist-')); });
+beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), 'snl-persist-')); await fs.mkdir(path.join(root, '.SNL_Doc')); });
 afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
-it('atomically writes deterministic syncSNL.json and validates its roundtrip', async () => {
+it('atomically writes deterministic pointer-inverse cache and validates its roundtrip', async () => {
   await fs.writeFile(path.join(root, 'x'), 'alpha\nβ');
   const entries = [
     { id: 'b', pointer: { file: 'x', mode: 'regex', pattern: 'β', afterLines: 0 } },
@@ -75,19 +75,19 @@ it('atomically writes deterministic syncSNL.json and validates its roundtrip', a
   const index = await buildPointerIndex(root, entries);
   await writePointerIndex(root, index);
   expect(await readPointerIndex(root)).toEqual(index);
-  const target = path.join(root, '.SNL_Doc', 'syncSNL.json');
+  const target = path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json');
   const bytes = await fs.readFile(target, 'utf8');
   await writePointerIndex(root, await buildPointerIndex(root, [...entries].reverse(), index));
   expect(await fs.readFile(target, 'utf8')).toBe(bytes);
-  expect(await fs.readdir(path.dirname(target))).toEqual(['syncSNL.json']);
+  expect(await fs.readdir(path.dirname(target))).toEqual(['result.json']);
 });
 
 it('refuses a symlink cache path without overwriting the symlink target', async () => {
-  await fs.mkdir(path.join(root, '.SNL_Doc'));
+  await fs.mkdir(path.join(root, '.SNL_Doc/.cache/pointer-inverse'), { recursive: true });
   const outside = path.join(root, 'outside');
   await fs.writeFile(outside, 'untouched');
-  await fs.symlink(outside, path.join(root, '.SNL_Doc', 'syncSNL.json'));
+  await fs.symlink(outside, path.join(root, '.SNL_Doc', '.cache/pointer-inverse/result.json'));
   expect(await readPointerIndex(root)).toBeUndefined();
-  await expect(writePointerIndex(root, await buildPointerIndex(root, []))).rejects.toThrow(/symlink/i);
+  await expect(writePointerIndex(root, await buildPointerIndex(root, []))).rejects.toThrow(/Unsafe/i);
   expect(await fs.readFile(outside, 'utf8')).toBe('untouched');
 });

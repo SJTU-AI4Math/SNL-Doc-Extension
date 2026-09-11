@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache.ssi",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "全局 Entry SSI 缓存",
+    "content": {
+      "markdown": "复用既有 SNL structural-index/SSI 算法及分类规则，不另创简化公式。输入为全局Entry内容/可访问Entry身份/上下文声明索引，以及全局激活Macro的来源信息；仅输出所需Entry不代表可用局部Package内容替代全局输入。\n\n结果按Entry身份组织，保留既有无内容、解析失败等不可用状态；未知/失败不是0。存于全局ssi Cache，不修改Entry schema。已有SSI展示消费共享结果，避免不同面板各自解析全局上下文或形成不同指标。编辑中的未保存草稿允许基于当前编辑快照计算内存预览，不将草稿结果冒作已保存全局缓存。\n\n新鲜性绑定语义输入及算法版本；原样重建与热读取的数值/不可用分类一致。只读HTML使用冻结的适用分析上下文或明确不可用，不将局部闭包误标全局。\n\n验收既有SSI算法测试、跨Package上下文、Macro来源变化、Entry删除/空内容/解析错误、缓存清空/损坏/热命中和消费端显示。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

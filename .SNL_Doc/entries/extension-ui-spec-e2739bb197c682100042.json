@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache.pointer",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "完全全局 Pointer 逆映射缓存",
+    "content": {
+      "markdown": "源数据为完整工作区 Entry.pointer 及其指向源文件内容。按文件与UTF-16行列位置反查Entry，不限当前Library/Package。保留精确范围、Priority→较小实际span→稳定身份、正则隔离/超时、零宽/EOF与源码授权规则。\n\n持久化目标迁至 `.SNL_Doc/.cache/pointer-inverse/`，不再写根部 syncSNL.json。旧 syncSNL.json 不作新权威、不在普通维护中改写或删除；新缓存缺失则从源重建。当前 Pointer index 内容版本与新缓存 envelope/路径版本分开；不得只靠旧缓存合法形状判断新鲜性。\n\ndirty buffer 结果只在内存覆盖，不能污染持久化磁盘源码索引；源文件或Pointer元数据改动须失效/重建。维护入口与导航继续接入同一驱动；清空缓存后导航可恢复。\n\n验收真实正反定位、脏缓冲隔离、完整全局范围、磁盘路径/忽略规则、冷启动与坏缓存恢复、取消和旧结果处理。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

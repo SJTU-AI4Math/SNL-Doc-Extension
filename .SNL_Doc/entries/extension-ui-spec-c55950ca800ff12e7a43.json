@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache",
+    "kind": "concept",
+    "package": "extension-ui-spec",
+    "title": "Authoring 与派生缓存：内部 Generator 规范",
+    "content": {
+      "markdown": "## 目标与范围\n\n本条及其子条为 0.2.0-cache 分支的规范性目标，先于实现。Authoring 是创作权威；自动可重建数据归本地 Cache，不进入 Authoring Entry schema，不由用户手工维护缓存文件。\n\n仅实现五类：全局 Entry PageRank、完全全局 Pointer 逆映射、全局 Entry SSI、全局自动 Dependency Relationship，以及单 Library 图谱布局。Package/成员索引合同保持不变，SNoogL 不新增专用缓存。Generator 先作为内置计算接口，暂不接受用户 TypeScript/脚本，也不引入沙箱框架。\n\n## 作用域与存储\n\n工作区全局结果位于 `.SNL_Doc/.cache/<generator>/`；Library 结果位于 `.SNL_Doc/libraries/<slug>/.cache/<generator>/`。管理接口共用，但每项拥有独立输出命名空间和重建生命周期。根 `.gitignore` 的 `.cache/` 规则覆盖两种位置。Workspace/Library Authoring 读取、版本检查、文件枚举、导出源快照不把缓存当成创作记录。\n\n全局表示输入语义覆盖当前工作区，不以当前 Package、Library 或 UI filter 缩窄；可增量实现，不强制每次全量重算。布局位置虽然就近存储，其失效仍包含相关全局 Entry/Relationship 与布局参数。\n\n## 权威边界\n\n缓存缺失/过期/损坏是可重建状态，不是创作数据损坏。清理及普通重建不得修改 Authoring 字节。人工关系、显式布局预设、Pointer 定位规则、未保存草稿、迁移备份和回滚记录都不是可任意删除的缓存。历史混存的自动关系允许兼容读取但不再被新生成结果写回；显式清理历史数据必须走独立、revision-checked 的 Authoring 操作，不在普通 rebuild 中偷偷执行。\n\n本轮不改变当前 workspace/package/Entry payload schema 版本；0.2.0-cache 是功能分支名而非自动的数据版本升级。缓存有独立格式与算法版本。HTML 只读宿主允许从冻结输入生成临时内存结果，不写原工作区，不把局部导出闭包冒称全工作区指标。\n\n## 验收\n\n以五类真实计算和消费链路、冷/热/清空/损坏/失效重建、并发与取消、Authoring 字节不变、Library作用域隔离为准，不以空注册器或只有测试假数据的计算器视作完成。真实 Extension Host 与浏览器消费端分别验证，保留共享 Reader 和现有 Pointer/导出授权合同。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

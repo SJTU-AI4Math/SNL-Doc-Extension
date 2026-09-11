@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache.pagerank",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "全局 Entry PageRank 缓存",
+    "content": {
+      "markdown": "输入顶点为完整工作区的全部 Entry（包括孤立点），边为合成关系视图中去重后的 depends 有向边。方向使用者→被依赖者；排除未知端点和自环，不加入 Library branch 边、不使用当前UI筛选或仅原子图、不做重复Macro witness加权。人工与自动的同一逻辑边只计一次。\n\n默认采用均匀 teleport、均匀 dangling redistribution，damping=0.85，L1 tolerance=1e-10，最多500次迭代。输出携带算法版本、图输入指纹、参数、迭代/收敛状态、按稳定 Entry 身份组织的有限非负分数。空图返回空结果；未收敛不得冒称已收敛的最终结果。排序及计算顺序稳定。标题/布局变化不使相同依赖拓扑失效；节点/依赖变化使全局结果失效。\n\n分数属于图版本，不写回 Entry schema。提供内部全局查询并接入 Entry 阅读的指标显示；无结果不是0，错误/加载局部表达。只读HTML若未携带全局分析快照，不用局部导出闭包伪造全局分数。\n\n验收独立小图基准、孤立/无出边/循环/重复边/跨Library数据、非法参数、未收敛；缓存命中与输入变化；实际Entry显示同一全局结果。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "format": "snl-entry",
+  "version": 1,
+  "schema_version": 1,
+  "package": "extension-ui-spec",
+  "entry": {
+    "id": "spec.cache.dependencies",
+    "package": "extension-ui-spec",
+    "kind": "concept",
+    "title": "全局 Dependency Relationship 派生缓存",
+    "content": {
+      "markdown": "输入为完整工作区 Entry 的 SNL 及激活 Macro 的 source.entries；保留既有引用解析语义：from Entry 使用 to Entry 所定义 Macro，方向为 from 依赖 to。生成器标签 macro-source-scan 的 depends 为可重建自动数据。人工 depends、uses_context 和其他标签按真实来源保留，不按 label 一刀切删除。\n\nAuthoring relationships.json 保留人工及其他非本生成器负责的记录；普通自动生成只写 dependencies Cache，不写 Authoring。兼容已存在的旧自动 depends：读时用当前可重建结果替代该受管子集，旧实体文件本身不由重建静默清理。编辑器与图谱必须把自动行标明派生来源，不允许把旧缓存记录当作可任意编辑的 Authoring 行；人工关系 CRUD 保持原 CAS 与校验。\n\n消费端读取人工+当前自动关系的合成视图；导出绑定同一输入快照。Witness 去重与排序确定；缺失/自身来源仍遵既有忽略规则；自动关系身份不与保留记录冲突。isAtomic 是依赖图分析结果，按同标签替代路径规则计算，输入变化时考虑对其他边的影响，不沿用局部旧标记。\n\n验收：Macro source/Entry引用改动、删除/新增、清空/损坏缓存后重建；人工边及不相关 metadata 逐字保留；自动生成不改变任何 Authoring 字节；编辑器与图读取可见新结果。"
+    },
+    "contribution_info": null,
+    "pointer": null
+  }
+}

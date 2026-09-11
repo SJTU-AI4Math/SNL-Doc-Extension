@@ -6,6 +6,14 @@ export interface GlobalPageRankView {
   iterations: number;
 }
 
+export function isGlobalPageRankView(value: unknown): value is GlobalPageRankView {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Partial<GlobalPageRankView>;
+  return v.scope === 'workspace' && typeof v.converged === 'boolean' && Number.isInteger(v.iterations) &&
+    v.iterations! >= 0 && !!v.scores && typeof v.scores === 'object' && !Array.isArray(v.scores) &&
+    Object.values(v.scores).every(score => typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1);
+}
+
 /** Export only requested identities while retaining the global calculation's meaning. */
 export function projectPageRank(result: GlobalPageRankView, ids: Iterable<string>): GlobalPageRankView {
   return { scope: 'workspace', converged: result.converged, iterations: result.iterations,

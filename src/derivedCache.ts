@@ -18,7 +18,8 @@ export interface CacheRequest<T> extends CacheDescriptor<T> {
 export type CacheStatus = 'missing' | 'generating' | 'ready' | 'failed';
 const MAX_BYTES = 64 * 1024 * 1024;
 const epochs = new Map<string, number>();
-const pending = new Map<string, Promise<unknown>>();
+interface CacheJob<T> { promise: Promise<T>; epoch: number; subscribers: number; settled: boolean }
+const pending = new Map<string, CacheJob<unknown>>();
 const publications = new Map<string, Promise<unknown>>();
 const statuses = new Map<string, CacheStatus>();
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -149,6 +150,12 @@ async function publish<T>(root: string, descriptor: CacheDescriptor<T>, value: T
       await guard(root, descriptor.id, descriptor.scope, false);
       if (epochs.get(file) !== epoch) throw abortError();
       await fs.rename(temporary, file);
+      if (epochs.get(file) !== epoch) {
+        // Publication and clear are serialized: no newer local publisher can
+        // have written this file before this operation releases the queue.
+        await fs.unlink(file).catch(error => { if (error.code !== 'ENOENT') throw error; });
+        throw abortError();
+      }
       statuses.set(file, 'ready');
     } finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
   });
@@ -160,25 +167,39 @@ export async function writeCache<T>(root: string, descriptor: CacheDescriptor<T>
   await publish(root, descriptor, value, epoch);
 }
 
-function subscribe<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(abortError());
+function subscribe<T>(job: CacheJob<T>, file: string, key: string, signal?: AbortSignal): Promise<T> {
+  ++job.subscribers;
   return new Promise((resolve, reject) => {
-    const abort = () => { signal.removeEventListener('abort', abort); reject(abortError()); };
-    signal.addEventListener('abort', abort, { once: true });
-    promise.then(value => { signal.removeEventListener('abort', abort); resolve(value); }, error => { signal.removeEventListener('abort', abort); reject(error); });
+    let finished = false;
+    const release = (cancelled: boolean): boolean => {
+      if (finished) return false;
+      finished = true; signal?.removeEventListener('abort', abort); --job.subscribers;
+      if (cancelled && job.subscribers === 0 && !job.settled) {
+        if (pending.get(key) === job) pending.delete(key);
+        if (epochs.get(file) === job.epoch) {
+          epochs.set(file, job.epoch + 1); statuses.set(file, 'missing');
+        }
+      }
+      return true;
+    };
+    const abort = () => { if (release(true)) reject(abortError()); };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    job.promise.then(value => { if (release(false)) resolve(value); }, error => { if (release(false)) reject(error); });
   });
 }
 export function getOrGenerateCache<T>(root: string, request: CacheRequest<T>): Promise<T> {
   if (request.signal?.aborted) return Promise.reject(abortError());
+  request = { ...request, scope: request.scope ? { ...request.scope } : undefined };
   const file = cachePath(root, request.id, request.scope);
   const inputHash = cacheFingerprint(request.input);
   const key = `${file}\0${request.version}\0${inputHash}`;
   const existing = pending.get(key);
-  if (existing) return subscribe(existing as Promise<T>, request.signal);
+  if (existing && existing.epoch === epochs.get(file)) return subscribe(existing as CacheJob<T>, file, key, request.signal);
   const epoch = (epochs.get(file) ?? 0) + 1; epochs.set(file, epoch);
   const job = Promise.resolve().then(async () => {
     const cached = await readCache(root, request);
+    if (cacheFingerprint(request.input) !== inputHash) throw new Error('Cache input changed during lookup');
     if (epochs.get(file) !== epoch) throw abortError();
     if (cached !== undefined) { statuses.set(file, 'ready'); return cached; }
     statuses.set(file, 'generating');
@@ -190,17 +211,18 @@ export function getOrGenerateCache<T>(root: string, request: CacheRequest<T>): P
       // Disk persistence is optional. Validation, identity, missing-Library and
       // cancellation failures are not storage degradation and must still reject.
       const code = (error as NodeJS.ErrnoException).code;
-      if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE'].includes(code ?? '')) throw error;
+      if (!['EACCES', 'EPERM', 'EROFS', 'ENOSPC', 'EDQUOT', 'EMFILE', 'EIO'].includes(code ?? '')) throw error;
       if (epochs.get(file) !== epoch) throw abortError();
       statuses.set(file, 'failed');
     }
     // Return detached JSON, identical to a subsequent disk read.
     return JSON.parse(JSON.stringify(result)) as T;
   });
-  pending.set(key, job);
+  const active: CacheJob<T> = { promise: job, epoch, subscribers: 0, settled: false };
+  pending.set(key, active);
   void job.catch(() => { if (epochs.get(file) === epoch) statuses.set(file, 'failed'); });
-  void job.finally(() => { if (pending.get(key) === job) pending.delete(key); }).catch(() => undefined);
-  return subscribe(job, request.signal);
+  void job.finally(() => { active.settled = true; if (pending.get(key) === active) pending.delete(key); }).catch(() => undefined);
+  return subscribe(active, file, key, request.signal);
 }
 
 export function cacheStatus(root: string, id: string, scope?: CacheScope): CacheStatus {

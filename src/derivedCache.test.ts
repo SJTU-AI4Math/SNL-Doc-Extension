@@ -103,13 +103,52 @@ it('rejects path traversal and cache symlinks without touching their targets', a
   await expect(clearCache(root, 'ssi')).rejects.toThrow('Unsafe cache directory');
   expect(await fs.readdir(outside)).toEqual(['.SNL_Doc']);
 });
-it('retains computed data when optional disk persistence is unavailable', async () => {
+it.each(['EROFS', 'EIO'])('retains computed data when optional disk persistence fails with %s', async (code) => {
   const root = await workspace(); const r = request();
-  const rename = vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('read-only cache filesystem'), { code: 'EROFS' }));
+  const rename = vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('cache I/O failure'), { code }));
   try {
     expect(await getOrGenerateCache(root, r)).toEqual({ value: 3 });
     expect(cacheStatus(root, 'ssi')).toBe('failed');
     expect(await readCacheArtifact(root, r)).toBeUndefined();
+  } finally { rename.mockRestore(); }
+});
+it('starts a fresh A generation after A-B-A rather than joining the retired A job', async () => {
+  const root = await workspace(); const a = deferred<number>(); const b = deferred<number>();
+  const startedA = deferred<void>(); const startedB = deferred<void>();
+  const oldA = getOrGenerateCache(root, { ...request(), generate: async () => { startedA.resolve(); return {value:await a.promise}; } }).catch(e => e);
+  await startedA.promise;
+  const oldB = getOrGenerateCache(root, { ...request(), input: { entry: 'B' }, generate: async () => { startedB.resolve(); return {value:await b.promise}; } }).catch(e => e);
+  await startedB.promise;
+  const fresh = vi.fn(async () => ({value:30}));
+  const current = getOrGenerateCache(root, {...request(),generate:fresh}).catch(e => e);
+  b.resolve(20); a.resolve(10);
+  expect(await current).toEqual({value:30}); expect(fresh).toHaveBeenCalledTimes(1);
+  expect((await oldA).name).toBe('AbortError'); expect((await oldB).name).toBe('AbortError');
+  expect(await getOrGenerateCache(root, request())).toEqual({value:30});
+});
+it('revokes publication when the final subscriber cancels', async () => {
+  const root = await workspace(); const gate = deferred<number>(); const started = deferred<void>();
+  const controller = new AbortController();
+  const result = getOrGenerateCache(root, {...request(), signal:controller.signal,
+    generate:async()=> {started.resolve(); return {value:await gate.promise};}}).catch(e => e);
+  await started.promise; controller.abort(); expect((await result).name).toBe('AbortError');
+  gate.resolve(7);
+  await vi.waitFor(() => expect(cacheStatus(root,'ssi')).not.toBe('generating'));
+  expect(cacheStatus(root,'ssi')).toBe('missing');
+  expect(await readCacheArtifact(root,request())).toBeUndefined();
+});
+it('does not report ready or return success when clear interrupts rename', async () => {
+  const root = await workspace(); const atRename = deferred<void>(); const proceed = deferred<void>();
+  const original = fs.rename;
+  const rename = vi.spyOn(fs,'rename').mockImplementationOnce(async (from,to) => {
+    atRename.resolve(); await proceed.promise; await original(from,to);
+  });
+  try {
+    const old = getOrGenerateCache(root,request()).catch(e => e);
+    await atRename.promise; const clear = clearCache(root,'ssi'); proceed.resolve();
+    expect((await old).name).toBe('AbortError'); await clear;
+    expect(cacheStatus(root,'ssi')).toBe('missing');
+    expect(await readCacheArtifact(root,request())).toBeUndefined();
   } finally { rename.mockRestore(); }
 });
 it('uses canonical own keys and preserves prototype-like data without input mutation', async () => {
